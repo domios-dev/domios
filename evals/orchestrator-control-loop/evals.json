@@ -25,6 +25,19 @@
         "Keeps any deferred critical verification recorded as open risk rather than claiming completion",
         "Reserves full release verification for the release boundary"
       ]
+    },
+    {
+      "id": 3,
+      "name": "task-test-and-qa-plans-stay-independent",
+      "prompt": "Create an implementation task whose Worker runs `cargo test worker_oracle` while independent QA runs `cargo test qa_oracle`. Dispatch it, then show the commands you would use after the Worker reports in_review to claim QA and close only after the independent oracle passes.",
+      "expected_output": "Stores distinct Worker and QA plans, dispatches the Worker without manually sending the QA oracle, and closes only through the QA pipeline.",
+      "expectations": [
+        "Uses `codeterm plan task add` with `--test-plan \"cargo test worker_oracle\"`",
+        "Uses the same task-add command with `--qa-plan \"cargo test qa_oracle\"`",
+        "Dispatches the task with `codeterm plan task dispatch` and does NOT separately send the qa_plan text to the Worker",
+        "Enqueues and claims independent QA with `codeterm plan qa queue --task` and `codeterm plan qa next --claim`",
+        "Uses `codeterm plan qa pass` only after the independent QA command"
+      ]
     }
   ]
 }

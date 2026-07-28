@@ -37,6 +37,7 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     model_rationale: Option<String>,
     acceptance_criteria: Vec<String>,
     test_plan: Option<String>,
+    qa_plan: Option<String>,
     correctness: Option<String>,
     body: String,
     role_guidance: Option<String>,
@@ -83,6 +84,7 @@ impl PlanStore {
             model_rationale: task.model_rationale.clone(),
             acceptance_criteria: task.acceptance_criteria.clone(),
             test_plan: task.test_plan.clone(),
+            qa_plan: task.qa_plan.clone(),
             correctness: task.correctness.clone(),
             body: task.body.clone(),
             role_guidance: task.role_guidance.clone(),
@@ -222,6 +224,9 @@ impl PlanStore {
         }
         if task.test_plan != expected.test_plan {
             return Err(fail("test_plan"));
+        }
+        if task.qa_plan != expected.qa_plan {
+            return Err(fail("qa_plan"));
         }
         if task.correctness != expected.correctness {
             return Err(fail("correctness"));

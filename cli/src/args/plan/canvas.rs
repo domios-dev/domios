@@ -71,6 +71,12 @@ pub enum PlanQaAction {
         task_id: String,
         #[arg(long, allow_hyphen_values = true)]
         note: String,
+        /// This attempt changed executable implementation surfaces
+        #[arg(long)]
+        changed_executable_surfaces: bool,
+        /// This attempt used a materially distinct verification oracle
+        #[arg(long)]
+        distinct_oracle: bool,
     },
     /// Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
     Override {

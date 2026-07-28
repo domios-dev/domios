@@ -134,6 +134,7 @@ fn task_quality_fields_persist_and_reload() {
                     "cargo test service::plan::core_tests::task_quality_fields_persist_and_reload"
                         .into(),
                 ),
+                qa_plan: Some("cargo test independent_acceptance_oracle".into()),
                 correctness: Some("quality fields round-trip unchanged".into()),
                 competition: None,
                 ..Default::default()
@@ -159,9 +160,63 @@ fn task_quality_fields_persist_and_reload() {
         Some("cargo test service::plan::core_tests::task_quality_fields_persist_and_reload")
     );
     assert_eq!(
+        task.qa_plan.as_deref(),
+        Some("cargo test independent_acceptance_oracle")
+    );
+    assert_eq!(
         task.correctness.as_deref(),
         Some("quality fields round-trip unchanged")
     );
+}
+
+#[test]
+fn task_qa_plan_updates_and_clears_independently() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "QA plan".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("abc"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "independent verification".into(),
+                kind: "implement".into(),
+                test_plan: Some("cargo test worker_oracle".into()),
+                competition: None,
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    store
+        .update_task_quality(
+            &plan.id,
+            &task_id,
+            None,
+            None,
+            Some(Some("cargo test qa_oracle")),
+            None,
+            3,
+        )
+        .unwrap();
+    assert_eq!(
+        store.get(&plan.id).unwrap().tasks[0].qa_plan.as_deref(),
+        Some("cargo test qa_oracle")
+    );
+    assert_eq!(
+        store.get(&plan.id).unwrap().tasks[0].test_plan.as_deref(),
+        Some("cargo test worker_oracle")
+    );
+
+    store
+        .update_task_quality(&plan.id, &task_id, None, None, Some(None), None, 4)
+        .unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().tasks[0].qa_plan, None);
 }
 
 #[test]

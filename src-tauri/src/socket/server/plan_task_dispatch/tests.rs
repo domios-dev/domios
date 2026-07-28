@@ -1047,6 +1047,7 @@ fn brief_lists_section_links_and_test_plan() {
         "type": "code",
         "status": "pending",
         "test_plan": "cargo test dispatch",
+        "qa_plan": "cargo test independent acceptance",
     }));
     let sections = vec![TaskSection {
         id: "sec_9".into(),
@@ -1055,6 +1056,8 @@ fn brief_lists_section_links_and_test_plan() {
     let brief = build_brief(&t, &sections);
     assert!(brief.contains("## Test plan"));
     assert!(brief.contains("cargo test dispatch"));
+    assert!(!brief.contains("independent acceptance"));
+    assert!(!brief.contains("qa_plan"));
     assert!(brief.contains("## Sections"));
     assert!(brief.contains("Phase 1 (sec_9)"));
 }

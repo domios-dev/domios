@@ -432,6 +432,7 @@ impl PlanStore {
         task_id: &str,
         acceptance_criteria: Option<Vec<String>>,
         test_plan: Option<Option<&str>>,
+        qa_plan: Option<Option<&str>>,
         correctness: Option<Option<&str>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
@@ -446,6 +447,9 @@ impl PlanStore {
             }
             if let Some(plan) = test_plan {
                 task.test_plan = plan.map(str::to_string);
+            }
+            if let Some(plan) = qa_plan {
+                task.qa_plan = plan.map(str::to_string);
             }
             if let Some(vector) = correctness {
                 task.correctness = vector.map(str::to_string);

@@ -55,6 +55,10 @@ pub enum TaskAction {
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
+        qa_plan: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        qa_plan_file: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
         correctness: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         body: Option<String>,

@@ -553,6 +553,7 @@ mod tests {
             model_rationale: None,
             acceptance_criteria: vec![],
             test_plan: None,
+            qa_plan: None,
             correctness: None,
             review_stage: Default::default(),
             qa_state: None,

@@ -29,7 +29,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
-| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
+| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
@@ -91,6 +91,13 @@ registry. When spawning a worker, include the relevant guidance inline: for exam
 Reusable operational knowledge belongs in embedded docs (`codeterm docs ...`) or
 folder skills when runnable files are required. Machine-local preferences such as
 builder capacity belong in mem preferences.
+
+## Task verification lifecycle
+
+Task `test_plan` is the implementer's focused evidence and is included in the Worker
+brief. Task `qa_plan` is the independent Orchestrator/QA oracle, is not included in that
+brief, and falls back to `test_plan` only when omitted. This keeps implementation and
+acceptance evidence distinct without requiring every task to repeat the same command.
 
 ## Loading flow
 
@@ -163,4 +170,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

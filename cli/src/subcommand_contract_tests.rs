@@ -182,6 +182,25 @@ fn task_show_parses_siblings_flags() {
 }
 
 #[test]
+fn standalone_task_add_parses_qa_plan_file() {
+    let parsed = TaskOnly::try_parse_from([
+        "task",
+        "add",
+        "--name",
+        "QA lifecycle",
+        "--qa-plan-file",
+        "qa-plan.md",
+    ])
+    .expect("task add --qa-plan-file parses");
+    match parsed.action {
+        TaskAction::Add { qa_plan_file, .. } => {
+            assert_eq!(qa_plan_file.as_deref(), Some("qa-plan.md"))
+        }
+        _ => panic!("expected task add"),
+    }
+}
+
+#[test]
 fn top_level_docs_parse() {
     let parsed = DocsOnly::try_parse_from(["codeterm", "docs"]).expect("docs parses");
     assert!(matches!(parsed, DocsOnly::Docs));

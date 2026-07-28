@@ -457,6 +457,7 @@ pub struct NewTask {
     pub personality_provenance: Option<crate::plan::IdentityProvenance>,
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
+    pub qa_plan: Option<String>,
     pub correctness: Option<String>,
     pub body: String,
     pub role_guidance: Option<String>,

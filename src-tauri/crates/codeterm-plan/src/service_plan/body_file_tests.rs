@@ -22,12 +22,6 @@ fn markdown_body(text: &str) -> &str {
     rest[end + "\n---".len()..].trim_start_matches('\n')
 }
 
-fn assert_markdown_identity(text: &str, plan_id: &str, kind: &str, id: &str) {
-    assert!(text.contains(&format!("plan_id: {plan_id}")));
-    assert!(text.contains(&format!("kind: {kind}")));
-    assert!(text.contains(&format!("id: {id}")));
-}
-
 #[test]
 #[ignore = "legacy body-file format, superseded by store_v2 yaml"]
 fn section_and_task_bodies_roundtrip_through_markdown_files() {
@@ -177,6 +171,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         model_rationale: None,
         acceptance_criteria: vec![],
         test_plan: None,
+        qa_plan: None,
         correctness: None,
         status: TaskStatus::Pending,
         review_stage: Default::default(),
@@ -639,6 +634,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         model_rationale: None,
         acceptance_criteria: vec![],
         test_plan: None,
+        qa_plan: None,
         correctness: None,
         status: crate::plan::TaskStatus::Pending,
         review_stage: Default::default(),
@@ -747,6 +743,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         model_rationale: None,
         acceptance_criteria: vec![],
         test_plan: None,
+        qa_plan: None,
         correctness: None,
         status: crate::plan::TaskStatus::Pending,
         review_stage: Default::default(),

@@ -20,6 +20,7 @@ fn build_params(
     sections: Option<String>,
     criterion: Vec<String>,
     test_plan: Option<String>,
+    qa_plan_text: Option<String>,
     correctness: Option<String>,
     parent: Option<String>,
     depends_on: Vec<String>,
@@ -84,6 +85,9 @@ fn build_params(
     }
     if let Some(t) = test_plan {
         params["test_plan"] = json!(t);
+    }
+    if let Some(plan) = qa_plan_text {
+        params["qa_plan"] = json!(plan);
     }
     if let Some(c) = correctness {
         params["correctness"] = json!(c);
@@ -151,6 +155,8 @@ pub(crate) fn run(
     sections: Option<String>,
     criterion: Vec<String>,
     test_plan: Option<String>,
+    qa_plan: Option<String>,
+    qa_plan_file: Option<String>,
     correctness: Option<String>,
     parent: Option<String>,
     depends_on: Vec<String>,
@@ -174,6 +180,7 @@ pub(crate) fn run(
     let body_text = resolve_text(body, body_file)?;
     let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
+    let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
     let params = build_params(
         plan_id,
         task_id,
@@ -191,6 +198,7 @@ pub(crate) fn run(
         sections,
         criterion,
         test_plan,
+        qa_plan_text,
         correctness,
         parent,
         depends_on,
@@ -239,6 +247,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             false,
             None,
@@ -277,6 +286,7 @@ mod tests {
             None,
             None,
             vec![],
+            None,
             None,
             None,
             None,
@@ -324,6 +334,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["task_a".into()],
             true,
             None,
@@ -365,6 +376,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             false,
             Some("worker-tab".into()),
@@ -384,5 +396,51 @@ mod tests {
         );
         assert_eq!(params.get("status"), Some(&json!("in_progress")));
         assert_eq!(params.pointer("/lane/tab_id"), Some(&json!("worker-tab")));
+    }
+
+    #[test]
+    fn qa_plan_is_independent_from_worker_test_plan() {
+        let params = build_params(
+            Some("pl_1".into()),
+            "task_1".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            Some("cargo test worker_oracle".into()),
+            Some("cargo test qa_oracle".into()),
+            None,
+            None,
+            vec![],
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        );
+        assert_eq!(
+            params.get("test_plan"),
+            Some(&json!("cargo test worker_oracle"))
+        );
+        assert_eq!(params.get("qa_plan"), Some(&json!("cargo test qa_oracle")));
     }
 }

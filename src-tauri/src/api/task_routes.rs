@@ -211,6 +211,7 @@ pub struct AddTaskBody {
     #[serde(default)]
     acceptance_criteria: Vec<String>,
     test_plan: Option<String>,
+    qa_plan: Option<String>,
     correctness: Option<String>,
     body: Option<String>,
     intent: Option<String>,
@@ -251,6 +252,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 model_rationale: body.why,
                 acceptance_criteria: body.acceptance_criteria,
                 test_plan: body.test_plan,
+                qa_plan: body.qa_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
                 competition: None,

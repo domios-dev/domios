@@ -20,6 +20,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
                 name: "first".into(),
                 acceptance_criteria: vec!["it works".into()],
                 test_plan: Some("run focused first test".into()),
+                qa_plan: Some("run independent first QA".into()),
                 competition: None,
                 ..Default::default()
             },
@@ -91,7 +92,10 @@ fn enqueue_claim_and_pass_write_qa_milestones() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(claimed.test_plan.as_deref(), Some("run focused first test"));
+    assert_eq!(
+        claimed.test_plan.as_deref(),
+        Some("run independent first QA")
+    );
 
     let task = store.show_task(&first).unwrap().task;
     assert_eq!(task.review_stage, ReviewStage::Qa);
@@ -166,6 +170,10 @@ fn only_one_running_qa_task_is_claimed_by_default() {
     assert_eq!(queue.running.len(), 1);
     assert_eq!(queue.queued.len(), 1);
     assert_eq!(queue.queued[0].position, Some(1));
+    assert_eq!(
+        queue.queued[0].test_plan.as_deref(),
+        Some("run focused second test")
+    );
 }
 
 #[test]
@@ -185,7 +193,15 @@ fn verdict_requires_running_qa() {
         )
         .unwrap_err();
     let fail_err = store
-        .fail_qa(&plan_id, &first, "failed", AgentRef::from_tab("tester"), 12)
+        .fail_qa(
+            &plan_id,
+            &first,
+            "failed",
+            false,
+            false,
+            AgentRef::from_tab("tester"),
+            12,
+        )
         .unwrap_err();
 
     assert!(matches!(pass_err, PlanError::QaNotRunning));
@@ -224,6 +240,8 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
             &plan_id,
             &first,
             "missing regression coverage",
+            true,
+            true,
             AgentRef::from_tab("tester"),
             12,
         )
@@ -233,8 +251,77 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
     assert_eq!(task.review_stage, ReviewStage::Review);
     assert_eq!(task.qa_state, None);
     assert_eq!(result.nudged_tab_id.as_deref(), Some("impl-tab"));
+    assert_eq!(
+        task.review_evidence.last().map(|evidence| {
+            (
+                evidence.changed_executable_surfaces,
+                evidence.distinct_oracle,
+            )
+        }),
+        Some((true, true))
+    );
     assert!(task
         .milestones
         .iter()
         .any(|m| m.kind == QA_MILESTONE_KIND && m.text.contains("fail: missing")));
+}
+
+#[test]
+fn fail_warns_after_three_stagnant_bounces_and_threads_reset_flags() {
+    let (_dir, store, plan_id, first, _second) = setup();
+    store
+        .with_plan(&plan_id, 9, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == first).unwrap();
+            for at in [7, 8] {
+                task.review_evidence.push(ReviewEvidence {
+                    id: format!("rev_{at}"),
+                    from: AgentRef::from_tab("reviewer"),
+                    verdict: ReviewVerdict::Bounce,
+                    note: "same result".into(),
+                    at,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                task.review_round += 1;
+            }
+            Ok(())
+        })
+        .unwrap();
+    store
+        .enqueue_qa(&plan_id, &first, "ready", AgentRef::from_tab("orch"), 10)
+        .unwrap();
+    store
+        .claim_next_qa(
+            &plan_id,
+            "claim",
+            AgentRef::from_tab("tester"),
+            Some("tester"),
+            11,
+        )
+        .unwrap();
+
+    let result = store
+        .fail_qa(
+            &plan_id,
+            &first,
+            "same strategy failed again",
+            false,
+            false,
+            AgentRef::from_tab("tester"),
+            12,
+        )
+        .unwrap();
+    let warning = result.strategy_warning.unwrap();
+    assert_eq!(warning.consecutive_bounces, 3);
+    assert_eq!(warning.review_round, 3);
+
+    let task = store.show_task(&first).unwrap().task;
+    assert!(
+        !task
+            .review_evidence
+            .last()
+            .unwrap()
+            .changed_executable_surfaces
+    );
+    assert!(!task.review_evidence.last().unwrap().distinct_oracle);
 }

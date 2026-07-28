@@ -165,6 +165,8 @@ pub(super) fn run_task(
             why_file,
             criterion,
             test_plan,
+            qa_plan,
+            qa_plan_file,
             correctness,
             body,
             body_file,
@@ -197,6 +199,7 @@ pub(super) fn run_task(
             let body_text = resolve_text(body, body_file)?;
             let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
+            let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let has_sections = sections
                 .as_deref()
                 .map(|s| s.split(',').any(|item| !item.trim().is_empty()))
@@ -228,6 +231,9 @@ pub(super) fn run_task(
             }
             if let Some(test_plan) = test_plan {
                 params["test_plan"] = json!(test_plan);
+            }
+            if let Some(qa_plan) = qa_plan_text {
+                params["qa_plan"] = json!(qa_plan);
             }
             if let Some(correctness) = correctness {
                 params["correctness"] = json!(correctness);
@@ -343,6 +349,8 @@ pub(super) fn run_task(
             sections,
             criterion,
             test_plan,
+            qa_plan,
+            qa_plan_file,
             correctness,
             parent,
             depends_on,
@@ -385,6 +393,8 @@ pub(super) fn run_task(
                 sections,
                 criterion,
                 test_plan,
+                qa_plan,
+                qa_plan_file,
                 correctness,
                 parent,
                 depends_on,

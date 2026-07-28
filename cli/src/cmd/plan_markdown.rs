@@ -175,6 +175,11 @@ fn render_task_quality(task: &Value, depth: usize, out: &mut String) {
             out.push_str(&format!("{indent}- test plan: {test_plan}\n"));
         }
     }
+    if let Some(qa_plan) = task.get("qa_plan").and_then(|v| v.as_str()) {
+        if !qa_plan.is_empty() {
+            out.push_str(&format!("{indent}- QA plan: {qa_plan}\n"));
+        }
+    }
     if let Some(correctness) = task.get("correctness").and_then(|v| v.as_str()) {
         if !correctness.is_empty() {
             out.push_str(&format!("{indent}- correctness: {correctness}\n"));

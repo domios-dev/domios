@@ -171,6 +171,10 @@ pub(super) fn dispatch(
                 .get("test_plan")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            let qa_plan = body
+                .get("qa_plan")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let correctness = body
                 .get("correctness")
@@ -198,6 +202,7 @@ pub(super) fn dispatch(
                             .map(str::to_string),
                         acceptance_criteria,
                         test_plan,
+                        qa_plan,
                         correctness,
                         body: body
                             .get("body")
@@ -273,6 +278,10 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("test_plan"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            let qa_plan = p
+                .and_then(|x| x.get("qa_plan"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let correctness = p
                 .and_then(|x| x.get("correctness"))
@@ -310,6 +319,7 @@ pub(super) fn dispatch(
                             })?,
                         acceptance_criteria,
                         test_plan,
+                        qa_plan,
                         correctness,
                         body: p
                             .and_then(|x| x.get("body"))
@@ -415,6 +425,7 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("acceptance_criteria"))
                 .map(|_| string_array_field(p, "acceptance_criteria"));
             let test_plan = optional_string_field(p, "test_plan");
+            let qa_plan = optional_string_field(p, "qa_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
             if let Some(depends_on) = dependency_vec_field(p)? {
@@ -456,13 +467,18 @@ pub(super) fn dispatch(
                     .update_task_competition(&id, &tid, competition, now)
                     .map_err(plan_rpc_err)?;
             }
-            if acceptance_criteria.is_some() || test_plan.is_some() || correctness.is_some() {
+            if acceptance_criteria.is_some()
+                || test_plan.is_some()
+                || qa_plan.is_some()
+                || correctness.is_some()
+            {
                 store
                     .update_task_quality(
                         &id,
                         &tid,
                         acceptance_criteria,
                         test_plan,
+                        qa_plan,
                         correctness,
                         now,
                     )

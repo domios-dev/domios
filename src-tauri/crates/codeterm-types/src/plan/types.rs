@@ -545,6 +545,8 @@ pub struct Task {
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
+    #[serde(default)]
+    pub qa_plan: Option<String>,
     pub correctness: Option<String>,
     pub status: TaskStatus,
     #[serde(default)]
@@ -1093,6 +1095,7 @@ mod tests {
             personality_provenance: None,
             acceptance_criteria: vec!["ac".into()],
             test_plan: Some("Oracle: run x".into()),
+            qa_plan: None,
             correctness: None,
             status: TaskStatus::InReview,
             review_stage: ReviewStage::Review,
