@@ -11,7 +11,7 @@
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
-#   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
+#   ./build.sh cli       — build CLI and install to the active dev data directory
 #                          without waiting for the app/dev build gateway
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
@@ -394,10 +394,8 @@ require_release_source() {
   fi
 }
 
-# Copy the freshly-built CLI into a target bin dir. Both prod (~/.codeterm/bin)
-# and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
-# resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
-# stale CLI that's missing recent subcommands.
+# Copy the freshly-built CLI into a target bin dir. Development commands install
+# only into their active dev data directory; production owns ~/.codeterm/bin.
 cli_release_dir() {
   local target_root="${CARGO_TARGET_DIR:-cli/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
@@ -1009,8 +1007,7 @@ case "$CMD" in
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     write_cli_docs
-    install_cli_to "$HOME/.codeterm/bin"
-    install_cli_to "$HOME/.codeterm-dev/bin"
+    install_cli_to "$CT_DATA_DIR/bin"
     ;;
   clean)
     enter_build_gateway "$CMD ${*:2}"
@@ -1033,15 +1030,14 @@ case "$CMD" in
     ct_configure_sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
-    if [ -z "$CT_INSTANCE" ]; then
-      if ! install_cli_to "$HOME/.codeterm/bin"; then
-        echo "WARNING: shared CLI is in use; continuing with the isolated dev CLI install." >&2
-      fi
-    else
-      echo "Skipping prod CLI install for named dev instance ($CT_INSTANCE)"
-    fi
-    # Named instance gets its own data-dir bin; canonical dev keeps ~/.codeterm-dev/bin.
+    # Every dev instance gets its own CLI; production updates its bundled CLI.
     install_cli_to "$CT_DATA_DIR/bin"
+    export PATH="$CT_DATA_DIR/bin:$PATH"
+    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+      export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm"
+    else
+      export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
+    fi
     ensure_real_embed_bundle
     echo "Starting dev..."
     # Mark the daemon as dev: bundle hashes are bypassed (live edits
