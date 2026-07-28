@@ -14,6 +14,7 @@ fn plan_skill_state_dir(plan: &Plan) -> Option<PathBuf> {
         return None;
     }
     Some(super::paths::plan_state_dir_unchecked(
+        super::paths::plan_sidecar_root(plan),
         &plan.status,
         &plan.id,
     ))

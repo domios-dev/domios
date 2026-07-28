@@ -40,7 +40,11 @@ impl BodyKind {
 }
 
 pub fn plan_body_dir(plan: &Plan) -> std::io::Result<PathBuf> {
-    super::paths::plan_state_dir(&plan.status, &plan.id)
+    super::paths::plan_state_dir(
+        super::paths::plan_sidecar_root(plan),
+        &plan.status,
+        &plan.id,
+    )
 }
 
 pub fn section_path(plan: &Plan, section_id: &str) -> std::io::Result<PathBuf> {
