@@ -14,7 +14,8 @@
 #        `dc` re-exports the dev env-vars in its own subshell so a
 #        leaked CODETERM_API_PORT=7685 from the parent tab (which
 #        is what happens when a Claude session lives inside prod
-#        codeterm) cannot route the call to prod.
+#        codeterm) cannot route the call to prod. It also executes
+#        the active dev CLI by absolute path, never through PATH.
 #     3. The HTTP helpers (dev_get, dev_post) are hardcoded to
 #        http://127.0.0.1:7686 — no env-var indirection.
 #
@@ -40,9 +41,20 @@ is_linux()   { case "$OSTYPE" in linux*) return 0;; *) return 1;; esac; }
 
 # --- Dev daemon connection -------------------------------------------
 
-# Read API token from ~/.codeterm-dev/config.toml
+dev_data_dir() {
+  local instance="${CODETERM_INSTANCE:-}" slug
+  if [ -z "$instance" ]; then
+    echo "$HOME/.codeterm-dev"
+    return
+  fi
+  slug="$(printf '%s' "$instance" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
+  echo "$HOME/.codeterm-dev-$slug"
+}
+
+# Read the API token from the active dev instance.
 dev_token() {
-  local cfg="$HOME/.codeterm-dev/config.toml"
+  local cfg
+  cfg="$(dev_data_dir)/config.toml"
   [ -f "$cfg" ] || { echo "ERROR: $cfg not found — is dev installed?" >&2; return 1; }
   grep -E '^token = ' "$cfg" | head -1 | sed 's/.*"\(.*\)"/\1/'
 }
@@ -57,8 +69,8 @@ dev_socket_path() {
   fi
 }
 
-# Export the four env vars the codeterm CLI needs to target dev.
-# After this, plain `codeterm ...` hits port 7686 with the right auth.
+# Export the four env vars dc needs to target dev.
+# CLI selection remains dc's responsibility and never resolves through PATH.
 dev_env() {
   export CODETERM_API_PORT=7686
   export CODETERM_API_TOKEN="$(dev_token)" || return 1
@@ -100,6 +112,13 @@ dev_post_as_tab() {
 # 2026-05-07. Fail loud with non-zero exit instead of silently
 # dispatching to the wrong daemon.
 dc() {
+  local cli
+  cli="$(dev_data_dir)/bin/codeterm"
+  if [ ! -x "$cli" ]; then
+    echo "ERROR [dc]: active dev CLI is missing or not executable: $cli" >&2
+    echo "            Build it with: ./build.sh cli" >&2
+    return 7
+  fi
   if ! curl -s --max-time 1 http://127.0.0.1:7686/api/health > /dev/null 2>&1; then
     echo "ERROR [dc]: dev daemon not on port 7686. Start it: ./build.sh dev" >&2
     echo "             (would have leaked to prod via socket-discovery fallback)" >&2
@@ -111,7 +130,7 @@ dc() {
   CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
   CODETERM_TAB_ID= \
   CODETERM_PARENT_TAB_ID= \
-  codeterm "$@"
+  "$cli" "$@"
 }
 
 # --- Lifecycle -------------------------------------------------------
