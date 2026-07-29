@@ -11,7 +11,7 @@ For assertion discipline and layer-specific recipes, see `docs/contributing/writ
 | Layer | Lives in | Runner | Real LLM? | Needs dev daemon? | CI | Budget/test |
 |---|---|---|---|---|---|---|
 | Rust unit | `src-tauri/src/**/tests.rs` | `scripts/test-capped.sh … --lib` | no | no | yes (D7) | <1s |
-| TS unit | `src/**/*.test.ts`, `packages/**` | vitest (`pnpm test:unit`) | no | no | yes (D7) | <1s |
+| TS unit | `src/**/*.test.ts`, `packages/**` | tsx scripts (`npm run test:unit`) | no | no | yes (D7) | <1s |
 | Plugin | `plugins/*/tests/` | `pnpm test:plugins` | no | no | yes (exists) | <5s |
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
@@ -52,7 +52,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
 
 1. `rust-unit` — capped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
-2. `ts-unit` — `pnpm test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
+2. `ts-unit` — `npm run test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
 
@@ -92,7 +92,7 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --l
 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
 # TypeScript: every src/** + packages/** unit test (tsx scripts)
-pnpm test:unit
+npm run test:unit
 # …or one file while iterating:
 npx tsx src/lib/colors.test.ts
 
@@ -453,4 +453,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

@@ -17,8 +17,13 @@ export function resolveBash({ platform = process.platform, env = process.env, ex
   return candidates.find(exists);
 }
 
-export function runTsUnitTests({ spawnProcess = spawn, ...options } = {}) {
-  const bash = resolveBash(options);
+export function runTsUnitTests({
+  spawnProcess = spawn,
+  signalSource = process,
+  env = process.env,
+  ...options
+} = {}) {
+  const bash = resolveBash({ ...options, env });
   if (!bash) {
     console.error("TS unit tests require Git Bash on Windows. Install Git for Windows or set CODETERM_BASH to bash.exe.");
     return Promise.resolve(1);
@@ -27,11 +32,26 @@ export function runTsUnitTests({ spawnProcess = spawn, ...options } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess(bash, ["scripts/ts-unit-tests.sh"], {
       cwd: root,
-      env: process.env,
+      env,
       stdio: "inherit",
     });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    const forwardTerm = () => child.kill("SIGTERM");
+    const forwardInterrupt = () => child.kill("SIGINT");
+    const removeSignalHandlers = () => {
+      signalSource.removeListener("SIGTERM", forwardTerm);
+      signalSource.removeListener("SIGINT", forwardInterrupt);
+    };
+
+    signalSource.once("SIGTERM", forwardTerm);
+    signalSource.once("SIGINT", forwardInterrupt);
+    child.once("error", (error) => {
+      removeSignalHandlers();
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      removeSignalHandlers();
+      resolve(code ?? (signal ? 1 : 0));
+    });
   });
 }
 
