@@ -38,7 +38,13 @@ import { reattachTabChat } from "./chatReattach";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
-import { observeChatSendStatus } from "./chatSendStatus";
+import {
+  getChatDeliveries,
+  observeChatSendStatus,
+  retryChatDelivery,
+  type ChatDelivery,
+} from "./chatSendStatus";
+import { ChatDeliveryState, chatMessageAccessibleName } from "./ChatDeliveryState";
 import { waitingQuestionTracker } from "./waitingQuestionTracker";
 
 interface Props {
@@ -134,6 +140,9 @@ export function TabSessionChat({
   const currentPtyId = tab?.pty_id ?? null;
   const backendState = tab?.agent_state ?? null;
   const [waitingGeneration, setWaitingGeneration] = useState<number | null>(null);
+  const [chatDeliveries, setChatDeliveries] = useState<ChatDelivery[]>(() => getChatDeliveries(tabId));
+  const [retryingDeliveryIds, setRetryingDeliveryIds] = useState<Set<string>>(new Set());
+  const retryingDeliveryIdsRef = useRef<Set<string>>(new Set());
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
@@ -445,11 +454,59 @@ export function TabSessionChat({
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
 
-  useEffect(
-    () => observeChatSendStatus(tabId, (message) => {
-      console.warn(`[chat-send] ${message}`);
-    }),
-    [tabId],
+  useEffect(() => {
+    setChatDeliveries(getChatDeliveries(tabId));
+    return observeChatSendStatus(tabId, (delivery) => {
+      setChatDeliveries((previous) => {
+        const next = previous.filter((candidate) => candidate.message_id !== delivery.message_id);
+        next.push(delivery);
+        return next.sort((left, right) => left.status.sequence - right.status.sequence);
+      });
+    });
+  }, [tabId]);
+
+  const retryDelivery = useCallback((delivery: ChatDelivery) => {
+    if (retryingDeliveryIdsRef.current.has(delivery.message_id)) return;
+    retryingDeliveryIdsRef.current.add(delivery.message_id);
+    setRetryingDeliveryIds((previous) => new Set(previous).add(delivery.message_id));
+    void retryChatDelivery(delivery)
+      .catch((failure) => {
+        showComposerError(failure instanceof Error ? failure.message : String(failure));
+      })
+      .finally(() => {
+        retryingDeliveryIdsRef.current.delete(delivery.message_id);
+        setRetryingDeliveryIds((previous) => {
+          const next = new Set(previous);
+          next.delete(delivery.message_id);
+          return next;
+        });
+      });
+  }, [showComposerError]);
+
+  const deliveryByMessageId = useMemo(
+    () => new Map(chatDeliveries.map((delivery) => [delivery.message_id, delivery])),
+    [chatDeliveries],
+  );
+  const renderedMessageIds = useMemo(
+    () => new Set(renderedEnrichedMessages.map(({ msg }) => msg.id)),
+    [renderedEnrichedMessages],
+  );
+  const renderedUserMessages = useMemo(
+    () => new Set(
+      renderedEnrichedMessages
+        .filter(({ msg }) => msg.type === "user" || msg.type === "local_command")
+        .map(({ msg }) => msg.content),
+    ),
+    [renderedEnrichedMessages],
+  );
+  const detachedDeliveries = chatDeliveries.filter(
+    (delivery) => (
+      !renderedMessageIds.has(delivery.message_id)
+      && (
+        delivery.status.state !== "sent"
+        || !renderedUserMessages.has(delivery.message)
+      )
+    ),
   );
 
   useEffect(() => {
@@ -622,6 +679,7 @@ export function TabSessionChat({
         )}
         {renderedEnrichedMessages.map(({ msg, item, origin }) => {
           const originProps = originPropsById.get(msg.id);
+          const delivery = deliveryByMessageId.get(msg.id);
           return (
             <div
               key={msg.id}
@@ -629,7 +687,7 @@ export function TabSessionChat({
               data-message-role={msg.type}
               data-message-id={msg.id}
               role="article"
-              aria-label={`${msg.type} message`}
+              aria-label={chatMessageAccessibleName(msg.type, msg.content)}
             >
               <MessageBubble
                 message={msg}
@@ -648,9 +706,33 @@ export function TabSessionChat({
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
               />
+              {delivery && (
+                <ChatDeliveryState
+                  delivery={delivery}
+                  onRetry={retryDelivery}
+                  retrying={retryingDeliveryIds.has(delivery.message_id)}
+                />
+              )}
             </div>
           );
         })}
+        {detachedDeliveries.map((delivery) => (
+          <div
+            key={delivery.message_id}
+            role="article"
+            aria-label={chatMessageAccessibleName("user", delivery.message)}
+            className="w-full max-w-4xl min-w-0 mx-auto py-2"
+          >
+            <div className="rounded-md px-3 py-2" style={{ background: "var(--ct-surface)" }}>
+              {delivery.message}
+            </div>
+            <ChatDeliveryState
+              delivery={delivery}
+              onRetry={retryDelivery}
+              retrying={retryingDeliveryIds.has(delivery.message_id)}
+            />
+          </div>
+        ))}
         <ChatSetupState
           tab={tab}
           view={bootSetupView}

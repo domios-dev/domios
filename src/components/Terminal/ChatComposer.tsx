@@ -23,6 +23,7 @@ import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/typ
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
+import { sendTrackedChatMessage } from "./chatSendStatus";
 
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // several seconds) then morphs this bubble into the transcript, or an error.
@@ -574,11 +575,13 @@ function ChatComposerImpl({
       refocusComposer();
       return;
     }
+    let optimisticId: string;
     if (placeholderId) {
       updateOptimistic(placeholderId, composed);
+      optimisticId = placeholderId;
     } else {
       onWillSendMessage();
-      addOptimistic(composed);
+      optimisticId = addOptimistic(composed);
     }
     setInput("");
     clearAttachments();
@@ -586,7 +589,7 @@ function ChatComposerImpl({
     try {
       if (chatBackend) {
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        await invoke("chat_send_text", { tabId, text: composed });
+        await sendTrackedChatMessage(tabId, optimisticId, composed);
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
@@ -595,7 +598,7 @@ function ChatComposerImpl({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await invoke("chat_send_text", { tabId, text: composed });
+          await sendTrackedChatMessage(tabId, optimisticId, composed);
         }
       }
     } catch (e) {

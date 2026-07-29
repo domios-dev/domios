@@ -232,7 +232,7 @@ After `./build.sh build`:
 
 ```bash
 ./build.sh test                                            # Rust unit tests (~307)
-npx tsx src/components/ChatView/parser.test.ts             # TS parser tests
+npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment tests
 ./build.sh e2e                                             # E2E (needs running dev instance)
 ```
 
@@ -360,4 +360,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
