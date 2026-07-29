@@ -6406,6 +6406,22 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "changed-executable-surfaces",
+                  "positional": false,
+                  "value_name": "CHANGED_EXECUTABLE_SURFACES",
+                  "default": null,
+                  "help": "This attempt changed executable implementation surfaces",
+                  "aliases": []
+                },
+                {
+                  "name": "distinct-oracle",
+                  "positional": false,
+                  "value_name": "DISTINCT_ORACLE",
+                  "default": null,
+                  "help": "This attempt used a materially distinct verification oracle",
+                  "aliases": []
+                },
+                {
                   "name": "note",
                   "positional": false,
                   "value_name": "NOTE",
@@ -7726,6 +7742,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "qa-plan",
+                  "positional": false,
+                  "value_name": "QA_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "qa-plan-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "role-guidance",
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
@@ -7778,7 +7810,7 @@
                   "positional": false,
                   "value_name": "WHY",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -7786,7 +7818,7 @@
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -8101,6 +8133,14 @@
               "about": "List a plan's tasks, optionally filtered by status",
               "aliases": [],
               "args": [
+                {
+                  "name": "all",
+                  "positional": false,
+                  "value_name": "ALL",
+                  "default": null,
+                  "help": "Include paused, done, and cancelled tasks",
+                  "aliases": []
+                },
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -8542,6 +8582,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "qa-plan",
+                  "positional": false,
+                  "value_name": "QA_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "qa-plan-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "role-guidance",
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
@@ -8626,7 +8682,7 @@
                   "positional": false,
                   "value_name": "WHY",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -8634,7 +8690,7 @@
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -10672,6 +10728,22 @@
               "name": "name",
               "positional": false,
               "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "qa-plan",
+              "positional": false,
+              "value_name": "QA_PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "qa-plan-file",
+              "positional": false,
+              "value_name": "PATH",
               "default": null,
               "help": null,
               "aliases": []
