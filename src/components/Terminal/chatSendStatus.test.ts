@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
@@ -43,6 +44,22 @@ function failedErrors(deliveries: ChatDelivery[]): Array<string | null> {
     .map((delivery) => delivery.status.error);
 }
 
+test("reattach snapshots never widen beyond the tab-owned session", () => {
+  const source = readFileSync(
+    new URL("../../../src-tauri/src/commands/tab.rs", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf("pub fn chat_start_core");
+  const end = source.indexOf("pub async fn session_transcript", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.doesNotMatch(
+    source.slice(start, end),
+    /detect_active_session/,
+    "chat_start must read the tab-owned session without detecting a replacement",
+  );
+});
+
 test("a failed send is reconciled and remains attributable after remount", async () => {
   resetChatSendStatusForTest();
   const status = sendStatus("send-1", 1);
@@ -67,6 +84,28 @@ test("a failed send is reconciled and remains attributable after remount", async
     })),
     [{ message: "persisted message", state: "failed" }],
   );
+});
+
+test("sent messages stay ordered exactly once across idle and working remounts", async () => {
+  for (const activityState of ["idle", "working"]) {
+    resetChatSendStatusForTest();
+    const tabId = `tab-${activityState}`;
+    const first = { ...sendStatus(`send-${activityState}-1`, 1, "sent"), tab_id: tabId };
+    const second = { ...sendStatus(`send-${activityState}-2`, 2, "sent"), tab_id: tabId };
+    trackChatSend(first, { message_id: `${activityState}-1`, message: "first" });
+    trackChatSend(second, { message_id: `${activityState}-2`, message: "second" });
+    __setInvokeForTest(async <T>() => [first, second] as T);
+    __setListenForTest(async () => () => {});
+
+    for (let mount = 0; mount < 2; mount += 1) {
+      const visible: string[] = [];
+      const cleanup = observeChatSendStatus(tabId, (delivery) => visible.push(delivery.message));
+      await Promise.resolve();
+      await Promise.resolve();
+      cleanup();
+      assert.deepEqual(visible, ["first", "second"], `${activityState} mount ${mount}`);
+    }
+  }
 });
 
 test("normal send enters the ledger and binds its optimistic message", async () => {
