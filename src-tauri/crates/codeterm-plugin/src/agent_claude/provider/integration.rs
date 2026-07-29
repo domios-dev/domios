@@ -11,9 +11,9 @@
 use crate::prompts::CODETERM_RULE;
 use serde_json::Value as Json;
 
-// v2 hook marker: use `Authorization: Bearer $CODETERM_API_TOKEN` + auth_middleware.
-// Older markers are replaced during install/upgrade.
-const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
+// v3 resolves the callback from the launched Tab's environment, so prod and
+// isolated dev instances can safely share Claude's global settings file.
+const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v3";
 
 fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -74,6 +74,9 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
                     .and_then(|command| command.as_str())
                     .map(|command| {
                         command.contains("CODETERM_TAB_ID")
+                            && command.contains("CODETERM_API_URL")
+                            && command.contains("CODETERM_API_TOKEN")
+                            && !command.contains("CODETERM_API_PORT")
                             && !command.contains("CODETERM_PANE_ID")
                             && !command.contains("/api/panes/")
                     })
@@ -97,7 +100,10 @@ fn is_current_session_start_hook(hook_entry: &Json) -> bool {
                     .and_then(|command| command.as_str())
                     .map(|command| {
                         command.contains("CODETERM_TAB_ID")
+                            && command.contains("CODETERM_API_URL")
+                            && command.contains("CODETERM_API_TOKEN")
                             && command.contains("CODETERM_SESSION_BINDING_NONCE")
+                            && !command.contains("CODETERM_API_PORT")
                             && !command.contains("CODETERM_PANE_ID")
                             && !command.contains("/api/panes/")
                     })
@@ -171,10 +177,18 @@ pub fn check_integration() -> Json {
     })
 }
 
-pub fn install_integration(api_port: u16) -> Result<(), String> {
-    let path = claude_settings_path()?;
-    let port = api_port;
+fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> String {
+    let payload = if stdin {
+        "--data-binary @-".to_string()
+    } else {
+        format!("-d '{body}'")
+    };
+    format!(
+        "if [ -n \"${{CODETERM_API_URL:-}}\" ] && [ -n \"${{CODETERM_API_TOKEN:-}}\" ] && [ -n \"${{CODETERM_TAB_ID:-}}\" ]; then curl -s -o /dev/null -X POST \"$CODETERM_API_URL{path}\" -H 'Content-Type: application/json' -H \"Authorization: Bearer $CODETERM_API_TOKEN\" {extra_headers} {payload} || true; fi"
+    )
+}
 
+fn install_integration_at(path: &std::path::Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -187,21 +201,25 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
         serde_json::json!({})
     };
 
-    // not "NUL" — bash `> NUL` would create a real reserved-name file in the cwd.
-    let null_dev = "/dev/null";
-    let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
     let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
-    let notify_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/tabs/$CODETERM_TAB_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
+    let notify_cmd = hook_command(
+        "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+        "{}",
+        "",
+        false,
     );
-    let stop_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/tabs/$CODETERM_TAB_ID/hook/stop -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
+    let stop_cmd = hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false);
+    let precompact_cmd = hook_command(
+        "/api/mem/flush",
+        "{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}",
+        "",
+        false,
     );
-    let precompact_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
-    );
-    let session_start_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} {nonce_h} --data-binary @- > {null_dev} 2>&1 || true"
+    let session_start_cmd = hook_command(
+        "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+        "",
+        nonce_h,
+        true,
     );
 
     if json.get("hooks").is_none() {
@@ -285,6 +303,10 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
     std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
     log::info!("[agent-claude] hooks installed at {:?}", path);
     Ok(())
+}
+
+pub fn install_integration(_api_port: u16) -> Result<(), String> {
+    install_integration_at(&claude_settings_path()?)
 }
 
 pub fn uninstall_integration() -> Result<(), String> {
@@ -416,7 +438,7 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\"",
                 "_source": CODETERM_HOOK_MARKER
             }]
         });
@@ -441,12 +463,31 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"",
+                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\" -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"",
                 "_source": CODETERM_HOOK_MARKER
             }]
         });
 
         assert!(!is_current_session_start_hook(&stale));
         assert!(is_current_session_start_hook(&current));
+    }
+
+    #[test]
+    fn integration_is_instance_neutral_and_rejects_missing_runtime_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path).unwrap();
+        let first = std::fs::read_to_string(&path).unwrap();
+        install_integration_at(&path).unwrap();
+        let second = std::fs::read_to_string(&path).unwrap();
+
+        assert_eq!(first, second);
+        assert!(first.contains("CODETERM_API_URL"));
+        assert!(first.contains("CODETERM_API_TOKEN"));
+        assert!(first.contains("CODETERM_TAB_ID"));
+        assert!(first.contains("if [ -n"));
+        assert!(!first.contains("CODETERM_API_PORT"));
+        assert!(!first.contains("localhost:768"));
+        assert!(!first.contains("> NUL"));
     }
 }

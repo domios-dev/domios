@@ -1362,7 +1362,7 @@ var plugin = {
     return { ok: false, error: "removeFile failed for " + expanded };
   },
   // Manage Claude settings hooks for Notification, Stop, PreCompact, SessionStart.
-  // Hooks use `_source: "codeterm-hook-v2"` and manifest paths for stable lifecycle.
+  // Hooks use a versioned source marker and runtime callback identity.
   checkIntegration() {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
@@ -1389,7 +1389,7 @@ var plugin = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
-          if (hook && hook._source === CODETERM_HOOK_MARKER && typeof hook.command === "string" && hook.command.indexOf("CODETERM_TAB_ID") !== -1 && hook.command.indexOf("CODETERM_PANE_ID") === -1 && hook.command.indexOf("/api/panes/") === -1) return true;
+          if (hook && hook._source === CODETERM_HOOK_MARKER && typeof hook.command === "string" && hook.command.indexOf("CODETERM_TAB_ID") !== -1 && hook.command.indexOf("CODETERM_API_URL") !== -1 && hook.command.indexOf("CODETERM_API_TOKEN") !== -1 && hook.command.indexOf("CODETERM_API_PORT") === -1 && hook.command.indexOf("CODETERM_PANE_ID") === -1 && hook.command.indexOf("/api/panes/") === -1) return true;
         }
       }
       return false;
@@ -1402,7 +1402,7 @@ var plugin = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
-          if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string" && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && h.command.indexOf("CODETERM_TAB_ID") !== -1 && h.command.indexOf("CODETERM_PANE_ID") === -1 && h.command.indexOf("/api/panes/") === -1) return true;
+          if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string" && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && h.command.indexOf("CODETERM_TAB_ID") !== -1 && h.command.indexOf("CODETERM_API_URL") !== -1 && h.command.indexOf("CODETERM_API_TOKEN") !== -1 && h.command.indexOf("CODETERM_API_PORT") === -1 && h.command.indexOf("CODETERM_PANE_ID") === -1 && h.command.indexOf("/api/panes/") === -1) return true;
         }
       }
       return false;
@@ -1420,21 +1420,20 @@ var plugin = {
       session_start_hook: ss
     };
   },
-  installIntegration(apiPort) {
+  installIntegration(_apiPort) {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
     const json = host.fileExists(path) ? host.fs.readJson(path) || {} : {};
     if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
-    const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
-    const port = apiPort | 0;
-    const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
-    const notifyCmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/permission -H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
-    const stopCmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/stop -H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
-    const precompactCmd = "curl -s -X POST http://localhost:" + portExpr + "/api/mem/flush -H 'Content-Type: application/json' " + authH + ` -d '{"tab":"'"$CODETERM_TAB_ID"'","title":"pre-compact"}' > ` + nullDev + " 2>&1 || true";
-    const sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @- > " + nullDev + " 2>&1 || true";
+    const finish = " || true; fi";
+    const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
+    const stopCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
+    const precompactCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" -H 'Content-Type: application/json' ` + authH + ` -d '{"tab":"'"$CODETERM_TAB_ID"'","title":"pre-compact"}'` + finish;
+    const sessionStartCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
     function newEntry(matcher, cmd, timeout) {
       return {
         matcher,
@@ -1551,7 +1550,7 @@ function randomShortHex(len) {
   for (let i = 0; i < len; i++) out += hex.charAt(Math.random() * 16 | 0);
   return out;
 }
-var CODETERM_HOOK_MARKER = "codeterm-hook-v2";
+var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
 function isCodetermHook(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
