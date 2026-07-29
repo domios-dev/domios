@@ -368,7 +368,7 @@ impl ServiceContext {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
         let Some(agent_id) = agent_type else {
-            return self.write_paste_optimistic(pty_id, text, enter);
+            return self.send_text_to_pty(pty_id, text, enter);
         };
         let text = sanitize_agent_prompt_input(text);
         let strategy = self
@@ -393,37 +393,6 @@ impl ServiceContext {
         )
         .map(|_| ())
         .map_err(|error| error.to_string())
-    }
-
-    /// Bracketed paste + optional Enter, written straight to the PTY with no
-    /// verification wait. The agent-type input parser still sees the payload.
-    fn write_paste_optimistic(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.feed_input_parser(pty_id, text, enter);
-        let paste = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~", text)
-        } else {
-            format!("\x1b[200~{}\x1b[201~", text)
-        };
-        if !enter {
-            return self
-                .pty
-                .lock()
-                .write(pty_id, paste.as_bytes())
-                .map_err(|e| e.to_string());
-        }
-        // Enter follows the paste-render event because TUIs can swallow a glued CR.
-        // The bounded deadline still submits optimistically; it never proves readiness.
-        let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
-        let generation = signal.generation();
-        self.pty
-            .lock()
-            .write(pty_id, paste.as_bytes())
-            .map_err(|e| e.to_string())?;
-        signal.wait_after(generation, super::PASTE_RENDER_WINDOW);
-        self.pty
-            .lock()
-            .write(pty_id, b"\r")
-            .map_err(|e| e.to_string())
     }
 
     fn resolve_tab_and_ready_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
@@ -632,10 +601,36 @@ impl ServiceContext {
     pub(crate) fn send_launch_text_optimistic(
         &self,
         pty_id: &str,
+        provider_id: &str,
         text: &str,
         enter: bool,
-    ) -> Result<(), String> {
-        self.write_paste_optimistic(pty_id, text, enter)
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
+        let strategy = self
+            .agent_registry
+            .with_provider(provider_id, |provider| provider.verify_submit_strategy())
+            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+        super::submit_transaction::submit_entry(
+            super::submit_transaction::PtySubmitEntry::Direct,
+            &text,
+            |text| {
+                super::submit_transaction::submit_text(
+                    self,
+                    pty_id,
+                    text,
+                    enter,
+                    strategy,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: true,
+                        verify_submit: enter,
+                        ..Default::default()
+                    },
+                )
+            },
+        )
     }
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
