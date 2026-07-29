@@ -76,6 +76,11 @@ async function main() {
     /\.ct-plan-status-breakdown-segment\s*\{[^}]*display:\s*inline-flex;[^}]*white-space:\s*nowrap;/s,
     "separator and following count cannot wrap apart",
   );
+  assert.match(
+    styles,
+    /\.ct-plan-status-breakdown-label\s*\{[^}]*margin-left:\s*3px;/s,
+    "count and status title have explicit visual spacing",
+  );
 
   console.log("PlanStatusBreakdown tests passed");
 }

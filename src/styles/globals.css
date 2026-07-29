@@ -2501,6 +2501,10 @@ button,
   align-items: center;
 }
 
+.ct-plan-status-breakdown-label {
+  margin-left: 3px;
+}
+
 .sidebar-team-readout {
   margin: 6px 12px 9px 14px;
   justify-content: flex-start;
