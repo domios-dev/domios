@@ -312,17 +312,18 @@ break_build_gateway_log_reader() {
   return 0
 }
 
+run_build_gateway_log_reader() {
+  if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
+    printf 'ERROR: injected build gateway log open failure: %s\n' "$1" >&2
+    return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  exec tee -a "$1"
+}
+
 enter_build_gateway() {
   ct_gateway_acquire "$*"
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
-  if [ -n "${CT_BUILD_GATEWAY_TEST_LOG_PATH:-}" ]; then
-    [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] || {
-      echo "ERROR: CT_BUILD_GATEWAY_TEST_LOG_PATH requires fixture scope" >&2
-      exit 2
-    }
-    gateway_log="$CT_BUILD_GATEWAY_TEST_LOG_PATH"
-  fi
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
@@ -331,10 +332,18 @@ enter_build_gateway() {
   exec 3>&1 4>&2
   trap '' PIPE
   unset CT_BUILD_GATEWAY_LOG_READER_STATUS
-  exec > >(tee -a "$gateway_log" >&3) 2>&1
+  exec > >(run_build_gateway_log_reader "$gateway_log" >&3) 2>&1
   CT_BUILD_GATEWAY_LOG_READER_PID=$!
   CT_BUILD_GATEWAY_LOG_PATH="$gateway_log"
   trap 'build_gateway_logging_on_exit' EXIT
+  if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
+    if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
+      CT_BUILD_GATEWAY_LOG_READER_STATUS=0
+    else
+      CT_BUILD_GATEWAY_LOG_READER_STATUS=$?
+    fi
+    exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
 }
 
 check_build_gateway_logging() {
@@ -959,10 +968,7 @@ case "$CMD" in
     ;;
   gateway-log-probe)
     log_probe_mode="${2:-success}"
-    if [ "$log_probe_mode" = "open-failure" ]; then
-      mkdir -p "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/unopenable"
-      CT_BUILD_GATEWAY_TEST_LOG_PATH="$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/unopenable"
-    fi
+    [ "$log_probe_mode" != "open-failure" ] || CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1
     enter_build_gateway "$CMD $log_probe_mode"
     printf 'MARKER_FIRST\n'
     [ "$log_probe_mode" != "reader-failure" ] || break_build_gateway_log_reader

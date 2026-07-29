@@ -248,7 +248,9 @@ waits for the reader before returning to PowerShell. A broken path reports exit
 `./build.sh gateway-logging-check` to verify final-line delivery and the
 distinct logging-failure path. For diagnosis only,
 `CT_BUILD_GATEWAY_NO_TEE=1` bypasses log duplication; unset it for normal
-builds.
+builds. `CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1` is a test-only fault injector at the
+log-open boundary; it must report the logging failure and exit 74 before cargo
+starts.
 
 ## Release Process
 
@@ -374,4 +376,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->
