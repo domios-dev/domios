@@ -77,35 +77,34 @@ pub struct DelayedSendQueue {
 }
 
 impl DelayedSendQueue {
+    pub(crate) fn empty(path: PathBuf) -> Self {
+        Self {
+            path,
+            inner: Arc::new(Mutex::new(QueueInner::default())),
+        }
+    }
+
     pub fn open(path: PathBuf) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("create {}: {}", parent.display(), e))?;
         }
-        let mut file = if path.exists() {
+        let mut messages = if path.exists() {
             let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path.display(), e))?;
-            serde_json::from_slice::<QueueFile>(&bytes)
-                .map_err(|e| format!("parse {}: {}", path.display(), e))?
+            load_queue_records(&path, &bytes)
         } else {
-            QueueFile {
-                version: QUEUE_VERSION,
-                messages: Vec::new(),
-            }
+            Vec::new()
         };
-        for msg in &mut file.messages {
+        for msg in &mut messages {
             if msg.state == DelayedMessageState::Sending {
                 msg.state = DelayedMessageState::Queued;
             }
         }
-        sort_messages(&mut file.messages);
-        let queue = Self {
+        sort_messages(&mut messages);
+        Ok(Self {
             path,
-            inner: Arc::new(Mutex::new(QueueInner {
-                messages: file.messages,
-            })),
-        };
-        queue.persist()?;
-        Ok(queue)
+            inner: Arc::new(Mutex::new(QueueInner { messages })),
+        })
     }
 
     pub fn list(&self, tab_id: Option<&str>) -> Vec<DelayedMessage> {
@@ -295,6 +294,102 @@ impl DelayedSendQueue {
             },
         )
     }
+}
+
+fn load_queue_records(path: &Path, bytes: &[u8]) -> Vec<DelayedMessage> {
+    let root: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(root) => root,
+        Err(error) => {
+            log::error!(
+                "[delayed_send] quarantined unreadable queue {} during startup: {}; source left unchanged",
+                path.display(),
+                error
+            );
+            return Vec::new();
+        }
+    };
+    let Some(records) = root.get("messages").and_then(serde_json::Value::as_array) else {
+        log::error!(
+            "[delayed_send] queue {} has no messages array; source left unchanged",
+            path.display()
+        );
+        return Vec::new();
+    };
+    records
+        .iter()
+        .enumerate()
+        .filter_map(|(index, record)| parse_queue_record(path, index, record.clone()))
+        .collect()
+}
+
+fn parse_queue_record(
+    path: &Path,
+    index: usize,
+    mut record: serde_json::Value,
+) -> Option<DelayedMessage> {
+    let record_id = record
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>")
+        .to_string();
+    let normalized = match normalize_queue_record(&mut record) {
+        Ok(normalized) => normalized,
+        Err(error) => {
+            log::error!(
+                "[delayed_send] quarantined record {} at index {} in {}: {}; source left unchanged",
+                record_id,
+                index,
+                path.display(),
+                error
+            );
+            return None;
+        }
+    };
+    match serde_json::from_value(record) {
+        Ok(message) => {
+            if normalized > 0 {
+                log::warn!(
+                    "[delayed_send] normalized {} pane-era fields in record {} from {}; source left unchanged",
+                    normalized,
+                    record_id,
+                    path.display()
+                );
+            }
+            Some(message)
+        }
+        Err(error) => {
+            log::error!(
+                "[delayed_send] quarantined record {} at index {} in {}: {}; source left unchanged",
+                record_id,
+                index,
+                path.display(),
+                error
+            );
+            None
+        }
+    }
+}
+
+fn normalize_queue_record(record: &mut serde_json::Value) -> Result<usize, String> {
+    let Some(object) = record.as_object_mut() else {
+        return Err("record is not an object".into());
+    };
+    let mut normalized = 0;
+    for (legacy, current) in [("paneId", "tabId"), ("createdByPane", "createdByTab")] {
+        let Some(legacy_value) = object.get(legacy).cloned() else {
+            continue;
+        };
+        if let Some(current_value) = object.get(current) {
+            if current_value != &legacy_value {
+                return Err(format!("ambiguous fields {legacy} and {current}"));
+            }
+        } else {
+            object.insert(current.into(), legacy_value);
+        }
+        object.remove(legacy);
+        normalized += 1;
+    }
+    Ok(normalized)
 }
 
 pub fn now_ms() -> u64 {
@@ -720,5 +815,44 @@ mod tests {
             reopened.list(Some("tab"))[0].state,
             DelayedMessageState::Queued
         );
+    }
+
+    #[test]
+    fn open_normalizes_pane_era_records_and_isolates_malformed_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delayed_send.json");
+        let fixture = serde_json::json!({
+            "version": 2,
+            "messages": [
+                {
+                    "id": "dmsg-pane-era",
+                    "paneId": "target-tab",
+                    "workspaceId": "workspace",
+                    "text": "resume",
+                    "scheduledAtMs": 200,
+                    "createdAtMs": 100,
+                    "state": "queued",
+                    "error": null,
+                    "sessionIdAtCreate": "session",
+                    "createdByPane": "creator-tab",
+                    "createdByLabel": "Creator",
+                    "createdByModel": "model"
+                },
+                {
+                    "id": "dmsg-malformed",
+                    "paneId": 42,
+                    "text": ["not", "a", "message"]
+                }
+            ]
+        })
+        .to_string();
+        fs::write(&path, &fixture).unwrap();
+
+        let queue = DelayedSendQueue::open(path.clone()).unwrap();
+        let messages = queue.list(None);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].tab_id, "target-tab");
+        assert_eq!(messages[0].created_by_tab.as_deref(), Some("creator-tab"));
+        assert_eq!(fs::read_to_string(path).unwrap(), fixture);
     }
 }
