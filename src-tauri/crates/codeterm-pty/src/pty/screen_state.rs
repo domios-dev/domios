@@ -24,6 +24,15 @@ pub struct ScreenChangeSignal {
     cv: Condvar,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComposerInputState {
+    pub alternate_screen: bool,
+    pub cursor_visible: bool,
+    pub cursor_row: u16,
+    pub rows: u16,
+    pub inverse_caret_row: Option<u16>,
+}
+
 impl ScreenChangeSignal {
     fn new() -> Arc<Self> {
         Arc::new(Self::default())
@@ -271,6 +280,21 @@ impl ScreenState {
             let (rows, _cols) = screen.size();
             let (row, _col) = screen.cursor_position();
             (screen.alternate_screen(), !screen.hide_cursor(), row, rows)
+        })
+    }
+
+    pub fn composer_input_state(&self, pty_id: &str) -> Option<ComposerInputState> {
+        self.parsers.get(pty_id).map(|parser| {
+            let screen = parser.screen();
+            let (rows, _cols) = screen.size();
+            let (cursor_row, _cursor_col) = screen.cursor_position();
+            ComposerInputState {
+                alternate_screen: screen.alternate_screen(),
+                cursor_visible: !screen.hide_cursor(),
+                cursor_row,
+                rows,
+                inverse_caret_row: hidden_inverse_caret_row(screen),
+            }
         })
     }
 
@@ -561,6 +585,29 @@ impl ScreenState {
             }
         }
     }
+}
+
+fn hidden_inverse_caret_row(screen: &vt100::Screen) -> Option<u16> {
+    if !screen.alternate_screen() || !screen.hide_cursor() {
+        return None;
+    }
+    let (rows, cols) = screen.size();
+    let mut caret_row = None;
+    for row in 0..rows {
+        for col in 0..cols {
+            let Some(cell) = screen.cell(row, col) else {
+                continue;
+            };
+            if !cell.inverse() || cell.contents().trim().is_empty() {
+                continue;
+            }
+            if caret_row.is_some() {
+                return None;
+            }
+            caret_row = Some(row);
+        }
+    }
+    caret_row
 }
 
 /// Heuristic: does the screen still show an agent TUI (Claude / Codex / Opencode)?

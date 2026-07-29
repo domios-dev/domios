@@ -1,3 +1,4 @@
+use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed,
     optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
@@ -222,6 +223,26 @@ fn structural_composer_readiness_requires_observation_and_rejects_elapsed_time()
         },
     ));
     assert!(!expired_wait_called.get());
+}
+
+#[test]
+fn hidden_inverse_caret_is_composer_evidence_only_in_the_bottom_region() {
+    use codeterm_pty::pty::screen_state::ComposerInputState;
+
+    let mut input = ComposerInputState {
+        alternate_screen: true,
+        cursor_visible: false,
+        cursor_row: 22,
+        rows: 23,
+        inverse_caret_row: Some(17),
+    };
+    assert!(composer_input_ready(input));
+
+    input.inverse_caret_row = Some(3);
+    assert!(!composer_input_ready(input));
+
+    input.inverse_caret_row = None;
+    assert!(!composer_input_ready(input));
 }
 
 #[test]

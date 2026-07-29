@@ -173,6 +173,54 @@ fn resize_keeps_cursor_geometry_in_sync_with_the_pty() {
 }
 
 #[test]
+fn cursor_hidden_inverse_composer_frame_exposes_structural_caret() {
+    const CAPTURED_FRAME: &str = concat!(
+        "\x1b[?1049h\x1b[2J",
+        "\x1b[11;3HCursor Agent",
+        "\x1b[18;2H\x1b[48;2;21;21;21m",
+        "\x1b[2m→ \x1b[22;7mP\x1b[2;27mlan, search, build anything\x1b[22m",
+        "\x1b[21;3HAuto\x1b[?25l\x1b[23;1H",
+    );
+    let mut ss = ScreenState::new();
+    ss.resize("cursor", 120, 23);
+    ss.process("cursor", CAPTURED_FRAME.as_bytes());
+
+    let input = ss.composer_input_state("cursor").unwrap();
+    assert!(input.alternate_screen);
+    assert!(!input.cursor_visible);
+    assert_eq!(input.rows, 23);
+    assert_eq!(input.inverse_caret_row, Some(17));
+}
+
+#[test]
+fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
+    let mut selection = ScreenState::new();
+    selection.resize("selection", 120, 23);
+    selection.process(
+        "selection",
+        b"\x1b[?1049h\x1b[18;2H\x1b[7mAB\x1b[27m\x1b[?25l",
+    );
+    assert_eq!(
+        selection
+            .composer_input_state("selection")
+            .unwrap()
+            .inverse_caret_row,
+        None
+    );
+
+    let mut visible_cursor = ScreenState::new();
+    visible_cursor.resize("visible", 120, 23);
+    visible_cursor.process("visible", b"\x1b[?1049h\x1b[18;2H\x1b[7mP\x1b[27m\x1b[?25h");
+    assert_eq!(
+        visible_cursor
+            .composer_input_state("visible")
+            .unwrap()
+            .inverse_caret_row,
+        None
+    );
+}
+
+#[test]
 fn test_remove_cleans_up() {
     let mut ss = ScreenState::new();
     ss.process("pty1", b"data");
