@@ -173,27 +173,30 @@ fn resize_keeps_cursor_geometry_in_sync_with_the_pty() {
 }
 
 #[test]
-fn cursor_hidden_inverse_composer_frame_exposes_structural_caret() {
+fn primary_screen_hidden_inverse_composer_frame_exposes_structural_caret() {
     const CAPTURED_FRAME: &str = concat!(
-        "\x1b[?1049h\x1b[2J",
+        "\x1b[2J",
         "\x1b[11;3HCursor Agent",
         "\x1b[18;2H\x1b[48;2;21;21;21m",
         "\x1b[2m→ \x1b[22;7mP\x1b[2;27mlan, search, build anything\x1b[22m",
-        "\x1b[21;3HAuto\x1b[?25l\x1b[23;1H",
+        "\x1b[21;3HAuto",
+        "\x1b[22;3HD:\\Developer\\codeterm · release-1.7.8",
+        "\x1b[?25l\x1b[23;1H",
     );
     let mut ss = ScreenState::new();
-    ss.resize("cursor", 120, 23);
+    ss.resize("cursor", 120, 40);
     ss.process("cursor", CAPTURED_FRAME.as_bytes());
 
     let input = ss.composer_input_state("cursor").unwrap();
-    assert!(input.alternate_screen);
+    assert!(!input.alternate_screen);
     assert!(!input.cursor_visible);
-    assert_eq!(input.rows, 23);
+    assert_eq!(input.cursor_row, 22);
+    assert_eq!(input.rows, 40);
     assert_eq!(input.cols, 120);
     assert_eq!(input.inverse_caret_row, Some(17));
     assert_eq!(input.nonblank_inverse_cells, 1);
     assert_eq!(input.sole_nonblank_inverse_row, Some(17));
-    assert_eq!(input.last_nonblank_row, Some(20));
+    assert_eq!(input.last_nonblank_row, Some(21));
 }
 
 #[test]
