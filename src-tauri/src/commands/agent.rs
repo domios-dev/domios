@@ -147,12 +147,17 @@ pub fn restart_general_agent_tab(
 }
 
 #[tauri::command]
-pub fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
-    svc.agent_restart(
-        &tab_id,
-        false,
-        crate::service::agent_restart::DEFAULT_GRACE_SECS,
-    )
+pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || {
+        svc.agent_restart(
+            &tab_id,
+            false,
+            crate::service::agent_restart::DEFAULT_GRACE_SECS,
+        )
+    })
+    .await
+    .map_err(|error| format!("restart worker failed: {error}"))?
     .map(|_| ())
     .map_err(|error| match error {
         crate::service::agent_restart::AgentRestartError::NotFound(message)

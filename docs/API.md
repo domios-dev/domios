@@ -847,7 +847,7 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart the agent in a tab. Default behaviour is graceful: send the provider-specific exit command, wait up to `grace_secs` for the PTY to return to a shell prompt, then relaunch. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
+Restart the agent in a tab. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -855,20 +855,29 @@ Restart the agent in a tab. Default behaviour is graceful: send the provider-spe
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `force` | `bool` | `false` | Skip the graceful exit and force-kill the PTY. Use only when the agent is hung / unresponsive. |
-| `grace_secs` | `u64` | `10` | Seconds to wait for graceful exit before force-killing. Ignored when `force=true`. |
+| `force` | `bool` | `false` | Skip the graceful exit event wait and tear down the old PTY immediately. Use only when the agent is hung or unresponsive. |
+| `grace_secs` | `u64` | `10` | Failure deadline around the shell-ready event wait before the old PTY is torn down. Ignored when `force=true`. |
 
-**Response** (`202 Accepted`):
+**Ready response** (`202 Accepted`):
 ```json
 {
-  "restarting": true,
+  "restart_accepted": true,
+  "old_pty_torn_down": true,
+  "agent_ready": true,
+  "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e",
+  "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
   "tab_id": "a3f1b2c7",
   "provider": "claude",
   "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "session_was_stale": false,
+  "session_action": "resume",
+  "auto_approve": true,
+  "permission_profile": "yolo",
   "force": false
 }
 ```
+
+The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`. A pre-restart `AgentReady` value attached to the old PTY never satisfies this contract.
 
 `session_was_stale` is `true` when the recorded session id pointed at a JSONL that no longer exists on disk; the restart proceeds without `--resume` and a fresh session is created.
 
@@ -876,7 +885,10 @@ Restart the agent in a tab. Default behaviour is graceful: send the provider-spe
 - `404` — tab id not found
 - `400` — tab has no agent to restart, or unsupported provider
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-tab to avoid restart loops
-- `500` — internal restart failure (PTY spawn error, etc.)
+- `500` — teardown or relaunch failed
+- `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
+
+Failures after acceptance include `error` plus the same transition fields. Every boolean remains false unless that leg was observed, and `new_pty_id` is included only if a replacement PTY was linked. Request rejections (`400`, `404`, and `429`) occur before acceptance and retain their compact error bodies. A failed restart is never returned in the ready `202` shape.
 
 This is the same flow `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]` invokes from the CLI.
 
@@ -1390,4 +1402,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 94 -->
+<!-- revision: 95 -->
