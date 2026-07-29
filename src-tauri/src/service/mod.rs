@@ -349,10 +349,11 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn confirm_pending_delivery(
+    pub(crate) fn reconcile_pending_delivery(
         &self,
         tab_id: &str,
-    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        evidence: Result<bool, delivery_error::DeliveryError>,
+    ) -> Result<(), delivery_error::DeliveryError> {
         use crate::multiplexer::types::PendingDeliveryChannel;
         let digest = self
             .mux
@@ -361,25 +362,59 @@ impl ServiceContext {
             .and_then(|tab| tab.pending_delivery.as_ref())
             .filter(|record| record.channel == PendingDeliveryChannel::InteractiveInput)
             .map(|record| record.content_digest.clone());
-        let Some(digest) = digest else { return Ok(()) };
+        let Some(digest) = digest else {
+            return evidence.and_then(|observed| {
+                if observed {
+                    Ok(())
+                } else {
+                    Err(delivery_error::DeliveryError::SubmitUnconfirmed {
+                        tab: tab_id.to_string(),
+                        detail: "delivery acknowledgement not observed".into(),
+                    })
+                }
+            });
+        };
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
-            pending_delivery_payloads::PayloadStoreError::Io {
-                digest: digest.clone(),
-                message: "Tab vanished while confirming pending delivery".into(),
+            delivery_error::DeliveryError::SubmitUnconfirmed {
+                tab: tab_id.to_string(),
+                detail: "tab vanished while reconciling pending delivery".into(),
             }
         })?;
-        if let Some(record) = tab.pending_delivery.as_mut() {
-            if record.state().needs_delivery() {
-                record.confirm().map_err(|error| {
-                    pending_delivery_payloads::PayloadStoreError::Io {
-                        digest: record.content_digest.clone(),
-                        message: format!("{error:?}"),
-                    }
-                })?;
-            }
-        }
+        let reconciliation = tab.pending_delivery.as_mut().map_or(Ok(()), |record| {
+            crate::service::launch_delivery::reconcile_pending_delivery(tab_id, record, evidence)
+        });
         drop(mux);
+        crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+        .map_err(|message| delivery_error::DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: format!("pending delivery persistence failed: {message}"),
+        })?;
+        reconciliation?;
+        self.pending_delivery_payloads
+            .delete(&digest)
+            .map_err(|error| delivery_error::DeliveryError::SubmitUnconfirmed {
+                tab: tab_id.to_string(),
+                detail: format!("confirmed payload cleanup failed: {error}"),
+            })?;
+        Ok(())
+    }
+
+    pub(crate) fn confirm_pending_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        let digest = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
+            .filter(|record| record.state().is_accepted())
+            .map(|record| record.content_digest.clone());
+        let Some(digest) = digest else { return Ok(()) };
         crate::service::session_persist::persist_session_after_mutation(
             self,
             crate::service::session_persist::SessionPersistUrgency::Prompt,

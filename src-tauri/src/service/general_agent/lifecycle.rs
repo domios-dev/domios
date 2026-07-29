@@ -8,14 +8,6 @@ use readiness::{await_agent_launch_evidence, await_agent_output};
 #[cfg(test)]
 use readiness::{await_agent_output_with_signal, ScreenChangeSubscription};
 
-fn deliver_then_confirm(
-    deliver: impl FnOnce() -> Result<(), String>,
-    confirm: impl FnOnce() -> Result<(), String>,
-) -> Result<(), String> {
-    deliver()?;
-    confirm()
-}
-
 fn deliver_before_binding<T>(
     deliver: impl FnOnce() -> Result<(), String>,
     wait_for_binding: impl FnOnce() -> T,
@@ -28,15 +20,17 @@ fn deliver_confirmed_general_message(
     svc: &crate::ServiceState,
     tab_id: &str,
     pty_id: &str,
+    provider_id: &str,
     text: &str,
 ) -> Result<(), String> {
-    deliver_then_confirm(
-        || svc.send_launch_text_optimistic(pty_id, text, true),
-        || {
-            svc.confirm_pending_delivery(tab_id)
-                .map_err(|error| error.to_string())
-        },
-    )
+    let evidence = svc
+        .send_launch_text_optimistic(pty_id, provider_id, text, true)
+        .map(|result| result.submit_observed)
+        .map_err(|error| {
+            crate::service::delivery_error::DeliveryError::from_injection(tab_id, error)
+        });
+    svc.reconcile_pending_delivery(tab_id, evidence)
+        .map_err(|error| format!("{}: {error}", error.code()))
 }
 
 fn compose_startup_message(
@@ -486,7 +480,7 @@ pub fn start_general_agent(
     let bound_session = match deliver_before_binding(
         || {
             if let Some(message) = startup_message {
-                deliver_confirmed_general_message(svc, &tab_id, &pty_id, &message)?;
+                deliver_confirmed_general_message(svc, &tab_id, &pty_id, provider_name, &message)?;
             }
             Ok(())
         },
@@ -791,7 +785,11 @@ mod tests {
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{
+        PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+    };
     use crate::pty::manager::PtyManager;
+    use crate::service::delivery_error::DeliveryError;
     use codeterm_pty::pty::screen_state::ScreenState;
     use codeterm_types::pty::BootStage;
     use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
@@ -800,18 +798,61 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn general_delivery_confirms_only_after_submit_succeeds() {
-        let confirmed = std::cell::Cell::new(false);
-        let result = super::deliver_then_confirm(
-            || Err("submit was not confirmed".to_string()),
-            || {
-                confirmed.set(true);
-                Ok(())
-            },
+    fn held_paste_bootstrap_is_never_confirmed() {
+        let payload_writes = std::cell::Cell::new(0);
+        let submit_key_writes = std::cell::Cell::new(0);
+        let delivery = || {
+            payload_writes.set(payload_writes.get() + 1);
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: "general".into(),
+                detail: "held paste never produced ingestion evidence".into(),
+            })
+        };
+        let mut pending = PendingDeliveryRecord::new(
+            "held-paste".into(),
+            PendingDeliveryChannel::InteractiveInput,
+        );
+        let result = crate::service::launch_delivery::reconcile_pending_delivery(
+            "general",
+            &mut pending,
+            delivery(),
         );
 
-        assert_eq!(result.unwrap_err(), "submit was not confirmed");
-        assert!(!confirmed.get());
+        assert_eq!(payload_writes.get(), 1);
+        assert_eq!(submit_key_writes.get(), 0);
+        assert_eq!(pending.state(), PendingDeliveryState::Unconfirmed);
+        assert_eq!(result.unwrap_err().code(), "submit_unconfirmed");
+    }
+
+    #[test]
+    fn multiline_bootstrap_is_one_payload_and_one_turn() {
+        let payload = "system contract\n\nbootstrap task";
+        let delivered = std::cell::RefCell::new(Vec::new());
+        let submit_keys = std::cell::Cell::new(0);
+        let turns = std::cell::Cell::new(0);
+        let queued = std::cell::Cell::new(0);
+        let delivery = || {
+            delivered.borrow_mut().push(payload);
+            submit_keys.set(submit_keys.get() + 1);
+            turns.set(turns.get() + 1);
+            Ok(true)
+        };
+        let mut pending = PendingDeliveryRecord::new(
+            "multiline".into(),
+            PendingDeliveryChannel::InteractiveInput,
+        );
+
+        crate::service::launch_delivery::reconcile_pending_delivery(
+            "general",
+            &mut pending,
+            delivery(),
+        )
+        .unwrap();
+        assert_eq!(delivered.borrow().as_slice(), &[payload]);
+        assert_eq!(submit_keys.get(), 1);
+        assert_eq!(turns.get(), 1);
+        assert_eq!(queued.get(), 0);
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
     }
 
     #[test]

@@ -261,6 +261,35 @@ pub(crate) fn confirm_fallback(
         })
 }
 
+pub(crate) fn reconcile_pending_delivery(
+    tab_id: &str,
+    pending: &mut PendingDeliveryRecord,
+    evidence: Result<bool, DeliveryError>,
+) -> Result<(), DeliveryError> {
+    if pending.state().is_accepted() {
+        return Ok(());
+    }
+    match evidence {
+        Ok(true) => {
+            pending.mark_ingested();
+            confirm_fallback(tab_id, pending, true)
+        }
+        Ok(false) => {
+            pending.mark_unconfirmed();
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab_id.to_string(),
+                detail: "delivery acknowledgement not observed".into(),
+            })
+        }
+        Err(error) => {
+            if error.bytes_written() {
+                pending.mark_unconfirmed();
+            }
+            Err(error)
+        }
+    }
+}
+
 pub(crate) fn dispatch_initial_delivery<T, F>(
     mode: LaunchDeliveryMode,
     sink: &impl BootStageSink,
