@@ -475,4 +475,6 @@ pub(crate) fn write_terminal_reply(
 }
 
 #[cfg(test)]
+mod submission_matrix;
+#[cfg(test)]
 mod tests;

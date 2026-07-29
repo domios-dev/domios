@@ -36,7 +36,25 @@ else
     )
 fi
 
+filters=("$@")
+if [ "${#filters[@]}" -gt 0 ]; then
+    filtered_tests=()
+    for test_file in "${tests[@]}"; do
+        for filter in "${filters[@]}"; do
+            if [[ "$test_file" == *"$filter"* ]]; then
+                filtered_tests+=("$test_file")
+                break
+            fi
+        done
+    done
+    tests=("${filtered_tests[@]}")
+fi
+
 if [ "${#tests[@]}" -eq 0 ]; then
+    if [ "${#filters[@]}" -gt 0 ]; then
+        printf 'no TS unit tests matched filter(s): %s\n' "${filters[*]}" >&2
+        exit 2
+    fi
     echo "no TS unit tests found under src/ or packages/"
     exit 0
 fi

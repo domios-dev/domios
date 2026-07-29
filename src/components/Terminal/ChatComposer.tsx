@@ -206,6 +206,16 @@ export function delayedPollIntervalMs(isActive: boolean): number | null {
   return isActive ? 10_000 : null;
 }
 
+export function composerEnterIntent(
+  key: string,
+  shiftKey: boolean,
+  isComposing: boolean,
+): "submit" | "newline" | "none" {
+  if (isComposing) return "none";
+  if (key !== "Enter") return "none";
+  return shiftKey ? "newline" : "submit";
+}
+
 function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
   const perf = window.__composerPerf;
@@ -810,6 +820,7 @@ function ChatComposerImpl({
             }}
             onKeyDown={(e) => {
               recordComposerIgnoredKey(e.key);
+              if (e.nativeEvent.isComposing) return;
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -894,7 +905,7 @@ function ChatComposerImpl({
                   return;
                 }
               }
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
                 e.preventDefault();
                 void send();
               }

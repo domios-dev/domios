@@ -56,6 +56,7 @@ function setupDom() {
     disconnect(): void {}
   }
   Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
+  return window;
 }
 
 function implicitRole(element: Element): string | null {
@@ -324,16 +325,26 @@ test("failed message and retry remain visible after remount", async () => {
 });
 
 async function main() {
-  setupDom();
-  for (const [name, fn] of tests) {
-    try {
-      await fn();
-      console.log(`✓ ${name}`);
-    } catch (error) {
-      console.error(`✗ ${name}`);
-      throw error;
+  const window = setupDom();
+  try {
+    for (const [name, fn] of tests) {
+      try {
+        await fn();
+        console.log(`✓ ${name}`);
+      } catch (error) {
+        console.error(`✗ ${name}`);
+        throw error;
+      }
     }
+  } finally {
+    await window.happyDOM.abort();
   }
 }
 
-void main();
+void main().then(
+  () => process.exit(0),
+  (error) => {
+    console.error(error);
+    process.exit(1);
+  },
+);

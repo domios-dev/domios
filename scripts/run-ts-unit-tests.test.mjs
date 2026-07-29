@@ -102,7 +102,8 @@ test("runs the existing shell runner through the resolved Windows Bash", async (
       assert.equal(command, bash);
       assert.deepEqual(args, [
         "-c",
-        'printf "__CODETERM_TS_UNIT_SUPERVISOR_PID__=%s\\n" "$$"; exec scripts/ts-unit-tests.sh',
+        'printf "__CODETERM_TS_UNIT_SUPERVISOR_PID__=%s\\n" "$$"; exec scripts/ts-unit-tests.sh "$@"',
+        "codeterm-ts-unit",
       ]);
       assert.deepEqual(options.stdio, ["ignore", "pipe", "inherit"]);
       assert.equal(options.env, env);
@@ -111,6 +112,26 @@ test("runs the existing shell runner through the resolved Windows Bash", async (
     },
   });
   assert.equal(await code, 0);
+});
+
+test("passes focused filters to the bounded shell runner", async () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.kill = () => {};
+  const signalSource = new EventEmitter();
+  const result = runTsUnitTests({
+    platform: "linux",
+    monitorDeadline: false,
+    signalSource,
+    filters: ["chatSendStatus", "TabSessionChat"],
+    spawnProcess(_command, args) {
+      assert.deepEqual(args.slice(-3), ["codeterm-ts-unit", "chatSendStatus", "TabSessionChat"]);
+      queueMicrotask(() => child.emit("close", 0, null));
+      return child;
+    },
+  });
+
+  assert.equal(await result, 0);
 });
 
 test("forwards termination to the shell runner", async () => {
