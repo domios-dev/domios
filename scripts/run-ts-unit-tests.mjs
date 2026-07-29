@@ -21,6 +21,7 @@ export function runTsUnitTests({
   spawnProcess = spawn,
   signalSource = process,
   env = process.env,
+  monitorDeadline = true,
   ...options
 } = {}) {
   const bash = resolveBash({ ...options, env });
@@ -30,16 +31,54 @@ export function runTsUnitTests({
   }
 
   return new Promise((resolve, reject) => {
+    const childEnv = { ...env, CODETERM_TS_UNIT_CONTROL_STDIN: "1" };
     const child = spawnProcess(bash, ["scripts/ts-unit-tests.sh"], {
       cwd: root,
-      env,
-      stdio: "inherit",
+      env: childEnv,
+      stdio: ["pipe", "inherit", "inherit"],
     });
-    const forwardTerm = () => child.kill("SIGTERM");
-    const forwardInterrupt = () => child.kill("SIGINT");
+    const control = child.stdin;
+    control?.on("error", () => {});
+    if (env.TS_UNIT_TRACE) {
+      console.log(`[ts-unit trace] entrypoint pid=${process.pid} parent=${process.ppid}`);
+      console.log(`[ts-unit trace] bash process pid=${child.pid}`);
+    }
+    const forwardSignal = (signal) => {
+      if (env.TS_UNIT_TRACE) {
+        console.log(`[ts-unit trace] forwarding ${signal} to bash control pipe`);
+      }
+      if (control?.writable && !control.destroyed) {
+        control.end(`${signal}\n`);
+      } else {
+        child.kill(signal);
+      }
+    };
+    const forwardTerm = () => forwardSignal("TERM");
+    const forwardInterrupt = () => forwardSignal("INT");
+    let bashExited = false;
+    let deadlineSignal;
+    let forwardDeadline;
+    const suiteDeadlineSeconds = Number(
+      env.CODETERM_TS_UNIT_ENTRYPOINT_TEST_DEADLINE_SECONDS ??
+        env.TS_UNIT_SUITE_TIMEOUT_SECONDS ??
+        80,
+    );
+    if (monitorDeadline && Number.isInteger(suiteDeadlineSeconds) && suiteDeadlineSeconds > 0) {
+      deadlineSignal = AbortSignal.timeout(suiteDeadlineSeconds * 1000);
+      forwardDeadline = () => {
+        if (!bashExited) {
+          if (env.TS_UNIT_TRACE) {
+            console.log(`[ts-unit trace] entrypoint deadline reached after ${suiteDeadlineSeconds}s`);
+          }
+          forwardSignal("TERM");
+        }
+      };
+      deadlineSignal.addEventListener("abort", forwardDeadline, { once: true });
+    }
     const removeSignalHandlers = () => {
       signalSource.removeListener("SIGTERM", forwardTerm);
       signalSource.removeListener("SIGINT", forwardInterrupt);
+      deadlineSignal?.removeEventListener("abort", forwardDeadline);
     };
 
     signalSource.once("SIGTERM", forwardTerm);
@@ -49,7 +88,12 @@ export function runTsUnitTests({
       reject(error);
     });
     child.once("exit", (code, signal) => {
+      bashExited = true;
       removeSignalHandlers();
+      control?.destroy();
+      if (env.TS_UNIT_TRACE) {
+        console.log(`[ts-unit trace] bash exited code=${code} signal=${signal ?? "none"}`);
+      }
       resolve(code ?? (signal ? 1 : 0));
     });
   });
