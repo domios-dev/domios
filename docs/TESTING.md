@@ -91,8 +91,8 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --l
 # Rust: agent detection, multiplexer state, prompt parsing, config
 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
-# TypeScript: every src/** + packages/** unit test (tsx scripts)
-npm run test:unit
+# TypeScript: every src/** + packages/** unit test (tsx scripts, 90s outer cap)
+bash -lc 'timeout --signal=TERM --kill-after=5s 90s npm run test:unit'
 # …or one file while iterating:
 npx tsx src/lib/colors.test.ts
 
@@ -453,4 +453,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
