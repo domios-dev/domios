@@ -30,34 +30,15 @@ impl ServiceContext {
         self.output_buf.lock().append(pty_id, data);
         let output_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
-        log::debug!(
-            "[screen-state-stage] pty={} waiting bytes={}",
-            pty_id,
-            data.len()
-        );
-        let accepted = {
-            let mut screen_state = self.screen_state.lock();
-            log::debug!(
-                "[screen-state-stage] pty={} acquired bytes={}",
-                pty_id,
-                data.len()
-            );
-            let accepted = match generation {
-                Some(generation) => {
-                    screen_state.process_if_generation(pty_id, generation, data)
-                }
-                None => {
-                    screen_state.process(pty_id, data);
-                    true
-                }
-            };
-            log::debug!(
-                "[screen-state-stage] pty={} processed bytes={} accepted={}",
-                pty_id,
-                data.len(),
-                accepted
-            );
-            accepted
+        let accepted = match generation {
+            Some(generation) => self
+                .screen_state
+                .lock()
+                .process_if_generation(pty_id, generation, data),
+            None => {
+                self.screen_state.lock().process(pty_id, data);
+                true
+            }
         };
         let screen_us = stage.elapsed().as_micros();
         if !accepted {

@@ -294,7 +294,7 @@ impl ScreenState {
             let (cursor_row, _cursor_col) = screen.cursor_position();
             let inverse_cells = nonblank_inverse_cells(screen);
             let sole_nonblank_inverse_row =
-                (inverse_cells.len() == 1).then_some(inverse_cells[0].0);
+                (inverse_cells.len() == 1).then(|| inverse_cells[0].0);
             ComposerInputState {
                 alternate_screen: screen.alternate_screen(),
                 cursor_visible: !screen.hide_cursor(),
