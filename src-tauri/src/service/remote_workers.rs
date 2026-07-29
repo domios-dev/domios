@@ -94,21 +94,14 @@ impl RemoteWorkerRegistry {
     }
 
     /// Construct a registry backed by `path`, keeping only active recent workers.
-    /// Missing/corrupt file → empty (best-effort).
+    /// Missing/corrupt records are quarantined in memory and left unchanged on disk.
     pub fn load(path: PathBuf) -> Self {
-        let persisted = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<HashMap<String, Vec<RemoteWorker>>>(&s).ok());
-        let mut map = persisted.clone().unwrap_or_default();
+        let mut map = load_worker_records(&path);
         evict_inactive(&mut map, now_ms_epoch());
-        let registry = Self {
+        Self {
             by_orchestrator: Mutex::new(map),
             path: Some(path),
-        };
-        if persisted.is_some() {
-            registry.persist();
         }
-        registry
     }
 
     /// Atomically write the current map to the durable path (no-op without
@@ -276,6 +269,123 @@ impl RemoteWorkerRegistry {
     }
 }
 
+fn load_worker_records(path: &std::path::Path) -> HashMap<String, Vec<RemoteWorker>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
+        Err(error) => {
+            log::error!(
+                "[remote-workers] startup read failed for {}: {}",
+                path.display(),
+                error
+            );
+            return HashMap::new();
+        }
+    };
+    let root: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(root) => root,
+        Err(error) => {
+            log::error!(
+                "[remote-workers] quarantined unreadable store {}: {}; source left unchanged",
+                path.display(),
+                error
+            );
+            return HashMap::new();
+        }
+    };
+    let Some(buckets) = root.as_object() else {
+        log::error!(
+            "[remote-workers] store {} is not an object; source left unchanged",
+            path.display()
+        );
+        return HashMap::new();
+    };
+    let mut loaded = HashMap::new();
+    for (orchestrator_tab, records) in buckets {
+        let Some(records) = records.as_array() else {
+            log::error!(
+                "[remote-workers] quarantined bucket {} in {}: expected array; source left unchanged",
+                orchestrator_tab,
+                path.display()
+            );
+            continue;
+        };
+        let workers: Vec<RemoteWorker> = records
+            .iter()
+            .enumerate()
+            .filter_map(|(index, record)| {
+                parse_worker_record(path, orchestrator_tab, index, record.clone())
+            })
+            .collect();
+        if !workers.is_empty() {
+            loaded.insert(orchestrator_tab.clone(), workers);
+        }
+    }
+    loaded
+}
+
+fn parse_worker_record(
+    path: &std::path::Path,
+    orchestrator_tab: &str,
+    index: usize,
+    mut record: serde_json::Value,
+) -> Option<RemoteWorker> {
+    let normalized = match normalize_worker_record(&mut record) {
+        Ok(normalized) => normalized,
+        Err(error) => {
+            log::error!(
+                "[remote-workers] quarantined record {}[{}] in {}: {}; source left unchanged",
+                orchestrator_tab,
+                index,
+                path.display(),
+                error
+            );
+            return None;
+        }
+    };
+    match serde_json::from_value(record) {
+        Ok(worker) => {
+            if normalized {
+                log::warn!(
+                    "[remote-workers] normalized remote_pane in record {}[{}] from {}; source left unchanged",
+                    orchestrator_tab,
+                    index,
+                    path.display()
+                );
+            }
+            Some(worker)
+        }
+        Err(error) => {
+            log::error!(
+                "[remote-workers] quarantined record {}[{}] in {}: {}; source left unchanged",
+                orchestrator_tab,
+                index,
+                path.display(),
+                error
+            );
+            None
+        }
+    }
+}
+
+fn normalize_worker_record(record: &mut serde_json::Value) -> Result<bool, String> {
+    let Some(object) = record.as_object_mut() else {
+        return Err("record is not an object".into());
+    };
+    let Some(legacy_value) = object.get("remote_pane").cloned() else {
+        return Ok(false);
+    };
+    if let Some(current_value) = object.get("remote_tab") {
+        if current_value != &legacy_value {
+            return Err("ambiguous fields remote_pane and remote_tab".into());
+        }
+    } else {
+        object.insert("remote_tab".into(), legacy_value);
+    }
+    object.remove("remote_pane");
+    Ok(true)
+}
+
 pub type RemoteWorkerRegistryHandle = Arc<RemoteWorkerRegistry>;
 
 #[cfg(test)]
@@ -344,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn load_removes_completed_entries_from_persisted_snapshot() {
+    fn load_removes_completed_entries_in_memory_without_rewriting_the_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("remote_workers.json");
         let completed = RemoteWorker {
@@ -356,17 +466,13 @@ mod tests {
             last_message: "STATUS: done".into(),
             last_seen_ms: now_ms_epoch(),
         };
-        std::fs::write(
-            &path,
-            serde_json::to_string(&HashMap::from([("orch".to_string(), vec![completed])])).unwrap(),
-        )
-        .unwrap();
+        let fixture =
+            serde_json::to_string(&HashMap::from([("orch".to_string(), vec![completed])])).unwrap();
+        std::fs::write(&path, &fixture).unwrap();
 
         let registry = RemoteWorkerRegistry::load(path.clone());
         assert!(registry.for_orchestrator("orch").is_empty());
-        let persisted: HashMap<String, Vec<RemoteWorker>> =
-            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        assert!(persisted.is_empty());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
     }
 
     #[test]
@@ -565,5 +671,36 @@ mod tests {
         assert_eq!(reg.for_orchestrator("orch-a").len(), 1);
         assert_eq!(reg.for_orchestrator("orch-b").len(), 1);
         assert!(reg.for_orchestrator("orch-c").is_empty());
+    }
+
+    #[test]
+    fn load_normalizes_pane_era_workers_and_isolates_malformed_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote_workers.json");
+        let fixture = serde_json::json!({
+            "orch-tab": [
+                {
+                    "peer": "peer-a",
+                    "remote_pane": "worker-tab",
+                    "title": "Worker",
+                    "model": "model",
+                    "status": "working",
+                    "last_message": "still working",
+                    "last_seen_ms": now_ms_epoch()
+                },
+                {
+                    "remote_pane": ["invalid"],
+                    "status": "working"
+                }
+            ]
+        })
+        .to_string();
+        std::fs::write(&path, &fixture).unwrap();
+
+        let registry = RemoteWorkerRegistry::load(path.clone());
+        let workers = registry.for_orchestrator("orch-tab");
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].remote_tab, "worker-tab");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
     }
 }

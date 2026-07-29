@@ -136,29 +136,18 @@ impl GraphWorkerRegistry {
         let mut inner: HashMap<String, GraphWorkerInfo> = HashMap::new();
         if persist_path.exists() {
             match std::fs::read_to_string(&persist_path) {
-                Ok(text) => match serde_json::from_str::<Vec<GraphWorkerInfo>>(&text) {
-                    Ok(items) => {
-                        for mut item in items {
-                            if !item.status.is_terminal() {
-                                item.status = WorkerStatus::Orphaned;
-                                if item.done_at.is_none() {
-                                    item.done_at = Some(now_ms());
-                                }
-                            }
-                            inner.insert(item.worker_id.clone(), item);
-                        }
-                    }
-                    Err(e) => log::warn!("[graph-workers] parse {}: {}", persist_path.display(), e),
-                },
-                Err(e) => log::warn!("[graph-workers] read {}: {}", persist_path.display(), e),
+                Ok(text) => load_worker_records(&persist_path, &text, &mut inner),
+                Err(error) => log::error!(
+                    "[graph-workers] startup read failed for {}: {}",
+                    persist_path.display(),
+                    error
+                ),
             }
         }
-        let reg = Arc::new(Self {
+        Arc::new(Self {
             inner: RwLock::new(inner),
             persist_path,
-        });
-        reg.persist();
-        reg
+        })
     }
 
     fn persist(&self) {
@@ -329,6 +318,50 @@ impl GraphWorkerRegistry {
     }
 }
 
+fn load_worker_records(
+    path: &std::path::Path,
+    text: &str,
+    inner: &mut HashMap<String, GraphWorkerInfo>,
+) {
+    let records: serde_json::Value = match serde_json::from_str(text) {
+        Ok(records) => records,
+        Err(error) => {
+            log::error!(
+                "[graph-workers] quarantined unreadable store {}: {}; source left unchanged",
+                path.display(),
+                error
+            );
+            return;
+        }
+    };
+    let Some(records) = records.as_array() else {
+        log::error!(
+            "[graph-workers] store {} is not an array; source left unchanged",
+            path.display()
+        );
+        return;
+    };
+    for (index, record) in records.iter().enumerate() {
+        match serde_json::from_value::<GraphWorkerInfo>(record.clone()) {
+            Ok(mut item) => {
+                if !item.status.is_terminal() {
+                    item.status = WorkerStatus::Orphaned;
+                    if item.done_at.is_none() {
+                        item.done_at = Some(now_ms());
+                    }
+                }
+                inner.insert(item.worker_id.clone(), item);
+            }
+            Err(error) => log::error!(
+                "[graph-workers] quarantined record at index {} in {}: {}; source left unchanged",
+                index,
+                path.display(),
+                error
+            ),
+        }
+    }
+}
+
 /// Save worker PTY output to a log file. Returns the path on success.
 pub fn save_worker_log(worker_id: &str, output: &str) -> Result<PathBuf, String> {
     let dir = codeterm_paths::data_dir().join("mem").join("workers");
@@ -430,6 +463,28 @@ mod tests {
         assert!(alive_after.done_at.is_some());
         assert_eq!(done_after.status, WorkerStatus::Done);
         assert_eq!(done_after.done_at, Some(123));
+    }
+
+    #[test]
+    fn load_isolates_malformed_worker_records_without_rewriting_the_store() {
+        let path = tmp_path("malformed-record");
+        let valid = fresh_info("gw_valid");
+        let fixture = serde_json::json!([
+            valid,
+            {
+                "worker_id": "gw_malformed",
+                "status": ["not", "a", "status"]
+            }
+        ])
+        .to_string();
+        std::fs::write(&path, &fixture).unwrap();
+
+        let registry = GraphWorkerRegistry::load(path.clone());
+        let workers = registry.list();
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].worker_id, "gw_valid");
+        assert_eq!(workers[0].status, WorkerStatus::Orphaned);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
     }
 
     #[test]

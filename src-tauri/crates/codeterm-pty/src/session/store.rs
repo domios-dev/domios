@@ -242,7 +242,7 @@ impl SessionStore {
                 return self.load_latest_valid_backup();
             }
         };
-        match serde_json::from_str::<SessionSnapshot>(&json) {
+        match parse_session_snapshot(&json, &path) {
             Ok(snap) => Ok(Some(snap)),
             Err(parse_err) => {
                 log::error!(
@@ -272,7 +272,7 @@ impl SessionStore {
             let Ok(content) = fs::read_to_string(&path) else {
                 continue;
             };
-            let Ok(snap) = serde_json::from_str::<SessionSnapshot>(&content) else {
+            let Ok(snap) = parse_session_snapshot(&content, &path) else {
                 continue;
             };
             log::warn!(
@@ -327,6 +327,167 @@ impl SessionStore {
             fs::remove_file(path).map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+}
+
+fn parse_session_snapshot(json: &str, path: &std::path::Path) -> Result<SessionSnapshot, String> {
+    let mut root: serde_json::Value =
+        serde_json::from_str(json).map_err(|error| error.to_string())?;
+    let Some(root_object) = root.as_object_mut() else {
+        return Err("snapshot root is not an object".into());
+    };
+    let workspaces = root_object
+        .remove("workspaces")
+        .ok_or_else(|| "snapshot has no workspaces field".to_string())?;
+    let workspaces = workspaces
+        .as_array()
+        .ok_or_else(|| "snapshot workspaces field is not an array".to_string())?;
+    let mut loaded = Vec::new();
+    for (index, workspace) in workspaces.iter().enumerate() {
+        if let Some(workspace) = parse_workspace_record(path, index, workspace.clone()) {
+            loaded.push(workspace);
+        }
+    }
+    root_object.insert(
+        "workspaces".into(),
+        serde_json::to_value(loaded).map_err(|error| error.to_string())?,
+    );
+    serde_json::from_value(root).map_err(|error| error.to_string())
+}
+
+fn parse_workspace_record(
+    path: &std::path::Path,
+    index: usize,
+    mut workspace: serde_json::Value,
+) -> Option<WorkspaceSnapshot> {
+    let workspace_id = workspace
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>")
+        .to_string();
+    let Some(workspace_object) = workspace.as_object_mut() else {
+        log::error!(
+            "[session] quarantined workspace record {} at index {} in {}: expected object",
+            workspace_id,
+            index,
+            path.display()
+        );
+        return None;
+    };
+    let tabs = match workspace_object.remove("tabs") {
+        Some(serde_json::Value::Array(tabs)) => tabs,
+        _ => {
+            log::error!(
+                "[session] quarantined workspace record {} at index {} in {}: missing tabs array",
+                workspace_id,
+                index,
+                path.display()
+            );
+            return None;
+        }
+    };
+    if let Err(error) = codeterm_types::startup_records::normalize_pane_id_fields(&mut workspace) {
+        log::error!(
+            "[session] quarantined workspace record {} at index {} in {}: {}",
+            workspace_id,
+            index,
+            path.display(),
+            error
+        );
+        return None;
+    }
+    let loaded_tabs: Vec<TabSnapshot> = tabs
+        .into_iter()
+        .enumerate()
+        .filter_map(|(tab_index, tab)| parse_tab_record(path, &workspace_id, tab_index, tab))
+        .collect();
+    let loaded_tabs = match serde_json::to_value(loaded_tabs) {
+        Ok(loaded_tabs) => loaded_tabs,
+        Err(error) => {
+            log::error!(
+                "[session] quarantined workspace record {} at index {} in {}: {}",
+                workspace_id,
+                index,
+                path.display(),
+                error
+            );
+            return None;
+        }
+    };
+    let Some(workspace_object) = workspace.as_object_mut() else {
+        log::error!(
+            "[session] quarantined workspace record {} at index {} in {}: object shape changed during normalization",
+            workspace_id,
+            index,
+            path.display()
+        );
+        return None;
+    };
+    workspace_object.insert("tabs".into(), loaded_tabs);
+    match serde_json::from_value(workspace) {
+        Ok(workspace) => Some(workspace),
+        Err(error) => {
+            log::error!(
+                "[session] quarantined workspace record {} at index {} in {}: {}",
+                workspace_id,
+                index,
+                path.display(),
+                error
+            );
+            None
+        }
+    }
+}
+
+fn parse_tab_record(
+    path: &std::path::Path,
+    workspace_id: &str,
+    index: usize,
+    mut tab: serde_json::Value,
+) -> Option<TabSnapshot> {
+    let tab_id = tab
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>")
+        .to_string();
+    let normalized = match codeterm_types::startup_records::normalize_pane_id_fields(&mut tab) {
+        Ok(normalized) => normalized,
+        Err(error) => {
+            log::error!(
+                "[session] quarantined tab record {}/{} at index {} in {}: {}",
+                workspace_id,
+                tab_id,
+                index,
+                path.display(),
+                error
+            );
+            return None;
+        }
+    };
+    match serde_json::from_value(tab) {
+        Ok(tab) => {
+            if normalized > 0 {
+                log::warn!(
+                    "[session] normalized {} pane-era fields in tab record {}/{} from {}; source left unchanged",
+                    normalized,
+                    workspace_id,
+                    tab_id,
+                    path.display()
+                );
+            }
+            Some(tab)
+        }
+        Err(error) => {
+            log::error!(
+                "[session] quarantined tab record {}/{} at index {} in {}: {}; source left unchanged",
+                workspace_id,
+                tab_id,
+                index,
+                path.display(),
+                error
+            );
+            None
+        }
     }
 }
 
@@ -427,5 +588,58 @@ mod tests {
         store.save(&s).unwrap();
         let loaded = store.load_last().unwrap().unwrap();
         assert_eq!(loaded.workspaces.len(), 3);
+    }
+
+    #[test]
+    fn restore_normalizes_pane_era_leaves_and_isolates_malformed_tabs() {
+        let (store, _dir) = fresh_store();
+        let fixture = serde_json::json!({
+            "version": "pane-era",
+            "timestamp": 7,
+            "active_workspace_id": "workspace",
+            "teams": [],
+            "workspaces": [{
+                "id": "workspace",
+                "name": "Recovered",
+                "tabs": [
+                    {
+                        "id": "tab-valid",
+                        "title": "Valid",
+                        "split_tree": {
+                            "type": "Leaf",
+                            "pane_id": "tab-valid",
+                            "cwd": "D:/project"
+                        },
+                        "sort_order": 0
+                    },
+                    {
+                        "id": "tab-malformed",
+                        "title": "Malformed",
+                        "split_tree": {
+                            "type": "Leaf",
+                            "cwd": "D:/project"
+                        },
+                        "sort_order": 1
+                    }
+                ],
+                "active_tab_id": "tab-valid",
+                "cwd": "D:/project",
+                "protected": false,
+                "sort_order": 0
+            }]
+        })
+        .to_string();
+        let path = store.session_dir.join("last.json");
+        fs::write(&path, &fixture).unwrap();
+
+        let snapshot = store.load_last().unwrap().unwrap();
+        assert_eq!(snapshot.workspaces.len(), 1);
+        assert_eq!(snapshot.workspaces[0].tabs.len(), 1);
+        assert_eq!(snapshot.workspaces[0].tabs[0].id, "tab-valid");
+        match &snapshot.workspaces[0].tabs[0].split_tree {
+            SplitNodeSnapshot::Leaf { tab_id, .. } => assert_eq!(tab_id, "tab-valid"),
+            SplitNodeSnapshot::Split { .. } => panic!("expected recovered leaf"),
+        }
+        assert_eq!(fs::read_to_string(path).unwrap(), fixture);
     }
 }

@@ -692,10 +692,17 @@ pub fn run() {
             let remote_workers = crate::service::remote_workers::RemoteWorkerRegistry::load(
                 crate::paths::data_dir().join("remote_workers.json"),
             );
-            let delayed_send = crate::delayed_send::DelayedSendQueue::open(
-                crate::paths::data_dir().join("delayed_send.json"),
-            )
-            .expect("delayed_send init");
+            let delayed_send_path = crate::paths::data_dir().join("delayed_send.json");
+            let delayed_send =
+                crate::delayed_send::DelayedSendQueue::open(delayed_send_path.clone())
+                    .unwrap_or_else(|error| {
+                        log::error!(
+                            "[delayed_send] startup read failed for {}: {}; continuing with an empty in-memory queue",
+                            delayed_send_path.display(),
+                            error
+                        );
+                        crate::delayed_send::DelayedSendQueue::empty(delayed_send_path)
+                    });
             let startup_config = states.config.lock().clone();
             let kpi = crate::agent::kpi::KpiRecorder::from_config(
                 &startup_config,

@@ -112,8 +112,9 @@ impl PlanDatabase {
 
     pub(super) fn load_snapshots(&self) -> Result<(Vec<Plan>, Vec<Spec>), PlanError> {
         let connection = self.connection.lock();
-        let plans = load_documents::<Plan>(&connection, "SELECT document_json FROM plans")?;
-        let specs = load_documents::<Spec>(&connection, "SELECT document_json FROM specs")?;
+        let plans = load_plan_documents(&connection)?;
+        let specs =
+            load_documents::<Spec>(&connection, "spec", "SELECT id, document_json FROM specs")?;
         Ok((plans, specs))
     }
 
@@ -354,18 +355,71 @@ fn upsert_spec(transaction: &rusqlite::Transaction<'_>, spec: &Spec) -> Result<(
     Ok(())
 }
 
+fn load_plan_documents(connection: &Connection) -> Result<Vec<Plan>, PlanError> {
+    let mut statement = connection
+        .prepare("SELECT id, document_json FROM plans")
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(db_error)?;
+    let mut plans = Vec::new();
+    for row in rows {
+        let (record_id, document) = row.map_err(db_error)?;
+        match parse_plan_document(&document) {
+            Ok((plan, normalized_fields)) => {
+                if normalized_fields > 0 {
+                    log::warn!(
+                        "[plan.store] normalized {} pane-era fields in plan record {}; source left unchanged",
+                        normalized_fields,
+                        record_id
+                    );
+                }
+                plans.push(plan);
+            }
+            Err(error) => log::error!(
+                "[plan.store] quarantined plan record {} during startup: {}; source left unchanged",
+                record_id,
+                error
+            ),
+        }
+    }
+    Ok(plans)
+}
+
+fn parse_plan_document(document: &str) -> Result<(Plan, usize), String> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(document).map_err(|error| error.to_string())?;
+    let normalized_fields = codeterm_types::startup_records::normalize_pane_id_fields(&mut value)?;
+    serde_json::from_value(value)
+        .map(|plan| (plan, normalized_fields))
+        .map_err(|error| error.to_string())
+}
+
 fn load_documents<T: serde::de::DeserializeOwned>(
     connection: &Connection,
+    record_kind: &str,
     sql: &str,
 ) -> Result<Vec<T>, PlanError> {
     let mut statement = connection.prepare(sql).map_err(db_error)?;
     let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(db_error)?;
     let mut documents = Vec::new();
     for row in rows {
-        let document = row.map_err(db_error)?;
-        documents.push(serde_json::from_str(&document).map_err(json_error)?);
+        let (record_id, document) = row.map_err(db_error)?;
+        match serde_json::from_str(&document) {
+            Ok(document) => documents.push(document),
+            Err(error) => log::error!(
+                "[plan.store] quarantined {} record {} during startup: {}; source left unchanged",
+                record_kind,
+                record_id,
+                error
+            ),
+        }
     }
     Ok(documents)
 }
@@ -408,9 +462,9 @@ fn json_error(error: serde_json::Error) -> PlanError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::OrchestratorRef;
+    use crate::plan::{OrchestratorRef, PlannerRef};
     use crate::service_plan::ports::PlanIndexQuery;
-    use crate::service_plan::PlanStore;
+    use crate::service_plan::{NewTask, PlanStore};
 
     #[test]
     fn plan_round_trips_from_one_wal_database() {
@@ -550,5 +604,103 @@ mod tests {
             )
             .unwrap();
         assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn plan_store_open_isolates_malformed_records_and_normalizes_pane_era_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(directory.path());
+
+        let mut legacy = Plan::new(
+            "Pane-era plan".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch-tab"),
+        );
+        legacy.id = "pl_pane_era".into();
+        legacy.planner = Some(PlannerRef::Tab {
+            tab_id: "planner-tab".into(),
+            session_id: Some("planner-session".into()),
+            title: None,
+        });
+        store.save(&mut legacy, 1).unwrap();
+        store
+            .add_task(
+                &legacy.id,
+                NewTask {
+                    name: "Pane-era attempt".into(),
+                    handle: Some("pane-era-attempt".into()),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+
+        let mut valid = Plan::new(
+            "Current plan".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch-current"),
+        );
+        valid.id = "pl_current".into();
+        store.save(&mut valid, 3).unwrap();
+        let database_path = store.database_path_for_test();
+
+        let mut legacy_document = serde_json::to_value(store.get(&legacy.id).unwrap()).unwrap();
+        let planner = legacy_document["planner"].as_object_mut().unwrap();
+        let planner_tab = planner.remove("tab_id").unwrap();
+        planner.insert("pane_id".into(), planner_tab);
+        legacy_document["tasks"][0]["execution_attempts"] = serde_json::json!([{
+            "id": "attempt-pane-era",
+            "executor_pane_id": "worker-tab",
+            "parent_pane_id": "parent-tab",
+            "orchestrator_pane_id": "orch-tab"
+        }]);
+
+        let connection = Connection::open(&database_path).unwrap();
+        connection
+            .execute(
+                "UPDATE plans SET document_json = ?1 WHERE id = ?2",
+                params![legacy_document.to_string(), legacy.id],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, document_json)
+                 VALUES ('pl_malformed', 'Malformed', 'active', NULL, ?1, 4, '{\"id\":\"pl_malformed\"}')",
+                [directory.path().display().to_string()],
+            )
+            .unwrap();
+        drop(connection);
+        drop(store);
+
+        let reopened = PlanStore::open(database_path.clone()).unwrap();
+        assert_eq!(reopened.get(&valid.id).unwrap().title, "Current plan");
+        assert!(reopened.get("pl_malformed").is_none());
+        let normalized = reopened.get(&legacy.id).unwrap();
+        assert!(matches!(
+            normalized.planner,
+            Some(PlannerRef::Tab { ref tab_id, .. }) if tab_id == "planner-tab"
+        ));
+        let attempt = &normalized.tasks[0].execution_attempts[0];
+        assert_eq!(attempt.executor_tab_id, "worker-tab");
+        assert_eq!(attempt.parent_tab_id.as_deref(), Some("parent-tab"));
+        assert_eq!(attempt.orchestrator_tab_id.as_deref(), Some("orch-tab"));
+
+        let persisted = Connection::open(database_path).unwrap();
+        let legacy_source: String = persisted
+            .query_row(
+                "SELECT document_json FROM plans WHERE id = 'pl_pane_era'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(legacy_source.contains("\"pane_id\""));
+        let malformed_count: i64 = persisted
+            .query_row(
+                "SELECT COUNT(*) FROM plans WHERE id = 'pl_malformed'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(malformed_count, 1);
     }
 }
