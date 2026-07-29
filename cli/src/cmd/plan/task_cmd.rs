@@ -125,35 +125,150 @@ fn render_attempt(value: &Value) -> String {
     out
 }
 
+fn render_dispatch_response(value: &Value) -> String {
+    let tab = value.get("tab_id").and_then(Value::as_str).unwrap_or("?");
+    let agent = value
+        .get("agent")
+        .and_then(Value::as_str)
+        .unwrap_or("agent");
+    let state = value.get("state").and_then(Value::as_str).unwrap_or("");
+    let ready = value
+        .get("readiness")
+        .and_then(|readiness| readiness.get("ready"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if state == "awaiting_dispatch_ready" && !ready {
+        let event = value
+            .get("readiness")
+            .and_then(|readiness| readiness.get("awaiting_event"))
+            .and_then(Value::as_str)
+            .unwrap_or("dispatch_ready");
+        return format!("Accepted {agent} worker Tab {tab}; awaiting {event}\n");
+    }
+    format!("Dispatched {agent} worker Tab {tab}\n")
+}
+
+fn task_status(item: &Value) -> &str {
+    item.get("task")
+        .unwrap_or(item)
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn hidden_task_summary(shown: usize, all_tasks: &[Value]) -> Option<String> {
+    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+    for task in all_tasks {
+        let status = task_status(task);
+        if matches!(status, "paused" | "done" | "cancelled") {
+            *counts.entry(status).or_default() += 1;
+        }
+    }
+    let hidden: usize = counts.values().sum();
+    if hidden == 0 {
+        return None;
+    }
+    let breakdown = counts
+        .into_iter()
+        .map(|(status, count)| format!("{status}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "{shown} shown; {hidden} hidden ({breakdown}). Use --all."
+    ))
+}
+
+fn canonical_path_key(path: &str) -> String {
+    std::path::PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(path))
+        .display()
+        .to_string()
+        .trim_start_matches(r"\\?\")
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn empty_task_list_message(plan: &Value, project: Option<&str>) -> Option<String> {
+    let plan_id = plan.get("id").and_then(Value::as_str).unwrap_or("?");
+    if plan.get("status").and_then(Value::as_str) == Some("archived") {
+        return Some(format!(
+            "Plan {plan_id} is archived; archived plans are excluded from task listing."
+        ));
+    }
+    let plan_project = plan
+        .get("canonical_project_path")
+        .or_else(|| plan.get("project_path"))
+        .and_then(Value::as_str)?;
+    let project = project?;
+    if canonical_path_key(plan_project) != canonical_path_key(project) {
+        return Some(format!(
+            "Plan {plan_id} belongs to {plan_project}, outside the current project {project}."
+        ));
+    }
+    None
+}
+
 pub(super) fn run_task(
     client: &mut dyn RpcClient,
     json: bool,
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
     match action {
-        PlanTaskAction::List { plan_id, status } => {
+        PlanTaskAction::List {
+            plan_id,
+            status,
+            all,
+        } => {
             let mut params = json!({
-                "active": status.is_none(),
+                "active": status.is_none() && !all,
                 "mine": false,
                 "unassigned": false,
             });
             maybe_inject_caller_tab(&mut params);
             params["require_plan_id"] = json!(true);
-            if let Some(plan_id) = plan_id {
+            if let Some(plan_id) = &plan_id {
                 params["plan_id"] = json!(plan_id);
             }
+            let mut project_path = None;
             if !client.is_remote() {
                 if let Some(project) = std::env::current_dir()
                     .ok()
                     .map(|path| path.display().to_string())
                 {
                     params["project"] = json!(project);
+                    project_path = Some(project);
                 }
             }
-            if let Some(status) = status {
+            if let Some(status) = &status {
                 params["status"] = json!(status);
             }
-            call(client, "task.list", params).map(Some)
+            let mut response = call(client, "task.list", params.clone())?;
+            let shown = response
+                .get("tasks")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            if status.is_none() && !all {
+                let mut all_params = params.clone();
+                all_params["active"] = json!(false);
+                let all_response = call(client, "task.list", all_params)?;
+                if let Some(summary) = all_response
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .and_then(|tasks| hidden_task_summary(shown, tasks))
+                {
+                    response["task_list_summary"] = json!(summary);
+                }
+            }
+            if shown == 0 {
+                if let Some(plan_id) = plan_id {
+                    let plan = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
+                    if let Some(message) = empty_task_list_message(&plan, project_path.as_deref()) {
+                        response["task_list_message"] = json!(message);
+                    }
+                }
+            }
+            Ok(Some(response))
         }
         PlanTaskAction::Add {
             plan_id,
@@ -529,9 +644,7 @@ pub(super) fn run_task(
                     eprintln!("warning: {w}");
                 }
             }
-            let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
-            let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
-            println!("Dispatched {agent} worker Tab {tab}");
+            print!("{}", render_dispatch_response(&val));
             Ok(None)
         }
         PlanTaskAction::Attempts { plan_id, task_id } => {
@@ -666,5 +779,62 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.rm", params).map(Some)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {
+        let response = json!({
+            "accepted": true,
+            "state": "awaiting_dispatch_ready",
+            "tab_id": "tab-1",
+            "agent": "codex",
+            "readiness": {
+                "ready": false,
+                "awaiting_event": "dispatch_ready"
+            }
+        });
+
+        let rendered = render_dispatch_response(&response);
+
+        assert!(!rendered.contains("Dispatched"), "{rendered}");
+        assert!(rendered.contains("awaiting dispatch_ready"), "{rendered}");
+    }
+
+    #[test]
+    fn hidden_summary_names_each_hidden_status_and_all_flag() {
+        let tasks = vec![
+            json!({ "task": { "status": "pending" } }),
+            json!({ "task": { "status": "paused" } }),
+            json!({ "task": { "status": "done" } }),
+            json!({ "task": { "status": "done" } }),
+            json!({ "task": { "status": "cancelled" } }),
+        ];
+        let summary = hidden_task_summary(1, &tasks).unwrap();
+        assert!(summary.contains("1 shown; 4 hidden"), "{summary}");
+        assert!(summary.contains("paused=1"), "{summary}");
+        assert!(summary.contains("done=2"), "{summary}");
+        assert!(summary.contains("cancelled=1"), "{summary}");
+        assert!(summary.contains("Use --all"), "{summary}");
+    }
+
+    #[test]
+    fn empty_cross_project_and_archived_lists_are_explicit() {
+        let cross_project = json!({
+            "id": "pl_other",
+            "status": "active",
+            "canonical_project_path": "D:/other"
+        });
+        let message = empty_task_list_message(&cross_project, Some("D:/current")).unwrap();
+        assert!(message.contains("outside the current project"), "{message}");
+
+        let archived = json!({ "id": "pl_old", "status": "archived" });
+        let message = empty_task_list_message(&archived, Some("D:/current")).unwrap();
+        assert!(message.contains("archived"), "{message}");
+        assert!(message.contains("excluded"), "{message}");
     }
 }

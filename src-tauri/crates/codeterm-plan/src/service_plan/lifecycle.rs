@@ -50,8 +50,8 @@ impl PlanStore {
                     plan_id: plan_id.into(),
                 });
             }
-            mode = p.paused_from_mode.take().unwrap_or(PlanMode::Execution);
             if p.mode == PlanMode::Paused {
+                mode = p.paused_from_mode.take().unwrap_or(PlanMode::Execution);
                 p.mode = mode.clone();
             } else {
                 mode = p.mode.clone();

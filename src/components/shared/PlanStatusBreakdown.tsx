@@ -5,6 +5,7 @@ export interface PlanStatusCounts {
   todo: number;
   review: number;
   blocked: number;
+  paused: number;
   done: number;
 }
 
@@ -13,7 +14,7 @@ export interface PlanStatusBreakdownProps extends HTMLAttributes<HTMLSpanElement
   itemTestIdPrefix?: string;
 }
 
-const STATUS_ORDER: readonly PlanStatusKind[] = ["todo", "review", "blocked", "done"];
+const STATUS_ORDER: readonly PlanStatusKind[] = ["todo", "review", "blocked", "paused", "done"];
 
 export function PlanStatusBreakdown({
   counts,

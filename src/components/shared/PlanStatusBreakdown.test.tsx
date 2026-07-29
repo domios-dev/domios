@@ -26,24 +26,41 @@ async function main() {
   await act(async () => root.render(
     <PlanStatusBreakdown
       data-testid="breakdown"
-      counts={{ todo: 4, review: 3, blocked: 2, done: 1 }}
+      counts={{ todo: 4, review: 3, blocked: 2, paused: 1, done: 1 }}
     />,
   ));
 
   const breakdown = host.querySelector('[data-testid="breakdown"]');
   assert(breakdown, "breakdown renders");
-  for (const [status, count] of Object.entries({ todo: 4, review: 3, blocked: 2, done: 1 })) {
+  for (const [status, count] of Object.entries({
+    todo: 4,
+    review: 3,
+    blocked: 2,
+    paused: 1,
+    done: 1,
+  })) {
     const item = host.querySelector<HTMLElement>(`[data-status="${status}"]`);
     assert(item, `${status} renders`);
     assert.equal(item.textContent, `${count} ${status}`);
-    assert.equal(item.style.color, `var(--ct-${status === "todo" ? "accent" : status === "review" ? "yellow" : status === "blocked" ? "red" : "green"})`);
+    assert.equal(
+      item.style.color,
+      `var(--ct-${status === "todo"
+        ? "accent"
+        : status === "review"
+          ? "yellow"
+          : status === "blocked"
+            ? "red"
+            : status === "paused"
+              ? "muted"
+              : "green"})`,
+    );
   }
   const separators = host.querySelectorAll('[data-testid="plan-status-separator"]');
-  assert.equal(separators.length, 3, "four status counts have three real separators");
+  assert.equal(separators.length, 4, "five status counts have four real separators");
   for (const separator of separators) assert.equal(separator.textContent?.trim(), "·");
   assert.equal(
     breakdown.getAttribute("aria-label"),
-    "4 todo, 3 review, 2 blocked, 1 done",
+    "4 todo, 3 review, 2 blocked, 1 paused, 1 done",
     "the one-line visual has a concise accessible summary",
   );
   await act(async () => root.unmount());

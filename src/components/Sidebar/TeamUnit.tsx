@@ -35,7 +35,7 @@ export interface SidebarTeamActions {
 }
 
 export interface TeamTaskBucket {
-  key: "todo" | "review" | "blocked" | "done";
+  key: "todo" | "review" | "blocked" | "paused" | "done";
   label: string;
   count: number;
   color: string;
@@ -45,6 +45,7 @@ const EMPTY_BUCKETS: TeamTaskBucket[] = [
   { key: "todo", label: "todo", count: 0, color: PLAN_STATUS_COLORS.todo },
   { key: "review", label: "review", count: 0, color: PLAN_STATUS_COLORS.review },
   { key: "blocked", label: "blocked", count: 0, color: PLAN_STATUS_COLORS.blocked },
+  { key: "paused", label: "paused", count: 0, color: PLAN_STATUS_COLORS.paused },
   { key: "done", label: "done", count: 0, color: PLAN_STATUS_COLORS.done },
 ];
 
@@ -401,6 +402,7 @@ export function TeamUnit({
       todo: buckets.find((bucket) => bucket.key === "todo")?.count ?? 0,
       review: buckets.find((bucket) => bucket.key === "review")?.count ?? 0,
       blocked: buckets.find((bucket) => bucket.key === "blocked")?.count ?? 0,
+      paused: buckets.find((bucket) => bucket.key === "paused")?.count ?? 0,
       done: buckets.find((bucket) => bucket.key === "done")?.count ?? 0,
     }),
     [buckets],
@@ -469,7 +471,7 @@ export function TeamUnit({
         data-testid="team-donut"
         segments={donutSegments}
         size={22}
-        aria-label={`Task status composition: ${statusCounts.todo} todo, ${statusCounts.review} review, ${statusCounts.blocked} blocked, ${statusCounts.done} done`}
+        aria-label={`Task status composition: ${statusCounts.todo} todo, ${statusCounts.review} review, ${statusCounts.blocked} blocked, ${statusCounts.paused} paused, ${statusCounts.done} done`}
       />
     ) : (
       <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>

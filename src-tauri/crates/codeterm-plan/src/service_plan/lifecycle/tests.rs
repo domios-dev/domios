@@ -1,4 +1,4 @@
-use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskStatus};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode, TaskStatus};
 use crate::service_plan::{NewTask, PlanError, PlanStore};
 
 fn store_with_task() -> (tempfile::TempDir, PlanStore, String, String) {
@@ -142,4 +142,24 @@ fn paused_task_is_not_open_work() {
         .unwrap();
     let plan = store.get(&plan_id).unwrap();
     assert!(!plan.tasks.iter().any(|t| t.status.counts_as_open_work()));
+}
+
+#[test]
+fn resume_non_paused_plan_preserves_paused_from_mode() {
+    let (_dir, store, plan_id, _task_id) = store_with_task();
+    store
+        .with_plan(&plan_id, 3, |plan| {
+            plan.team_id = Some("team-1".into());
+            plan.mode = PlanMode::Approved;
+            plan.paused_from_mode = Some(PlanMode::Planning);
+            Ok(())
+        })
+        .unwrap();
+
+    let mode = store.resume_plan(&plan_id, 4).unwrap();
+    let plan = store.get(&plan_id).unwrap();
+
+    assert_eq!(mode, PlanMode::Approved);
+    assert_eq!(plan.mode, PlanMode::Approved);
+    assert_eq!(plan.paused_from_mode, Some(PlanMode::Planning));
 }

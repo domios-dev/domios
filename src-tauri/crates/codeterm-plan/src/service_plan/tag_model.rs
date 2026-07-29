@@ -278,6 +278,7 @@ fn duplicate_warnings(tags: &BTreeSet<String>) -> Vec<TagDuplicateWarning> {
 mod tests {
     use super::*;
     use crate::plan::{OrchestratorRef, Plan};
+    use crate::service_plan::{NewTask, PlanStore};
 
     #[test]
     fn apply_tags_replaces_same_facet_key() {
@@ -331,6 +332,56 @@ mod tests {
         plan.tasks.push(task_fixture());
         normalize_plan(&mut plan);
         assert_eq!(plan.tasks[0].handle.as_deref(), Some("nav-pan-zoom"));
+    }
+
+    #[test]
+    fn renaming_task_keeps_existing_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "Handles".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::default(),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "original title".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let before = store.show_task(&task_id).unwrap().task.handle.unwrap();
+
+        store
+            .update_task(
+                &plan.id,
+                &task_id,
+                Some("renamed completely different title"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                None,
+                None,
+                3,
+            )
+            .unwrap();
+
+        let after = store.show_task(&task_id).unwrap().task.handle.unwrap();
+        assert_eq!(after, before);
     }
 
     fn task_fixture() -> crate::plan::Task {

@@ -27,6 +27,32 @@ fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRp
         .map_err(|_| plan_rpc_err(PlanError::BadStatus))
 }
 
+fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<(), JsonRpcError> {
+    let Some(model) = p
+        .and_then(|value| value.get("model"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    else {
+        return Ok(());
+    };
+    if !provider_ids
+        .iter()
+        .any(|provider| provider.eq_ignore_ascii_case(model))
+    {
+        return Ok(());
+    }
+    Err(JsonRpcError {
+        code: -32602,
+        message: format!("'{model}' is a provider id, not a model; use --model <provider>:<model>"),
+        data: Some(json!({
+            "type": "provider_id_in_model_field",
+            "provider": model,
+            "suggestion": "use --model <provider>:<model>",
+        })),
+    })
+}
+
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
@@ -137,6 +163,7 @@ pub(super) fn dispatch(
         }
 
         "task.add" => {
+            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -247,6 +274,7 @@ pub(super) fn dispatch(
             }))
         }
         "plan.task.add" => {
+            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let id = plan_refs::resolve_plan(store, params)?;
             let name = get_string_param(params, "name")?;
             let kind = p
@@ -411,6 +439,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.update" => {
+            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
@@ -668,7 +697,7 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::dependency_vec_field;
+    use super::{dependency_vec_field, validate_model_field};
     use serde_json::json;
 
     #[test]
@@ -694,5 +723,15 @@ mod tests {
             dependency_vec_field(Some(&json!({ "depends_on": [] }))),
             Ok(Some(ids)) if ids.is_empty()
         ));
+    }
+
+    #[test]
+    fn provider_id_is_rejected_in_model_field_with_canonical_syntax() {
+        let providers = vec!["claude".into(), "codex".into()];
+        let error =
+            validate_model_field(Some(&json!({ "model": "claude" })), &providers).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.unwrap()["type"], "provider_id_in_model_field");
+        assert!(error.message.contains("<provider>:<model>"));
     }
 }

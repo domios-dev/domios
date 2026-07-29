@@ -13,7 +13,7 @@ pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
 
 pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task has no model/why. Capture routing intent: codeterm plan task update {plan_id} {task_id} --model <provider/model> --why <reason>"
+        "hint: task has no model/model_rationale. Capture routing intent: codeterm plan task update {plan_id} {task_id} --model <provider>:<model> --why <reason>"
     )
 }
 

@@ -1,6 +1,6 @@
 import type { CSSProperties, HTMLAttributes } from "react";
 
-export type PlanStatusKind = "todo" | "review" | "blocked" | "done";
+export type PlanStatusKind = "todo" | "review" | "blocked" | "paused" | "done";
 
 export interface SegmentedDonutSegment {
   count: number;
@@ -17,6 +17,7 @@ export const PLAN_STATUS_COLORS: Record<PlanStatusKind, string> = {
   todo: "var(--ct-accent)",
   review: "var(--ct-yellow)",
   blocked: "var(--ct-red)",
+  paused: "var(--ct-muted)",
   done: "var(--ct-green)",
 };
 

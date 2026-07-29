@@ -101,7 +101,6 @@ impl PlanStore {
             }
             if let Some(n) = name {
                 task.name = n.into();
-                task.handle = None;
             }
             if let Some(k) = kind {
                 task.kind = k.into();

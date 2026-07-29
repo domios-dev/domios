@@ -1,8 +1,7 @@
-use std::path::Path;
-
 use serde_json::{json, Value};
 
-use crate::cmd::plan_local::{is_inbox_plan, plan_files, plan_id_from, project_root};
+use crate::client::RpcClient;
+use crate::cmd::plan_local::project_root;
 
 #[derive(Debug, Clone)]
 struct Candidate {
@@ -23,8 +22,13 @@ impl Candidate {
     }
 }
 
-pub fn run(json_mode: bool, apply: bool, project: Option<String>) -> Result<Option<Value>, String> {
-    let report = prune_report(project, apply)?;
+pub fn run(
+    client: &mut dyn RpcClient,
+    json_mode: bool,
+    apply: bool,
+    project: Option<String>,
+) -> Result<Option<Value>, String> {
+    let report = prune_report(client, project, apply)?;
     if json_mode {
         return Ok(Some(report));
     }
@@ -32,26 +36,37 @@ pub fn run(json_mode: bool, apply: bool, project: Option<String>) -> Result<Opti
     Ok(None)
 }
 
-fn prune_report(project: Option<String>, apply: bool) -> Result<Value, String> {
+fn prune_report(
+    client: &mut dyn RpcClient,
+    project: Option<String>,
+    apply: bool,
+) -> Result<Value, String> {
     let project_root = project_root(project)?;
-    let plans_dir = project_root.join(".codeterm").join("plans");
-    let files = plan_files(&plans_dir, None)?;
+    let listed = client.call(
+        "plan.list",
+        Some(json!({ "project": project_root.display().to_string() })),
+    )?;
     let mut candidates = Vec::new();
-    for path in files {
-        if is_inbox_plan(&Value::Null, &path) {
+    for entry in listed
+        .get("plans")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(plan_id) = entry.get("plan_id").and_then(Value::as_str) else {
+            continue;
+        };
+        if plan_id == "inbox" {
             continue;
         }
-        let plan: Value = match crate::cmd::plan_local::load_plan_value(&path) {
+        let plan = match client.call("plan.get", Some(json!({ "plan_id": plan_id }))) {
             Ok(plan) => plan,
             Err(_) => continue,
         };
-        if is_inbox_plan(&plan, &path) {
-            continue;
-        }
         if let Some(reason) = prune_reason(&plan) {
             candidates.push(Candidate {
-                plan_id: plan_id_from(&plan, &path).unwrap_or_else(|| "?".into()),
-                path: path.display().to_string(),
+                plan_id: plan_id.to_string(),
+                path: format!("authoritative:{plan_id}"),
                 title: plan
                     .get("title")
                     .and_then(|v| v.as_str())
@@ -64,12 +79,8 @@ fn prune_report(project: Option<String>, apply: bool) -> Result<Value, String> {
     let mut deleted = Vec::new();
     if apply {
         for candidate in &candidates {
-            match delete_plan_file(&plans_dir, &candidate.plan_id, &candidate.path) {
-                Ok(()) => deleted.push(candidate.json()),
-                Err(err) => {
-                    return Err(format!("delete {}: {err}", candidate.path));
-                }
-            }
+            client.call("plan.delete", Some(json!({ "plan_id": candidate.plan_id })))?;
+            deleted.push(candidate.json());
         }
     }
     Ok(json!({
@@ -120,31 +131,6 @@ fn is_smoke_title(title: &str) -> bool {
         || lower.starts_with("temp ")
 }
 
-fn delete_plan_file(plans_dir: &Path, plan_id: &str, json_path: &str) -> Result<(), String> {
-    let path = Path::new(json_path);
-    if !path.starts_with(plans_dir) {
-        return Err("refusing to delete plan outside project plans dir".into());
-    }
-    let dir = path
-        .parent()
-        .ok_or_else(|| "plan JSON path has no parent directory".to_string())?;
-    if dir.file_name().and_then(|s| s.to_str()) != Some(plan_stem(plan_id)) {
-        return Err("plan JSON path does not match plan id".into());
-    }
-    if dir.is_dir() {
-        std::fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-fn plan_stem(id: &str) -> &str {
-    if id == "inbox" {
-        "_inbox"
-    } else {
-        id
-    }
-}
-
 pub fn render_prune(report: &Value) -> String {
     let dry_run = report
         .get("dry_run")
@@ -193,7 +179,32 @@ pub fn render_prune(report: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use crate::client::SocketCallError;
+
+    struct FakeRpc {
+        calls: Vec<String>,
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            _params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push(method.into());
+            Ok(match method {
+                "plan.list" => json!({ "plans": [{ "plan_id": "pl_tmp" }] }),
+                "plan.get" => json!({
+                    "id": "pl_tmp",
+                    "title": "smoke test",
+                    "tasks": [],
+                    "sections": []
+                }),
+                "plan.delete" => json!({ "ok": true }),
+                other => panic!("unexpected RPC method {other}"),
+            })
+        }
+    }
 
     #[test]
     fn smoke_empty_plan_is_candidate() {
@@ -220,41 +231,23 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_does_not_delete() {
+    fn dry_run_reads_authoritative_store_without_deleting() {
         let dir = tempfile::tempdir().unwrap();
-        let plan_dir = dir.path().join(".codeterm/plans/active/pl_tmp");
-        fs::create_dir_all(&plan_dir).unwrap();
-        let plan = json!({
-            "id": "pl_tmp",
-            "title": "smoke test",
-            "status": "active",
-            "tasks": [],
-            "sections": []
-        });
-        let path = plan_dir.join("plan.yaml");
-        fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
-        let report = prune_report(Some(dir.path().display().to_string()), false).unwrap();
+        let mut client = FakeRpc { calls: Vec::new() };
+        let report =
+            prune_report(&mut client, Some(dir.path().display().to_string()), false).unwrap();
         assert_eq!(report["candidate_count"], 1);
         assert!(report["dry_run"].as_bool().unwrap());
-        assert!(path.exists());
+        assert_eq!(client.calls, ["plan.list", "plan.get"]);
     }
 
     #[test]
-    fn apply_deletes_smoke_plan() {
+    fn apply_deletes_through_authoritative_rpc() {
         let dir = tempfile::tempdir().unwrap();
-        let plan_dir = dir.path().join(".codeterm/plans/active/pl_tmp");
-        fs::create_dir_all(&plan_dir).unwrap();
-        let plan = json!({
-            "id": "pl_tmp",
-            "title": "smoke test",
-            "status": "active",
-            "tasks": [],
-            "sections": []
-        });
-        let path = plan_dir.join("plan.yaml");
-        fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
-        let report = prune_report(Some(dir.path().display().to_string()), true).unwrap();
+        let mut client = FakeRpc { calls: Vec::new() };
+        let report =
+            prune_report(&mut client, Some(dir.path().display().to_string()), true).unwrap();
         assert_eq!(report["deleted"].as_array().unwrap().len(), 1);
-        assert!(!path.exists());
+        assert_eq!(client.calls, ["plan.list", "plan.get", "plan.delete"]);
     }
 }

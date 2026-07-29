@@ -333,12 +333,33 @@ fn plan_task_list_parses_plan_and_status() {
         Commands::Plan {
             action:
                 PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::List { plan_id, status },
+                    action:
+                        crate::args::plan::PlanTaskAction::List {
+                            plan_id,
+                            status,
+                            all,
+                        },
                 },
         } => {
             assert_eq!(plan_id.as_deref(), Some("pl_1"));
             assert_eq!(status.as_deref(), Some("blocked"));
+            assert!(!all);
         }
+        _ => panic!("expected plan task list"),
+    }
+}
+
+#[test]
+fn plan_task_list_parses_all() {
+    let parsed = parse_plan_cli_result(["codeterm", "plan", "task", "list", "pl_1", "--all"])
+        .expect("plan task list --all parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::List { all, .. },
+                },
+        } => assert!(all),
         _ => panic!("expected plan task list"),
     }
 }

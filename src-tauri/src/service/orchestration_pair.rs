@@ -51,7 +51,7 @@ pub struct OrchestrationPairResult {
 }
 
 /// The exact command to finish a degraded pair by hand, using the real
-/// requested provider/model rather than a hardcoded default.
+/// requested provider and model rather than a hardcoded default.
 fn degraded_fix_command(
     orch_tab_id: &str,
     planner_agent: &str,

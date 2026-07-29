@@ -82,12 +82,19 @@ fn print_plan_body(val: &Value) {
         }
         if let Some(tasks) = val.get("tasks").and_then(|v| v.as_array()) {
             if tasks.is_empty() {
-                println!("(no tasks)");
+                if let Some(message) = val.get("task_list_message").and_then(Value::as_str) {
+                    println!("{message}");
+                } else {
+                    println!("(no tasks)");
+                }
             } else {
                 print!(
                     "{}",
                     crate::cmd::task_list_render::render_simple_task_list(tasks)
                 );
+            }
+            if let Some(summary) = val.get("task_list_summary").and_then(Value::as_str) {
+                println!("{summary}");
             }
             return;
         }

@@ -436,7 +436,7 @@ fn run_plan(
         }
 
         PlanAction::Prune { project, apply } => {
-            return crate::cmd::plan_prune::run(json, apply, project);
+            return crate::cmd::plan_prune::run(client, json, apply, project);
         }
 
         PlanAction::Adopt {
