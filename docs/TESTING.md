@@ -83,8 +83,32 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p 
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::delivery_prefers_system_prompt_when_declared -- -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::system_prompt_channel_consumes_launch_content_without_a_fallback_turn -- -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::external_provider_defers_identical_content_to_confirmed_fallback -- -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_text_present_enter_absent_is_error -- -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_exactly_once_on_submission_evidence -- -- --exact
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::claude -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::codex -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::opencode -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::cursor -- -- --nocapture
+```
+
+The matrix reads each provider's `readinessStrategy`, `verifySubmit`, and
+`hasHooks` capabilities from `plugins/provider-*/plugin.json`. Claude, Codex,
+and OpenCode run all sixteen dimensions. Cursor runs readiness plus byte-exact
+ASCII, Unicode, and 5000-character multiline ingestion with zero submit writes;
+every submit-dependent dimension prints a quota-constraint skip reason.
+
+The frontend key and delivery-ledger oracles are focused and bounded:
+
+```bash
+npm run test:unit -- ChatComposer.submission-keys
+npm run test:unit -- chatSendStatus
+npm run test:unit -- TabSessionChat.delivery
+```
+
+The provider-row harness verifies the real `codeterm` CLI before running those
+focused oracles. Its help and dry-run surface are:
+
+```bash
+bash scripts/submission-matrix.sh --help
+bash scripts/submission-matrix.sh --provider claude --dry-run
 ```
 
 ```bash
@@ -453,4 +477,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

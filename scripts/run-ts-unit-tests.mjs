@@ -5,7 +5,7 @@ import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const supervisorBootstrap =
-  'printf "__CODETERM_TS_UNIT_SUPERVISOR_PID__=%s\\n" "$$"; exec scripts/ts-unit-tests.sh';
+  'printf "__CODETERM_TS_UNIT_SUPERVISOR_PID__=%s\\n" "$$"; exec scripts/ts-unit-tests.sh "$@"';
 const supervisorPidMarker = "__CODETERM_TS_UNIT_SUPERVISOR_PID__=";
 
 export function resolveBash({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
@@ -28,6 +28,7 @@ export function runTsUnitTests({
   env = process.env,
   platform = process.platform,
   monitorDeadline = true,
+  filters = process.argv.slice(2),
   ...options
 } = {}) {
   const bash = resolveBash({ ...options, env, platform });
@@ -37,7 +38,7 @@ export function runTsUnitTests({
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(bash, ["-c", supervisorBootstrap], {
+    const child = spawnProcess(bash, ["-c", supervisorBootstrap, "codeterm-ts-unit", ...filters], {
       cwd: root,
       env,
       stdio: ["ignore", "pipe", "inherit"],
