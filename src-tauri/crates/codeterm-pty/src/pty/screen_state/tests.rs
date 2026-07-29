@@ -189,7 +189,9 @@ fn cursor_hidden_inverse_composer_frame_exposes_structural_caret() {
     assert!(input.alternate_screen);
     assert!(!input.cursor_visible);
     assert_eq!(input.rows, 23);
+    assert_eq!(input.cols, 120);
     assert_eq!(input.inverse_caret_row, Some(17));
+    assert_eq!(input.nonblank_inverse_cells, 1);
 }
 
 #[test]
@@ -200,24 +202,16 @@ fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
         "selection",
         b"\x1b[?1049h\x1b[18;2H\x1b[7mAB\x1b[27m\x1b[?25l",
     );
-    assert_eq!(
-        selection
-            .composer_input_state("selection")
-            .unwrap()
-            .inverse_caret_row,
-        None
-    );
+    let selection = selection.composer_input_state("selection").unwrap();
+    assert_eq!(selection.inverse_caret_row, None);
+    assert_eq!(selection.nonblank_inverse_cells, 2);
 
     let mut visible_cursor = ScreenState::new();
     visible_cursor.resize("visible", 120, 23);
     visible_cursor.process("visible", b"\x1b[?1049h\x1b[18;2H\x1b[7mP\x1b[27m\x1b[?25h");
-    assert_eq!(
-        visible_cursor
-            .composer_input_state("visible")
-            .unwrap()
-            .inverse_caret_row,
-        None
-    );
+    let visible_cursor = visible_cursor.composer_input_state("visible").unwrap();
+    assert_eq!(visible_cursor.inverse_caret_row, None);
+    assert_eq!(visible_cursor.nonblank_inverse_cells, 1);
 }
 
 #[test]

@@ -30,7 +30,9 @@ pub struct ComposerInputState {
     pub cursor_visible: bool,
     pub cursor_row: u16,
     pub rows: u16,
+    pub cols: u16,
     pub inverse_caret_row: Option<u16>,
+    pub nonblank_inverse_cells: usize,
 }
 
 impl ScreenChangeSignal {
@@ -286,14 +288,17 @@ impl ScreenState {
     pub fn composer_input_state(&self, pty_id: &str) -> Option<ComposerInputState> {
         self.parsers.get(pty_id).map(|parser| {
             let screen = parser.screen();
-            let (rows, _cols) = screen.size();
+            let (rows, cols) = screen.size();
             let (cursor_row, _cursor_col) = screen.cursor_position();
+            let inverse_cells = nonblank_inverse_cells(screen);
             ComposerInputState {
                 alternate_screen: screen.alternate_screen(),
                 cursor_visible: !screen.hide_cursor(),
                 cursor_row,
                 rows,
-                inverse_caret_row: hidden_inverse_caret_row(screen),
+                cols,
+                inverse_caret_row: hidden_inverse_caret_row(screen, &inverse_cells),
+                nonblank_inverse_cells: inverse_cells.len(),
             }
         })
     }
@@ -587,12 +592,9 @@ impl ScreenState {
     }
 }
 
-fn hidden_inverse_caret_row(screen: &vt100::Screen) -> Option<u16> {
-    if !screen.alternate_screen() || !screen.hide_cursor() {
-        return None;
-    }
+fn nonblank_inverse_cells(screen: &vt100::Screen) -> Vec<(u16, u16)> {
     let (rows, cols) = screen.size();
-    let mut caret_row = None;
+    let mut inverse_cells = Vec::new();
     for row in 0..rows {
         for col in 0..cols {
             let Some(cell) = screen.cell(row, col) else {
@@ -601,13 +603,17 @@ fn hidden_inverse_caret_row(screen: &vt100::Screen) -> Option<u16> {
             if !cell.inverse() || cell.contents().trim().is_empty() {
                 continue;
             }
-            if caret_row.is_some() {
-                return None;
-            }
-            caret_row = Some(row);
+            inverse_cells.push((row, col));
         }
     }
-    caret_row
+    inverse_cells
+}
+
+fn hidden_inverse_caret_row(screen: &vt100::Screen, inverse_cells: &[(u16, u16)]) -> Option<u16> {
+    if !screen.alternate_screen() || !screen.hide_cursor() || inverse_cells.len() != 1 {
+        return None;
+    }
+    Some(inverse_cells[0].0)
 }
 
 /// Heuristic: does the screen still show an agent TUI (Claude / Codex / Opencode)?

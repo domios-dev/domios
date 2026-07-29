@@ -234,7 +234,9 @@ fn hidden_inverse_caret_is_composer_evidence_only_in_the_bottom_region() {
         cursor_visible: false,
         cursor_row: 22,
         rows: 23,
+        cols: 120,
         inverse_caret_row: Some(17),
+        nonblank_inverse_cells: 1,
     };
     assert!(composer_input_ready(input));
 
