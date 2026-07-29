@@ -140,9 +140,16 @@ pub(super) fn composer_input_ready(
         input.cursor_row,
         input.rows,
     );
-    let inverse_caret_ready = input.inverse_caret_row.is_some_and(|row| {
-        crate::agent::offline_state_classifier::composer_cursor_ready(true, row, input.rows)
-    });
+    let inverse_caret_ready = input
+        .inverse_caret_row
+        .zip(input.last_nonblank_row)
+        .is_some_and(|(row, bottom)| {
+            crate::agent::offline_state_classifier::composer_cursor_ready(
+                true,
+                row,
+                bottom.saturating_add(1),
+            )
+        });
     cursor_ready || inverse_caret_ready
 }
 

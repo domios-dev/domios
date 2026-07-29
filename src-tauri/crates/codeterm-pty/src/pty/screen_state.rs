@@ -616,7 +616,7 @@ fn nonblank_inverse_cells(screen: &vt100::Screen) -> Vec<(u16, u16)> {
 }
 
 fn hidden_inverse_caret_row(screen: &vt100::Screen, inverse_cells: &[(u16, u16)]) -> Option<u16> {
-    if !screen.alternate_screen() || !screen.hide_cursor() || inverse_cells.len() != 1 {
+    if !screen.hide_cursor() || inverse_cells.len() != 1 {
         return None;
     }
     Some(inverse_cells[0].0)
