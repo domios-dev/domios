@@ -64,6 +64,7 @@ pub(super) fn dispatch(
                 "orchestrator.refresh",
                 "plan.create",
                 "plan.adopt",
+                "plan.binding.resolve",
                 "plan.batch",
                 "plan.handoff.create",
                 "plan.handoff.list",

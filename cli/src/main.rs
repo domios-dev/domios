@@ -226,6 +226,7 @@ fn main() {
 
 fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
+    hydrate_tab_task_binding_env(&args);
     let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
             println!(
@@ -816,6 +817,59 @@ fn main_impl() {
     };
 
     handle_result(cli.json, result);
+}
+
+fn hydrate_tab_task_binding_env(args: &[String]) {
+    if args
+        .iter()
+        .any(|arg| arg == "--mesh" || arg.starts_with("--mesh="))
+        || !args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "agent" | "report" | "orchestrator" | "plan"))
+    {
+        return;
+    }
+    let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") else {
+        return;
+    };
+    if tab_id.trim().is_empty()
+        || (nonempty_env("CODETERM_PLAN_ID").is_some()
+            && nonempty_env("CODETERM_TASK_ID").is_some())
+    {
+        return;
+    }
+    let Ok(socket_path) = discover_socket() else {
+        return;
+    };
+    let Ok(mut client) = SocketClient::connect(&socket_path) else {
+        return;
+    };
+    let Ok(response) = client.call(
+        "plan.binding.resolve",
+        Some(serde_json::json!({"tab_id": tab_id})),
+    ) else {
+        return;
+    };
+    let Some(binding) = response.get("binding").and_then(|value| value.as_object()) else {
+        return;
+    };
+    if nonempty_env("CODETERM_PLAN_ID").is_none() {
+        if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
+            std::env::set_var("CODETERM_PLAN_ID", plan_id);
+        }
+    }
+    if nonempty_env("CODETERM_TASK_ID").is_none() {
+        if let Some(task_id) = binding.get("task_id").and_then(|value| value.as_str()) {
+            std::env::set_var("CODETERM_TASK_ID", task_id);
+        }
+    }
+}
+
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn normalize_agent_spawn_label_args(args: Vec<String>) -> Vec<String> {

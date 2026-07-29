@@ -76,6 +76,25 @@ pub(super) fn resolve_task(
     Ok((resolved.plan_id, resolved.task_id))
 }
 
+pub(super) fn task_binding(
+    store: &PlanStore,
+    params: &Option<Value>,
+) -> Result<Value, JsonRpcError> {
+    let tab_id = get_string_param(params, "tab_id")?;
+    let binding = store
+        .task_binding_for_tab(&tab_id)
+        .map(|(plan_id, task_id)| {
+            serde_json::json!({
+                "plan_id": plan_id,
+                "task_id": task_id,
+            })
+        });
+    Ok(serde_json::json!({
+        "tab_id": tab_id,
+        "binding": binding,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::plan::{OrchestratorRef, PlanMode};
@@ -207,6 +226,28 @@ mod tests {
                 "tab_id": "unbound-tab"
             }))
         );
+    }
+
+    #[test]
+    fn task_binding_returns_exact_bound_task_and_unknown_stays_null() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id) =
+            store_with_plan(dir.path(), "owner", "Bound plan", PlanMode::Execution);
+        let task_id = add_task(&store, &plan_id, "bound", "bound");
+        store
+            .set_task_assignment(&task_id, Some("tab-bound"), None, 4)
+            .unwrap();
+
+        let bound =
+            super::task_binding(&store, &Some(serde_json::json!({"tab_id": "tab-bound"}))).unwrap();
+        assert_eq!(bound["binding"]["plan_id"], plan_id);
+        assert_eq!(bound["binding"]["task_id"], task_id);
+
+        let unknown =
+            super::task_binding(&store, &Some(serde_json::json!({"tab_id": "tab-unbound"})))
+                .unwrap();
+        assert_eq!(unknown["tab_id"], "tab-unbound");
+        assert_eq!(unknown["binding"], serde_json::Value::Null);
     }
 }
 

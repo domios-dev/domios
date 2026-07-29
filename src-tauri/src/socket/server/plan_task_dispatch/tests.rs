@@ -3,7 +3,7 @@ use super::{
     complete_dispatch_transaction, dispatch_ready_event, dispatch_worker_identity,
     lane_metadata_for_dispatch, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
-    unqualified_model_error, DispatchEvidence,
+    unqualified_model_error, verify_dispatched_task_binding, DispatchEvidence,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -116,6 +116,43 @@ fn starting_response(tab_id: &str) -> serde_json::Value {
     let mut response = json!({"ok": true});
     apply_dispatch_starting_contract(&mut response, tab_id, &spawn_result(tab_id));
     response
+}
+
+#[test]
+fn dispatched_binding_verification_is_exact_and_loud() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan_for_team(
+            "Binding".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .set_task_assignment(&task_id, Some("tab-worker"), None, 3)
+        .unwrap();
+
+    verify_dispatched_task_binding(&store, &plan.id, &task_id, "tab-worker").unwrap();
+    let error =
+        verify_dispatched_task_binding(&store, &plan.id, &task_id, "tab-unbound").unwrap_err();
+    assert!(error.contains("ORCHESTRATION PRODUCT INCIDENT"));
+    assert!(error.contains("Impact:"));
+    assert!(error.contains("Fallback:"));
+    assert!(error.contains("no plan or task was guessed"));
 }
 
 fn collect_tab_and_tab_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {

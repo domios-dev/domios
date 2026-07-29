@@ -1,6 +1,16 @@
 use super::*;
 
 #[test]
+fn missing_report_binding_is_a_loud_orchestration_incident() {
+    let message = missing_report_binding_incident("tab-worker");
+    assert!(message.contains("ORCHESTRATION PRODUCT INCIDENT"));
+    assert!(message.contains("Impact:"));
+    assert!(message.contains("Fallback:"));
+    assert!(message.contains("no plan or task was guessed"));
+    assert!(message.contains("tab-worker"));
+}
+
+#[test]
 fn agent_models_formats_descriptor_models_from_api_snapshot() {
     let provider = serde_json::json!({
         "id": "codex",
