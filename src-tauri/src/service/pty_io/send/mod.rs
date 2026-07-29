@@ -1,5 +1,6 @@
 //! Interactive send path: shell readiness and all
 //! send/write/batch ServiceContext methods.
+use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
 
 mod readiness;
@@ -318,22 +319,57 @@ impl ServiceContext {
                 },
             )
             .map(|_| ())
-            .map_err(|error| error.to_string())
+            .map_err(|error| {
+                DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
+            })
         })
     }
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
     /// a causal turn transition or an actionable delivery failure.
     pub fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        if self.tab_chat_backing(tab_id).is_some() {
-            return self.chatbackend_tab_send(tab_id, text);
-        }
-        self.ensure_tab_pty_for_send(tab_id)?;
-        self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
-        let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
-        self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))?;
+        self.send_text_delivery(tab_id, text, enter)
+            .map_err(|error| error.ledger_message())
+    }
 
-        self.send_text_to_pty_smart(&pty_id, text, enter)
+    pub(crate) fn send_text_delivery(
+        &self,
+        tab_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), DeliveryError> {
+        if self.tab_chat_backing(tab_id).is_some() {
+            return self
+                .chatbackend_tab_send(tab_id, text)
+                .map_err(|error| DeliveryError::from_opaque(tab_id, error));
+        }
+        let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
+        self.send_text_to_pty_smart_delivery(&pty_id, text, enter)
+    }
+
+    fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
+        self.ensure_tab_pty_for_send(tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.to_string(),
+                detail,
+            })?;
+        self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            })?;
+        let pty_id = self
+            .await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.to_string(),
+                detail,
+            })?;
+        self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            })?;
+        Ok(pty_id)
     }
 
     /// Compatibility entry point for callers which explicitly require delivery
@@ -343,15 +379,13 @@ impl ServiceContext {
         tab_id: &str,
         text: &str,
         enter: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
-            return self.chatbackend_tab_send(tab_id, text);
+            return self
+                .chatbackend_tab_send(tab_id, text)
+                .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
-        self.ensure_tab_pty_for_send(tab_id)?;
-        self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
-        let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
-        self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))?;
-
+        let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
         self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
     }
 
@@ -363,12 +397,27 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
+        self.send_text_to_pty_smart_delivery(pty_id, text, enter)
+            .map_err(|error| error.ledger_message())
+    }
+
+    fn send_text_to_pty_smart_delivery(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
-            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
+            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: pid.clone(),
+                    detail,
+                })?;
         }
+        let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
-            return self.send_text_to_pty(pty_id, text, enter);
+            return self.send_text_to_pty_delivery(pty_id, delivery_target, text, enter);
         };
         let text = sanitize_agent_prompt_input(text);
         let strategy = self
@@ -392,7 +441,7 @@ impl ServiceContext {
             None,
         )
         .map(|_| ())
-        .map_err(|error| error.to_string())
+        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
     }
 
     fn resolve_tab_and_ready_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
@@ -419,11 +468,16 @@ impl ServiceContext {
         pty_id: &str,
         text: &str,
         enter: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
-            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
+            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: pid.clone(),
+                    detail,
+                })?;
         }
+        let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         if let Some(ref agent_id) = agent_type {
             let text = sanitize_agent_prompt_input(text);
             let strategy = self
@@ -433,7 +487,7 @@ impl ServiceContext {
             let opts = crate::service::inject_verify::VerifyOpts {
                 // A live TUI's last line is its footer, not a shell prompt.
                 require_prompt_first: false,
-                verify_echo: false,
+                verify_echo: true,
                 verify_submit: true,
                 ..Default::default()
             };
@@ -443,11 +497,11 @@ impl ServiceContext {
                 |text| {
                     self.send_text_verified(pty_id, text, enter, strategy, opts)
                         .map(|_| ())
-                        .map_err(|e| e.to_string())
+                        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
                 },
             );
         }
-        self.send_text_to_pty(pty_id, text, enter)
+        self.send_text_to_pty_delivery(pty_id, delivery_target, text, enter)
     }
 
     /// Deliver the initial agent launch command to a bare shell — no verify path
@@ -574,6 +628,18 @@ impl ServiceContext {
     /// `send_text` by PTY id, skipping tab→pty resolution — use when the caller
     /// holds a verified pty_id and must not race a `link_pty` swap of `tab.pty_id`.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        let tab_id = self.resolve_tab_and_ready_agent(pty_id).0;
+        self.send_text_to_pty_delivery(pty_id, tab_id.as_deref().unwrap_or(pty_id), text, enter)
+            .map_err(|error| error.ledger_message())
+    }
+
+    fn send_text_to_pty_delivery(
+        &self,
+        pty_id: &str,
+        delivery_target: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), DeliveryError> {
         super::submit_transaction::submit_entry(
             super::submit_transaction::PtySubmitEntry::Direct,
             text,
@@ -591,7 +657,7 @@ impl ServiceContext {
                     },
                 )
                 .map(|_| ())
-                .map_err(|error| error.to_string())
+                .map_err(|error| DeliveryError::from_injection(delivery_target, error))
             },
         )
     }
