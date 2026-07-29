@@ -130,12 +130,6 @@ impl UsageProbe {
         started: Instant,
     ) -> Result<UsageProbeOutcome, ProbeError> {
         let svc = self.svc.clone();
-        let warmup = svc
-            .agent_registry
-            .with_provider(provider, |p| p.task_input_warmup())
-            .unwrap_or(Duration::ZERO)
-            .min(USAGE_PROBE_WARMUP_CAP);
-
         wait_for_tui(&svc, pty_id, provider, TUI_READY_TIMEOUT)
             .await
             .map_err(ProbeError::NotReady)?;
@@ -164,7 +158,7 @@ impl UsageProbe {
             .flatten()
             .unwrap_or_else(|| "/usage".to_string());
 
-        let raw_text = probe_usage_command(&svc, pty_id, provider, &probe_cmd, warmup).await?;
+        let raw_text = probe_usage_command(&svc, pty_id, provider, &probe_cmd).await?;
 
         let _ = write_slash_command(&svc, pty_id, "/exit").await;
 
@@ -219,10 +213,6 @@ async fn write_slash_command(
     }
     Ok(())
 }
-
-/// Slash-command probes don't type long prompts — cap the post-command settle so
-/// codex/claude don't burn 3s of task-delivery warmup on every `/status` poll.
-const USAGE_PROBE_WARMUP_CAP: Duration = Duration::from_millis(500);
 
 async fn wait_for_tui(
     svc: &ServiceContext,
@@ -301,7 +291,6 @@ async fn probe_usage_command(
     pty_id: &str,
     provider: &str,
     probe_cmd: &str,
-    warmup: Duration,
 ) -> Result<String, ProbeError> {
     let mut last_err = ProbeError::NoOutput;
     let min_accept_attempt = usize::from(probe_cmd.trim() == "/status");
@@ -311,7 +300,6 @@ async fn probe_usage_command(
         }
         let baseline = OutputEpoch::capture(svc, pty_id);
         write_slash_command(svc, pty_id, probe_cmd).await?;
-        tokio::time::sleep(warmup).await;
         if attempt < min_accept_attempt {
             wait_for_epoch_activity(svc, pty_id, &baseline, Duration::from_secs(3)).await;
             continue;

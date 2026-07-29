@@ -1,5 +1,7 @@
 use super::*;
-use crate::provider::{BusySubmitStrategy, ReadinessStrategy, VerifySubmitStrategy};
+use crate::provider::{
+    BusySubmitStrategy, ProviderReadinessStrategy, ReadinessStrategy, VerifySubmitStrategy,
+};
 
 #[test]
 fn parse_minimal_manifest() {
@@ -32,7 +34,7 @@ fn parse_full_manifest() {
             "spawn": {
                 "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
                 "taskDelivery": "inline_flag",
-                "taskInputWarmupMs": 0,
+                "providerReadiness": { "kind": "structural_composer", "timeoutSecs": 30 },
                 "verifySubmit": { "kind": "tui_input_drained" },
                 "sessionIdInjection": "fresh_and_fork",
                 "statusBarRows": 3,
@@ -86,9 +88,34 @@ fn parse_full_manifest() {
         SerdeVerifySubmit::TuiInputDrained
     ));
     assert!(matches!(
+        ProviderReadinessStrategy::from(&m.spawn.provider_readiness),
+        ProviderReadinessStrategy::StructuralComposer { timeout }
+            if timeout == std::time::Duration::from_secs(30)
+    ));
+    assert!(matches!(
         m.spawn.session_id_injection,
         SerdeSessionIdInjection::FreshAndFork
     ));
+}
+
+#[test]
+fn retired_task_input_delay_is_rejected() {
+    let retired_field = ["taskInput", "W", "armup", "Ms"].concat();
+    let mut manifest = serde_json::json!({
+        "id": "retired-delay",
+        "version": "0.1.0",
+        "displayName": "Retired delay",
+        "spawn": {
+            "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+            "taskDelivery": "pty_input",
+            "verifySubmit": { "kind": "none" }
+        }
+    });
+    manifest["spawn"][retired_field.clone()] = serde_json::json!(3000);
+
+    let error = serde_json::from_value::<PluginManifest>(manifest)
+        .expect_err("fixed task-input delays must be rejected");
+    assert!(error.to_string().contains(&retired_field), "got: {error}");
 }
 
 #[test]

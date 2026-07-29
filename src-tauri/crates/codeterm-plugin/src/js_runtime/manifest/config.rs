@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
-    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    BusySubmitStrategy, ModelInfo, ProviderReadinessStrategy, ReadinessStrategy,
+    ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
+    VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -29,7 +30,7 @@ pub struct SpawnConfig {
     #[serde(default)]
     pub system_prompt_delivery: SerdeSystemPromptDelivery,
     #[serde(default)]
-    pub task_input_warmup_ms: u64,
+    pub provider_readiness: SerdeProviderReadinessStrategy,
     pub verify_submit: SerdeVerifySubmit,
     #[serde(default)]
     pub busy_submit: SerdeBusySubmit,
@@ -116,6 +117,38 @@ impl From<&SerdeReadinessStrategy> for ReadinessStrategy {
             SerdeReadinessStrategy::FixedDelay { duration_ms } => Self::FixedDelay {
                 duration: std::time::Duration::from_millis(*duration_ms),
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum SerdeProviderReadinessStrategy {
+    TuiFrame { timeout_secs: u64 },
+    StructuralComposer { timeout_secs: u64 },
+}
+
+impl Default for SerdeProviderReadinessStrategy {
+    fn default() -> Self {
+        Self::TuiFrame { timeout_secs: 30 }
+    }
+}
+
+impl From<&SerdeProviderReadinessStrategy> for ProviderReadinessStrategy {
+    fn from(strategy: &SerdeProviderReadinessStrategy) -> Self {
+        match strategy {
+            SerdeProviderReadinessStrategy::TuiFrame { timeout_secs } => Self::TuiFrame {
+                timeout: std::time::Duration::from_secs(*timeout_secs),
+            },
+            SerdeProviderReadinessStrategy::StructuralComposer { timeout_secs } => {
+                Self::StructuralComposer {
+                    timeout: std::time::Duration::from_secs(*timeout_secs),
+                }
+            }
         }
     }
 }

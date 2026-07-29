@@ -209,7 +209,20 @@ pub struct DeliveryAttemptProvenance {
 #[serde(rename_all = "snake_case")]
 pub enum PendingDeliveryState {
     Pending,
-    Confirmed,
+    Ingested,
+    AcceptedStrong,
+    AcceptedWeak,
+    Unconfirmed,
+}
+
+impl PendingDeliveryState {
+    pub fn is_accepted(self) -> bool {
+        matches!(self, Self::AcceptedStrong | Self::AcceptedWeak)
+    }
+
+    pub fn needs_delivery(self) -> bool {
+        !self.is_accepted()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -252,7 +265,7 @@ impl<'de> Deserialize<'de> for PendingDeliveryRecord {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingDeliveryTransitionError {
-    ConfirmedTerminal,
+    AcceptedTerminal,
     AttemptAlreadyInFlight,
 }
 
@@ -280,37 +293,53 @@ impl PendingDeliveryRecord {
         &mut self,
         provenance: DeliveryAttemptProvenance,
     ) -> Result<(), PendingDeliveryTransitionError> {
-        match self.state {
-            PendingDeliveryState::Confirmed => {
-                Err(PendingDeliveryTransitionError::ConfirmedTerminal)
-            }
-            PendingDeliveryState::Pending if self.attempt_provenance.is_some() => {
-                Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
-            }
-            PendingDeliveryState::Pending => {
-                self.attempt_provenance = Some(provenance);
-                Ok(())
-            }
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
         }
+        if self.attempt_provenance.is_some() {
+            return Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight);
+        }
+        self.attempt_provenance = Some(provenance);
+        Ok(())
     }
 
     pub fn replace_attempt(
         &mut self,
         provenance: DeliveryAttemptProvenance,
     ) -> Result<(), PendingDeliveryTransitionError> {
-        if self.state == PendingDeliveryState::Confirmed {
-            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
         }
         self.attempt_provenance = Some(provenance);
         Ok(())
     }
 
     pub fn confirm(&mut self) -> Result<(), PendingDeliveryTransitionError> {
-        if self.state == PendingDeliveryState::Confirmed {
-            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
         }
-        self.state = PendingDeliveryState::Confirmed;
+        self.state = PendingDeliveryState::AcceptedWeak;
         Ok(())
+    }
+
+    pub fn confirm_strong(&mut self) -> Result<(), PendingDeliveryTransitionError> {
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
+        }
+        self.state = PendingDeliveryState::AcceptedStrong;
+        Ok(())
+    }
+
+    pub fn mark_ingested(&mut self) {
+        if self.state == PendingDeliveryState::Pending {
+            self.state = PendingDeliveryState::Ingested;
+        }
+    }
+
+    pub fn mark_unconfirmed(&mut self) {
+        if !self.state.is_accepted() {
+            self.state = PendingDeliveryState::Unconfirmed;
+        }
     }
 }
 
@@ -625,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn confirmed_is_terminal() {
+    fn accepted_weak_is_terminal() {
         let mut delivery =
             PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
         delivery
@@ -635,18 +664,35 @@ mod tests {
             })
             .unwrap();
         assert_eq!(delivery.confirm(), Ok(()));
-        assert_eq!(delivery.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(delivery.state(), PendingDeliveryState::AcceptedWeak);
         assert_eq!(
             delivery.begin_attempt(DeliveryAttemptProvenance {
                 attempt_id: "attempt-2".into(),
                 started_at_ms: 43,
             }),
-            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+            Err(PendingDeliveryTransitionError::AcceptedTerminal)
         );
         assert_eq!(
             delivery.confirm(),
-            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+            Err(PendingDeliveryTransitionError::AcceptedTerminal)
         );
+    }
+
+    #[test]
+    fn pending_delivery_uses_verdict_tier_labels() {
+        let mut weak =
+            PendingDeliveryRecord::new("weak".into(), PendingDeliveryChannel::InteractiveInput);
+        weak.mark_ingested();
+        assert_eq!(weak.state(), PendingDeliveryState::Ingested);
+        weak.mark_unconfirmed();
+        assert_eq!(weak.state(), PendingDeliveryState::Unconfirmed);
+        weak.confirm().unwrap();
+        assert_eq!(weak.state(), PendingDeliveryState::AcceptedWeak);
+
+        let mut strong =
+            PendingDeliveryRecord::new("strong".into(), PendingDeliveryChannel::InteractiveInput);
+        strong.confirm_strong().unwrap();
+        assert_eq!(strong.state(), PendingDeliveryState::AcceptedStrong);
     }
 
     #[test]

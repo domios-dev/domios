@@ -279,7 +279,7 @@ Declarative config the host reads without running JS. Key fields:
   "spawn": {
     "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
     "taskDelivery": "pty_input",            // or "shell_arg"
-    "taskInputWarmupMs": 3000,
+    "providerReadiness": { "kind": "structural_composer", "timeoutSecs": 30 },
     "verifySubmit": { "kind": "tui_input_drained", "timeoutSecs": 15, "idleAfterDrainMs": 800 },
     "sessionIdInjection": "none",           // none | fresh | fresh_and_fork
     "hasHooks": false,

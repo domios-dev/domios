@@ -116,5 +116,9 @@ fn json_surface_carries_code_and_write_state() {
         serde_json::json!("submit_unconfirmed")
     );
     assert_eq!(json["error"]["bytes_written"], serde_json::json!(true));
+    assert_eq!(
+        json["error"]["delivery_state"],
+        serde_json::json!("unconfirmed")
+    );
     assert_eq!(json["error"]["tab"], serde_json::json!("53854ac8"));
 }

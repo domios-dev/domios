@@ -2,6 +2,12 @@
 //! send/write/batch ServiceContext methods.
 use crate::service::ServiceContext;
 
+mod readiness;
+
+pub(crate) use readiness::provider_or_generic_tui;
+#[cfg(test)]
+use readiness::{provider_frame_ready, wait_for_observed_readiness};
+
 /// Bounded window to let the composer render a bracketed paste before Enter is
 /// sent as a separate write. A codex/opencode TUI swallows a \r glued to the
 /// paste mid-ingestion; waiting for the paste to land avoids that. The deadline
@@ -494,84 +500,6 @@ impl ServiceContext {
         self.pty.lock().write(pty_id, &payload)
     }
 
-    /// Wait until an agent has rendered a structural TUI frame. This proves a
-    /// shell launch command ran; it does not claim the input composer is ready.
-    pub(crate) fn await_agent_tui_frame_on_screen(
-        &self,
-        pty_id: &str,
-        agent_id: &str,
-        timeout: std::time::Duration,
-    ) -> bool {
-        self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
-    }
-
-    /// Wait until a structural agent TUI exposes an operable composer.
-    pub(crate) fn await_agent_tui_on_screen(
-        &self,
-        pty_id: &str,
-        agent_id: &str,
-        timeout: std::time::Duration,
-    ) -> bool {
-        self.await_agent_tui_screen(pty_id, agent_id, timeout, true)
-    }
-
-    fn await_agent_tui_screen(
-        &self,
-        pty_id: &str,
-        agent_id: &str,
-        timeout: std::time::Duration,
-        require_composer: bool,
-    ) -> bool {
-        let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
-        let deadline = std::time::Instant::now() + timeout;
-        let mut generation = signal.generation();
-        loop {
-            let (screen, alternate_screen, composer_ready) = {
-                let screen_state = self.screen_state.lock();
-                let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
-                let cursor = screen_state.cursor_input_state(pty_id);
-                let (alternate_screen, composer_ready) = cursor
-                    .map(|(alternate, visible, row, rows)| {
-                        (
-                            alternate,
-                            crate::agent::offline_state_classifier::composer_cursor_ready(
-                                visible, row, rows,
-                            ),
-                        )
-                    })
-                    .unwrap_or((false, false));
-                (screen, alternate_screen, composer_ready)
-            };
-            let provider_ready = self
-                .agent_registry
-                .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));
-            let provider_prompt = self
-                .agent_registry
-                .parse_prompt(agent_id, &screen)
-                .is_some();
-            let ready = provider_or_generic_tui(
-                provider_ready,
-                codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
-            );
-            if provider_frame_ready(
-                ready,
-                provider_prompt,
-                require_composer,
-                alternate_screen,
-                composer_ready,
-            ) {
-                return true;
-            }
-            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-                return false;
-            };
-            if !signal.wait_after(generation, remaining) {
-                return false;
-            }
-            generation = signal.generation();
-        }
-    }
-
     /// Queue text without making the caller wait for PTY or TUI evidence.
     pub async fn send_text_when_ready(
         &self,
@@ -786,22 +714,6 @@ impl ServiceContext {
             self.emit_state_changed();
         }
     }
-}
-
-pub(crate) fn provider_or_generic_tui(provider_ready: Option<bool>, generic_ready: bool) -> bool {
-    provider_ready.unwrap_or(generic_ready)
-}
-
-pub(super) fn provider_frame_ready(
-    tui_ready: bool,
-    prompt_ready: bool,
-    require_composer: bool,
-    alternate_screen: bool,
-    composer_ready: bool,
-) -> bool {
-    let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
-    (structural_tui_ready && (!require_composer || composer_ready))
-        || (!require_composer && prompt_ready)
 }
 
 #[cfg(test)]

@@ -330,7 +330,7 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<Option<String>, pending_delivery_payloads::PayloadStoreError> {
-        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        use crate::multiplexer::types::PendingDeliveryChannel;
         let pending = self
             .mux
             .read()
@@ -338,7 +338,7 @@ impl ServiceContext {
             .and_then(|tab| tab.pending_delivery.clone());
         match pending {
             Some(record)
-                if record.state() == PendingDeliveryState::Pending
+                if record.state().needs_delivery()
                     && record.channel == PendingDeliveryChannel::InteractiveInput =>
             {
                 self.pending_delivery_payloads
@@ -353,7 +353,7 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
-        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        use crate::multiplexer::types::PendingDeliveryChannel;
         let digest = self
             .mux
             .read()
@@ -370,7 +370,7 @@ impl ServiceContext {
             }
         })?;
         if let Some(record) = tab.pending_delivery.as_mut() {
-            if record.state() == PendingDeliveryState::Pending {
+            if record.state().needs_delivery() {
                 record.confirm().map_err(|error| {
                     pending_delivery_payloads::PayloadStoreError::Io {
                         digest: record.content_digest.clone(),

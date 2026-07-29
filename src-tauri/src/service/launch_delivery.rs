@@ -4,9 +4,9 @@ use crate::agent::provider::SystemPromptDelivery;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
-    PendingDeliveryTransitionError,
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
+use crate::service::delivery_error::DeliveryError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -23,19 +23,12 @@ pub(crate) struct LaunchContent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingDelivery {
     pub digest: String,
-    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
     pub payload: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum DeliveryError {
-    DeliveryUnconfirmed,
-    RecordTransition(PendingDeliveryTransitionError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,10 +97,10 @@ impl LaunchDeliveryGate {
                 .get_tab_mut(tab_id)
                 .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch owns a pending delivery record");
-            if pending.state() == PendingDeliveryState::Confirmed {
+            if pending.state().is_accepted() {
                 false
             } else {
-                begin_fallback_attempt(pending, next_attempt()).is_ok()
+                begin_fallback_attempt(tab_id, pending, next_attempt()).is_ok()
             }
         };
         if !should_submit {
@@ -128,13 +121,16 @@ impl LaunchDeliveryGate {
                 .get_tab_mut(tab_id)
                 .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch retains its pending delivery record");
-            confirm_fallback(pending, submission_observed)
+            confirm_fallback(tab_id, pending, submission_observed)
         };
         match delivery {
             Ok(()) => result
                 .map(|_| LaunchConsumptionOutcome::Confirmed)
                 .map_err(|transaction| LaunchConsumptionError {
-                    delivery: DeliveryError::DeliveryUnconfirmed,
+                    delivery: DeliveryError::SubmitUnconfirmed {
+                        tab: tab_id.to_string(),
+                        detail: "launch delivery transaction failed".into(),
+                    },
                     transaction: Some(transaction),
                 }),
             Err(delivery) => Err(LaunchConsumptionError {
@@ -144,17 +140,6 @@ impl LaunchDeliveryGate {
         }
     }
 }
-
-impl std::fmt::Display for DeliveryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DeliveryUnconfirmed => f.write_str("DeliveryUnconfirmed"),
-            Self::RecordTransition(error) => write!(f, "pending delivery transition: {error:?}"),
-        }
-    }
-}
-
-impl std::error::Error for DeliveryError {}
 
 pub(crate) fn mode_for_descriptor(descriptor: &SystemPromptDelivery) -> LaunchDeliveryMode {
     match descriptor {
@@ -188,7 +173,6 @@ pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     let digest = Sha256::digest(text.as_bytes());
     PendingDelivery {
         digest: format!("{digest:x}"),
-        confirmed: false,
     }
 }
 
@@ -240,28 +224,41 @@ pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
 }
 
 pub(crate) fn begin_fallback_attempt(
+    tab_id: &str,
     pending: &mut PendingDeliveryRecord,
     attempt: DeliveryAttemptProvenance,
 ) -> Result<(), DeliveryError> {
-    if pending.state() == PendingDeliveryState::Confirmed {
+    if pending.state().is_accepted() {
         return Ok(());
     }
     pending
         .replace_attempt(attempt)
-        .map_err(DeliveryError::RecordTransition)
+        .map_err(|error| DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: format!("pending delivery transition: {error:?}"),
+        })
 }
 
 pub(crate) fn confirm_fallback(
+    tab_id: &str,
     pending: &mut PendingDeliveryRecord,
     submission_observed: bool,
 ) -> Result<(), DeliveryError> {
-    if pending.state() == PendingDeliveryState::Confirmed {
+    if pending.state().is_accepted() {
         return Ok(());
     }
     if !submission_observed {
-        return Err(DeliveryError::DeliveryUnconfirmed);
+        return Err(DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: "delivery acknowledgement not observed".into(),
+        });
     }
-    pending.confirm().map_err(DeliveryError::RecordTransition)
+    pending
+        .confirm()
+        .map_err(|error| DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: format!("pending delivery transition: {error:?}"),
+        })
 }
 
 pub(crate) fn dispatch_initial_delivery<T, F>(
@@ -341,6 +338,7 @@ mod tests {
     fn fallback_first_message_confirmed_exactly_once() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "first".into(),
@@ -349,9 +347,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pending.state(), PendingDeliveryState::Pending);
-        confirm_fallback(&mut pending, true).unwrap();
-        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
-        confirm_fallback(&mut pending, false).unwrap();
+        confirm_fallback("tab", &mut pending, true).unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
+        confirm_fallback("tab", &mut pending, false).unwrap();
     }
 
     #[test]
@@ -388,6 +386,7 @@ mod tests {
             crate::multiplexer::types::PendingDeliveryProvenance::FallbackBootstrap
         );
         begin_fallback_attempt(
+            "pair-tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "bootstrap".into(),
@@ -404,8 +403,8 @@ mod tests {
             "pair-tab",
             Some(|| submissions += 1),
         );
-        confirm_fallback(&mut pending, true).unwrap();
-        if pending.state() != PendingDeliveryState::Confirmed {
+        confirm_fallback("pair-tab", &mut pending, true).unwrap();
+        if !pending.state().is_accepted() {
             dispatch_initial_delivery(
                 LaunchDeliveryMode::ConfirmedFallback,
                 &sink,
@@ -453,7 +452,7 @@ mod tests {
             .pending_delivery
             .clone()
             .unwrap();
-        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
         assert_eq!(submitted.len(), 1);
         assert_eq!(
             pending.content_digest,
@@ -558,6 +557,7 @@ mod tests {
     fn fallback_deadline_yields_structured_error() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "first".into(),
@@ -566,8 +566,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            confirm_fallback(&mut pending, false),
-            Err(DeliveryError::DeliveryUnconfirmed)
+            confirm_fallback("tab", &mut pending, false)
+                .unwrap_err()
+                .code(),
+            "submit_unconfirmed"
         );
         assert_eq!(pending.state(), PendingDeliveryState::Pending);
         assert_eq!(pending.attempt_provenance().unwrap().attempt_id, "first");
@@ -577,13 +579,14 @@ mod tests {
     fn fallback_reconnect_never_resends_confirmed() {
         let mut pending = pending_record_for("task");
         pending.confirm().unwrap();
-        assert!(confirm_fallback(&mut pending, false).is_ok());
+        assert!(confirm_fallback("tab", &mut pending, false).is_ok());
     }
 
     #[test]
     fn fallback_retry_after_failure_redelivers_once() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "first".into(),
@@ -592,10 +595,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            confirm_fallback(&mut pending, false),
-            Err(DeliveryError::DeliveryUnconfirmed)
+            confirm_fallback("tab", &mut pending, false)
+                .unwrap_err()
+                .code(),
+            "submit_unconfirmed"
         );
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "retry".into(),
@@ -604,8 +610,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pending.attempt_provenance().unwrap().attempt_id, "retry");
-        confirm_fallback(&mut pending, true).unwrap();
-        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
+        confirm_fallback("tab", &mut pending, true).unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
     }
 
     #[test]
