@@ -314,7 +314,7 @@ pub fn chat_start_core(
             subscription_id: None,
         });
     }
-    let (provider_id, cwd, mut session_id, mux_ms) = {
+    let (provider_id, cwd, session_id, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.write();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
@@ -370,42 +370,6 @@ pub fn chat_start_core(
         (provider, cwd, sid, t.elapsed().as_millis())
     };
 
-    // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling tab already owns it.
-    let detect_started = std::time::Instant::now();
-    if let Some(active_sid) = svc
-        .agent_registry
-        .with_provider(&provider_id, |p| p.detect_active_session(&cwd, &session_id))
-        .flatten()
-    {
-        let claimed = {
-            let mut mux = svc.mux.write();
-            if active_sid == session_id || mux.other_session_ids(&tab_id).contains(&active_sid) {
-                false
-            } else if let Some(tab) = mux.get_tab_mut(&tab_id) {
-                if tab.agent_type.as_deref() == Some(provider_id.as_str()) {
-                    tab.agent_session_id = Some(active_sid.clone());
-                    crate::service::tab::clear_runtime_model_evidence(tab);
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-        if claimed {
-            log::info!(
-                "[chat_start] rolled Tab {} from {} -> {} ({})",
-                tab_id,
-                session_id,
-                active_sid,
-                provider_id,
-            );
-            svc.emit_state_changed();
-            session_id = active_sid;
-        }
-    }
-    let detect_ms = detect_started.elapsed().as_millis();
     let session_binding_nonce = svc
         .mux
         .read()
@@ -566,12 +530,11 @@ pub fn chat_start_core(
     let total_ms = started.elapsed().as_millis();
     if total_ms > 250 {
         log::warn!(
-            "[chat_start.slow] tab={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} read_bytes={} messages={}",
+            "[chat_start.slow] tab={} provider={} total_ms={} mux={} path={} read={} tailer={} total_bytes={} read_bytes={} messages={}",
             tab_id,
             provider_id,
             total_ms,
             mux_ms,
-            detect_ms,
             path_ms,
             read_ms,
             tailer_ms,
