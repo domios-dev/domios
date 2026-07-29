@@ -631,7 +631,7 @@ test("team header renders the live compact status tally", async () => {
   assert(!host.querySelector('[data-testid="team-donut"] svg'), "donut has no inner icon node");
   assert(!host.querySelector('[data-testid="team-open-effort"]'), "superseded effort row is absent");
   assert(
-    Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,1 blocked,3 done",
+    Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,1 blocked,0 paused,3 done",
     `tally=${tally?.textContent}`,
   );
   const items = Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []) as HTMLElement[];
@@ -639,11 +639,12 @@ test("team header renders the live compact status tally", async () => {
     PLAN_STATUS_COLORS.todo,
     PLAN_STATUS_COLORS.review,
     PLAN_STATUS_COLORS.blocked,
+    PLAN_STATUS_COLORS.paused,
     PLAN_STATUS_COLORS.done,
   ].join(","), "tally colors use runtime theme variables in board order");
-  assert(items.length === 4, "tally exposes all four status buckets");
-  assert(items.map((item) => item.querySelector(".ct-plan-status-breakdown-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "all four labels remain visible");
-  assert(tally?.textContent?.replace(/\s+/g, " ").trim() === "3 todo · 1 review · 1 blocked · 3 done", "tally uses middle-dot separators");
+  assert(items.length === 5, "tally exposes all five status buckets");
+  assert(items.map((item) => item.querySelector(".ct-plan-status-breakdown-label")?.textContent?.trim()).join(",") === "todo,review,blocked,paused,done", "all five labels remain visible");
+  assert(tally?.textContent?.replace(/\s+/g, " ").trim() === "3 todo · 1 review · 1 blocked · 0 paused · 3 done", "tally uses middle-dot separators");
   const managers = host.querySelector('[data-testid="managers-section"]');
   const disclosure = host.querySelector('[data-testid="team-collapse-toggle"]');
   assert(
@@ -681,7 +682,7 @@ test("team header renders the live compact status tally", async () => {
   ));
   await rerender([updatedPlan]);
   assert(
-    Array.from(host.querySelector('[data-testid="team-status-tally"]')?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,0 blocked,4 done",
+    Array.from(host.querySelector('[data-testid="team-status-tally"]')?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,0 blocked,0 paused,4 done",
     "live plan updates replace the tally counts",
   );
   await act(async () => root.unmount());
