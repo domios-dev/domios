@@ -1724,6 +1724,8 @@ Serialized QA queue for in_review tasks
 
 Mark QA failed, bounce to in_progress, and nudge the implementer
 
+- `--changed-executable-surfaces` — This attempt changed executable implementation surfaces
+- `--distinct-oracle` — This attempt used a materially distinct verification oracle
 - `--note`
 - `<plan_id>`
 - `<task_id>`
@@ -2025,14 +2027,16 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--qa-plan`
+- `--qa-plan-file`
 - `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
 - `--tag`
 - `--test-plan`
 - `--type`
-- `--why`
-- `--why-file`
+- `--why` — Routing rationale; stored as model_rationale in task JSON.
+- `--why-file` — Routing rationale; stored as model_rationale in task JSON.
 - `--workspace-id`
 - `--workspace-name`
 - `--worktree`
@@ -2104,6 +2108,7 @@ Link a task to one or more plan sections (CSV)
 
 List a plan's tasks, optionally filtered by status
 
+- `--all` — Include paused, done, and cancelled tasks
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
@@ -2187,6 +2192,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--qa-plan`
+- `--qa-plan-file`
 - `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
@@ -2197,8 +2204,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `<task_id>`
 - `--test-plan`
 - `--type`
-- `--why`
-- `--why-file`
+- `--why` — Routing rationale; stored as model_rationale in task JSON.
+- `--why-file` — Routing rationale; stored as model_rationale in task JSON.
 - `--workspace-id`
 - `--workspace-name`
 - `--worktree`
@@ -2722,6 +2729,8 @@ Add a standalone task to the workspace Inbox
 - `--intent-file`
 - `--model`
 - `--name`
+- `--qa-plan`
+- `--qa-plan-file`
 - `--test-plan`
 - `--type`
 - `--why`
