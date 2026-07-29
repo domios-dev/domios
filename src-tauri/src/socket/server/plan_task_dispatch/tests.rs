@@ -611,6 +611,31 @@ fn every_transaction_stage_failure_runs_compensation() {
 }
 
 #[test]
+fn binding_failure_never_false_starts() {
+    let committed = Cell::new(false);
+    let rolled_back = Cell::new(false);
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| Ok(()),
+        |_| Err("spawned tab did not bind a session".into()),
+        || Ok(provenance()),
+        |_, _| {
+            committed.set(true);
+            Ok(())
+        },
+        || {
+            rolled_back.set(true);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "session_binding");
+    assert!(!committed.get());
+    assert!(rolled_back.get());
+}
+
+#[test]
 fn agent_ready_oneshot_error_closed_sender_and_expired_deadline_fail() {
     let (error_tx, error_rx) = tokio::sync::oneshot::channel();
     error_tx

@@ -313,33 +313,52 @@ struct DispatchStartup {
 impl DispatchStartup {
     fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
         let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
-        let outcome: Result<DispatchEvidence, JsonRpcError> = (|| {
-            await_agent_ready(ready_rx, deadline)
-                .map_err(|error| dispatch_failed("agent_ready", error))?;
-            let session_id = wait_for_tab_session(&self.svc, &self.tab_id, deadline)
-                .map_err(|error| dispatch_failed("session_binding", error))?;
-            let lane = verify_worker_lane(
-                &self.provenance.canonical_cwd,
-                &self.provenance.worktree_path,
-                Some(&self.provenance.branch),
-                Some(&self.provenance.base),
-            )
-            .map_err(|error| dispatch_failed("provenance_readback", error))?;
-            let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, &lane);
-            self.svc
-                .plan_store
-                .finish_task_dispatch(
-                    &self.plan_id,
-                    &self.task_id,
-                    &self.tab_id,
-                    &self.attempt_id,
-                    &session_id,
-                    lane_metadata,
-                    epoch_ms(),
+        let provisioned_lane = self.provisioned_lane;
+        let outcome = complete_dispatch_transaction(
+            deadline,
+            |deadline| await_agent_ready(ready_rx, deadline),
+            |deadline| wait_for_tab_session(&self.svc, &self.tab_id, deadline),
+            || {
+                verify_worker_lane(
+                    &self.provenance.canonical_cwd,
+                    &self.provenance.worktree_path,
+                    Some(&self.provenance.branch),
+                    Some(&self.provenance.base),
                 )
-                .map_err(|error| dispatch_failed("task_commit", error.to_string()))?;
-            Ok(DispatchEvidence { session_id, lane })
-        })();
+            },
+            |lane, session_id| {
+                let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, lane);
+                self.svc
+                    .plan_store
+                    .finish_task_dispatch(
+                        &self.plan_id,
+                        &self.task_id,
+                        &self.tab_id,
+                        &self.attempt_id,
+                        session_id,
+                        lane_metadata,
+                        epoch_ms(),
+                    )
+                    .map_err(|error| error.to_string())
+            },
+            || {
+                rollback_failed_dispatch(
+                    provisioned_lane,
+                    || {
+                        self.svc
+                            .plan_store
+                            .restore_task_dispatch_snapshot(
+                                &self.plan_id,
+                                &self.original_task,
+                                self.original_plan_mode,
+                                epoch_ms(),
+                            )
+                            .map_err(|error| error.to_string())
+                    },
+                    || close_tab_if_present(&self.svc, &self.tab_id),
+                )
+            },
+        );
 
         match outcome {
             Ok(evidence) => {
@@ -370,21 +389,6 @@ impl DispatchStartup {
                     .unwrap_or("startup")
                     .to_string();
                 let reason = error.message.clone();
-                let cleanup = rollback_failed_dispatch(
-                    self.provisioned_lane,
-                    || {
-                        self.svc
-                            .plan_store
-                            .restore_task_dispatch_snapshot(
-                                &self.plan_id,
-                                &self.original_task,
-                                self.original_plan_mode,
-                                epoch_ms(),
-                            )
-                            .map_err(|error| error.to_string())
-                    },
-                    || close_tab_if_present(&self.svc, &self.tab_id),
-                );
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
@@ -401,10 +405,7 @@ impl DispatchStartup {
                         "attempt_id": self.attempt_id,
                         "stage": stage,
                         "error": reason,
-                        "cleanup": match cleanup {
-                            Ok(()) => json!({"ok": true}),
-                            Err(error) => json!({"ok": false, "error": error}),
-                        },
+                        "cleanup": {"ok": stage != "compensation"},
                     }),
                 );
             }
@@ -412,7 +413,6 @@ impl DispatchStartup {
     }
 }
 
-#[cfg(test)]
 fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     deadline: Instant,
     await_ready: Ready,

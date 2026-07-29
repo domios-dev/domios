@@ -227,19 +227,23 @@ fn integration_install_creates_all_four_hooks_with_markers() {
         assert!(
             arr.iter().any(|e| {
                 e["hooks"].as_array().map_or(false, |inner| {
-                    inner.iter().any(|h| h["_source"] == "codeterm-hook-v2")
+                    inner.iter().any(|h| h["_source"] == "codeterm-hook-v3")
                 })
             }),
             "missing v2 hook in {key}"
         );
-        // Curl points to the right port + path.
+        // Every Claude process routes through the URL and token injected by
+        // the CodeTerm instance that owns that exact Tab.
         let any_cmd = arr
             .iter()
             .flat_map(|e| e["hooks"].as_array().cloned().unwrap_or_default())
             .find_map(|h| h["command"].as_str().map(String::from))
             .unwrap();
         assert!(
-            any_cmd.contains("CODETERM_API_PORT:-7686"),
+            any_cmd.contains("CODETERM_API_URL")
+                && any_cmd.contains("CODETERM_API_TOKEN")
+                && !any_cmd.contains("CODETERM_API_PORT")
+                && !any_cmd.contains("NUL"),
             "{key} cmd: {any_cmd}"
         );
     }
@@ -320,7 +324,7 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
     );
     assert!(arr
         .iter()
-        .any(|e| { e["hooks"][0]["_source"] == "codeterm-hook-v2" }));
+        .any(|e| { e["hooks"][0]["_source"] == "codeterm-hook-v3" }));
 }
 
 #[test]
@@ -345,16 +349,16 @@ fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
     let ss = json["hooks"]["SessionStart"].as_array().unwrap();
     assert!(n
         .iter()
-        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
     assert!(s
         .iter()
-        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
     assert!(pc
         .iter()
-        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v3"));
     assert!(ss
         .iter()
-        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v3"));
 }
 
 #[test]
@@ -373,6 +377,27 @@ fn integration_ensure_on_startup_is_idempotent() {
     let second = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
     // Second pass must NOT duplicate hooks — checkIntegration sees installed=true and skips re-write.
     assert_eq!(first, second);
+}
+
+#[test]
+fn integration_install_is_identical_across_codeterm_instances() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let provider = claude_in_temp(&dir.path().join("rule.md"), &path);
+
+    provider.install_integration(7685).unwrap();
+    let prod = std::fs::read_to_string(&path).unwrap();
+    provider.install_integration(7686).unwrap();
+    let dev = std::fs::read_to_string(&path).unwrap();
+
+    assert_eq!(prod, dev);
+    assert!(dev.contains("CODETERM_API_URL"));
+    assert!(dev.contains("CODETERM_API_TOKEN"));
+    assert!(!dev.contains("CODETERM_API_PORT"));
+    assert!(!dev.contains("> NUL"));
 }
 
 /// Bridge-rule install: native impl writes to `~/.claude/rules/codeterm.md`
