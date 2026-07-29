@@ -609,6 +609,35 @@ fn default_grace_secs() -> u64 {
     crate::service::agent_restart::DEFAULT_GRACE_SECS
 }
 
+fn agent_restart_response(
+    outcome: &crate::service::agent_restart::RestartOutcome,
+) -> serde_json::Value {
+    serde_json::json!({
+        "restart_accepted": outcome.restart_accepted,
+        "old_pty_torn_down": outcome.old_pty_torn_down,
+        "agent_ready": outcome.agent_ready,
+        "old_pty_id": outcome.old_pty_id,
+        "new_pty_id": outcome.new_pty_id,
+        "tab_id": outcome.tab_id,
+        "provider": outcome.provider,
+        "session_id": outcome.session_id,
+        "session_was_stale": outcome.session_was_stale,
+        "session_action": outcome.session_action(),
+        "auto_approve": outcome.auto_approve,
+        "permission_profile": outcome.permission_profile(),
+        "force": outcome.force,
+    })
+}
+
+fn agent_restart_failure_response(
+    outcome: &crate::service::agent_restart::RestartOutcome,
+    reason: &str,
+) -> serde_json::Value {
+    let mut response = agent_restart_response(outcome);
+    response["error"] = serde_json::Value::String(reason.to_string());
+    response
+}
+
 pub async fn agent_restart_handler(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -628,34 +657,58 @@ pub async fn agent_restart_handler(
         grace_secs: default_grace_secs(),
     });
 
-    match state
-        .svc
-        .agent_restart(&tab_id, body.force, body.grace_secs)
-    {
-        Ok(outcome) => (
-            StatusCode::ACCEPTED,
-            Json(serde_json::json!({
-                "restarting": true,
-                "tab_id": outcome.tab_id,
-                "provider": outcome.provider,
-                "session_id": outcome.session_id,
-                "session_was_stale": outcome.session_was_stale,
-                "session_action": outcome.session_action(),
-                "auto_approve": outcome.auto_approve,
-                "permission_profile": outcome.permission_profile(),
-                "force": outcome.force,
-            })),
+    let svc = state.svc.clone();
+    let force = body.force;
+    let grace_secs = body.grace_secs;
+    let attempt =
+        tokio::task::spawn_blocking(move || svc.agent_restart_observed(&tab_id, force, grace_secs))
+            .await;
+    let attempt = match attempt {
+        Ok(attempt) => attempt,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("restart worker failed: {error}"),
+                    "restart_accepted": false,
+                    "old_pty_torn_down": false,
+                    "agent_ready": false,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    match attempt {
+        Ok(outcome) => {
+            (StatusCode::ACCEPTED, Json(agent_restart_response(&outcome))).into_response()
+        }
+        Err(crate::service::agent_restart::RestartAttemptError::Failed {
+            outcome,
+            reason,
+            timed_out,
+        }) => (
+            if timed_out {
+                StatusCode::GATEWAY_TIMEOUT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+            Json(agent_restart_failure_response(&outcome, &reason)),
         )
             .into_response(),
-        Err(crate::service::agent_restart::AgentRestartError::NotFound(m)) => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response()
-        }
-        Err(crate::service::agent_restart::AgentRestartError::BadRequest(m)) => (
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::NotFound(m),
+        )) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response(),
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::BadRequest(m),
+        )) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": m})),
         )
             .into_response(),
-        Err(crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs }) => {
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs },
+        )) => {
             let mut h = HeaderMap::new();
             h.insert("Retry-After", retry_after_secs.to_string().parse().unwrap());
             (
@@ -668,7 +721,9 @@ pub async fn agent_restart_handler(
             )
                 .into_response()
         }
-        Err(crate::service::agent_restart::AgentRestartError::Internal(m)) => (
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::Internal(m),
+        )) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": m})),
         )
@@ -845,6 +900,9 @@ pub async fn install_provider_in_tab(
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
+
+#[cfg(test)]
+mod restart_tests;
 
 #[cfg(test)]
 mod tests {

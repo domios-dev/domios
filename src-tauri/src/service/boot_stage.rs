@@ -7,6 +7,78 @@ use crate::multiplexer::types::Tab;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RestartReadiness {
+    Ready {
+        pty_id: String,
+    },
+    Failed {
+        pty_id: Option<String>,
+        reason: String,
+    },
+    TimedOut {
+        pty_id: Option<String>,
+    },
+}
+
+pub(crate) fn classify_restart_readiness(
+    pty_id: Option<&str>,
+    stage: Option<BootStage>,
+    failure_reason: Option<&str>,
+    old_pty_id: &str,
+) -> Option<RestartReadiness> {
+    let new_pty_id = pty_id.filter(|pty_id| *pty_id != old_pty_id);
+    match (new_pty_id, stage) {
+        (Some(pty_id), Some(BootStage::AgentReady)) => Some(RestartReadiness::Ready {
+            pty_id: pty_id.to_string(),
+        }),
+        (pty_id, Some(BootStage::SpawnFailed)) => Some(RestartReadiness::Failed {
+            pty_id: pty_id.map(str::to_string),
+            reason: failure_reason
+                .unwrap_or("new agent launch failed")
+                .to_string(),
+        }),
+        _ => None,
+    }
+}
+
+pub(crate) fn wait_for_restart_readiness(
+    mux: &crate::MuxState,
+    tab_id: &str,
+    old_pty_id: &str,
+    timeout: std::time::Duration,
+) -> RestartReadiness {
+    let inspect = || {
+        let mux = mux.read();
+        match mux.get_tab(tab_id) {
+            Some(tab) => classify_restart_readiness(
+                tab.pty_id.as_deref(),
+                tab.boot_stage,
+                tab.boot_failure_reason.as_deref(),
+                old_pty_id,
+            ),
+            None => Some(RestartReadiness::Failed {
+                pty_id: None,
+                reason: format!("Tab {tab_id} disappeared during restart"),
+            }),
+        }
+    };
+    let mut observed = inspect();
+    let signalled = super::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
+        observed = inspect();
+        observed.is_some()
+    });
+    if signalled {
+        return observed.expect("signalled restart readiness");
+    }
+    let pty_id = mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.pty_id.clone())
+        .filter(|pty_id| pty_id != old_pty_id);
+    RestartReadiness::TimedOut { pty_id }
+}
+
 /// Record a stage on the tab. Only SpawnFailed carries a reason, so any other
 /// stage clears a previously latched failure.
 pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
