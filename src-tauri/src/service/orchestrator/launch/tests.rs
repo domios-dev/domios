@@ -1,16 +1,147 @@
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, provider_launch_failure,
-    replacement_pty_candidate, spawn_onboarding_task, take_reader_termination, AgentRegistry,
-    LaunchFailure, LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
+    replacement_pty_candidate, spawn_onboarding_task, take_reader_termination,
+    worker_brief_delivery_incident, AgentRegistry, LaunchFailure, LaunchGeneration, LaunchRegistry,
+    ProviderSessionBinding,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{
+    AgentRole, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+};
+use crate::service::boot_stage::BootStageSink;
+use crate::service::inject_verify::InjectionResult;
+use crate::service::launch_delivery::{LaunchConsumptionOutcome, LaunchDeliveryGate};
 use crate::service::orchestrator::types::SpawnAgentParams;
 use crate::service::pty_io::tab_identity_env;
 use crate::service::spawn::{SpawnTabSpec, TabCommand};
+use codeterm_util::lock_hold::TimedRwLock;
+use parking_lot::Mutex;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::sync::Barrier;
+
+#[derive(Default)]
+struct DeliverySink(Mutex<Vec<&'static str>>);
+
+impl BootStageSink for DeliverySink {
+    fn record(&self, _: &str, stage: crate::service::boot_stage::BootStage, _: Option<&str>) {
+        self.0.lock().push(stage.as_str());
+    }
+}
+
+fn delivery_fixture() -> (
+    Arc<TimedRwLock<MultiplexerState>>,
+    String,
+    LaunchDeliveryGate,
+) {
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
+        "worker-brief".into(),
+        PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux = Arc::new(TimedRwLock::new("worker-brief-test", state));
+    let mut gate = LaunchDeliveryGate::new();
+    gate.mark_shell_ready();
+    gate.mark_provider_ready();
+    (mux, tab_id, gate)
+}
+
+#[test]
+fn worker_brief_without_ingestion_is_not_confirmed() {
+    let (mux, tab_id, gate) = delivery_fixture();
+    let sink = DeliverySink::default();
+    let payload_writes = Cell::new(0);
+    let consumption = gate.consume_injection(&mux, &tab_id, &sink, || {
+        payload_writes.set(payload_writes.get() + 1);
+        Ok(InjectionResult {
+            bytes_written: "worker brief".len(),
+            echo_observed: false,
+            submit_observed: false,
+            submit_anomaly: false,
+            elapsed: std::time::Duration::ZERO,
+        })
+    });
+    let cleanup_calls = Cell::new(0);
+    if matches!(consumption, Ok(LaunchConsumptionOutcome::Confirmed)) {
+        cleanup_calls.set(cleanup_calls.get() + 1);
+    }
+    let pending = mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .clone()
+        .unwrap();
+
+    assert_eq!(payload_writes.get(), 1);
+    assert_eq!(cleanup_calls.get(), 0);
+    assert_eq!(pending.state(), PendingDeliveryState::Unconfirmed);
+    assert_eq!(
+        consumption.unwrap_err().delivery.code(),
+        "submit_unconfirmed"
+    );
+}
+
+#[test]
+fn worker_brief_is_one_payload_and_one_turn() {
+    let (mux, tab_id, gate) = delivery_fixture();
+    let payload = "first line\nsecond line\nthird line";
+    let payloads = RefCell::new(Vec::new());
+    let turns = Cell::new(0);
+    let queued_characters = Cell::new(0);
+
+    let consumption = gate
+        .consume_injection(&mux, &tab_id, &DeliverySink::default(), || {
+            crate::service::pty_io::submit_transaction::submit_entry(
+                crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                payload,
+                |submitted| {
+                    payloads.borrow_mut().push(submitted.to_string());
+                    turns.set(turns.get() + 1);
+                    Ok(InjectionResult {
+                        bytes_written: submitted.len(),
+                        echo_observed: true,
+                        submit_observed: true,
+                        submit_anomaly: false,
+                        elapsed: std::time::Duration::ZERO,
+                    })
+                },
+            )
+        })
+        .unwrap();
+
+    assert_eq!(consumption, LaunchConsumptionOutcome::Confirmed);
+    assert_eq!(payloads.borrow().as_slice(), &[payload]);
+    assert_eq!(turns.get(), 1);
+    assert_eq!(queued_characters.get(), 0);
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_delivery
+            .as_ref()
+            .unwrap()
+            .state(),
+        PendingDeliveryState::AcceptedWeak
+    );
+    let launch_source = include_str!("../launch.rs");
+    assert!(launch_source.contains("submit_text_with_key"));
+    assert!(!launch_source.contains("send_text_detached"));
+}
+
+#[test]
+fn worker_brief_failure_alert_states_impact_cleanup_and_fallback() {
+    let (title, body) =
+        worker_brief_delivery_incident("worker-tab", "submit_unconfirmed: composer retained");
+
+    assert_eq!(title, "Orchestration incident: launch brief undelivered");
+    assert!(body.contains("Impact: Tab worker-tab was not marked ready"));
+    assert!(body.contains("Cleanup: confirmed-delivery cleanup was skipped"));
+    assert!(body.contains("Fallback:"));
+    assert!(body.contains("pending brief was retained"));
+    assert!(body.contains("submit_unconfirmed"));
+}
 
 fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {

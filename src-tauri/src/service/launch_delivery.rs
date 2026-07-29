@@ -7,6 +7,7 @@ use crate::multiplexer::types::{
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::delivery_error::DeliveryError;
+use crate::service::inject_verify::{InjectionError, InjectionResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -78,6 +79,35 @@ impl LaunchDeliveryGate {
         self.stage = LaunchConsumptionStage::ProviderReady;
     }
 
+    pub(crate) fn consume_injection<F>(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+        sink: &impl BootStageSink,
+        transaction: F,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
+    where
+        F: FnOnce() -> Result<InjectionResult, InjectionError>,
+    {
+        if let Some(outcome) = self.prepare_consumption(mux, tab_id) {
+            return Ok(outcome);
+        }
+
+        let result = dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            sink,
+            tab_id,
+            Some(transaction),
+        )
+        .expect("fallback delivery dispatch executes the transaction");
+        let transaction_error = result.as_ref().err().map(ToString::to_string);
+        let evidence = result
+            .map(|injection| injection.echo_observed && injection.submit_observed)
+            .map_err(|error| DeliveryError::from_injection(tab_id, error));
+        self.finish_consumption(mux, tab_id, evidence, transaction_error)
+    }
+
+    #[cfg(test)]
     pub(crate) fn consume<F>(
         &self,
         mux: &MuxState,
@@ -88,25 +118,9 @@ impl LaunchDeliveryGate {
     where
         F: FnOnce() -> Result<bool, String>,
     {
-        if self.stage != LaunchConsumptionStage::ProviderReady {
-            return Ok(LaunchConsumptionOutcome::NotReady);
+        if let Some(outcome) = self.prepare_consumption(mux, tab_id) {
+            return Ok(outcome);
         }
-        let should_submit = {
-            let mut mux = mux.write();
-            let pending = mux
-                .get_tab_mut(tab_id)
-                .and_then(|tab| tab.pending_delivery.as_mut())
-                .expect("fallback launch owns a pending delivery record");
-            if pending.state().is_accepted() {
-                false
-            } else {
-                begin_fallback_attempt(tab_id, pending, next_attempt()).is_ok()
-            }
-        };
-        if !should_submit {
-            return Ok(LaunchConsumptionOutcome::AlreadyConfirmed);
-        }
-
         let result = dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             sink,
@@ -138,6 +152,49 @@ impl LaunchDeliveryGate {
                 transaction: result.err(),
             }),
         }
+    }
+
+    fn prepare_consumption(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+    ) -> Option<LaunchConsumptionOutcome> {
+        if self.stage != LaunchConsumptionStage::ProviderReady {
+            return Some(LaunchConsumptionOutcome::NotReady);
+        }
+        let should_submit = {
+            let mut mux = mux.write();
+            let pending = mux
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
+                .expect("fallback launch owns a pending delivery record");
+            !pending.state().is_accepted()
+                && begin_fallback_attempt(tab_id, pending, next_attempt()).is_ok()
+        };
+        (!should_submit).then_some(LaunchConsumptionOutcome::AlreadyConfirmed)
+    }
+
+    fn finish_consumption(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+        evidence: Result<bool, DeliveryError>,
+        transaction: Option<String>,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError> {
+        let delivery = {
+            let mut mux = mux.write();
+            let pending = mux
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
+                .expect("fallback launch retains its pending delivery record");
+            reconcile_pending_delivery(tab_id, pending, evidence)
+        };
+        delivery
+            .map(|_| LaunchConsumptionOutcome::Confirmed)
+            .map_err(|delivery| LaunchConsumptionError {
+                delivery,
+                transaction,
+            })
     }
 }
 
@@ -467,9 +524,15 @@ mod tests {
         gate.mark_shell_ready();
         gate.mark_provider_ready();
         assert_eq!(
-            gate.consume(&mux, &tab_id, &sink, || {
+            gate.consume_injection(&mux, &tab_id, &sink, || {
                 submitted.push(spec.payload.clone());
-                Ok(true)
+                Ok(InjectionResult {
+                    bytes_written: spec.payload.len(),
+                    echo_observed: true,
+                    submit_observed: true,
+                    submit_anomaly: false,
+                    elapsed: Duration::ZERO,
+                })
             })
             .unwrap(),
             LaunchConsumptionOutcome::Confirmed

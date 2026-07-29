@@ -34,6 +34,18 @@ fn role_assignment_task(
     }
 }
 
+pub(crate) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {
+    (
+        "Orchestration incident: launch brief undelivered".to_string(),
+        format!(
+            "Impact: Tab {tab_id} was not marked ready, so its assigned work must not proceed. \
+             Cleanup: confirmed-delivery cleanup was skipped and the pending brief was retained. \
+             Fallback: the launch failed after the bounded submit-key attempt; retry the pending assignment explicitly. \
+             Cause: {error}"
+        ),
+    )
+}
+
 pub(crate) fn role_onboarding_task(
     task: Option<&str>,
     role: Option<&str>,
@@ -96,7 +108,7 @@ pub(crate) struct LaunchRegistry {
 }
 #[cfg(test)]
 #[path = "launch/tests.rs"]
-mod binding_tests;
+mod tests;
 #[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
@@ -916,16 +928,25 @@ pub(crate) fn launch_agent_in_background(
                         crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                     });
                 }
-                let consumption = delivery_gate.consume(&svc.mux, &tab_id, &svc, || {
-                    crate::service::pty_io::submit_transaction::submit_entry(
-                        crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                let submit_strategy = registry
+                    .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+                let consumption = delivery_gate.consume_injection(&svc.mux, &tab_id, &svc, || {
+                    crate::service::pty_io::submit_transaction::submit_text_with_key(
+                        &svc,
+                        &pty_id,
                         &task_text,
-                        |text| {
-                            svc.send_text_detached(&tab_id, text, true);
-                            Ok::<(), String>(())
+                        true,
+                        b"\r",
+                        submit_strategy,
+                        crate::service::inject_verify::VerifyOpts {
+                            require_prompt_first: false,
+                            verify_echo: true,
+                            verify_submit: true,
+                            ..Default::default()
                         },
-                    )?;
-                    Ok(true)
+                        None,
+                    )
                 });
                 let cleanup_error = if matches!(
                     &consumption,
@@ -940,6 +961,8 @@ pub(crate) fn launch_agent_in_background(
                 let delivery_error =
                     cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
                 if let Some(e) = delivery_error {
+                    let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
+                    svc.create_notification(title, Some(body), Some("error"));
                     log::error!(
                         "launch_agent: task delivery failed for Tab {} (pty {}): {}",
                         tab_id,
