@@ -65,6 +65,32 @@ impl ServiceContext {
                     provider_or_generic_tui(provider_screen_has_tui, generic_screen_has_agent_tui);
                 let alternate_screen = input.is_some_and(|input| input.alternate_screen);
                 let composer_ready = input.is_some_and(composer_input_ready);
+                let visible_cursor_bottom_region = input.is_some_and(|input| {
+                    crate::agent::offline_state_classifier::composer_cursor_ready(
+                        input.cursor_visible,
+                        input.cursor_row,
+                        input.rows,
+                    )
+                });
+                let inverse_terminal_bottom_region = input.is_some_and(|input| {
+                    input.sole_nonblank_inverse_row.is_some_and(|row| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            true, row, input.rows,
+                        )
+                    })
+                });
+                let inverse_content_bottom_region = input.is_some_and(|input| {
+                    input
+                        .sole_nonblank_inverse_row
+                        .zip(input.last_nonblank_row)
+                        .is_some_and(|(row, bottom)| {
+                            crate::agent::offline_state_classifier::composer_cursor_ready(
+                                true,
+                                row,
+                                bottom.saturating_add(1),
+                            )
+                        })
+                });
                 let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
                 let ready = provider_frame_ready(
                     tui_ready,
@@ -78,6 +104,8 @@ impl ServiceContext {
                         "[provider-readiness-observation] pty={} input={:?} \
                          provider_screen_has_tui={:?} generic_screen_has_agent_tui={} \
                          prompt_ready={} require_composer={} composer_ready={} \
+                         visible_cursor_bottom_region={} inverse_terminal_bottom_region={} \
+                         inverse_content_bottom_region={} \
                          structural_tui_ready={} ready={}",
                         pty_id,
                         input,
@@ -86,6 +114,9 @@ impl ServiceContext {
                         prompt_ready,
                         require_composer,
                         composer_ready,
+                        visible_cursor_bottom_region,
+                        inverse_terminal_bottom_region,
+                        inverse_content_bottom_region,
                         structural_tui_ready,
                         ready,
                     );

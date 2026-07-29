@@ -33,6 +33,8 @@ pub struct ComposerInputState {
     pub cols: u16,
     pub inverse_caret_row: Option<u16>,
     pub nonblank_inverse_cells: usize,
+    pub sole_nonblank_inverse_row: Option<u16>,
+    pub last_nonblank_row: Option<u16>,
 }
 
 impl ScreenChangeSignal {
@@ -291,6 +293,8 @@ impl ScreenState {
             let (rows, cols) = screen.size();
             let (cursor_row, _cursor_col) = screen.cursor_position();
             let inverse_cells = nonblank_inverse_cells(screen);
+            let sole_nonblank_inverse_row =
+                (inverse_cells.len() == 1).then_some(inverse_cells[0].0);
             ComposerInputState {
                 alternate_screen: screen.alternate_screen(),
                 cursor_visible: !screen.hide_cursor(),
@@ -299,6 +303,8 @@ impl ScreenState {
                 cols,
                 inverse_caret_row: hidden_inverse_caret_row(screen, &inverse_cells),
                 nonblank_inverse_cells: inverse_cells.len(),
+                sole_nonblank_inverse_row,
+                last_nonblank_row: last_nonblank_row(screen),
             }
         })
     }
@@ -614,6 +620,17 @@ fn hidden_inverse_caret_row(screen: &vt100::Screen, inverse_cells: &[(u16, u16)]
         return None;
     }
     Some(inverse_cells[0].0)
+}
+
+fn last_nonblank_row(screen: &vt100::Screen) -> Option<u16> {
+    let (rows, cols) = screen.size();
+    (0..rows).rev().find(|row| {
+        (0..cols).any(|col| {
+            screen
+                .cell(*row, col)
+                .is_some_and(|cell| !cell.contents().trim().is_empty())
+        })
+    })
 }
 
 /// Heuristic: does the screen still show an agent TUI (Claude / Codex / Opencode)?

@@ -192,6 +192,8 @@ fn cursor_hidden_inverse_composer_frame_exposes_structural_caret() {
     assert_eq!(input.cols, 120);
     assert_eq!(input.inverse_caret_row, Some(17));
     assert_eq!(input.nonblank_inverse_cells, 1);
+    assert_eq!(input.sole_nonblank_inverse_row, Some(17));
+    assert_eq!(input.last_nonblank_row, Some(20));
 }
 
 #[test]
@@ -205,6 +207,7 @@ fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
     let selection = selection.composer_input_state("selection").unwrap();
     assert_eq!(selection.inverse_caret_row, None);
     assert_eq!(selection.nonblank_inverse_cells, 2);
+    assert_eq!(selection.sole_nonblank_inverse_row, None);
 
     let mut visible_cursor = ScreenState::new();
     visible_cursor.resize("visible", 120, 23);
@@ -212,6 +215,7 @@ fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
     let visible_cursor = visible_cursor.composer_input_state("visible").unwrap();
     assert_eq!(visible_cursor.inverse_caret_row, None);
     assert_eq!(visible_cursor.nonblank_inverse_cells, 1);
+    assert_eq!(visible_cursor.sole_nonblank_inverse_row, Some(17));
 }
 
 #[test]
