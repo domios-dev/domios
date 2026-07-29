@@ -256,7 +256,7 @@ if [ -n "${CT_BUILD_GATEWAY_SCOPE:-}" ]; then
   exit 2
 fi
 case "$CMD" in
-  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe)
+  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe)
     [ -z "${CODETERM_BUILD_GATEWAY_FIXTURE_DIR:-}" ] || ct_gateway_set_fixture_dir "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR"
     ;;
   *)
@@ -267,12 +267,127 @@ case "$CMD" in
     ;;
 esac
 
+CT_BUILD_GATEWAY_LOGGING_FAILURE=74
+
+finish_build_gateway_logging() {
+  local reader_status=0
+  exec 1>&3 2>&4
+  if [ -n "${CT_BUILD_GATEWAY_LOG_READER_STATUS:-}" ]; then
+    reader_status="$CT_BUILD_GATEWAY_LOG_READER_STATUS"
+  elif wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
+    reader_status=0
+  else
+    reader_status=$?
+  fi
+  exec 3>&- 4>&-
+  return "$reader_status"
+}
+
+build_gateway_logging_on_exit() {
+  local command_status="$?" summary_status reader_status
+  trap - EXIT INT TERM
+  set +e
+  printf 'Build gateway job %s exit: %s\n' "$CT_BUILD_JOB_ID" "$command_status"
+  summary_status=$?
+  finish_build_gateway_logging
+  reader_status=$?
+  if [ "$summary_status" -ne 0 ] || [ "$reader_status" -ne 0 ]; then
+    printf 'ERROR: build gateway logging path broke (exit %s); command exit was %s; log: %s\n' \
+      "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+    ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+    exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  ct_gateway_finish "$command_status"
+  exit "$command_status"
+}
+
+break_build_gateway_log_reader() {
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] || return 2
+  kill -TERM "$CT_BUILD_GATEWAY_LOG_READER_PID"
+  if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
+    CT_BUILD_GATEWAY_LOG_READER_STATUS=0
+  else
+    CT_BUILD_GATEWAY_LOG_READER_STATUS=$?
+  fi
+  return 0
+}
+
 enter_build_gateway() {
   ct_gateway_acquire "$*"
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
+  if [ -n "${CT_BUILD_GATEWAY_TEST_LOG_PATH:-}" ]; then
+    [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] || {
+      echo "ERROR: CT_BUILD_GATEWAY_TEST_LOG_PATH requires fixture scope" >&2
+      exit 2
+    }
+    gateway_log="$CT_BUILD_GATEWAY_TEST_LOG_PATH"
+  fi
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
-  exec > >(tee -a "$gateway_log") 2>&1
+  if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
+    echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
+    return
+  fi
+  exec 3>&1 4>&2
+  trap '' PIPE
+  unset CT_BUILD_GATEWAY_LOG_READER_STATUS
+  exec > >(tee -a "$gateway_log" >&3) 2>&1
+  CT_BUILD_GATEWAY_LOG_READER_PID=$!
+  CT_BUILD_GATEWAY_LOG_PATH="$gateway_log"
+  trap 'build_gateway_logging_on_exit' EXIT
+}
+
+check_build_gateway_logging() {
+  local root success_log reader_status open_status
+  root="$(mktemp -d "${TMPDIR:-/tmp}/codeterm-gateway-logging.XXXXXX")"
+  CT_BUILD_GATEWAY_CHECK_ROOT="$root"
+  trap 'rm -rf -- "$CT_BUILD_GATEWAY_CHECK_ROOT"' EXIT
+  CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/success" ./build.sh gateway-log-probe success \
+    > "$root/success.console" 2>&1
+  success_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/success.console" | head -1 | tr -d '\r')"
+  grep -q '^MARKER_LAST$' "$root/success.console" || {
+    echo "build gateway logging regression: console lost the final marker" >&2
+    return 1
+  }
+  grep -q '^MARKER_LAST$' "$success_log" || {
+    echo "build gateway logging regression: gateway log lost the final marker" >&2
+    return 1
+  }
+  echo "success: final marker reached console and gateway log"
+  if CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/reader" ./build.sh gateway-log-probe reader-failure \
+      > "$root/reader.console" 2>&1; then
+    reader_status=0
+  else
+    reader_status=$?
+  fi
+  [ "$reader_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: reader failure exited $reader_status" >&2
+    return 1
+  }
+  grep -q 'build gateway logging path broke' "$root/reader.console" || {
+    echo "build gateway logging regression: reader failure was misclassified" >&2
+    return 1
+  }
+  echo "reader failure: exit $reader_status reported as gateway logging failure"
+  if CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/open" ./build.sh gateway-log-probe open-failure \
+      > "$root/open.console" 2>&1; then
+    open_status=0
+  else
+    open_status=$?
+  fi
+  [ "$open_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: open failure exited $open_status" >&2
+    return 1
+  }
+  grep -q 'build gateway logging path broke' "$root/open.console" || {
+    echo "build gateway logging regression: open failure was misclassified" >&2
+    return 1
+  }
+  echo "open failure: exit $open_status reported as gateway logging failure"
+  rm -rf -- "$root"
+  trap - EXIT
+  unset CT_BUILD_GATEWAY_CHECK_ROOT
+  echo "build gateway logging regression: PASS"
 }
 
 prepare_exceptional_worktree_target() {
@@ -842,6 +957,20 @@ case "$CMD" in
     fi
     [ "${4:-success}" != "fail" ] || exit 23
     ;;
+  gateway-log-probe)
+    log_probe_mode="${2:-success}"
+    if [ "$log_probe_mode" = "open-failure" ]; then
+      mkdir -p "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/unopenable"
+      CT_BUILD_GATEWAY_TEST_LOG_PATH="$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/unopenable"
+    fi
+    enter_build_gateway "$CMD $log_probe_mode"
+    printf 'MARKER_FIRST\n'
+    [ "$log_probe_mode" != "reader-failure" ] || break_build_gateway_log_reader
+    printf 'MARKER_LAST\n'
+    ;;
+  gateway-logging-check)
+    check_build_gateway_logging
+    ;;
   gateway-policy-probe)
     case "${2:-}" in
       release-source) require_release_source ;;
@@ -1177,7 +1306,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|install-local [--continue-prompt TEXT] [--continue-tab ID] [--no-continue]|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
+    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|install-local [--continue-prompt TEXT] [--continue-tab ID] [--no-continue]|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-logging-check|gateway-health-check|env}"
     exit 1
     ;;
 esac
