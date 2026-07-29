@@ -404,6 +404,40 @@ mod tests {
         assert!(screen_contains_echo(captured_tail, expected));
     }
 
+    fn captured_wrapped_composer_region() -> String {
+        let lines = include_str!("fixtures/captured_wrapped_bordered_composer.txt")
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        crate::service::pty_io::submit_transaction::composer_region_text(&lines, lines.len() - 1)
+    }
+
+    #[test]
+    fn wrapped_bordered_composer_echo_is_evidence() {
+        let expected = include_str!("fixtures/captured_wrapped_bordered_payload.txt").trim();
+
+        assert_eq!(
+            screen_echo_evidence_count(&captured_wrapped_composer_region(), expected),
+            1
+        );
+    }
+
+    #[test]
+    fn wrapped_but_truncated_payload_is_not_evidence() {
+        let expected = include_str!("fixtures/captured_wrapped_bordered_payload.txt").trim();
+        let final_word = expected
+            .rsplit_once(' ')
+            .map(|(_, word)| word)
+            .expect("the captured payload has multiple words");
+        let mut truncated = captured_wrapped_composer_region();
+        let cutoff = truncated
+            .rfind(final_word)
+            .expect("the captured frame contains the final payload word");
+        truncated.replace_range(cutoff..cutoff + final_word.len(), "");
+
+        assert_eq!(screen_echo_evidence_count(&truncated, expected), 0);
+    }
+
     #[test]
     fn tail_text_preserves_the_wrap_column_character() {
         let h = handle();

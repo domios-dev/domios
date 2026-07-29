@@ -85,6 +85,10 @@ impl DeliveryError {
         })
     }
 
+    pub fn ledger_message(&self) -> String {
+        format!("{}: {self}", self.code())
+    }
+
     /// Classify a delivery failure whose typed cause was already flattened to a
     /// string. Zero-byte claims are never inferred here — an unrecognised
     /// failure is reported as `submit_unconfirmed` so the caller is warned the

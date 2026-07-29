@@ -15,17 +15,26 @@ use crate::service::ServiceContext;
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = 3;
 
-fn composer_marker(line: &str) -> bool {
+fn framed_composer_row(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
-    let trimmed = trimmed
+    let content = trimmed
         .strip_prefix('│')
-        .or_else(|| trimmed.strip_prefix('┃'))
-        .unwrap_or(trimmed)
+        .or_else(|| trimmed.strip_prefix('┃'))?
         .trim_start();
+    let content = content.trim_end();
+    let content = content
+        .strip_suffix('│')
+        .or_else(|| content.strip_suffix('┃'))
+        .unwrap_or(content);
+    Some(content.trim_end())
+}
+
+fn composer_marker(line: &str) -> bool {
+    let trimmed = framed_composer_row(line).unwrap_or_else(|| line.trim_start());
     matches!(trimmed.chars().next(), Some('›' | '❯' | '→'))
 }
 
-fn composer_region_text(lines: &[String], cursor_row: usize) -> String {
+pub(crate) fn composer_region_text(lines: &[String], cursor_row: usize) -> String {
     if lines.is_empty() {
         return String::new();
     }
@@ -34,7 +43,11 @@ fn composer_region_text(lines: &[String], cursor_row: usize) -> String {
         .rev()
         .find(|row| composer_marker(&lines[*row]))
         .unwrap_or_else(|| end.saturating_sub(TAIL_ROWS - 1));
-    lines[start..=end].join("\n")
+    lines[start..=end]
+        .iter()
+        .map(|line| framed_composer_row(line).unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {

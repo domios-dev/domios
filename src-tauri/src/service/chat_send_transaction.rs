@@ -173,9 +173,9 @@ pub(crate) fn run_chat_send(
     ledger: &ChatSendLedger,
     pending: ChatSendStatus,
     text: &str,
-    submit: impl FnOnce(&str) -> Result<(), String>,
+    submit: impl FnOnce(&str) -> Result<(), crate::service::delivery_error::DeliveryError>,
 ) -> ChatSendStatus {
-    let result = submit(text);
+    let result = submit(text).map_err(|error| error.ledger_message());
     ledger
         .finish(&pending.send_id, result)
         .expect("a started Chat send remains in the bounded ledger until completion")
@@ -193,7 +193,7 @@ impl crate::service::ServiceContext {
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                svc.send_text(&tab_id, text, true)
+                svc.send_text_delivery(&tab_id, text, true)
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
@@ -212,6 +212,15 @@ impl crate::service::ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::delivery_error::DeliveryError;
+    use crate::service::inject_verify::InjectionError;
+
+    fn submit_unconfirmed(detail: impl Into<String>) -> DeliveryError {
+        DeliveryError::SubmitUnconfirmed {
+            tab: "tab-1".into(),
+            detail: detail.into(),
+        }
+    }
 
     #[test]
     fn failed_submit_retains_one_payload_and_correlated_result() {
@@ -220,7 +229,7 @@ mod tests {
         let mut writes = Vec::new();
         let result = run_chat_send(&ledger, pending.clone(), "one payload", |text| {
             writes.push(text.to_string());
-            Err("submit key was not acknowledged".into())
+            Err(submit_unconfirmed("submit key was not acknowledged"))
         });
 
         assert_eq!(writes, ["one payload"]);
@@ -247,7 +256,9 @@ mod tests {
         let ledger = ChatSendLedger::default();
         let first = ledger.try_start("tab-1").unwrap();
         let second = ledger.try_start("tab-1").unwrap();
-        let failed = run_chat_send(&ledger, first, "first", |_| Err("Enter swallowed".into()));
+        let failed = run_chat_send(&ledger, first, "first", |_| {
+            Err(submit_unconfirmed("Enter swallowed"))
+        });
 
         assert_eq!(ledger.reconcile("tab-1"), vec![failed]);
         assert_eq!(second.state, ChatSendState::Pending);
@@ -274,17 +285,21 @@ mod tests {
         let ledger = ChatSendLedger::default();
         let first = ledger.try_start("tab-1").unwrap();
         let second = ledger.try_start("tab-1").unwrap();
-        run_chat_send(&ledger, first, "first", |_| Err("first failed".into()));
-        run_chat_send(&ledger, second, "second", |_| Err("second failed".into()));
+        run_chat_send(&ledger, first, "first", |_| {
+            Err(submit_unconfirmed("first failed"))
+        });
+        run_chat_send(&ledger, second, "second", |_| {
+            Err(submit_unconfirmed("second failed"))
+        });
 
-        assert_eq!(
-            ledger
-                .reconcile("tab-1")
-                .into_iter()
-                .filter_map(|status| status.error)
-                .collect::<Vec<_>>(),
-            ["first failed", "second failed"]
-        );
+        let errors = ledger
+            .reconcile("tab-1")
+            .into_iter()
+            .filter_map(|status| status.error)
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 2);
+        assert!(errors[0].contains("first failed"));
+        assert!(errors[1].contains("second failed"));
     }
 
     #[test]
@@ -293,7 +308,7 @@ mod tests {
         for index in 0..=MAX_RESULTS {
             let pending = ledger.try_start("tab-1").unwrap();
             run_chat_send(&ledger, pending, "message", |_| {
-                Err(format!("failure-{index}"))
+                Err(submit_unconfirmed(format!("failure-{index}")))
             });
         }
 
@@ -301,5 +316,29 @@ mod tests {
         assert_eq!(retained.len(), MAX_RESULTS);
         assert_eq!(retained[0].sequence, 2);
         assert!(retained.iter().all(|status| status.retained_from == 2));
+    }
+
+    #[test]
+    fn echo_mismatch_reaches_ledger_as_submit_unconfirmed() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1").unwrap();
+        let result = run_chat_send(&ledger, pending, "wrapped payload", |_| {
+            Err(DeliveryError::from_injection(
+                "tab-1",
+                InjectionError::EchoMismatch {
+                    expected_substr: "wrapped payload".into(),
+                    screen_tail: "bordered frame".into(),
+                },
+            ))
+        });
+
+        assert_eq!(result.state, ChatSendState::Failed);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .is_some_and(|error| error.starts_with("submit_unconfirmed:")),
+            "the rendered ledger boundary must retain retryable uncertainty"
+        );
     }
 }

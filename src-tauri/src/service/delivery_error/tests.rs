@@ -32,6 +32,18 @@ fn echo_mismatch_admits_the_write() {
     );
     assert_eq!(err.code(), "submit_unconfirmed");
     assert!(err.bytes_written());
+    assert!(
+        err.ledger_message().starts_with("submit_unconfirmed:"),
+        "the ledger boundary retains the retryable classification"
+    );
+}
+
+#[test]
+fn direct_send_boundaries_retain_delivery_error_type() {
+    let _: fn(&crate::service::ServiceContext, &str, &str, bool) -> Result<(), DeliveryError> =
+        crate::service::ServiceContext::send_text_with_guarantee;
+    let _: fn(&crate::service::ServiceContext, &str, &str, bool) -> Result<(), DeliveryError> =
+        crate::service::ServiceContext::send_text_delivery;
 }
 
 #[test]
