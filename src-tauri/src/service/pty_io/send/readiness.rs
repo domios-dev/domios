@@ -46,33 +46,51 @@ impl ServiceContext {
         wait_for_observed_readiness(
             deadline,
             || {
-                let (screen, alternate_screen, composer_ready) = {
+                let (screen, input) = {
                     let screen_state = self.screen_state.lock();
                     let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
                     let input = screen_state.composer_input_state(pty_id);
-                    let (alternate_screen, composer_ready) = input
-                        .map(|input| (input.alternate_screen, composer_input_ready(input)))
-                        .unwrap_or((false, false));
-                    (screen, alternate_screen, composer_ready)
+                    (screen, input)
                 };
-                let provider_ready = self
+                let provider_screen_has_tui = self
                     .agent_registry
                     .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));
-                let provider_prompt = self
+                let generic_screen_has_agent_tui =
+                    codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen);
+                let prompt_ready = self
                     .agent_registry
                     .parse_prompt(agent_id, &screen)
                     .is_some();
-                let ready = provider_or_generic_tui(
-                    provider_ready,
-                    codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
-                );
-                provider_frame_ready(
-                    ready,
-                    provider_prompt,
+                let tui_ready =
+                    provider_or_generic_tui(provider_screen_has_tui, generic_screen_has_agent_tui);
+                let alternate_screen = input.is_some_and(|input| input.alternate_screen);
+                let composer_ready = input.is_some_and(composer_input_ready);
+                let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
+                let ready = provider_frame_ready(
+                    tui_ready,
+                    prompt_ready,
                     require_composer,
                     alternate_screen,
                     composer_ready,
-                )
+                );
+                if require_composer {
+                    log::info!(
+                        "[provider-readiness-observation] pty={} input={:?} \
+                         provider_screen_has_tui={:?} generic_screen_has_agent_tui={} \
+                         prompt_ready={} require_composer={} composer_ready={} \
+                         structural_tui_ready={} ready={}",
+                        pty_id,
+                        input,
+                        provider_screen_has_tui,
+                        generic_screen_has_agent_tui,
+                        prompt_ready,
+                        require_composer,
+                        composer_ready,
+                        structural_tui_ready,
+                        ready,
+                    );
+                }
+                ready
             },
             |remaining| {
                 let changed = signal.wait_after(generation.get(), remaining);
