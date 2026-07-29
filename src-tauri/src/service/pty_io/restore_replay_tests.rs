@@ -6,7 +6,7 @@ use crate::multiplexer::types::{
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::launch_delivery::{
-    DeliveryError, LaunchConsumptionError, LaunchConsumptionOutcome, LaunchDeliveryGate,
+    LaunchConsumptionError, LaunchConsumptionOutcome, LaunchDeliveryGate,
 };
 use crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore;
 use codeterm_util::lock_hold::TimedRwLock;
@@ -92,7 +92,7 @@ impl RestoreReplayFixture {
             false,
             move || match pending {
                 Some(record)
-                    if record.state() == PendingDeliveryState::Pending
+                    if record.state().needs_delivery()
                         && record.channel == PendingDeliveryChannel::InteractiveInput =>
                 {
                     store
@@ -187,7 +187,7 @@ fn restore_replays_pending_exactly_once() {
         fixture.delivered_payloads(),
         ["byte-identical restored launch task"]
     );
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn restore_confirmed_never_redelivers() {
 
     assert_eq!(fixture.delivery_writes(), 0);
     assert!(fixture.delivered_payloads().is_empty());
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn duplicate_restore_single_replay() {
 
     assert_eq!(winners, 1);
     assert_eq!(fixture.delivery_writes(), 1);
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn relink_racing_consumption_no_double_delivery() {
     assert!(!fixture.restore().unwrap());
 
     assert_eq!(fixture.delivery_writes(), 1);
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn replay_deadline_leaves_pending() {
 
     let error = fixture.consume_replay(false).unwrap_err();
 
-    assert_eq!(error.delivery, DeliveryError::DeliveryUnconfirmed);
+    assert_eq!(error.delivery.code(), "submit_unconfirmed");
     assert_eq!(fixture.delivery_writes(), 1);
     assert_eq!(fixture.pending_state(), PendingDeliveryState::Pending);
 }

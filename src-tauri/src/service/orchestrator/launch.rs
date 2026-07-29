@@ -847,16 +847,20 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
+        let provider_readiness = svc
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                provider.provider_readiness_strategy()
+            })
+            .unwrap_or_default();
         let provider_hook_ready = launch.await_provider_ack(std::time::Duration::ZERO);
-        let provider_tui_ready = provider_hook_ready
-            || svc.await_agent_tui_frame_on_screen(
-                &pty_id,
-                &agent_cmd,
-                std::time::Duration::from_secs(30),
-            );
+        let provider_hook_satisfies_readiness =
+            provider_hook_ready && !provider_readiness.requires_composer();
+        let provider_tui_ready = provider_hook_satisfies_readiness
+            || svc.await_provider_readiness_on_screen(&pty_id, &agent_cmd, provider_readiness);
         if let Some(failure) = provider_launch_failure(
             reader_monitor.closed(),
-            provider_hook_ready,
+            provider_hook_satisfies_readiness,
             provider_tui_ready,
         ) {
             let error = failure.reason();

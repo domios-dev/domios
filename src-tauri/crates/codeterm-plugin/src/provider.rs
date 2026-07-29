@@ -11,6 +11,32 @@ pub enum ReadinessStrategy {
     FixedDelay { duration: Duration },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderReadinessStrategy {
+    TuiFrame { timeout: Duration },
+    StructuralComposer { timeout: Duration },
+}
+
+impl Default for ProviderReadinessStrategy {
+    fn default() -> Self {
+        Self::TuiFrame {
+            timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+impl ProviderReadinessStrategy {
+    pub fn timeout(&self) -> Duration {
+        match self {
+            Self::TuiFrame { timeout } | Self::StructuralComposer { timeout } => *timeout,
+        }
+    }
+
+    pub fn requires_composer(&self) -> bool {
+        matches!(self, Self::StructuralComposer { .. })
+    }
+}
+
 /// How to confirm that text submitted to a launched provider was actually
 /// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
 /// real receiver-side observation rather than an optimistic write.
@@ -425,13 +451,8 @@ pub trait AgentProvider: Send + Sync {
     /// How to deliver the task to the agent.
     fn task_delivery(&self) -> TaskDelivery;
 
-    /// Extra delay between launch verify and PtyInput task delivery. Some TUIs
-    /// keep emitting output after the launch command completes (status bar,
-    /// MCP fetch, splash animations) and only render their input box a few
-    /// seconds later — typing the task immediately drops it into the void.
-    /// Default is zero; TUI providers override.
-    fn task_input_warmup(&self) -> Duration {
-        Duration::ZERO
+    fn provider_readiness_strategy(&self) -> ProviderReadinessStrategy {
+        ProviderReadinessStrategy::default()
     }
 
     /// How to verify that submitted text was actually processed. Default is

@@ -1,7 +1,7 @@
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed,
     optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
-    submit_authenticated_pty_input,
+    submit_authenticated_pty_input, wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -179,6 +179,49 @@ fn provider_prompt_proves_launch_without_claiming_composer_readiness() {
     assert!(provider_frame_ready(false, true, false, false, false));
     assert!(!provider_frame_ready(false, true, true, false, false));
     assert!(provider_frame_ready(true, false, true, false, true));
+}
+
+#[test]
+fn structural_composer_readiness_requires_observation_and_rejects_elapsed_time() {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+
+    let strategy = crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
+        timeout: Duration::from_secs(30),
+    };
+    assert!(strategy.requires_composer());
+
+    let composer_observed = Cell::new(false);
+    let event_waits = Cell::new(0);
+    assert!(wait_for_observed_readiness(
+        Instant::now() + Duration::from_secs(1),
+        || {
+            provider_frame_ready(
+                false,
+                false,
+                strategy.requires_composer(),
+                true,
+                composer_observed.get(),
+            )
+        },
+        |_| {
+            event_waits.set(event_waits.get() + 1);
+            composer_observed.set(true);
+            true
+        },
+    ));
+    assert_eq!(event_waits.get(), 1);
+
+    let expired_wait_called = Cell::new(false);
+    assert!(!wait_for_observed_readiness(
+        Instant::now(),
+        || false,
+        |_| {
+            expired_wait_called.set(true);
+            true
+        },
+    ));
+    assert!(!expired_wait_called.get());
 }
 
 #[test]

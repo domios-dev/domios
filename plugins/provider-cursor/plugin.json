@@ -16,7 +16,10 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
-    "taskInputWarmupMs": 3000,
+    "providerReadiness": {
+      "kind": "structural_composer",
+      "timeoutSecs": 30
+    },
     "verifySubmit": { "kind": "tui_input_drained" },
     "sessionIdInjection": "none",
     "statusBarRows": 1,

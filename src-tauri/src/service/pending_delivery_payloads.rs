@@ -383,7 +383,7 @@ mod tests {
         store.delete(&digest).unwrap();
         store.delete(&digest).unwrap();
 
-        assert_eq!(record.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(record.state(), PendingDeliveryState::AcceptedWeak);
         assert_eq!(
             store.resolve(&digest),
             Err(PayloadStoreError::Missing { digest })
@@ -471,7 +471,9 @@ mod tests {
         let record =
             PendingDeliveryRecord::new(digest.clone(), PendingDeliveryChannel::InteractiveInput);
 
-        let launch_option = (record.state() == PendingDeliveryState::Pending)
+        let launch_option = record
+            .state()
+            .needs_delivery()
             .then(|| store.resolve(&record.content_digest))
             .transpose()
             .unwrap();

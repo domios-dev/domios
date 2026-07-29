@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 
+use crate::multiplexer::types::PendingDeliveryState;
 use crate::service::inject_verify::InjectionError;
 
 /// Structured outcome of a tab delivery, carried verbatim across the mesh relay
@@ -32,6 +33,15 @@ impl DeliveryError {
     /// True only when the PTY may already hold the payload.
     pub fn bytes_written(&self) -> bool {
         matches!(self, Self::SubmitUnconfirmed { .. })
+    }
+
+    pub fn delivery_state(&self) -> PendingDeliveryState {
+        match self {
+            Self::SubmitUnconfirmed { .. } => PendingDeliveryState::Unconfirmed,
+            Self::TabNotReachableOnPeer { .. }
+            | Self::TabBusyRefused { .. }
+            | Self::PtyUnavailable { .. } => PendingDeliveryState::Pending,
+        }
     }
 
     pub fn status(&self) -> StatusCode {
@@ -68,6 +78,7 @@ impl DeliveryError {
                 "code": self.code(),
                 "tab": self.tab(),
                 "bytes_written": self.bytes_written(),
+                "delivery_state": self.delivery_state(),
                 "detail": self.detail(),
                 "message": self.to_string(),
             }
