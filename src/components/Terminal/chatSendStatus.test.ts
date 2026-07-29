@@ -73,7 +73,7 @@ test("normal send enters the ledger and binds its optimistic message", async () 
   resetChatSendStatusForTest();
   const pending = sendStatus("send-normal", 2, "pending");
   const commands: string[] = [];
-  __setInvokeForTest(async <T>(command) => {
+  __setInvokeForTest(async <T>(command: string) => {
     commands.push(command);
     return pending as T;
   });
@@ -158,7 +158,7 @@ test("a terminal event held before send-id binding is surfaced after binding", a
 
   const currentHandler = () => eventHandler;
   currentHandler()?.({ payload: failed });
-  assert.deepEqual(deliveries, []);
+  assert.equal(deliveries.length, 0);
   track(pending, "race-safe message");
   cleanup();
 
