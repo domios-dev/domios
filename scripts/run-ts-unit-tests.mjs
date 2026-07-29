@@ -55,9 +55,19 @@ export function runTsUnitTests({
   });
 }
 
+export async function runTsUnitTestMain({
+  runTests = runTsUnitTests,
+  exitProcess = process.exit,
+  reportError = (error) => console.error(error.message),
+} = {}) {
+  try {
+    exitProcess(await runTests());
+  } catch (error) {
+    reportError(error);
+    exitProcess(1);
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runTsUnitTests().then((code) => process.exitCode = code).catch((error) => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
+  void runTsUnitTestMain();
 }

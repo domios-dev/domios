@@ -7,14 +7,14 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { resolveBash, runTsUnitTests } from "./run-ts-unit-tests.mjs";
+import { resolveBash, runTsUnitTestMain, runTsUnitTests } from "./run-ts-unit-tests.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function runShellRunner(env) {
+function runBash(args, env) {
   const bash = resolveBash();
   return new Promise((resolve, reject) => {
-    const child = spawn(bash, ["scripts/ts-unit-tests.sh"], {
+    const child = spawn(bash, args, {
       cwd: root,
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -26,6 +26,17 @@ function runShellRunner(env) {
     child.once("error", reject);
     child.once("exit", (code, signal) => resolve({ code: code ?? 1, signal, stdout, stderr }));
   });
+}
+
+function runShellRunner(env) {
+  return runBash(["scripts/ts-unit-tests.sh"], env);
+}
+
+function runCappedNpmUnitGate(env) {
+  return runBash(
+    ["-lc", "timeout --signal=TERM --kill-after=5s 10s npm run test:unit"],
+    env,
+  );
 }
 
 async function closeServer(server) {
@@ -105,6 +116,15 @@ test("forwards termination to the shell runner", async () => {
   assert.equal(forwardedSignal, "SIGTERM");
 });
 
+test("entrypoint exits non-zero when the runner reports a deadline failure", async () => {
+  const exitCodes = [];
+  await runTsUnitTestMain({
+    runTests: async () => 1,
+    exitProcess: (code) => exitCodes.push(code),
+  });
+  assert.deepEqual(exitCodes, [1]);
+});
+
 test("reaps a completed worker before an older blocked worker", async (t) => {
   const directory = await createFixtureDirectory(t);
   const fixtureSource = `
@@ -181,7 +201,7 @@ main().catch((error) => {
   t.diagnostic("trace: completed index=1 → launched index=2 → completed index=0");
 });
 
-async function verifySuiteDeadline(t, forcePortable) {
+async function verifySuiteDeadline(t, forcePortable, runGate = runShellRunner) {
   const directory = await createFixtureDirectory(t);
   const server = net.createServer();
   t.after(() => closeServer(server));
@@ -228,7 +248,7 @@ main().catch((error) => {
   const listFile = path.join(directory, "tests.txt");
   await writeFile(listFile, `${deadlineFile}\n${neverStartedFile}\n`);
 
-  const run = runShellRunner({
+  const run = runGate({
     CODETERM_FORCE_PORTABLE_TIMEOUT: forcePortable ? "1" : "",
     RUNNER_TEST_PORT: String(server.address().port),
     TS_UNIT_JOBS: "1",
@@ -256,6 +276,9 @@ test("GNU timeout suite deadline reports every state and kills descendants", (t)
 
 test("portable timeout suite deadline reports every state and kills descendants", (t) =>
   verifySuiteDeadline(t, true));
+
+test("capped npm unit gate propagates the suite deadline failure", (t) =>
+  verifySuiteDeadline(t, false, runCappedNpmUnitGate));
 
 test("portable per-file timeout keeps the timeout verdict and kills the test", async (t) => {
   const directory = await createFixtureDirectory(t);
