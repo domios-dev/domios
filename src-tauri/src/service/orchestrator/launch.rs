@@ -844,6 +844,11 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         if !launch.emit(&svc, BootStage::LaunchWritten) {
+            log::warn!(
+                "[provider-readiness-stage] tab={} pty={} ownership_lost_after_launch_write",
+                tab_id,
+                pty_id,
+            );
             return;
         }
 
@@ -853,7 +858,20 @@ pub(crate) fn launch_agent_in_background(
                 provider.provider_readiness_strategy()
             })
             .unwrap_or_default();
+        log::info!(
+            "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
+            tab_id,
+            pty_id,
+            provider_readiness,
+            provider_readiness.requires_composer(),
+        );
         let provider_hook_ready = launch.await_provider_ack(std::time::Duration::ZERO);
+        log::info!(
+            "[provider-readiness-stage] tab={} pty={} hook_check_complete ready={}",
+            tab_id,
+            pty_id,
+            provider_hook_ready,
+        );
         let provider_hook_satisfies_readiness =
             provider_hook_ready && !provider_readiness.requires_composer();
         let provider_tui_ready = provider_hook_satisfies_readiness

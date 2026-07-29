@@ -99,28 +99,26 @@ impl ServiceContext {
                     alternate_screen,
                     composer_ready,
                 );
-                if require_composer {
-                    log::info!(
-                        "[provider-readiness-observation] pty={} input={:?} \
-                         provider_screen_has_tui={:?} generic_screen_has_agent_tui={} \
-                         prompt_ready={} require_composer={} composer_ready={} \
-                         visible_cursor_bottom_region={} inverse_terminal_bottom_region={} \
-                         inverse_content_bottom_region={} \
-                         structural_tui_ready={} ready={}",
-                        pty_id,
-                        input,
-                        provider_screen_has_tui,
-                        generic_screen_has_agent_tui,
-                        prompt_ready,
-                        require_composer,
-                        composer_ready,
-                        visible_cursor_bottom_region,
-                        inverse_terminal_bottom_region,
-                        inverse_content_bottom_region,
-                        structural_tui_ready,
-                        ready,
-                    );
-                }
+                log::info!(
+                    "[provider-readiness-observation] pty={} input={:?} \
+                     provider_screen_has_tui={:?} generic_screen_has_agent_tui={} \
+                     prompt_ready={} require_composer={} composer_ready={} \
+                     visible_cursor_bottom_region={} inverse_terminal_bottom_region={} \
+                     inverse_content_bottom_region={} \
+                     structural_tui_ready={} ready={}",
+                    pty_id,
+                    input,
+                    provider_screen_has_tui,
+                    generic_screen_has_agent_tui,
+                    prompt_ready,
+                    require_composer,
+                    composer_ready,
+                    visible_cursor_bottom_region,
+                    inverse_terminal_bottom_region,
+                    inverse_content_bottom_region,
+                    structural_tui_ready,
+                    ready,
+                );
                 ready
             },
             |remaining| {
