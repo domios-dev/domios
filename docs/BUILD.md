@@ -237,6 +237,19 @@ npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment
 ./build.sh e2e                                             # E2E (needs running dev instance)
 ```
 
+### Test troubleshooting
+
+If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
+pipe is being closed", the build command lost its stdout reader; this is a
+gateway logging failure, not a test verdict. The gateway now owns the `tee`
+reader, closes its writer descriptors after the final exit-status line, and
+waits for the reader before returning to PowerShell. A broken path reports exit
+74 and names the log separately from the command's exit. Run
+`./build.sh gateway-logging-check` to verify final-line delivery and the
+distinct logging-failure path. For diagnosis only,
+`CT_BUILD_GATEWAY_NO_TEE=1` bypasses log duplication; unset it for normal
+builds.
+
 ## Release Process
 
 Releases are cut by pushing a single `release-X.Y.Z` tag on `master`, which fires three
@@ -361,4 +374,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->
