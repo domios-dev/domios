@@ -295,6 +295,7 @@ test("normal chat_backend Tab keeps composer and hides read-only bar", async () 
   assert(chat?.getAttribute("aria-label") === "Tab chat: chat-tab", "chat region is named");
   assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
   assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
+  assert(messages?.classList.contains("select-text"), "conversation text remains selectable");
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
   assert(composer?.getAttribute("data-tab-id") === tabId, "composer exposes stable Tab scope");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
