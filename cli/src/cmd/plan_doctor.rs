@@ -224,6 +224,20 @@ fn doctor_report_authoritative(
             findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
         }
     }
+    if checked == 0 {
+        if let Some(id) = requested_id {
+            findings.push(Finding {
+                severity: "error",
+                kind: "plan_not_inspected",
+                plan_id: Some(id.to_string()),
+                path: project_root.join(id).display().to_string(),
+                task_id: None,
+                detail: format!("explicit plan '{id}' was not found in the authoritative store"),
+                fix: "verify the plan id with `codeterm plan list --all`, then rerun plan doctor"
+                    .into(),
+            });
+        }
+    }
     Ok(report_value(project_root, kind, checked, findings))
 }
 
