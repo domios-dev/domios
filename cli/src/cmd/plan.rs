@@ -432,7 +432,7 @@ fn run_plan(
             project,
             kind,
         } => {
-            return crate::cmd::plan_doctor::run(json, plan_id, project, kind);
+            return crate::cmd::plan_doctor::run(client, json, plan_id, project, kind);
         }
 
         PlanAction::Prune { project, apply } => {
@@ -635,7 +635,7 @@ fn run_plan(
         }
 
         PlanAction::Approve { plan_id } => {
-            crate::cmd::plan_doctor::assert_quality_ready(&plan_id)?;
+            crate::cmd::plan_doctor::assert_quality_ready(client, &plan_id)?;
             call(
                 client,
                 "plan.mode.set",
