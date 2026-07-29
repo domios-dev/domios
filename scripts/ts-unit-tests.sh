@@ -122,15 +122,6 @@ force_kill_worker() {
 
 cleanup() {
     local index
-    if [ -n "$control_pid" ]; then
-        if [ "$is_windows" -eq 1 ]; then
-            taskkill.exe //PID "$control_pid" //T //F >/dev/null 2>&1 || true
-        else
-            kill -KILL "$control_pid" 2>/dev/null || true
-        fi
-        wait "$control_pid" 2>/dev/null || true
-        exec 8<&-
-    fi
     for index in "${!tests[@]}"; do
         if [ "${states[$index]}" = "running" ]; then
             force_kill_worker "$index"
@@ -142,43 +133,32 @@ cleanup() {
 }
 
 trap cleanup EXIT
-trap 'interrupt_signal=TERM' TERM
-trap 'interrupt_signal=INT' INT
-
-control_pid=""
-watch_control() {
-    local requested_signal
-    if IFS= read -r requested_signal; then
-        case "$requested_signal" in
-            TERM | INT)
-                printf 'control\t%s\t0\t0\t0\n' "$requested_signal" >&9
-                ;;
-        esac
-    else
-        printf 'control\tTERM\t0\t0\t0\n' >&9
-    fi
+signal_event_queued=0
+queue_interrupt() {
+    signal_event_queued=1
+    printf 'control\t%s\t0\t0\t0\n' "$1" >&9
 }
-
-if [ "${CODETERM_TS_UNIT_CONTROL_STDIN:-}" = "1" ]; then
-    exec 8<&0
-    watch_control <&8 &
-    control_pid=$!
-    trace_schedule "control watcher pid=$control_pid"
-fi
+trap 'queue_interrupt TERM' TERM
+trap 'queue_interrupt INT' INT
 
 run_test_worker() {
     local index="$1"
     shift
 
     exec perl -e '
+    use Fcntl qw(FD_CLOEXEC F_SETFD);
     use POSIX qw(setpgid);
     use Time::HiRes qw(time);
     use strict;
     use warnings;
 
     my ($index, $timeout, $mode, $completion_fd, $timeout_program, @command) = @ARGV;
-    open my $completion, ">&=$completion_fd"
+    open my $completion, ">&", $completion_fd
         or die "cannot open completion fd $completion_fd: $!";
+    fcntl($completion, F_SETFD, FD_CLOEXEC)
+        or die "cannot mark completion fd close-on-exec: $!";
+    POSIX::close($completion_fd)
+        or die "cannot close inherited completion fd $completion_fd: $!";
 
     my $started = time();
     my @cpu_started = times();
@@ -208,6 +188,7 @@ run_test_worker() {
     exit 1 unless defined $child;
 
     if ($child == 0) {
+        close $completion;
         setpgid(0, 0);
         if ($mode eq "gnu") {
             exec { $timeout_program } $timeout_program,
@@ -309,6 +290,10 @@ wait_for_completion_until() {
         [ "$remaining" -gt 0 ] || return 1
 
         if ! IFS=$'\t' read -r -t "$remaining" event index value extra detail <&9; then
+            if [ "$signal_event_queued" -eq 1 ]; then
+                signal_event_queued=0
+                continue
+            fi
             return 1
         fi
 
