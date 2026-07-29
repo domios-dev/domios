@@ -775,6 +775,46 @@ fn missing_paste_evidence_never_writes_submit_key() {
 }
 
 #[test]
+fn missing_paste_evidence_never_writes_submit_key_without_echo_policy() {
+    let io = TuiModel::never_ingests();
+    let result = run(
+        &io,
+        "general bootstrap",
+        true,
+        tui(),
+        VerifyOpts {
+            require_prompt_first: false,
+            verify_echo: false,
+            verify_submit: true,
+            echo_timeout: Duration::ZERO,
+            submit_timeout: Duration::ZERO,
+            prompt_timeout: Duration::ZERO,
+        },
+    );
+
+    assert_eq!(
+        io.writes
+            .borrow()
+            .iter()
+            .filter(|write| write.starts_with("paste:"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        io.writes
+            .borrow()
+            .iter()
+            .filter(|write| write.as_str() == "enter")
+            .count(),
+        0
+    );
+    assert!(matches!(
+        result,
+        Err(InjectionError::SubmitNeverConfirmed { .. })
+    ));
+}
+
+#[test]
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn normal_path_fires_cr_on_the_ingestion_event_with_no_anomaly() {
     // The ingestion frame causally releases Enter; a pipe flush alone is insufficient.

@@ -362,14 +362,21 @@ fn run_with_submit_key<T: SubmitTransport>(
         });
     }
 
-    if opts.verify_echo && !echo_observed {
+    if !echo_observed {
         let screen_tail = transport
             .observe()
             .map(|state| state.tail)
             .unwrap_or_default();
-        return Err(InjectionError::EchoMismatch {
-            expected_substr: text.chars().take(120).collect(),
-            screen_tail,
+        return Err(if opts.verify_echo {
+            InjectionError::EchoMismatch {
+                expected_substr: text.chars().take(120).collect(),
+                screen_tail,
+            }
+        } else {
+            InjectionError::SubmitNeverConfirmed {
+                waited: started.elapsed(),
+                screen_tail,
+            }
         });
     }
 
