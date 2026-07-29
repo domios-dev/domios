@@ -54,7 +54,8 @@ function doneCard(t: Task): BoardTaskCardModel {
 
 test("BOARD_COLUMN_DEFS covers workflow statuses in stable order", () => {
   assert(
-    BOARD_COLUMN_DEFS.map((c) => c.key).join(",") === "pending,in_progress,in_review,blocked,done",
+    BOARD_COLUMN_DEFS.map((c) => c.key).join(",")
+      === "pending,in_progress,in_review,blocked,paused,done",
     "column keys",
   );
 });
@@ -121,7 +122,7 @@ test("deriveBoardPlanSummary prefers bound planner title over remote fallback", 
   assert(summary.plannerLabel === "Prod planner", "ref title when Tab absent");
 });
 
-test("groupTasksIntoColumns folds paused tasks into pending column", () => {
+test("groupTasksIntoColumns exposes paused tasks in a distinct column", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
@@ -131,10 +132,10 @@ test("groupTasksIntoColumns folds paused tasks into pending column", () => {
     ],
   };
   const { columns } = groupTasksIntoColumns(plan, TABS);
-  assert(!columns.map((c) => String(c.key)).includes("paused"), "no separate paused column");
+  const paused = columns.find((c) => String(c.key) === "paused");
+  assert(paused?.cards.length === 2, `paused count=${paused?.cards.length}`);
   const pending = columns.find((c) => c.key === "pending")!;
-  assert(pending.cards.length === 3, `pending count=${pending.cards.length}`);
-  assert(pending.cards.filter((card) => card.task.status === TaskStatus.Paused).length === 2, "paused visible in pending");
+  assert(pending.cards.length === 1, `pending count=${pending.cards.length}`);
 });
 
 test("groupTasksIntoColumns places tasks by status in planned execution order", () => {

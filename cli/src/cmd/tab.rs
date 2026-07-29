@@ -692,7 +692,7 @@ fn score_field(
 }
 
 /// One-line human row used by both `Tab list` (when we switch off the
-/// default kv printer) and `Tab find`. Shows id  tab/title  [provider/model]
+/// default kv printer) and `Tab find`. Shows id  tab/title  [provider:model]
 /// so the user gets the same info they see in the sidebar.
 pub fn format_tab_row(p: &serde_json::Value) -> String {
     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");

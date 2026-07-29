@@ -10,6 +10,8 @@ pub enum PlanTaskAction {
             help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
+        #[arg(long, help = "Include paused, done, and cancelled tasks")]
+        all: bool,
     },
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
@@ -22,9 +24,17 @@ pub enum PlanTaskAction {
         sections: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why_file: Option<String>,
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
@@ -115,9 +125,17 @@ pub enum PlanTaskAction {
         kind: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why_file: Option<String>,
         #[arg(
             long,
@@ -357,5 +375,13 @@ mod tests {
         assert!(help.contains("--depends-on"), "{help}");
         assert!(help.contains("full task id"), "{help}");
         assert!(help.contains("handle"), "{help}");
+    }
+
+    #[test]
+    fn task_add_and_update_help_name_model_rationale_storage() {
+        for subcommand in ["add", "update"] {
+            let help = depends_on_help(subcommand);
+            assert!(help.contains("model_rationale"), "{subcommand}: {help}");
+        }
     }
 }

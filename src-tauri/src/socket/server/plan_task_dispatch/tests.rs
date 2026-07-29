@@ -788,10 +788,6 @@ fn routing_qualified_model_selects_its_registered_provider() {
     let r = resolve_dispatch_routing(None, Some("codex:gpt-5.6-terra".into()), None, &providers());
     assert_eq!(r.agent.as_deref(), Some("codex"));
     assert_eq!(r.model.as_deref(), Some("gpt-5.6-terra"));
-
-    let r = resolve_dispatch_routing(None, Some("codex/gpt-5.6-terra".into()), None, &providers());
-    assert_eq!(r.agent.as_deref(), Some("codex"));
-    assert_eq!(r.model.as_deref(), Some("gpt-5.6-terra"));
 }
 
 #[test]
@@ -808,6 +804,19 @@ fn routing_never_silently_substitutes_an_unqualified_model() {
     let error = unqualified_model_error(&routing, "codex", &notice).unwrap();
     assert_eq!(error.code, -32602);
     assert_eq!(error.data.unwrap()["type"], "unqualified_model_unavailable");
+
+    let explicit = resolve_dispatch_routing(
+        Some("codex".into()),
+        Some("opus".into()),
+        None,
+        &providers(),
+    );
+    let explicit_error = unqualified_model_error(&explicit, "codex", &notice).unwrap();
+    assert_eq!(explicit_error.code, -32602);
+    assert_eq!(
+        explicit_error.data.unwrap()["type"],
+        "unqualified_model_unavailable"
+    );
 
     let qualified = resolve_dispatch_routing(None, Some("claude:opus".into()), None, &providers());
     assert!(unqualified_model_error(&qualified, "claude", &notice).is_none());

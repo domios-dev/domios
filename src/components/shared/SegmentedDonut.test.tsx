@@ -41,6 +41,7 @@ async function main() {
     todo: "var(--ct-accent)",
     review: "var(--ct-yellow)",
     blocked: "var(--ct-red)",
+    paused: "var(--ct-muted)",
     done: "var(--ct-green)",
   });
   assert.equal(
