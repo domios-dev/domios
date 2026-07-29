@@ -115,10 +115,10 @@ bash scripts/submission-matrix.sh --provider claude --dry-run
 # Rust: agent detection, multiplexer state, prompt parsing, config
 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
-# TypeScript: every src/** + packages/** unit test (tsx scripts, 90s outer cap)
+# TypeScript: every src/** + packages/** unit test (direct Node scheduler, 90s outer cap)
 bash -lc 'timeout --signal=TERM --kill-after=5s 90s npm run test:unit'
-# …or one file while iterating:
-npx tsx src/lib/colors.test.ts
+# …or one file through the same bounded scheduler:
+npm run test:unit -- colors.test
 
 # Shortcuts
 ./build.sh test       # Rust unit tests only
@@ -477,4 +477,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
