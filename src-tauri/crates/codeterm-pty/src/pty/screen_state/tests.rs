@@ -222,6 +222,18 @@ fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
 }
 
 #[test]
+fn frame_without_inverse_cells_has_no_structural_caret() {
+    let mut state = ScreenState::new();
+    state.resize("plain", 120, 40);
+    state.process("plain", b"\x1b[2J\x1b[18;2HPlan, search, build anything\x1b[?25l");
+
+    let input = state.composer_input_state("plain").unwrap();
+    assert_eq!(input.nonblank_inverse_cells, 0);
+    assert_eq!(input.sole_nonblank_inverse_row, None);
+    assert_eq!(input.inverse_caret_row, None);
+}
+
+#[test]
 fn test_remove_cleans_up() {
     let mut ss = ScreenState::new();
     ss.process("pty1", b"data");
