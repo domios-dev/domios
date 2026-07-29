@@ -218,14 +218,18 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
 }
 
 #[test]
-fn fresh_spawn_never_uses_existing_tab_promotion_delivery() {
-    for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
-        assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-        assert!(
-            source.contains("spawn_onboarding_task") || source.contains("role_onboarding_task")
-        );
-        assert!(source.contains("launch_agent_in_background("));
-    }
+fn fresh_spawn_paths_keep_shared_invariants_and_orchestrator_onboarding() {
+    let orchestrator_spawn = include_str!("spawn.rs");
+    let service_spawn = include_str!("../spawn.rs");
+
+    assert!(!orchestrator_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
+    assert!(!service_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
+    assert!(orchestrator_spawn.contains("launch_agent_in_background("));
+    assert!(service_spawn.contains("launch_agent_in_background("));
+    assert!(
+        orchestrator_spawn.contains("spawn_onboarding_task")
+            || orchestrator_spawn.contains("role_onboarding_task")
+    );
 }
 
 #[test]
