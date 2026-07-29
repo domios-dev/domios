@@ -89,6 +89,9 @@ fn production_layout_unknown_plan_queries_authority() {
             .unwrap();
 
     assert_eq!(report["checked_plans"], 0);
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["error_count"], 1);
+    assert_eq!(report["findings"][0]["kind"], "plan_not_inspected");
     assert_eq!(client.calls[0].0, "plan.get");
 }
 
