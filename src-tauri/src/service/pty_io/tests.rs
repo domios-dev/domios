@@ -607,7 +607,7 @@ fn active_tab_lane_base_none_without_binding() {
 }
 
 #[test]
-fn tab_task_env_uses_live_attempt_base_and_leaves_plain_tab_clean() {
+fn dispatched_tab_env_carries_its_task_binding() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task("attempt-base");
     store
         .update_task_lane(
@@ -634,7 +634,11 @@ fn tab_task_env_uses_live_attempt_base_and_leaves_plain_tab_clean() {
         bound.get("CODETERM_TASK_ID").map(String::as_str),
         Some(task_id.as_str())
     );
+}
 
+#[test]
+fn unbound_tab_resolves_to_no_binding() {
+    let (_dir, store, _plan_id, _task_id) = store_with_bound_task("attempt-base");
     let plain = tab_task_env(&store, "plain-tab");
     assert!(
         plain.is_empty(),

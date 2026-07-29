@@ -354,6 +354,19 @@ mod tests {
     }
 
     #[test]
+    fn explicit_report_plan_and_task_take_precedence() {
+        let action =
+            parse_report(&["msg", "--plan", "pl_explicit", "--task", "task_explicit"]).unwrap();
+        match action {
+            AgentAction::Report(args) => {
+                assert_eq!(args.plan.as_deref(), Some("pl_explicit"));
+                assert_eq!(args.task.as_deref(), Some("task_explicit"));
+            }
+            _ => panic!("expected agent report"),
+        }
+    }
+
+    #[test]
     fn report_without_flags_leaves_structured_fields_unset() {
         let action = parse_report(&["just a message"]).unwrap();
         match action {

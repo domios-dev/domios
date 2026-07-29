@@ -230,6 +230,15 @@ fn env_default(current: Option<String>, var: &str) -> Option<String> {
     })
 }
 
+fn missing_report_binding_incident(tab_id: &str) -> String {
+    format!(
+        "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no resolvable \
+         plan/task binding.\nImpact: this outcome cannot be attached to its authoritative task \
+         safely.\nFallback: pass explicit --plan and --task and alert the Orchestrator; no plan \
+         or task was guessed."
+    )
+}
+
 fn print_report_notices(json: bool, val: &serde_json::Value) {
     if json {
         return;
@@ -529,6 +538,14 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             let plan = env_default(plan, "CODETERM_PLAN_ID");
             let task = env_default(task, "CODETERM_TASK_ID");
+            if status.is_some() && (plan.is_none() || task.is_none()) {
+                let tab = std::env::var("CODETERM_TAB_ID")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| tab_id.clone());
+                eprintln!("{}", missing_report_binding_incident(&tab));
+                std::process::exit(1);
+            }
             let mut body = serde_json::json!({
                 "tab_id": tab_id,
                 "message": message,

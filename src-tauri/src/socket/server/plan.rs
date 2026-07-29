@@ -71,6 +71,7 @@ pub(super) fn dispatch(
     let store = &svc.plan_store;
 
     match method {
+        "plan.binding.resolve" => plan_refs::task_binding(store, params),
         "plan.batch" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {

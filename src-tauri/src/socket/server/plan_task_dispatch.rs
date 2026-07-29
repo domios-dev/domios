@@ -42,6 +42,23 @@ fn preflight_review_capacity(plan: &crate::plan::Plan, task: &Task) -> Result<()
     crate::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
 }
 
+fn verify_dispatched_task_binding(
+    store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+) -> Result<(), String> {
+    match store.task_binding_for_tab(tab_id) {
+        Some((bound_plan, bound_task)) if bound_plan == plan_id && bound_task == task_id => Ok(()),
+        binding => Err(format!(
+            "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no matching \
+             authoritative task binding. Impact: zero-flag reports cannot be attached safely. \
+             Fallback: pass explicit --plan {plan_id} --task {task_id} and alert the Orchestrator; \
+             no plan or task was guessed. Resolved binding: {binding:?}"
+        )),
+    }
+}
+
 fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
     let reason = reason.into();
     JsonRpcError {
@@ -751,6 +768,30 @@ pub(super) fn dispatch(
             ));
         }
     };
+    if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
+        let cleanup = rollback_failed_dispatch(
+            provisioned_lane,
+            || {
+                store
+                    .restore_task_dispatch_snapshot(
+                        &plan_id,
+                        &original_task,
+                        original_plan_mode.clone(),
+                        now,
+                    )
+                    .map_err(|error| error.to_string())
+            },
+            || close_tab_if_present(svc, &tab_id),
+        );
+        emit_plan_changed(app, &plan_id);
+        return Err(dispatch_failed(
+            "task_binding",
+            match cleanup {
+                Ok(()) => error,
+                Err(cleanup) => format!("{error}; {cleanup}"),
+            },
+        ));
+    }
     emit_plan_changed(app, &plan_id);
     let startup = DispatchStartup {
         app: app.clone(),
