@@ -49,16 +49,9 @@ impl ServiceContext {
                 let (screen, alternate_screen, composer_ready) = {
                     let screen_state = self.screen_state.lock();
                     let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
-                    let cursor = screen_state.cursor_input_state(pty_id);
-                    let (alternate_screen, composer_ready) = cursor
-                        .map(|(alternate, visible, row, rows)| {
-                            (
-                                alternate,
-                                crate::agent::offline_state_classifier::composer_cursor_ready(
-                                    visible, row, rows,
-                                ),
-                            )
-                        })
+                    let input = screen_state.composer_input_state(pty_id);
+                    let (alternate_screen, composer_ready) = input
+                        .map(|input| (input.alternate_screen, composer_input_ready(input)))
                         .unwrap_or((false, false));
                     (screen, alternate_screen, composer_ready)
                 };
@@ -88,6 +81,20 @@ impl ServiceContext {
             },
         )
     }
+}
+
+pub(super) fn composer_input_ready(
+    input: codeterm_pty::pty::screen_state::ComposerInputState,
+) -> bool {
+    let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
+        input.cursor_visible,
+        input.cursor_row,
+        input.rows,
+    );
+    let inverse_caret_ready = input.inverse_caret_row.is_some_and(|row| {
+        crate::agent::offline_state_classifier::composer_cursor_ready(true, row, input.rows)
+    });
+    cursor_ready || inverse_caret_ready
 }
 
 pub(crate) fn provider_or_generic_tui(provider_ready: Option<bool>, generic_ready: bool) -> bool {
