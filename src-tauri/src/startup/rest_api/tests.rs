@@ -1,45 +1,69 @@
 use super::*;
-use std::io::{Read, Write};
 
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 async fn wait_for_status<F>(
+    control: &RestApiControl,
     status: &mut watch::Receiver<RestApiStatus>,
     expected: F,
 ) -> RestApiStatus
 where
     F: Fn(&RestApiStatus) -> bool,
 {
-    tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
+    let mut last_observed = status.borrow().clone();
+    let result = tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
         loop {
             let current = status.borrow_and_update().clone();
+            last_observed = current.clone();
             if expected(&current) {
                 return current;
             }
             status.changed().await.unwrap();
         }
     })
-    .await
-    .expect("listener lifecycle event deadline elapsed")
+    .await;
+    result
+        .unwrap_or_else(|_| panic_lifecycle_deadline("listener lifecycle", &last_observed, control))
 }
 
 async fn wait_for_lifecycle<F>(
+    control: &RestApiControl,
     events: &mut broadcast::Receiver<RestApiStatus>,
     expected: F,
 ) -> RestApiStatus
 where
     F: Fn(&RestApiStatus) -> bool,
 {
-    tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
+    let mut last_observed = control.status();
+    let result = tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
         loop {
             let event = events.recv().await.expect("lifecycle sender stopped");
+            last_observed = event.clone();
             if expected(&event) {
                 return event;
             }
         }
     })
-    .await
-    .expect("REST lifecycle event deadline elapsed")
+    .await;
+    result.unwrap_or_else(|_| panic_lifecycle_deadline("REST lifecycle", &last_observed, control))
+}
+
+fn panic_lifecycle_deadline(
+    label: &str,
+    last_observed: &RestApiStatus,
+    control: &RestApiControl,
+) -> ! {
+    let current = control.status();
+    panic!(
+        "{label} event deadline elapsed; last observed phase={:?} generation={} diagnostic={:?}; current phase={:?} generation={} diagnostic={:?}; listener_owned={}",
+        last_observed.phase,
+        last_observed.generation,
+        last_observed.diagnostic,
+        current.phase,
+        current.generation,
+        current.diagnostic,
+        control.listener_owned()
+    )
 }
 
 fn health_router() -> axum::Router {
@@ -62,14 +86,17 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    let failed = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Failed).await;
+    let failed = wait_for_status(&control, &mut status, |s| s.phase == RestApiPhase::Failed).await;
     assert!(failed
         .message
         .as_deref()
         .is_some_and(|message| message.contains("Release the port")));
     drop(occupied);
     control.port_released().unwrap();
-    wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+    wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
     let response = reqwest::get(format!("http://{address}/api/health"))
         .await
         .unwrap();
@@ -86,7 +113,10 @@ async fn manual_restart_rebinds_a_real_listener() {
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    let mut previous = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+    let mut previous = wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
     for _ in 0..8 {
         let returned = control.restart_and_wait().await.unwrap();
         assert_eq!(
@@ -114,7 +144,10 @@ async fn port_release_while_listening_keeps_the_real_listener_running() {
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     control.set_port_release_barrier(barrier.clone());
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    let listening = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+    let listening = wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
 
     control.port_released().unwrap();
     barrier.wait().await;
@@ -138,14 +171,20 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
     let mut lifecycle = control.subscribe_lifecycle();
     let mut recovery_events = control.take_recovery_events().unwrap();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    let initial = wait_for_lifecycle(&mut lifecycle, |s| s.phase == RestApiPhase::Listening).await;
+    let initial = wait_for_lifecycle(&control, &mut lifecycle, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
 
     exit.send(()).unwrap();
-    let failed = wait_for_lifecycle(&mut lifecycle, |s| s.phase == RestApiPhase::Failed).await;
+    let failed = wait_for_lifecycle(&control, &mut lifecycle, |s| {
+        s.phase == RestApiPhase::Failed
+    })
+    .await;
     assert_eq!(failed.generation, initial.generation);
     assert_eq!(failed.diagnostic, Some(RestApiDiagnostic::ListenerExited));
     assert_recoverable_failure(&failed, "exited unexpectedly");
-    let recovered = wait_for_lifecycle(&mut lifecycle, |s| {
+    let recovered = wait_for_lifecycle(&control, &mut lifecycle, |s| {
         s.phase == RestApiPhase::Listening && s.generation > failed.generation
     })
     .await;
@@ -174,15 +213,21 @@ async fn shutdown_error_fails_its_restart_completion_then_recovers() {
     control.force_shutdown_error();
     let mut lifecycle = control.subscribe_lifecycle();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    wait_for_lifecycle(&mut lifecycle, |s| s.phase == RestApiPhase::Listening).await;
+    wait_for_lifecycle(&control, &mut lifecycle, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
 
     let restart_control = control.clone();
     let restart = tokio::spawn(async move { restart_control.restart_and_wait().await.unwrap() });
-    let failed = wait_for_lifecycle(&mut lifecycle, |s| s.phase == RestApiPhase::Failed).await;
+    let failed = wait_for_lifecycle(&control, &mut lifecycle, |s| {
+        s.phase == RestApiPhase::Failed
+    })
+    .await;
     let completed = restart.await.unwrap();
     assert_eq!(completed, failed);
     assert_recoverable_failure(&completed, "shutdown failed");
-    let recovered = wait_for_lifecycle(&mut lifecycle, |s| {
+    let recovered = wait_for_lifecycle(&control, &mut lifecycle, |s| {
         s.phase == RestApiPhase::Listening && s.generation > failed.generation
     })
     .await;
@@ -207,7 +252,10 @@ async fn overlapping_restarts_complete_from_their_own_listener_generations() {
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     control.set_restart_barrier(barrier.clone());
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+    wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
 
     let first_control = control.clone();
     let first = tokio::spawn(async move { first_control.restart_and_wait().await.unwrap() });
@@ -245,41 +293,54 @@ fn status_read_reports_generation_phase_and_failure_message() {
 }
 
 struct WorkerGates {
-    entered: std::sync::Barrier,
-    release: std::sync::Barrier,
+    capacity: tokio::sync::Semaphore,
+    entered: tokio::sync::Barrier,
+    release: tokio::sync::Barrier,
+    health_requests: mpsc::UnboundedSender<()>,
 }
 
-fn send_blocking_request(address: SocketAddr, path: &'static str) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let mut stream = std::net::TcpStream::connect(address).unwrap();
-        write!(
-            stream,
-            "GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
-        )
-        .unwrap();
-        let mut response = Vec::new();
-        stream.read_to_end(&mut response).unwrap();
+fn send_request(address: SocketAddr, path: &'static str) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{address}{path}"))
+            .header(reqwest::header::CONNECTION, "close")
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        response.bytes().await.unwrap();
     })
 }
 
-fn assert_health_is_unanswered(address: SocketAddr) {
-    let mut stream = std::net::TcpStream::connect(address).unwrap();
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
-        .unwrap();
-    write!(
-        stream,
-        "GET /api/health HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
-    )
-    .unwrap();
-    let mut byte = [0_u8; 1];
-    let error = stream
-        .read(&mut byte)
-        .expect_err("blocked workers must not produce a health response");
-    assert!(matches!(
-        error.kind(),
-        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-    ));
+fn worker_gated_router(gates: Arc<WorkerGates>) -> axum::Router {
+    let health_gates = gates.clone();
+    axum::Router::new()
+        .route(
+            "/api/health",
+            axum::routing::get(move || {
+                let gates = health_gates.clone();
+                async move {
+                    let _ = gates.health_requests.send(());
+                    let _capacity = gates.capacity.acquire().await.unwrap();
+                    "ok"
+                }
+            }),
+        )
+        .route(
+            "/stall",
+            axum::routing::get(move || {
+                let gates = gates.clone();
+                async move {
+                    let _capacity = gates.capacity.acquire().await.unwrap();
+                    gates.entered.wait().await;
+                    gates.release.wait().await;
+                    "released"
+                }
+            }),
+        )
 }
 
 #[tokio::test]
@@ -296,10 +357,15 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
         exit_address.to_string(),
         health_router(),
     ));
-    wait_for_lifecycle(&mut exit_events, |s| s.phase == RestApiPhase::Listening).await;
+    wait_for_lifecycle(&exit_control, &mut exit_events, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
     exit.send(()).unwrap();
-    let listener_failure =
-        wait_for_lifecycle(&mut exit_events, |s| s.phase == RestApiPhase::Failed).await;
+    let listener_failure = wait_for_lifecycle(&exit_control, &mut exit_events, |s| {
+        s.phase == RestApiPhase::Failed
+    })
+    .await;
     assert_eq!(
         listener_failure.diagnostic,
         Some(RestApiDiagnostic::ListenerExited)
@@ -313,50 +379,60 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
         .unwrap();
     let stall_control = Arc::new(RestApiControl::new());
     let mut stall_events = stall_control.subscribe_lifecycle();
+    let (health_requests, mut health_events) = mpsc::unbounded_channel();
     let gates = Arc::new(WorkerGates {
-        entered: std::sync::Barrier::new(5),
-        release: std::sync::Barrier::new(5),
+        capacity: tokio::sync::Semaphore::new(4),
+        entered: tokio::sync::Barrier::new(5),
+        release: tokio::sync::Barrier::new(5),
+        health_requests,
     });
-    let stall_gates = gates.clone();
-    let router = health_router().route(
-        "/stall",
-        axum::routing::get(move || {
-            let gates = stall_gates.clone();
-            async move {
-                gates.entered.wait();
-                gates.release.wait();
-                "released"
-            }
-        }),
-    );
+    let router = worker_gated_router(gates.clone());
+    let server_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let server_runtime_handle = server_runtime.handle().clone();
     let server_control = stall_control.clone();
-    let server = std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(4)
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(start(server_control, stall_address.to_string(), router));
-    });
-    let listening =
-        wait_for_lifecycle(&mut stall_events, |s| s.phase == RestApiPhase::Listening).await;
+    let server = server_runtime.spawn(start(server_control, stall_address.to_string(), router));
+    let listening = wait_for_lifecycle(&stall_control, &mut stall_events, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
+    health_events
+        .recv()
+        .await
+        .expect("startup health proof must reach the worker gate");
     let clients = (0..4)
-        .map(|_| send_blocking_request(stall_address, "/stall"))
+        .map(|_| send_request(stall_address, "/stall"))
         .collect::<Vec<_>>();
-    let entered = gates.clone();
-    tokio::task::spawn_blocking(move || entered.entered.wait())
+    gates.entered.wait().await;
+    let (runtime_probe, runtime_observed) = oneshot::channel();
+    server_runtime_handle.spawn(async move {
+        let _ = runtime_probe.send(());
+    });
+    tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, runtime_observed)
         .await
-        .unwrap();
-    tokio::task::spawn_blocking(move || assert_health_is_unanswered(stall_address))
+        .expect("server runtime starved while REST worker capacity was exhausted")
+        .expect("server runtime probe stopped");
+    let health = send_request(stall_address, "/api/health");
+    health_events
+        .recv()
         .await
-        .unwrap();
+        .expect("health probe must reach the exhausted worker gate");
+    assert!(
+        !health.is_finished(),
+        "health probe must wait while worker capacity is exhausted"
+    );
 
     assert_eq!(
         stall_control.record_unanswered_probe(),
         RestApiDiagnostic::WorkersBlocked
     );
-    let worker_failure =
-        wait_for_lifecycle(&mut stall_events, |s| s.phase == RestApiPhase::Failed).await;
+    let worker_failure = wait_for_lifecycle(&stall_control, &mut stall_events, |s| {
+        s.phase == RestApiPhase::Failed
+    })
+    .await;
     assert_eq!(worker_failure.generation, listening.generation);
     assert_eq!(
         worker_failure.diagnostic,
@@ -365,23 +441,18 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
     assert_ne!(worker_failure.diagnostic, listener_failure.diagnostic);
     assert_ne!(stall_control.status().phase, RestApiPhase::Listening);
 
-    let release = gates.clone();
-    tokio::task::spawn_blocking(move || release.release.wait())
-        .await
-        .unwrap();
+    gates.release.wait().await;
     for client in clients {
-        client.join().unwrap();
+        client.await.unwrap();
     }
-    let response = reqwest::get(format!("http://{stall_address}/api/health"))
-        .await
-        .unwrap();
-    assert!(response.status().is_success());
+    health.await.unwrap();
     stall_control.record_successful_probe();
     assert_eq!(stall_control.status().phase, RestApiPhase::Listening);
     assert_eq!(stall_control.status().generation, listening.generation);
 
     stall_control.shutdown_and_wait().await.unwrap();
-    server.join().unwrap();
+    server.await.unwrap();
+    server_runtime.shutdown_background();
 }
 
 #[tokio::test]

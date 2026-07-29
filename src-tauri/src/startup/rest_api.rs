@@ -251,6 +251,11 @@ impl RestApiControl {
     }
 
     #[cfg(test)]
+    fn listener_owned(&self) -> bool {
+        self.lifecycle.lock().listener_owned
+    }
+
+    #[cfg(test)]
     fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
         self.status_events.subscribe()
     }
