@@ -21,10 +21,14 @@ function runBash(args, env) {
     });
     let stdout = "";
     let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => stdout += chunk);
-    child.stderr.setEncoding("utf8").on("data", (chunk) => stderr += chunk);
+    child.stdout.setEncoding("utf8").on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => {
+      stderr += chunk;
+    });
     child.once("error", reject);
-    child.once("exit", (code, signal) => resolve({ code: code ?? 1, signal, stdout, stderr }));
+    child.once("close", (code, signal) => resolve({ code: code ?? 1, signal, stdout, stderr }));
   });
 }
 
@@ -32,9 +36,9 @@ function runShellRunner(env) {
   return runBash(["scripts/ts-unit-tests.sh"], env);
 }
 
-function runCappedNpmUnitGate(env) {
+function runOuterCappedNpmUnitGate(env) {
   return runBash(
-    ["-lc", "timeout --signal=TERM --kill-after=5s 10s npm run test:unit"],
+    ["-lc", "timeout --signal=TERM --kill-after=5s 20s npm run test:unit"],
     env,
   );
 }
@@ -82,13 +86,14 @@ test("runs the existing shell runner through the resolved Windows Bash", async (
   const code = runTsUnitTests({
     platform: "win32",
     env,
+    monitorDeadline: false,
     signalSource,
     exists: (file) => file === bash,
     spawnProcess(command, args, options) {
       assert.equal(command, bash);
       assert.deepEqual(args, ["scripts/ts-unit-tests.sh"]);
-      assert.equal(options.stdio, "inherit");
-      assert.equal(options.env, env);
+      assert.deepEqual(options.stdio, ["pipe", "inherit", "inherit"]);
+      assert.deepEqual(options.env, { ...env, CODETERM_TS_UNIT_CONTROL_STDIN: "1" });
       queueMicrotask(() => child.emit("exit", 0, null));
       return child;
     },
@@ -98,22 +103,31 @@ test("runs the existing shell runner through the resolved Windows Bash", async (
 
 test("forwards termination to the shell runner", async () => {
   const child = new EventEmitter();
+  const control = new EventEmitter();
   const signalSource = new EventEmitter();
-  let forwardedSignal;
-  child.kill = (signal) => {
-    forwardedSignal = signal;
+  let controlMessage;
+  let killed = false;
+  control.writable = true;
+  control.destroyed = false;
+  control.end = (message) => {
+    controlMessage = message;
     queueMicrotask(() => child.emit("exit", 1, null));
   };
+  control.destroy = () => control.destroyed = true;
+  child.stdin = control;
+  child.kill = () => killed = true;
 
   const result = runTsUnitTests({
     platform: "linux",
+    monitorDeadline: false,
     signalSource,
     spawnProcess: () => child,
   });
   signalSource.emit("SIGTERM");
 
   assert.equal(await result, 1);
-  assert.equal(forwardedSignal, "SIGTERM");
+  assert.equal(controlMessage, "TERM\n");
+  assert.equal(killed, false);
 });
 
 test("entrypoint exits non-zero when the runner reports a deadline failure", async () => {
@@ -255,6 +269,7 @@ main().catch((error) => {
     TS_UNIT_TIMEOUT_SECONDS: "20",
     TS_UNIT_SUITE_TIMEOUT_SECONDS: "1",
     CODETERM_TS_UNIT_RUNNER_TEST_LIST: listFile,
+    TS_UNIT_TRACE: "1",
   });
   await connected;
   const result = await run;
@@ -277,8 +292,41 @@ test("GNU timeout suite deadline reports every state and kills descendants", (t)
 test("portable timeout suite deadline reports every state and kills descendants", (t) =>
   verifySuiteDeadline(t, true));
 
-test("capped npm unit gate propagates the suite deadline failure", (t) =>
-  verifySuiteDeadline(t, false, runCappedNpmUnitGate));
+test("real capped npm topology returns a summary and leaves no descendants", async (t) => {
+  const directory = await createFixtureDirectory(t);
+
+  const blockedFile = path.join(directory, "outer-timeout.test.ts");
+  await writeFile(blockedFile, `
+import net from "node:net";
+net.createServer().listen(0);
+`);
+  const listFile = path.join(directory, "tests.txt");
+  await writeFile(listFile, `${blockedFile}\n`);
+
+  const run = runOuterCappedNpmUnitGate({
+    TS_UNIT_JOBS: "1",
+    TS_UNIT_TIMEOUT_SECONDS: "20",
+    TS_UNIT_SUITE_TIMEOUT_SECONDS: "20",
+    CODETERM_TS_UNIT_ENTRYPOINT_TEST_DEADLINE_SECONDS: "6",
+    CODETERM_TS_UNIT_RUNNER_TEST_LIST: listFile,
+    TS_UNIT_TRACE: "1",
+  });
+  const result = await run;
+  t.diagnostic(`outer gate exited code=${result.code}`);
+  const bashPidMatch = result.stdout.match(/\[ts-unit trace\] bash process pid=(\d+)/);
+  const workerPidMatch = result.stdout.match(/\[ts-unit trace\] launched index=0 worker=(\d+)/);
+
+  assert.equal(result.code, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /TS UNIT SUITE INCOMPLETE/);
+  assert.match(result.stdout, /entrypoint deadline reached after 6s/);
+  assert.match(result.stdout, /received TERM/);
+  assert.match(result.stdout, /STILL RUNNING AT DEADLINE \(1\)/);
+  assert.match(result.stdout, /✗ TS unit suite did not complete/);
+  assert(bashPidMatch, result.stdout);
+  assert(workerPidMatch, result.stdout);
+  assert.throws(() => process.kill(Number(bashPidMatch[1]), 0), { code: "ESRCH" });
+  assert.throws(() => process.kill(Number(workerPidMatch[1]), 0), { code: "ESRCH" });
+});
 
 test("portable per-file timeout keeps the timeout verdict and kills the test", async (t) => {
   const directory = await createFixtureDirectory(t);

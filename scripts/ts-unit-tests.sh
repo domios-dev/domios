@@ -122,6 +122,15 @@ force_kill_worker() {
 
 cleanup() {
     local index
+    if [ -n "$control_pid" ]; then
+        if [ "$is_windows" -eq 1 ]; then
+            taskkill.exe //PID "$control_pid" //T //F >/dev/null 2>&1 || true
+        else
+            kill -KILL "$control_pid" 2>/dev/null || true
+        fi
+        wait "$control_pid" 2>/dev/null || true
+        exec 8<&-
+    fi
     for index in "${!tests[@]}"; do
         if [ "${states[$index]}" = "running" ]; then
             force_kill_worker "$index"
@@ -129,11 +138,33 @@ cleanup() {
     done
     exec 9>&-
     rm -rf "$log_dir"
+    trace_schedule "cleanup complete"
 }
 
 trap cleanup EXIT
 trap 'interrupt_signal=TERM' TERM
 trap 'interrupt_signal=INT' INT
+
+control_pid=""
+watch_control() {
+    local requested_signal
+    if IFS= read -r requested_signal; then
+        case "$requested_signal" in
+            TERM | INT)
+                printf 'control\t%s\t0\t0\t0\n' "$requested_signal" >&9
+                ;;
+        esac
+    else
+        printf 'control\tTERM\t0\t0\t0\n' >&9
+    fi
+}
+
+if [ "${CODETERM_TS_UNIT_CONTROL_STDIN:-}" = "1" ]; then
+    exec 8<&0
+    watch_control <&8 &
+    control_pid=$!
+    trace_schedule "control watcher pid=$control_pid"
+fi
 
 run_test_worker() {
     local index="$1"
@@ -227,10 +258,10 @@ launch_test() {
     states[$index]="running"
     started_at[$index]="$SECONDS"
     log_files[$index]="$log"
-    run_test_worker "$index" node "$tsx_cli" "$test_name" >"$log" 2>&1 &
+    run_test_worker "$index" node "$tsx_cli" "$test_name" </dev/null >"$log" 2>&1 &
     worker_pids[$index]=$!
     active=$((active + 1))
-    trace_schedule "launched index=$index active=$active file=$test_name"
+    trace_schedule "launched index=$index worker=${worker_pids[$index]} active=$active file=$test_name"
 }
 
 finish_test() {
@@ -285,6 +316,10 @@ wait_for_completion_until() {
             start)
                 child_pids[$index]="$value"
                 trace_schedule "started index=$index child=$value file=${tests[$index]}"
+                ;;
+            control)
+                interrupt_signal="$index"
+                return 1
                 ;;
             done)
                 finish_test "$index" "$value" "$extra" "$detail"
@@ -380,7 +415,7 @@ stop_after_deadline() {
     local failed_indices=()
     local running_indices=()
     local pending_indices=()
-    local index cleanup_deadline
+    local index cleanup_deadline received_interrupt
 
     for index in "${!tests[@]}"; do
         case "${states[$index]}" in
@@ -397,12 +432,15 @@ stop_after_deadline() {
         kill -TERM "${worker_pids[$index]}" 2>/dev/null || true
     done
 
+    received_interrupt="$interrupt_signal"
+    interrupt_signal=""
     cleanup_deadline=$((SECONDS + 5))
     while [ "$active" -gt 0 ]; do
         if ! wait_for_completion_until "$cleanup_deadline"; then
             break
         fi
     done
+    interrupt_signal="$received_interrupt"
 
     for index in "${running_indices[@]}"; do
         if [ "${states[$index]}" = "running" ]; then
