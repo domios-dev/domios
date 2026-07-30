@@ -4,12 +4,14 @@ use axum::{
 };
 
 use super::{
-    agent_routes, delayed_send_routes, hook_routes, pty_routes, routes::AppState, tab_routes,
+    agent_routes, delayed_send_routes, hook_routes, pty_routes, routes::AppState, tab_chat_routes,
+    tab_routes,
 };
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
         .route("/api/tabs/{id}/send", post(tab_routes::send_text))
+        .route("/api/tabs/{id}/chat", get(tab_chat_routes::snapshot))
         .route(
             "/api/tabs/{id}/chat-send",
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
