@@ -25,16 +25,26 @@ pub struct ChatSendStatus {
     pub retained_from: u64,
 }
 
+/// Capability-based append-window boundary captured at send start.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum EvidenceWindow {
+    /// Append-only transcript file: the window is bytes at/after this offset.
+    Jsonl { transcript_offset: u64 },
+    /// Structured store (`uses_structured_chat` capability): the window is
+    /// rows after this opaque provider cursor. `None` = the store was empty at
+    /// send start, so every row is post-send.
+    Structured { cursor: Option<String> },
+}
+
 /// Authoritative transcript identity captured at send start. Evidence for the
-/// send may only come from THIS session's file, at/after `transcript_offset` —
-/// never from another/latest session and never from pre-send history.
+/// send may only come from THIS session, inside its append window — never from
+/// another/latest session and never from pre-send history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
     pub(crate) cwd: String,
     pub(crate) session_id: String,
-    /// Session transcript byte length at send start — the append-window boundary.
-    pub(crate) transcript_offset: u64,
+    pub(crate) window: EvidenceWindow,
 }
 
 pub(crate) struct EvidenceCandidate {

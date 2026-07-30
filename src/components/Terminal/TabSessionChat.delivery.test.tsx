@@ -168,6 +168,7 @@ function status(
 async function renderChat(
   sendResults: ChatSendStatus[],
   commands: string[],
+  statusResults: ChatSendStatus[] = [],
 ): Promise<{
   host: HTMLDivElement;
   root: Root;
@@ -189,7 +190,8 @@ async function renderChat(
         subscription_id: "delivery-subscription",
       };
     }
-    if (command === "chat_send_status" || command === "delayed_send_list") return [];
+    if (command === "chat_send_status") return statusResults;
+    if (command === "delayed_send_list") return [];
     if (command === "chat_send_text") {
       const next = sendResults.shift();
       if (!next) throw new Error("unexpected ledger send");
@@ -330,22 +332,50 @@ test("evidence-reconciled sent clears a false failure and its retry", async () =
   host.remove();
 });
 
-test("failed message and retry remain visible after remount", async () => {
+test("failed message and retry remain visible after remount while the ledger vouches", async () => {
   resetChatSendStatusForTest();
   const firstCommands: string[] = [];
   const pending = status("send-4", "pending", 4);
+  const failed = status("send-4", "failed", 4, "submit_unconfirmed");
   const first = await renderChat([], firstCommands);
   await trackPending(pending, "Persist this failed message");
   await act(async () => {
-    first.emitStatus(status("send-4", "failed", 4, "submit_unconfirmed"));
+    first.emitStatus(failed);
   });
   await act(async () => first.root.unmount());
   first.host.remove();
 
-  const remount = await renderChat([status("send-5", "pending", 5)], []);
+  // Same daemon: the reconcile endpoint still returns the retained failure.
+  const remount = await renderChat([status("send-5", "pending", 5)], [], [failed]);
   const message = getByRole<HTMLElement>(remount.host, "article", /persist this failed message/i);
   const alert = getByRole<HTMLElement>(message, "alert", /submission unconfirmed/i);
   getByRole(alert, "button", /retry/i);
+
+  await act(async () => remount.root.unmount());
+  remount.host.remove();
+});
+
+test("daemon restart removes an unvouched failure record instead of preserving it", async () => {
+  resetChatSendStatusForTest();
+  const pending = status("send-7", "pending", 7);
+  const first = await renderChat([], []);
+  await trackPending(pending, "Lost across restart");
+  await act(async () => {
+    first.emitStatus(status("send-7", "failed", 7, "pty_unavailable: Tab has no usable PTY"));
+  });
+  await act(async () => first.root.unmount());
+  first.host.remove();
+
+  // Restarted daemon: fresh ledger, reconcile no longer vouches for the send.
+  const remount = await renderChat([], [], []);
+  const staleAlert = Array.from(remount.host.querySelectorAll("*")).find(
+    (element) => implicitRole(element) === "alert" && /delivery failed/i.test(accessibleName(element)),
+  );
+  assert(!staleAlert, "an unvouched failure must not survive a daemon restart");
+  const staleRetry = Array.from(remount.host.querySelectorAll("button")).find((button) =>
+    /retry/i.test(button.textContent ?? ""),
+  );
+  assert(!staleRetry, "no Retry without a vouching ledger record");
 
   await act(async () => remount.root.unmount());
   remount.host.remove();
