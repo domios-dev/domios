@@ -434,6 +434,22 @@ mod tests {
                 QuestionSubtype::Unknown,
                 "⚠ D:\\Developer\\codeterm\\.agents\\skills\\gap-analysis\\SKILL.md: missing field description",
             ),
+            // Live prod rows 340b2c5d, bb7a2f15, 091301f2, 2737d833, d67eb8c1
+            // ("provider"/"model=" keyword-match Auth/ModelPicker).
+            (
+                QuestionSubtype::Unknown,
+                "Searched for 1 pattern (ctrl+o to expand)",
+            ),
+            (
+                QuestionSubtype::ModelPicker,
+                "-=-codeterm:tab label=Dumas tab=166df18d model=gpt-5.6-sol-=-One bounded source hypothesis to confirm/refute, not an instruction to fit the oracle.",
+            ),
+            (QuestionSubtype::Unknown, "reads the delay as an oversight."),
+            (QuestionSubtype::Unknown, "h, --help Print help"),
+            (
+                QuestionSubtype::Auth,
+                "RE-ARMS it. provider-stop then resumes the readiness loop.",
+            ),
         ];
 
         for (subtype, frame_text) in fixtures {

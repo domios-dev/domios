@@ -125,16 +125,23 @@ function runAdmission(): void {
   observe("question", "unknown", textOnly("gpt-5.6-sol high · D:\\Developer\\codeterm"));
   assert(Number(notifyCalls) === 0, "terminal chrome never notifies");
 
+  // Live prod rows 340b2c5d / 2737d833 / d67eb8c1: tool chrome, CLI help, and
+  // prose that keyword-matches an actionable subtype — all control-less.
+  observe("question", "unknown", textOnly("Searched for 1 pattern (ctrl+o to expand)"));
+  observe("question", "unknown", textOnly("h, --help Print help"));
+  observe("question", "auth", textOnly("RE-ARMS it. provider-stop then resumes the readiness loop."));
+  assert(Number(notifyCalls) === 0, "tool chrome, help text, and prose never notify");
+
   observe("question", null, interactive("An unclassified question prompt"));
   assert(Number(notifyCalls) === 0, "unclassified subtype fails closed");
   observe("working", null, null);
 
   const genuine = observe("question", "model_choice", interactive("Which deployment region?  "));
-  assert(genuine === 5, "authoritative actionable prompt starts a fresh generation");
+  assert(genuine === 8, "authoritative actionable prompt starts a fresh generation");
   assert(Number(notifyCalls) === 1, "authoritative actionable prompt notifies exactly once");
 
   const redraw = observe("question", "model_choice", interactive("Which deployment region?"));
-  assert(redraw === 5, "repeated frames keep the generation");
+  assert(redraw === 8, "repeated frames keep the generation");
   assert(Number(notifyCalls) === 1, "repeated frames do not duplicate the notification");
 
   const cleared = observe("working", null, null);
@@ -143,9 +150,9 @@ function runAdmission(): void {
   assert(Number(notifyCalls) === 1, "clear/resolve emits nothing");
 
   const rateLimit = observe("question", "rate_limit", interactive("Rate limited, retry?"));
-  assert(rateLimit === 6, "rate_limit tracks state without a bell");
+  assert(rateLimit === 9, "rate_limit tracks state without a bell");
   const errored = observe("question", "error", interactive("Rate limited, retry?"));
-  assert(errored === 6, "error tracks state without a bell");
+  assert(errored === 9, "error tracks state without a bell");
   assert(Number(notifyCalls) === 1, "rate_limit and error states never notify");
 
   const freeText = observe("question", "model_choice", {
@@ -153,7 +160,7 @@ function runAdmission(): void {
     options: [],
     submit_available: true,
   });
-  assert(freeText === 7, "free-text prompt with explicit submit starts a generation");
+  assert(freeText === 10, "free-text prompt with explicit submit starts a generation");
   assert(Number(notifyCalls) === 2, "explicit submit control is actuatable and notifies once");
 
   console.log("✓ TabSessionChat input-request admission test green");
