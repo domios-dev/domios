@@ -204,6 +204,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
+    listen<{ id: string }>("notification-resolved", (event) => {
+      if (!event.payload?.id) return;
+      dispatch({ type: "MARK_READ", id: event.payload.id });
+    }).then((unlisten) => unlisteners.push(unlisten));
+
     listen<{ tab_id: string; status: TabStatus }>(
       "tab-status-changed",
       (event) => {

@@ -826,8 +826,12 @@ impl ServiceContext {
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.pending_prompt = None;
+        let cleared = self.mux.write().get_tab_mut(tab_id).and_then(|tab| {
+            let old = tab.pending_prompt.take()?;
+            Some((tab.agent_session_id.clone()?, old.question))
+        });
+        if let Some((session_id, question)) = cleared {
+            self.resolve_agent_input_request_notification(tab_id, &session_id, &question);
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
         self.prompt_detector.lock().clear(tab_id);
@@ -838,15 +842,20 @@ impl ServiceContext {
     /// Respond to a pending prompt — sends the selection to PTY and clears the prompt.
     /// Only sends to PTY if there's actually a pending prompt (avoids phantom input).
     pub fn respond_prompt(&self, tab_id: &str, value: &str) -> Result<(), String> {
-        let had_prompt = {
+        let (had_prompt, answered) = {
             let mut mux = self.mux.write();
             let tab = mux
                 .get_tab_mut(tab_id)
                 .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
-            let had = tab.pending_prompt.is_some();
-            tab.pending_prompt = None;
-            had
+            let old = tab.pending_prompt.take();
+            let answered = old
+                .as_ref()
+                .and_then(|prompt| Some((tab.agent_session_id.clone()?, prompt.question.clone())));
+            (old.is_some(), answered)
         };
+        if let Some((session_id, question)) = answered {
+            self.resolve_agent_input_request_notification(tab_id, &session_id, &question);
+        }
 
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(tab_id);
