@@ -12,7 +12,8 @@ import {
   type Task,
   type TaskStatus as TaskStatusType,
 } from "../types";
-import { latestTaskNote } from "./taskStatusLabel";
+import { canonicalTaskStatusLabel, latestTaskNote } from "./taskStatusLabel";
+import { qaChipText } from "./taskQa";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { deriveWorkingOnRow } from "./workingOnRow";
@@ -72,6 +73,7 @@ export interface TaskLocator {
 
 export interface BoardTaskCardModel {
   task: Task;
+  statusChipText: string;
   presenceLabel: string | null;
   historicalExecutorSummary: string | null;
   roleLabel: string | null;
@@ -204,6 +206,7 @@ function buildTaskCard(
   const tabId = presence?.tabId ?? clean(task.assigned_tab_id) ?? clean(task.lane?.tab_id);
   return {
     task,
+    statusChipText: qaChipText(plan, task) ?? canonicalTaskStatusLabel(task),
     presenceLabel: presence?.label ?? null,
     historicalExecutorSummary: historical?.summary ?? null,
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),

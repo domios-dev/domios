@@ -65,6 +65,21 @@ export function deriveTeamTaskBuckets(
   }));
 }
 
+// D12: the card aggregate folds paused into todo (1 pending + 2 paused reads
+// 3 todo), while the detailed breakdown still reports paused on its own —
+// raw status is never relabeled, this only changes how the summary counts.
+export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCounts {
+  const count = (key: TeamTaskBucket["key"]) => buckets.find((bucket) => bucket.key === key)?.count ?? 0;
+  const paused = count("paused");
+  return {
+    todo: count("todo") + paused,
+    review: count("review"),
+    blocked: count("blocked"),
+    paused,
+    done: count("done"),
+  };
+}
+
 export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
   const signature = buckets.map((bucket) => bucket.count).join(":");
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
@@ -398,13 +413,7 @@ export function TeamUnit({
     [buckets],
   );
   const statusCounts = useMemo<PlanStatusCounts>(
-    () => ({
-      todo: buckets.find((bucket) => bucket.key === "todo")?.count ?? 0,
-      review: buckets.find((bucket) => bucket.key === "review")?.count ?? 0,
-      blocked: buckets.find((bucket) => bucket.key === "blocked")?.count ?? 0,
-      paused: buckets.find((bucket) => bucket.key === "paused")?.count ?? 0,
-      done: buckets.find((bucket) => bucket.key === "done")?.count ?? 0,
-    }),
+    () => deriveCardStatusCounts(buckets),
     [buckets],
   );
   const planMotion = useTeamPlanMotion(buckets);

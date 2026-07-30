@@ -233,7 +233,12 @@ impl PlanStore {
                     .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
                     .map(task_label)
                     .collect(),
-                presentation: task_presentation(&task.status, &dependency_waits),
+                presentation: task_presentation(
+                    &task.status,
+                    &dependency_waits,
+                    &task.review_stage,
+                    &task.qa_state,
+                ),
                 dependency_waits,
                 task: task.clone(),
             });

@@ -450,11 +450,12 @@ impl ServiceContext {
             .iter()
             .take(5)
             .map(|t| {
+                let task = plan.tasks.iter().find(|task| task.id == t.task_id);
                 format!(
-                    "- {} \"{}\" ({:?}, aged {}h)",
+                    "- {} \"{}\" ({}, aged {}h)",
                     t.task_id,
                     t.name,
-                    t.status,
+                    aged_task_status_text(t, task),
                     t.age_ms / 3_600_000
                 )
             })
@@ -568,6 +569,25 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
+// Derived from qa_state/review_stage, never from a status Debug print — a task
+// queued for QA must read as queued, not as generically unjudged in_review.
+fn aged_task_status_text(
+    item: &crate::plan::reconcile::AgedOpenTask,
+    task: Option<&crate::plan::Task>,
+) -> String {
+    let queued_for_qa = task.is_some_and(|t| {
+        t.review_stage == crate::plan::ReviewStage::Qa
+            && t.qa_state == Some(crate::plan::QaState::Queued)
+    });
+    if !queued_for_qa {
+        return format!("{:?}", item.status);
+    }
+    match task.and_then(|t| non_empty(t.status_label.as_deref())) {
+        Some(reason) => format!("queued for QA: {reason}"),
+        None => "queued for QA".to_string(),
+    }
+}
+
 fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
     plans
         .iter()
@@ -653,6 +673,64 @@ mod tests {
             personality_provenance: None,
             attachments: vec![],
         }
+    }
+
+    fn aged_item(t: &Task, age_ms: u64) -> crate::plan::reconcile::AgedOpenTask {
+        crate::plan::reconcile::AgedOpenTask {
+            task_id: t.id.clone(),
+            name: t.name.clone(),
+            status: t.status.clone(),
+            age_ms,
+        }
+    }
+
+    #[test]
+    fn queued_qa_task_is_not_reported_unjudged() {
+        let mut t = task("t_queued", TaskStatus::InReview, None);
+        t.review_stage = crate::plan::ReviewStage::Qa;
+        t.qa_state = Some(crate::plan::QaState::Queued);
+        t.status_label = Some("blocked: reviewer host unavailable overnight".into());
+        let item = aged_item(&t, 3 * 3_600_000);
+
+        let text = aged_task_status_text(&item, Some(&t));
+
+        assert_eq!(
+            text,
+            "queued for QA: blocked: reviewer host unavailable overnight"
+        );
+        assert!(
+            !text.contains("InReview"),
+            "must not read as generically unjudged in_review: {text}"
+        );
+    }
+
+    #[test]
+    fn queued_qa_task_without_label_degrades_honestly() {
+        let mut t = task("t_queued", TaskStatus::InReview, None);
+        t.review_stage = crate::plan::ReviewStage::Qa;
+        t.qa_state = Some(crate::plan::QaState::Queued);
+        let item = aged_item(&t, 3 * 3_600_000);
+
+        assert_eq!(aged_task_status_text(&item, Some(&t)), "queued for QA");
+    }
+
+    #[test]
+    fn plain_aged_in_review_task_keeps_its_status_text() {
+        let t = task("t_plain", TaskStatus::InReview, None);
+        let item = aged_item(&t, 3 * 3_600_000);
+
+        assert_eq!(aged_task_status_text(&item, Some(&t)), "InReview");
+    }
+
+    #[test]
+    fn running_qa_task_is_not_presented_as_queued() {
+        let mut t = task("t_running", TaskStatus::InReview, None);
+        t.review_stage = crate::plan::ReviewStage::Qa;
+        t.qa_state = Some(crate::plan::QaState::Running);
+        t.status_label = Some("irrelevant while running".into());
+        let item = aged_item(&t, 3 * 3_600_000);
+
+        assert_eq!(aged_task_status_text(&item, Some(&t)), "InReview");
     }
 
     #[test]

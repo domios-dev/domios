@@ -388,6 +388,14 @@ fn lane_presentation(lane: &Value) -> String {
                 .unwrap_or_else(|| "dependencies".into());
             format!("waiting on dependency: {waits}")
         }
+        "queued_for_qa" => {
+            let label = s(lane, "status_label").trim();
+            if label.is_empty() {
+                "queued for qa".into()
+            } else {
+                format!("queued for qa: {label}")
+            }
+        }
         "" => s(lane, "status").into(),
         other => other.replace('_', " "),
     }
@@ -428,6 +436,58 @@ mod tests {
         assert!(out.contains("t_p [pending; actionable pending] pend"));
         assert!(out.contains("t_r -> tab_live (rev)"));
         assert!(out.contains("[decision] did a thing"));
+    }
+
+    #[test]
+    fn renders_queued_for_qa_with_operator_label_not_bare_in_review() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Queued QA",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 0, "in_progress": 0, "in_review": 1, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "coverage": {"plan_covered_fraction": 1.0, "gaps": []},
+            "open_lanes": [{
+                "task_id": "task_qawait1",
+                "status": "in_review",
+                "presentation": "queued_for_qa",
+                "status_label": "blocked: reviewer host unavailable overnight",
+                "name": "Bench dc wrapper"
+            }]
+        });
+        let out = render_state(&val);
+        assert!(
+            out.contains(
+                "task_qawait1 [in_review; queued for qa: blocked: reviewer host unavailable overnight] Bench dc wrapper"
+            ),
+            "{out}"
+        );
+        assert!(!out.contains("in_review; in review"), "{out}");
+    }
+
+    #[test]
+    fn renders_queued_for_qa_without_label_degrades_honestly() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Queued QA",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 0, "in_progress": 0, "in_review": 1, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "coverage": {"plan_covered_fraction": 1.0, "gaps": []},
+            "open_lanes": [{
+                "task_id": "task_x",
+                "status": "in_review",
+                "presentation": "queued_for_qa",
+                "name": "No label yet"
+            }]
+        });
+        let out = render_state(&val);
+        assert!(
+            out.contains("task_x [in_review; queued for qa] No label yet"),
+            "{out}"
+        );
     }
 
     #[test]

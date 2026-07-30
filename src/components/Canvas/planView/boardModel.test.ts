@@ -39,6 +39,7 @@ function task(overrides: Partial<Task>): Task {
 function doneCard(t: Task): BoardTaskCardModel {
   return {
     task: t,
+    statusChipText: t.status,
     presenceLabel: null,
     historicalExecutorSummary: null,
     roleLabel: null,

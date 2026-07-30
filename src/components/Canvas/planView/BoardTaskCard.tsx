@@ -2,7 +2,6 @@ import type { KeyboardEvent } from "react";
 import { ChevronRight, GitBranch, Hash, History, Layers, User } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
-import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
@@ -115,7 +114,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
         style={{ background: statusColor }}
         title={pausedTitle}
       >
-        {canonicalTaskStatusLabel(task)}
+        {card.statusChipText}
       </span>
       {card.workingOn ? (
         <WorkingOnRow model={card.workingOn} variant="board" />
