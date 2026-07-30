@@ -206,6 +206,7 @@ impl ServiceContext {
             echo_observed: false,
             submit_observed,
             submit_anomaly: false,
+            submit_key_writes: usize::from(cfg!(windows)),
             elapsed: started.elapsed(),
         })
     }
