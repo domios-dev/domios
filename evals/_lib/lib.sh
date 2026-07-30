@@ -87,8 +87,12 @@ dev_get() {
 
 dev_post() {
   local path="$1"; shift
+  # NOTE: "${1:-{}}" is a bash parsing trap — the expansion closes at the FIRST
+  # `}`, appending a stray `}` to every non-empty body (invalid JSON).
+  local body="${1:-}"
+  [ -n "$body" ] || body='{}'
   curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
-    -H "Content-Type: application/json" --data "${1:-{}}" \
+    -H "Content-Type: application/json" --data "$body" \
     "http://127.0.0.1:7686$path"
 }
 
