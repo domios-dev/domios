@@ -9,9 +9,70 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence, ChatSendLedger, ChatSendStatus, SendEvidenceAnchor,
+    normalize_turn_evidence, ChatSendLedger, ChatSendStatus, EvidenceWindow, SendEvidenceAnchor,
 };
 use crate::service::ServiceContext;
+
+fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> Vec<String> {
+    match &anchor.window {
+        EvidenceWindow::Jsonl { transcript_offset } => {
+            let Some(path) = registry
+                .with_provider(&anchor.provider_id, |provider| {
+                    provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
+                })
+                .flatten()
+            else {
+                return Vec::new();
+            };
+            if !path.exists() {
+                return Vec::new();
+            }
+            registry
+                .with_provider(&anchor.provider_id, |provider| {
+                    provider.parse_session_delta(&path, *transcript_offset)
+                })
+                .map(|delta| {
+                    delta
+                        .messages
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(index, rich)| {
+                            crate::service::tab_chat::rich_to_chat_msgs(rich, index)
+                        })
+                        .filter(|msg| msg.kind == "user")
+                        .map(|msg| msg.content)
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        EvidenceWindow::Structured { cursor } => registry
+            .with_provider(&anchor.provider_id, |provider| {
+                provider.read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
+            })
+            .map(|chat| {
+                chat.messages
+                    .into_iter()
+                    .filter(|msg| msg.kind == "user")
+                    .map(|msg| msg.content)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// A cursor-less NON-empty structured store has no bounded append window — an
+/// unbounded window would let pre-send history confirm the send, so no anchor
+/// is minted and the send stays live-sink-only.
+pub(crate) fn structured_boundary(
+    chat: &crate::agent::chat_types::StructuredChat,
+) -> Option<EvidenceWindow> {
+    if chat.cursor.is_none() && !chat.messages.is_empty() {
+        return None;
+    }
+    Some(EvidenceWindow::Structured {
+        cursor: chat.cursor.clone(),
+    })
+}
 
 /// One turn instance confirms at most one send: a scan may only confirm when
 /// the append window holds MORE matching user turns than sends already
@@ -24,29 +85,9 @@ pub(crate) fn scan_transcript_evidence(
 ) {
     for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
-        let Some(path) = registry
-            .with_provider(&anchor.provider_id, |provider| {
-                provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
-            })
-            .flatten()
-        else {
-            continue;
-        };
-        if !path.exists() {
-            continue;
-        }
-        let Some(delta) = registry.with_provider(&anchor.provider_id, |provider| {
-            provider.parse_session_delta(&path, anchor.transcript_offset)
-        }) else {
-            continue;
-        };
-        let matching_turns = delta
-            .messages
+        let matching_turns = window_user_turns(registry, anchor)
             .iter()
-            .enumerate()
-            .flat_map(|(index, rich)| crate::service::tab_chat::rich_to_chat_msgs(rich, index))
-            .filter(|msg| msg.kind == "user")
-            .filter(|msg| normalize_turn_evidence(&msg.content) == candidate.payload)
+            .filter(|content| normalize_turn_evidence(content) == candidate.payload)
             .count();
         let claimed = ledger.claimed_turn_count(tab_id, &anchor.session_id, &candidate.payload);
         if matching_turns > claimed {
@@ -60,7 +101,8 @@ pub(crate) fn scan_transcript_evidence(
 impl ServiceContext {
     /// Capture the send's authoritative transcript identity and append-window
     /// boundary at send start. `None` when the tab has no bound agent session
-    /// yet — such a send can only be confirmed by the live delta stream.
+    /// yet, or when a structured store cannot supply a boundary cursor — such
+    /// a send can only be confirmed by the live delta stream.
     pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> Option<SendEvidenceAnchor> {
         let (provider_id, cwd, session_id) = {
             let mux = self.mux.read();
@@ -71,19 +113,34 @@ impl ServiceContext {
                 tab.agent_session_id.clone()?,
             )
         };
-        let transcript_offset = self
+        let structured = self
             .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider.session_jsonl_path(&cwd, &session_id)
-            })
-            .flatten()
-            .and_then(|path| std::fs::metadata(path).ok())
-            .map_or(0, |metadata| metadata.len());
+            .with_provider(&provider_id, |provider| provider.uses_structured_chat())
+            .unwrap_or(false);
+        let window = if structured {
+            let chat = self
+                .agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider.read_structured_chat(&cwd, &session_id, None)
+                })
+                .unwrap_or_default();
+            structured_boundary(&chat)?
+        } else {
+            let transcript_offset = self
+                .agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider.session_jsonl_path(&cwd, &session_id)
+                })
+                .flatten()
+                .and_then(|path| std::fs::metadata(path).ok())
+                .map_or(0, |metadata| metadata.len());
+            EvidenceWindow::Jsonl { transcript_offset }
+        };
         Some(SendEvidenceAnchor {
             provider_id,
             cwd,
             session_id,
-            transcript_offset,
+            window,
         })
     }
 
@@ -236,7 +293,7 @@ mod tests {
                 provider_id: "windowed".into(),
                 cwd: "/proj".into(),
                 session_id: session_id.into(),
-                transcript_offset,
+                window: EvidenceWindow::Jsonl { transcript_offset },
             }
         }
 
@@ -387,5 +444,217 @@ mod tests {
         fx.append_user_turn("sess-a", "deploy the fix");
 
         assert!(fx.scan("tab-1").is_empty());
+    }
+
+    /// Honest cursor-window structured store (the `uses_structured_chat`
+    /// shape, e.g. opencode's sqlite): `read_structured_chat` returns rows
+    /// strictly after the numeric cursor and the next cursor. No provider-id
+    /// branches anywhere — the scan picks this path purely from the anchor's
+    /// capability-typed window.
+    #[derive(Clone)]
+    struct StructuredStoreProvider {
+        rows: std::sync::Arc<
+            parking_lot::Mutex<
+                std::collections::HashMap<String, Vec<crate::agent::chat_types::ChatMsg>>,
+            >,
+        >,
+    }
+
+    impl StructuredStoreProvider {
+        fn new() -> Self {
+            Self {
+                rows: std::sync::Arc::default(),
+            }
+        }
+    }
+
+    impl AgentProvider for StructuredStoreProvider {
+        fn id(&self) -> &str {
+            "structured-store"
+        }
+        fn display_name(&self) -> &str {
+            "Structured Store"
+        }
+        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+            crate::agent::provider::ReadinessStrategy::FixedDelay {
+                duration: std::time::Duration::ZERO,
+            }
+        }
+        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+            crate::agent::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn uses_structured_chat(&self) -> bool {
+            true
+        }
+        fn read_structured_chat(
+            &self,
+            _cwd: &str,
+            session_id: &str,
+            cursor: Option<&str>,
+        ) -> crate::agent::chat_types::StructuredChat {
+            let rows = self.rows.lock();
+            let all = rows.get(session_id).cloned().unwrap_or_default();
+            let from = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
+            crate::agent::chat_types::StructuredChat {
+                cursor: Some(all.len().to_string()),
+                messages: all.into_iter().skip(from).collect(),
+                done: None,
+            }
+        }
+    }
+
+    struct StructuredFixture {
+        provider: StructuredStoreProvider,
+        registry: AgentRegistry,
+        ledger: ChatSendLedger,
+    }
+
+    impl StructuredFixture {
+        fn new() -> Self {
+            let provider = StructuredStoreProvider::new();
+            let registry = AgentRegistry::new();
+            registry.register_provider(Box::new(provider.clone()));
+            Self {
+                provider,
+                registry,
+                ledger: ChatSendLedger::default(),
+            }
+        }
+
+        fn append_user_row(&self, session_id: &str, content: &str) {
+            self.provider
+                .rows
+                .lock()
+                .entry(session_id.to_string())
+                .or_default()
+                .push(crate::agent::chat_types::ChatMsg {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: "user".into(),
+                    content: content.into(),
+                    ..Default::default()
+                });
+        }
+
+        fn anchor_now(&self, session_id: &str) -> SendEvidenceAnchor {
+            let chat = self
+                .provider
+                .read_structured_chat("/proj", session_id, None);
+            SendEvidenceAnchor {
+                provider_id: "structured-store".into(),
+                cwd: "/proj".into(),
+                session_id: session_id.into(),
+                window: structured_boundary(&chat).expect("cursor-bearing store"),
+            }
+        }
+
+        fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
+            let mut confirmed = Vec::new();
+            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
+                confirmed.push(status)
+            });
+            confirmed
+        }
+    }
+
+    #[test]
+    fn structured_store_detached_delivery_reconciles_on_read() {
+        let fx = StructuredFixture::new();
+        fx.append_user_row("sess-s", "earlier unrelated turn");
+        let send = fx
+            .ledger
+            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-s")))
+            .unwrap();
+        fail_send(&fx.ledger, &send);
+        // Chat detached before evidence: no poller subscription survived. The
+        // exact turn still persisted to the structured store.
+        fx.append_user_row("sess-s", "deploy the fix");
+
+        let confirmed = fx.scan("tab-1");
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(confirmed[0].send_id, send.send_id);
+        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Sent);
+    }
+
+    #[test]
+    fn structured_pre_send_and_foreign_session_rows_never_confirm() {
+        let fx = StructuredFixture::new();
+        fx.append_user_row("sess-s", "deploy the fix");
+        let send = fx
+            .ledger
+            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-s")))
+            .unwrap();
+        fail_send(&fx.ledger, &send);
+        fx.append_user_row("sess-other", "deploy the fix");
+
+        assert!(fx.scan("tab-1").is_empty(), "pre-send + foreign rows are not evidence");
+        let retained = fx.ledger.reconcile("tab-1");
+        assert_eq!(retained[0].state, ChatSendState::Failed);
+        assert!(retained[0].error.is_some(), "absent evidence stays actionable");
+    }
+
+    #[test]
+    fn structured_one_turn_confirms_one_send_and_rescan_is_idempotent() {
+        let fx = StructuredFixture::new();
+        let first = fx
+            .ledger
+            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-s")))
+            .unwrap();
+        let second = fx
+            .ledger
+            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-s")))
+            .unwrap();
+        fail_send(&fx.ledger, &first);
+        fail_send(&fx.ledger, &second);
+        fx.append_user_row("sess-s", "same text");
+
+        let confirmed = fx.scan("tab-1");
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(confirmed[0].send_id, first.send_id, "oldest first");
+        assert!(fx.scan("tab-1").is_empty(), "re-scan consumes nothing new");
+
+        fx.append_user_row("sess-s", "same text");
+        let confirmed = fx.scan("tab-1");
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(confirmed[0].send_id, second.send_id);
+    }
+
+    #[test]
+    fn cursorless_nonempty_structured_store_mints_no_boundary() {
+        let populated = crate::agent::chat_types::StructuredChat {
+            cursor: None,
+            messages: vec![crate::agent::chat_types::ChatMsg::default()],
+            done: None,
+        };
+        assert_eq!(structured_boundary(&populated), None);
+
+        let empty = crate::agent::chat_types::StructuredChat::default();
+        assert_eq!(
+            structured_boundary(&empty),
+            Some(EvidenceWindow::Structured { cursor: None }),
+            "an empty store is a valid boundary: every future row is post-send"
+        );
     }
 }

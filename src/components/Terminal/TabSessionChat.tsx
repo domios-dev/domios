@@ -456,13 +456,21 @@ export function TabSessionChat({
 
   useEffect(() => {
     setChatDeliveries(getChatDeliveries(tabId));
-    return observeChatSendStatus(tabId, (delivery) => {
-      setChatDeliveries((previous) => {
-        const next = previous.filter((candidate) => candidate.message_id !== delivery.message_id);
-        next.push(delivery);
-        return next.sort((left, right) => left.status.sequence - right.status.sequence);
-      });
-    });
+    return observeChatSendStatus(
+      tabId,
+      (delivery) => {
+        setChatDeliveries((previous) => {
+          const next = previous.filter((candidate) => candidate.message_id !== delivery.message_id);
+          next.push(delivery);
+          return next.sort((left, right) => left.status.sequence - right.status.sequence);
+        });
+      },
+      (messageId) => {
+        setChatDeliveries((previous) =>
+          previous.filter((candidate) => candidate.message_id !== messageId),
+        );
+      },
+    );
   }, [tabId]);
 
   const retryDelivery = useCallback((delivery: ChatDelivery) => {

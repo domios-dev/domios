@@ -51,13 +51,22 @@ well-meaning "one more heuristic" changes. Read this before touching
   oldest first. Deltas only — history snapshots never feed reconciliation, so
   stale identical turns can never confirm anything.
 - Every send records a `SendEvidenceAnchor` at start: provider, cwd, the
-  tab's bound session id, and the transcript byte offset at that instant.
-  If Chat was closed during delivery (no live sink), the ledger read
-  (`chat_send_status`) runs `scan_transcript_evidence`: it inspects ONLY that
-  exact session's append window at/after the anchor offset, counts exact
-  matching user turns, subtracts turns already claimed by confirmed sends of
-  the same tab+session+payload, and confirms oldest-first. Pre-send history,
-  another/latest session, and already-consumed turns can never confirm.
+  tab's bound session id, and a capability-typed append-window boundary —
+  the transcript byte offset for JSONL providers, or the provider's opaque
+  `read_structured_chat` cursor for structured stores (`uses_structured_chat`
+  capability; a cursor-less non-empty store mints no anchor rather than an
+  unbounded window). If Chat was closed during delivery (no live sink), the
+  ledger read (`chat_send_status`) runs `scan_transcript_evidence`: it
+  inspects ONLY that exact session's append window past the boundary, counts
+  exact matching user turns, subtracts turns already claimed by confirmed
+  sends of the same tab+session+payload, and confirms oldest-first. Pre-send
+  history, another/latest session, and already-consumed turns can never
+  confirm.
+- Daemon restart: the ledger is in-memory, so the frontend shows a failure
+  only while the CURRENT ledger vouches for it — a reconcile response that no
+  longer contains a tracked failed send removes the record (no false Retry is
+  preserved, and no fabricated `sent` replaces it; the durable transcript is
+  the remaining truth).
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
 - A send with no evidence and a terminal classification stays visibly
@@ -86,4 +95,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -19,6 +19,7 @@ export type ChatDelivery = {
 type DeliveryMessage = Pick<ChatDelivery, "message_id" | "message">;
 type Subscriber = {
   handler: (delivery: ChatDelivery) => void;
+  onRevoked?: (messageId: string) => void;
   seen: Map<string, string>;
 };
 
@@ -86,6 +87,31 @@ function ingestStatus(status: ChatSendStatus): void {
   if (delivery) notify(delivery);
 }
 
+// A failed record is only shown while the CURRENT backend ledger vouches for
+// it. After a daemon restart (or retention eviction) the authoritative
+// reconcile response no longer contains the send — drop the record instead of
+// preserving a false failure the backend can no longer classify or reconcile.
+function dropUnvouchedFailures(tabId: string, vouched: ChatSendStatus[]): void {
+  const vouchedIds = new Set(vouched.map((status) => status.send_id));
+  for (const [sendId, status] of Array.from(statuses)) {
+    if (status.tab_id !== tabId || status.state !== "failed") continue;
+    if (vouchedIds.has(sendId)) continue;
+    statuses.delete(sendId);
+    const message = messages.get(sendId);
+    messages.delete(sendId);
+    if (!message) continue;
+    const key = messageKey(tabId, message.message_id);
+    if (currentSendByMessage.get(key) !== sendId) continue;
+    currentSendByMessage.delete(key);
+    const tabSubscribers = subscribers.get(tabId);
+    if (!tabSubscribers) continue;
+    for (const subscriber of tabSubscribers) {
+      subscriber.seen.delete(sendId);
+      subscriber.onRevoked?.(message.message_id);
+    }
+  }
+}
+
 export function trackChatSend(
   status: ChatSendStatus,
   message: DeliveryMessage,
@@ -131,10 +157,11 @@ export async function retryChatDelivery(delivery: ChatDelivery): Promise<ChatSen
 export function observeChatSendStatus(
   tabId: string,
   onDelivery: (delivery: ChatDelivery) => void,
+  onRevoked?: (messageId: string) => void,
 ): () => void {
   let disposed = false;
   let unlisten: (() => void) | null = null;
-  const subscriber: Subscriber = { handler: onDelivery, seen: new Map() };
+  const subscriber: Subscriber = { handler: onDelivery, onRevoked, seen: new Map() };
   const tabSubscribers = subscribers.get(tabId) ?? new Set<Subscriber>();
   tabSubscribers.add(subscriber);
   subscribers.set(tabId, tabSubscribers);
@@ -145,6 +172,7 @@ export function observeChatSendStatus(
       .then((nextStatuses) => {
         if (!disposed) {
           for (const status of nextStatuses) ingestStatus(status);
+          dropUnvouchedFailures(tabId, nextStatuses);
         }
       })
       .catch(() => {});
