@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2878,7 +2878,7 @@ End-of-today and end-of-cycle projection based on your historical rhythm scaled 
 
 #### `codeterm usage refresh`
 
-Trigger a fresh probe (runs the agent hidden, parses /status)
+Re-read usage from the provider's own quota-free source (never spends quota)
 
 - `--account-id`
 - `--provider`
