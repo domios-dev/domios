@@ -38,7 +38,7 @@ import { reattachTabChat } from "./chatReattach";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
-import { waitingQuestionTracker } from "./waitingQuestionTracker";
+import { deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 
 interface Props {
   tabId: string;
@@ -459,21 +459,22 @@ export function TabSessionChat({
   }, [backendState?.state, pendingPrompt]);
 
   useEffect(() => {
-    const completeQuestion = pendingPrompt?.question.trim() || backendState?.question?.trim() || "";
-    const isActionableInputRequest = backendState?.state === "question"
-      && backendState.subtype !== "rate_limit"
-      && backendState.subtype !== "error";
+    const admission = deriveInputRequestAdmission(
+      pendingPrompt?.question,
+      backendState?.state ?? null,
+      backendState?.subtype ?? null,
+    );
     const generation = waitingQuestionTracker.observeAndNotify(
       tabId,
       agentSessionId,
       backendState?.state ?? null,
-      completeQuestion || null,
-      isActionableInputRequest && completeQuestion.length > 0,
+      admission.promptIdentity,
+      admission.notificationReady,
       () => {
         void invoke("notify_agent_input_request", {
           tabId,
           sessionId: agentSessionId,
-          promptIdentity: completeQuestion,
+          promptIdentity: admission.promptIdentity,
         }).catch((error) => {
           console.warn("Failed to create waiting-for-input notification:", error);
         });
@@ -482,7 +483,6 @@ export function TabSessionChat({
     setWaitingGeneration(generation);
   }, [
     agentSessionId,
-    backendState?.question,
     backendState?.state,
     backendState?.subtype,
     tabId,
