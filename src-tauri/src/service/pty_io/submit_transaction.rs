@@ -406,7 +406,14 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     let turn_was_started = transport.turn_started();
     let mut submit_observed = !two_phase;
+    let mut submit_key_written = false;
     for _ in 0..MAX_SUBMIT_KEY_WRITES {
+        // The first CR is the delivery itself and always goes out; a RETRY
+        // write may never begin with an expired phase deadline — enqueueing it
+        // can only produce a doomed ack wait or a stray late keypress.
+        if submit_key_written && Instant::now() >= turn_deadline {
+            break;
+        }
         let enter_armed = transport.generation();
         let turn_armed = transport.turn_generation();
         // The paste already reached the PTY: a submit-key write failure can
@@ -427,6 +434,7 @@ fn run_with_submit_key<T: SubmitTransport>(
                 screen_tail,
             });
         }
+        submit_key_written = true;
         if !two_phase {
             break;
         }
@@ -522,6 +530,8 @@ pub(crate) fn write_terminal_reply(
     result
 }
 
+#[cfg(test)]
+mod classification_tests;
 #[cfg(test)]
 mod collapsed_paste_tests;
 #[cfg(test)]

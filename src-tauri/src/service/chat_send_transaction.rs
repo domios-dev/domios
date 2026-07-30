@@ -25,6 +25,24 @@ pub struct ChatSendStatus {
     pub retained_from: u64,
 }
 
+/// Authoritative transcript identity captured at send start. Evidence for the
+/// send may only come from THIS session's file, at/after `transcript_offset` —
+/// never from another/latest session and never from pre-send history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SendEvidenceAnchor {
+    pub(crate) provider_id: String,
+    pub(crate) cwd: String,
+    pub(crate) session_id: String,
+    /// Session transcript byte length at send start — the append-window boundary.
+    pub(crate) transcript_offset: u64,
+}
+
+pub(crate) struct EvidenceCandidate {
+    pub(crate) send_id: String,
+    pub(crate) payload: String,
+    pub(crate) anchor: SendEvidenceAnchor,
+}
+
 struct ChatSendLedgerState {
     ledger_id: String,
     next_sequence: u64,
@@ -32,6 +50,7 @@ struct ChatSendLedgerState {
     /// Normalized payload per send, retained only for exact turn-evidence
     /// correlation — never serialized back to the UI.
     payload_by_id: HashMap<String, String>,
+    anchor_by_id: HashMap<String, SendEvidenceAnchor>,
     latest_by_tab: HashMap<String, String>,
     latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
@@ -44,6 +63,7 @@ impl Default for ChatSendLedgerState {
             next_sequence: 1,
             by_id: HashMap::new(),
             payload_by_id: HashMap::new(),
+            anchor_by_id: HashMap::new(),
             latest_by_tab: HashMap::new(),
             latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
@@ -54,7 +74,7 @@ impl Default for ChatSendLedgerState {
 /// The shape a delivered payload takes when it reappears as a session user
 /// turn: control bytes stripped by the send path, surrounding whitespace
 /// trimmed by TUI/transcript rendering.
-fn normalize_turn_evidence(text: &str) -> String {
+pub(crate) fn normalize_turn_evidence(text: &str) -> String {
     crate::service::pty_io::sanitize_agent_prompt_input(text)
         .trim()
         .to_string()
@@ -66,7 +86,12 @@ pub(crate) struct ChatSendLedger {
 }
 
 impl ChatSendLedger {
-    pub(crate) fn try_start(&self, tab_id: &str, text: &str) -> Result<ChatSendStatus, String> {
+    pub(crate) fn try_start(
+        &self,
+        tab_id: &str,
+        text: &str,
+        anchor: Option<SendEvidenceAnchor>,
+    ) -> Result<ChatSendStatus, String> {
         let mut state = self.state.lock();
         let in_flight = state
             .by_id
@@ -97,6 +122,9 @@ impl ChatSendLedger {
         state
             .payload_by_id
             .insert(status.send_id.clone(), normalize_turn_evidence(text));
+        if let Some(anchor) = anchor {
+            state.anchor_by_id.insert(status.send_id.clone(), anchor);
+        }
         while state.order.len() > MAX_RESULTS {
             let Some(position) = state.order.iter().position(|send_id| {
                 state
@@ -112,6 +140,7 @@ impl ChatSendLedger {
                 .expect("the selected terminal result exists");
             state.by_id.remove(&expired);
             state.payload_by_id.remove(&expired);
+            state.anchor_by_id.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
                 .latest_failure_by_tab
@@ -176,16 +205,83 @@ impl ChatSendLedger {
                 }) && state.payload_by_id.get(*send_id) == Some(&evidence)
             })?
             .clone();
+        let status = Self::mark_sent(&mut state, &send_id)?;
+        Some(Self::with_retention_window(&state, status))
+    }
+
+    fn mark_sent(state: &mut ChatSendLedgerState, send_id: &str) -> Option<ChatSendStatus> {
         {
-            let status = state.by_id.get_mut(&send_id)?;
+            let status = state.by_id.get_mut(send_id)?;
+            if status.state == ChatSendState::Sent {
+                return None;
+            }
             status.state = ChatSendState::Sent;
             status.error = None;
         }
         state
             .latest_failure_by_tab
-            .retain(|_, failed| failed != &send_id);
-        let status = state.by_id.get(&send_id).cloned()?;
+            .retain(|_, failed| failed != send_id);
+        state.by_id.get(send_id).cloned()
+    }
+
+    /// Confirm one send by id after exact append-window evidence was found in
+    /// its own recorded session transcript. No-op if already sent.
+    pub(crate) fn confirm_send(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        let status = Self::mark_sent(&mut state, send_id)?;
         Some(Self::with_retention_window(&state, status))
+    }
+
+    /// Unconfirmed sends (oldest first) that carry an evidence anchor and a
+    /// non-empty normalized payload — the only sends a transcript scan may touch.
+    pub(crate) fn evidence_candidates(&self, tab_id: &str) -> Vec<EvidenceCandidate> {
+        let state = self.state.lock();
+        state
+            .order
+            .iter()
+            .filter_map(|send_id| {
+                let status = state.by_id.get(send_id)?;
+                if status.tab_id != tab_id || status.state == ChatSendState::Sent {
+                    return None;
+                }
+                let payload = state.payload_by_id.get(send_id).cloned()?;
+                if payload.is_empty() {
+                    return None;
+                }
+                let anchor = state.anchor_by_id.get(send_id)?.clone();
+                Some(EvidenceCandidate {
+                    send_id: send_id.clone(),
+                    payload,
+                    anchor,
+                })
+            })
+            .collect()
+    }
+
+    /// Sends already confirmed for this tab+session+payload — each one already
+    /// consumed a matching transcript turn, so a scan must find MORE matching
+    /// turns than this count before it may confirm another send.
+    pub(crate) fn claimed_turn_count(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        payload: &str,
+    ) -> usize {
+        let state = self.state.lock();
+        state
+            .by_id
+            .values()
+            .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Sent)
+            .filter(|status| {
+                state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
+            })
+            .filter(|status| {
+                state
+                    .anchor_by_id
+                    .get(&status.send_id)
+                    .is_some_and(|anchor| anchor.session_id == session_id)
+            })
+            .count()
     }
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
@@ -264,7 +360,8 @@ impl crate::service::ServiceContext {
         tab_id: &str,
         text: String,
     ) -> Result<ChatSendStatus, String> {
-        let pending = self.chat_send_ledger.try_start(tab_id, &text)?;
+        let anchor = self.chat_send_anchor(tab_id);
+        let pending = self.chat_send_ledger.try_start(tab_id, &text, anchor)?;
         let response = pending.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
@@ -302,7 +399,7 @@ mod tests {
     #[test]
     fn failed_submit_retains_one_payload_and_correlated_result() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "payload").unwrap();
+        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
         let mut writes = Vec::new();
         let result = run_chat_send(&ledger, pending.clone(), "one payload", |text| {
             writes.push(text.to_string());
@@ -318,7 +415,7 @@ mod tests {
     #[test]
     fn pending_transaction_survives_ui_detach_and_activation() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "payload").unwrap();
+        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
 
         assert_eq!(ledger.reconcile("tab-1"), vec![pending.clone()]);
 
@@ -331,8 +428,8 @@ mod tests {
     #[test]
     fn a_missed_failure_survives_a_newer_pending_send() {
         let ledger = ChatSendLedger::default();
-        let first = ledger.try_start("tab-1", "payload").unwrap();
-        let second = ledger.try_start("tab-1", "payload").unwrap();
+        let first = ledger.try_start("tab-1", "payload", None).unwrap();
+        let second = ledger.try_start("tab-1", "payload", None).unwrap();
         let failed = run_chat_send(&ledger, first, "first", |_| {
             Err(submit_unconfirmed("Enter swallowed"))
         });
@@ -346,22 +443,22 @@ mod tests {
         let ledger = ChatSendLedger::default();
         let mut pending = Vec::new();
         for index in 0..MAX_IN_FLIGHT {
-            pending.push(ledger.try_start(&format!("tab-{index}"), "payload").unwrap());
+            pending.push(ledger.try_start(&format!("tab-{index}"), "payload", None).unwrap());
         }
 
-        assert!(ledger.try_start("overflow", "payload").is_err());
+        assert!(ledger.try_start("overflow", "payload", None).is_err());
         assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT);
 
         ledger.finish(&pending[0].send_id, Ok(())).unwrap();
-        assert!(ledger.try_start("released", "payload").is_ok());
+        assert!(ledger.try_start("released", "payload", None).is_ok());
         assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT + 1);
     }
 
     #[test]
     fn reconcile_retains_every_failure_missed_while_chat_is_detached() {
         let ledger = ChatSendLedger::default();
-        let first = ledger.try_start("tab-1", "payload").unwrap();
-        let second = ledger.try_start("tab-1", "payload").unwrap();
+        let first = ledger.try_start("tab-1", "payload", None).unwrap();
+        let second = ledger.try_start("tab-1", "payload", None).unwrap();
         run_chat_send(&ledger, first, "first", |_| {
             Err(submit_unconfirmed("first failed"))
         });
@@ -383,7 +480,7 @@ mod tests {
     fn reconciliation_exposes_the_backend_retention_window() {
         let ledger = ChatSendLedger::default();
         for index in 0..=MAX_RESULTS {
-            let pending = ledger.try_start("tab-1", "payload").unwrap();
+            let pending = ledger.try_start("tab-1", "payload", None).unwrap();
             run_chat_send(&ledger, pending, "message", |_| {
                 Err(submit_unconfirmed(format!("failure-{index}")))
             });
@@ -398,7 +495,7 @@ mod tests {
     #[test]
     fn echo_mismatch_reaches_ledger_as_submit_unconfirmed() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "payload").unwrap();
+        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
         let result = run_chat_send(&ledger, pending, "wrapped payload", |_| {
             Err(DeliveryError::from_injection(
                 "tab-1",
@@ -422,7 +519,7 @@ mod tests {
     #[test]
     fn exact_turn_evidence_clears_a_false_failure() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "deploy the fix").unwrap();
+        let pending = ledger.try_start("tab-1", "deploy the fix", None).unwrap();
         run_chat_send(&ledger, pending.clone(), "deploy the fix", |_| {
             Err(submit_unconfirmed("acknowledgement heuristics timed out"))
         });
@@ -439,7 +536,7 @@ mod tests {
     #[test]
     fn evidence_during_flight_wins_over_late_transport_failure() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "restart dev").unwrap();
+        let pending = ledger.try_start("tab-1", "restart dev", None).unwrap();
         let confirmed = ledger
             .confirm_delivered_user_turn("tab-1", "  restart dev  ")
             .expect("turn evidence may arrive before classification finishes");
@@ -461,7 +558,7 @@ mod tests {
     #[test]
     fn unrelated_stale_or_foreign_turns_never_confirm() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "exact payload").unwrap();
+        let pending = ledger.try_start("tab-1", "exact payload", None).unwrap();
         run_chat_send(&ledger, pending, "exact payload", |_| {
             Err(submit_unconfirmed("no evidence"))
         });
@@ -479,8 +576,8 @@ mod tests {
     #[test]
     fn one_turn_confirms_at_most_one_send_oldest_first() {
         let ledger = ChatSendLedger::default();
-        let first = ledger.try_start("tab-1", "same text").unwrap();
-        let second = ledger.try_start("tab-1", "same text").unwrap();
+        let first = ledger.try_start("tab-1", "same text", None).unwrap();
+        let second = ledger.try_start("tab-1", "same text", None).unwrap();
 
         let confirmed = ledger
             .confirm_delivered_user_turn("tab-1", "same text")
@@ -505,7 +602,7 @@ mod tests {
     #[test]
     fn already_sent_deliveries_are_never_reconfirmed() {
         let ledger = ChatSendLedger::default();
-        let pending = ledger.try_start("tab-1", "hello").unwrap();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
         run_chat_send(&ledger, pending, "hello", |_| Ok(()));
         assert!(ledger.confirm_delivered_user_turn("tab-1", "hello").is_none());
     }
