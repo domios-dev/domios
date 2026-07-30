@@ -348,7 +348,7 @@
         },
         {
           "name": "spawn",
-          "about": "Spawn a new agent; roleless unless --role is provided",
+          "about": "Spawn a new agent; roleless unless --role is provided.",
           "aliases": [],
           "args": [
             {
