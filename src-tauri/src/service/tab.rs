@@ -141,12 +141,8 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
-        let pending_digest = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.as_ref())
-            .map(|record| record.content_digest.clone());
+        self.discard_pending_delivery(tab_id)
+            .map_err(|error| format!("pending delivery discard failed: {error}"))?;
         self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
         let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         let pty_ids = self.mux.write().close_tab(tab_id)?;
@@ -155,15 +151,6 @@ impl ServiceContext {
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
-        if let Some(digest) = pending_digest {
-            if let Err(error) = self.pending_delivery_payloads.delete(&digest) {
-                log::warn!(
-                    "[pending-delivery] close cleanup failed for digest {}: {}",
-                    digest,
-                    error
-                );
-            }
-        }
         // Drop any remote-worker ghosts that reported to this (now-closed) tab.
         self.remote_workers.forget_orchestrator(tab_id);
         self.emit_state_changed();
