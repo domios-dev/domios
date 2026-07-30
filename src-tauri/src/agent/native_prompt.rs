@@ -60,7 +60,8 @@ fn option_value(index: usize) -> String {
 }
 
 fn has_structural_picker_signal(input: &NativePromptInput, options: &[String]) -> bool {
-    has_picker_footer(&input.screen) || has_selection_attribute(&input.screen, options)
+    options.len() >= 2
+        && (has_picker_footer(&input.screen) || has_selection_attribute(&input.screen, options))
 }
 
 fn has_picker_footer(screen: &AttributedScreen) -> bool {
@@ -291,6 +292,22 @@ mod tests {
                 "{case}: screen mode alone must not become picker evidence"
             );
         }
+    }
+
+    #[test]
+    fn one_option_with_unrelated_footer_is_not_a_picker() {
+        let dir = snapshots_root().join("codex/tool-result-card-negative-r1");
+        let mut input = input_from_cast(&dir);
+        let detection = detect_picker(&input.screen).expect("fixture reaches structural gate");
+        let one_option = vec![detection.options[0].clone()];
+        for (cell, ch) in input.screen.cells[0]
+            .iter_mut()
+            .zip("esc to interrupt".chars())
+        {
+            cell.ch = ch.to_string();
+        }
+        assert!(has_picker_footer(&input.screen));
+        assert!(!has_structural_picker_signal(&input, &one_option));
     }
 
     #[test]
