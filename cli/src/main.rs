@@ -324,7 +324,13 @@ fn main_impl() {
                     .send()
                 {
                     Ok(resp) if resp.status().is_success() => {
-                        Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
+                        let applied: serde_json::Value = resp.json().unwrap_or_default();
+                        let mut out =
+                            serde_json::json!({"ok": true, "key": key, "value": json_value});
+                        if let Some(bind) = applied.get("api_bind") {
+                            out["api_bind"] = bind.clone();
+                        }
+                        Ok(out)
                     }
                     Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
                     Err(e) => Err(e.to_string()),
@@ -335,14 +341,27 @@ fn main_impl() {
             Ok(value) => {
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                } else if let Some(v) = value.get("value") {
-                    match v {
-                        serde_json::Value::String(s) => println!("{}", s),
-                        serde_json::Value::Null => println!("null"),
-                        other => println!("{}", other),
-                    }
                 } else {
-                    print_human(&value);
+                    if let Some(v) = value.get("value") {
+                        match v {
+                            serde_json::Value::String(s) => println!("{}", s),
+                            serde_json::Value::Null => println!("null"),
+                            other => println!("{}", other),
+                        }
+                    } else {
+                        print_human(&value);
+                    }
+                    // stdout stays the bare value for scripting; the divergence goes to stderr.
+                    if let Some(bind) = value.get("api_bind") {
+                        let live = bind.get("live").and_then(|v| v.as_str()).unwrap_or("?");
+                        let configured =
+                            bind.get("configured").and_then(|v| v.as_str()).unwrap_or("?");
+                        eprintln!(
+                            "warning: NOT applied to the running listener — it is still bound to {live}, \
+                             config stores {configured}. Restart CodeTerm to apply, and verify with \
+                             `lsof -nP -iTCP:<port> -sTCP:LISTEN`."
+                        );
+                    }
                 }
             }
             Err(e) => {
