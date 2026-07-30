@@ -300,6 +300,70 @@ mod tests {
         // their plugin-side tests (plugins/provider-*/tests).
     }
 
+    /// The realistic precondition for the ESRCH path: the agent honoured `/exit`,
+    /// `wait_or_kill_one` already reaped it, and `reap_owned_ptys` kills it again.
+    #[cfg(unix)]
+    fn spawn_and_reap_child() -> (crate::PtyState, String) {
+        use crate::pty::manager::PtyManager;
+        use codeterm_util::lock_hold::TimedMutex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let pty: crate::PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
+        let (pty_id, session) = pty
+            .lock()
+            .spawn(
+                Some("/usr/bin/true".to_string()),
+                None,
+                80,
+                24,
+                HashMap::new(),
+            )
+            .expect("spawn test PTY");
+        session
+            .child
+            .lock()
+            .expect("child lock")
+            .wait()
+            .expect("child exits on its own");
+        (pty, pty_id)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reaped_child_kill_fails_with_esrch_and_not_eperm() {
+        let (pty, pty_id) = spawn_and_reap_child();
+        let session = pty.lock().get_session(&pty_id).expect("session registered");
+        let error = session
+            .child
+            .lock()
+            .expect("child lock")
+            .kill()
+            .expect_err("killing an already-reaped child fails at the OS layer");
+        assert_eq!(
+            error.raw_os_error(),
+            Some(libc::ESRCH),
+            "teardown abort mechanism is not ESRCH: {error:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_reap_succeeds_when_child_already_exited() {
+        let (pty, pty_id) = spawn_and_reap_child();
+        let reapers = pty.lock().begin_shutdown().expect("begin_shutdown");
+        assert_eq!(reapers.len(), 1, "expected exactly the one test PTY");
+        for reaper in reapers {
+            if let Err(error) = reaper.wait_bounded(PTY_REAP_TIMEOUT) {
+                assert!(
+                    !error.contains("termination failed"),
+                    "already-gone PTY {pty_id} aborted update teardown: {error}"
+                );
+                panic!("reap of an already-exited child failed for another reason: {error}");
+            }
+        }
+    }
+
     #[test]
     fn mem_checkpoint_returns_pragma_row() {
         let mem = crate::mem::MemManager::open_in_memory().unwrap();
