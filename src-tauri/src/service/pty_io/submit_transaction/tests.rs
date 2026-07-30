@@ -369,7 +369,7 @@ impl SubmitTransport for RevokedAfterPaste {
     }
 }
 
-fn opts() -> VerifyOpts {
+pub(super) fn opts() -> VerifyOpts {
     VerifyOpts {
         require_prompt_first: false,
         verify_echo: true,
@@ -380,7 +380,7 @@ fn opts() -> VerifyOpts {
     }
 }
 
-fn tui() -> VerifySubmitStrategy {
+pub(super) fn tui() -> VerifySubmitStrategy {
     VerifySubmitStrategy::TuiInputDrained
 }
 
