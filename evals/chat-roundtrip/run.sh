@@ -73,6 +73,23 @@ ledger_send() {
         "http://127.0.0.1:7686/api/tabs/$tab/chat-send"
 }
 
+# Raw-keystroke seam (docs/API.md `raw` + key actions): byte-for-byte PTY write,
+# then a real Enter key. TUIs open interactive frames only for keystrokes — a
+# bracketed paste never renders a picker.
+send_raw_keys() {
+  local tab="$1" text="$2" base="http://127.0.0.1:${CODETERM_API_PORT:-7686}"
+  # MSYS vars: Git Bash on Windows rewrites argv "/model" into a C:/... path.
+  MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" \
+    $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'raw':True}))" "$text" \
+    | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+        -H "Content-Type: application/json" --data @- \
+        "$base/api/tabs/$tab/send" >/dev/null
+  curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      --data '{"actions":[{"type":"key","key":"enter"}]}' \
+      "$base/api/tabs/$tab/send" >/dev/null
+}
+
 # GET /chat-send = authoritative ledger reconcile; each read also runs the
 # closed-chat evidence scan server-side.
 ledger_statuses() { dev_get "/api/tabs/$1/chat-send"; }
@@ -264,13 +281,14 @@ case_ordering() {
   while [ "$SECONDS" -lt "$deadline" ]; do
     res="$(chat_snapshot "$tab" | $PY "$RT" order-check "$base" "$n")"
     [ "$res" = "ok" ] && break
-    # Keep polling while messages are still landing; a real disorder also resolves
-    # only by deadline, so we report whatever the final state is.
+    # Keep polling while messages are still landing; a real ordering failure also
+    # resolves only by deadline, so we report whatever the final state is.
     sleep 2
   done
   case "$res" in
     ok) pass "$provider ordering: all $n messages in send order" ;;
-    disorder*) fail "$provider ordering: transcript out of send order ($res)" ;;
+    reorder*) fail "$provider ordering: transcript out of send order ($res)" ;;
+    collapse*) fail "$provider ordering: transcript message boundary collapse ($res)" ;;
     *) fail "$provider ordering: not all $n messages landed within ${TIMEOUT}s ($res)" ;;
   esac
 }
@@ -315,7 +333,7 @@ case_picker() {
   # /model shows the model picker — a real interactive menu that ALWAYS renders.
   # (Approval menus are suppressed when the tab is auto-approve/skip-permissions,
   # which is CodeTerm's spawn default — so they're not a reliable picker trigger.)
-  chat_send "$tab" "/model"
+  send_raw_keys "$tab" "/model"
   local deadline=$((SECONDS + TIMEOUT)) cap=""
   while [ "$SECONDS" -lt "$deadline" ]; do
     cap="$(mux_state | $PY "$RT" pending-prompt "$tab")"
