@@ -32,7 +32,7 @@ set -uo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 # shellcheck source=/dev/null
 source "$ROOT/evals/_lib/lib.sh"   # auto dev_env + `dc` (locked to dev 7686)
-PY=python3
+PY="$(command -v python3 || command -v python)"
 RT="$ROOT/evals/chat-roundtrip/rt_lib.py"
 
 PROVIDERS="${CR_PROVIDERS:-claude codex}"
@@ -53,14 +53,56 @@ tab_status() {
     | $PY -c "import json,sys;print(json.load(sys.stdin).get('status',''))" 2>/dev/null
 }
 
-# Faithful chat send: same REST seam the web chat composer hits, which routes to
-# send_text_when_ready — the exact path as the Tauri chat_send_text command.
+# Legacy detached send seam (send_text_when_ready). The chat composer's REAL
+# seam is the ledger transaction below (`ledger_send`) — both stay covered.
 chat_send() {
   local tab="$1" text="$2"
   $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'enter':True}))" "$text" \
     | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
         -H "Content-Type: application/json" --data @- \
         "http://127.0.0.1:7686/api/tabs/$tab/send" >/dev/null
+}
+
+# Ledger transaction seam: POST /chat-send == Tauri chat_send_text. Returns the
+# pending ChatSendStatus (send_id + state) for exact correlation.
+ledger_send() {
+  local tab="$1" text="$2"
+  $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1]}))" "$text" \
+    | curl -s --max-time 60 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+        -H "Content-Type: application/json" --data @- \
+        "http://127.0.0.1:7686/api/tabs/$tab/chat-send"
+}
+
+# GET /chat-send = authoritative ledger reconcile; each read also runs the
+# closed-chat evidence scan server-side.
+ledger_statuses() { dev_get "/api/tabs/$1/chat-send"; }
+
+ledger_state_of() {
+  local tab="$1" send_id="$2"
+  ledger_statuses "$tab" | $PY -c "
+import json,sys
+rows=[s for s in (json.load(sys.stdin) or []) if s.get('send_id')==sys.argv[1]]
+print(rows[0]['state'] if rows else 'absent')" "$send_id" 2>/dev/null
+}
+
+poll_ledger_sent() {
+  local tab="$1" send_id="$2" deadline=$((SECONDS + TIMEOUT)) state="pending"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state="$(ledger_state_of "$tab" "$send_id")"
+    [ "$state" = "sent" ] && { echo sent; return 0; }
+    sleep 2
+  done
+  echo "$state"
+  return 1
+}
+
+count_user_turns() {
+  local tab="$1" needle="$2"
+  chat_snapshot "$tab" | $PY -c "
+import json,sys
+doc=json.load(sys.stdin) or {}
+msgs=doc.get('messages',[])
+print(sum(1 for m in msgs if m.get('type')=='user' and sys.argv[1] in (m.get('content') or '')))" "$needle" 2>/dev/null
 }
 
 # Parsed transcript snapshot (the SAME normalized ChatMsg shape the chat UI
@@ -75,7 +117,7 @@ mux_state() { dev_get /api/mux/state; }
 # {pending, messages}. Unlike /chat/start (tab_chat_routes) it does NOT 400
 # before the session binds — it returns pending:true, exactly what the chat UI
 # sees. This is the oracle for the "stuck pending / session: -" binding bug.
-chat_raw_start() { dev_post "/api/tabs/$1/chat-raw/start" '{}'; }
+chat_raw_start() { dev_post "/api/tabs/$1/chat-raw/start" '{"subscriptionId":"rt-harness"}'; }
 
 # Poll the transcript until the user echo of `text` appears AND an assistant
 # message follows it. Echoes a JSON capture tuple on success; empty on timeout.
@@ -99,7 +141,7 @@ ws_id() {
 spawn_agent() {
   local provider="$1" ws="$2" title="$3"
   dc agent spawn "$provider" --workspace "$ws" --cwd "$WS_CWD" --title "$title" 2>&1 \
-    | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+    | grep -oiE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
 wait_live() {
@@ -109,6 +151,49 @@ wait_live() {
     [ -n "$st" ] && [ "$st" != "Dead" ] && { sleep 4; return 0; }
     sleep 1
   done
+  return 1
+}
+
+tab_screen() {
+  dev_get "/api/tabs/$1/text" \
+    | $PY -c "import json,sys;d=json.load(sys.stdin);print(d.get('text','') if isinstance(d,dict) else '')" 2>/dev/null
+}
+
+# Accept startup gate prompts (folder trust, provider self-update) exactly like
+# a user: trust IS accepted, an update IS installed (never skipped) and the
+# session gets time to restart. Loops until no gate remains.
+clear_startup_gates() {
+  local tab="$1" provider="$2" rounds=0
+  while [ $rounds -lt 20 ]; do
+    rounds=$((rounds + 1))
+    local gate
+    gate="$(mux_state | $PY "$RT" startup-gate "$tab")"
+    if [ -n "$gate" ]; then
+      local kind value
+      kind="$(echo "$gate" | $PY -c "import json,sys;print(json.load(sys.stdin)['kind'])")"
+      value="$(echo "$gate" | $PY -c "import json,sys;print(json.load(sys.stdin)['value'])")"
+      echo "[chat-roundtrip] $provider: startup gate '$kind' — responding '$value'"
+      $PY -c "import json,sys;print(json.dumps({'value':sys.argv[1]}))" "$value" \
+        | curl -s --max-time 15 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+            -H "Content-Type: application/json" --data @- \
+            "http://127.0.0.1:7686/api/tabs/$tab/prompt/respond" >/dev/null
+      # An accepted update restarts the provider session — wait for it to
+      # come back before looking for the next gate.
+      [ "$kind" = "update" ] && wait_live "$tab"
+      sleep 3
+      continue
+    fi
+    # Fallback: trust dialog rendered but not extracted — default option is
+    # the affirmative one, Enter accepts it.
+    if tab_screen "$tab" | grep -qiE "trust this folder|do you trust"; then
+      echo "[chat-roundtrip] $provider: raw trust dialog on screen — pressing Enter"
+      dc send --actions enter --tab "$tab" >/dev/null 2>&1
+      sleep 3
+      continue
+    fi
+    return 0
+  done
+  echo "[chat-roundtrip] $provider: startup gates did not clear after $rounds rounds" >&2
   return 1
 }
 
@@ -254,6 +339,157 @@ case_picker() {
   dev_post "/api/tabs/$tab/prompt/clear" '{}' >/dev/null 2>&1 || true
 }
 
+# --- Case: ledger transaction (POST /chat-send) ----------------------
+# The Chat composer's REAL seam. Asserts the authoritative ledger reaches
+# state=sent for the exact send_id, the user turn lands EXACTLY once, and no
+# failed entry (the false-Retry class) is retained for the tab.
+case_ledger() {
+  local provider="$1" tab="$2"
+  local nonce; nonce="LG$(now_ms)"
+  local prompt="Reply with exactly this token and nothing else: LEDGER-$nonce"
+  echo "[chat-roundtrip] $provider: ledger — chat-send reaches sent, exactly one user turn, no failure retained"
+  local resp send_id
+  resp="$(ledger_send "$tab" "$prompt")"
+  send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
+  if [ -z "$send_id" ]; then fail "$provider ledger: chat-send rejected: $resp"; return 1; fi
+  local final; final="$(poll_ledger_sent "$tab" "$send_id")"
+  if [ "$final" = "sent" ]; then
+    pass "$provider ledger: send_id=$send_id reached sent"
+  else
+    fail "$provider ledger: send_id=$send_id final state=$final (want sent)"
+  fi
+  local n; n="$(count_user_turns "$tab" "LEDGER-$nonce")"
+  if [ "$n" = "1" ]; then
+    pass "$provider ledger: exactly one user turn in transcript"
+  else
+    fail "$provider ledger: user-turn count=$n (want exactly 1 — payload must be written once)"
+  fi
+  local failures
+  failures="$(ledger_statuses "$tab" | $PY -c "import json,sys;print(sum(1 for s in (json.load(sys.stdin) or []) if s.get('state')=='failed'))" 2>/dev/null)"
+  if [ "$failures" = "0" ]; then
+    pass "$provider ledger: no failed/Retry entries retained"
+  else
+    fail "$provider ledger: $failures failed entr(ies) retained after delivery"
+  fi
+}
+
+# --- Case: detached ledger delivery (closed-Chat evidence) -----------
+# Stops the live chat stream FIRST, then sends through the ledger: no delta
+# sink exists while the turn persists, so only the append-window evidence scan
+# (run by GET /chat-send) can classify it. Reattach => sent, no Retry.
+case_ledger_detached() {
+  local provider="$1" tab="$2"
+  local nonce; nonce="LD$(now_ms)"
+  local prompt="Reply with exactly this token and nothing else: DETACH-$nonce"
+  echo "[chat-roundtrip] $provider: ledger-detached — no live sink during delivery; reattach reconciles to sent"
+  # Runs FIRST on the freshly spawned tab: no chat/start has ever been called,
+  # so no delta tailer/poller exists — detached by construction.
+  local resp send_id
+  resp="$(ledger_send "$tab" "$prompt")"
+  send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
+  if [ -z "$send_id" ]; then fail "$provider ledger-detached: chat-send rejected: $resp"; return 1; fi
+  # Wait for the turn to persist via the STATELESS transcript read (spawns no
+  # tailer), then reattach through the ledger read that runs the scan.
+  local deadline=$((SECONDS + TIMEOUT)) n=0
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    n="$(count_user_turns "$tab" "DETACH-$nonce")"
+    [ "${n:-0}" -ge 1 ] && break
+    sleep 2
+  done
+  if [ "${n:-0}" -lt 1 ]; then
+    fail "$provider ledger-detached: user turn never persisted within ${TIMEOUT}s"
+    return 1
+  fi
+  pass "$provider ledger-detached: exact turn persisted while detached"
+  local final; final="$(poll_ledger_sent "$tab" "$send_id")"
+  if [ "$final" = "sent" ]; then
+    pass "$provider ledger-detached: reattach reconciled send_id=$send_id to sent (no Retry)"
+  else
+    fail "$provider ledger-detached: send_id=$send_id state=$final after evidence persisted (false Retry class)"
+  fi
+}
+
+# --- Case: ledger send after agent restart (rebind exact-once) -------
+# Restart the agent (fresh PTY under the same tab), then a ledger send must
+# reach sent with the payload written exactly once into the NEW session flow.
+case_ledger_restart() {
+  local provider="$1" tab="$2"
+  echo "[chat-roundtrip] $provider: ledger-restart — agent restart + rebind, then exact-once ledger send"
+  dev_post "/api/tabs/$tab/agent/restart" '{}' >/dev/null 2>&1
+  if ! wait_live "$tab"; then
+    fail "$provider ledger-restart: agent did not come back after restart"
+    return 1
+  fi
+  clear_startup_gates "$tab" "$provider" || true
+  # No settle sleep: the chat-send delivery thread itself waits on boot,
+  # PTY link, and routability signals before writing.
+  local nonce; nonce="RS$(now_ms)"
+  local prompt="Reply with exactly this token and nothing else: REBIND-$nonce"
+  local resp send_id
+  resp="$(ledger_send "$tab" "$prompt")"
+  send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
+  if [ -z "$send_id" ]; then fail "$provider ledger-restart: chat-send rejected: $resp"; return 1; fi
+  local final; final="$(poll_ledger_sent "$tab" "$send_id")"
+  if [ "$final" = "sent" ]; then
+    pass "$provider ledger-restart: post-restart send reached sent"
+  else
+    fail "$provider ledger-restart: post-restart send state=$final"
+  fi
+  local n; n="$(count_user_turns "$tab" "REBIND-$nonce")"
+  if [ "$n" = "1" ]; then
+    pass "$provider ledger-restart: exactly one user turn after rebind"
+  else
+    fail "$provider ledger-restart: user-turn count=$n (want exactly 1)"
+  fi
+}
+
+# --- Case: cross-agent messaging (messaging core) --------------------
+# Direct envelope delivery A->B via the messenger seam, then an AGENT-DRIVEN
+# reply: B is asked (through the ledger) to run `codeterm send` back to A.
+# Proves inter-agent messages arrive in BOTH transports: host envelope and a
+# live agent's own CLI send.
+case_crossping() {
+  local from_provider="$1" from_tab="$2" to_provider="$3" to_tab="$4"
+  local nonce; nonce="XP$(now_ms)"
+  echo "[messaging-core] $from_provider->$to_provider: envelope ping + agent-driven pong"
+  $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'source_tab':sys.argv[2]}))" \
+      "MSGCORE-PING-$nonce" "$from_tab" \
+    | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+        -H "Content-Type: application/json" --data @- \
+        "http://127.0.0.1:7686/api/tabs/$to_tab/send" >/dev/null
+  local deadline=$((SECONDS + TIMEOUT)) n=0
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    n="$(count_user_turns "$to_tab" "MSGCORE-PING-$nonce")"
+    [ "${n:-0}" -ge 1 ] && break
+    sleep 2
+  done
+  if [ "${n:-0}" -ge 1 ]; then
+    pass "$from_provider->$to_provider: envelope ping landed in recipient transcript"
+  else
+    fail "$from_provider->$to_provider: envelope ping never appeared in recipient transcript"
+    return 1
+  fi
+  local reply_cmd="codeterm send \"MSGCORE-PONG-$nonce\" --tab $from_tab"
+  local resp send_id
+  resp="$(ledger_send "$to_tab" "Run exactly this shell command now and do nothing else: $reply_cmd")"
+  send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
+  [ -n "$send_id" ] || { fail "$to_provider: pong instruction send rejected: $resp"; return 1; }
+  deadline=$((SECONDS + TIMEOUT)); n=0
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    n="$(count_user_turns "$from_tab" "MSGCORE-PONG-$nonce")"
+    [ "${n:-0}" -ge 1 ] && break
+    sleep 2
+  done
+  if [ "${n:-0}" -ge 1 ]; then
+    pass "$to_provider->$from_provider: agent-driven pong arrived back"
+  else
+    fail "$to_provider->$from_provider: agent-driven pong never arrived within ${TIMEOUT}s"
+  fi
+}
+
+provider_of() { echo "$1" | cut -d: -f1; }
+tab_of() { echo "$1" | cut -d: -f2; }
+
 main() {
   if ! curl -s --max-time 2 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
     echo "ERROR: dev daemon not on 7686. Start it: ./build.sh dev" >&2; exit 7
@@ -264,33 +500,88 @@ main() {
           | $PY -c "import json,sys;print(json.load(sys.stdin).get('id',''))")"
   fi
   [ -n "$ws" ] || { echo "ERROR: could not create scratch workspace" >&2; exit 1; }
-  echo "[chat-roundtrip] workspace=$ws providers='$PROVIDERS' timeout=${TIMEOUT}s out=$OUT_DIR"
+  echo "[messaging-core] workspace=$ws providers='$PROVIDERS' timeout=${TIMEOUT}s out=$OUT_DIR"
 
+  # Phase 1 — spawn the WHOLE matrix simultaneously, then gate-clear each tab.
+  local pairs=""
   for provider in $PROVIDERS; do
-    echo; echo "=== provider: $provider ==="
     local tab; tab="$(spawn_agent "$provider" "$ws" "rt-$provider")"
     if [ -z "$tab" ]; then fail "$provider: agent spawn failed"; continue; fi
-    echo "[chat-roundtrip] $provider tab=$tab — waiting for agent"
+    echo "[messaging-core] spawned $provider tab=$tab"
+    pairs="$pairs $provider:$tab"
+  done
+  local live=""
+  for pair in $pairs; do
+    local provider tab
+    provider="$(provider_of "$pair")"; tab="$(tab_of "$pair")"
     if ! wait_live "$tab"; then
       fail "$provider: agent never came live"
       [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$tab" >/dev/null 2>&1
       continue
     fi
+    clear_startup_gates "$tab" "$provider" || true
+    live="$live $provider:$tab"
+  done
+
+  # Phase 2 — per-provider delivery matrix (ledger-detached FIRST: the fresh
+  # tab has no chat stream yet, so the closed-Chat evidence journey is real).
+  for pair in $live; do
+    local provider tab
+    provider="$(provider_of "$pair")"; tab="$(tab_of "$pair")"
+    echo; echo "=== provider: $provider (tab=$tab) ==="
+    case_ledger_detached "$provider" "$tab"
     case_binding "$provider" "$tab"
     case_elementary "$provider" "$tab"
     case_rapid "$provider" "$tab"
     case_ordering "$provider" "$tab"
+    case_ledger "$provider" "$tab"
     # Picker-extraction gate (facet9 P9.3/P9.4): /model populates pending_prompt.
     case "$provider" in claude|cursor|codex) case_picker "$provider" "$tab" ;; esac
-    [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$tab" >/dev/null 2>&1
+  done
+
+  # Phase 3 — cross-agent messaging ring: each live agent pings the next.
+  set -- $live
+  local count=$#
+  if [ "$count" -ge 2 ]; then
+    echo; echo "=== messaging core: cross-agent ring ($count agents) ==="
+    local i=1
+    for pair in $live; do
+      local next_index=$((i % count + 1))
+      local next_pair; next_pair="$(eval echo \${$next_index})"
+      case_crossping "$(provider_of "$pair")" "$(tab_of "$pair")" \
+                     "$(provider_of "$next_pair")" "$(tab_of "$next_pair")"
+      i=$((i + 1))
+    done
+  fi
+
+  # Phase 4 — restart survival: restart every agent, then exact-once ledger
+  # send and a post-restart ring pass prove delivery survives rebind.
+  echo; echo "=== messaging core: restart survival ==="
+  for pair in $live; do
+    case_ledger_restart "$(provider_of "$pair")" "$(tab_of "$pair")"
+  done
+  if [ "$count" -ge 2 ]; then
+    echo; echo "=== messaging core: post-restart ring ==="
+    local i=1
+    for pair in $live; do
+      local next_index=$((i % count + 1))
+      local next_pair; next_pair="$(eval echo \${$next_index})"
+      case_crossping "$(provider_of "$pair")" "$(tab_of "$pair")" \
+                     "$(provider_of "$next_pair")" "$(tab_of "$next_pair")"
+      i=$((i + 1))
+    done
+  fi
+
+  for pair in $live; do
+    [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$(tab_of "$pair")" >/dev/null 2>&1
   done
 
   echo
   if [ "$FAILS" -eq 0 ]; then
-    echo "[chat-roundtrip] ALL PASS — backend round-trip proven for: $PROVIDERS"
+    echo "[messaging-core] ALL PASS — delivery + messaging core proven for: $PROVIDERS"
     exit 0
   fi
-  echo "[chat-roundtrip] $FAILS assertion(s) FAILED" >&2
+  echo "[messaging-core] $FAILS assertion(s) FAILED" >&2
   exit 1
 }
 

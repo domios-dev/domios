@@ -155,6 +155,44 @@ def cmd_pending_prompt(tab_id: str):
     print(json.dumps({"question": pp.get("question", ""), "options": opts}))
 
 
+def cmd_startup_gate(tab_id: str):
+    """Read GET /api/mux/state on stdin; if the tab's pending_prompt is a
+    startup gate (folder trust, provider self-update), print JSON
+    {kind, value} for the AFFIRMATIVE option (trust / install). Tests must
+    accept these gates, never skip them — an update must be installed and the
+    session restarted, exactly like a user would."""
+    doc = load_stdin()
+    if not doc:
+        return
+    tab = (doc.get("tabs") or {}).get(tab_id)
+    if not tab:
+        return
+    pp = tab.get("pending_prompt")
+    if not pp:
+        return
+    q = norm(pp.get("question", ""))
+    opts = pp.get("options") or []
+
+    def pick(*words):
+        for o in opts:
+            label = norm(o.get("label", ""))
+            if any(w in label for w in words):
+                return o.get("value") or o.get("label")
+        return None
+
+    labels = " ".join(norm(o.get("label", "")) for o in opts)
+    if "trust" in q or "trust" in labels:
+        value = pick("yes", "trust", "continue", "proceed")
+        kind = "trust"
+    elif any(w in q for w in ("update", "upgrade", "new version")):
+        value = pick("update", "install", "upgrade", "yes")
+        kind = "update"
+    else:
+        return
+    if value:
+        print(json.dumps({"kind": kind, "value": value}))
+
+
 def cmd_skew(capture_json: str):
     c = json.loads(capture_json)
     ts = c.get("user_echo_timestamp")
@@ -180,6 +218,8 @@ def main():
         cmd_binding_state(sys.argv[2])
     elif cmd == "pending-prompt":
         cmd_pending_prompt(sys.argv[2])
+    elif cmd == "startup-gate":
+        cmd_startup_gate(sys.argv[2])
     elif cmd == "skew":
         cmd_skew(sys.argv[2])
     else:
