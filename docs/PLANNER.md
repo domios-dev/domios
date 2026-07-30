@@ -5,7 +5,7 @@ ACCEPTANCE and delegates all planning to you. **You cut the plan: GOAL, Spec,
 sections, and the concrete tasks** — the Orchestrator dispatches them to workers
 and accepts/bounces the results. Task-cutting is YOUR job, not the Orchestrator's.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 ## What you own vs the Orchestrator
 
@@ -81,7 +81,7 @@ not repeat cold compiled builds.
 
 ```bash
 codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
-codeterm plan milestone add <plan> --task <task> --kind <kind> --text "<what shipped>"
+codeterm plan milestone add <plan> <task> --kind <kind> --text "<what shipped>"
 ```
 
 At each milestone boundary the Orchestrator runs the broad gate in one warm

@@ -162,7 +162,7 @@ pub(crate) fn worker_spawn_hints(
     }
     if !has_report_target {
         hints.push(
-            "hint: no --parent/--report-to — this worker's reports land in the spawning Tab; pass --parent <orchestrator Tab id> so they reach the orchestrator".to_string(),
+            "hint: no --parent-tab/--report-to — this worker's reports land in the spawning Tab; pass --parent-tab <orchestrator Tab id> so they reach the orchestrator".to_string(),
         );
     }
     if !has_task {
