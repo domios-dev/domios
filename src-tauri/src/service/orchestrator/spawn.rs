@@ -125,7 +125,7 @@ impl ServiceContext {
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
-        let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
         let plan_id = params.plan_id.clone();
@@ -151,6 +151,9 @@ impl ServiceContext {
         let model_identity = self.tab_model_identity(&handle.tab_id);
         self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
         self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.tab_id);
+        if let Some(reservation) = worker_persona_reservation {
+            reservation.commit_to_tab(&handle.tab_id);
+        }
         self.record_kpi_spawn(
             &handle.tab_id,
             model_identity.2.as_deref(),
@@ -196,7 +199,7 @@ impl ServiceContext {
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
-        let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.role.as_deref() == Some("Orchestrator")
@@ -247,6 +250,9 @@ impl ServiceContext {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
             self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
+            if let Some(reservation) = worker_persona_reservation {
+                reservation.commit_to_tab(&handle.tab_id);
+            }
             self.record_kpi_spawn(
                 &handle.tab_id,
                 requested_model.as_deref(),
@@ -622,6 +628,9 @@ impl ServiceContext {
             .map(|p| p.title.clone())
             .unwrap_or_default();
 
+        if let Some(reservation) = worker_persona_reservation {
+            reservation.commit_to_tab(&tab_id);
+        }
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         let reasoning_effort = params.reasoning_effort.clone();
         self.record_kpi_spawn(
