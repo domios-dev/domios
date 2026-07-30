@@ -27,18 +27,29 @@ fn admit_agent_input_request(
         return Err("Tab session is no longer authoritative".to_string());
     }
     let state = state.ok_or_else(|| "Tab is not waiting for input".to_string())?;
-    if state.state != TimelineState::Question
-        || matches!(
-            state.subtype,
-            Some(QuestionSubtype::RateLimit | QuestionSubtype::Error)
+    // Fail-closed allow-set: Unknown/unclassified verdicts are diagnostic, not
+    // notification authority (structurally-minted prompts classify there).
+    let actionable_subtype = matches!(
+        state.subtype,
+        Some(
+            QuestionSubtype::ModelChoice
+                | QuestionSubtype::ModelPicker
+                | QuestionSubtype::Permission
+                | QuestionSubtype::Auth
+                | QuestionSubtype::Update
         )
-    {
-        return Err("Tab is not waiting for user input".to_string());
+    );
+    if state.state != TimelineState::Question || !actionable_subtype {
+        return Err("Tab is not waiting for actionable user input".to_string());
     }
     // agent_state.question is diagnostic only; admission requires the
     // authoritative pending_prompt record for this tab/session.
-    let body = pending_prompt
-        .map(|prompt| prompt.question.trim())
+    let prompt =
+        pending_prompt.ok_or_else(|| "Authoritative pending prompt is not available".to_string())?;
+    if prompt.options.is_empty() && prompt.submit_available != Some(true) {
+        return Err("Prompt exposes no actuatable input control".to_string());
+    }
+    let body = Some(prompt.question.trim())
         .filter(|question| !question.is_empty())
         .ok_or_else(|| "Authoritative pending prompt is not available".to_string())?
         .to_string();
@@ -229,13 +240,15 @@ impl ServiceContext {
 mod tests {
     use super::*;
     use crate::notification::store::NotificationStore;
+    use codeterm_types::pty::PromptOption;
     use parking_lot::Mutex;
     use std::sync::Arc;
 
     fn question_state(question: Option<&str>) -> AgentLiveState {
+        // Live classifier verdict for "Which deployment region…" prompts.
         AgentLiveState {
             state: TimelineState::Question,
-            subtype: None,
+            subtype: Some(QuestionSubtype::ModelChoice),
             status_line: None,
             phase: None,
             elapsed_ms: None,
@@ -245,6 +258,28 @@ mod tests {
     }
 
     fn prompt(question: &str) -> PendingPrompt {
+        // Genuine interactive prompt: actuatable options.
+        PendingPrompt {
+            question: question.into(),
+            options: vec![
+                PromptOption {
+                    label: "Yes".into(),
+                    value: "1".into(),
+                },
+                PromptOption {
+                    label: "No".into(),
+                    value: "2".into(),
+                },
+            ],
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        }
+    }
+
+    // Structurally-minted text: a question with no actuatable input control.
+    fn text_prompt(question: &str) -> PendingPrompt {
         PendingPrompt {
             question: question.into(),
             options: Vec::new(),
@@ -334,6 +369,138 @@ mod tests {
             "agent_state.question alone is diagnostic state, not notification authority: {result:?}"
         );
         probe.assert_silent();
+    }
+
+    // Prod P0 oracle: notification 4ae14e7f minted 2026-07-30T17:39:40.457Z from
+    // a codex boot frame whose structural parse became pending_prompt; the
+    // keyword classifier assigns Unknown to that question text.
+    #[test]
+    fn unknown_subtype_question_never_notifies() {
+        let probe = DeliveryProbe::new();
+        let warning =
+            "⚠ D:\\Developer\\codeterm\\.agents\\skills\\gap-analysis\\SKILL.md: missing field description";
+        let mut state = question_state(Some(warning));
+        state.subtype = Some(QuestionSubtype::Unknown);
+        let pending = prompt(warning);
+
+        let result = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            Some(&pending),
+            Some(warning),
+        );
+
+        assert!(
+            result.is_err(),
+            "structural text with Unknown subtype is not notification authority: {result:?}"
+        );
+        probe.assert_silent();
+    }
+
+    #[test]
+    fn question_without_classified_subtype_never_notifies() {
+        let probe = DeliveryProbe::new();
+        let mut state = question_state(Some("Which deployment region should I use?"));
+        state.subtype = None;
+        let pending = prompt("Which deployment region should I use?");
+
+        let result = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            Some(&pending),
+            None,
+        );
+
+        assert!(result.is_err(), "unclassified question fails closed: {result:?}");
+        probe.assert_silent();
+    }
+
+    // Live P0 class: coordination envelopes / system chrome misparsed into a
+    // text-only pending_prompt must never notify, even when their wording
+    // lands in an actionable subtype bucket (envelopes contain "model=…").
+    #[test]
+    fn text_only_prompts_from_envelope_and_chrome_frames_never_notify() {
+        let probe = DeliveryProbe::new();
+        let fixtures = [
+            (
+                QuestionSubtype::ModelPicker,
+                "-=-codeterm:tab label=Reviewer tab=166df18d model=gpt-5.6-sol-=-Coordination note only, no scope change.",
+            ),
+            (
+                QuestionSubtype::Unknown,
+                "gpt-5.6-sol high · D:\\Developer\\codeterm",
+            ),
+            (
+                QuestionSubtype::Unknown,
+                "⚠ D:\\Developer\\codeterm\\.agents\\skills\\gap-analysis\\SKILL.md: missing field description",
+            ),
+        ];
+
+        for (subtype, frame_text) in fixtures {
+            let mut state = question_state(Some(frame_text));
+            state.subtype = Some(subtype);
+            let pending = text_prompt(frame_text);
+            let result = probe.admit_and_deliver(
+                Some("session-owned"),
+                "session-owned",
+                Some(&state),
+                Some(&pending),
+                Some(frame_text),
+            );
+            assert!(
+                result.is_err(),
+                "text without an actuatable control never notifies ({subtype:?}): {result:?}"
+            );
+        }
+        probe.assert_silent();
+    }
+
+    #[test]
+    fn free_text_prompt_with_explicit_submit_control_admits() {
+        let probe = DeliveryProbe::new();
+        let state = question_state(Some("Which deployment region should I use?"));
+        let mut pending = text_prompt("Which deployment region should I use?");
+        pending.submit_available = Some(true);
+
+        let result = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            Some(&pending),
+            None,
+        );
+
+        assert!(result.is_ok(), "explicit submit control is actuatable: {result:?}");
+        assert_eq!(probe.store.lock().list(false).len(), 1);
+    }
+
+    #[test]
+    fn every_actionable_subtype_admits_a_genuine_prompt() {
+        for subtype in [
+            QuestionSubtype::ModelChoice,
+            QuestionSubtype::ModelPicker,
+            QuestionSubtype::Permission,
+            QuestionSubtype::Auth,
+            QuestionSubtype::Update,
+        ] {
+            let probe = DeliveryProbe::new();
+            let mut state = question_state(Some("Which deployment region should I use?"));
+            state.subtype = Some(subtype);
+            let pending = prompt("Which deployment region should I use?");
+
+            let result = probe.admit_and_deliver(
+                Some("session-owned"),
+                "session-owned",
+                Some(&state),
+                Some(&pending),
+                None,
+            );
+
+            assert!(result.is_ok(), "{subtype:?} admits a genuine prompt: {result:?}");
+            assert_eq!(probe.store.lock().list(false).len(), 1);
+        }
     }
 
     #[test]
