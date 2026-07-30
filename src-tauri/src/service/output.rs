@@ -212,7 +212,14 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                let parsed = structured;
+                // Structured handles (SSE/API) win; the native attributed-grid detector
+                // is the PTY fallback. Tier order + chrome/prose negatives: native_prompt tests.
+                let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+                    crate::agent::native_prompt::resolve_pending_prompt(
+                        structured,
+                        native_prompt_input.as_ref(),
+                    )
+                });
                 let prompt_signal = parsed.is_some();
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
