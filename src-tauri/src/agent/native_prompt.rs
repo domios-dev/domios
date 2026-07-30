@@ -70,6 +70,9 @@ fn has_picker_footer(screen: &AttributedScreen) -> bool {
 
 fn is_picker_footer(text: &str) -> bool {
     let lower = text.to_lowercase();
+    if lower.contains("interrupt") {
+        return false;
+    }
     lower.contains("enter to select")
         || lower.contains("space select")
         || lower.contains("tab toggle")
@@ -302,12 +305,18 @@ mod tests {
         let one_option = vec![detection.options[0].clone()];
         for (cell, ch) in input.screen.cells[0]
             .iter_mut()
-            .zip("esc to interrupt".chars())
+            .zip("Esc to cancel".chars())
         {
             cell.ch = ch.to_string();
         }
         assert!(has_picker_footer(&input.screen));
         assert!(!has_structural_picker_signal(&input, &one_option));
+    }
+
+    #[test]
+    fn running_control_hint_is_not_a_picker_footer() {
+        assert!(!is_picker_footer("esc to interrupt"));
+        assert!(is_picker_footer("Esc to cancel"));
     }
 
     #[test]
