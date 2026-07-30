@@ -82,6 +82,7 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
+            self.release_deferred_agent_ready(tab_id);
             self.heal_recovery_state_if_ready();
         }
     }
@@ -550,6 +551,7 @@ impl ServiceContext {
             serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
         );
         self.emit_state_changed();
+        self.release_deferred_agent_ready(tab_id);
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(
@@ -706,6 +708,7 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
+                self.release_deferred_agent_ready(tab_id);
             }
         }
     }

@@ -634,7 +634,11 @@ impl PtyManager {
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
         session.guarded_input.invalidate();
         let kill_error = match session.child.lock() {
-            Ok(mut child) => child.kill().err().map(|error| error.to_string()),
+            Ok(mut child) => child
+                .kill()
+                .err()
+                .filter(kill_failure_blocks_teardown)
+                .map(|error| error.to_string()),
             Err(error) => Some(format!("child mutex poisoned: {error}")),
         };
         session.write_queue.close();
@@ -702,6 +706,18 @@ impl PtyManager {
 
 fn detect_default_shell() -> String {
     super::login_shell::resolve_login_shell()
+}
+
+/// ESRCH means the tree is already gone, which is what teardown asked for.
+/// EPERM and every other errno stay real failures that must block a shutdown.
+#[cfg(unix)]
+fn kill_failure_blocks_teardown(error: &std::io::Error) -> bool {
+    error.raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(not(unix))]
+fn kill_failure_blocks_teardown(_error: &std::io::Error) -> bool {
+    true
 }
 
 #[cfg(test)]

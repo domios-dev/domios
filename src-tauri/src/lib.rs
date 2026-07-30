@@ -788,6 +788,12 @@ pub fn run() {
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state
+                .mem
+                .extraction_authority()
+                .set_cancel_sink(Arc::new(crate::mem_host::WorkerCancelSink(
+                    service_state.clone(),
+                )));
             {
                 let config = states.config.lock().clone();
                 if config.general_agent.enabled && config.general_agent.first_run_complete {

@@ -1355,7 +1355,7 @@ surfaces as agents:
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
   no flag → the plugin's `defaultPreset`.
-- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
+- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
   `--charter-file PATH` may be used instead of `--charter`. The REST body fields
   are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and
   `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and
@@ -1399,4 +1399,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 96 -->
+<!-- revision: 97 -->

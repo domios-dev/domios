@@ -53,6 +53,31 @@ pub fn current_changed_by() -> String {
     CHANGED_BY.with(|slot| slot.borrow().clone())
 }
 
+// Authorization identity, kept separate from the `changed_by` audit label: the
+// label is free-form text, this is the exact worker id a commit is attributed to.
+thread_local! {
+    static WRITE_WORKER: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with `worker_id` installed as the commit's origin, so the storage
+/// boundary can resolve it to an extraction generation. `None` means the write
+/// belongs to no tracked generation and is left unattributed.
+pub fn with_write_worker<F, R>(worker_id: Option<&str>, f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let previous = WRITE_WORKER
+        .with(|slot| std::mem::replace(&mut *slot.borrow_mut(), worker_id.map(str::to_string)));
+    let out = f();
+    WRITE_WORKER.with(|slot| *slot.borrow_mut() = previous);
+    out
+}
+
+/// Read the worker id the current commit is attributed to, if any.
+pub fn current_write_worker() -> Option<String> {
+    WRITE_WORKER.with(|slot| slot.borrow().clone())
+}
+
 /// One row from `mem_item_history`. All fields of `old_*` / `new_*` are
 /// `None` when not applicable (e.g. `old_*` on create, `new_*` on delete).
 #[derive(Debug, Clone, Serialize, Deserialize)]
