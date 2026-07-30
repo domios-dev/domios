@@ -102,6 +102,13 @@ pub(super) fn dispatch(
                 "report_id": result.report_id,
                 "target_tab_id": result.orchestrator_tab_id,
             });
+            if let Some((plan_id, task_id)) = result.persisted_task {
+                resp["task_report"] = serde_json::json!({
+                    "persisted": true,
+                    "plan_id": plan_id,
+                    "task_id": task_id,
+                });
+            }
             if !result.notices.is_empty() {
                 resp["notices"] = serde_json::json!(result.notices);
             }
