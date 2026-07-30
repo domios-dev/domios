@@ -72,12 +72,22 @@ function runAdmission(): void {
   const tabId = "tab-adm";
   const sessionId = "session-owned-by-tab";
   let notifyCalls = 0;
+  type TestPrompt = {
+    question: string;
+    options: Array<{ label: string; value: string }>;
+    submit_available?: boolean | null;
+  };
+  const interactive = (question: string): TestPrompt => ({
+    question,
+    options: [{ label: "Yes", value: "1" }, { label: "No", value: "2" }],
+  });
+  const textOnly = (question: string): TestPrompt => ({ question, options: [] });
   const observe = (
     state: "working" | "idle" | "question" | null,
     subtype: string | null,
-    pendingPromptQuestion: string | null,
+    pendingPrompt: TestPrompt | null,
   ) => {
-    const admission = deriveInputRequestAdmission(pendingPromptQuestion, state, subtype);
+    const admission = deriveInputRequestAdmission(pendingPrompt, state, subtype);
     return tracker.observeAndNotify(
       tabId,
       sessionId,
@@ -90,16 +100,41 @@ function runAdmission(): void {
     );
   };
 
-  const classifierOnly = observe("question", null, null);
+  const classifierOnly = observe("question", "model_choice", null);
   assert(classifierOnly === null, "backend question without pending_prompt yields no waiting generation");
   assert(Number(notifyCalls) === 0, "backend question without pending_prompt never notifies");
 
-  const genuine = observe("question", null, "Which deployment region?  ");
-  assert(genuine === 1, "authoritative pending prompt starts generation one");
-  assert(Number(notifyCalls) === 1, "authoritative pending prompt notifies exactly once");
+  // Prod P0 oracle 4ae14e7f (2026-07-30T17:39:40.457Z): a structurally-minted
+  // prompt whose question text classifies "unknown" must never ring a bell.
+  observe(
+    "question",
+    "unknown",
+    interactive("⚠ D:\\Developer\\codeterm\\.agents\\skills\\gap-analysis\\SKILL.md: missing field description"),
+  );
+  assert(Number(notifyCalls) === 0, "unknown subtype never notifies");
 
-  const redraw = observe("question", null, "Which deployment region?");
-  assert(redraw === 1, "repeated frames keep the generation");
+  // Coordination envelopes keyword-match an actionable subtype ("model=…") but
+  // carry no actuatable control — the control gate must reject them.
+  observe(
+    "question",
+    "model_picker",
+    textOnly("-=-codeterm:tab label=Reviewer tab=166df18d model=gpt-5.6-sol-=-Coordination note only."),
+  );
+  assert(Number(notifyCalls) === 0, "control-less envelope text never notifies");
+
+  observe("question", "unknown", textOnly("gpt-5.6-sol high · D:\\Developer\\codeterm"));
+  assert(Number(notifyCalls) === 0, "terminal chrome never notifies");
+
+  observe("question", null, interactive("An unclassified question prompt"));
+  assert(Number(notifyCalls) === 0, "unclassified subtype fails closed");
+  observe("working", null, null);
+
+  const genuine = observe("question", "model_choice", interactive("Which deployment region?  "));
+  assert(genuine === 5, "authoritative actionable prompt starts a fresh generation");
+  assert(Number(notifyCalls) === 1, "authoritative actionable prompt notifies exactly once");
+
+  const redraw = observe("question", "model_choice", interactive("Which deployment region?"));
+  assert(redraw === 5, "repeated frames keep the generation");
   assert(Number(notifyCalls) === 1, "repeated frames do not duplicate the notification");
 
   const cleared = observe("working", null, null);
@@ -107,11 +142,19 @@ function runAdmission(): void {
   tracker.resolve(tabId, sessionId, "Which deployment region?");
   assert(Number(notifyCalls) === 1, "clear/resolve emits nothing");
 
-  const rateLimit = observe("question", "rate_limit", "Rate limited, retry?");
-  assert(rateLimit === 2, "rate_limit tracks state without a bell");
-  const errored = observe("question", "error", "Rate limited, retry?");
-  assert(errored === 2, "error tracks state without a bell");
+  const rateLimit = observe("question", "rate_limit", interactive("Rate limited, retry?"));
+  assert(rateLimit === 6, "rate_limit tracks state without a bell");
+  const errored = observe("question", "error", interactive("Rate limited, retry?"));
+  assert(errored === 6, "error tracks state without a bell");
   assert(Number(notifyCalls) === 1, "rate_limit and error states never notify");
+
+  const freeText = observe("question", "model_choice", {
+    question: "Deploy to which cluster?",
+    options: [],
+    submit_available: true,
+  });
+  assert(freeText === 7, "free-text prompt with explicit submit starts a generation");
+  assert(Number(notifyCalls) === 2, "explicit submit control is actuatable and notifies once");
 
   console.log("✓ TabSessionChat input-request admission test green");
 }

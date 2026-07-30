@@ -1,4 +1,5 @@
 import type { AgentStateKind } from "./AgentStateIndicator";
+import type { PendingPrompt } from "../../lib/types";
 
 interface WaitingQuestionEntry {
   generation: number;
@@ -16,16 +17,19 @@ export interface InputRequestAdmission {
   notificationReady: boolean;
 }
 
-// backendState.question is diagnostic only and deliberately not an input here:
-// only the authoritative pending_prompt may mint notification identity.
+const ACTIONABLE_SUBTYPES = new Set(["model_choice", "model_picker", "permission", "auth", "update"]);
+
+// Only a pending_prompt with an actuatable control (options or explicit submit)
+// may mint notification identity; backendState.question is diagnostic only.
 export function deriveInputRequestAdmission(
-  pendingPromptQuestion: string | null | undefined,
+  pendingPrompt: Pick<PendingPrompt, "question" | "options" | "submit_available"> | null | undefined,
   state: AgentStateKind | null | undefined,
   subtype: string | null | undefined,
 ): InputRequestAdmission {
-  const promptIdentity = pendingPromptQuestion?.trim() || null;
-  const actionable = state === "question" && subtype !== "rate_limit" && subtype !== "error";
-  return { promptIdentity, notificationReady: actionable && promptIdentity !== null };
+  const promptIdentity = pendingPrompt?.question.trim() || null;
+  const actionable = state === "question" && ACTIONABLE_SUBTYPES.has(subtype ?? "");
+  const actuatable = (pendingPrompt?.options.length ?? 0) > 0 || pendingPrompt?.submit_available === true;
+  return { promptIdentity, notificationReady: actionable && actuatable && promptIdentity !== null };
 }
 
 export class WaitingQuestionTracker {
