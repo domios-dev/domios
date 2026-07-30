@@ -350,6 +350,29 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
     "CONTINUOUS_INTEGRATION",
 ];
 
+const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
+    "CODETERM_PLAN_ID",
+    "CODETERM_TASK_ID",
+    "CODETERM_LANE_BASE",
+    "CODETERM_ROLE",
+    "CODETERM_PARENT_TAB_ID",
+    "CODETERM_WORKER_ID",
+];
+
+fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
+    for key in INHERITED_ORCHESTRATION_ENV {
+        cmd.env_remove(key);
+    }
+
+    for (key, value) in env_vars {
+        cmd.env(key, value);
+    }
+
+    for key in STRIPPED_PTY_ENV {
+        cmd.env_remove(key);
+    }
+}
+
 pub fn build_session(
     spawn_gate: PtySpawnGate,
     command: Option<String>,
@@ -417,14 +440,8 @@ pub fn build_session(
 
     super::shell_integration::apply_env(&mut cmd, &shell);
 
-    for (key, value) in &env_vars {
-        cmd.env(key, value);
-    }
-
     // Env vars stripped from every interactive tab PTY. CLAUDECODE / CLAUDE_CODE_*:
-    for key in STRIPPED_PTY_ENV {
-        cmd.env_remove(key);
-    }
+    apply_pty_env(&mut cmd, &env_vars);
 
     let child = pair
         .slave
@@ -1140,6 +1157,63 @@ mod tests {
         );
         assert!(STRIPPED_PTY_ENV.contains(&"CLAUDECODE"));
         assert!(STRIPPED_PTY_ENV.contains(&"NO_COLOR"));
+    }
+
+    #[test]
+    fn pty_env_drops_inherited_orchestration_authority() {
+        let inherited = [
+            "CODETERM_PLAN_ID",
+            "CODETERM_TASK_ID",
+            "CODETERM_LANE_BASE",
+            "CODETERM_ROLE",
+            "CODETERM_PARENT_TAB_ID",
+            "CODETERM_WORKER_ID",
+        ];
+        let mut cmd = CommandBuilder::new("probe");
+        for key in inherited {
+            cmd.env(key, "foreign");
+        }
+
+        apply_pty_env(&mut cmd, &HashMap::new());
+
+        for key in inherited {
+            assert_eq!(cmd.get_env(key), None, "{key} leaked into roleless PTY");
+        }
+    }
+
+    #[test]
+    fn pty_env_preserves_explicit_assigned_worker_authority() {
+        let mut cmd = CommandBuilder::new("worker");
+        cmd.env("CODETERM_PLAN_ID", "foreign-plan");
+        cmd.env("CODETERM_TASK_ID", "foreign-task");
+        cmd.env("CODETERM_ROLE", "Orchestrator");
+        let assigned = HashMap::from([
+            ("CODETERM_PLAN_ID".to_string(), "assigned-plan".to_string()),
+            ("CODETERM_TASK_ID".to_string(), "assigned-task".to_string()),
+            (
+                "CODETERM_LANE_BASE".to_string(),
+                "assigned-base".to_string(),
+            ),
+            ("CODETERM_ROLE".to_string(), "Worker".to_string()),
+            (
+                "CODETERM_PARENT_TAB_ID".to_string(),
+                "assigned-parent".to_string(),
+            ),
+            (
+                "CODETERM_WORKER_ID".to_string(),
+                "assigned-worker".to_string(),
+            ),
+        ]);
+
+        apply_pty_env(&mut cmd, &assigned);
+
+        for (key, value) in assigned {
+            assert_eq!(
+                cmd.get_env(&key),
+                Some(std::ffi::OsStr::new(&value)),
+                "{key} did not use its explicit assignment"
+            );
+        }
     }
 
     /// `launch_agent_in_background` relies on `write` returning `Err("PTY not
