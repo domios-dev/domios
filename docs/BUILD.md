@@ -239,6 +239,11 @@ npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment
 
 ### Test troubleshooting
 
+| Symptom | Cause | Recovery |
+|---|---|---|
+| `qa-prep` fails at stage `dist` with `ln: .../node_modules: cannot overwrite directory`, or a later `vite build` fails while `node_modules` is only a few hundred KB | On Windows, MSYS `ln -sf` copies instead of symlinking and aborts midway, leaving a partial `node_modules` stub in the worktree that later runs mistake for a real install | Delete the stub (`rm -rf node_modules`) and rerun `./build.sh qa-prep` — it now creates a junction (`mklink /J`) to the canonical checkout's `node_modules` on Windows |
+
+
 If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
 pipe is being closed", the build command lost its stdout reader; this is a
 gateway logging failure, not a test verdict. The gateway now owns the `tee`
@@ -376,4 +381,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

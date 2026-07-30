@@ -88,10 +88,23 @@ run_stages() {
   # ================================================================
   echo "[qa-prep] 1/2  dist (vite build, skipping tsc)..."
 
-  # Ensure node_modules. In a worktree symlink from canonical; never pnpm install.
+  # Ensure node_modules. In a worktree link from canonical; never pnpm install.
   if [ ! -d "$REPO/node_modules" ]; then
     if [ -n "$CANONICAL" ] && [ -d "$CANONICAL/node_modules" ]; then
-      ln -sf "$CANONICAL/node_modules" "$REPO/node_modules"
+      # A prior MSYS `ln` run may have left a partial copy — clear it first.
+      rm -rf "$REPO/node_modules"
+      case "$OSTYPE" in
+        msys*|cygwin*|win32)
+          # MSYS ln copies instead of symlinking; a junction needs no privilege.
+          cmd //c mklink /J "$(cygpath -w "$REPO/node_modules")" \
+            "$(cygpath -w "$CANONICAL/node_modules")" >/dev/null \
+            || fail_stage "dist:node-modules-link"
+          ;;
+        *)
+          ln -sf "$CANONICAL/node_modules" "$REPO/node_modules" \
+            || fail_stage "dist:node-modules-link"
+          ;;
+      esac
       echo "[qa-prep] node_modules: linked from canonical checkout"
     else
       echo "[qa-prep] ERROR: no node_modules. Run pnpm install in the canonical checkout first." >&2
