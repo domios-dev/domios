@@ -23,4 +23,4 @@ PS D:\Developer\EcoIq>  $env:CODETERM_SESSION_BINDING_NONCE='13e17546-8830-444c-
   5. gpt-5.4                Strong model for everyday coding.
   6. gpt-5.4-mini           Small, fast, and cost-efficient model for simpler coding tasks.
   7. gpt-5.3-codex-spark    Ultra-fast coding model.
-  Press enter to confirm or esc to go back                                                                                                                                                                                                      
+  Press enter to confirm or esc to go back
