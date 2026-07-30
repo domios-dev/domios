@@ -177,7 +177,8 @@ into false failures. Before ANY change there, read and obey
 written at most once; after the paste reaches the write queue a failure may
 only classify as `submit_unconfirmed`, never `pty_unavailable`; false
 uncertainty is reconciled by exact session-turn evidence, never by guessing
-from screen output; real loss stays visible and retryable. Do not add
+from screen output. Delivery state is internal telemetry: Chat UI never renders
+delivery banners, failure cards, Retry actions, or notifications. Do not add
 acknowledgement heuristics, payload retries, sleeps, or provider-id branches
 to this path — if evidence quality is the problem, improve the evidence
 source, not the scraping.

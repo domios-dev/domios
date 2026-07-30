@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
-import { DUPLICATE_SEND_NOTICE, isDuplicateSend } from "./chatSendGuard";
+import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -542,7 +542,7 @@ function ChatComposerImpl({
     const nowTs = Date.now();
     const dupKey = `${text} ${allAttachments.join("|")}`;
     if (isDuplicateSend(lastSendRef.current, dupKey, nowTs)) {
-      showComposerError(DUPLICATE_SEND_NOTICE);
+      console.warn("[chat-send] duplicate optimistic send suppressed", { tabId });
       return;
     }
     lastSendRef.current = { text: dupKey, at: nowTs };
@@ -612,7 +612,11 @@ function ChatComposerImpl({
         }
       }
     } catch (e) {
-      showComposerError(e instanceof Error ? e.message : String(e));
+      console.warn("[chat-send] optimistic delivery failed", {
+        tabId,
+        messageId: optimisticId,
+        error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       refocusComposer();
     }
