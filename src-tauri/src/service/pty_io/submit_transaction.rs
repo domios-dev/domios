@@ -214,13 +214,21 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
+        let composer_generation = { self.svc.screen_state.lock().pty_generation(self.pty_id) };
         let session = self
             .svc
             .pty
             .lock()
             .get_session(self.pty_id)
-            .ok_or_else(|| InjectionError::PtyClosed {
-                pty_id: self.pty_id.to_string(),
+            .ok_or_else(|| {
+                log::warn!(
+                    "[submit-audit] key-write pty={} session=missing composer_gen={:?}",
+                    self.pty_id,
+                    composer_generation
+                );
+                InjectionError::PtyClosed {
+                    pty_id: self.pty_id.to_string(),
+                }
             })?;
         let timeout = deadline.saturating_duration_since(Instant::now());
         let result = match self.permit.as_ref() {
@@ -231,6 +239,18 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 .lock()
                 .write_and_flush(self.pty_id, key, timeout),
         };
+        log::info!(
+            "[submit-audit] key-write pty={} session_gen={} composer_gen={:?} enqueue_timeout_ms={} zero_timeout={} queue_result={}",
+            self.pty_id,
+            session.generation,
+            composer_generation,
+            timeout.as_millis(),
+            timeout.is_zero(),
+            match &result {
+                Ok(()) => "ok",
+                Err(error) => error.as_str(),
+            }
+        );
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
         if self.permit.is_some() {
             crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
@@ -311,6 +331,19 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     draft_left_composer || fresh_turn
 }
 
+/// Failure bound for one acknowledgement attempt: the remaining turn budget is
+/// split so every unwritten retry keeps a reachable window before
+/// `turn_deadline`. The last attempt always waits out the full deadline.
+fn attempt_ack_deadline(keys_written: usize, turn_deadline: Instant) -> Instant {
+    let retries_left = MAX_SUBMIT_KEY_WRITES.saturating_sub(keys_written);
+    if retries_left == 0 {
+        return turn_deadline;
+    }
+    let now = Instant::now();
+    let remaining = turn_deadline.saturating_duration_since(now);
+    now + remaining / (retries_left as u32 + 1)
+}
+
 fn wait_paste_ingested<T: SubmitTransport>(
     transport: &T,
     text: &str,
@@ -382,6 +415,7 @@ fn run_with_submit_key<T: SubmitTransport>(
             echo_observed,
             submit_observed: false,
             submit_anomaly: false,
+            submit_key_writes: 0,
             elapsed: started.elapsed(),
         });
     }
@@ -406,12 +440,12 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     let turn_was_started = transport.turn_started();
     let mut submit_observed = !two_phase;
-    let mut submit_key_written = false;
+    let mut submit_key_writes = 0usize;
     for _ in 0..MAX_SUBMIT_KEY_WRITES {
         // The first CR is the delivery itself and always goes out; a RETRY
         // write may never begin with an expired phase deadline — enqueueing it
         // can only produce a doomed ack wait or a stray late keypress.
-        if submit_key_written && Instant::now() >= turn_deadline {
+        if submit_key_writes > 0 && Instant::now() >= turn_deadline {
             break;
         }
         let enter_armed = transport.generation();
@@ -434,7 +468,7 @@ fn run_with_submit_key<T: SubmitTransport>(
                 screen_tail,
             });
         }
-        submit_key_written = true;
+        submit_key_writes += 1;
         if !two_phase {
             break;
         }
@@ -446,10 +480,16 @@ fn run_with_submit_key<T: SubmitTransport>(
             turn_was_started,
             enter_armed,
             turn_armed,
-            turn_deadline,
+            attempt_ack_deadline(submit_key_writes, turn_deadline),
             &strategy,
         );
         if submit_observed {
+            break;
+        }
+        // Re-key only while the draft demonstrably remains in the composer —
+        // proof the CR did not take. A cleared composer without turn evidence
+        // is ambiguous, and a stray key into it proves nothing.
+        if transport.draft_evidence_count(text) <= baseline_evidence {
             break;
         }
     }
@@ -459,6 +499,7 @@ fn run_with_submit_key<T: SubmitTransport>(
         echo_observed,
         submit_observed,
         submit_anomaly: two_phase && !submit_observed,
+        submit_key_writes,
         elapsed: started.elapsed(),
     })
 }
@@ -501,9 +542,10 @@ pub(crate) fn submit_text_with_key(
         |result| {
             if result.submit_anomaly {
                 log::warn!(
-                    "[submit-recovery] pty={} recovered={} payload_repeated=false elapsed_ms={}",
+                    "[submit-recovery] pty={} recovered={} payload_repeated=false key_writes={} elapsed_ms={}",
                     pty_id,
                     result.submit_observed,
+                    result.submit_key_writes,
                     result.elapsed.as_millis()
                 );
             }
@@ -512,6 +554,22 @@ pub(crate) fn submit_text_with_key(
             result.require_submission(required, elapsed, tail)
         },
     );
+    if let Err(ref error) = result {
+        let tab_current_pty = {
+            let mux = svc.mux.read();
+            mux.tab_id_for_pty(pty_id)
+                .and_then(|tab_id| mux.get_tab(&tab_id).and_then(|tab| tab.pty_id.clone()))
+        };
+        log::warn!(
+            "[submit-audit] send-failed pty={} tab_current_pty={:?} target_matches_composer_owner={} draft_evidence_now={} turn_started_now={} error={}",
+            pty_id,
+            tab_current_pty,
+            tab_current_pty.as_deref() == Some(pty_id),
+            transport.draft_evidence_count(text),
+            transport.turn_started(),
+            error
+        );
+    }
     drop(transaction);
     retire_transaction_lock(pty_id, &lock);
     result
@@ -534,6 +592,8 @@ pub(crate) fn write_terminal_reply(
 mod classification_tests;
 #[cfg(test)]
 mod collapsed_paste_tests;
+#[cfg(test)]
+mod dropped_enter_tests;
 #[cfg(test)]
 mod submission_matrix;
 #[cfg(test)]
