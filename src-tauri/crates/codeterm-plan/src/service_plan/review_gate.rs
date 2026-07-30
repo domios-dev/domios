@@ -160,15 +160,19 @@ pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
     Ok(())
 }
 
-/// Called once, at the moment a task's status flips into `in_review`: fixes
-/// the acceptance oracle on first entry and (on a correction round beyond the
-/// default bound) consumes any pending override into the immutable audit
-/// log. Takes `&mut Task` only (not `&mut Plan`) so callers that already hold
-/// a live per-task borrow don't have to give it up first.
+/// Fixes the acceptance oracle on first review entry or an authorized correction.
+/// Consumes bounded-round overrides into the immutable audit log.
 pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
     let rounds = max_review_rounds();
-    if task.review_oracle.is_none() {
-        task.review_oracle = Some(oracle_signature(task));
+    let current_oracle = oracle_signature(task);
+    let authorized_correction = task.review_round > 0
+        && task
+            .review_override
+            .as_ref()
+            .is_some_and(override_is_complete)
+        && task.review_oracle.as_deref() != Some(current_oracle.as_str());
+    if task.review_oracle.is_none() || authorized_correction {
+        task.review_oracle = Some(current_oracle);
     }
     if task.review_round >= rounds {
         if let Some(o) = task.review_override.take() {

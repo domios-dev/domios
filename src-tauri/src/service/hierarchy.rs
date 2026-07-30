@@ -7,6 +7,7 @@ mod planner_delivery;
 mod report_persistence;
 mod status;
 mod worker_handoff;
+pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use first_plan::FirstPlanTeamError;
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
@@ -391,6 +392,7 @@ impl ServiceContext {
         milestone_kind: Option<&str>,
     ) -> Result<ReportResult, String> {
         let task_status = report_task_status_transition(details.status)?;
+        let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
         let mut notices: Vec<String> = Vec::new();
         let (eff_plan_id, eff_task_id) =
@@ -533,6 +535,7 @@ impl ServiceContext {
             model_identity,
         );
         self.report_store.lock().claim(&report.id);
+        report_requirement.accept();
 
         self.events.broadcast(
             "agent.report",
@@ -596,7 +599,6 @@ impl ServiceContext {
             self.maybe_send_plan_reminder(tab_id, role);
         }
 
-        self.gateway.clear_worker_report_requirement(tab_id);
         self.record_kpi_report(
             tab_id,
             eff_plan_id.as_deref(),

@@ -416,7 +416,10 @@ impl ServiceContext {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
             if became_idle {
-                self.complete_worker_turn_without_report(&tab_id, "idle-transition");
+                self.complete_worker_turn_without_report(
+                    &tab_id,
+                    crate::service::hierarchy::WorkerTurnSignal::IdleTransition,
+                );
             }
         }
     }

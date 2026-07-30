@@ -241,9 +241,10 @@ pub async fn hook_stop(
         .svc
         .run_watcher
         .complete_via_stop_hook(&state.svc, &tab_id);
-    state
-        .svc
-        .complete_worker_turn_without_report(&tab_id, "provider-stop");
+    state.svc.complete_worker_turn_without_report(
+        &tab_id,
+        crate::service::WorkerTurnSignal::ProviderStop,
+    );
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
