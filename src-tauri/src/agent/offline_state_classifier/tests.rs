@@ -667,3 +667,46 @@ fn claude_settled_turn_with_summary_resolves_idle() {
     let verdict = classify_state(&input, working());
     assert_eq!(verdict.state, TimelineState::Idle);
 }
+
+// Live P0 oracle (prod notification 4ae14e7f): a structurally-minted picker
+// question carrying a codex skills-lint warning line must classify Unknown.
+#[test]
+fn skills_lint_warning_picker_question_classifies_unknown_subtype() {
+    let screen = lines(&[
+        r"⚠ D:\Developer\codeterm\.agents\skills\gap-analysis\SKILL.md: missing field description",
+        "",
+        "› ",
+        r"  gpt-5.6-sol high · D:\Developer\codeterm",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some(
+        r"⚠ D:\Developer\codeterm\.agents\skills\gap-analysis\SKILL.md: missing field description",
+    );
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Question);
+    assert_eq!(verdict.subtype, Some(QuestionSubtype::Unknown));
+}
+
+// Confirm/refute for the envelope class: a coordination-envelope question is
+// NOT reliably Unknown — "model=…" lands in the ModelPicker keyword bucket.
+// Subtype alone therefore cannot discriminate these frames; notification
+// admission additionally requires an actuatable input control.
+#[test]
+fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
+    let envelope =
+        "-=-codeterm:tab label=Reviewer tab=166df18d model=gpt-5.6-sol-=-Coordination note only.";
+    let screen = lines(&[envelope]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some(envelope);
+    let with_model = classify_state(&input, working());
+    assert_eq!(with_model.state, TimelineState::Question);
+    assert_eq!(with_model.subtype, Some(QuestionSubtype::ModelPicker));
+
+    let plain_envelope = "-=-codeterm:report from=Worker tab=abc123-=-Task finished, see summary.";
+    let screen = lines(&[plain_envelope]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some(plain_envelope);
+    let without_model = classify_state(&input, working());
+    assert_eq!(without_model.state, TimelineState::Question);
+    assert_eq!(without_model.subtype, Some(QuestionSubtype::Unknown));
+}

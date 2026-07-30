@@ -460,7 +460,7 @@ export function TabSessionChat({
 
   useEffect(() => {
     const admission = deriveInputRequestAdmission(
-      pendingPrompt?.question,
+      pendingPrompt,
       backendState?.state ?? null,
       backendState?.subtype ?? null,
     );
