@@ -49,10 +49,16 @@ pub struct TauriStructuredSink {
     app: AppHandle,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
+    send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
 }
 
 impl StructuredSink for TauriStructuredSink {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
+        if let Some(ledger) = self.send_ledger.as_deref() {
+            crate::service::chat_send_transaction::reconcile_delivered_turns(
+                &self.app, ledger, tab_id, &messages,
+            );
+        }
         emit_chat_msgs(
             &self.app,
             tab_id,
@@ -64,15 +70,17 @@ impl StructuredSink for TauriStructuredSink {
     }
 }
 
-pub fn make_sink(
+pub(crate) fn make_sink(
     app: AppHandle,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
+    send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
 ) -> Arc<dyn StructuredSink> {
     Arc::new(TauriStructuredSink {
         app,
         source_session_id,
         session_binding_nonce,
+        send_ledger,
     })
 }
 
@@ -143,6 +151,7 @@ pub struct FlattenDeltaSink {
     app: AppHandle,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
+    send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
     /// Monotonic id base for providers whose rows carry no uuid; uuid-bearing
     /// rows ignore it. Seeded past the snapshot's message count so stream ids
     /// never collide with snapshot ids.
@@ -160,6 +169,11 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         if out.is_empty() {
             return;
         }
+        if let Some(ledger) = self.send_ledger.as_deref() {
+            crate::service::chat_send_transaction::reconcile_delivered_turns(
+                &self.app, ledger, tab_id, &out,
+            );
+        }
         let event = format!("tab-chat-msg-{}", tab_id);
         let payload = ChatMsgEvent {
             tab_id,
@@ -176,16 +190,18 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
     }
 }
 
-pub fn make_flatten_sink(
+pub(crate) fn make_flatten_sink(
     app: AppHandle,
     base_start: usize,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
+    send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
 ) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
         app,
         source_session_id,
         session_binding_nonce,
+        send_ledger,
         base: std::sync::atomic::AtomicUsize::new(base_start),
     })
 }

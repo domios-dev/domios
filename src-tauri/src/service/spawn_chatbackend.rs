@@ -496,6 +496,7 @@ impl ServiceContext {
                 app,
                 source_session_id,
                 session_binding_nonce,
+                Some(svc.chat_send_ledger.clone()),
             );
             // Durable wrapper: forwards to the UI sink and UPSERTs each delta to the session JSONL by id.
             let sink: std::sync::Arc<

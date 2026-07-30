@@ -4,9 +4,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const STALE_AGENT_INPUT: &str = "stale agent input permit";
+const WRITE_ACK_TIMEOUT: &str = "PTY write acknowledgement timed out";
 
 pub fn is_stale_agent_input(error: &str) -> bool {
     error == STALE_AGENT_INPUT
+}
+
+/// The request was enqueued on the serialized writer but the caller's bounded
+/// ack wait expired first — the bytes may still reach the PTY. Never a proof
+/// that the PTY is closed or that nothing was written.
+pub fn is_write_ack_timeout(error: &str) -> bool {
+    error == WRITE_ACK_TIMEOUT
 }
 
 #[derive(Debug)]
@@ -139,7 +147,7 @@ impl WriteQueue {
             .map_err(|_| "PTY write channel closed".to_string())?;
         receiver
             .recv_timeout(timeout)
-            .map_err(|_| "PTY write acknowledgement timed out".to_string())?
+            .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
     }
 
     pub fn send_and_wait_guarded(
@@ -161,7 +169,7 @@ impl WriteQueue {
             .map_err(|_| "PTY write channel closed".to_string())?;
         receiver
             .recv_timeout(timeout)
-            .map_err(|_| "PTY write acknowledgement timed out".to_string())?
+            .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
     }
 
     pub fn close(&self) {
@@ -265,6 +273,36 @@ mod tests {
 
         let result = queue.send(b"test".to_vec());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn expired_ack_wait_is_typed_and_distinct_from_a_closed_queue() {
+        let data = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let queue = WriteQueue::new(Box::new(FirstWriteBarrier {
+            data: data.clone(),
+            first_entered: entered_tx,
+            release_first: release_rx,
+            first: true,
+        }));
+        queue.send(b"blocker".to_vec()).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first queue request must block at the writer");
+
+        let error = queue
+            .send_and_wait(b"queued".to_vec(), Duration::ZERO)
+            .unwrap_err();
+        assert!(is_write_ack_timeout(&error), "got: {error}");
+        assert!(!is_stale_agent_input(&error));
+
+        // The request was enqueued: once the writer unblocks, the bytes land.
+        release_tx.send(()).unwrap();
+        queue
+            .send_and_wait(b"-after".to_vec(), Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(&*data.lock().unwrap(), b"blockerqueued-after");
     }
 
     #[test]
