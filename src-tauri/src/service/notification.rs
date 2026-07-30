@@ -371,9 +371,8 @@ mod tests {
         probe.assert_silent();
     }
 
-    // Prod P0 oracle: notification 4ae14e7f minted 2026-07-30T17:39:40.457Z from
-    // a codex boot frame whose structural parse became pending_prompt; the
-    // keyword classifier assigns Unknown to that question text.
+    // Prod oracle 4ae14e7f (2026-07-30T17:39:40.457Z): structurally-minted
+    // boot-frame prompt whose question text classifies Unknown.
     #[test]
     fn unknown_subtype_question_never_notifies() {
         let probe = DeliveryProbe::new();
@@ -417,9 +416,8 @@ mod tests {
         probe.assert_silent();
     }
 
-    // Live P0 class: coordination envelopes / system chrome misparsed into a
-    // text-only pending_prompt must never notify, even when their wording
-    // lands in an actionable subtype bucket (envelopes contain "model=…").
+    // Envelope/chrome text can keyword-match an actionable subtype ("model=…")
+    // yet carries no actuatable control — the control gate must reject it.
     #[test]
     fn text_only_prompts_from_envelope_and_chrome_frames_never_notify() {
         let probe = DeliveryProbe::new();

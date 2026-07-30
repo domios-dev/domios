@@ -19,10 +19,8 @@ export interface InputRequestAdmission {
 
 const ACTIONABLE_SUBTYPES = new Set(["model_choice", "model_picker", "permission", "auth", "update"]);
 
-// backendState.question is diagnostic only and deliberately not an input here:
-// only the authoritative pending_prompt may mint notification identity, and
-// only when it exposes an actuatable control (options or an explicit submit) —
-// structurally-minted text (system warnings, chrome, envelopes) has neither.
+// Only a pending_prompt with an actuatable control (options or explicit submit)
+// may mint notification identity; backendState.question is diagnostic only.
 export function deriveInputRequestAdmission(
   pendingPrompt: Pick<PendingPrompt, "question" | "options" | "submit_available"> | null | undefined,
   state: AgentStateKind | null | undefined,
