@@ -190,7 +190,7 @@ test("a terminal event held before send-id binding is surfaced after binding", a
     eventHandler = handler as (event: { payload: ChatSendStatus }) => void;
     return () => {};
   });
-  __setInvokeForTest(async <T>() => [] as T);
+  __setInvokeForTest(async <T>() => [failed] as T);
   const deliveries: ChatDelivery[] = [];
   const cleanup = observeChatSendStatus("tab-1", (delivery) => deliveries.push(delivery));
   await Promise.resolve();
