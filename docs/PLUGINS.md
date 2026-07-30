@@ -310,7 +310,7 @@ exactly — it is the single source of truth.
    codeterm agent spawn lmstudio                              # uses defaultPreset
    codeterm agent spawn lmstudio --preset rhymes              # pick a preset
    codeterm agent spawn lmstudio --system "You answer only in rhymes."
-   codeterm agent spawn lmstudio --role Watcher --parent <orch-tab> \
+   codeterm agent spawn lmstudio --role Watcher --parent-tab <orch-tab> \
      --charter charter:watcher-orchestration --interval 30s
    ```
 
@@ -619,4 +619,4 @@ tax (see also `docs/contributing/architecture.md`):
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

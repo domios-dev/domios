@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -295,7 +295,6 @@ Files regenerate on every dev/prod start.
 ```bash
 # Search
 codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--limit <n>]
-codeterm mem recall "<query>"                       # semantic-first
 codeterm mem get <id>                               # full item body
 codeterm mem wake-up                                # L0 identity + L1 critical
 codeterm mem wake-up                                # inherit the calling tab's workspace
