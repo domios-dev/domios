@@ -86,6 +86,60 @@ ct_gateway_process_command() {
   ps -p "$pid" -o command= 2>/dev/null
 }
 
+ct_gateway_terminate_descendant_tree() {
+  local pid="$1" child
+  kill -STOP "$pid" 2>/dev/null || true
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    ct_gateway_terminate_descendant_tree "$child"
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+}
+
+ct_gateway_terminate_descendants() {
+  local root_pid="${BASHPID:-$$}" child descendants
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    descendants="$(ps -W | awk -v root="$root_pid" '
+      NR > 1 { parent[$1] = $2; count++ }
+      END {
+        depth[root] = 0
+        for (pass = 0; pass <= count; pass++) {
+          for (pid in parent) {
+            if (!(pid in depth) && (parent[pid] in depth)) {
+              depth[pid] = depth[parent[pid]] + 1
+              if (depth[pid] > maximum) maximum = depth[pid]
+            }
+          }
+        }
+        for (level = 1; level <= maximum; level++) {
+          for (pid in depth) {
+            if (depth[pid] == level) print pid
+          }
+        }
+      }
+    ')"
+    for child in $descendants; do
+      kill -KILL "$child" 2>/dev/null || true
+    done
+    for child in $descendants; do
+      wait "$child" 2>/dev/null || true
+    done
+    return
+  fi
+  for child in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    ct_gateway_terminate_descendant_tree "$child"
+    wait "$child" 2>/dev/null || true
+  done
+}
+
+ct_gateway_mutex_timeout() {
+  CT_GATEWAY_ABORT_DESCENDANTS=1
+  export CT_GATEWAY_ABORT_DESCENDANTS
+  echo "Timed out acquiring build gateway state mutex." >&2
+  echo "Run './build.sh gateway-status' to inspect ownership, then './build.sh gateway-cancel <job-id>' for a stale job." >&2
+  ct_gateway_terminate_descendants
+  return 75
+}
+
 ct_gateway_mutex_acquire() {
   local dir="$1" mutex="$1/state.lock" deadline stale_pid stale_start tombstone self_pid incomplete_seen=0
   self_pid="${CT_GATEWAY_MUTEX_PID:-$$}"
@@ -109,7 +163,7 @@ ct_gateway_mutex_acquire() {
         continue
       fi
     fi
-    [ "$(date +%s)" -le "$deadline" ] || { echo "Timed out acquiring build gateway state mutex" >&2; return 75; }
+    [ "$(date +%s)" -le "$deadline" ] || { ct_gateway_mutex_timeout; return $?; }
     sleep 0.05
   done
   printf '%s\n' "$self_pid" > "$mutex/pid"
@@ -130,7 +184,7 @@ ct_gateway_status() {
   local dir rc
   dir="$(ct_gateway_dir)"
   mkdir -p "$dir/jobs" "$dir/queue"
-  ct_gateway_mutex_acquire "$dir"
+  ct_gateway_mutex_acquire "$dir" || return $?
   ct_gateway_reap_stale_owner_locked "$dir"
   ct_gateway_reap_stale_queue_locked "$dir"
   set +e
@@ -193,7 +247,7 @@ ct_gateway_finish() {
   CT_GATEWAY_ACTIVE=0
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
-  ct_gateway_mutex_acquire "$dir" || return 1
+  ct_gateway_mutex_acquire "$dir" || return $?
   rm -rf "$dir/queue/${CT_BUILD_QUEUE_KEY:-missing}"
   if [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
     state=cancelled
@@ -218,6 +272,10 @@ ct_gateway_finish() {
 ct_gateway_on_exit() {
   local rc="$?"
   trap - EXIT INT TERM
+  if [ "${CT_GATEWAY_ABORT_DESCENDANTS:-0}" = "1" ]; then
+    ct_gateway_terminate_descendants
+    exit "$rc"
+  fi
   ct_gateway_finish "$rc"
   exit "$rc"
 }
@@ -254,7 +312,9 @@ ct_gateway_acquire() {
   worktree="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
   owner_command="$(ct_gateway_process_command "$$" 2>/dev/null || true)"
   export CT_BUILD_JOB_ID CT_BUILD_QUEUE_KEY CT_GATEWAY_PROCESS_START
-  ct_gateway_mutex_acquire "$dir"
+  trap 'ct_gateway_on_exit' EXIT
+  trap 'ct_gateway_on_signal' INT TERM
+  ct_gateway_mutex_acquire "$dir" || return $?
   ct_gateway_reap_stale_owner_locked "$dir"
   ct_gateway_reap_stale_queue_locked "$dir"
   if [ -e "$dir/jobs/$CT_BUILD_JOB_ID.json" ]; then
@@ -279,15 +339,13 @@ ct_gateway_acquire() {
     --log-path "$log"
   ct_gateway_mutex_release "$dir"
   CT_GATEWAY_ACTIVE=1
-  trap 'ct_gateway_on_exit' EXIT
-  trap 'ct_gateway_on_signal' INT TERM
 
   while :; do
     if [ ! -d "$dir/queue/$CT_BUILD_QUEUE_KEY" ]; then
       CT_GATEWAY_CANCELLED=1
       return 130
     fi
-    ct_gateway_mutex_acquire "$dir"
+    ct_gateway_mutex_acquire "$dir" || return $?
     ct_gateway_reap_stale_owner_locked "$dir"
     ct_gateway_reap_stale_queue_locked "$dir"
     first="$(ct_gateway_first_ticket "$dir")"
@@ -319,7 +377,7 @@ ct_gateway_cancel() {
   local job_id="$1" dir record state queue_key pid start_token rc=0
   dir="$(ct_gateway_dir)"
   record="$dir/jobs/$job_id.json"
-  ct_gateway_mutex_acquire "$dir"
+  ct_gateway_mutex_acquire "$dir" || return $?
   ct_gateway_reap_stale_owner_locked "$dir"
   ct_gateway_reap_stale_queue_locked "$dir"
   if [ ! -f "$record" ]; then
@@ -365,7 +423,7 @@ ct_gateway_assert_internal_child() {
     *build.sh*) ;;
     *) echo "[build-gateway] internal child parent is not build.sh" >&2; return 2 ;;
   esac
-  ct_gateway_mutex_acquire "$dir"
+  ct_gateway_mutex_acquire "$dir" || return $?
   if [ "$(cat "$lock/job_id" 2>/dev/null || true)" != "$job_id" ] ||
       [ "$(cat "$lock/pid" 2>/dev/null || true)" != "$parent_pid" ] ||
       [ "$(cat "$lock/start_token" 2>/dev/null || true)" != "$parent_start" ]; then
