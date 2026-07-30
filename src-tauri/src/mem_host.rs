@@ -372,6 +372,22 @@ pub fn spawn_extraction_worker(
     let agent_provider = resolved.agent;
     let model = resolved.model;
     let intent = format!("extract:{mem_item_id}");
+
+    // Open the generation against the exact row the prompt was copied from. A
+    // source that vanished before we got here has no row to bind, so there is
+    // nothing to authorize and no worker worth spawning.
+    let Some(source_uid) = source_uid_of(svc, &mem_item_id) else {
+        log::info!(
+            "[auto-extract] source {} is gone before spawn, skipping",
+            mem_item_id
+        );
+        return None;
+    };
+    let generation = svc
+        .mem
+        .extraction_authority()
+        .open(&mem_item_id, &source_uid);
+
     match spawn_headless(
         svc,
         intent,
@@ -381,16 +397,52 @@ pub fn spawn_extraction_worker(
         model,
     ) {
         Ok(worker_id) => {
+            let authority = svc.mem.extraction_authority();
+            if authority.bind_worker(&generation, &worker_id)
+                == codeterm_mem::BindOutcome::AlreadyRevoked
+            {
+                // The delete landed between `open` and here; the revocation could
+                // not name this worker, so cancel it on the bind result itself.
+                log::info!(
+                    "[auto-extract] generation {} was revoked during spawn, cancelling worker {}",
+                    generation.token(),
+                    worker_id
+                );
+                crate::api::mem_routes::cancel_worker(svc, &worker_id);
+                return None;
+            }
             log::info!(
-                "[auto-extract] headless worker {} for {}",
+                "[auto-extract] headless worker {} for {} generation {}",
                 worker_id,
-                mem_item_id
+                mem_item_id,
+                generation.token()
             );
             Some(worker_id)
         }
         Err(e) => {
+            svc.mem.extraction_authority().close(&generation);
             log::warn!("[auto-extract] spawn failed for {}: {}", mem_item_id, e);
             None
+        }
+    }
+}
+
+fn source_uid_of(svc: &Arc<ServiceContext>, id: &str) -> Option<String> {
+    svc.mem.get(id).ok().flatten().map(|item| item.uid)
+}
+
+/// Cancels exactly the Workers whose extraction generation lost authority.
+/// Registered on the mem store so a delete anywhere revokes and cancels through
+/// one path instead of each delete route re-implementing it.
+pub struct WorkerCancelSink(pub Arc<ServiceContext>);
+
+impl codeterm_mem::ExtractionCancelSink for WorkerCancelSink {
+    fn cancel(&self, revoked: &[codeterm_mem::RevokedGeneration]) {
+        for r in revoked {
+            let Some(worker_id) = r.worker_id.as_deref() else {
+                continue;
+            };
+            crate::api::mem_routes::cancel_worker(&self.0, worker_id);
         }
     }
 }
