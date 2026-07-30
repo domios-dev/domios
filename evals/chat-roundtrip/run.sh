@@ -264,13 +264,14 @@ case_ordering() {
   while [ "$SECONDS" -lt "$deadline" ]; do
     res="$(chat_snapshot "$tab" | $PY "$RT" order-check "$base" "$n")"
     [ "$res" = "ok" ] && break
-    # Keep polling while messages are still landing; a real disorder also resolves
-    # only by deadline, so we report whatever the final state is.
+    # Keep polling while messages are still landing; a real ordering failure also
+    # resolves only by deadline, so we report whatever the final state is.
     sleep 2
   done
   case "$res" in
     ok) pass "$provider ordering: all $n messages in send order" ;;
-    disorder*) fail "$provider ordering: transcript out of send order ($res)" ;;
+    reorder*) fail "$provider ordering: transcript out of send order ($res)" ;;
+    collapse*) fail "$provider ordering: transcript message boundary collapse ($res)" ;;
     *) fail "$provider ordering: not all $n messages landed within ${TIMEOUT}s ($res)" ;;
   esac
 }
