@@ -303,6 +303,33 @@ test("terminal sent state reconciles the optimistic message", async () => {
   host.remove();
 });
 
+test("evidence-reconciled sent clears a false failure and its retry", async () => {
+  resetChatSendStatusForTest();
+  const commands: string[] = [];
+  const pending = status("send-6", "pending", 6);
+  const { host, root, emitStatus } = await renderChat([], commands);
+  await trackPending(pending, "Delivered but misclassified");
+
+  await act(async () => {
+    emitStatus(status("send-6", "failed", 6, "pty_unavailable: Tab has no usable PTY"));
+  });
+  const failed = getByRole<HTMLElement>(host, "article", /delivered but misclassified/i);
+  getByRole(failed, "alert", /delivery failed/i);
+
+  await act(async () => {
+    emitStatus(status("send-6", "sent", 6));
+  });
+  const reconciled = getByRole<HTMLElement>(host, "article", /delivered but misclassified/i);
+  getByRole(reconciled, "status", /submission confirmed/i);
+  const staleRetry = Array.from(reconciled.querySelectorAll("button")).find((button) =>
+    /retry/i.test(button.textContent ?? ""),
+  );
+  assert(!staleRetry, "no Retry survives exact delivery evidence");
+
+  await act(async () => root.unmount());
+  host.remove();
+});
+
 test("failed message and retry remain visible after remount", async () => {
   resetChatSendStatusForTest();
   const firstCommands: string[] = [];

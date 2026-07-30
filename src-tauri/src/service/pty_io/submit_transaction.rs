@@ -244,6 +244,13 @@ fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
         InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         }
+    } else if crate::pty::write_queue::is_write_ack_timeout(&error) {
+        // The bytes are queued on the serialized writer and may still land, so
+        // this is submit uncertainty — never a zero-write "PTY closed" claim.
+        InjectionError::SubmitNeverConfirmed {
+            waited: std::time::Duration::ZERO,
+            screen_tail: String::new(),
+        }
     } else {
         InjectionError::PtyClosed {
             pty_id: pty_id.to_string(),
@@ -402,7 +409,24 @@ fn run_with_submit_key<T: SubmitTransport>(
     for _ in 0..MAX_SUBMIT_KEY_WRITES {
         let enter_armed = transport.generation();
         let turn_armed = transport.turn_generation();
-        transport.write_submit_key(submit_key, turn_deadline)?;
+        // The paste already reached the PTY: a submit-key write failure can
+        // only mean unconfirmed submission, never a zero-write terminal error.
+        if let Err(error) = transport.write_submit_key(submit_key, turn_deadline) {
+            if text.is_empty() {
+                return Err(error);
+            }
+            log::warn!(
+                "[submit-transaction] post-paste submit-key write failed ({error}); classified unconfirmed"
+            );
+            let screen_tail = transport
+                .observe()
+                .map(|state| state.tail)
+                .unwrap_or_default();
+            return Err(InjectionError::SubmitNeverConfirmed {
+                waited: started.elapsed(),
+                screen_tail,
+            });
+        }
         if !two_phase {
             break;
         }

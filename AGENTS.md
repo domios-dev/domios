@@ -167,6 +167,21 @@ as a bounded failure deadline around such an event wait; elapsed time must never
 be treated as successful readiness. If an API exposes no readiness signal, add
 one at the ownership boundary instead of adding a delay or retry loop.
 
+## PTY input delivery is CORE and FRAGILE — touch with extreme care
+
+The send path (`service/pty_io/`, `service/chat_send_transaction.rs`,
+`pty/write_queue.rs`, delivery ledger) has been broken repeatedly by
+"one more heuristic / one more retry" changes that turned delivered messages
+into false failures. Before ANY change there, read and obey
+**`docs/contributing/pty-delivery.md`**. Non-negotiable core: the payload is
+written at most once; after the paste reaches the write queue a failure may
+only classify as `submit_unconfirmed`, never `pty_unavailable`; false
+uncertainty is reconciled by exact session-turn evidence, never by guessing
+from screen output; real loss stays visible and retryable. Do not add
+acknowledgement heuristics, payload retries, sleeps, or provider-id branches
+to this path — if evidence quality is the problem, improve the evidence
+source, not the scraping.
+
 ## Agent launch delivery
 
 Launch/bootstrap input is delivered optimistically to the exact PTY already

@@ -397,6 +397,7 @@ pub fn chat_start_core(
                 svc.app_handle.clone(),
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
+                Some(svc.chat_send_ledger.clone()),
             );
             let handle = crate::service::tab_chat::spawn_structured_poller(
                 crate::service::tab_chat::StructuredPollConfig {
@@ -451,6 +452,7 @@ pub fn chat_start_core(
                 0,
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
+                Some(svc.chat_send_ledger.clone()),
             );
             let handle = crate::service::tab_chat::spawn_store_watch(
                 crate::service::tab_chat::StoreWatchConfig {
@@ -506,6 +508,7 @@ pub fn chat_start_core(
             msg_count,
             Some(session_id.clone()),
             session_binding_nonce.clone(),
+            Some(svc.chat_send_ledger.clone()),
         );
         let handle = crate::service::tab_chat::spawn_tailer(
             crate::service::tab_chat::TailConfig {
