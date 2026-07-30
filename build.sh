@@ -284,7 +284,7 @@ finish_build_gateway_logging() {
 }
 
 build_gateway_logging_on_exit() {
-  local command_status="$?" summary_status reader_status
+  local command_status="$?" summary_status reader_status finish_status
   trap - EXIT INT TERM
   set +e
   printf 'Build gateway job %s exit: %s\n' "$CT_BUILD_JOB_ID" "$command_status"
@@ -295,9 +295,13 @@ build_gateway_logging_on_exit() {
     printf 'ERROR: build gateway logging path broke (exit %s); command exit was %s; log: %s\n' \
       "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
     ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+    finish_status=$?
+    [ "$finish_status" -eq 0 ] || exit "$finish_status"
     exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
   fi
   ct_gateway_finish "$command_status"
+  finish_status=$?
+  [ "$finish_status" -eq 0 ] || exit "$finish_status"
   exit "$command_status"
 }
 

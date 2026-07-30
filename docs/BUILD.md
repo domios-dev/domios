@@ -169,6 +169,12 @@ the release binary only into the active development data directory. Dev builds
 never overwrite `~/.codeterm/bin`: production CLI updates come from the bundled
 production app during startup, in-app update, or `install-local`.
 
+### Development troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. The failed invocation now terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
+
 ## Dev/Prod Isolation
 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
@@ -376,4 +382,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
