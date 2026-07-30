@@ -60,10 +60,7 @@ fn option_value(index: usize) -> String {
 }
 
 fn has_structural_picker_signal(input: &NativePromptInput, options: &[String]) -> bool {
-    input.cursor_hidden
-        || input.alt_screen
-        || has_picker_footer(&input.screen)
-        || has_selection_attribute(&input.screen, options)
+    has_picker_footer(&input.screen) || has_selection_attribute(&input.screen, options)
 }
 
 fn has_picker_footer(screen: &AttributedScreen) -> bool {
@@ -151,11 +148,7 @@ mod tests {
                     .collect::<Vec<_>>(),
                 "{case}"
             );
-            assert_eq!(
-                prompt.multi_select,
-                expected["multiSelect"].as_bool(),
-                "{case}"
-            );
+            assert_eq!(prompt.multi_select, expected["multiSelect"].as_bool(), "{case}");
             assert_eq!(
                 prompt.selected_values,
                 Some(vec![
@@ -202,7 +195,11 @@ mod tests {
                     .collect::<Vec<_>>(),
                 "{case}"
             );
-            assert_eq!(prompt.multi_select, expected["multiSelect"].as_bool(), "{case}");
+            assert_eq!(
+                prompt.multi_select,
+                expected["multiSelect"].as_bool(),
+                "{case}"
+            );
             assert_eq!(
                 prompt.selected_values,
                 Some(vec![
@@ -265,6 +262,33 @@ mod tests {
             assert!(
                 pending_prompt_from_input(&input).is_none(),
                 "{case}: chrome/prose frame must not become a pending-prompt card"
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_cursor_chrome_is_not_structural_picker_evidence() {
+        for (case, false_question) in [
+            (
+                "codex/cli-help-chrome-negative-r1",
+                "For more information, try '--help'.",
+            ),
+            ("codex/tool-result-card-negative-r1", "Viewed Image"),
+        ] {
+            let dir = snapshots_root().join(case);
+            let input = input_from_cast(&dir);
+            let detection = detect_picker(&input.screen)
+                .unwrap_or_else(|| panic!("{case}: fixture must reach the native structural gate"));
+            assert_eq!(detection.question, false_question, "{case}");
+            assert!(input.cursor_hidden, "{case}");
+            assert!(!has_picker_footer(&input.screen), "{case}");
+            assert!(
+                !has_selection_attribute(&input.screen, &detection.options),
+                "{case}"
+            );
+            assert!(
+                pending_prompt_from_input(&input).is_none(),
+                "{case}: screen mode alone must not become picker evidence"
             );
         }
     }

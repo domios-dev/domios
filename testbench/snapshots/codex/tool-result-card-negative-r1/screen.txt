@@ -1,0 +1,4 @@
+Viewed Image
+  1. The source image was loaded from the workspace.
+  2. Visual details were returned to the active turn.
+  3. Work continues without requesting terminal input.
