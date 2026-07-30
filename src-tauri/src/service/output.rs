@@ -66,19 +66,24 @@ impl ServiceContext {
             subtype: None,
         }
         .into();
-        let changed = {
+        let (changed, cleared) = {
             let mut mux = self.mux.write();
             match mux.get_tab_mut(tab_id) {
                 Some(tab) if tab.agent_type.is_some() => {
                     let changed = tab.agent_state.as_ref() != Some(&idle_state)
                         || tab.pending_prompt.is_some();
                     tab.agent_state = Some(idle_state);
-                    tab.pending_prompt = None;
-                    changed
+                    let cleared = tab.pending_prompt.take().and_then(|old| {
+                        Some((tab.agent_session_id.clone()?, old.question))
+                    });
+                    (changed, cleared)
                 }
-                _ => false,
+                _ => (false, None),
             }
         };
+        if let Some((session_id, question)) = cleared {
+            self.resolve_agent_input_request_notification(tab_id, &session_id, &question);
+        }
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
@@ -414,6 +419,7 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed();
+            self.maybe_publish_input_request(&tab_id);
             self.schedule_planner_replay(&tab_id);
             if became_idle {
                 self.complete_worker_turn_without_report(
@@ -537,7 +543,7 @@ impl ServiceContext {
         tab_id: &str,
         prompt: Option<crate::multiplexer::types::PendingPrompt>,
     ) {
-        {
+        let replaced = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
@@ -545,7 +551,15 @@ impl ServiceContext {
             if tab.pending_prompt == prompt {
                 return;
             }
+            let replaced = tab
+                .pending_prompt
+                .as_ref()
+                .map(|old| (tab.agent_session_id.clone(), old.question.clone()));
             tab.pending_prompt = prompt.clone();
+            replaced
+        };
+        if let Some((Some(session_id), old_question)) = replaced {
+            self.resolve_agent_input_request_notification(tab_id, &session_id, &old_question);
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -553,6 +567,9 @@ impl ServiceContext {
             serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
         );
         self.emit_state_changed();
+        if prompt.is_some() {
+            self.maybe_publish_input_request(tab_id);
+        }
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(
@@ -682,6 +699,7 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
+                self.maybe_publish_input_request(tab_id);
                 let title = self.mux.read().get_tab(tab_id).map(|p| p.title.clone());
                 if let Some(title) = title {
                     self.notify_event(
@@ -696,10 +714,18 @@ impl ServiceContext {
             }
             PromptDecision::PromptCleared { tab_id } => {
                 let mut mux = self.mux.write();
-                if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    tab.pending_prompt = None;
-                }
+                let cleared = mux.get_tab_mut(tab_id).and_then(|tab| {
+                    let old = tab.pending_prompt.take()?;
+                    Some((tab.agent_session_id.clone(), old.question))
+                });
                 drop(mux);
+                if let Some((Some(session_id), old_question)) = cleared {
+                    self.resolve_agent_input_request_notification(
+                        tab_id,
+                        &session_id,
+                        &old_question,
+                    );
+                }
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
