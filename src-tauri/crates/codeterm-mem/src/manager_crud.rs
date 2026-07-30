@@ -5,6 +5,15 @@ use super::reindex::compose_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
 
+/// What a batch forget actually did — deleted rows and the extraction
+/// generations that lost authority with them, reported separately because they
+/// are different numbers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AreaForgetOutcome {
+    pub deleted: usize,
+    pub cancelled_extractions: usize,
+}
+
 impl MemManager {
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
         self.save_inner(item, false)
@@ -24,6 +33,7 @@ impl MemManager {
     }
 
     fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
+        self.guard_commit()?;
         let conn = self.conn.lock();
 
         if !replace && !item.title.is_empty() {
@@ -54,6 +64,14 @@ impl MemManager {
         } else {
             store::insert(&conn, &item, &self.blobs_dir)?
         };
+        drop(conn);
+
+        // Replace destroys the row the in-flight generation copied its text from,
+        // so that generation is superseded exactly like a delete. Revoked outside
+        // the connection lock — the cancel sink closes tabs.
+        if replace {
+            self.revoke_extraction(&id);
+        }
 
         #[cfg(feature = "embeddings")]
         {
@@ -86,12 +104,32 @@ impl MemManager {
         store::get(&conn, id, &self.blobs_dir)
     }
 
-    pub fn delete(&self, id: &str) -> Result<bool, String> {
-        let conn = self.conn.lock();
-        store::delete(&conn, id)
+    /// Revoke the deleted source's extraction generations and log what was
+    /// cancelled. Returns the revocations so callers can report the cleanup.
+    pub fn revoke_extraction(&self, id: &str) -> Vec<super::RevokedGeneration> {
+        let revoked = self.extraction.revoke_source(id);
+        for r in &revoked {
+            log::info!(
+                "[mem] revoked extraction generation {} (worker {})",
+                r.generation.token(),
+                r.worker_id.as_deref().unwrap_or("not yet spawned"),
+            );
+        }
+        revoked
     }
 
-    pub fn delete_by_area(&self, area: &str) -> Result<usize, String> {
+    pub fn delete(&self, id: &str) -> Result<bool, String> {
+        let removed = {
+            let conn = self.conn.lock();
+            store::delete(&conn, id)?
+        };
+        if removed {
+            self.revoke_extraction(id);
+        }
+        Ok(removed)
+    }
+
+    pub fn delete_by_area(&self, area: &str) -> Result<AreaForgetOutcome, String> {
         let conn = self.conn.lock();
         let ids: Vec<String> = {
             let mut out = Vec::new();
@@ -105,16 +143,28 @@ impl MemManager {
             }
             out
         };
-        let mut count = 0;
+        let mut deleted = Vec::new();
         for id in &ids {
             if store::delete(&conn, id)? {
-                count += 1;
+                deleted.push(id.clone());
             }
         }
-        Ok(count)
+        drop(conn);
+
+        // Batch forget shares the single-delete lifecycle: each deleted source
+        // revokes its own generations, so unrelated extractions are untouched.
+        let cancelled = deleted
+            .iter()
+            .flat_map(|id| self.revoke_extraction(id))
+            .count();
+        Ok(AreaForgetOutcome {
+            deleted: deleted.len(),
+            cancelled_extractions: cancelled,
+        })
     }
 
     pub fn update(&self, id: &str, patch: store::MemUpdate) -> Result<bool, String> {
+        self.guard_commit()?;
         let body_changed = patch.body.is_some() || patch.title.is_some();
         let updated = {
             let conn = self.conn.lock();

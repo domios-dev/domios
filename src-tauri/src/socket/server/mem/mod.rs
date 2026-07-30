@@ -247,9 +247,13 @@ fn mem_forget(
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let area = get_string_param(&params, "area")?;
-    let count = svc.mem.delete_by_area(&area).map_err(internal_error)?;
+    let outcome = svc.mem.delete_by_area(&area).map_err(internal_error)?;
     emit_activity(svc, "delete", vec![format!("area:{}", area)]);
-    Ok(serde_json::json!({ "deleted": count, "area": area }))
+    Ok(serde_json::json!({
+        "deleted": outcome.deleted,
+        "area": area,
+        "cancelled_extractions": outcome.cancelled_extractions,
+    }))
 }
 
 fn mem_update(
