@@ -113,6 +113,13 @@ trait SubmitTransport {
     fn turn_generation(&self) -> u64 {
         0
     }
+    /// Block until the provider turn state leaves `turn_generation`. The turn
+    /// transition is published by the status signal, not by a repaint, so it is
+    /// unobservable through `wait_change` once the screen goes quiet.
+    fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
+        let _ = (turn_generation, deadline);
+        false
+    }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
@@ -176,6 +183,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
 
     fn turn_generation(&self) -> u64 {
         self.status_signal.generation()
+    }
+
+    fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
+        deadline
+            .checked_duration_since(Instant::now())
+            .is_some_and(|remaining| self.status_signal.wait_after(turn_generation, remaining))
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -283,11 +296,37 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
         ) {
             return true;
         }
-        if !transport.wait_change(generation, deadline) {
+        // Wait on whichever signal still carries the missing evidence: once the
+        // payload has left the composer only the turn transition is
+        // outstanding, and the screen is quiet by construction while it lands.
+        let observed = if draft_left_composer(
+            transport,
+            text,
+            baseline_evidence,
+            echo_observed,
+            armed,
+        ) {
+            transport.wait_turn_change(turn_armed, deadline)
+        } else {
+            transport.wait_change(generation, deadline)
+        };
+        if !observed {
             return false;
         }
         generation = transport.generation();
     }
+}
+
+fn draft_left_composer<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    baseline_evidence: usize,
+    echo_observed: bool,
+    armed: u64,
+) -> bool {
+    echo_observed
+        && transport.generation() != armed
+        && transport.draft_evidence_count(text) <= baseline_evidence
 }
 
 fn submission_acknowledged_now<T: SubmitTransport>(
@@ -302,13 +341,12 @@ fn submission_acknowledged_now<T: SubmitTransport>(
 ) -> bool {
     let changed = transport.generation() != armed;
     let fresh_turn = changed && !turn_was_started && transport.turn_started();
-    let draft_left_composer =
-        echo_observed && changed && transport.draft_evidence_count(text) <= baseline_evidence;
+    let drained = draft_left_composer(transport, text, baseline_evidence, echo_observed, armed);
     if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
-        let completed_turn = draft_left_composer && transport.turn_generation() != turn_armed;
+        let completed_turn = drained && transport.turn_generation() != turn_armed;
         return fresh_turn || completed_turn;
     }
-    draft_left_composer || fresh_turn
+    drained || fresh_turn
 }
 
 fn wait_paste_ingested<T: SubmitTransport>(
@@ -538,3 +576,5 @@ mod collapsed_paste_tests;
 mod submission_matrix;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod turn_signal_tests;
