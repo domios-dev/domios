@@ -198,16 +198,20 @@ fn last_nonempty_line(s: &str) -> &str {
 }
 
 /// Matches the bracketed-paste placeholder rendered by Claude Code, Codex,
-/// and other modern TUIs. Two render shapes exist depending on payload:
+/// and other modern TUIs. Render shapes seen so far, per payload:
 ///   `[Pasted text #1]`           — single-line paste
 ///   `[Pasted text #1 +12 lines]` — multi-line paste (`+N lines` suffix)
-/// When the TUI shows either shape, the literal pasted text never appears on
+///   `[Pasted Content 2256 chars]` — byte-counted paste
+///   `[Pasted ~2 lines]`          — approximate line count, no paste index
+/// When the TUI shows any shape, the literal pasted text never appears on
 /// screen, so substring search against `expected` will never match.
 fn paste_placeholder_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"\[(?:Pasted text #\d+( \+\d+ lines?)?|Pasted Content \d+ chars(?: #\d+)?)\]")
-            .unwrap()
+        Regex::new(
+            r"\[(?:Pasted text #\d+( \+\d+ lines?)?|Pasted Content \d+ chars(?: #\d+)?|Pasted ~?\d+ lines?)\]",
+        )
+        .unwrap()
     })
 }
 
@@ -438,6 +442,39 @@ mod tests {
         assert_eq!(screen_echo_evidence_count(&truncated, expected), 0);
     }
 
+    fn captured_collapsed_paste_region() -> String {
+        let lines = include_str!("fixtures/captured_collapsed_paste_composer.txt")
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        crate::service::pty_io::submit_transaction::composer_region_text(&lines, lines.len() - 1)
+    }
+
+    /// `InjectionError::EchoMismatch` truncates the payload at 120 chars, so the
+    /// live log preserved only this prefix of the payload that was collapsed.
+    const CAPTURED_COLLAPSED_PASTE_PREFIX: &str = "Please read this deliberately long wrapped composer payload without altering it: alpha beta gamma delta epsilon zeta eta";
+
+    #[test]
+    fn collapsed_paste_placeholder_counts_as_ingestion_evidence() {
+        let expected = format!(
+            "{CAPTURED_COLLAPSED_PASTE_PREFIX} theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega"
+        );
+        assert!(expected.len() > ECHO_LONG_INPUT_BYTES);
+        assert_eq!(
+            screen_echo_evidence_count(&captured_collapsed_paste_region(), &expected),
+            1,
+            "a collapsed paste placeholder is the only ingestion evidence the TUI renders"
+        );
+    }
+
+    #[test]
+    fn collapsed_paste_placeholder_does_not_confirm_a_short_payload() {
+        assert_eq!(
+            screen_echo_evidence_count(&captured_collapsed_paste_region(), "ls -la"),
+            0
+        );
+    }
+
     #[test]
     fn tail_text_preserves_the_wrap_column_character() {
         let h = handle();
@@ -543,6 +580,13 @@ mod tests {
         assert!(screen_has_paste_placeholder("> [Pasted text #1]"));
         // Bracket pair is required; the unbracketed prose form must not match.
         assert!(!screen_has_paste_placeholder("Pasted text #1 +1 line"));
+        // Approximate-count shape, with no paste index at all.
+        assert!(screen_has_paste_placeholder("  ┃  [Pasted ~1 lines]"));
+        assert!(screen_has_paste_placeholder("  ┃  [Pasted ~24 lines]"));
+        assert!(screen_has_paste_placeholder("  ┃  [Pasted 2 lines]"));
+        // A count is required; bare prose in brackets must not match.
+        assert!(!screen_has_paste_placeholder("[Pasted lines]"));
+        assert!(!screen_has_paste_placeholder("[Pasted ~ lines]"));
     }
 
     #[test]

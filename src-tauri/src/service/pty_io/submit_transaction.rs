@@ -353,7 +353,11 @@ fn run_with_submit_key<T: SubmitTransport>(
     let paste_armed = transport.generation();
     let bytes_written = transport.write_paste(text, turn_deadline)?;
 
-    let echo_observed = if enter {
+    // A key-only submit pastes nothing, so there is no payload echo to gate on;
+    // verifying one would compare the composer against an empty expectation.
+    let echo_observed = if text.is_empty() {
+        true
+    } else if enter {
         wait_paste_ingested(
             transport,
             text,
@@ -494,6 +498,8 @@ pub(crate) fn write_terminal_reply(
     result
 }
 
+#[cfg(test)]
+mod collapsed_paste_tests;
 #[cfg(test)]
 mod submission_matrix;
 #[cfg(test)]
