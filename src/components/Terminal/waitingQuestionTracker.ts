@@ -11,6 +11,23 @@ export interface WaitingQuestionObservation {
   shouldNotify: boolean;
 }
 
+export interface InputRequestAdmission {
+  promptIdentity: string | null;
+  notificationReady: boolean;
+}
+
+// backendState.question is diagnostic only and deliberately not an input here:
+// only the authoritative pending_prompt may mint notification identity.
+export function deriveInputRequestAdmission(
+  pendingPromptQuestion: string | null | undefined,
+  state: AgentStateKind | null | undefined,
+  subtype: string | null | undefined,
+): InputRequestAdmission {
+  const promptIdentity = pendingPromptQuestion?.trim() || null;
+  const actionable = state === "question" && subtype !== "rate_limit" && subtype !== "error";
+  return { promptIdentity, notificationReady: actionable && promptIdentity !== null };
+}
+
 export class WaitingQuestionTracker {
   private readonly entries = new Map<string, WaitingQuestionEntry>();
 

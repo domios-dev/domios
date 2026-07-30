@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabSessionChat.waiting-notification.test.ts
 
-import { WaitingQuestionTracker } from "./waitingQuestionTracker";
+import { WaitingQuestionTracker, deriveInputRequestAdmission } from "./waitingQuestionTracker";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -67,4 +67,54 @@ function run(): void {
   console.log("✓ TabSessionChat waiting notification generation test green");
 }
 
+function runAdmission(): void {
+  const tracker = new WaitingQuestionTracker();
+  const tabId = "tab-adm";
+  const sessionId = "session-owned-by-tab";
+  let notifyCalls = 0;
+  const observe = (
+    state: "working" | "idle" | "question" | null,
+    subtype: string | null,
+    pendingPromptQuestion: string | null,
+  ) => {
+    const admission = deriveInputRequestAdmission(pendingPromptQuestion, state, subtype);
+    return tracker.observeAndNotify(
+      tabId,
+      sessionId,
+      state,
+      admission.promptIdentity,
+      admission.notificationReady,
+      () => {
+        notifyCalls += 1;
+      },
+    );
+  };
+
+  const classifierOnly = observe("question", null, null);
+  assert(classifierOnly === null, "backend question without pending_prompt yields no waiting generation");
+  assert(Number(notifyCalls) === 0, "backend question without pending_prompt never notifies");
+
+  const genuine = observe("question", null, "Which deployment region?  ");
+  assert(genuine === 1, "authoritative pending prompt starts generation one");
+  assert(Number(notifyCalls) === 1, "authoritative pending prompt notifies exactly once");
+
+  const redraw = observe("question", null, "Which deployment region?");
+  assert(redraw === 1, "repeated frames keep the generation");
+  assert(Number(notifyCalls) === 1, "repeated frames do not duplicate the notification");
+
+  const cleared = observe("working", null, null);
+  assert(cleared === null, "cleared prompt ends the waiting generation");
+  tracker.resolve(tabId, sessionId, "Which deployment region?");
+  assert(Number(notifyCalls) === 1, "clear/resolve emits nothing");
+
+  const rateLimit = observe("question", "rate_limit", "Rate limited, retry?");
+  assert(rateLimit === 2, "rate_limit tracks state without a bell");
+  const errored = observe("question", "error", "Rate limited, retry?");
+  assert(errored === 2, "error tracks state without a bell");
+  assert(Number(notifyCalls) === 1, "rate_limit and error states never notify");
+
+  console.log("✓ TabSessionChat input-request admission test green");
+}
+
 run();
+runAdmission();
