@@ -661,6 +661,7 @@ pub struct ReportResult {
     pub orchestrator_tab_id: String,
     /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
     pub notices: Vec<String>,
+    pub persisted_task: Option<(String, String)>,
 }
 
 /// Helper: extract optional string from JSON value.

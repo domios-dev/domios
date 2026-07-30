@@ -4,6 +4,7 @@ mod first_plan;
 mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+mod report_persistence;
 mod status;
 mod worker_handoff;
 
@@ -14,6 +15,7 @@ pub use status::TabStatusInfo;
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
 };
+use report_persistence::persist_local_task_report;
 
 use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
@@ -393,6 +395,7 @@ impl ServiceContext {
         let mut notices: Vec<String> = Vec::new();
         let (eff_plan_id, eff_task_id) =
             resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices)?;
+        let mut persisted_task = None;
 
         let (from_title, default_target_opt, model_identity, from_ref, role) = {
             let mux = self.mux.read();
@@ -489,38 +492,28 @@ impl ServiceContext {
         };
 
         if let Some(ref plan_id) = eff_plan_id {
-            // A worker report is authoritative only for the task actually bound
-            // to its tab. Explicit ids are useful routing hints, never authority.
             if !homed_to_remote && !foreign {
-                let bound_task = self.plan_store.task_binding_for_tab(tab_id);
-                let task_id = eff_task_id.clone().or_else(|| {
-                    bound_task.as_ref().and_then(|(bound_plan, bound_task)| {
-                        (bound_plan == plan_id).then(|| bound_task.clone())
-                    })
-                });
-                if let (Some(task_id), Some((bound_plan, bound_task))) = (task_id, bound_task) {
-                    if &bound_plan == plan_id && bound_task == task_id {
-                        let evidence = crate::service::plan::task_attempts::BoundWorkerReport {
-                            message: message.to_string(),
-                            status: details.status,
-                            branch: details.branch.clone(),
-                            sha: details.sha.clone(),
-                            changed_files: details.changed_files.clone().unwrap_or_default(),
-                            test_cmd: details.test_cmd.clone(),
-                            test_result: details.test_result.clone(),
-                            skipped: details.skipped.clone(),
-                        };
-                        self.plan_store
-                            .ingest_bound_worker_report(
-                                plan_id,
-                                &task_id,
-                                &from_ref,
-                                evidence,
-                                epoch_ms(),
-                            )
-                            .map_err(|e| e.to_string())?;
-                    }
-                }
+                let task_id = eff_task_id.as_deref().ok_or_else(|| {
+                    report_persistence::report_persistence_incident(
+                        tab_id,
+                        plan_id,
+                        None,
+                        "the report resolved a plan but no exact task",
+                    )
+                })?;
+                persist_local_task_report(
+                    &self.plan_store,
+                    tab_id,
+                    plan_id,
+                    task_id,
+                    &from_ref,
+                    message,
+                    &details,
+                    task_status,
+                    milestone_kind,
+                    epoch_ms(),
+                )?;
+                persisted_task = Some((plan_id.clone(), task_id.to_string()));
                 self.plan_turn_counter.reset_activity(tab_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
@@ -617,6 +610,7 @@ impl ServiceContext {
             report_id: report.id,
             orchestrator_tab_id: storage_key,
             notices,
+            persisted_task,
         })
     }
 
