@@ -80,6 +80,7 @@ pub struct OpenLane {
     pub live_competition_attempts: usize,
     pub review_stage: ReviewStage,
     pub qa_state: Option<QaState>,
+    pub status_label: Option<String>,
     pub clears_review_capacity: bool,
     pub presentation: TaskPresentation,
     pub waiting_on_dependencies: bool,
@@ -93,6 +94,7 @@ pub enum TaskPresentation {
     WaitingOnDependencies,
     InProgress,
     InReview,
+    QueuedForQa,
     Blocked,
     Paused,
     Terminal,
@@ -109,11 +111,18 @@ pub struct DependencyWait {
 pub(crate) fn task_presentation(
     status: &TaskStatus,
     dependency_waits: &[DependencyWait],
+    review_stage: &ReviewStage,
+    qa_state: &Option<QaState>,
 ) -> TaskPresentation {
     match status {
         TaskStatus::Pending if dependency_waits.is_empty() => TaskPresentation::ActionablePending,
         TaskStatus::Pending => TaskPresentation::WaitingOnDependencies,
         TaskStatus::InProgress => TaskPresentation::InProgress,
+        TaskStatus::InReview
+            if *review_stage == ReviewStage::Qa && *qa_state == Some(QaState::Queued) =>
+        {
+            TaskPresentation::QueuedForQa
+        }
         TaskStatus::InReview => TaskPresentation::InReview,
         TaskStatus::Blocked => TaskPresentation::Blocked,
         TaskStatus::Paused => TaskPresentation::Paused,
@@ -431,8 +440,14 @@ pub fn build_plan_state_snapshot(
                 live_competition_attempts: super::competition::live_competition_attempt_count(t),
                 review_stage: t.review_stage.clone(),
                 qa_state: t.qa_state.clone(),
+                status_label: t.status_label.clone(),
                 clears_review_capacity: super::review_gate::clears_review_capacity(plan, t),
-                presentation: task_presentation(&t.status, &dependency_waits),
+                presentation: task_presentation(
+                    &t.status,
+                    &dependency_waits,
+                    &t.review_stage,
+                    &t.qa_state,
+                ),
                 waiting_on_dependencies: !dependency_waits.is_empty(),
                 dependency_waits,
             }
@@ -454,8 +469,14 @@ pub fn build_plan_state_snapshot(
                 live_competition_attempts: super::competition::live_competition_attempt_count(t),
                 review_stage: t.review_stage.clone(),
                 qa_state: t.qa_state.clone(),
+                status_label: t.status_label.clone(),
                 clears_review_capacity: super::review_gate::clears_review_capacity(plan, t),
-                presentation: task_presentation(&t.status, &dependency_waits),
+                presentation: task_presentation(
+                    &t.status,
+                    &dependency_waits,
+                    &t.review_stage,
+                    &t.qa_state,
+                ),
                 waiting_on_dependencies: !dependency_waits.is_empty(),
                 dependency_waits,
             }
@@ -677,6 +698,63 @@ mod tests {
 
         p.tasks = vec![done, in_review, in_prog, pending, cancelled];
         p
+    }
+
+    #[test]
+    fn queued_qa_task_presents_distinctly_from_bare_in_review() {
+        assert_eq!(
+            task_presentation(&TaskStatus::InReview, &[], &ReviewStage::Review, &None),
+            TaskPresentation::InReview
+        );
+        assert_eq!(
+            task_presentation(
+                &TaskStatus::InReview,
+                &[],
+                &ReviewStage::Qa,
+                &Some(QaState::Queued)
+            ),
+            TaskPresentation::QueuedForQa
+        );
+        assert_eq!(
+            task_presentation(
+                &TaskStatus::InReview,
+                &[],
+                &ReviewStage::Qa,
+                &Some(QaState::Running)
+            ),
+            TaskPresentation::InReview
+        );
+    }
+
+    #[test]
+    fn open_lane_carries_qa_state_and_status_label_for_queued_task() {
+        let mut plan = fixture();
+        let mut queued = task("t_queued_qa", TaskStatus::InReview, &["s1"]);
+        queued.review_stage = ReviewStage::Qa;
+        queued.qa_state = Some(QaState::Queued);
+        queued.status_label = Some("blocked: reviewer host unavailable overnight".into());
+        plan.tasks.push(queued);
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
+        let lane = snap
+            .open_lanes
+            .iter()
+            .find(|l| l.task_id == "t_queued_qa")
+            .expect("queued lane");
+        assert_eq!(lane.presentation, TaskPresentation::QueuedForQa);
+        assert_eq!(
+            lane.status_label.as_deref(),
+            Some("blocked: reviewer host unavailable overnight")
+        );
     }
 
     #[test]

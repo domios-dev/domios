@@ -244,6 +244,7 @@ mod tests {
             live_competition_attempts: 0,
             review_stage: ReviewStage::Review,
             qa_state: None,
+            status_label: None,
             presentation: if status == TaskStatus::Pending {
                 TaskPresentation::ActionablePending
             } else {
