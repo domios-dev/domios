@@ -35,6 +35,9 @@ struct ReservationScope {
 struct ReservationEntry {
     scope: ReservationScope,
     title: String,
+    /// Set once the persona is handed to a tab: the claim is then keyed on the
+    /// tab id and survives any later rename of that tab's display title.
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -46,6 +49,17 @@ pub(crate) struct WorkerPersonaReservations {
 pub(crate) struct WorkerPersonaReservationGuard {
     reservations: Arc<Mutex<WorkerPersonaReservations>>,
     reservation_id: Option<u64>,
+}
+
+impl WorkerPersonaReservationGuard {
+    /// Hand the persona to `tab_id` for that tab's lifetime, disarming the
+    /// spawn-window release. Identity is keyed on the tab id from here on, so a
+    /// self-rename relabels the tab without releasing its persona.
+    pub(crate) fn commit_to_tab(mut self, tab_id: &str) {
+        if let Some(id) = self.reservation_id.take() {
+            self.reservations.lock().commit(id, tab_id);
+        }
+    }
 }
 
 impl Drop for WorkerPersonaReservationGuard {
@@ -64,12 +78,32 @@ impl WorkerPersonaReservations {
     ) -> WorkerPersonaReservationGuardToken {
         self.next_id += 1;
         let id = self.next_id;
-        self.entries.insert(id, ReservationEntry { scope, title });
+        self.entries.insert(
+            id,
+            ReservationEntry {
+                scope,
+                title,
+                tab_id: None,
+            },
+        );
         WorkerPersonaReservationGuardToken(id)
     }
 
     fn release(&mut self, reservation_id: u64) {
         self.entries.remove(&reservation_id);
+    }
+
+    /// Bind a reservation to the tab now carrying the persona, so the claim
+    /// outlives the spawn window.
+    fn commit(&mut self, reservation_id: u64, tab_id: &str) {
+        if let Some(entry) = self.entries.get_mut(&reservation_id) {
+            entry.tab_id = Some(tab_id.to_string());
+        }
+    }
+
+    fn release_for_tab(&mut self, tab_id: &str) {
+        self.entries
+            .retain(|_, entry| entry.tab_id.as_deref() != Some(tab_id));
     }
 
     #[cfg(test)]
@@ -125,6 +159,13 @@ impl ServiceContext {
             reservations: self.worker_identity_allocator.clone(),
             reservation_id: Some(token.0),
         }))
+    }
+
+    /// Release the persona held by a closing tab, returning it to the pool.
+    pub(crate) fn release_worker_persona_for_tab(&self, tab_id: &str) {
+        self.worker_identity_allocator
+            .lock()
+            .release_for_tab(tab_id);
     }
 
     fn worker_persona_intent(
@@ -417,6 +458,79 @@ mod tests {
             lock.release(reservation_id);
         }
         assert!(lock.entries.is_empty());
+    }
+
+    #[test]
+    fn pane_self_rename_does_not_release_a_live_worker_persona() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::AgentRole;
+
+        let (mut mux, orch_tab) = MultiplexerState::new();
+        let ws_id = mux.find_workspace_for_tab(&orch_tab).unwrap();
+        mux.rename_tab(&orch_tab, "Holst").unwrap();
+
+        let worker = mux.create_tab(&ws_id).unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch_tab))
+            .unwrap();
+
+        // Spawn allocates the persona, applies it as the creation title, and
+        // commits the claim to the tab id.
+        let reservations = Arc::new(Mutex::new(WorkerPersonaReservations::default()));
+        let token = reservations.lock().reserve(
+            ReservationScope {
+                workspace_id: ws_id.clone(),
+                session_id: None,
+            },
+            "Vera".into(),
+        );
+        WorkerPersonaReservationGuard {
+            reservations: reservations.clone(),
+            reservation_id: Some(token.0),
+        }
+        .commit_to_tab(&worker);
+        mux.rename_tab(&worker, "Vera").unwrap();
+
+        // The pane renames its own tab mid-task — the documented session-start rule.
+        mux.rename_tab(&worker, "pane rename identity").unwrap();
+
+        // Exactly what used_worker_persona_names_locked composes.
+        let mut reserved = workspace_live_titles(&mux, &ws_id);
+        reserved.extend(reservations.lock().reserved_titles_in_workspace(&ws_id));
+        assert!(
+            reserved.contains("Vera"),
+            "a live Worker's assigned persona must stay reserved across its own rename; reserved={reserved:?}"
+        );
+        assert_ne!(
+            allocate_worker_persona_name(&reserved, Some("Vera"), None, 0).title,
+            "Vera",
+            "persona reissued to a second Worker while the first is still live"
+        );
+    }
+
+    #[test]
+    fn closing_a_renamed_worker_returns_its_persona_to_the_pool() {
+        let reservations = Arc::new(Mutex::new(WorkerPersonaReservations::default()));
+        let token = reservations
+            .lock()
+            .reserve(scope(), "Vera".into());
+        WorkerPersonaReservationGuard {
+            reservations: reservations.clone(),
+            reservation_id: Some(token.0),
+        }
+        .commit_to_tab("tab-1");
+        assert_eq!(
+            reservations.lock().reserved_titles_in_workspace("ws"),
+            vec!["Vera".to_string()]
+        );
+
+        reservations.lock().release_for_tab("tab-1");
+        assert!(
+            reservations
+                .lock()
+                .reserved_titles_in_workspace("ws")
+                .is_empty(),
+            "a closed tab must not keep holding its persona"
+        );
     }
 
     #[test]
