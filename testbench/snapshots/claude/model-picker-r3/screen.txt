@@ -1,0 +1,20 @@
+❯  /model                                                                                                                                                                                                                                       
+● /model снова пришёл ко мне обычным текстом — TUI его не перехватил. Так бывает, когда ввод приходит в таб через CodeTerm-роутинг, а не как нажатие клавиш в самом интерфейсе Claude Code: парсер слэш-команд живёт в TUI и такой текст мимо
+  него проходит.
+  Сейчас в этом табе (dc2b54e2) — Opus 5 (claude-opus-5).
+  Варианты сменить:
+  - набрать /model руками в фокусе на этом табе (не через мост/роутинг)
+  - или пересоздать агента с нужной моделью: codeterm agent models claude → opus | sonnet | haiku | fable
+  Сам переключить себя я не могу — это команда харнесса, у меня к ней доступа нет.
+✻ Cooked for 19s
+❯ /model                                                                                                                                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.
+    1. Default (recommended)  Opus 5 with 1M context · Best for everyday, complex tasks
+  ❯ 2. Opus (1M context) ✔    Opus 5 with 1M context · Best for everyday, complex tasks
+    3. Fable                  Fable 5 · Most capable for your hardest and longest-running tasks
+    4. Sonnet                 Sonnet 5 · Efficient for routine tasks
+    5. Haiku                  Haiku 4.5 · Fastest for quick answers
+  ● High effort (default) ←/→ to adjust
+  Enter to set as default · s to use this session only · Esc to cancel

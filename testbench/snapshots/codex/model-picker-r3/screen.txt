@@ -1,0 +1,26 @@
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+PS D:\Developer\EcoIq>  $env:CODETERM_SESSION_BINDING_NONCE='13e17546-8830-444c-92ea-01b11ebd5a84'; codex resume --dangerously-bypass-approvals-and-sandbox '019fb172-bfaa-7bf1-bd4b-1f4bd4db8485'
+╭─────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.146.0)                  │
+│                                             │
+│ model:       gpt-5.5 low   /model to change │
+│ directory:   D:\Developer\EcoIq             │
+│ permissions: YOLO mode                      │
+╰─────────────────────────────────────────────╯
+  Tip: Try the Desktop app. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+› Read the CodeTerm role, team, counterpart, and coordination instructions provided by the host. Acknowledge your role and counterpart, then wait for a user goal or orchestration request.
+• Acknowledged. I’m the CodeTerm Planner for workspace EcoIq, Team not yet established, with no bound plan yet.
+  My Orchestrator counterpart is Planck in tab 56897936; I’ll coordinate through that tab and won’t spawn duplicates or create planning structure until there’s a user goal or explicit orchestration request.
+  Ready and waiting.
+• You have 1 usage limit reset available. Run /usage to use one.
+  Select Model and Effort
+  Access legacy models by running codex -m <model_name> or in your config.toml
+  1. gpt-5.6-sol (default)  Latest frontier agentic coding model.
+  2. gpt-5.6-terra          Balanced agentic coding model for everyday work.
+  3. gpt-5.6-luna           Fast and affordable agentic coding model.
+› 4. gpt-5.5 (current)      Frontier model for complex coding, research, and real-world work.
+  5. gpt-5.4                Strong model for everyday coding.
+  6. gpt-5.4-mini           Small, fast, and cost-efficient model for simpler coding tasks.
+  7. gpt-5.3-codex-spark    Ultra-fast coding model.
+  Press enter to confirm or esc to go back                                                                                                                                                                                                      
