@@ -531,6 +531,7 @@ mod tests {
                     echo_observed: true,
                     submit_observed: true,
                     submit_anomaly: false,
+                    submit_key_writes: 1,
                     elapsed: Duration::ZERO,
                 })
             })
