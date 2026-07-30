@@ -34,8 +34,31 @@ function messageKey(tabId: string, messageId: string): string {
   return `${tabId}:${messageId}`;
 }
 
+function revokeDelivery(
+  sendId: string,
+  status: ChatSendStatus,
+  message: DeliveryMessage,
+): void {
+  statuses.delete(sendId);
+  messages.delete(sendId);
+  const key = messageKey(status.tab_id, message.message_id);
+  if (currentSendByMessage.get(key) !== sendId) return;
+  currentSendByMessage.delete(key);
+  const tabSubscribers = subscribers.get(status.tab_id);
+  if (!tabSubscribers) return;
+  for (const subscriber of tabSubscribers) {
+    subscriber.seen.delete(sendId);
+    subscriber.onRevoked?.(message.message_id);
+  }
+}
+
 function prepareLedger(status: ChatSendStatus): void {
   if (currentLedgerId !== status.ledger_id) {
+    for (const sendId of Array.from(currentSendByMessage.values())) {
+      const retainedStatus = statuses.get(sendId);
+      const message = messages.get(sendId);
+      if (retainedStatus && message) revokeDelivery(sendId, retainedStatus, message);
+    }
     currentLedgerId = status.ledger_id;
     retainedFrom = status.retained_from;
     statuses.clear();
@@ -50,12 +73,12 @@ function prepareLedger(status: ChatSendStatus): void {
 
   for (const [sendId, retainedStatus] of statuses) {
     if (retainedStatus.sequence >= retainedFrom) continue;
-    statuses.delete(sendId);
     const message = messages.get(sendId);
-    messages.delete(sendId);
-    if (!message) continue;
-    const key = messageKey(retainedStatus.tab_id, message.message_id);
-    if (currentSendByMessage.get(key) === sendId) currentSendByMessage.delete(key);
+    if (message) {
+      revokeDelivery(sendId, retainedStatus, message);
+    } else {
+      statuses.delete(sendId);
+    }
   }
 }
 
@@ -87,28 +110,16 @@ function ingestStatus(status: ChatSendStatus): void {
   if (delivery) notify(delivery);
 }
 
-// A failed record is only shown while the CURRENT backend ledger vouches for
-// it. After a daemon restart (or retention eviction) the authoritative
-// reconcile response no longer contains the send — drop the record instead of
-// preserving a false failure the backend can no longer classify or reconcile.
+// Show a failed record only while the current backend ledger vouches for it.
+// Restarted or retention-evicted sends must not survive as false failures.
 function dropUnvouchedFailures(tabId: string, vouched: ChatSendStatus[]): void {
   const vouchedIds = new Set(vouched.map((status) => status.send_id));
   for (const [sendId, status] of Array.from(statuses)) {
     if (status.tab_id !== tabId || status.state !== "failed") continue;
     if (vouchedIds.has(sendId)) continue;
-    statuses.delete(sendId);
     const message = messages.get(sendId);
-    messages.delete(sendId);
     if (!message) continue;
-    const key = messageKey(tabId, message.message_id);
-    if (currentSendByMessage.get(key) !== sendId) continue;
-    currentSendByMessage.delete(key);
-    const tabSubscribers = subscribers.get(tabId);
-    if (!tabSubscribers) continue;
-    for (const subscriber of tabSubscribers) {
-      subscriber.seen.delete(sendId);
-      subscriber.onRevoked?.(message.message_id);
-    }
+    revokeDelivery(sendId, status, message);
   }
 }
 
@@ -161,6 +172,7 @@ export function observeChatSendStatus(
 ): () => void {
   let disposed = false;
   let unlisten: (() => void) | null = null;
+  let reconcileRequest = 0;
   const subscriber: Subscriber = { handler: onDelivery, onRevoked, seen: new Map() };
   const tabSubscribers = subscribers.get(tabId) ?? new Set<Subscriber>();
   tabSubscribers.add(subscriber);
@@ -168,17 +180,19 @@ export function observeChatSendStatus(
   for (const delivery of getChatDeliveries(tabId)) notify(delivery);
 
   const reconcile = () => {
+    const request = ++reconcileRequest;
     void invoke<ChatSendStatus[]>("chat_send_status", { tabId })
       .then((nextStatuses) => {
-        if (!disposed) {
-          for (const status of nextStatuses) ingestStatus(status);
-          dropUnvouchedFailures(tabId, nextStatuses);
-        }
+        if (disposed || request !== reconcileRequest) return;
+        for (const status of nextStatuses) ingestStatus(status);
+        dropUnvouchedFailures(tabId, nextStatuses);
       })
       .catch(() => {});
   };
   void listen<ChatSendStatus>("chat-send-status", (event) => {
-    if (!disposed && event.payload.tab_id === tabId) ingestStatus(event.payload);
+    if (disposed || event.payload.tab_id !== tabId) return;
+    ingestStatus(event.payload);
+    reconcile();
   }).then(
     (cleanup) => {
       if (disposed) {

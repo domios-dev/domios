@@ -1,0 +1,2 @@
+{"version":2,"width":100,"height":24,"timestamp":0,"env":{"TERM":"xterm-256color"}}
+[0.000000,"o","\u001b[?25l\u001b[1mViewed Image\u001b[0m\r\n  1. The source image was loaded from the workspace.\r\n  2. Visual details were returned to the active turn.\r\n  3. Work continues without requesting terminal input."]

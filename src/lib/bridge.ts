@@ -137,6 +137,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/notifications/input-request", {
       tab_id: a.tabId,
       session_id: a.sessionId,
+      prompt_identity: a.promptIdentity,
+      resolved: a.resolved,
     }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),

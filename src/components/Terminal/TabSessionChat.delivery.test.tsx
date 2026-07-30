@@ -173,6 +173,7 @@ async function renderChat(
   host: HTMLDivElement;
   root: Root;
   emitStatus: (next: ChatSendStatus) => void;
+  setStatusResults: (next: ChatSendStatus[]) => void;
 }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
@@ -230,6 +231,9 @@ async function renderChat(
     host,
     root,
     emitStatus: (next) => statusListener?.({ payload: next }),
+    setStatusResults: (next) => {
+      statusResults = next;
+    },
   };
 }
 
@@ -247,8 +251,9 @@ test("submit_unconfirmed is attached to its message and retry uses the ledger", 
   resetChatSendStatusForTest();
   const commands: string[] = [];
   const pending = status("send-1", "pending", 1);
+  const failed = status("send-1", "failed", 1, "submit_unconfirmed: submit key was not acknowledged");
   const retryPending = status("send-2", "pending", 2);
-  const { host, root, emitStatus } = await renderChat([retryPending], commands);
+  const { host, root, emitStatus, setStatusResults } = await renderChat([retryPending], commands);
   const warn = console.warn;
   let warnCalls = 0;
   console.warn = () => {
@@ -259,8 +264,11 @@ test("submit_unconfirmed is attached to its message and retry uses the ledger", 
     const optimistic = getByRole<HTMLElement>(host, "article", /ship the visible ledger/i);
     getByRole(optimistic, "status", /sending/i);
 
+    setStatusResults([failed]);
     await act(async () => {
-      emitStatus(status("send-1", "failed", 1, "submit_unconfirmed: submit key was not acknowledged"));
+      emitStatus(failed);
+      await Promise.resolve();
+      await Promise.resolve();
     });
     const failedMessage = getByRole<HTMLElement>(host, "article", /ship the visible ledger/i);
     const alert = getByRole<HTMLElement>(failedMessage, "alert", /submission unconfirmed/i);
@@ -309,17 +317,25 @@ test("evidence-reconciled sent clears a false failure and its retry", async () =
   resetChatSendStatusForTest();
   const commands: string[] = [];
   const pending = status("send-6", "pending", 6);
-  const { host, root, emitStatus } = await renderChat([], commands);
+  const failedStatus = status("send-6", "failed", 6, "pty_unavailable: Tab has no usable PTY");
+  const sentStatus = status("send-6", "sent", 6);
+  const { host, root, emitStatus, setStatusResults } = await renderChat([], commands);
   await trackPending(pending, "Delivered but misclassified");
 
+  setStatusResults([failedStatus]);
   await act(async () => {
-    emitStatus(status("send-6", "failed", 6, "pty_unavailable: Tab has no usable PTY"));
+    emitStatus(failedStatus);
+    await Promise.resolve();
+    await Promise.resolve();
   });
   const failed = getByRole<HTMLElement>(host, "article", /delivered but misclassified/i);
   getByRole(failed, "alert", /delivery failed/i);
 
+  setStatusResults([sentStatus]);
   await act(async () => {
-    emitStatus(status("send-6", "sent", 6));
+    emitStatus(sentStatus);
+    await Promise.resolve();
+    await Promise.resolve();
   });
   const reconciled = getByRole<HTMLElement>(host, "article", /delivered but misclassified/i);
   getByRole(reconciled, "status", /submission confirmed/i);
@@ -332,6 +348,141 @@ test("evidence-reconciled sent clears a false failure and its retry", async () =
   host.remove();
 });
 
+test("mounted authoritative reconciliation revokes an absent stale failure", async () => {
+  resetChatSendStatusForTest();
+  const failed = status("send-absent", "failed", 7, "submit_unconfirmed");
+  const authoritative = status("send-authoritative", "sent", 8);
+  const { host, root, emitStatus, setStatusResults } = await renderChat([], []);
+  await trackPending(status("send-absent", "pending", 7), "Already delivered");
+
+  setStatusResults([failed]);
+  await act(async () => {
+    emitStatus(failed);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const staleMessage = getByRole<HTMLElement>(host, "article", /already delivered/i);
+  getByRole(staleMessage, "alert", /submission unconfirmed/i);
+
+  setStatusResults([authoritative]);
+  await act(async () => {
+    emitStatus(authoritative);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const staleAlert = Array.from(host.querySelectorAll("*")).find(
+    (element) => implicitRole(element) === "alert" && /submission unconfirmed/i.test(accessibleName(element)),
+  );
+  assert(!staleAlert, "a mounted Chat must revoke a failure absent from the authoritative ledger");
+  const staleRetry = Array.from(host.querySelectorAll("button")).find((button) =>
+    /retry/i.test(button.textContent ?? ""),
+  );
+  assert(!staleRetry, "an absent authoritative record cannot retain Retry");
+
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test("mounted new-ledger event revokes stale delivery state before map reset", async () => {
+  resetChatSendStatusForTest();
+  const failed = status("send-old-ledger", "failed", 8, "submit_unconfirmed");
+  const authoritative = {
+    ...status("send-new-ledger", "sent", 1),
+    ledger_id: "ledger-2",
+  };
+  const { host, root, emitStatus, setStatusResults } = await renderChat([], []);
+  await trackPending(status("send-old-ledger", "pending", 8), "Delivered before restart");
+
+  setStatusResults([failed]);
+  await act(async () => {
+    emitStatus(failed);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const staleMessage = getByRole<HTMLElement>(host, "article", /delivered before restart/i);
+  getByRole(staleMessage, "alert", /submission unconfirmed/i);
+
+  setStatusResults([authoritative]);
+  await act(async () => {
+    emitStatus(authoritative);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const staleRetry = Array.from(host.querySelectorAll("button")).find((button) =>
+    /retry/i.test(button.textContent ?? ""),
+  );
+  assert(!staleRetry, "new-ledger replacement revokes mounted delivery state before clearing maps");
+
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test("mounted authoritative reconciliation replaces a stale failure with sent", async () => {
+  resetChatSendStatusForTest();
+  const failed = status("send-reclassified", "failed", 9, "submit_unconfirmed");
+  const sent = status("send-reclassified", "sent", 9);
+  const event = status("send-later", "sent", 10);
+  const { host, root, emitStatus, setStatusResults } = await renderChat([], []);
+  await trackPending(status("send-reclassified", "pending", 9), "Confirmed by ledger");
+
+  setStatusResults([failed]);
+  await act(async () => {
+    emitStatus(failed);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const failedMessage = getByRole<HTMLElement>(host, "article", /confirmed by ledger/i);
+  getByRole(failedMessage, "alert", /submission unconfirmed/i);
+
+  setStatusResults([sent, event]);
+  await act(async () => {
+    emitStatus(event);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const reconciled = getByRole<HTMLElement>(host, "article", /confirmed by ledger/i);
+  getByRole(reconciled, "status", /submission confirmed/i);
+  const staleRetry = Array.from(reconciled.querySelectorAll("button")).find((button) =>
+    /retry/i.test(button.textContent ?? ""),
+  );
+  assert(!staleRetry, "authoritative sent evidence removes Retry");
+
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test("mounted authoritative reconciliation preserves a vouched failure", async () => {
+  resetChatSendStatusForTest();
+  const failed = status("send-vouched", "failed", 11, "submit_unconfirmed");
+  const event = status("send-after-failure", "sent", 12);
+  const { host, root, emitStatus, setStatusResults } = await renderChat([], []);
+  await trackPending(status("send-vouched", "pending", 11), "Still unconfirmed");
+
+  setStatusResults([failed]);
+  await act(async () => {
+    emitStatus(failed);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  setStatusResults([failed, event]);
+  await act(async () => {
+    emitStatus(event);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const message = getByRole<HTMLElement>(host, "article", /still unconfirmed/i);
+  const alert = getByRole<HTMLElement>(message, "alert", /submission unconfirmed/i);
+  const retry = getByRole<HTMLButtonElement>(alert, "button", /retry/i);
+  assert(retry.disabled === false, "a ledger-vouched failure remains retryable");
+
+  await act(async () => root.unmount());
+  host.remove();
+});
+
 test("failed message and retry remain visible after remount while the ledger vouches", async () => {
   resetChatSendStatusForTest();
   const firstCommands: string[] = [];
@@ -339,8 +490,11 @@ test("failed message and retry remain visible after remount while the ledger vou
   const failed = status("send-4", "failed", 4, "submit_unconfirmed");
   const first = await renderChat([], firstCommands);
   await trackPending(pending, "Persist this failed message");
+  first.setStatusResults([failed]);
   await act(async () => {
     first.emitStatus(failed);
+    await Promise.resolve();
+    await Promise.resolve();
   });
   await act(async () => first.root.unmount());
   first.host.remove();
@@ -360,8 +514,12 @@ test("daemon restart removes an unvouched failure record instead of preserving i
   const pending = status("send-7", "pending", 7);
   const first = await renderChat([], []);
   await trackPending(pending, "Lost across restart");
+  const failed = status("send-7", "failed", 7, "pty_unavailable: Tab has no usable PTY");
+  first.setStatusResults([failed]);
   await act(async () => {
-    first.emitStatus(status("send-7", "failed", 7, "pty_unavailable: Tab has no usable PTY"));
+    first.emitStatus(failed);
+    await Promise.resolve();
+    await Promise.resolve();
   });
   await act(async () => first.root.unmount());
   first.host.remove();
