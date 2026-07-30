@@ -25,6 +25,8 @@ pub struct AppState {
     pub mesh: crate::MeshStateHandle,
     pub keepawake: crate::KeepAwakeStateHandle,
     pub resize_owner: crate::ResizeOwnerState,
+    /// Lets the config apply path compare a persisted bind against the live socket.
+    pub(crate) rest_api: crate::startup::RestApiControlState,
     /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
     /// powers /api/debug/clock time travel for the cron e2e suite.
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
