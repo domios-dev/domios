@@ -687,10 +687,8 @@ fn skills_lint_warning_picker_question_classifies_unknown_subtype() {
     assert_eq!(verdict.subtype, Some(QuestionSubtype::Unknown));
 }
 
-// Confirm/refute for the envelope class: a coordination-envelope question is
-// NOT reliably Unknown — "model=…" lands in the ModelPicker keyword bucket.
-// Subtype alone therefore cannot discriminate these frames; notification
-// admission additionally requires an actuatable input control.
+// Envelope questions are not reliably Unknown ("model=…" hits ModelPicker), so
+// notification admission cannot discriminate on subtype alone.
 #[test]
 fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
     let envelope =
