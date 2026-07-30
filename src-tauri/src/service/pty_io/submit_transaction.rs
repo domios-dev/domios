@@ -486,9 +486,8 @@ fn run_with_submit_key<T: SubmitTransport>(
         if submit_observed {
             break;
         }
-        // Re-key only while the draft demonstrably remains in the composer —
-        // proof the CR did not take. A cleared composer without turn evidence
-        // is ambiguous, and a stray key into it proves nothing.
+        // Re-key only while the draft remains in the composer, proving the CR did not take.
+        // A cleared composer without turn evidence is ambiguous; a stray key proves nothing.
         if transport.draft_evidence_count(text) <= baseline_evidence {
             break;
         }
