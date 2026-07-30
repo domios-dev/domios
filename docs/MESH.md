@@ -78,6 +78,15 @@ RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identi
 and working-directory defaults are not forwarded; explicit project paths refer to
 the target machine. Mutations require `Full` peer access and carry an idempotency ID.
 
+## Peer API compatibility
+
+Before a relayed CLI operation, the caller reads the peer's authenticated
+`/api/identify` response. Peers older than 1.7.8 use the pane-era wire contract,
+so the caller translates tab routes and identifier fields at the relay boundary
+and normalizes the response back to the current tab contract. The preflight and
+operation use distinct signed nonces. This adapter does not invent endpoints or
+features absent from the older peer.
+
 ## Bridge migration
 
 External-service bridges (Telegram today; Discord/Slack/etc. later) hold an exclusive long-poll lock against their upstream API — only one poller per bot token can be active at a time. `codeterm bridge migrate --to PEER` hot-relocates that poller from the source machine to a paired mesh peer **without restarting either daemon**. This is the recovery story for "I'm shutting this machine down for the night, please move the Telegram bot to another peer until I'm back."
@@ -245,4 +254,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
