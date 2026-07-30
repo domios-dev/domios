@@ -703,8 +703,15 @@ fn oracle_scope_expansion_rejected_without_override() {
         })
         .unwrap();
 
+    let before_rejection = store.show_task(&task_id).unwrap().task;
     let err = set_status(&store, &plan_id, &task_id, "in_review", 7).unwrap_err();
     assert!(matches!(err, PlanError::ReviewOracleScopeExpansion));
+    let after_rejection = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after_rejection.status, before_rejection.status);
+    assert_eq!(
+        after_rejection.review_oracle,
+        before_rejection.review_oracle
+    );
 
     store
         .record_review_override(
@@ -717,6 +724,77 @@ fn oracle_scope_expansion_rejected_without_override() {
         )
         .unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 9).unwrap();
+}
+
+#[test]
+fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "authorized-correction", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    store
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 1 findings",
+            false,
+            false,
+            AgentRef::from_tab("rev"),
+            5,
+        )
+        .unwrap();
+
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.acceptance_criteria = vec![
+                "corrected acceptance".into(),
+                "preserves immutable history".into(),
+            ];
+            task.test_plan = Some("cargo test corrected_oracle".into());
+            Ok(())
+        })
+        .unwrap();
+    store
+        .record_review_override(
+            &plan_id,
+            &task_id,
+            "andrey",
+            "authorized correction",
+            "reproduced stale oracle",
+            7,
+        )
+        .unwrap();
+
+    let before = store.show_task(&task_id).unwrap().task;
+    let stored = before.review_oracle.as_ref().unwrap();
+    let current = oracle_signature(&before);
+    println!(
+        "stored review_oracle length={} current oracle_signature length={} equal={}",
+        stored.len(),
+        current.len(),
+        stored == &current
+    );
+    assert_ne!(stored, &current);
+    let reports_before = before.execution_attempts.clone();
+    let milestones_before = before.milestones.clone();
+    let audit_before = before.review_audit.clone();
+
+    set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap();
+
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after.status, TaskStatus::InReview);
+    assert_eq!(
+        after.review_oracle.as_deref(),
+        Some(oracle_signature(&after).as_str())
+    );
+    assert_eq!(after.execution_attempts, reports_before);
+    assert_eq!(after.milestones, milestones_before);
+    assert_eq!(after.review_audit, audit_before);
 }
 
 #[test]
