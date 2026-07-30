@@ -38,7 +38,7 @@ import { reattachTabChat } from "./chatReattach";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
-import { deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
+import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 
 interface Props {
   tabId: string;
@@ -458,6 +458,13 @@ export function TabSessionChat({
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
 
+  // The key covers every admission input (incl. late-arriving options/submit),
+  // so the effect re-observes exactly when the admission decision can change.
+  const admissionKey = admissionDependencyKey(
+    pendingPrompt,
+    backendState?.state ?? null,
+    backendState?.subtype ?? null,
+  );
   useEffect(() => {
     const admission = deriveInputRequestAdmission(
       pendingPrompt,
@@ -470,24 +477,22 @@ export function TabSessionChat({
       backendState?.state ?? null,
       admission.promptIdentity,
       admission.notificationReady,
-      () => {
-        void invoke("notify_agent_input_request", {
+      () =>
+        invoke("notify_agent_input_request", {
           tabId,
           sessionId: agentSessionId,
           promptIdentity: admission.promptIdentity,
-        }).catch((error) => {
-          console.warn("Failed to create waiting-for-input notification:", error);
-        });
-      },
+        }).then(
+          () => undefined,
+          (error) => {
+            console.warn("Failed to create waiting-for-input notification:", error);
+            throw error;
+          },
+        ),
     );
     setWaitingGeneration(generation);
-  }, [
-    agentSessionId,
-    backendState?.state,
-    backendState?.subtype,
-    tabId,
-    pendingPrompt?.question,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentSessionId, tabId, admissionKey]);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {

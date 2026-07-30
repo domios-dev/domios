@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabSessionChat.waiting-notification.test.ts
 
-import { WaitingQuestionTracker, deriveInputRequestAdmission } from "./waitingQuestionTracker";
+import { WaitingQuestionTracker, admissionDependencyKey, deriveInputRequestAdmission } from "./waitingQuestionTracker";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -166,5 +166,125 @@ function runAdmission(): void {
   console.log("✓ TabSessionChat input-request admission test green");
 }
 
+// Live false-negative on dev b3396a7c (tab f6d23bb4): genuine picker, both
+// admission gates true, zero rows — one-shot invocation loss, orderings below.
+async function runInvocationOrderings(): Promise<void> {
+  const tabId = "tab-ord";
+  const sessionId = "session-owned-by-tab";
+
+  {
+    // state-before-prompt: question verdict arrives before the prompt exists.
+    const tracker = new WaitingQuestionTracker();
+    let notifies = 0;
+    const frames: Array<[string | null, ReturnType<typeof deriveInputRequestAdmission>]> = [
+      ["question", deriveInputRequestAdmission(null, "question", "model_picker")],
+      ["question", deriveInputRequestAdmission(
+        { question: "Select Model and Effort", options: sevenOptions(), submit_available: true },
+        "question",
+        "model_picker",
+      )],
+    ];
+    for (const [state, admission] of frames) {
+      tracker.observeAndNotify(tabId, sessionId, state as never, admission.promptIdentity, admission.notificationReady, () => {
+        notifies += 1;
+      });
+    }
+    assert(notifies === 1, "state-before-prompt delivers exactly once");
+  }
+
+  {
+    // prompt-before-state: actuatable prompt published while verdict still working.
+    const tracker = new WaitingQuestionTracker();
+    let notifies = 0;
+    const prompt = { question: "Select Model and Effort", options: sevenOptions(), submit_available: true };
+    for (const state of ["working", "question"] as const) {
+      const admission = deriveInputRequestAdmission(prompt, state, "model_picker");
+      tracker.observeAndNotify(tabId, sessionId, state, admission.promptIdentity, admission.notificationReady, () => {
+        notifies += 1;
+      });
+    }
+    assert(notifies === 1, "prompt-before-state delivers exactly once");
+  }
+
+  {
+    // two-stage publication: same question, actuatable control arrives later.
+    const tracker = new WaitingQuestionTracker();
+    let notifies = 0;
+    const stages = [
+      { question: "Select Model and Effort", options: [] },
+      { question: "Select Model and Effort", options: sevenOptions(), submit_available: true },
+    ];
+    for (const prompt of stages) {
+      const admission = deriveInputRequestAdmission(prompt, "question", "model_picker");
+      tracker.observeAndNotify(tabId, sessionId, "question", admission.promptIdentity, admission.notificationReady, () => {
+        notifies += 1;
+      });
+    }
+    assert(notifies === 1, "late-arriving actuatable control still delivers exactly once");
+  }
+
+  {
+    // Rejected delivery must not burn the once-per-generation budget: the next
+    // observation retries; a confirmed delivery stops further attempts.
+    const tracker = new WaitingQuestionTracker();
+    let attempts = 0;
+    const prompt = { question: "Select Model and Effort", options: sevenOptions(), submit_available: true };
+    const observeWith = (outcome: "reject" | "resolve") => {
+      const admission = deriveInputRequestAdmission(prompt, "question", "model_picker");
+      return tracker.observeAndNotify(tabId, sessionId, "question", admission.promptIdentity, admission.notificationReady, () => {
+        attempts += 1;
+        return outcome === "reject"
+          ? Promise.reject(new Error("Tab is not waiting for actionable user input"))
+          : Promise.resolve();
+      });
+    };
+    observeWith("reject");
+    await Promise.resolve();
+    assert(Number(attempts) === 1, "first attempt fired");
+    observeWith("resolve");
+    await Promise.resolve();
+    assert(Number(attempts) === 2, "a rejected delivery retries on the next observation");
+    observeWith("resolve");
+    assert(Number(attempts) === 2, "a confirmed delivery never repeats");
+  }
+
+  {
+    // The effect dependency key must change whenever a re-observation is due:
+    // this is the structural guard for the live f6d23bb4 loss (same-Q stages).
+    const textOnly = { question: "Select Model and Effort", options: [] };
+    const actuatable = { question: "Select Model and Effort", options: sevenOptions(), submit_available: true };
+    assert(
+      admissionDependencyKey(textOnly, "question", "model_picker")
+        !== admissionDependencyKey(actuatable, "question", "model_picker"),
+      "late-arriving options under the same question change the dependency key",
+    );
+    assert(
+      admissionDependencyKey(null, "question", "model_picker")
+        !== admissionDependencyKey(actuatable, "question", "model_picker"),
+      "state-before-prompt publication changes the dependency key",
+    );
+    assert(
+      admissionDependencyKey(actuatable, "working", "model_picker")
+        !== admissionDependencyKey(actuatable, "question", "model_picker"),
+      "prompt-before-state verdict flip changes the dependency key",
+    );
+    assert(
+      admissionDependencyKey(actuatable, "question", "model_picker")
+        === admissionDependencyKey({ ...actuatable, options: sevenOptions() }, "question", "model_picker"),
+      "equivalent frames keep a stable key (no spurious re-observation)",
+    );
+  }
+
+  console.log("✓ TabSessionChat invocation ordering test green");
+}
+
+function sevenOptions(): Array<{ label: string; value: string }> {
+  return Array.from({ length: 7 }, (_, i) => ({ label: `Option ${i + 1}`, value: String(i + 1) }));
+}
+
 run();
 runAdmission();
+runInvocationOrderings().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
