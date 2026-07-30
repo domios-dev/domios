@@ -27,9 +27,14 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    state
-        .svc
-        .start_chat_send(&tab_id, text)
+    let svc = state.svc.clone();
+    let send_tab = tab_id.clone();
+    // Anchor capture reads the session file and may enter a plugin VM.
+    tokio::task::spawn_blocking(move || svc.start_chat_send(&send_tab, text))
+        .await
+        .map_err(|_| {
+            SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed"))
+        })?
         .map(Json)
         .map_err(|detail| {
             DeliveryError::TabBusyRefused {
@@ -47,7 +52,18 @@ pub async fn chat_send_status(
 ) -> Result<Json<Vec<crate::service::chat_send_transaction::ChatSendStatus>>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
-    Ok(Json(state.svc.chat_send_ledger.reconcile(&tab_id)))
+    let svc = state.svc.clone();
+    // Ledger read doubles as the closed-chat reconciliation point: scan each
+    // unconfirmed send's own session append window before reporting state.
+    let statuses = tokio::task::spawn_blocking(move || {
+        svc.reconcile_chat_send_evidence(&tab_id);
+        svc.chat_send_ledger.reconcile(&tab_id)
+    })
+    .await
+    .map_err(|_| {
+        SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat status task failed"))
+    })?;
+    Ok(Json(statuses))
 }
 
 /// Classify a failed PTY delivery for the caller (local or mesh relay). The tab

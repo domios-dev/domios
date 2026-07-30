@@ -18,7 +18,9 @@ well-meaning "one more heuristic" changes. Read this before touching
 2. **Submission is one Enter, plus a bounded key-only recovery.** The CR is a
    separate write released after paste-ingestion evidence. If acknowledgement
    evidence is missed, only the submit *key* may be re-written, within
-   `MAX_SUBMIT_KEY_WRITES`, never the payload.
+   `MAX_SUBMIT_KEY_WRITES`, never the payload — and a retry write may never
+   begin with an expired phase deadline (the first CR is the delivery itself
+   and always goes out).
 3. **Verification classifies; it never gates delivery on heuristics it cannot
    prove.** Screen-echo counting, draft-left-composer, turn transitions are
    *evidence collectors*. Their failure produces `submit_unconfirmed`
@@ -48,6 +50,14 @@ well-meaning "one more heuristic" changes. Read this before touching
   (`confirm_delivered_user_turn`). One turn confirms at most one send,
   oldest first. Deltas only — history snapshots never feed reconciliation, so
   stale identical turns can never confirm anything.
+- Every send records a `SendEvidenceAnchor` at start: provider, cwd, the
+  tab's bound session id, and the transcript byte offset at that instant.
+  If Chat was closed during delivery (no live sink), the ledger read
+  (`chat_send_status`) runs `scan_transcript_evidence`: it inspects ONLY that
+  exact session's append window at/after the anchor offset, counts exact
+  matching user turns, subtracts turns already claimed by confirmed sends of
+  the same tab+session+payload, and confirms oldest-first. Pre-send history,
+  another/latest session, and already-consumed turns can never confirm.
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
 - A send with no evidence and a terminal classification stays visibly
@@ -73,6 +83,7 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Paste/Enter transaction + classification | `service/pty_io/submit_transaction.rs` |
 | Injection error taxonomy | `service/inject_verify.rs`, `service/delivery_error.rs` |
 | Chat send ledger + turn-evidence reconciliation | `service/chat_send_transaction.rs` |
+| Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

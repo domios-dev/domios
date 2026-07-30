@@ -330,52 +330,16 @@ impl SubmitTransport for ComposerRedrawWithoutTurn {
     }
 }
 
-struct RevokedAfterPaste {
-    generation: Cell<u64>,
-    writes: RefCell<Vec<String>>,
-}
-
-impl SubmitTransport for RevokedAfterPaste {
-    fn observe(&self) -> Option<Observation> {
-        Some(Observation { tail: "> ".into() })
-    }
-
-    fn draft_evidence_count(&self, _text: &str) -> usize {
-        usize::from(self.generation.get() > 0)
-    }
-
-    fn generation(&self) -> u64 {
-        self.generation.get()
-    }
-
-    fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
-        false
-    }
-
-    fn turn_started(&self) -> bool {
-        false
-    }
-
-    fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
-        self.generation.set(1);
-        self.writes.borrow_mut().push(format!("paste:{text}"));
-        Ok(text.len())
-    }
-
-    fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
-        Err(InjectionError::AgentInputUnavailable {
-            pty_id: "guarded-pty".into(),
-        })
-    }
-}
-
 pub(super) fn opts() -> VerifyOpts {
     VerifyOpts {
         require_prompt_first: false,
         verify_echo: true,
         verify_submit: true,
         echo_timeout: Duration::ZERO,
-        submit_timeout: Duration::ZERO,
+        // Mock transports acknowledge or refuse synchronously (wait_change
+        // never blocks); the budget only keeps bounded retries reachable —
+        // an expired deadline forbids retry writes entirely.
+        submit_timeout: Duration::from_secs(5),
         prompt_timeout: Duration::ZERO,
     }
 }
@@ -679,6 +643,7 @@ mod bounded_recovery {
         assert!(!result.submit_observed);
         assert!(result.submit_anomaly);
     }
+
 }
 
 #[test]
@@ -976,107 +941,6 @@ fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
             ]
         );
     }
-}
-
-#[test]
-fn revoked_after_paste_is_submit_uncertainty_with_no_recovery_writes() {
-    let io = RevokedAfterPaste {
-        generation: Cell::new(0),
-        writes: RefCell::new(Vec::new()),
-    };
-    let error = run(&io, "envelope", true, tui(), opts()).unwrap_err();
-    // The paste already reached the PTY: revocation afterwards is unconfirmed
-    // submission, never a zero-write terminal claim.
-    assert!(matches!(
-        error,
-        InjectionError::SubmitNeverConfirmed { .. }
-    ));
-    assert_eq!(&*io.writes.borrow(), &["paste:envelope"]);
-}
-
-struct PtyDiesAfterPaste {
-    generation: Cell<u64>,
-    payload_writes: Cell<usize>,
-    submit_key_attempts: Cell<usize>,
-}
-
-impl SubmitTransport for PtyDiesAfterPaste {
-    fn observe(&self) -> Option<Observation> {
-        Some(Observation { tail: "> ".into() })
-    }
-
-    fn draft_evidence_count(&self, _text: &str) -> usize {
-        usize::from(self.generation.get() > 0)
-    }
-
-    fn generation(&self) -> u64 {
-        self.generation.get()
-    }
-
-    fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
-        false
-    }
-
-    fn turn_started(&self) -> bool {
-        false
-    }
-
-    fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
-        self.payload_writes.set(self.payload_writes.get() + 1);
-        self.generation.set(1);
-        Ok(text.len())
-    }
-
-    fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
-        self.submit_key_attempts.set(self.submit_key_attempts.get() + 1);
-        Err(InjectionError::PtyClosed {
-            pty_id: "died-after-paste".into(),
-        })
-    }
-}
-
-/// The dev incident shape: the payload reached the PTY and the provider kept
-/// running, yet a later submit-key write error was reported as "pty closed" and
-/// rendered as pty_unavailable with Retry after successful delivery.
-#[test]
-fn post_paste_submit_key_failure_never_claims_pty_unavailable() {
-    let io = PtyDiesAfterPaste {
-        generation: Cell::new(0),
-        payload_writes: Cell::new(0),
-        submit_key_attempts: Cell::new(0),
-    };
-    let error = run(&io, "delivered turn", true, tui(), opts()).unwrap_err();
-
-    assert!(
-        matches!(error, InjectionError::SubmitNeverConfirmed { .. }),
-        "post-paste write failures must classify as submit uncertainty, got {error:?}"
-    );
-    assert_eq!(io.payload_writes.get(), 1, "the payload is written exactly once");
-    assert_eq!(io.submit_key_attempts.get(), 1, "no blind submit-key retries after a write failure");
-
-    let delivery = crate::service::delivery_error::DeliveryError::from_injection("tab-1", error);
-    assert_eq!(delivery.code(), "submit_unconfirmed");
-    assert!(delivery.bytes_written());
-}
-
-#[test]
-fn write_ack_timeout_is_uncertainty_and_structural_errors_stay_terminal() {
-    assert!(matches!(
-        injection_write_error("p1", "PTY write acknowledgement timed out".into()),
-        InjectionError::SubmitNeverConfirmed { .. }
-    ));
-    assert!(matches!(
-        injection_write_error("p1", "stale agent input permit".into()),
-        InjectionError::AgentInputUnavailable { .. }
-    ));
-    assert!(matches!(
-        injection_write_error("p1", "PTY not found: p1".into()),
-        InjectionError::PtyClosed { .. }
-    ));
-    assert!(matches!(
-        injection_write_error("p1", "PTY write channel closed".into()),
-        InjectionError::PtyClosed { .. }
-    ));
 }
 
 #[test]

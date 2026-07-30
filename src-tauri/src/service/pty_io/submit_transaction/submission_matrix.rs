@@ -127,7 +127,9 @@ fn opts() -> VerifyOpts {
         verify_submit: true,
         prompt_timeout: Duration::ZERO,
         echo_timeout: Duration::ZERO,
-        submit_timeout: Duration::ZERO,
+        // Non-expired budget keeps the bounded key-only recovery reachable;
+        // the mock transports never block a wait, so no real time is spent.
+        submit_timeout: Duration::from_secs(5),
     }
 }
 

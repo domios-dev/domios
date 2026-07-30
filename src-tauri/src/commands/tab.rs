@@ -757,16 +757,28 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    svc.start_chat_send(&tab_id, text)
+    // Anchor capture reads the session file and may enter a plugin VM.
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.start_chat_send(&tab_id, text))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn chat_send_status(
+pub async fn chat_send_status(
     svc: tauri::State<'_, ServiceState>,
     tab_id: String,
-) -> Vec<crate::service::chat_send_transaction::ChatSendStatus> {
+) -> Result<Vec<crate::service::chat_send_transaction::ChatSendStatus>, String> {
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
-    svc.chat_send_ledger.reconcile(&tab_id)
+    let svc = svc.inner().clone();
+    // Ledger read doubles as the closed-chat reconciliation point: scan each
+    // unconfirmed send's own session append window before reporting state.
+    tokio::task::spawn_blocking(move || {
+        svc.reconcile_chat_send_evidence(&tab_id);
+        svc.chat_send_ledger.reconcile(&tab_id)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// P1: open a non-PTY chatBackend tab driven by `plugin_id` (a plugin declaring
