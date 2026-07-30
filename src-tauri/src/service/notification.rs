@@ -1,13 +1,19 @@
 //! Notification creation with OS toast support.
 
 use super::ServiceContext;
-use crate::notification::{store::NotificationLevel, NotifState};
+use crate::notification::{
+    store::{AgentInputAdmission, NotificationLevel},
+    NotifState,
+};
 use codeterm_types::pty::{QuestionSubtype, TimelineState};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum NotificationAdmission {
     Diagnostic,
-    AgentInputRequest,
+    AgentInputRequest {
+        session_id: String,
+        prompt_identity: String,
+    },
 }
 
 fn notification_level(level: Option<&str>) -> NotificationLevel {
@@ -31,7 +37,7 @@ fn create_notification_with_delivery(
     workspace_id: Option<String>,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
-    if admission == NotificationAdmission::Diagnostic {
+    if matches!(admission, NotificationAdmission::Diagnostic) {
         return uuid::Uuid::new_v4().to_string();
     }
     let parsed_level = notification_level(level);
@@ -40,13 +46,28 @@ fn create_notification_with_delivery(
         NotificationLevel::Error => "Error",
         _ => "Info",
     };
-    let id = store.lock().add(
-        title.clone(),
-        body.clone(),
-        parsed_level,
-        tab_id.clone(),
-        workspace_id.clone(),
-    );
+    let id = match admission {
+        NotificationAdmission::Diagnostic => unreachable!(),
+        NotificationAdmission::AgentInputRequest {
+            session_id,
+            prompt_identity,
+        } => {
+            let mut store = store.lock();
+            match store.add_agent_input_request(
+                tab_id.clone().expect("agent input request has a tab"),
+                session_id,
+                prompt_identity,
+                title.clone(),
+                body.clone().expect("agent input request has a body"),
+                workspace_id
+                    .clone()
+                    .expect("agent input request has a workspace"),
+            ) {
+                AgentInputAdmission::Added(id) => id,
+                AgentInputAdmission::Duplicate(id) => return id,
+            }
+        }
+    };
 
     let mut payload = serde_json::json!({
         "id": id,
@@ -112,6 +133,7 @@ impl ServiceContext {
         &self,
         tab_id: String,
         session_id: String,
+        prompt_identity: Option<String>,
     ) -> Result<String, String> {
         let (title, body, workspace_id) = {
             let mux = self.mux.read();
@@ -156,9 +178,19 @@ impl ServiceContext {
                 workspace_id,
             )
         };
+        let prompt_identity = prompt_identity
+            .map(|identity| identity.trim().to_string())
+            .filter(|identity| !identity.is_empty())
+            .unwrap_or_else(|| body.clone());
+        if prompt_identity != body {
+            return Err("Prompt is no longer authoritative".to_string());
+        }
 
         Ok(create_notification_with_delivery(
-            NotificationAdmission::AgentInputRequest,
+            NotificationAdmission::AgentInputRequest {
+                session_id,
+                prompt_identity,
+            },
             &self.notif,
             |title, body| {
                 crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
@@ -172,6 +204,17 @@ impl ServiceContext {
             Some(workspace_id),
             |payload| self.notify_event("notification-created", payload),
         ))
+    }
+
+    pub fn resolve_agent_input_request_notification(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        prompt_identity: &str,
+    ) {
+        self.notif
+            .lock()
+            .resolve_agent_input_request(tab_id, session_id, prompt_identity.trim());
     }
 }
 
@@ -189,7 +232,10 @@ mod tests {
         let native = Mutex::new(Vec::new());
 
         let id = create_notification_with_delivery(
-            NotificationAdmission::AgentInputRequest,
+            NotificationAdmission::AgentInputRequest {
+                session_id: "session-owned".into(),
+                prompt_identity: "Which deployment region should I use?".into(),
+            },
             &store,
             |title, body| {
                 native
@@ -231,6 +277,44 @@ mod tests {
             events[0]["title"].as_str().unwrap().contains("Tab"),
             "user-visible notification copy uses Tab wording"
         );
+    }
+
+    #[test]
+    fn replayed_input_request_skips_every_delivery_channel() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+        let native = Mutex::new(Vec::new());
+
+        for prompt in [
+            "Which deployment region?",
+            "Which deployment region?",
+            "Choose a failover region",
+        ] {
+            create_notification_with_delivery(
+                NotificationAdmission::AgentInputRequest {
+                    session_id: "session-owned".into(),
+                    prompt_identity: prompt.into(),
+                },
+                &store,
+                |title, body| {
+                    native
+                        .lock()
+                        .push((title.to_string(), body.map(str::to_string)))
+                },
+                "Input needed in Tab Review".into(),
+                Some(prompt.into()),
+                Some("warning"),
+                None,
+                None,
+                Some("tab-owned".into()),
+                Some("workspace-owned".into()),
+                |payload| emitted.lock().push(payload),
+            );
+        }
+
+        assert_eq!(store.lock().list(false).len(), 2);
+        assert_eq!(native.lock().len(), 2);
+        assert_eq!(emitted.lock().len(), 2);
     }
 
     #[test]

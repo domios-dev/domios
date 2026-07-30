@@ -227,11 +227,22 @@ export function TabSessionChat({
   const handleRespondPrompt = useCallback(
     (value: string) => {
       if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
-      void invoke("mux_respond_prompt", { tabId, value }).catch((e) =>
-        showComposerError(e instanceof Error ? e.message : String(e)),
-      );
+      void invoke("mux_respond_prompt", { tabId, value })
+        .then(() => {
+          if (!pendingPrompt || !agentSessionId) return;
+          waitingQuestionTracker.resolve(tabId, agentSessionId, pendingPrompt.question);
+          void invoke("notify_agent_input_request", {
+            tabId,
+            sessionId: agentSessionId,
+            promptIdentity: pendingPrompt.question,
+            resolved: true,
+          }).catch((error) => {
+            console.warn("Failed to resolve waiting-for-input notification:", error);
+          });
+        })
+        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
     },
-    [pendingPrompt, tabId, showComposerError],
+    [agentSessionId, pendingPrompt, tabId, showComposerError],
   );
 
   // input path the composer uses; jump surfaces the live terminal output.
@@ -526,11 +537,13 @@ export function TabSessionChat({
       tabId,
       agentSessionId,
       backendState?.state ?? null,
+      completeQuestion || null,
       isActionableInputRequest && completeQuestion.length > 0,
       () => {
         void invoke("notify_agent_input_request", {
           tabId,
           sessionId: agentSessionId,
+          promptIdentity: completeQuestion,
         }).catch((error) => {
           console.warn("Failed to create waiting-for-input notification:", error);
         });
