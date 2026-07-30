@@ -224,15 +224,35 @@ impl ServiceContext {
         ))
     }
 
+    /// Ownership-boundary mint: called wherever pending_prompt or the verdict
+    /// changes. Admission + store dedup make it idempotent and fail-closed.
+    pub(crate) fn maybe_publish_input_request(&self, tab_id: &str) {
+        let session_id = {
+            let mux = self.mux.read();
+            let Some(session) = mux
+                .get_tab(tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+            else {
+                return;
+            };
+            session
+        };
+        let _ = self.create_agent_input_request_notification(tab_id.to_string(), session_id, None);
+    }
+
     pub fn resolve_agent_input_request_notification(
         &self,
         tab_id: &str,
         session_id: &str,
         prompt_identity: &str,
     ) {
-        self.notif
+        let resolved = self
+            .notif
             .lock()
             .resolve_agent_input_request(tab_id, session_id, prompt_identity.trim());
+        if let Some(id) = resolved {
+            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
+        }
     }
 }
 

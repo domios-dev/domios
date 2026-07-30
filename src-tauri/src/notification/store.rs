@@ -110,17 +110,21 @@ impl NotificationStore {
         AgentInputAdmission::Added(id)
     }
 
+    /// Removes the dedup key and clears the unread bell row; returns the
+    /// resolved notification id so callers can broadcast the read state.
     pub fn resolve_agent_input_request(
         &mut self,
         tab_id: &str,
         session_id: &str,
         prompt_identity: &str,
-    ) {
-        self.agent_input_requests.remove(&(
+    ) -> Option<String> {
+        let id = self.agent_input_requests.remove(&(
             tab_id.to_string(),
             session_id.to_string(),
             prompt_identity.to_string(),
-        ));
+        ))?;
+        self.mark_read(&id);
+        Some(id)
     }
 
     pub fn list(&self, unread_only: bool) -> Vec<&Notification> {
@@ -255,6 +259,35 @@ mod tests {
         assert_eq!(n.body.as_deref(), Some("Body text"));
         assert_eq!(n.tab_id.as_deref(), Some("tab-1"));
         assert_eq!(n.workspace_id.as_deref(), Some("ws-1"));
+    }
+
+    // Live P0 RED (row b9ad5377): answering a genuine prompt over the PTY
+    // resolve path must clear the unread bell row, not only the dedup key.
+    #[test]
+    fn resolving_an_input_request_marks_its_row_read() {
+        let mut store = NotificationStore::new(100);
+        store.add_agent_input_request(
+            "tab-1".into(),
+            "session-1".into(),
+            "Select Model and Effort".into(),
+            "Input needed".into(),
+            "Select Model and Effort".into(),
+            "workspace-1".into(),
+        );
+        assert_eq!(store.list(true).len(), 1, "row starts unread");
+
+        let resolved =
+            store.resolve_agent_input_request("tab-1", "session-1", "Select Model and Effort");
+
+        assert!(resolved.is_some(), "resolution reports the affected row");
+        assert_eq!(store.list(true).len(), 0, "answered prompt leaves no unread row");
+        assert_eq!(store.list(false).len(), 1, "history keeps the read row");
+        assert!(
+            store
+                .resolve_agent_input_request("tab-1", "session-1", "Select Model and Effort")
+                .is_none(),
+            "second resolution is a no-op"
+        );
     }
 
     #[test]
