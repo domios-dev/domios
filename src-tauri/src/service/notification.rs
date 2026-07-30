@@ -5,7 +5,7 @@ use crate::notification::{
     store::{AgentInputAdmission, NotificationLevel},
     NotifState,
 };
-use codeterm_types::pty::{QuestionSubtype, TimelineState};
+use codeterm_types::pty::{AgentLiveState, PendingPrompt, QuestionSubtype, TimelineState};
 
 #[derive(Debug)]
 enum NotificationAdmission {
@@ -14,6 +14,41 @@ enum NotificationAdmission {
         session_id: String,
         prompt_identity: String,
     },
+}
+
+fn admit_agent_input_request(
+    tab_session_id: Option<&str>,
+    session_id: &str,
+    state: Option<&AgentLiveState>,
+    pending_prompt: Option<&PendingPrompt>,
+    requested_identity: Option<&str>,
+) -> Result<String, String> {
+    if tab_session_id != Some(session_id) {
+        return Err("Tab session is no longer authoritative".to_string());
+    }
+    let state = state.ok_or_else(|| "Tab is not waiting for input".to_string())?;
+    if state.state != TimelineState::Question
+        || matches!(
+            state.subtype,
+            Some(QuestionSubtype::RateLimit | QuestionSubtype::Error)
+        )
+    {
+        return Err("Tab is not waiting for user input".to_string());
+    }
+    // agent_state.question is diagnostic only; admission requires the
+    // authoritative pending_prompt record for this tab/session.
+    let body = pending_prompt
+        .map(|prompt| prompt.question.trim())
+        .filter(|question| !question.is_empty())
+        .ok_or_else(|| "Authoritative pending prompt is not available".to_string())?
+        .to_string();
+    let requested = requested_identity
+        .map(str::trim)
+        .filter(|identity| !identity.is_empty());
+    if requested.is_some_and(|identity| identity != body) {
+        return Err("Prompt is no longer authoritative".to_string());
+    }
+    Ok(body)
 }
 
 fn notification_level(level: Option<&str>) -> NotificationLevel {
@@ -140,35 +175,13 @@ impl ServiceContext {
             let tab = mux
                 .get_tab(&tab_id)
                 .ok_or_else(|| "Tab not found".to_string())?;
-            if tab.agent_session_id.as_deref() != Some(session_id.as_str()) {
-                return Err("Tab session is no longer authoritative".to_string());
-            }
-            let state = tab
-                .agent_state
-                .as_ref()
-                .ok_or_else(|| "Tab is not waiting for input".to_string())?;
-            if state.state != TimelineState::Question
-                || matches!(
-                    state.subtype,
-                    Some(QuestionSubtype::RateLimit | QuestionSubtype::Error)
-                )
-            {
-                return Err("Tab is not waiting for user input".to_string());
-            }
-            let body = tab
-                .pending_prompt
-                .as_ref()
-                .map(|prompt| prompt.question.trim())
-                .filter(|message| !message.is_empty())
-                .or_else(|| {
-                    state
-                        .question
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|message| !message.is_empty())
-                })
-                .ok_or_else(|| "Complete input request is not available".to_string())?
-                .to_string();
+            let body = admit_agent_input_request(
+                tab.agent_session_id.as_deref(),
+                &session_id,
+                tab.agent_state.as_ref(),
+                tab.pending_prompt.as_ref(),
+                prompt_identity.as_deref(),
+            )?;
             let workspace_id = mux
                 .find_workspace_for_tab(&tab_id)
                 .ok_or_else(|| "Owning workspace not found".to_string())?;
@@ -178,13 +191,7 @@ impl ServiceContext {
                 workspace_id,
             )
         };
-        let prompt_identity = prompt_identity
-            .map(|identity| identity.trim().to_string())
-            .filter(|identity| !identity.is_empty())
-            .unwrap_or_else(|| body.clone());
-        if prompt_identity != body {
-            return Err("Prompt is no longer authoritative".to_string());
-        }
+        let prompt_identity = body.clone();
 
         Ok(create_notification_with_delivery(
             NotificationAdmission::AgentInputRequest {
@@ -224,6 +231,228 @@ mod tests {
     use crate::notification::store::NotificationStore;
     use parking_lot::Mutex;
     use std::sync::Arc;
+
+    fn question_state(question: Option<&str>) -> AgentLiveState {
+        AgentLiveState {
+            state: TimelineState::Question,
+            subtype: None,
+            status_line: None,
+            phase: None,
+            elapsed_ms: None,
+            last_turn_summary: None,
+            question: question.map(str::to_string),
+        }
+    }
+
+    fn prompt(question: &str) -> PendingPrompt {
+        PendingPrompt {
+            question: question.into(),
+            options: Vec::new(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        }
+    }
+
+    struct DeliveryProbe {
+        store: NotifState,
+        native: Mutex<Vec<(String, Option<String>)>>,
+        emitted: Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl DeliveryProbe {
+        fn new() -> Self {
+            Self {
+                store: Arc::new(Mutex::new(NotificationStore::new(10))),
+                native: Mutex::new(Vec::new()),
+                emitted: Mutex::new(Vec::new()),
+            }
+        }
+
+        /// Mirrors `create_agent_input_request_notification`: admission gates
+        /// every delivery channel; an Err must reach none of them.
+        fn admit_and_deliver(
+            &self,
+            tab_session_id: Option<&str>,
+            session_id: &str,
+            state: Option<&AgentLiveState>,
+            pending_prompt: Option<&PendingPrompt>,
+            requested_identity: Option<&str>,
+        ) -> Result<String, String> {
+            let body = admit_agent_input_request(
+                tab_session_id,
+                session_id,
+                state,
+                pending_prompt,
+                requested_identity,
+            )?;
+            Ok(create_notification_with_delivery(
+                NotificationAdmission::AgentInputRequest {
+                    session_id: session_id.into(),
+                    prompt_identity: body.clone(),
+                },
+                &self.store,
+                |title, native_body| {
+                    self.native
+                        .lock()
+                        .push((title.to_string(), native_body.map(str::to_string)))
+                },
+                "Input needed in Tab Review".into(),
+                Some(body),
+                Some("warning"),
+                None,
+                None,
+                Some("tab-owned".into()),
+                Some("workspace-owned".into()),
+                |payload| self.emitted.lock().push(payload),
+            ))
+        }
+
+        fn assert_silent(&self) {
+            assert_eq!(self.store.lock().list(false).len(), 0);
+            assert_eq!(self.native.lock().len(), 0);
+            assert_eq!(self.emitted.lock().len(), 0);
+        }
+    }
+
+    #[test]
+    fn question_state_without_pending_prompt_creates_nothing() {
+        let probe = DeliveryProbe::new();
+        let state = question_state(Some("Which deployment region should I use?"));
+
+        let result = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            None,
+            None,
+        );
+
+        assert!(
+            result.is_err(),
+            "agent_state.question alone is diagnostic state, not notification authority: {result:?}"
+        );
+        probe.assert_silent();
+    }
+
+    #[test]
+    fn genuine_pending_prompt_admits_exactly_once_across_repeated_frames() {
+        let probe = DeliveryProbe::new();
+        let state = question_state(Some("Which deployment region should I use?"));
+        let pending = prompt("Which deployment region should I use?");
+
+        for _ in 0..3 {
+            let result = probe.admit_and_deliver(
+                Some("session-owned"),
+                "session-owned",
+                Some(&state),
+                Some(&pending),
+                Some("Which deployment region should I use?"),
+            );
+            assert!(result.is_ok(), "authoritative prompt is admitted: {result:?}");
+        }
+
+        assert_eq!(probe.store.lock().list(false).len(), 1);
+        assert_eq!(probe.native.lock().len(), 1);
+        assert_eq!(probe.emitted.lock().len(), 1);
+    }
+
+    #[test]
+    fn session_mismatch_stale_identity_cleared_prompt_and_paused_states_create_nothing() {
+        let probe = DeliveryProbe::new();
+        let state = question_state(Some("Which deployment region should I use?"));
+        let pending = prompt("Which deployment region should I use?");
+
+        let mismatched_session = probe.admit_and_deliver(
+            Some("session-superseded"),
+            "session-owned",
+            Some(&state),
+            Some(&pending),
+            None,
+        );
+        assert!(mismatched_session.is_err());
+
+        let stale_identity = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            Some(&pending),
+            Some("An earlier prompt that was already answered"),
+        );
+        assert!(stale_identity.is_err());
+
+        let cleared_prompt = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            None,
+            Some("Which deployment region should I use?"),
+        );
+        assert!(cleared_prompt.is_err());
+
+        let empty_prompt_question = probe.admit_and_deliver(
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            Some(&prompt("   ")),
+            None,
+        );
+        assert!(empty_prompt_question.is_err());
+
+        for subtype in [QuestionSubtype::RateLimit, QuestionSubtype::Error] {
+            let mut paused = question_state(Some("Rate limited"));
+            paused.subtype = Some(subtype);
+            let result = probe.admit_and_deliver(
+                Some("session-owned"),
+                "session-owned",
+                Some(&paused),
+                Some(&pending),
+                None,
+            );
+            assert!(result.is_err(), "{subtype:?} never requests input");
+        }
+
+        probe.assert_silent();
+    }
+
+    #[test]
+    fn resolving_a_genuine_prompt_allows_the_next_generation_to_notify() {
+        let probe = DeliveryProbe::new();
+        let state = question_state(None);
+        let pending = prompt("Which deployment region should I use?");
+
+        probe
+            .admit_and_deliver(
+                Some("session-owned"),
+                "session-owned",
+                Some(&state),
+                Some(&pending),
+                None,
+            )
+            .expect("genuine prompt admits");
+        probe
+            .store
+            .lock()
+            .resolve_agent_input_request(
+                "tab-owned",
+                "session-owned",
+                "Which deployment region should I use?",
+            );
+        probe
+            .admit_and_deliver(
+                Some("session-owned"),
+                "session-owned",
+                Some(&state),
+                Some(&pending),
+                None,
+            )
+            .expect("a later generation of the same prompt admits again");
+
+        assert_eq!(probe.store.lock().list(false).len(), 2);
+        assert_eq!(probe.native.lock().len(), 2);
+        assert_eq!(probe.emitted.lock().len(), 2);
+    }
 
     #[test]
     fn create_notification_delivers_bell_route_event_and_native_os_notification() {
