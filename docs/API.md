@@ -135,10 +135,7 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 | POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab |
 | POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
-| GET | `/api/tabs/{id}/chat` | — | Chat snapshot for the tab |
-| POST | `/api/tabs/{id}/chat/start` | — | Start chat JSONL tailing |
-| POST | `/api/tabs/{id}/chat/stop` | — | Stop chat JSONL tailing |
-| POST | `/api/tabs/{id}/chat/backfill` | `{before_offset, max_bytes?}` | Backfill older chat JSONL content |
+| GET | `/api/tabs/{id}/chat` | `?since=N&caller=<tab>` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
 | GET | `/api/tabs/{id}/delayed-messages` | — | List queued/failed delayed Chat UI messages for this tab |
 | POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
 | PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
@@ -1402,4 +1399,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 95 -->
+<!-- revision: 96 -->
