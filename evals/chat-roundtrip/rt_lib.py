@@ -78,7 +78,8 @@ def cmd_order_check(base: str, n_raw: str):
     shuffling same-second (codex) or timeless (cursor) turns.
 
     Prints: "ok" if all N present and strictly increasing; "missing <k>" if a
-    message never landed; "disorder <seq>" with the observed index sequence."""
+    message never landed; "reorder <seq>" for non-monotonic positions; or
+    "collapse <indices>@<position> ...; positions <seq>" for shared positions."""
     n = int(n_raw)
     doc = load_stdin()
     if not doc:
@@ -94,10 +95,23 @@ def cmd_order_check(base: str, n_raw: str):
             print(f"missing {i}")
             return
         positions.append(pos)
-    if positions == sorted(positions) and len(set(positions)) == n:
+    sequence = ",".join(str(p) for p in positions)
+    collisions = {}
+    for message_index, position in enumerate(positions, start=1):
+        collisions.setdefault(position, []).append(message_index)
+    shared = [
+        f"{','.join(str(i) for i in indices)}@{position}"
+        for position, indices in collisions.items()
+        if len(indices) > 1
+    ]
+    ordered = positions == sorted(positions)
+    unique = len(set(positions)) == n
+    if ordered and unique:
         print("ok")
+    elif not unique:
+        print(f"collapse {' '.join(shared)}; positions {sequence}")
     else:
-        print("disorder " + ",".join(str(p) for p in positions))
+        print(f"reorder {sequence}")
 
 
 def _to_ms(t):
