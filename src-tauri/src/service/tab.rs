@@ -148,6 +148,7 @@ impl ServiceContext {
             .and_then(|tab| tab.pending_delivery.as_ref())
             .map(|record| record.content_digest.clone());
         self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+        self.release_worker_persona_for_tab(tab_id);
         let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         let pty_ids = self.mux.write().close_tab(tab_id)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
