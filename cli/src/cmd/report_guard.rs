@@ -40,8 +40,40 @@ impl ReportRefusal {
     }
 }
 
+/// Which checkout a readiness report is validated against: the pane the CLI was
+/// invoked from, or the worktree the lane actually owns.
+pub struct ReadinessScope<'a> {
+    pub pane_cwd: &'a Path,
+    pub lane_worktree: Option<&'a Path>,
+}
+
+impl<'a> ReadinessScope<'a> {
+    #[cfg(test)]
+    fn pane(pane_cwd: &'a Path) -> Self {
+        Self {
+            pane_cwd,
+            lane_worktree: None,
+        }
+    }
+
+    fn repo(&self) -> Result<&'a Path, ReportRefusal> {
+        let Some(lane) = self.lane_worktree else {
+            return Ok(self.pane_cwd);
+        };
+        if !git_success(lane, &["rev-parse", "--is-inside-work-tree"]) {
+            return Err(git_refusal(format!(
+                "lane worktree '{}' is not a git worktree on this host, so --sha/--base cannot be \
+                 validated where the lane's commits live.",
+                lane.display()
+            )));
+        }
+        Ok(lane)
+    }
+}
+
 #[allow(clippy::type_complexity)]
 pub fn enrich_ready_report(
+    lane_worktree: Option<&Path>,
     status: Option<ReportStatusArg>,
     branch: Option<String>,
     sha: Option<String>,
@@ -49,8 +81,11 @@ pub fn enrich_ready_report(
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
-    enrich_ready_report_in(
-        Path::new("."),
+    enrich_ready_report_in_scope(
+        ReadinessScope {
+            pane_cwd: Path::new("."),
+            lane_worktree,
+        },
         status,
         branch,
         sha,
@@ -60,6 +95,7 @@ pub fn enrich_ready_report(
     )
 }
 
+#[cfg(test)]
 #[allow(clippy::type_complexity)]
 fn enrich_ready_report_in(
     cwd: &Path,
@@ -70,9 +106,31 @@ fn enrich_ready_report_in(
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
+    enrich_ready_report_in_scope(
+        ReadinessScope::pane(cwd),
+        status,
+        branch,
+        sha,
+        base,
+        changed_files,
+        acknowledge_dirty,
+    )
+}
+
+#[allow(clippy::type_complexity)]
+fn enrich_ready_report_in_scope(
+    scope: ReadinessScope<'_>,
+    status: Option<ReportStatusArg>,
+    branch: Option<String>,
+    sha: Option<String>,
+    base: Option<String>,
+    changed_files: Option<Vec<String>>,
+    acknowledge_dirty: bool,
+) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
     if !is_readiness_status(status) {
         return Ok((branch, sha, changed_files));
     }
+    let cwd = scope.repo()?;
     let Some(inspection) = inspect_git_worktree_with_base(cwd, base.as_deref())? else {
         return Ok((branch, sha, changed_files));
     };
@@ -125,7 +183,7 @@ fn load_lane_dirty(cwd: &Path) -> Option<Vec<String>> {
     }
 }
 
-fn is_readiness_status(status: Option<ReportStatusArg>) -> bool {
+pub fn is_readiness_status(status: Option<ReportStatusArg>) -> bool {
     matches!(
         status,
         Some(ReportStatusArg::InReview | ReportStatusArg::Done)
@@ -659,6 +717,7 @@ mod tests {
     #[test]
     fn partial_report_does_not_inspect_git() {
         let out = enrich_ready_report(
+            None,
             Some(ReportStatusArg::Partial),
             None,
             None,
@@ -808,6 +867,117 @@ mod tests {
         .unwrap_err();
 
         assert!(err.reason.contains("does not match HEAD"));
+    }
+
+    fn lane_worktree_with_owned_commit() -> (TempDir, PathBuf, String, String) {
+        let dir = repo();
+        let lane = dir.path().join("lane");
+        let lane_str = lane.to_string_lossy().into_owned();
+        run(
+            dir.path(),
+            &["worktree", "add", "-b", "lane/report", &lane_str],
+        );
+        let base = branch_head(&lane);
+        fs::write(lane.join("owned.txt"), "owned\n").unwrap();
+        run(&lane, &["add", "owned.txt"]);
+        run(&lane, &["commit", "-m", "owned"]);
+        let owned = branch_head(&lane);
+        (dir, lane, base, owned)
+    }
+
+    #[test]
+    fn lane_owned_sha_validates_against_the_lane_worktree_not_the_pane_cwd() {
+        let (_lane_dir, lane, base, owned) = lane_worktree_with_owned_commit();
+        let foreign = repo();
+
+        let (branch, sha, _changed) = enrich_ready_report_in_scope(
+            ReadinessScope {
+                pane_cwd: foreign.path(),
+                lane_worktree: Some(&lane),
+            },
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned.clone()),
+            Some(base),
+            None,
+            false,
+        )
+        .expect("lane-owned sha and CODETERM_LANE_BASE must resolve in the lane worktree");
+
+        assert_eq!(sha.as_deref(), Some(owned.as_str()));
+        assert_eq!(branch.as_deref(), Some("lane/report"));
+    }
+
+    #[test]
+    fn pane_cwd_head_is_never_accepted_as_the_lane_commit() {
+        let (_lane_dir, lane, _base, _owned) = lane_worktree_with_owned_commit();
+        let foreign = repo();
+        let foreign_head = branch_head(foreign.path());
+
+        let err = enrich_ready_report_in_scope(
+            ReadinessScope {
+                pane_cwd: foreign.path(),
+                lane_worktree: Some(&lane),
+            },
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(foreign_head),
+            None,
+            None,
+            false,
+        )
+        .expect_err("a commit that exists only in the pane cwd must never satisfy a lane report");
+
+        assert!(err.reason.contains("does not match HEAD"), "{}", err.reason);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lane_anchor_resolves_through_a_symlinked_recorded_path() {
+        let (_lane_dir, lane, base, owned) = lane_worktree_with_owned_commit();
+        let foreign = repo();
+        let link_dir = tempfile::tempdir().unwrap();
+        let link = link_dir.path().join("lane-link");
+        std::os::unix::fs::symlink(&lane, &link).unwrap();
+
+        let (branch, sha, _changed) = enrich_ready_report_in_scope(
+            ReadinessScope {
+                pane_cwd: foreign.path(),
+                lane_worktree: Some(&link),
+            },
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned.clone()),
+            Some(base),
+            None,
+            false,
+        )
+        .expect("a symlinked lane path must resolve to the same lane worktree");
+
+        assert_eq!(sha.as_deref(), Some(owned.as_str()));
+        assert_eq!(branch.as_deref(), Some("lane/report"));
+    }
+
+    #[test]
+    fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane() {
+        let foreign = repo();
+        let absent = foreign.path().join("no-such-lane");
+
+        let err = enrich_ready_report_in_scope(
+            ReadinessScope {
+                pane_cwd: foreign.path(),
+                lane_worktree: Some(&absent),
+            },
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(branch_head(foreign.path())),
+            None,
+            None,
+            false,
+        )
+        .expect_err("a missing lane worktree must not silently fall back to the pane checkout");
+
+        assert!(err.reason.contains("is not a git worktree"), "{}", err.reason);
     }
 
     #[test]
