@@ -2878,7 +2878,7 @@ End-of-today and end-of-cycle projection based on your historical rhythm scaled 
 
 #### `codeterm usage refresh`
 
-Trigger a fresh probe (runs the agent hidden, parses /status)
+Re-read usage from the provider's own quota-free source (never spends quota)
 
 - `--account-id`
 - `--provider`
