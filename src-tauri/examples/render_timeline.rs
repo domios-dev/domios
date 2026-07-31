@@ -16,6 +16,7 @@ use std::path::Path;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use codeterm_lib::agent::attributed_screen::detect_picker;
+use codeterm_lib::agent::motion_decoder::{MotionDecoder, MotionFrame};
 use codeterm_lib::agent::offline_state_classifier::{
     classify_signals, extract_completion_summary, extract_status_line, TabVerdict, TimelineState,
 };
@@ -230,11 +231,30 @@ fn detector_json(
     })
 }
 
+fn motion_json(motion: &MotionFrame) -> Value {
+    json!({
+        "kind": motion.kind,
+        "shift_up": motion.shift_up,
+        "promoted": motion.promoted,
+        "classes": {
+            "shifted": motion.classes.shifted,
+            "appended": motion.classes.appended,
+            "mutated": motion.classes.mutated,
+            "volatile": motion.classes.volatile,
+        },
+        "volatile_region": motion.volatile_region,
+        "turn_seq": motion.turn_seq,
+        "turn_frozen": motion.turn_frozen,
+        "turn_live": motion.turn_live,
+    })
+}
+
 fn frame_json(
     t_ms: u64,
     frame_index: u64,
     extractor: &SignalExtractor,
     sig: &StreamSignals,
+    motion: &MotionFrame,
     include_native_picker: bool,
     overlay: &mut DetectorOverlay,
 ) -> Value {
@@ -276,6 +296,7 @@ fn frame_json(
         "changed_rows": sig.delta.changed_rows,
         "picker_active": sig.picker_active,
         "volatile_rows": volatile_band(sig),
+        "motion": motion_json(motion),
         "detector": detector,
     })
 }
@@ -286,6 +307,7 @@ fn frame_json(
 fn sample_up_to(
     t: u64,
     ex: &mut SignalExtractor,
+    motion: &mut MotionDecoder,
     frames: &mut Vec<Value>,
     next: &mut u64,
     step: u64,
@@ -297,6 +319,8 @@ fn sample_up_to(
 ) {
     while *next <= t {
         let sig = ex.step(b"", *next);
+        // Motion state must advance on every sample tick, emitted or not.
+        let motion_frame = motion.step(&sig.screen.lines);
         *frame_index += 1;
         if *next >= window_from_ms && *next <= window_to_ms {
             frames.push(frame_json(
@@ -304,6 +328,7 @@ fn sample_up_to(
                 *frame_index,
                 ex,
                 &sig,
+                &motion_frame,
                 include_native_picker,
                 overlay,
             ));
@@ -372,6 +397,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(cast.width);
     let mut ex = SignalExtractor::new(rows, cols, VolatileHint::default());
+    let mut motion = MotionDecoder::new();
 
     let mut frames: Vec<Value> = Vec::new();
     let mut inputs: Vec<Value> = Vec::new();
@@ -388,6 +414,7 @@ fn main() {
         sample_up_to(
             t.saturating_sub(1),
             &mut ex,
+            &mut motion,
             &mut frames,
             &mut next_sample,
             sample_ms,
@@ -405,6 +432,10 @@ fn main() {
                 ex.resize(*rows, *cols);
             }
             Ev::Input { t_ms, source, text } => {
+                // A submit key starts a new turn window for the stream extractor.
+                if text.as_deref().is_some_and(|t| t.contains('\r')) {
+                    motion.begin_turn();
+                }
                 if *t_ms >= window_from_ms && *t_ms <= window_to_ms {
                     inputs.push(json!({ "t_ms": t_ms, "source": source, "text": text }));
                 }
@@ -416,6 +447,7 @@ fn main() {
     sample_up_to(
         end.min(window_to_ms),
         &mut ex,
+        &mut motion,
         &mut frames,
         &mut next_sample,
         sample_ms,

@@ -51,6 +51,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@playwright/test": "^1.60.0",
+    "@tailwindcss/browser": "4.2.1",
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^25.9.2",
@@ -96,7 +97,6 @@
     "graphology-communities-louvain": "^2.0.2",
     "html2canvas-pro": "^2.0.2",
     "lucide-react": "^1.7.0",
-    "remark-parse": "^11.0.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -105,8 +105,9 @@
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
-    "unified": "^11.0.5",
+    "remark-parse": "^11.0.0",
     "sigma": "^3.0.0",
+    "unified": "^11.0.5",
     "use-sync-external-store": "^1.6.0"
   }
 }

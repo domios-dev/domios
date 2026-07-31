@@ -40,9 +40,9 @@ fn echo_mismatch_admits_the_write() {
 
 #[test]
 fn direct_send_boundaries_retain_delivery_error_type() {
-    let _: fn(&crate::service::ServiceContext, &str, &str, bool) -> Result<(), DeliveryError> =
+    let _: fn(&crate::service::ServiceContext, &str, &str) -> Result<(), DeliveryError> =
         crate::service::ServiceContext::send_text_with_guarantee;
-    let _: fn(&crate::service::ServiceContext, &str, &str, bool) -> Result<(), DeliveryError> =
+    let _: fn(&crate::service::ServiceContext, &str, &str) -> Result<(), DeliveryError> =
         crate::service::ServiceContext::send_text_delivery;
 }
 

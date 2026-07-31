@@ -36,6 +36,19 @@ fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
     Some(bootstrap)
 }
 
+fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
+    let starts_assigned_work = params
+        .task
+        .as_deref()
+        .is_some_and(|task| !task.trim().is_empty())
+        || params.role.is_some();
+    params.starter_prompt = if starts_assigned_work {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    } else {
+        crate::agent::provider::StarterPrompt::IdleWakeup
+    };
+}
+
 fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
     let assignment = params.system_prompt.take().or_else(|| params.task.take());
     let assignment = match params.manager_bootstrap.as_ref() {
@@ -490,6 +503,7 @@ impl ServiceContext {
             );
             prepare_manager_bootstrap(&mut params)
         } else {
+            prepare_standard_starter_prompt(&mut params);
             None
         };
 
@@ -963,6 +977,33 @@ mod hierarchy_defaults_tests {
             crate::agent::provider::StarterPrompt::AssignedTask
         );
         assert_eq!(params.task.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn standalone_agent_waits_without_receiving_an_assigned_task_turn() {
+        let mut params = SpawnAgentParams::default();
+
+        prepare_standard_starter_prompt(&mut params);
+
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::IdleWakeup
+        );
+    }
+
+    #[test]
+    fn explicit_task_keeps_the_assigned_task_turn() {
+        let mut params = SpawnAgentParams {
+            task: Some("Inspect the launch path.".into()),
+            ..Default::default()
+        };
+
+        prepare_standard_starter_prompt(&mut params);
+
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::AssignedTask
+        );
     }
 
     // No agent cwd and no workspace cwd must still pin a concrete dir (the

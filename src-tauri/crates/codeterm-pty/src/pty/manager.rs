@@ -368,6 +368,28 @@ fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
         cmd.env(key, value);
     }
 
+    let cli_path = env_vars
+        .get("CODETERM_CLI_PATH")
+        .map(std::ffi::OsString::from)
+        .or_else(|| std::env::var_os("CODETERM_CLI_PATH"));
+    if let Some(cli_dir) = cli_path
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(std::path::Path::parent)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        let inherited_path = env_vars
+            .get("PATH")
+            .map(std::ffi::OsString::from)
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
+        let paths = std::iter::once(cli_dir.to_path_buf())
+            .chain(std::env::split_paths(&inherited_path).filter(|path| path != cli_dir));
+        if let Ok(path) = std::env::join_paths(paths) {
+            cmd.env("PATH", path);
+        }
+    }
+
     for key in STRIPPED_PTY_ENV {
         cmd.env_remove(key);
     }

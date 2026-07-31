@@ -38,6 +38,7 @@ sp.json
 !/.claude/settings.local.json
 test-results/
 .qa-*.json
+testbench/replays/**/timeline-motion.json
 .qa-read.py
 
 # native crash minidumps (machine-specific, never commit)

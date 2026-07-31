@@ -273,6 +273,7 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/CONFIG.md` — config options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions
+- `docs/HTML.md` — sandboxed chat HTML, Tailwind runtime, and user-selected files
 - `docs/RELEASE.md` — release runbook: preflight, trigger-tag flow, artifact matrix, troubleshooting
 - `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
 - `docs/MEMORY.md` — memory subsystem
@@ -281,4 +282,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

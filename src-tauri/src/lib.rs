@@ -212,6 +212,7 @@ pub fn run() {
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,
+            commands::read_html_preview_file,
             commands::copy_image_to_clipboard,
             commands::check_for_update,
             commands::install_app_update,

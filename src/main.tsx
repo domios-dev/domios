@@ -5,7 +5,8 @@ import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
-import { installInboundReportCardHarness } from "@codeterm/chat-ui";
+import { configureHtmlFileLoader, installInboundReportCardHarness } from "@codeterm/chat-ui";
+import { invoke } from "./lib/bridge";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
 import "./styles/globals.css";
 import "./components/FrontendCrashBoundary.css";
@@ -19,6 +20,7 @@ const isGalleryRoute = new URLSearchParams(window.location.search).get("prototyp
 installToolOutputCardHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
+configureHtmlFileLoader((path) => invoke<string>("read_html_preview_file", { path }));
 
 if (!missionControlPrototype && !isGalleryRoute) {
   loadBundledPlugins();

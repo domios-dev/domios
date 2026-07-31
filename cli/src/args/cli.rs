@@ -341,7 +341,7 @@ pub enum Commands {
     /// without bloating the system prompt. `codeterm docs` lists, `codeterm
     /// docs <name>` prints a bounded preview inside CodeTerm tabs; pass
     /// --full for the complete doc. Names are case-insensitive and match the
-    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
+    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
     Docs {
         /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
         name: Option<String>,
