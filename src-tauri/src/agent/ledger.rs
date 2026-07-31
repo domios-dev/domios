@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::reports::ReportStatus;
 
-const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 2;
+const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 3;
 
 /// One worker's latest state under an orchestrator (structured report fields + identity + model).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -100,6 +100,10 @@ impl OrchestrationLedger {
                     Self::migrate_v1_to_v2(conn)?;
                     version = 2;
                 }
+                2 => {
+                    Self::migrate_v2_to_v3(conn)?;
+                    version = 3;
+                }
                 CURRENT_LEDGER_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_LEDGER_SCHEMA_VERSION => {
                     return Err(rusqlite::Error::InvalidQuery);
@@ -145,6 +149,44 @@ impl OrchestrationLedger {
             PRAGMA user_version = 2;
             "#,
         )
+    }
+
+    fn migrate_v2_to_v3(conn: &Connection) -> rusqlite::Result<()> {
+        if Self::has_column(conn, "orchestrator_pane_id")? {
+            conn.execute(
+                "ALTER TABLE orchestration_ledger RENAME COLUMN orchestrator_pane_id TO orchestrator_tab_id",
+                [],
+            )?;
+        }
+        if Self::has_column(conn, "worker_pane_id")? {
+            conn.execute(
+                "ALTER TABLE orchestration_ledger RENAME COLUMN worker_pane_id TO worker_tab_id",
+                [],
+            )?;
+        }
+        if !Self::has_column(conn, "orchestrator_tab_id")?
+            || !Self::has_column(conn, "worker_tab_id")?
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_ledger_orchestrator
+                ON orchestration_ledger(orchestrator_tab_id);
+            PRAGMA user_version = 3;
+            "#,
+        )
+    }
+
+    fn has_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
+        let mut statement = conn.prepare("PRAGMA table_info(orchestration_ledger)")?;
+        let names = statement.query_map([], |row| row.get::<_, String>(1))?;
+        for name in names {
+            if name? == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
@@ -321,6 +363,42 @@ mod tests {
         .unwrap();
     }
 
+    fn create_legacy_v2_schema(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE orchestration_ledger (
+                orchestrator_pane_id TEXT NOT NULL,
+                worker_pane_id       TEXT NOT NULL,
+                title                TEXT NOT NULL DEFAULT '',
+                branch               TEXT,
+                model                TEXT,
+                status               TEXT,
+                message              TEXT NOT NULL DEFAULT '',
+                sha                  TEXT,
+                changed_files_json   TEXT,
+                test_cmd             TEXT,
+                test_result          TEXT,
+                skipped              TEXT,
+                updated_at           INTEGER NOT NULL DEFAULT 0,
+                plan_id              TEXT,
+                task_id              TEXT,
+                PRIMARY KEY (orchestrator_pane_id, worker_pane_id)
+            );
+            CREATE INDEX idx_ledger_orchestrator
+                ON orchestration_ledger(orchestrator_pane_id);
+            INSERT INTO orchestration_ledger (
+                orchestrator_pane_id, worker_pane_id, title, branch, model,
+                status, message, sha, changed_files_json, test_cmd,
+                test_result, skipped, updated_at, plan_id, task_id
+            ) VALUES ('orch', 'w1', 'Worker', 'main', 'opus', 'done', 'msg',
+                      'deadbeef', '["a.rs"]', 'cargo test', 'ok', NULL, 42,
+                      'plan-a', 'task-a');
+            PRAGMA user_version = 2;
+            "#,
+        )
+        .unwrap();
+    }
+
     fn insert_pre_versioning_row(conn: &Connection) {
         conn.execute(
             r#"
@@ -476,6 +554,36 @@ mod tests {
         assert_eq!(rows[0].task_id, None);
         assert_eq!(rows[0].updated_at, 42);
         let conn = ledger.conn.lock();
+        assert_eq!(
+            OrchestrationLedger::user_version(&conn).unwrap(),
+            CURRENT_LEDGER_SCHEMA_VERSION
+        );
+        drop(conn);
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn legacy_v2_pane_columns_migrate_without_dropping_rows() {
+        let db = temp_db();
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        {
+            let conn = Connection::open(&db).unwrap();
+            create_legacy_v2_schema(&conn);
+        }
+
+        let ledger = OrchestrationLedger::open_at(&db).unwrap();
+        let rows = ledger.list_for_orchestrator("orch").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].worker_tab_id, "w1");
+        assert_eq!(rows[0].plan_id.as_deref(), Some("plan-a"));
+        assert_eq!(rows[0].task_id.as_deref(), Some("task-a"));
+        ledger
+            .upsert(&row("orch", "w1", ReportStatus::Done, 100))
+            .unwrap();
+        let conn = ledger.conn.lock();
+        assert!(OrchestrationLedger::has_column(&conn, "orchestrator_tab_id").unwrap());
+        assert!(OrchestrationLedger::has_column(&conn, "worker_tab_id").unwrap());
+        assert!(!OrchestrationLedger::has_column(&conn, "orchestrator_pane_id").unwrap());
         assert_eq!(
             OrchestrationLedger::user_version(&conn).unwrap(),
             CURRENT_LEDGER_SCHEMA_VERSION
