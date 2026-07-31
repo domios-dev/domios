@@ -676,6 +676,21 @@ fn composer_region_keeps_wrapped_draft_through_cursor_row() {
 }
 
 #[test]
+fn composer_region_removes_visual_padding_at_a_mid_token_wrap() {
+    let expected = "убери тут paused пожалуйста из списка в команде там C:\\Users\\dev\\AppData\\Local\\Temp\\codeterm-chat\\237d67c5-pasted-image-1785493045962.png";
+    let lines = vec![
+        "────────────────────────────────────────────────────────".to_string(),
+        "›  убери тут paused пожалуйста из списка в команде там C:\\Users\\dev\\AppData\\Local\\Temp\\codeterm-chat\\237d67c5-".to_string(),
+        "  pasted-image-1785493045962.png".to_string(),
+        "gpt-5.6-sol".to_string(),
+    ];
+
+    let region = composer_region_text(&lines, 2);
+
+    assert_eq!(screen_echo_evidence_count(&region, expected), 1);
+}
+
+#[test]
 fn tui_composer_redraw_without_turn_is_not_submission() {
     let io = ComposerRedrawWithoutTurn::new();
     let result = run(&io, "general bootstrap", true, tui(), opts()).unwrap();
