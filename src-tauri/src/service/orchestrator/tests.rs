@@ -63,11 +63,12 @@ fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
 #[test]
 fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
     let worker = role_launch_task(Some("repair delivery"), Some("Worker"), None, false).unwrap();
-    assert!(worker.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(worker.starts_with("You are a CodeTerm Worker."));
+    assert!(worker.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
     assert!(worker.contains(crate::prompts::WORKER_SUFFIX.trim()));
     assert_eq!(
         worker
-            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
             .count(),
         1
     );
@@ -75,7 +76,7 @@ fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
     let capable = role_launch_task(Some("repair delivery"), Some("Worker"), None, true).unwrap();
     assert_eq!(
         capable
-            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
             .count(),
         1
     );
@@ -104,27 +105,25 @@ fn every_team_role_receives_the_shared_primer_exactly_once() {
                 system_prompt_capable,
             )
             .unwrap();
-            assert_eq!(
-                prompt
-                    .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-                    .count(),
-                1,
-                "{role:?}/{profile:?}/{system_prompt_capable}"
-            );
+            let context = if role == Some("Worker") {
+                crate::prompts::WORKER_CODETERM_CONTEXT.trim()
+            } else {
+                crate::prompts::AGENT_CODETERM_PRIMER.trim()
+            };
+            assert_eq!(prompt.matches(context).count(), 1);
             assert_eq!(prompt.matches("team assignment").count(), 1);
         }
     }
 }
 
 #[test]
-fn worker_without_assignment_still_receives_the_codeterm_primer() {
+fn worker_without_task_identity_still_leads_with_a_generic_identity() {
     assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
         .unwrap()
-        .contains(crate::prompts::WORKER_SUFFIX));
-    assert_eq!(
-        role_onboarding_task(None, Some("Worker"), None).as_deref(),
-        Some(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-    );
+        .contains(crate::prompts::WORKER_SUFFIX.trim()));
+    let prompt = role_onboarding_task(None, Some("Worker"), None).unwrap();
+    assert!(prompt.starts_with("You are a CodeTerm Worker."));
+    assert!(prompt.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
 #[test]
@@ -145,20 +144,33 @@ fn planner_profile_uses_planner_suffix() {
 }
 
 #[test]
-fn worker_prompt_orders_primer_assignment_and_worker_contract_once() {
-    let task = role_onboarding_task(Some("repair delivery"), Some("Worker"), None).unwrap();
-    let primer = task
-        .find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
+    let brief = crate::service::plan::worker_identity::attach_worker_identity(
+        "You are Hopper — executor for: repair delivery",
+        "# Repair delivery\n\nFix the ledger.",
+    );
+    let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
+    let identity = task.find("You are Hopper").unwrap();
+    let context = task
+        .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
         .unwrap();
     let assignment = task.find("## Assignment").unwrap();
-    let brief = task.find("repair delivery").unwrap();
-    let contract = task.find(crate::prompts::WORKER_SUFFIX.trim()).unwrap();
-    assert!(primer < assignment && assignment < brief && brief < contract);
-    assert_eq!(
-        task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-            .count(),
-        1
-    );
+    let brief = task.find("# Repair delivery").unwrap();
+    let report = task
+        .find("codeterm agent report --status in_review")
+        .unwrap();
+    let fallback = task
+        .find("load the provider skill named `codeterm`")
+        .unwrap();
+
+    assert!(identity < context);
+    assert!(context < assignment && assignment < brief);
+    assert!(brief < report && report < fallback);
+    assert!(!task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
+    assert!(task.ends_with(
+        "If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference."
+    ));
 }
 
 #[test]

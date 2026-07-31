@@ -68,6 +68,9 @@ pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
 
+/// Compact control context placed after a Worker's task-owned identity.
+pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
+
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");
@@ -484,6 +487,7 @@ mod tests {
             "bridge_mem.md",
             "general_agent.md",
             "agent_codeterm_primer.md",
+            "worker_codeterm_context.md",
             "codeterm_cli.md",
             "bootstrap_instructions.md",
             "worker_task_preamble.md",

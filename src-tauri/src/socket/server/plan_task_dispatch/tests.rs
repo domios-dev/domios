@@ -935,8 +935,11 @@ fn brief_deduplicates_matching_persona_guidance_prefix() {
     }));
 
     let brief = build_brief(&t, &[]);
-    let expected = "You are Hopper. Keep the role guidance first.\n\n# Trace composition\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
-    assert_eq!(brief, expected);
+    assert!(brief.starts_with(
+        "You are Hopper. Keep the role guidance first.\n\
+         Your assigned task is: Trace composition"
+    ));
+    assert!(brief.contains("# Trace composition"));
     assert!(!brief.contains("You are Hopper. You are Hopper."));
 }
 
@@ -953,11 +956,14 @@ fn brief_uses_claimed_personality_once_without_mutating_routing_metadata() {
     }));
 
     let brief = build_brief_with_personality(&t, &[], Some("Grace"));
-    let expected = "You are Grace. Keep the role guidance first.\n\n# Trace composition\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
-    assert_eq!(brief, expected);
+    assert!(brief.starts_with(
+        "You are Grace. Keep the role guidance first.\n\
+         Executor role: rust-backend-dev.\n\
+         Your assigned task is: Trace composition"
+    ));
     assert_eq!(brief.matches("You are Grace.").count(), 1);
     assert!(!brief.contains("Suggested Hopper"));
-    assert!(!brief.contains("rust-backend-dev"));
+    assert!(brief.contains("Executor role: rust-backend-dev."));
 }
 
 #[test]
@@ -989,7 +995,7 @@ fn test_author_brief_carries_charter_reference_before_task() {
 }
 
 #[test]
-fn brief_omits_personality_line_when_absent() {
+fn brief_supplies_task_owned_identity_when_personality_is_absent() {
     let t = task(json!({
         "id": "task_np",
         "name": "Bare",
@@ -997,8 +1003,8 @@ fn brief_omits_personality_line_when_absent() {
         "status": "pending",
     }));
     let brief = build_brief(&t, &[]);
-    let expected = "# Bare\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
-    assert_eq!(brief, expected);
+    assert!(brief.starts_with("You are the Worker responsible for: Bare"));
+    assert!(brief.contains("# Bare"));
 }
 
 #[test]
@@ -1091,7 +1097,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
 }
 
 #[test]
-fn brief_includes_body_acceptance_and_report_command() {
+fn brief_includes_body_acceptance_and_task_authority() {
     let t = task(json!({
         "id": "task_1",
         "name": "Wire dispatch RPC",
@@ -1105,9 +1111,53 @@ fn brief_includes_body_acceptance_and_report_command() {
     assert!(brief.contains("Compose spawn, assign, send."));
     assert!(brief.contains("- atomic"));
     assert!(brief.contains("- returns Tab id"));
-    // The report command is mandatory so the worker can report back.
-    assert!(brief.contains("codeterm agent report"));
+    assert!(brief.starts_with("You are the Worker responsible for: Wire dispatch RPC"));
+    assert!(!brief.contains("codeterm agent report"));
     assert!(!brief.contains("--base "));
+}
+
+#[test]
+fn launched_worker_prompt_orders_task_identity_before_context_and_commands() {
+    let t = task(json!({
+        "id": "task_prompt_order",
+        "name": "Repair prompt order",
+        "type": "code",
+        "status": "pending",
+        "personality": "Hopper",
+        "executor_role": "rust-backend-dev",
+        "role_guidance": "Audit the final provider prompt.",
+        "body": "Keep the task body complete.",
+        "intent": "Prefer one shared composition path.",
+        "acceptance_criteria": ["identity first"],
+        "correctness": "No provider sees the transport marker.",
+        "test_plan": "cargo test worker_prompt"
+    }));
+    let brief = build_brief(&t, &[]);
+    let params = crate::service::SpawnAgentParams {
+        role: Some("Worker".into()),
+        task: Some(brief),
+        ..Default::default()
+    };
+    let prompt = crate::service::spawn_onboarding_task(&params).unwrap();
+
+    let identity = prompt.find("You are Hopper.").unwrap();
+    let context = prompt
+        .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
+        .unwrap();
+    let body = prompt.find("Keep the task body complete.").unwrap();
+    let intent = prompt.find("## Intent").unwrap();
+    let correctness = prompt.find("## Correctness").unwrap();
+    let report = prompt
+        .find("codeterm agent report --status in_review")
+        .unwrap();
+    let fallback = prompt
+        .find("load the provider skill named `codeterm`")
+        .unwrap();
+
+    assert!(identity < context && context < body);
+    assert!(body < intent && intent < correctness);
+    assert!(correctness < report && report < fallback);
+    assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
 
 #[test]
@@ -1146,5 +1196,5 @@ fn brief_omits_empty_optional_sections() {
     assert!(!brief.contains("## Test plan"));
     assert!(!brief.contains("## Sections"));
     assert!(!brief.contains("## Strides"));
-    assert!(brief.contains("codeterm agent report"));
+    assert!(!brief.contains("codeterm agent report"));
 }

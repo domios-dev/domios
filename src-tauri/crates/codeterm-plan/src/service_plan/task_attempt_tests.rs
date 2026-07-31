@@ -164,6 +164,11 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
                 model: Some("codex/gpt-5.5".into()),
                 body: "Fix the task history respawn CLI.".into(),
                 role_guidance: Some("Act as planner; do not implement.".into()),
+                acceptance_criteria: vec!["preserve task authority".into()],
+                correctness: Some("The final provider prompt keeps every task field.".into()),
+                test_plan: Some("cargo test respawn_prompt".into()),
+                qa_plan: Some("independent hidden oracle".into()),
+                intent: Some("Prefer shared prompt composition.".into()),
                 lane: TaskLaneMetadata {
                     worktree_path: Some("/tmp/worktree".into()),
                     branch: Some("lane/retry".into()),
@@ -208,10 +213,33 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     assert!(draft.task_prompt.starts_with(
-        "Act as planner; do not implement.\n\nYou are a CodeTerm Worker respawned from a prior task attempt."
+        "Act as planner; do not implement.\n\
+         Your assigned task is: retry lane"
     ));
+    assert!(draft
+        .task_prompt
+        .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
+    assert!(
+        draft
+            .task_prompt
+            .find(crate::service_plan::worker_identity::WORKER_IDENTITY_END)
+            .unwrap()
+            < draft
+                .task_prompt
+                .find("You are a CodeTerm Worker respawned")
+                .unwrap()
+    );
     assert!(draft.task_prompt.contains("STATUS: blocked"));
     assert!(draft.task_prompt.contains("branch: lane/retry"));
+    assert!(draft.task_prompt.contains("preserve task authority"));
+    assert!(draft
+        .task_prompt
+        .contains("The final provider prompt keeps every task field."));
+    assert!(draft.task_prompt.contains("cargo test respawn_prompt"));
+    assert!(draft
+        .task_prompt
+        .contains("Prefer shared prompt composition."));
+    assert!(!draft.task_prompt.contains("independent hidden oracle"));
     assert!(draft
         .task_prompt
         .contains(&format!("attempt_id: {}", attempt.attempt_id)));
@@ -680,7 +708,13 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
         )
         .unwrap();
 
-    let expected_prefix = "You are Hopper. Audit reconnect semantics.\n\nYou are a CodeTerm Worker respawned from a prior task attempt.\nWork only on this one task. Do not reactivate or reuse the old historical attempt.\n\n";
+    let expected_prefix = format!(
+        "You are Hopper. Audit reconnect semantics.\n\
+         Your assigned task is: retry lane\n\n{}\n\n\
+         You are a CodeTerm Worker respawned from a prior task attempt.\n\
+         Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+    );
     assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
 }
@@ -724,8 +758,12 @@ fn competition_prompt_starts_with_same_canonical_identity() {
         .unwrap();
     let prompt = &drafts[0].task_prompt;
 
-    let expected_prefix =
-        "You are Hopper. Audit reconnect semantics.\n\nYou are one isolated competitive attempt.";
+    let expected_prefix = format!(
+        "You are Hopper. Audit reconnect semantics.\n\
+         Your assigned task is: judgeable\n\n{}\n\n\
+         You are one isolated competitive attempt.",
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+    );
     assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(prompt.matches("You are Hopper.").count(), 1);
 }

@@ -202,16 +202,10 @@ fn build_prompt(
     model: Option<&str>,
     report_command: &str,
 ) -> String {
+    let identity =
+        super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
     let (last_report, last_status, _) = last_report_for_attempt(task, source);
     let mut out = String::new();
-    if let Some(identity) = super::worker_identity::compose_worker_identity(
-        task.personality.as_deref(),
-        task.role_guidance.as_deref(),
-        Some(task.name.as_str()),
-    ) {
-        out.push_str(&identity);
-        out.push_str("\n\n");
-    }
     out.push_str("You are a CodeTerm Worker respawned from a prior task attempt.\n");
     out.push_str(
         "Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
@@ -239,6 +233,34 @@ fn build_prompt(
         out.push_str(intent.trim());
         out.push('\n');
     }
+    if !task.acceptance_criteria.is_empty() {
+        out.push_str("\nAcceptance criteria:\n");
+        for criterion in &task.acceptance_criteria {
+            out.push_str("- ");
+            out.push_str(criterion);
+            out.push('\n');
+        }
+    }
+    if let Some(correctness) = task
+        .correctness
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        out.push_str("\nCorrectness:\n");
+        out.push_str(correctness);
+        out.push('\n');
+    }
+    if let Some(test_plan) = task
+        .test_plan
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        out.push_str("\nTest plan:\n");
+        out.push_str(test_plan);
+        out.push('\n');
+    }
     let lane = lane_lines(&task.lane);
     if !lane.is_empty() {
         out.push_str("\nBranch/worktree hints:\n");
@@ -263,7 +285,7 @@ fn build_prompt(
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
-    out
+    super::worker_identity::attach_worker_identity(&identity, &out)
 }
 
 fn build_compete_prompt(
@@ -274,15 +296,9 @@ fn build_compete_prompt(
     model_label: &str,
     report_command: &str,
 ) -> String {
+    let identity =
+        super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
     let mut out = String::new();
-    if let Some(identity) = super::worker_identity::compose_worker_identity(
-        task.personality.as_deref(),
-        task.role_guidance.as_deref(),
-        Some(task.name.as_str()),
-    ) {
-        out.push_str(&identity);
-        out.push_str("\n\n");
-    }
     out.push_str(crate::service_plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
     out.push_str("\n\n");
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
@@ -317,6 +333,34 @@ fn build_compete_prompt(
         out.push_str(intent.trim());
         out.push('\n');
     }
+    if !task.acceptance_criteria.is_empty() {
+        out.push_str("\nAcceptance criteria:\n");
+        for criterion in &task.acceptance_criteria {
+            out.push_str("- ");
+            out.push_str(criterion);
+            out.push('\n');
+        }
+    }
+    if let Some(correctness) = task
+        .correctness
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        out.push_str("\nCorrectness:\n");
+        out.push_str(correctness);
+        out.push('\n');
+    }
+    if let Some(test_plan) = task
+        .test_plan
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        out.push_str("\nTest plan:\n");
+        out.push_str(test_plan);
+        out.push('\n');
+    }
     let lane_lines = lane_lines(&task.lane);
     if !lane_lines.is_empty() {
         out.push_str("\nBase lane hints:\n");
@@ -326,7 +370,7 @@ fn build_compete_prompt(
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
-    out
+    super::worker_identity::attach_worker_identity(&identity, &out)
 }
 
 pub fn new_assignment_attempt(

@@ -889,7 +889,7 @@ mod hierarchy_defaults_tests {
     }
 
     #[test]
-    fn chatbackend_worker_receives_primer_role_contract_and_assignment_once() {
+    fn chatbackend_worker_receives_identity_context_contract_and_assignment_once() {
         let mut params = SpawnAgentParams {
             role: Some("Worker".into()),
             task: Some("repair transport".into()),
@@ -898,12 +898,14 @@ mod hierarchy_defaults_tests {
 
         let prompt = compose_chatbackend_system_prompt(&mut params).unwrap();
 
+        assert!(prompt.starts_with("You are a CodeTerm Worker."));
         assert_eq!(
             prompt
-                .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
                 .count(),
             1
         );
+        assert!(!prompt.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
         assert_eq!(
             prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
             1

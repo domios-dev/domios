@@ -52,7 +52,11 @@ pub(crate) fn role_onboarding_task(
     role_profile: Option<&str>,
 ) -> Option<String> {
     let assignment = role_assignment_task(task, role, role_profile);
-    Some(agent_system_prompt(assignment.as_deref()))
+    if role == Some("Worker") {
+        Some(worker_agent_system_prompt(assignment.as_deref()))
+    } else {
+        Some(agent_system_prompt(assignment.as_deref()))
+    }
 }
 
 pub(crate) fn role_launch_task(
@@ -77,6 +81,18 @@ pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
         ),
         None => crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
     }
+}
+
+fn worker_agent_system_prompt(assignment: Option<&str>) -> String {
+    let (identity, assignment) = assignment
+        .map(crate::service::plan::worker_identity::split_worker_identity)
+        .unwrap_or((None, ""));
+    let mut sections = vec![identity.unwrap_or("You are a CodeTerm Worker.").to_string()];
+    sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
+    if !assignment.trim().is_empty() {
+        sections.push(format!("## Assignment\n\n{}", assignment.trim()));
+    }
+    sections.join("\n\n")
 }
 
 #[cfg(test)]

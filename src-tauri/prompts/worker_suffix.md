@@ -34,3 +34,5 @@ Never use `--status done`; only the Orchestrator closes an accepted task.
 For blocked reports, use `--status-label human-decision` when the unblocker is an escalated choice outside agent authority. Use `--status-label human-verify` when the unblocker is an external leg the agent cannot physically drive, such as OAuth, real email/payment, or a production side effect.
 
 Plan milestone attachment is automatic when your tab is assigned to a task. Use the chosen command above without `--plan`/`--task`; the daemon resolves both from the tab assignment. If it cannot resolve them, it returns the exact missing identifiers.
+
+If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference.
