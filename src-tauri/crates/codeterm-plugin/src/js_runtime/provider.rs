@@ -113,6 +113,7 @@ pub struct JsProvider {
     /// `describe()` (called on every /api/agents/providers poll) re-evaluated
     /// them through QuickJS every time — a profiled CPU hot path. Compute once.
     schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
+    has_custom_settings_schema: bool,
     /// VM-backed usage parser, built once when the plugin exports `parseUsage`.
     /// `usage_parser()` hands out a reference, so the adapter must live on the
     /// provider.
@@ -169,12 +170,14 @@ impl JsProvider {
                 },
             );
         }
+        let has_custom_settings_schema = super::vm::has_method(&vm, "settingsSchema");
         Self {
             vm,
             manifest,
             trust,
             registry: None,
             schema_cache: std::sync::OnceLock::new(),
+            has_custom_settings_schema,
             usage_parser_cell: std::sync::OnceLock::new(),
         }
     }
@@ -966,6 +969,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
+        if !self.has_custom_settings_schema {
+            return manifest_settings_sections(&self.manifest);
+        }
         // Cached: describe() polls hit this; the plugin schema is a pure constant.
         self.schema_cache
             .get_or_init(|| self.compute_schemas())

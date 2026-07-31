@@ -85,8 +85,11 @@ pub async fn shell_command_snapshot(
 pub async fn list_agent_providers(
     svc: tauri::State<'_, ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, svc.as_ref())?;
+    let result = crate::dispatch::dispatch_blocking(
+        crate::dispatch::Command::ListAgentProviders,
+        svc.inner().clone(),
+    )
+    .await?;
     Ok(result.into_json())
 }
 
