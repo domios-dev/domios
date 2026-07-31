@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, rehypeScrubInlineStyles } from "./htmlSanitize";
+import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
@@ -147,7 +147,8 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const rehypePlugins = useMemo(() => (containsHtmlMarkup(text) ? HTML_REHYPE_PLUGINS : undefined), [text]);
+  const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(text), [text]);
+  const rehypePlugins = useMemo(() => (containsHtmlMarkup(renderedText) ? HTML_REHYPE_PLUGINS : undefined), [renderedText]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -251,7 +252,7 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
         ),
       }}
     >
-      {text}
+      {renderedText}
     </ReactMarkdown>
   );
 }

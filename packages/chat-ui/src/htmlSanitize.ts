@@ -116,3 +116,94 @@ export function rehypeScrubInlineStyles() {
 export function containsHtmlMarkup(text: string): boolean {
   return /<[a-zA-Z][a-zA-Z0-9-]*(\s|\/?>)|<\/[a-zA-Z]/.test(text);
 }
+
+const MARKDOWN_HTML_BLOCK_TAGS = new Set([
+  "address", "article", "aside", "blockquote", "details", "dialog", "div", "dl", "fieldset",
+  "figure", "footer", "form", "header", "main", "nav", "ol", "p", "section", "table", "ul",
+]);
+const HTML_TAG_PATTERN = /<\/?([a-z][a-z0-9-]*)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi;
+const HTML_WHITESPACE_SENSITIVE_TAG = /<(?:pre|script|style|textarea)\b/i;
+
+type HtmlTagToken = {
+  start: number;
+  end: number;
+  name: string;
+  closing: boolean;
+  selfClosing: boolean;
+};
+
+function fencedCodeRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const lines = text.matchAll(/^.*(?:\r?\n|$)/gm);
+  let open: { start: number; marker: string; length: number } | null = null;
+  for (const match of lines) {
+    const line = match[0].replace(/\r?\n$/, "");
+    if (!open) {
+      const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (fence) open = { start: match.index, marker: fence[1][0], length: fence[1].length };
+      continue;
+    }
+    const closing = new RegExp(`^ {0,3}${open.marker === "`" ? "`" : "~"}{${open.length},}\\s*$`);
+    if (closing.test(line)) {
+      ranges.push([open.start, match.index + match[0].length]);
+      open = null;
+    }
+  }
+  if (open) ranges.push([open.start, text.length]);
+  return ranges;
+}
+
+function htmlTagTokens(text: string): HtmlTagToken[] {
+  return [...text.matchAll(HTML_TAG_PATTERN)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    name: match[1].toLowerCase(),
+    closing: match[0].startsWith("</"),
+    selfClosing: /\/\s*>$/.test(match[0]),
+  }));
+}
+
+function startsMarkdownHtmlBlock(text: string, token: HtmlTagToken, fenced: Array<[number, number]>): boolean {
+  if (token.closing || token.selfClosing || !MARKDOWN_HTML_BLOCK_TAGS.has(token.name)) return false;
+  if (fenced.some(([start, end]) => token.start >= start && token.start < end)) return false;
+  const lineStart = text.lastIndexOf("\n", token.start - 1) + 1;
+  const indentation = text.slice(lineStart, token.start);
+  return indentation.trim() === "" && indentation.length <= 3;
+}
+
+/** Keep blank lines inside raw block HTML from terminating the CommonMark HTML block. */
+export function normalizeMultilineHtmlBlocks(text: string): string {
+  if (!containsHtmlMarkup(text) || !/\r?\n[ \t]*\r?\n/.test(text)) return text;
+  const fenced = fencedCodeRanges(text);
+  const tokens = htmlTagTokens(text);
+  let cursor = 0;
+  let output = "";
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const root = tokens[i];
+    if (root.start < cursor || !startsMarkdownHtmlBlock(text, root, fenced)) continue;
+    let depth = 1;
+    let closingIndex = -1;
+    for (let j = i + 1; j < tokens.length; j += 1) {
+      const token = tokens[j];
+      if (token.name !== root.name || token.selfClosing) continue;
+      depth += token.closing ? -1 : 1;
+      if (depth === 0) {
+        closingIndex = j;
+        break;
+      }
+    }
+    if (closingIndex < 0) continue;
+
+    const end = tokens[closingIndex].end;
+    const block = text.slice(root.start, end);
+    if (HTML_WHITESPACE_SENSITIVE_TAG.test(block)) continue;
+    const normalized = block.replace(/\r?\n[ \t]*\r?\n/g, "\n");
+    if (normalized === block) continue;
+    output += text.slice(cursor, root.start) + normalized;
+    cursor = end;
+    i = closingIndex;
+  }
+
+  return cursor === 0 ? text : output + text.slice(cursor);
+}
