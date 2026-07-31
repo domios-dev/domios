@@ -184,6 +184,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             from_file: None,
             continue_prompt: None,
             continue_tab: None,
+            no_continue: false,
             after_update,
         } = &resolved
         {

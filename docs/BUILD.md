@@ -99,6 +99,20 @@ does not publish a release or alter GitHub assets.
    Cargo incremental remains disabled because sccache rejects incremental rustc
    invocations; persistent completed artifacts provide reuse.
 
+   On Windows the CLI hands the installer helper to the system process broker
+   before the running daemon is stopped. The helper must not inherit the
+   calling Tab's PTY Job: detached stdio, `DETACHED_PROCESS`, `cmd start`, and
+   `Start-Process` alone do not escape that Job and are not valid substitutes.
+   The handoff invokes the freshly bundled CLI by its provenance-owned path;
+   resolving `codeterm` from `PATH` may silently run the previously installed
+   helper and is forbidden in this flow.
+   Direct `update install --from-file` calls default to a short continuation
+   when `CODETERM_TAB_ID` is present; use `--no-continue` only when interruption
+   is intentional.
+   A successful self-install is proven by `self-install.log` reaching
+   `installer exited 0` and `launched`, followed by port 7685 health reporting
+   the installed source SHA.
+
 4. Use the clean-room route when validating a public-release-equivalent
    artifact:
 
@@ -119,7 +133,7 @@ does not publish a release or alter GitHub assets.
 | `Release lock version mismatch` before build | Version manifests and one or both Cargo lockfiles differ | Run `release-preflight`, commit both lockfiles, then retry. |
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
-| Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
+| Self-install logs `starting` and the window never returns | A helper inherited the calling PTY Job and died when `taskkill` closed that Job | Rebuild the current CLI; it creates the helper through the out-of-job Windows process broker. Re-run `install-local`, inspect `%LOCALAPPDATA%\codeterm\self-install.log`, and verify port 7685 health. |
 | CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
@@ -401,4 +415,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 41 -->
+<!-- revision: 44 -->
