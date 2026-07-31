@@ -56,6 +56,8 @@ pub enum Command {
         #[serde(default)]
         workspace_id: Option<String>,
         #[serde(default)]
+        caller_tab_id: Option<String>,
+        #[serde(default)]
         focused_workspace: bool,
         #[serde(default)]
         agents_only: bool,
@@ -197,11 +199,13 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         Command::TabList => cmd_tab_list(ctx),
         Command::TabSummary {
             workspace_id,
+            caller_tab_id,
             focused_workspace,
             agents_only,
         } => cmd_tab_summary(
             ctx,
             workspace_id.as_deref(),
+            caller_tab_id.as_deref(),
             *focused_workspace,
             *agents_only,
         ),
@@ -293,12 +297,19 @@ fn cmd_tab_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
 fn cmd_tab_summary(
     ctx: &dyn CommandPort,
     workspace_id: Option<&str>,
+    caller_tab_id: Option<&str>,
     focused_workspace: bool,
     agents_only: bool,
 ) -> Result<CommandResult, String> {
     let snapshot = ctx.mux_snapshot();
     Ok(CommandResult::Json(serde_json::json!(
-        build_tab_summary_json(&snapshot, workspace_id, focused_workspace, agents_only,)
+        build_tab_summary_json(
+            &snapshot,
+            workspace_id,
+            caller_tab_id,
+            focused_workspace,
+            agents_only,
+        )
     )))
 }
 
@@ -377,6 +388,7 @@ pub(crate) fn build_tab_list_json(
 pub(crate) fn build_tab_summary_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
     workspace_id: Option<&str>,
+    caller_tab_id: Option<&str>,
     focused_workspace: bool,
     agents_only: bool,
 ) -> Vec<serde_json::Value> {
@@ -398,8 +410,11 @@ pub(crate) fn build_tab_summary_json(
         .focused_tab_id
         .as_deref()
         .and_then(|tab_id| tab_index.get(tab_id).map(|(_, id, _)| *id));
-    let selected_workspace =
-        workspace_id.or_else(|| focused_workspace.then_some(focused_workspace_id).flatten());
+    let caller_workspace_id =
+        caller_tab_id.and_then(|tab_id| tab_index.get(tab_id).map(|(_, id, _)| *id));
+    let selected_workspace = workspace_id
+        .or(caller_workspace_id)
+        .or_else(|| focused_workspace.then_some(focused_workspace_id).flatten());
     let focused_id = snapshot.focused_tab_id.as_deref();
     snapshot
         .tabs
@@ -928,7 +943,7 @@ mod tests {
         let (state, initial_tab) = MultiplexerState::new();
         let snapshot = state.snapshot();
         let workspace = snapshot.workspaces.first().expect("default workspace");
-        let summaries = build_tab_summary_json(&snapshot, Some(&workspace.id), false, false);
+        let summaries = build_tab_summary_json(&snapshot, Some(&workspace.id), None, false, false);
         assert_eq!(summaries.len(), 1);
         let tab = summaries.first().expect("summary Tab");
         assert_eq!(tab["id"].as_str(), Some(initial_tab.as_str()));
@@ -937,6 +952,26 @@ mod tests {
         assert!(tab.get("session_binding_nonce").is_none());
         assert!(tab.get("agent_state").is_none());
         assert!(tab.get("model_fallback").is_none());
+    }
+
+    #[test]
+    fn tab_list_default_scope_keeps_requesting_tab_visible_during_focus_churn() {
+        use crate::multiplexer::state::MultiplexerState;
+
+        let (mut state, requesting_tab) = MultiplexerState::new();
+        let other_workspace = state.create_workspace("other".into(), None);
+        let focused_tab = state.create_tab(&other_workspace.id).unwrap();
+        state.set_focused_tab(&focused_tab).unwrap();
+
+        let summaries =
+            build_tab_summary_json(&state.snapshot(), None, Some(&requesting_tab), true, false);
+
+        assert!(
+            summaries
+                .iter()
+                .any(|tab| tab["id"].as_str() == Some(requesting_tab.as_str())),
+            "requesting live Tab {requesting_tab} was omitted after focus moved to {focused_tab}"
+        );
     }
 
     #[test]
@@ -962,7 +997,7 @@ mod tests {
         let restored_snapshot = restored.snapshot();
         let workspace_id = restored_snapshot.workspaces[0].id.as_str();
         let projection =
-            build_tab_summary_json(&restored_snapshot, Some(workspace_id), false, false);
+            build_tab_summary_json(&restored_snapshot, Some(workspace_id), None, false, false);
         let projected = projection
             .iter()
             .find(|tab| tab["id"].as_str() == Some(tab_id.as_str()))
@@ -981,16 +1016,17 @@ mod tests {
     #[test]
     fn tab_summary_command_deserializes_compact_scope_options() {
         let command: Command = serde_json::from_str(
-            r#"{"cmd":"tab_summary","workspace_id":"ws_1","focused_workspace":false,"agents_only":true}"#,
+            r#"{"cmd":"tab_summary","workspace_id":"ws_1","caller_tab_id":"tab_1","focused_workspace":false,"agents_only":true}"#,
         )
         .expect("Tab summary command");
         assert!(matches!(
             command,
             Command::TabSummary {
                 workspace_id: Some(workspace_id),
+                caller_tab_id: Some(caller_tab_id),
                 focused_workspace: false,
                 agents_only: true,
-            } if workspace_id == "ws_1"
+            } if workspace_id == "ws_1" && caller_tab_id == "tab_1"
         ));
     }
 
