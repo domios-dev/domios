@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
-import { canonicalBlob, displayablePreview, uncoveredPreviewTail } from "./streamPreviewMatch";
+import {
+  MAX_PREVIEW_ROWS,
+  canonicalBlob,
+  displayablePreview,
+  uncoveredPreviewTail,
+} from "./streamPreviewMatch";
 
 /** Cumulative in-flight turn reconstruction emitted by the daemon's motion
  * decoder. Idempotent: `frozen` and `live` replace previous state entirely. */
@@ -10,8 +15,6 @@ export interface StreamPreviewEventPayload {
   frozen: string[];
   live: string[];
 }
-
-const MAX_RENDER_ROWS = 8;
 
 /**
  * Ephemeral streaming preview for PTY agent tabs: the decoder's turn view
@@ -48,7 +51,7 @@ export function useStreamPreview(
   const displayed = useMemo(() => {
     if (!event) return [];
     const content = displayablePreview(event.frozen.concat(event.live));
-    return uncoveredPreviewTail(content, blob).slice(-MAX_RENDER_ROWS);
+    return uncoveredPreviewTail(content, blob).slice(-MAX_PREVIEW_ROWS);
   }, [event, blob]);
 
   // Turn over and fully covered by canon → drop the stale event entirely.
