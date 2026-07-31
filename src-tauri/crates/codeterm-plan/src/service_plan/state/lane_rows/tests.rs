@@ -17,6 +17,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         model: None,
         model_rationale: None,
         acceptance_criteria: vec![],
+        external_refs: vec![],
         test_plan: None,
         qa_plan: None,
         correctness: None,

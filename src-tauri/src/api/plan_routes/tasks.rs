@@ -184,6 +184,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     acceptance_criteria: Vec<String>,
     #[serde(default)]
+    external_refs: Vec<String>,
+    #[serde(default)]
     test_plan: Option<String>,
     #[serde(default)]
     qa_plan: Option<String>,
@@ -271,10 +273,11 @@ pub async fn task_add(
         .correctness
         .as_deref()
         .is_some_and(|s| !s.trim().is_empty());
+    let external_refs = body.external_refs.clone();
     let tid = state
         .svc
         .plan_store
-        .add_task(
+        .add_task_with_external_refs(
             &id,
             NewTask {
                 name: body.name,
@@ -302,6 +305,7 @@ pub async fn task_add(
                 handle: body.handle,
                 tags: body.tags,
             },
+            &external_refs,
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -363,6 +367,19 @@ pub async fn task_update(
             .and_then(|value| serde_json::from_value(value.clone()).ok())
             .unwrap_or_default()
     });
+    let external_refs = body
+        .get("external_refs")
+        .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
+        .transpose()
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("invalid external_refs: expected an array of reference strings: {error}"),
+            )
+        })?
+        .unwrap_or_default();
+    crate::service::plan::external_refs::canonicalize_external_refs(&external_refs)
+        .map_err(plan_err)?;
     let test_plan = optional_string_field(&body, "test_plan");
     let qa_plan = optional_string_field(&body, "qa_plan");
     let correctness = optional_string_field(&body, "correctness");
@@ -459,6 +476,13 @@ pub async fn task_update(
             .svc
             .plan_store
             .update_task_competition(&id, &tid, update, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if !external_refs.is_empty() {
+        state
+            .svc
+            .plan_store
+            .add_task_external_refs(&id, &tid, &external_refs, epoch_ms())
             .map_err(plan_err)?;
     }
     // (orchestrator) directly, so a separate `agent report` isn't needed.

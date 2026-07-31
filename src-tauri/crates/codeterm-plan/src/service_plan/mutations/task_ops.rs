@@ -1,6 +1,38 @@
 use super::*;
 
 impl PlanStore {
+    pub fn add_task_external_refs(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        values: &[String],
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let additions = crate::service_plan::external_refs::canonicalize_external_refs(values)?;
+        if additions.is_empty() {
+            return Ok(());
+        }
+        let expected = additions.clone();
+        let write = self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            crate::service_plan::external_refs::merge_external_refs(
+                &mut task.external_refs,
+                additions,
+            );
+            task.updated_at = now_ms;
+            Ok(())
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_external_refs_added(plan_id, task_id, &expected),
+            None,
+        )
+    }
+
     pub fn update_task(
         &self,
         plan_id: &str,

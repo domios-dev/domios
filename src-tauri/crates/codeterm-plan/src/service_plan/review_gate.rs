@@ -640,6 +640,7 @@ impl PlanStore {
                         personality: None,
                         personality_provenance: None,
                         acceptance_criteria: vec![],
+                        external_refs: vec![],
                         test_plan: None,
                         qa_plan: None,
                         correctness: None,

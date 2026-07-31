@@ -279,6 +279,7 @@ pub(super) fn run_task(
             why,
             why_file,
             criterion,
+            external_ref,
             test_plan,
             qa_plan,
             qa_plan_file,
@@ -343,6 +344,9 @@ pub(super) fn run_task(
             }
             if !criterion.is_empty() {
                 params["acceptance_criteria"] = json!(criterion);
+            }
+            if !external_ref.is_empty() {
+                params["external_refs"] = json!(external_ref);
             }
             if let Some(test_plan) = test_plan {
                 params["test_plan"] = json!(test_plan);
@@ -463,6 +467,7 @@ pub(super) fn run_task(
             intent_file,
             sections,
             criterion,
+            external_ref,
             test_plan,
             qa_plan,
             qa_plan_file,
@@ -528,6 +533,7 @@ pub(super) fn run_task(
                 tags,
                 primary,
                 handle,
+                external_ref,
             )
             .map(Some)
         }
