@@ -444,25 +444,6 @@ impl ServiceContext {
                 session_id
             );
 
-            // Publish models for the tab picker; listModels may hit a network backend, so spawn_blocking.
-            {
-                let svc2 = svc.clone();
-                let plugin2 = plugin_id.clone();
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(models) = svc2.chatbackend_list_models(&plugin2) {
-                        if !models.is_empty() {
-                            crate::agent::model_catalog::register(
-                                &plugin2,
-                                crate::agent::model_catalog::RegisteredDefaults {
-                                    models,
-                                    default: None,
-                                },
-                            );
-                        }
-                    }
-                });
-            }
-
             let replay_tab = tab_id.clone();
             svc.spawn_chatbackend_poll_loop(tab_id, plugin_id, session_id, history_meta);
             svc.schedule_planner_replay(&replay_tab);
