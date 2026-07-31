@@ -230,20 +230,41 @@ fn reconcile_current_session_turns(
     source_binding_nonce: Option<&str>,
     messages: &[ChatMsg],
 ) {
-    let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
-        return;
-    };
-    if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
-        return;
-    }
-    crate::service::chat_send_transaction::reconcile_delivered_turns(
-        app,
+    for status in current_binding_turn_confirmations(
+        mux,
         ledger,
         tab_id,
         source_session_id,
         source_binding_nonce,
         messages,
-    );
+    ) {
+        crate::api::events::emit_everywhere(app, "chat-send-status", &status);
+    }
+}
+
+/// The full live confirmation gate: only turns attributed to the tab's CURRENT
+/// bound session (id + nonce) may consume pending sends from the ledger.
+pub(crate) fn current_binding_turn_confirmations(
+    mux: &MuxState,
+    ledger: Option<&crate::service::chat_send_transaction::ChatSendLedger>,
+    tab_id: &str,
+    source_session_id: Option<&str>,
+    source_binding_nonce: Option<&str>,
+    messages: &[ChatMsg],
+) -> Vec<crate::service::chat_send_transaction::ChatSendStatus> {
+    let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
+        return Vec::new();
+    };
+    if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
+        return Vec::new();
+    }
+    crate::service::chat_send_transaction::delivered_turn_confirmations(
+        ledger,
+        tab_id,
+        source_session_id,
+        source_binding_nonce,
+        messages,
+    )
 }
 
 fn source_is_current_binding(
@@ -331,6 +352,73 @@ mod tests {
             "session-new",
             Some("binding-new")
         ));
+    }
+
+    /// Inverse guard for the missing-store/rebind case: a send whose session
+    /// store had not materialized carries no anchor, and still reaches `Sent`
+    /// from a genuine attributable bound-session turn arriving through the
+    /// live gate — no store-watch, tailer, or other readiness machinery.
+    #[test]
+    fn missing_store_send_confirms_from_attributable_bound_session_turn() {
+        use crate::service::chat_send_transaction::{
+            ChatSendLedger, ChatSendState, SendLiveBinding,
+        };
+
+        let (state, tab_id) = MultiplexerState::new();
+        let mux = Arc::new(TimedRwLock::new("chat-send-live-confirm-test", state));
+        {
+            let mut state = mux.write();
+            let tab = state.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("sess-live".into());
+            tab.session_binding_nonce = Some("nonce-live".into());
+        }
+
+        let ledger = ChatSendLedger::default();
+        let send = ledger
+            .try_start_scoped(
+                &tab_id,
+                "deploy the fix",
+                None,
+                Some(SendLiveBinding {
+                    session_id: Some("sess-live".into()),
+                    binding_nonce: Some("nonce-live".into()),
+                }),
+            )
+            .unwrap();
+        let after_transport = ledger.finish(&send.send_id, Ok(())).unwrap();
+        assert_eq!(
+            after_transport.state,
+            ChatSendState::Pending,
+            "bare transport success never proves an unanchored send"
+        );
+
+        let user_turn = [ChatMsg {
+            id: "turn-1".into(),
+            kind: "user".into(),
+            content: "deploy the fix".into(),
+            ..Default::default()
+        }];
+        let stale = current_binding_turn_confirmations(
+            &mux,
+            Some(&ledger),
+            &tab_id,
+            Some("sess-old"),
+            Some("nonce-old"),
+            &user_turn,
+        );
+        assert!(stale.is_empty(), "stale-scope turns cannot confirm");
+
+        let confirmed = current_binding_turn_confirmations(
+            &mux,
+            Some(&ledger),
+            &tab_id,
+            Some("sess-live"),
+            Some("nonce-live"),
+            &user_turn,
+        );
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(confirmed[0].send_id, send.send_id);
+        assert_eq!(confirmed[0].state, ChatSendState::Sent);
     }
 
     #[test]
