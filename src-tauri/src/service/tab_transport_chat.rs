@@ -10,7 +10,6 @@ use super::pty_io::SendBatchItem;
 use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
-use crate::agent::provider::ModelInfo;
 use crate::chatbackend::ChatBackendProvider;
 use crate::multiplexer::commands::MuxState;
 
@@ -461,22 +460,6 @@ impl ServiceContext {
     pub fn chatbackend_close(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {
         self.chatbackend_provider(plugin_id)?
             .close_session(session_id)
-            .map_err(|e| e.to_string())
-    }
-
-    /// Models a chatBackend plugin offers, for the tab's model picker.
-    pub fn chatbackend_list_models(&self, plugin_id: &str) -> Result<Vec<ModelInfo>, String> {
-        self.chatbackend_provider(plugin_id)?
-            .list_models()
-            .map_err(|e| e.to_string())
-    }
-
-    pub fn chatbackend_list_presets(
-        &self,
-        plugin_id: &str,
-    ) -> Result<Vec<crate::chatbackend::PresetInfo>, String> {
-        self.chatbackend_provider(plugin_id)?
-            .list_presets()
             .map_err(|e| e.to_string())
     }
 

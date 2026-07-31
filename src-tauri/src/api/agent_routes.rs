@@ -824,9 +824,7 @@ pub async fn list_agent_providers(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    Ok(Json(serde_json::Value::Array(list_agent_provider_values(
-        &state.svc.provider_registry,
-    ))))
+    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
 }
 
 /// Public provider list for local plugin verification/UI smoke checks.
@@ -835,9 +833,24 @@ pub async fn list_agent_providers(
 pub async fn list_agent_providers_public(
     AxumState(state): AxumState<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    Ok(Json(serde_json::Value::Array(list_agent_provider_values(
-        &state.svc.provider_registry,
-    ))))
+    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
+}
+
+async fn list_agent_providers_blocking(
+    registry: std::sync::Arc<crate::provider::ProviderRegistry>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
+        Json(serde_json::Value::Array(list_agent_provider_values(
+            &registry,
+        )))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("provider catalog worker failed: {error}"),
+        )
+    })
 }
 
 /// Web-mirror twin of the `restart_general_agent` Tauri command — kills the
@@ -1129,8 +1142,7 @@ mod tests {
         );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
-        // list_models() getter, so this stays empty by design.
-        assert_eq!(shell["available_models"].as_array().unwrap().len(), 0);
+        assert_eq!(shell["available_models"][0]["id"], "qwen");
     }
 
     #[test]

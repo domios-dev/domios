@@ -364,6 +364,49 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
     assert_eq!(ms[0].description.as_deref(), Some("from catalog"));
 }
 
+#[test]
+fn settings_model_options_follow_catalog_changes() {
+    let json = r#"{
+            "id": "dynamic-settings-models",
+            "version": "0.1.0",
+            "displayName": "Dynamic Settings Models",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "models": [
+                { "id": "seed", "displayName": "Seed" }
+            ],
+            "defaultModel": "seed"
+        }"#;
+    let p = load(json, "module.exports.default = {};");
+
+    crate::model_catalog::put_live(
+        "dynamic-settings-models",
+        vec![crate::provider::ModelInfo {
+            id: "live".into(),
+            display_name: "Live".into(),
+            description: None,
+            available: None,
+        }],
+        Some("live".into()),
+    );
+
+    let settings = p.settings_schema();
+    let SettingField::Section { fields, .. } = &settings[0] else {
+        panic!("model section expected");
+    };
+    let SettingField::Select {
+        options, default, ..
+    } = &fields[0]
+    else {
+        panic!("model selector expected");
+    };
+    assert_eq!(options, &vec![("live".into(), "Live".into())]);
+    assert_eq!(default.as_deref(), Some("live"));
+}
+
 #[tokio::test]
 async fn discover_models_delegates_to_optional_js_export() {
     let js = r#"
