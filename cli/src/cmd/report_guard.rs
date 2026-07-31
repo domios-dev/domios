@@ -165,7 +165,6 @@ fn enrich_ready_report_in_scope(
         let owned_sha = sha.as_deref().and_then(|given| resolve_commit(cwd, given));
         if let Some(dirty) = load_lane_dirty(
             cwd,
-            inspection.checkout,
             inspection.base.as_deref(),
             owned_sha.as_deref(),
         )? {
@@ -181,15 +180,12 @@ fn enrich_ready_report_in_scope(
 
 fn load_lane_dirty(
     cwd: &Path,
-    checkout: CheckoutKind,
     base: Option<&str>,
     owned_sha: Option<&str>,
 ) -> Result<Option<Vec<String>>, ReportRefusal> {
     let dirty = git_lines(cwd, &["status", "--porcelain", "-uall"]).map_err(git_refusal)?;
     let mut lane_dirty = lane_dirty_files(&dirty);
-    if let (CheckoutKind::SharedCanonical, Some(base), Some(owned_sha)) =
-        (checkout, base, owned_sha)
-    {
+    if let (Some(base), Some(owned_sha)) = (base, owned_sha) {
         let owned_paths: BTreeSet<String> =
             git_lines(cwd, &["diff", "--name-only", base, owned_sha])
                 .map_err(git_refusal)?
@@ -954,6 +950,41 @@ mod tests {
 
         assert_eq!(sha.as_deref(), Some(owned.as_str()));
         assert_eq!(branch.as_deref(), Some("lane/report"));
+    }
+
+    #[test]
+    fn dev_bound_lane_worktree_ignores_foreign_vision_outside_owned_interval() {
+        let dir = repo();
+        let lane = dir.path().join("lane");
+        let lane_str = lane.to_string_lossy().into_owned();
+        run(
+            dir.path(),
+            &["worktree", "add", "-b", "lane/report", &lane_str],
+        );
+        let base = branch_head(&lane);
+        fs::write(lane.join("AGENTS.md"), "owned\n").unwrap();
+        fs::create_dir_all(lane.join("evals/_lib")).unwrap();
+        fs::write(lane.join("evals/_lib/lib.sh"), "owned\n").unwrap();
+        run(&lane, &["add", "AGENTS.md", "evals/_lib/lib.sh"]);
+        run(&lane, &["commit", "-m", "owned"]);
+        let owned = branch_head(&lane);
+        fs::write(lane.join("VISION.md"), "foreign dirt\n").unwrap();
+
+        let (_, reported, _) = enrich_ready_report_in_scope(
+            ReadinessScope {
+                pane_cwd: dir.path(),
+                lane_worktree: Some(&lane),
+            },
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned.clone()),
+            Some(base),
+            None,
+            false,
+        )
+        .expect("foreign VISION.md must not block the owning lane's report");
+
+        assert_eq!(reported.as_deref(), Some(owned.as_str()));
     }
 
     #[test]
