@@ -196,7 +196,7 @@ fn ledger_send(publishes_turn_transition: bool) -> (ChatSendState, Option<String
     if publishes_turn_transition {
         assert_eq!(
             status.state,
-            ChatSendState::Pending,
+            ChatSendState::Unknown,
             "transport acknowledgement waits for exact turn evidence"
         );
         let confirmed = ledger
@@ -219,6 +219,6 @@ fn observable_acceptance_confirms_at_the_ledger_seam() {
 fn unacknowledged_submit_still_reaches_the_ledger_as_unconfirmed() {
     let (state, error) = ledger_send(false);
 
-    assert_eq!(state, ChatSendState::Failed);
-    assert!(error.is_some_and(|error| error.starts_with("submit_unconfirmed:")));
+    assert_eq!(state, ChatSendState::Unknown);
+    assert_eq!(error, None);
 }

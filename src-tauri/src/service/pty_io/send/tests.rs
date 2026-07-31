@@ -1,6 +1,6 @@
 use super::readiness::composer_input_ready;
 use super::{
-    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed,
+    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
     optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
     submit_authenticated_pty_input, wait_for_observed_readiness,
 };
@@ -23,6 +23,12 @@ const MACOS_BASH_BANNER_PROMPT: &[u8] = b"The default interactive shell is now z
 
 fn handle() -> crate::ScreenStateHandle {
     Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
+}
+
+#[test]
+fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
+    assert!(delivery_is_unknown("submit_unconfirmed: Enter was not observed"));
+    assert!(!delivery_is_unknown("pty_unavailable: recipient PTY missing"));
 }
 
 #[test]

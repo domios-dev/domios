@@ -9,7 +9,10 @@ const MAX_IN_FLIGHT: usize = 32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSendState {
+    #[serde(rename = "accepted")]
     Pending,
+    Unknown,
+    #[serde(rename = "confirmed")]
     Sent,
     Failed,
 }
@@ -200,6 +203,12 @@ impl ChatSendLedger {
             match result {
                 _ if status.state == ChatSendState::Sent => None,
                 Ok(()) => {
+                    status.state = ChatSendState::Unknown;
+                    status.error = None;
+                    None
+                }
+                Err(error) if error.starts_with("submit_unconfirmed:") => {
+                    status.state = ChatSendState::Unknown;
                     status.error = None;
                     None
                 }
@@ -347,16 +356,19 @@ impl ChatSendLedger {
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let state = self.state.lock();
-        let failures = state
+        let unresolved = state
             .order
             .iter()
             .filter_map(|send_id| state.by_id.get(send_id))
-            .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Failed)
+            .filter(|status| {
+                status.tab_id == tab_id
+                    && matches!(status.state, ChatSendState::Unknown | ChatSendState::Failed)
+            })
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
             .collect::<Vec<_>>();
-        if !failures.is_empty() {
-            return failures;
+        if !unresolved.is_empty() {
+            return unresolved;
         }
         state
             .latest_by_tab
@@ -472,7 +484,15 @@ mod tests {
     }
 
     #[test]
-    fn failed_submit_retains_one_payload_and_correlated_result() {
+    fn serialized_states_separate_acceptance_uncertainty_and_confirmation() {
+        assert_eq!(serde_json::to_string(&ChatSendState::Pending).unwrap(), "\"accepted\"");
+        assert_eq!(serde_json::to_string(&ChatSendState::Unknown).unwrap(), "\"unknown\"");
+        assert_eq!(serde_json::to_string(&ChatSendState::Sent).unwrap(), "\"confirmed\"");
+        assert_eq!(serde_json::to_string(&ChatSendState::Failed).unwrap(), "\"failed\"");
+    }
+
+    #[test]
+    fn unconfirmed_submit_retains_one_payload_and_correlated_result() {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "payload", None).unwrap();
         let mut writes = Vec::new();
@@ -483,12 +503,13 @@ mod tests {
 
         assert_eq!(writes, ["one payload"]);
         assert_eq!(result.send_id, pending.send_id);
-        assert_eq!(result.state, ChatSendState::Failed);
+        assert_eq!(result.state, ChatSendState::Unknown);
+        assert_eq!(result.error, None);
         assert_eq!(ledger.reconcile("tab-1"), vec![result]);
     }
 
     #[test]
-    fn pending_transaction_survives_ui_detach_and_activation() {
+    fn unknown_transaction_survives_ui_detach_and_activation() {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "payload", None).unwrap();
 
@@ -496,7 +517,7 @@ mod tests {
 
         let result = run_chat_send(&ledger, pending, "hello", |_| Ok(()));
 
-        assert_eq!(result.state, ChatSendState::Pending);
+        assert_eq!(result.state, ChatSendState::Unknown);
         assert_eq!(ledger.reconcile("tab-1"), vec![result]);
     }
 
@@ -529,16 +550,15 @@ mod tests {
         assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT);
 
         ledger.finish(&pending[0].send_id, Ok(())).unwrap();
-        assert!(ledger.try_start("still-full", "payload", None).is_err());
+        assert!(ledger.try_start("released", "payload", None).is_ok());
         ledger
             .confirm_delivered_user_turn("tab-0", "session-0", "payload")
             .unwrap();
-        assert!(ledger.try_start("released", "payload", None).is_ok());
         assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT + 1);
     }
 
     #[test]
-    fn reconcile_retains_every_failure_missed_while_chat_is_detached() {
+    fn reconcile_retains_every_unknown_send_missed_while_chat_is_detached() {
         let ledger = ChatSendLedger::default();
         let first = ledger.try_start("tab-1", "payload", None).unwrap();
         let second = ledger.try_start("tab-1", "payload", None).unwrap();
@@ -549,14 +569,11 @@ mod tests {
             Err(submit_unconfirmed("second failed"))
         });
 
-        let errors = ledger
-            .reconcile("tab-1")
-            .into_iter()
-            .filter_map(|status| status.error)
-            .collect::<Vec<_>>();
-        assert_eq!(errors.len(), 2);
-        assert!(errors[0].contains("first failed"));
-        assert!(errors[1].contains("second failed"));
+        let statuses = ledger.reconcile("tab-1");
+        assert_eq!(statuses.len(), 2);
+        assert!(statuses
+            .iter()
+            .all(|status| status.state == ChatSendState::Unknown && status.error.is_none()));
     }
 
     #[test]
@@ -589,14 +606,8 @@ mod tests {
             ))
         });
 
-        assert_eq!(result.state, ChatSendState::Failed);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .is_some_and(|error| error.starts_with("submit_unconfirmed:")),
-            "the rendered ledger boundary must retain retryable uncertainty"
-        );
+        assert_eq!(result.state, ChatSendState::Unknown);
+        assert_eq!(result.error, None);
     }
 
     #[test]
@@ -655,7 +666,7 @@ mod tests {
         assert!(ledger
             .confirm_delivered_user_turn("tab-1", "session-1", "   ")
             .is_none());
-        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Failed);
+        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
     }
 
     #[test]
@@ -690,7 +701,7 @@ mod tests {
                 "exact payload",
             )
             .is_none());
-        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Pending);
+        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
 
         let confirmed = ledger
             .confirm_delivered_user_turn_scoped(
@@ -738,7 +749,7 @@ mod tests {
         let finished = ledger.finish(&pending.send_id, Ok(())).unwrap();
         assert_eq!(
             finished.state,
-            ChatSendState::Pending,
+            ChatSendState::Unknown,
             "transport Ok is not attribution: sent requires a turn in the tab's own bound session"
         );
     }
@@ -762,8 +773,8 @@ mod tests {
         assert_eq!(writes.len(), 1, "payload written exactly once");
         assert_eq!(
             result.state,
-            ChatSendState::Pending,
-            "a successful submit before the session rebinds stays pending until turn evidence"
+            ChatSendState::Unknown,
+            "transport completion stays unknown until exact turn evidence"
         );
         let confirmed = ledger
             .confirm_delivered_user_turn("tab-1", "rebound-session", "Reply with exactly: REBIND-2")

@@ -212,8 +212,8 @@ fn recovered_submit_reaches_sent_only_after_exact_turn_evidence() {
     assert_eq!(io.payload_writes.get(), 1);
     assert_eq!(
         status.state,
-        ChatSendState::Pending,
-        "transport success stays pending without transcript evidence, got {:?}",
+        ChatSendState::Unknown,
+        "transport success stays unknown without transcript evidence, got {:?}",
         status.error
     );
     let confirmed = ledger

@@ -24,7 +24,7 @@ impl Default for VerifyOpts {
             verify_submit: true,
             prompt_timeout: Duration::from_secs(10),
             echo_timeout: Duration::from_secs(3),
-            submit_timeout: Duration::from_secs(5),
+            submit_timeout: Duration::from_secs(10),
         }
     }
 }

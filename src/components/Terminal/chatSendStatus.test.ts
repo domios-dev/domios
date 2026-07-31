@@ -5,11 +5,11 @@ import test from "node:test";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
-function pendingStatus(): ChatSendStatus {
+function acceptedStatus(): ChatSendStatus {
   return {
     send_id: "send-1",
     tab_id: "tab-1",
-    state: "pending",
+    state: "accepted",
     error: null,
     ledger_id: "ledger-1",
     sequence: 1,
@@ -17,17 +17,17 @@ function pendingStatus(): ChatSendStatus {
   };
 }
 
-test("optimistic send enters the backend ledger once", async () => {
+test("accepted send enters the backend ledger once", async () => {
   const calls: Array<{ command: string; args: unknown }> = [];
-  const pending = pendingStatus();
+  const accepted = acceptedStatus();
   __setInvokeForTest(async <T>(command: string, args?: unknown) => {
     calls.push({ command, args });
-    return pending as T;
+    return accepted as T;
   });
 
   const result = await sendTrackedChatMessage("tab-1", "message-1", "hello");
 
-  assert.deepEqual(result, pending);
+  assert.deepEqual(result, accepted);
   assert.deepEqual(calls, [{
     command: "chat_send_text",
     args: { tabId: "tab-1", text: "hello" },

@@ -412,22 +412,22 @@ impl SubmitTransport for HalfIngestion {
 mod ingestion_gate {
     use super::*;
 
-    fn assert_submit_key_unreachable(io: &HalfIngestion) {
-        let result = run(io, "causal-ingestion", true, tui(), opts());
+    fn assert_first_submit_key_is_unconditional(io: &HalfIngestion) {
+        let result = run(io, "causal-ingestion", true, tui(), opts()).unwrap();
 
-        assert!(matches!(result, Err(InjectionError::EchoMismatch { .. })));
+        assert!(result.submit_anomaly);
         assert_eq!(io.payload_writes.get(), 1);
-        assert_eq!(io.submit_key_writes.get(), 0);
+        assert!(io.submit_key_writes.get() >= 1);
     }
 
     #[test]
-    fn evidence_without_generation_never_reaches_submit_key() {
-        assert_submit_key_unreachable(&HalfIngestion::evidence_without_generation());
+    fn evidence_without_generation_still_reaches_submit_key() {
+        assert_first_submit_key_is_unconditional(&HalfIngestion::evidence_without_generation());
     }
 
     #[test]
-    fn generation_without_evidence_never_reaches_submit_key() {
-        assert_submit_key_unreachable(&HalfIngestion::generation_without_evidence());
+    fn generation_without_evidence_still_reaches_submit_key() {
+        assert_first_submit_key_is_unconditional(&HalfIngestion::generation_without_evidence());
     }
 }
 
@@ -728,16 +728,23 @@ fn tui_turn_transition_confirms_submission() {
 }
 
 #[test]
-fn missing_paste_evidence_never_writes_submit_key() {
+fn first_submit_key_does_not_wait_for_paste_evidence() {
     let io = TuiModel::never_ingests();
-    let result = run(&io, "general bootstrap", true, tui(), opts());
+    let result = run(&io, "general bootstrap", true, tui(), opts()).unwrap();
 
-    assert!(matches!(result, Err(InjectionError::EchoMismatch { .. })));
-    assert_eq!(&*io.writes.borrow(), &["paste:general bootstrap"]);
+    assert!(result.submit_anomaly);
+    assert!(!result.submit_observed);
+    let writes = io.writes.borrow();
+    assert_eq!(writes.first().map(String::as_str), Some("paste:general bootstrap"));
+    assert_eq!(
+        writes.iter().filter(|write| write.as_str() == "enter").count(),
+        MAX_SUBMIT_KEY_WRITES,
+        "a parked payload gets the full bounded key-only recovery budget"
+    );
 }
 
 #[test]
-fn missing_paste_evidence_never_writes_submit_key_without_echo_policy() {
+fn zero_deadline_still_attempts_the_first_submit_key() {
     let io = TuiModel::never_ingests();
     let result = run(
         &io,
@@ -768,12 +775,11 @@ fn missing_paste_evidence_never_writes_submit_key_without_echo_policy() {
             .iter()
             .filter(|write| write.as_str() == "enter")
             .count(),
-        0
+        1
     );
-    assert!(matches!(
-        result,
-        Err(InjectionError::SubmitNeverConfirmed { .. })
-    ));
+    let result = result.unwrap();
+    assert!(result.submit_anomaly);
+    assert!(!result.submit_observed);
 }
 
 #[test]

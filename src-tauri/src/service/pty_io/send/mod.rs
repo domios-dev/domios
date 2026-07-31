@@ -186,6 +186,10 @@ pub(super) fn optimistic_agent_pty_target(
     }
 }
 
+fn delivery_is_unknown(error: &str) -> bool {
+    error.starts_with("submit_unconfirmed:")
+}
+
 #[derive(Clone)]
 pub(crate) struct AuthenticatedPtyDelivery {
     pub(crate) pty_id: String,
@@ -261,6 +265,10 @@ impl ServiceContext {
             let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text, true));
             drop(pty_claim);
             if let Err(error) = result {
+                if delivery_is_unknown(&error) {
+                    log::warn!("[send-async] agent delivery to Tab {tab} remains unknown");
+                    return;
+                }
                 log::warn!("[send-async] agent delivery to Tab {tab} failed: {error}");
                 crate::api::events::emit_everywhere(
                     &svc.app_handle,
@@ -730,6 +738,10 @@ impl ServiceContext {
         let text = text.to_string();
         std::thread::spawn(move || {
             if let Err(error) = svc.send_text(&tab, &text, enter) {
+                if delivery_is_unknown(&error) {
+                    log::warn!("[send-async] delivery to Tab {tab} remains unknown");
+                    return;
+                }
                 log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
                 crate::api::events::emit_everywhere(
                     &svc.app_handle,

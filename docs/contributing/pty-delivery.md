@@ -13,14 +13,14 @@ well-meaning "one more heuristic" changes. Read this before touching
 
 1. **The payload is written at most once.** One bracketed paste to the exact
    PTY the caller resolved. Nothing may ever re-write the payload — not a
-   retry loop, not a recovery path, not a watchdog. The only payload repeat is
-   an explicit user-driven Retry, which is a new ledger transaction.
+   retry loop, not a recovery path, not a watchdog.
 2. **Submission is one Enter, plus a bounded key-only recovery.** The CR is a
-   separate write released after paste-ingestion evidence. If acknowledgement
-   evidence is missed, only the submit *key* may be re-written, within
-   `MAX_SUBMIT_KEY_WRITES`, never the payload — and a retry write may never
-   begin with an expired phase deadline (the first CR is the delivery itself
-   and always goes out).
+   separate write issued immediately after the payload write is acknowledged;
+   visual evidence never withholds it. If confirmation is missed, only the
+   submit *key* may be re-written, within `MAX_SUBMIT_KEY_WRITES` and the
+   10-second recovery deadline, and only while the payload is demonstrably
+   still parked in the composer. Once the composer clears, no stray key is
+   allowed.
 3. **Verification classifies; it never gates delivery on heuristics it cannot
    prove.** Screen-echo counting, draft-left-composer, turn transitions are
    *evidence collectors*. Their failure produces `submit_unconfirmed`
@@ -44,7 +44,10 @@ well-meaning "one more heuristic" changes. Read this before touching
 
 `ChatSendLedger` is the authority the UI renders. Its rules:
 
-- `pending → sent` only from evidence; `pending/failed → sent` also happens
+- The serialized states are `accepted`, `unknown`, `confirmed`, and `failed`.
+  Transport uncertainty is `unknown` with no user-facing error; only a proven
+  pre-write refusal is `failed`.
+- `accepted/unknown → confirmed` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
   (`confirm_delivered_user_turn`). One turn confirms at most one send,
@@ -69,8 +72,8 @@ well-meaning "one more heuristic" changes. Read this before touching
   the remaining truth).
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
-- A send with no evidence and a terminal classification remains `failed` in
-  the internal ledger and logs. Chat UI stays optimistic and never renders
+- A send with no evidence after the recovery deadline remains `unknown` and
+  can still reconcile from later transcript evidence. Chat UI never renders
   delivery banners, failure cards, Retry actions, or notifications.
 
 ## Hard don'ts
@@ -96,4 +99,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

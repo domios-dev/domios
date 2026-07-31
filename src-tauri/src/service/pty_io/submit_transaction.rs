@@ -45,7 +45,16 @@ pub(crate) fn composer_region_text(lines: &[String], cursor_row: usize) -> Strin
         .unwrap_or_else(|| end.saturating_sub(TAIL_ROWS - 1));
     lines[start..=end]
         .iter()
-        .map(|line| framed_composer_row(line).unwrap_or(line))
+        .enumerate()
+        .map(|(offset, line)| {
+            framed_composer_row(line).unwrap_or_else(|| {
+                if offset == 0 {
+                    line
+                } else {
+                    line.trim_start()
+                }
+            })
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -294,7 +303,7 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     transport: &T,
     text: &str,
     baseline_evidence: usize,
-    echo_observed: bool,
+    paste_observed: &mut bool,
     turn_was_started: bool,
     armed: u64,
     turn_armed: u64,
@@ -304,11 +313,12 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     let mut generation = armed;
     let mut turn_generation = turn_armed;
     loop {
+        *paste_observed |= transport.draft_evidence_count(text) > baseline_evidence;
         if submission_acknowledged_now(
             transport,
             text,
             baseline_evidence,
-            echo_observed,
+            *paste_observed,
             turn_was_started,
             armed,
             strategy,
@@ -321,7 +331,7 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
             transport,
             text,
             baseline_evidence,
-            echo_observed,
+            *paste_observed,
             armed,
         ) {
             transport.wait_turn_change(turn_generation, deadline)
@@ -379,27 +389,6 @@ fn attempt_ack_deadline(keys_written: usize, turn_deadline: Instant) -> Instant 
     now + remaining / (retries_left as u32 + 1)
 }
 
-fn wait_paste_ingested<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    baseline_evidence: usize,
-    armed: u64,
-    deadline: Instant,
-) -> bool {
-    let mut generation = armed;
-    loop {
-        if transport.generation() != armed
-            && transport.draft_evidence_count(text) > baseline_evidence
-        {
-            return true;
-        }
-        if !transport.wait_change(generation, deadline) {
-            return false;
-        }
-        generation = transport.generation();
-    }
-}
-
 #[cfg(test)]
 fn run<T: SubmitTransport>(
     transport: &T,
@@ -420,56 +409,22 @@ fn run_with_submit_key<T: SubmitTransport>(
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
-    let paste_deadline = started + opts.echo_timeout;
-    let turn_deadline = paste_deadline + opts.submit_timeout;
+    let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let paste_armed = transport.generation();
     let bytes_written = transport.write_paste(text, turn_deadline)?;
-
-    // A key-only submit pastes nothing, so there is no payload echo to gate on;
-    // verifying one would compare the composer against an empty expectation.
-    let echo_observed = if text.is_empty() {
-        true
-    } else if enter {
-        wait_paste_ingested(
-            transport,
-            text,
-            baseline_evidence,
-            paste_armed,
-            paste_deadline,
-        )
-    } else {
-        transport.draft_evidence_count(text) > baseline_evidence
-    };
+    let mut paste_observed = text.is_empty()
+        || transport.draft_evidence_count(text) > baseline_evidence;
 
     if !enter {
         return Ok(InjectionResult {
             bytes_written,
-            echo_observed,
+            echo_observed: paste_observed,
             submit_observed: false,
             submit_anomaly: false,
             submit_key_writes: 0,
             elapsed: started.elapsed(),
-        });
-    }
-
-    if !echo_observed {
-        let screen_tail = transport
-            .observe()
-            .map(|state| state.tail)
-            .unwrap_or_default();
-        return Err(if opts.verify_echo {
-            InjectionError::EchoMismatch {
-                expected_substr: text.chars().take(120).collect(),
-                screen_tail,
-            }
-        } else {
-            InjectionError::SubmitNeverConfirmed {
-                waited: started.elapsed(),
-                screen_tail,
-            }
         });
     }
 
@@ -511,7 +466,7 @@ fn run_with_submit_key<T: SubmitTransport>(
             transport,
             text,
             baseline_evidence,
-            echo_observed,
+            &mut paste_observed,
             turn_was_started,
             enter_armed,
             turn_armed,
@@ -535,7 +490,7 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     Ok(InjectionResult {
         bytes_written,
-        echo_observed,
+        echo_observed: paste_observed,
         submit_observed,
         submit_anomaly: two_phase && !submit_observed,
         submit_key_writes,
