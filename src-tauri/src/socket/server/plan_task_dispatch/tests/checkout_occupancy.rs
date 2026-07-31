@@ -89,6 +89,26 @@ fn dispatch_refuses_occupied_checkout() {
     assert_eq!(data["occupying_task_id"], occupying_task_id);
     assert_eq!(data["occupying_attempt_id"], "attempt_live");
     assert_eq!(data["checkout_path"], checkout);
+    let update_command = data["update_command"].as_str().unwrap();
+    assert!(!update_command.contains("<isolated-"), "{update_command}");
+    assert!(!update_command.contains("<base-ref>"), "{update_command}");
+    #[cfg(windows)]
+    assert_eq!(
+        update_command,
+        format!(
+            "codeterm plan task update {} {} --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')",
+            plan.id, dispatched_task_id
+        )
+    );
+    #[cfg(not(windows))]
+    assert!(update_command.contains("IFS= read -r value </dev/tty"));
+    assert_eq!(
+        data["dispatch_command"],
+        format!(
+            "codeterm plan task dispatch {} {}",
+            plan.id, dispatched_task_id
+        )
+    );
 }
 
 #[test]
