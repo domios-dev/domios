@@ -46,6 +46,10 @@ interface FrameJson {
 interface ChatArrival {
   t_ms: number;
   contents: string[];
+  /** Lead compares preview birth against ASSISTANT content — the thing the
+   * preview shows. Tool cards and user echoes never count as "canon beat
+   * the preview". */
+  hasAssistant: boolean;
 }
 
 function arg(name: string): string | undefined {
@@ -62,6 +66,7 @@ function loadChatArrivals(path: string, epochMs: number): ChatArrival[] {
     arrivals.push({
       t_ms: Number(row.wall_ms) - epochMs,
       contents: row.messages.map((m: { content: string }) => m.content ?? ""),
+      hasAssistant: row.messages.some((m: { kind?: string }) => m.kind === "assistant"),
     });
   }
   return arrivals.sort((a, b) => a.t_ms - b.t_ms);
@@ -121,7 +126,7 @@ function main(): void {
     if (!motion || motion.turn_seq === 0) continue;
     while (arrivalCursor < arrivals.length && arrivals[arrivalCursor].t_ms <= frame.t_ms) {
       landed.push(...arrivals[arrivalCursor].contents);
-      if (current && current.first_canonical_ms === null) {
+      if (current && current.first_canonical_ms === null && arrivals[arrivalCursor].hasAssistant) {
         current.first_canonical_ms = arrivals[arrivalCursor].t_ms;
       }
       arrivalCursor++;
