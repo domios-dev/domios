@@ -584,6 +584,43 @@ fn claude_current_gen_long_think_stays_working_while_status_band_animates() {
     );
 }
 
+#[test]
+fn status_repaint_after_adjacent_completion_is_idle_but_pure_think_is_working() {
+    let live_screen = lines(&[
+        "  Tool output",
+        "✽ Inferring… (58s · ↓ 797 tokens · thinking)",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+    ]);
+    let mut live_input = quiescent_input(&live_screen);
+    live_input.semantic_idle_ms = 2000;
+    live_input.byte_idle_ms = 250;
+
+    let completed_screen = lines(&[
+        "  Final answer text.",
+        "✻ Crunched for 7s",
+        "✻ Evaporating… (7s · ↓ 165 tokens)",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+    ]);
+    let mut completed_input = quiescent_input(&completed_screen);
+    completed_input.semantic_idle_ms = 2000;
+    completed_input.byte_idle_ms = 250;
+
+    assert_eq!(
+        classify_state(&live_input, working()).state,
+        TimelineState::Working,
+        "an animating status without an adjacent completion summary is live"
+    );
+    assert_eq!(
+        classify_state(&completed_input, working()).state,
+        TimelineState::Idle,
+        "an animating status immediately below a completion summary is a repaint"
+    );
+}
+
 // recognized by structure (spinner + ellipsis + elapsed/token), not a verb list.
 #[test]
 fn claude_novel_spinner_verb_classifies_working_by_structure_not_dictionary() {
