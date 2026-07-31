@@ -16,6 +16,7 @@ use std::time::Duration;
 /// false only once the passed failure deadline has expired.
 struct ParkedDraft {
     drops_remaining: Cell<usize>,
+    starts_turn: bool,
     draft_visible: Cell<bool>,
     turn: Cell<bool>,
     generation: Cell<u64>,
@@ -30,6 +31,7 @@ impl ParkedDraft {
     fn dropping(drops: usize) -> Self {
         Self {
             drops_remaining: Cell::new(drops),
+            starts_turn: true,
             draft_visible: Cell::new(false),
             turn: Cell::new(false),
             generation: Cell::new(0),
@@ -38,6 +40,13 @@ impl ParkedDraft {
             submit_key_writes: Cell::new(0),
             idle: Mutex::new(()),
             never_signaled: Condvar::new(),
+        }
+    }
+
+    fn lifecycle_only_drain() -> Self {
+        Self {
+            starts_turn: false,
+            ..Self::dropping(0)
         }
     }
 }
@@ -104,9 +113,13 @@ impl SubmitTransport for ParkedDraft {
             return Ok(());
         }
         self.draft_visible.set(false);
-        self.turn.set(true);
+        if self.starts_turn {
+            self.turn.set(true);
+            self.turn_generation.set(self.turn_generation.get() + 1);
+        } else {
+            self.turn_generation.set(self.turn_generation.get() + 2);
+        }
         self.generation.set(self.generation.get() + 1);
-        self.turn_generation.set(self.turn_generation.get() + 1);
         Ok(())
     }
 }
@@ -145,7 +158,32 @@ fn parked_draft_after_dropped_enter_recovers_before_turn_deadline() {
 }
 
 #[test]
-fn parked_draft_dropped_enter_reaches_sent_ledger_state() {
+fn restart_status_transitions_without_a_turn_do_not_acknowledge_submission() {
+    let mut tracker = codeterm_types::pty::TabStatusTracker::new();
+    tracker.update_output("pty-restart", [1; 32]);
+    tracker.set_idle("pty-restart");
+    let signal = tracker.arm_status_change_signal("pty-restart");
+    let before_restart = signal.generation();
+    tracker.set_dead("pty-restart");
+    tracker.set_waiting("pty-restart");
+
+    assert_eq!(
+        signal.generation(),
+        before_restart + 2,
+        "restart lifecycle transitions advance the generic status signal"
+    );
+    let io = ParkedDraft::lifecycle_only_drain();
+
+    let result = run(&io, "post-restart payload", true, tui(), short_opts()).unwrap();
+
+    assert_eq!(io.payload_writes.get(), 1);
+    assert!(io.turn_generation.get() >= 2);
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
+}
+
+#[test]
+fn recovered_submit_reaches_sent_only_after_exact_turn_evidence() {
     use crate::service::chat_send_transaction::{run_chat_send, ChatSendLedger, ChatSendState};
     use crate::service::delivery_error::DeliveryError;
 
@@ -174,10 +212,14 @@ fn parked_draft_dropped_enter_reaches_sent_ledger_state() {
     assert_eq!(io.payload_writes.get(), 1);
     assert_eq!(
         status.state,
-        ChatSendState::Sent,
-        "a recoverable dropped Enter must reach the ledger as sent, got {:?}",
+        ChatSendState::Pending,
+        "transport success stays pending without transcript evidence, got {:?}",
         status.error
     );
+    let confirmed = ledger
+        .confirm_delivered_user_turn("tab-1", "session-1", "run /review on my current changes")
+        .unwrap();
+    assert_eq!(confirmed.state, ChatSendState::Sent);
 }
 
 #[test]
@@ -202,8 +244,7 @@ fn unrecoverable_dropped_enter_stays_submit_unconfirmed_with_single_payload() {
         matches!(surfaced, InjectionError::SubmitNeverConfirmed { .. }),
         "a genuinely lost Enter keeps its honest classification, got {surfaced:?}"
     );
-    let delivery =
-        crate::service::delivery_error::DeliveryError::from_injection("tab-1", surfaced);
+    let delivery = crate::service::delivery_error::DeliveryError::from_injection("tab-1", surfaced);
     assert_eq!(delivery.code(), "submit_unconfirmed");
     assert!(delivery.bytes_written());
 }

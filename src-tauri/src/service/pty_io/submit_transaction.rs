@@ -285,7 +285,6 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
-    turn_armed: u64,
     deadline: Instant,
     strategy: &VerifySubmitStrategy,
 ) -> bool {
@@ -298,7 +297,6 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
             echo_observed,
             turn_was_started,
             armed,
-            turn_armed,
             strategy,
         ) {
             return true;
@@ -317,7 +315,6 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
-    turn_armed: u64,
     strategy: &VerifySubmitStrategy,
 ) -> bool {
     let changed = transport.generation() != armed;
@@ -325,8 +322,7 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     let draft_left_composer =
         echo_observed && changed && transport.draft_evidence_count(text) <= baseline_evidence;
     if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
-        let completed_turn = draft_left_composer && transport.turn_generation() != turn_armed;
-        return fresh_turn || completed_turn;
+        return fresh_turn;
     }
     draft_left_composer || fresh_turn
 }
@@ -479,10 +475,14 @@ fn run_with_submit_key<T: SubmitTransport>(
             echo_observed,
             turn_was_started,
             enter_armed,
-            turn_armed,
             attempt_ack_deadline(submit_key_writes, turn_deadline),
             &strategy,
         );
+        if !submit_observed && transport.turn_generation() != turn_armed {
+            log::debug!(
+                "[submit-transaction] ignored status-only generation change without turn evidence"
+            );
+        }
         if submit_observed {
             break;
         }

@@ -96,7 +96,8 @@ run_stages() {
       case "$OSTYPE" in
         msys*|cygwin*|win32)
           # MSYS ln copies instead of symlinking; a junction needs no privilege.
-          cmd //c mklink /J "$(cygpath -w "$REPO/node_modules")" \
+          # //J: MSYS rewrites a bare /J into J:/ before cmd sees it.
+          cmd //c mklink //J "$(cygpath -w "$REPO/node_modules")" \
             "$(cygpath -w "$CANONICAL/node_modules")" >/dev/null \
             || fail_stage "dist:node-modules-link"
           ;;
