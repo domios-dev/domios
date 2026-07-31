@@ -3,10 +3,10 @@
   "unit": "provider_screen_attr",
   "gating": true,
   "screenSelectedIndex": 3,
-  "note": "The on-screen selection glyph marks index 3; detect_picker scores the block-wide option background as a selection signal and lands on the last option row. Tracked as a detector-scoring imperfection, not a drop.",
+  "note": "The on-screen selection glyph marks index 3 and wins over the block-wide option background.",
   "expected": {
     "question": "Select Model and Effort",
-    "selectedIndex": 6,
+    "selectedIndex": 3,
     "multiSelect": false,
     "options": [
       "gpt-5.6-sol (default) Latest frontier agentic coding model.",
