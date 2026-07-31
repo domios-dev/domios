@@ -561,8 +561,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
             }
-            let lane_worktree = if crate::cmd::report_guard::is_readiness_status(status) {
-                crate::cmd::report_lane::lane_worktree(
+            let task_scope = if crate::cmd::report_guard::is_readiness_status(status) {
+                crate::cmd::report_lane::task_readiness_scope(
                     client,
                     plan.as_deref(),
                     task.as_deref(),
@@ -572,7 +572,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 None
             };
             let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
-                lane_worktree.as_deref(),
+                task_scope.as_ref(),
                 status,
                 branch,
                 sha,
