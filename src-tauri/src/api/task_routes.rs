@@ -53,6 +53,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::ActivePlanRequiresTeam { .. }
         | PlanError::PlanActivationRequiresUnarchive { .. }
         | PlanError::InvalidPlanSkillSlug
+        | PlanError::InvalidExternalRef(_)
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
