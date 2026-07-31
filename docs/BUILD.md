@@ -162,6 +162,10 @@ The canonical checkout owns shared dev, broad gates, and release checks. This is
 a team operating rule, not a branch-name restriction in the build script; the
 machine-wide gateway only serializes heavy app work.
 
+Gateway-backed commands fail fast when another job owns the machine slot, so
+an agent turn never blocks silently behind a long-lived dev process. Add
+`--wait-build` only when synchronous queueing is intentional.
+
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command also regenerates
 `docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs
@@ -249,6 +253,7 @@ npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `Build gateway busy` returns immediately | Another build or the visible dev watcher owns the machine slot; the requested command did not start. | Read the reported job, owner, and command. Run later, or add `--wait-build` only when blocking the caller is intentional. |
 | `qa-prep` fails at stage `dist:node-modules-link` with `Parameter format not correct - <worktree>\node_modules` | On Windows, MSYS rewrites the bare `mklink /J` switch into the drive path `J:/` before `cmd` sees it, so `mklink` never receives the junction switch and rejects the arguments | Rerun `./build.sh qa-prep` on a build that passes the switch as `//J` (escaped from MSYS path conversion); the junction to the canonical checkout's `node_modules` is then created without elevation |
 | `pnpm install --frozen-lockfile` fails with `ENOENT` for a package inside `node_modules/.pnpm` | The local pnpm virtual store contains a partial package directory, so the lockfile is valid but linking cannot read the package manifest | Run `pnpm install --frozen-lockfile --force`, verify the missing binary or package is present, then rerun the original test command |
 
@@ -390,4 +395,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->
