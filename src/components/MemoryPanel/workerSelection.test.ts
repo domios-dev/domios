@@ -22,20 +22,28 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const providers = [
-  provider("claude", "Claude", "sonnet", ["sonnet", "haiku"]),
-  provider("cursor", "Cursor", "auto", ["auto", "composer"]),
+  provider("provider-a", "Provider A", "model-a", ["model-a", "model-b"]),
+  provider("provider-b", "Provider B", "model-c", ["model-c", "model-d"]),
 ];
 
-const defaultSelection = resolveWorkerSelection(providers, "", "cursor", "");
-assert(defaultSelection.providerLabel === "Cursor", "blank provider resolves to the configured default provider");
-assert(defaultSelection.defaultModelLabel === "Auto", "blank provider label includes its actual default model");
+const defaultSelection = resolveWorkerSelection(providers, "", "provider-b", "");
+assert(defaultSelection.providerLabel === "Provider B", "blank provider resolves to the configured default provider");
+assert(defaultSelection.defaultModelLabel === "Model-c", "blank provider label includes its actual default model");
 
-const changedProvider = resolveWorkerSelection(providers, "cursor", "claude", "sonnet");
-assert(changedProvider.defaultModelLabel === "Auto", "provider change re-resolves the provider default model");
-assert(changedProvider.modelOptions.map((model) => model.id).join(",") === "auto,composer", "provider change re-resolves model options");
+const changedProvider = resolveWorkerSelection(providers, "provider-b", "provider-a", "model-a");
+assert(changedProvider.defaultModelLabel === "Model-c", "provider change re-resolves the provider default model");
+assert(changedProvider.modelOptions.map((model) => model.id).join(",") === "model-c,model-d", "provider change re-resolves model options");
 assert(!changedProvider.modelCompatible, "incompatible selected model is surfaced instead of silently accepted");
 
-const compatibleSelection = resolveWorkerSelection(providers, "claude", "cursor", "sonnet");
+const compatibleSelection = resolveWorkerSelection(providers, "provider-a", "provider-b", "model-a");
 assert(compatibleSelection.modelCompatible, "provider-compatible selected model remains valid");
+
+const emptyCatalogSelection = resolveWorkerSelection(
+  [provider("empty", "Empty", "", [])],
+  "empty",
+  "empty",
+  "removed-model",
+);
+assert(!emptyCatalogSelection.modelCompatible, "a configured model is unavailable when the catalog is empty");
 
 console.log("✓ Memory worker selection labels and compatibility");

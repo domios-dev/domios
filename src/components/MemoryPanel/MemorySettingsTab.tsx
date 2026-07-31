@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { canonicalizeShort } from "../../lib/modelLabels";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
@@ -63,31 +62,23 @@ function relativeFromNow(target: number): string {
 }
 
 export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const { providers } = useAgentProviders();
+  const { providers, loading: modelCatalogLoading } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
-  // useful for whichever provider is the user's primary.
   const defaultProvider = config.general_agent?.agent_provider || providers[0]?.id || "";
-  const defaultModel = providers.find(p => p.id === defaultProvider)?.default_model ?? "";
   const defaultMem = {
     extraction_agent: "",
-    extraction_model: defaultModel,
+    extraction_model: "",
     auto_extract: true,
     dreaming_agent: "",
-    dreaming_model: defaultModel,
-    worker_model: defaultModel,
+    dreaming_model: "",
+    worker_model: "",
     worker_timeout_seconds: 1800,
     file_sync_enabled: true,
     file_sync_interval_minutes: 60,
     dedup_threshold: 0.15,
   };
-  const rawMem = { ...defaultMem, ...(config.memory ?? {}) };
-  const mem = {
-    ...rawMem,
-    extraction_model: canonicalizeShort(rawMem.extraction_model),
-    dreaming_model: canonicalizeShort(rawMem.dreaming_model),
-    worker_model: canonicalizeShort(rawMem.worker_model),
-  };
+  const mem = { ...defaultMem, ...(config.memory ?? {}) };
 
   const extractionSelection = resolveWorkerSelection(
     providers, mem.extraction_agent, defaultProvider, mem.extraction_model,
@@ -211,34 +202,38 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
     onChange: (v: string) => void,
     selection: WorkerSelection,
     testId: string,
-  ) => (
-    <Label text="Model">
-      {selection.modelOptions.length > 0 ? (
-        <>
-          <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
-            <option value="">Provider default: {selection.defaultModelLabel}</option>
-            {!selection.modelCompatible && <option value={value} disabled>Unavailable: {value}</option>}
-            {selection.modelOptions.map(m => (
-            <option key={m.id} value={m.id}>{m.display_name}</option>
-            ))}
-          </select>
-          {!selection.modelCompatible && (
-            <p className="text-[10px] text-amber-500" role="alert">
-              {value} is unavailable for {selection.providerLabel}; choose a listed model or use {selection.defaultModelLabel}.
-            </p>
-          )}
-        </>
-      ) : (
-        <input
-          value={value}
+  ) => {
+    const unavailable = Boolean(value) && !selection.modelCompatible;
+    const modelOptions = modelCatalogLoading ? [] : selection.modelOptions;
+    const disabled = modelOptions.length === 0;
+    const emptyLabel = modelCatalogLoading
+      ? "Loading model catalog…"
+      : modelOptions.length === 0
+        ? "No models published"
+        : `Provider default: ${selection.defaultModelLabel}`;
+    return (
+      <Label text="Model">
+        <select
+          value={unavailable ? "" : value}
           onChange={(e) => onChange(e.target.value)}
           className={inputClass}
           data-testid={testId}
-          placeholder="haiku, sonnet, o3-mini..."
-        />
-      )}
-    </Label>
-  );
+          disabled={disabled}
+          aria-busy={modelCatalogLoading}
+        >
+          <option value="">{emptyLabel}</option>
+          {modelOptions.map((model) => (
+            <option key={model.id} value={model.id}>{model.display_name}</option>
+          ))}
+        </select>
+        {unavailable && !modelCatalogLoading && (
+          <p className="text-[10px] text-amber-500" role="alert">
+            The configured model is unavailable for {selection.providerLabel}; choose a catalog model or use {selection.defaultModelLabel}.
+          </p>
+        )}
+      </Label>
+    );
+  };
 
   const dreamRunButton = (
     <button
