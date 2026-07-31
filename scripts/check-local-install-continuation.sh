@@ -51,4 +51,7 @@ for variable in \
   grep -Fq -- "-u $variable" build.sh
 done
 
+grep -Fq 'FRESH_CLI="src-tauri/bundled-cli/codeterm.exe"' build.sh
+grep -Fq '"$FRESH_CLI" "${INSTALL_ARGS[@]}"' build.sh
+
 echo "local install continuation checks passed"

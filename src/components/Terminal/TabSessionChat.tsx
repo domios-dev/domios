@@ -28,7 +28,6 @@ import { AgentStateIndicator, shouldRenderAgentStateIndicator } from "./AgentSta
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
-import { useStreamPreview } from "./useStreamPreview";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
@@ -521,17 +520,6 @@ export function TabSessionChat({
     backendState?.subtype,
     longIdle,
   ]);
-
-  const canonicalContents = useMemo(
-    () => enrichedMessages.slice(-20).map((entry) => entry.msg.content ?? ""),
-    [enrichedMessages],
-  );
-  const streamPreview = useStreamPreview(
-    tabId,
-    isActive && !effectiveChatBackend,
-    liveAgentState.state === "working",
-    canonicalContents,
-  );
 
   const composerModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;

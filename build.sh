@@ -1141,13 +1141,20 @@ EOF
       echo "ERROR: local installer missing after build: $INSTALLER" >&2
       exit 1
     fi
+    FRESH_CLI="src-tauri/bundled-cli/codeterm.exe"
+    if [ ! -x "$FRESH_CLI" ]; then
+      echo "ERROR: freshly bundled CLI missing after build: $FRESH_CLI" >&2
+      exit 1
+    fi
     echo "Local installer ready: $INSTALLER"
+    echo "Installer handoff CLI: $FRESH_CLI"
     INSTALL_ARGS=(update install --from-file "$(cygpath -w "$INSTALLER")")
     if [ "$LOCAL_INSTALL_CONTINUE_ENABLED" = "1" ]; then
       INSTALL_ARGS+=(--continue-prompt "$LOCAL_INSTALL_CONTINUE_PROMPT" --continue-tab "$LOCAL_INSTALL_CONTINUE_TAB")
       echo "Post-install continuation: Tab $LOCAL_INSTALL_CONTINUE_TAB"
     else
       echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
+      INSTALL_ARGS+=(--no-continue)
     fi
     env \
       -u CODETERM_INSTANCE \
@@ -1159,7 +1166,7 @@ EOF
       -u CARGO_INCREMENTAL \
       -u RUSTC_WRAPPER \
       -u SCCACHE_BASEDIRS \
-      codeterm "${INSTALL_ARGS[@]}"
+      "$FRESH_CLI" "${INSTALL_ARGS[@]}"
     ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"

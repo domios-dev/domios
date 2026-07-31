@@ -11225,6 +11225,14 @@
               "default": null,
               "help": "Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it",
               "aliases": []
+            },
+            {
+              "name": "no-continue",
+              "positional": false,
+              "value_name": "NO_CONTINUE",
+              "default": null,
+              "help": "Disable the default continuation sent back to the calling tab",
+              "aliases": []
             }
           ],
           "subcommands": []

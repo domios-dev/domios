@@ -320,8 +320,7 @@ fn sample_up_to(
     while *next <= t {
         let sig = ex.step(b"", *next);
         // Motion state must advance on every sample tick, emitted or not.
-        let motion_frame =
-            motion.step_with_cursor(&sig.screen.lines, Some(sig.cursor.row as usize));
+        let motion_frame = motion.step(&sig.screen.lines);
         *frame_index += 1;
         if *next >= window_from_ms && *next <= window_to_ms {
             frames.push(frame_json(
