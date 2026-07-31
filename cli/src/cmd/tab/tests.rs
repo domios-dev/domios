@@ -1,6 +1,28 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn tab_list_request_scopes_to_calling_tab_when_workspace_env_is_absent() {
+    let params = tab_list_params(None, false, false, Some("self-tab".into()));
+
+    assert_eq!(params["caller_tab_id"], "self-tab");
+    assert_eq!(params["focused_workspace"], true);
+}
+
+#[test]
+fn tab_list_request_drops_calling_tab_for_explicit_scope() {
+    let workspace = tab_list_params(
+        Some("workspace".into()),
+        false,
+        false,
+        Some("self-tab".into()),
+    );
+    let all = tab_list_params(None, true, false, Some("self-tab".into()));
+
+    assert!(workspace["caller_tab_id"].is_null());
+    assert!(all["caller_tab_id"].is_null());
+}
+
 fn make_tab(id: &str, title: &str, agent: Option<&str>, sname: Option<&str>) -> serde_json::Value {
     let mut p = json!({"id": id, "title": title});
     if let Some(a) = agent {
