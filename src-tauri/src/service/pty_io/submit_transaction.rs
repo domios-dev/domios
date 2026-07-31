@@ -220,6 +220,9 @@ struct PtySubmitTransport<'a> {
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
+    /// Stream-preview turn signal fires once per transaction, at the first
+    /// successful submit-key enqueue. Signal only — never gates delivery.
+    turn_signaled: std::cell::Cell<bool>,
 }
 
 fn bracketed_paste(text: &str) -> String {
@@ -364,6 +367,9 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             }
         );
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
+        if !self.turn_signaled.replace(true) {
+            crate::service::stream_preview::begin_turn(self.pty_id);
+        }
         if self.permit.is_some() {
             crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
         }
@@ -553,6 +559,7 @@ pub(crate) fn submit_text_with_key(
         permit,
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
+        turn_signaled: std::cell::Cell::new(false),
     };
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).map(
         |result| {
