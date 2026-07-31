@@ -93,6 +93,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     }
@@ -625,6 +626,7 @@ fn from_agent_params_carries_model_into_spec() {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     };
@@ -741,6 +743,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     };
@@ -799,6 +802,7 @@ fn from_agent_params_carries_activate_into_spec() {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: Some(true),
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     };

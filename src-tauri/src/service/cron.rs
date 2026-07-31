@@ -207,6 +207,7 @@ impl ServiceContext {
             title: Some(format!("cron:{}", job_name)),
             description: None,
             visibility: TabVisibility::Hidden,
+            audience: Default::default(),
             eager: false,
             command: TabCommand::Agent(AgentSpawnSpec {
                 provider: agent,
