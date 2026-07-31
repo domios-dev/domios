@@ -15,8 +15,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import {
   MAX_PREVIEW_ROWS,
   canonicalBlob,
+  createPreviewStabilizerState,
   displayablePreview,
   normalizeStreamLine,
+  stabilizePreview,
   uncoveredPreviewTail,
 } from "../../src/components/Terminal/streamPreviewMatch";
 
@@ -105,6 +107,7 @@ function main(): void {
   const arrivals = loadChatArrivals(chatPath, epochMs);
 
   const frozenBySeq = new Map<number, string[]>();
+  const stabilizer = createPreviewStabilizerState();
   let arrivalCursor = 0;
   const landed: string[] = [];
   let prevDisplayed: string[] = [];
@@ -169,10 +172,12 @@ function main(): void {
     frozen.push(...motion.turn_frozen);
     frozenBySeq.set(motion.turn_seq, frozen);
 
-    // Exact UI pipeline (useStreamPreview): junk filter, coverage cut, row cap.
+    // Exact UI pipeline (useStreamPreview): junk filter, coverage cut, row
+    // cap, monotonic-window stabilizer.
     const blob = canonicalBlob(landed);
     const view = displayablePreview(frozen.concat(motion.turn_live));
-    const displayed = uncoveredPreviewTail(view, blob).slice(-MAX_PREVIEW_ROWS);
+    const windowed = uncoveredPreviewTail(view, blob).slice(-MAX_PREVIEW_ROWS);
+    const displayed = stabilizePreview(stabilizer, motion.turn_seq, windowed);
     if (current) {
       if (displayed.length > 0 && current.first_preview_ms === null) {
         current.first_preview_ms = frame.t_ms;

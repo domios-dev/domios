@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   canonicalBlob,
+  createPreviewStabilizerState,
   displayablePreview,
   normalizeStreamLine,
+  stabilizePreview,
   uncoveredPreviewTail,
 } from "./streamPreviewMatch";
 
@@ -172,4 +174,63 @@ test("status badge and reasoning-duration rows are never previewable", () => {
   assert.deepEqual(displayablePreview(rows), [
     '     A PTY (pseudo-terminal) is a kernel-emulated virtual terminal pairing a "master" process',
   ]);
+});
+
+// eight main ruling: tool-run blocks belong to canonical tool cards, never
+// the preview. Headers morph in place ('Exploring'->'Explored'), children
+// collapse/expand — structurally unfixable as smooth preview content.
+test("tool-run headers, diffstats, and tool child rows are never previewable", () => {
+  const rows = [
+    "• Explored",
+    "• Exploring",
+    "• Added streaming-probe.txt (+1 -0)",
+    "    Search render_timeline|timeline-motion in .",
+    "    wrote captures/streaming/opencode/timeline-motion.json (57 frames)",
+    "• The scorer runs on the Codex capture and shows the intended improvement",
+    "  because its motion timeline has not been rendered yet.",
+    "• def fizzbuzz(n):",
+    "      return [",
+    "     A PTY (pseudo-terminal) is a kernel-emulated virtual terminal",
+  ];
+  assert.deepEqual(displayablePreview(rows), [
+    "• The scorer runs on the Codex capture and shows the intended improvement",
+    "  because its motion timeline has not been rendered yet.",
+    "• def fizzbuzz(n):",
+    "      return [",
+    "     A PTY (pseudo-terminal) is a kernel-emulated virtual terminal",
+  ]);
+});
+
+// Rogue-probe heavy-tool corpus: when the decoder's live slice shrinks, the
+// 8-row window slid BACKWARD, re-showing rows already cut from the top.
+test("stabilizer: rows cut from the top never re-enter the window", () => {
+  const state = createPreviewStabilizerState();
+  assert.deepEqual(stabilizePreview(state, 1, ["b", "c", "d"]), ["b", "c", "d"]);
+  assert.deepEqual(stabilizePreview(state, 1, ["c", "d", "e"]), ["c", "d", "e"]);
+  assert.deepEqual(stabilizePreview(state, 1, ["b", "c", "d", "e"]), ["c", "d", "e"]);
+});
+
+test("stabilizer: transient bottom collapse holds the current display", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["a", "b", "c"]);
+  assert.deepEqual(stabilizePreview(state, 1, ["a"]), ["a", "b", "c"]);
+  assert.deepEqual(stabilizePreview(state, 1, ["a", "b", "c", "d"]), ["a", "b", "c", "d"]);
+});
+
+test("stabilizer: empty input (coverage death) always passes through", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["a", "b"]);
+  assert.deepEqual(stabilizePreview(state, 1, []), []);
+});
+
+test("stabilizer: new turn resets retirement", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["a", "b"]);
+  stabilizePreview(state, 1, ["b"]);
+  assert.deepEqual(stabilizePreview(state, 2, ["a", "b"]), ["a", "b"]);
+});
+
+test("keyboard-hint rows are never previewable", () => {
+  const rows = ["  esc again to edit previous message", "  Escaping the loop requires a break statement."];
+  assert.deepEqual(displayablePreview(rows), ["  Escaping the loop requires a break statement."]);
 });

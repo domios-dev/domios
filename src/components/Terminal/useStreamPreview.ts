@@ -3,7 +3,9 @@ import { listen } from "../../lib/bridge";
 import {
   MAX_PREVIEW_ROWS,
   canonicalBlob,
+  createPreviewStabilizerState,
   displayablePreview,
+  stabilizePreview,
   uncoveredPreviewTail,
 } from "./streamPreviewMatch";
 
@@ -48,10 +50,12 @@ export function useStreamPreview(
   }, [tabId, active]);
 
   const blob = useMemo(() => canonicalBlob(canonicalContents), [canonicalContents]);
+  const stabilizer = useRef(createPreviewStabilizerState());
   const displayed = useMemo(() => {
     if (!event) return [];
     const content = displayablePreview(event.frozen.concat(event.live));
-    return uncoveredPreviewTail(content, blob).slice(-MAX_PREVIEW_ROWS);
+    const windowed = uncoveredPreviewTail(content, blob).slice(-MAX_PREVIEW_ROWS);
+    return stabilizePreview(stabilizer.current, event.turn_seq, windowed);
   }, [event, blob]);
 
   // Turn over and fully covered by canon → drop the stale event entirely.
