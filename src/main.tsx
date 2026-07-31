@@ -1,5 +1,6 @@
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import { FrontendCrashBoundary } from "./components/FrontendCrashBoundary";
 import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
@@ -7,6 +8,7 @@ import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCa
 import { installInboundReportCardHarness } from "@codeterm/chat-ui";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
 import "./styles/globals.css";
+import "./components/FrontendCrashBoundary.css";
 import "./components/Canvas/missionControl/missionControl.css";
 
 const root = document.getElementById("root")!;
@@ -28,12 +30,16 @@ if (isGalleryRoute) {
   });
 } else {
   ReactDOM.createRoot(root).render(
-    missionControlPrototype ? (
-      <MissionControlPrototype />
-    ) : (
-      <WebGate>
-        <App />
-      </WebGate>
-    ),
+    <FrontendCrashBoundary>
+      {missionControlPrototype ? (
+        <MissionControlPrototype />
+      ) : (
+        <WebGate>
+          <App />
+        </WebGate>
+      )}
+    </FrontendCrashBoundary>,
   );
 }
+
+document.documentElement.dataset.codetermMounted = "true";
