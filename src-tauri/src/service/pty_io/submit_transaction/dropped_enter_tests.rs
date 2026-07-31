@@ -183,7 +183,7 @@ fn restart_status_transitions_without_a_turn_do_not_acknowledge_submission() {
 }
 
 #[test]
-fn parked_draft_dropped_enter_reaches_sent_ledger_state() {
+fn recovered_submit_reaches_sent_only_after_exact_turn_evidence() {
     use crate::service::chat_send_transaction::{run_chat_send, ChatSendLedger, ChatSendState};
     use crate::service::delivery_error::DeliveryError;
 
@@ -212,10 +212,14 @@ fn parked_draft_dropped_enter_reaches_sent_ledger_state() {
     assert_eq!(io.payload_writes.get(), 1);
     assert_eq!(
         status.state,
-        ChatSendState::Sent,
-        "a recoverable dropped Enter must reach the ledger as sent, got {:?}",
+        ChatSendState::Pending,
+        "transport success stays pending without transcript evidence, got {:?}",
         status.error
     );
+    let confirmed = ledger
+        .confirm_delivered_user_turn("tab-1", "session-1", "run /review on my current changes")
+        .unwrap();
+    assert_eq!(confirmed.state, ChatSendState::Sent);
 }
 
 #[test]
@@ -240,8 +244,7 @@ fn unrecoverable_dropped_enter_stays_submit_unconfirmed_with_single_payload() {
         matches!(surfaced, InjectionError::SubmitNeverConfirmed { .. }),
         "a genuinely lost Enter keeps its honest classification, got {surfaced:?}"
     );
-    let delivery =
-        crate::service::delivery_error::DeliveryError::from_injection("tab-1", surfaced);
+    let delivery = crate::service::delivery_error::DeliveryError::from_injection("tab-1", surfaced);
     assert_eq!(delivery.code(), "submit_unconfirmed");
     assert!(delivery.bytes_written());
 }
