@@ -1,13 +1,9 @@
-import type { ModelInfo } from "./types";
-
 export interface PluginProviderMeta {
   id: string;
   displayName: string;
   iconSvg?: string | null;
   iconColor?: string | null;
   iconHint?: string | null;
-  availableModels?: ModelInfo[];
-  defaultModel?: string | null;
 }
 
 /** Subset of a `plugin_manager_snapshot` entry the resolver cares about. */
@@ -17,8 +13,6 @@ interface SnapshotPluginEntry {
   icon_svg?: string | null;
   icon_color?: string | null;
   icon_hint?: string | null;
-  available_models?: ModelInfo[] | null;
-  default_model?: string | null;
 }
 
 export interface PluginSnapshotLike {
@@ -37,8 +31,6 @@ export function pluginProviderMetaFromSnapshot(
       iconSvg: p.icon_svg ?? null,
       iconColor: p.icon_color ?? null,
       iconHint: p.icon_hint ?? null,
-      availableModels: p.available_models ?? undefined,
-      defaultModel: p.default_model ?? null,
     });
   }
   return out;

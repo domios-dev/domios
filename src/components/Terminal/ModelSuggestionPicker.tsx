@@ -4,18 +4,22 @@ export function ModelSuggestionPicker({
   models,
   highlighted,
   defaultModel,
+  emptyMessage,
   onHighlight,
   onPick,
 }: {
   models: ModelInfo[];
   highlighted: number;
   defaultModel?: string;
+  emptyMessage?: string;
   onHighlight: (index: number) => void;
   onPick: (model: ModelInfo) => void;
 }) {
-  if (models.length === 0) return null;
+  if (models.length === 0 && !emptyMessage) return null;
   return (
     <div
+      role={models.length === 0 ? "status" : "listbox"}
+      aria-label="Model suggestions"
       className="absolute bottom-full left-0 right-0 mb-1 max-h-56 overflow-y-auto rounded"
       style={{
         background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
@@ -23,7 +27,9 @@ export function ModelSuggestionPicker({
         zIndex: 10,
       }}
     >
-      {models.map((model, i) => {
+      {models.length === 0 ? (
+        <p className="px-2 py-1.5 text-xs text-[var(--ct-muted-fg)]">{emptyMessage}</p>
+      ) : models.map((model, i) => {
         const selected = i === highlighted;
         const isDefault = defaultModel === model.id;
         return (
@@ -33,6 +39,8 @@ export function ModelSuggestionPicker({
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onHighlight(i)}
             onClick={() => onPick(model)}
+            role="option"
+            aria-selected={selected}
             title={model.description ?? model.id}
             className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-left text-xs"
             style={{
