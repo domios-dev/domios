@@ -495,6 +495,7 @@ impl ServiceContext {
                 .unwrap_or((None, None));
             let inner = crate::service::tab_chat::structured_sink::make_sink(
                 app,
+                svc.mux.clone(),
                 source_session_id,
                 session_binding_nonce,
                 Some(svc.chat_send_ledger.clone()),

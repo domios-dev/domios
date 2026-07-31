@@ -249,7 +249,8 @@ npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment
 
 | Symptom | Cause | Recovery |
 |---|---|---|
-| `qa-prep` fails at stage `dist` with `ln: .../node_modules: cannot overwrite directory`, or a later `vite build` fails while `node_modules` is only a few hundred KB | On Windows, MSYS `ln -sf` copies instead of symlinking and aborts midway, leaving a partial `node_modules` stub in the worktree that later runs mistake for a real install | Delete the stub (`rm -rf node_modules`) and rerun `./build.sh qa-prep` — it now creates a junction (`mklink /J`) to the canonical checkout's `node_modules` on Windows |
+| `qa-prep` fails at stage `dist:node-modules-link` with `Parameter format not correct - <worktree>\node_modules` | On Windows, MSYS rewrites the bare `mklink /J` switch into the drive path `J:/` before `cmd` sees it, so `mklink` never receives the junction switch and rejects the arguments | Rerun `./build.sh qa-prep` on a build that passes the switch as `//J` (escaped from MSYS path conversion); the junction to the canonical checkout's `node_modules` is then created without elevation |
+| `pnpm install --frozen-lockfile` fails with `ENOENT` for a package inside `node_modules/.pnpm` | The local pnpm virtual store contains a partial package directory, so the lockfile is valid but linking cannot read the package manifest | Run `pnpm install --frozen-lockfile --force`, verify the missing binary or package is present, then rerun the original test command |
 
 
 If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
@@ -389,4 +390,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->
