@@ -17,6 +17,7 @@ import {
   canonicalBlob,
   createPreviewStabilizerState,
   displayablePreview,
+  isSmoothPreviewTransition,
   normalizeStreamLine,
   stabilizePreview,
   uncoveredPreviewTail,
@@ -66,29 +67,9 @@ function loadChatArrivals(path: string, epochMs: number): ChatArrival[] {
   return arrivals.sort((a, b) => a.t_ms - b.t_ms);
 }
 
-/** A frame transition is smooth when it only cuts rows from the top, appends
- * at the bottom, or extends the final row. Anything else is visible jank.
- * `drop` stays below prev.length: a full-window replacement is jank, never a
- * vacuous "cut everything" match. */
-function isSmoothTransition(prev: string[], next: string[]): boolean {
-  if (prev.length === 0 || next.length === 0) return true;
-  for (let drop = 0; drop < prev.length; drop++) {
-    const kept = prev.slice(drop);
-    if (kept.length > next.length) continue;
-    let matches = true;
-    for (let i = 0; i < kept.length; i++) {
-      const isLastKept = i === kept.length - 1;
-      const same = next[i] === kept[i];
-      const extended = isLastKept && next[i].startsWith(kept[i]);
-      if (!same && !extended) {
-        matches = false;
-        break;
-      }
-    }
-    if (matches) return true;
-  }
-  return false;
-}
+// Jank definition is the REAL matcher's smooth-transition contract — the
+// classifier and the display stabilizer share one implementation, no drift.
+const isSmoothTransition = isSmoothPreviewTransition;
 
 function main(): void {
   const timelinePath = arg("timeline");
@@ -173,17 +154,24 @@ function main(): void {
     frozenBySeq.set(motion.turn_seq, frozen);
 
     // Exact UI pipeline (useStreamPreview): junk filter, coverage cut, row
-    // cap, monotonic-window stabilizer.
+    // cap, smooth-or-hold stabilizer.
     const blob = canonicalBlob(landed);
     const view = displayablePreview(frozen.concat(motion.turn_live));
     const windowed = uncoveredPreviewTail(view, blob).slice(-MAX_PREVIEW_ROWS);
-    const displayed = stabilizePreview(stabilizer, motion.turn_seq, windowed);
+    const displayed = stabilizePreview(stabilizer, motion.turn_seq, windowed, view.length > 0, blob);
     if (current) {
       if (displayed.length > 0 && current.first_preview_ms === null) {
         current.first_preview_ms = frame.t_ms;
       }
       current.peak_preview_rows = Math.max(current.peak_preview_rows, displayed.length);
-      if (!isSmoothTransition(prevDisplayed, displayed)) current.jank_frames += 1;
+      if (!isSmoothTransition(prevDisplayed, displayed)) {
+        current.jank_frames += 1;
+        if (process.argv.includes("--dump-jank")) {
+          console.error(
+            `JANK turn ${current.seq} @${frame.t_ms}ms\n  prev: ${JSON.stringify(prevDisplayed)}\n  next: ${JSON.stringify(displayed)}`,
+          );
+        }
+      }
       if (displayed.some((row) => isCoveredDupe(row, blob))) current.dupe_frames += 1;
       if (displayed.length > 0 && displayed.length < prevDisplayed.length) {
         current.height_shrink_frames += 1;

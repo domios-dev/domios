@@ -35,8 +35,15 @@ const JUNK_ROW = /^\s*(?:[│┃║└├⎿…]|\+?\d+\s+lines?\b)/u;
 
 /** Live progress/status footer ("Working (1m 01s • esc to interrupt)") and
  * keyboard-hint rows ("esc again to edit previous message"): tick/flap chrome. */
-const INTERRUPT_HINT = /(?:esc|ctrl\s*\+\s*c)\s+to\s+interrupt/i;
+const INTERRUPT_HINT = /(?:esc|ctrl\s*\+\s*c)\s+(?:to\s+)?interrupt/i;
 const KEY_HINT_ROW = /^\s*esc\b.*\bto\s+\p{L}+/iu;
+
+/** Progress-dot status bars ("⬝⬝⬝⬝■■  esc interrupt … ctrl+p commands"). */
+const PROGRESS_DOTS = /^\s*[⬝▪▫■□]{2,}/u;
+
+/** Column-aligned status/footer rows (cwd path … token count … key hints):
+ * an internal run of 6+ spaces never occurs in wrapped message prose. */
+const MULTI_COLUMN_ROW = /\S\s{6,}\S/u;
 
 /** The TUI's own input-prompt echo of the user's draft/submitted text.
  * Interactive-question OPTION rows ("❯ 1. Yes") reuse the same glyph but are
@@ -72,9 +79,21 @@ const DIFF_ROW = /^\s{2,}\d+(?:\s*$|\s+[-+]|\s{2,}\S)/u;
 const CLI_HELP_ROW = /^\s{2,}-{1,2}[A-Za-z][\w-]*[,\s]/u;
 
 /** TUI status-badge rows ("▣  Build · <model>") — badge glyphs never gutter
- * message content — and reasoning-duration rows ("+ Thought: 304ms"). */
+ * message content — reasoning-duration rows ("+ Thought: 304ms"), and
+ * tool-status morphs ("~ Preparing write...", "← Write file.txt"). */
 const STATUS_BADGE = /^\s*[▣▢◈◉]\s/u;
 const DURATION_ROW = /^\s*\+?\s*\p{L}[\p{L} ]*:\s*\d+(?:\.\d+)?\s*m?s\s*$/u;
+const TOOL_STATUS_GLYPH = /^\s*[~←→↺✔✘✗]\s/u;
+
+/** Thinking-verb spinner rows ("✢ Pontificating… (16s · ↓ 788 tokens)",
+ * "· Garnishing…"): a lone gerund ending in an ellipsis, optional counter —
+ * and nothing else, so prose that merely starts with "Waiting…" survives.
+ * The completed form ("✻ Brewed for 2s") is the same status family. */
+const THINKING_SPINNER = /^\s*[✢✳✶✷✻✽·∗⁕*+]?\s*\p{L}+[…⋯]\s*(?:\([^()]*\))?\s*$/u;
+const COMPLETED_VERB = /^\s*[✢✳✶✷✻✽·∗⁕*+]\s*\p{L}+\s+for\s+\d+(?:m\s?\d+)?s\s*$/u;
+
+/** Line-numbered file dumps ("      1 hello streaming") — tool output. */
+const NUMBERED_FILE_ROW = /^\s{4,}\d+\s\S/u;
 
 /** Tool-run blocks are canonical tool cards' content, never message text, and
  * they morph/collapse in place: single-word action headers ("• Explored"),
@@ -97,21 +116,55 @@ export function isPreviewJunkRow(line: string): boolean {
     USAGE_BANNER.test(line) ||
     INTERRUPT_HINT.test(line) ||
     KEY_HINT_ROW.test(line) ||
+    PROGRESS_DOTS.test(line) ||
+    MULTI_COLUMN_ROW.test(line) ||
     (COMPOSER_ECHO.test(line) && !OPTION_ROW.test(line)) ||
     MODEL_CWD_FOOTER.test(line) ||
     DIFF_ROW.test(line) ||
     CLI_HELP_ROW.test(line) ||
     STATUS_BADGE.test(line) ||
     DURATION_ROW.test(line) ||
+    TOOL_STATUS_GLYPH.test(line) ||
+    THINKING_SPINNER.test(line) ||
+    COMPLETED_VERB.test(line) ||
+    NUMBERED_FILE_ROW.test(line) ||
     TOOL_HEADER_WORD.test(line) ||
     DIFFSTAT_SUFFIX.test(line) ||
     TOOL_CHILD_ROW.test(line)
   );
 }
 
-/** Rows worth previewing as message content: junk frames dropped. */
+/** A framed run is an interactive QUESTION dialog (content, not tool junk)
+ * when it contains a checkbox/radio option row ("1. [ ] Smooth"). */
+const FRAME_ROW = /^\s*[│┃]/u;
+const FRAMED_OPTION = /^\s*[│┃]?\s*\d+[.)]\s*(?:\[[xX✓ ]*\]|\([xX✓• ]*\))/u;
+const KEY_GLYPH_HINT = /[⇆⏎]|↑↓/u;
+
+/** Rows worth previewing as message content: junk frames dropped, except a
+ * framed interactive-question dialog, which the user must see. */
 export function displayablePreview(lines: readonly string[]): string[] {
-  return lines.filter((line) => !isPreviewJunkRow(line));
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (FRAME_ROW.test(lines[i])) {
+      let end = i;
+      let hasOption = false;
+      while (end < lines.length && FRAME_ROW.test(lines[end])) {
+        if (FRAMED_OPTION.test(lines[end])) hasOption = true;
+        end++;
+      }
+      if (hasOption) {
+        for (let k = i; k < end; k++) {
+          if (!KEY_GLYPH_HINT.test(lines[k])) out.push(lines[k]);
+        }
+      }
+      i = end;
+      continue;
+    }
+    if (!isPreviewJunkRow(lines[i])) out.push(lines[i]);
+    i++;
+  }
+  return out;
 }
 
 /** Per-turn display window state for [`stabilizePreview`]. */
@@ -128,19 +181,54 @@ export function createPreviewStabilizerState(): PreviewStabilizerState {
 }
 
 /**
- * Monotonic display window: rows that left through the top never re-enter
- * (kills window backslide when the decoder's live slice shrinks), and a
- * bottom-trimmed strict prefix of the current display holds it unchanged
- * (kills transient bottom-collapse flap). Empty input always passes through —
- * coverage death must never be held. Idempotent per (turn, rows) so repeated
- * renders with unchanged input are pure.
+ * The ONE smooth-transition definition, shared by the display stabilizer and
+ * the offline jank classifier: cut rows from the top, append at the bottom,
+ * and/or extend the final row (raw or normalized prefix — markdown
+ * finalization may restyle the completing tail row in place).
+ */
+export function isSmoothPreviewTransition(
+  prev: readonly string[],
+  next: readonly string[],
+): boolean {
+  if (prev.length === 0 || next.length === 0) return true;
+  for (let drop = 0; drop < prev.length; drop++) {
+    const kept = prev.slice(drop);
+    if (kept.length > next.length) continue;
+    let matches = true;
+    for (let i = 0; i < kept.length; i++) {
+      const isLastKept = i === kept.length - 1;
+      if (next[i] === kept[i]) continue;
+      if (isLastKept && extendsRow(kept[i], next[i])) continue;
+      matches = false;
+      break;
+    }
+    if (matches) return true;
+  }
+  return false;
+}
+
+function extendsRow(shown: string, next: string): boolean {
+  return next.startsWith(shown) || normalizeStreamLine(next).startsWith(normalizeStreamLine(shown));
+}
+
+/**
+ * Smooth-or-hold display window. Retired rows (cut from the top) never
+ * re-enter; re-emitted earlier content re-anchors so shown rows keep their
+ * position; any transition that still is not smooth HOLDS the current display
+ * until the stream stabilizes. Empty input dies only when coverage emptied it
+ * (`coverageEmptied`); a transient all-chrome frame holds instead of
+ * blinking. A hold never outlives coverage: held rows the canon (`blob`)
+ * already covers are cut so landed content dies even while holding.
+ * Idempotent per (turn, rows, blob) so repeated renders are pure.
  */
 export function stabilizePreview(
   state: PreviewStabilizerState,
   turnSeq: number,
   rows: readonly string[],
+  coverageEmptied = true,
+  blob = "",
 ): string[] {
-  const key = `${turnSeq}\n${rows.join("\n")}`;
+  const key = `${turnSeq}\n${coverageEmptied ? "c" : "t"}\n${blob.length}\n${rows.join("\n")}`;
   if (key === state.lastKey) return state.lastResult;
   if (turnSeq !== state.turn) {
     state.turn = turnSeq;
@@ -150,22 +238,46 @@ export function stabilizePreview(
   let start = 0;
   while (start < rows.length && state.retired.has(rows[start])) start++;
   let next = rows.slice(start);
-  const heldPrefix =
-    next.length > 0 &&
-    next.length < state.last.length &&
-    next.every((row, i) => state.last[i] === row);
-  if (heldPrefix) {
-    next = state.last;
-  } else {
-    const anchor = next.length > 0 ? state.last.indexOf(next[0]) : -1;
-    if (anchor > 0) {
-      for (let i = 0; i < anchor; i++) state.retired.add(state.last[i]);
-    }
+  if (next.length === 0) {
+    next = coverageEmptied ? [] : uncoveredPreviewTail(state.last, blob);
     state.last = next;
+  } else if (state.last.length === 0) {
+    state.last = next;
+  } else {
+    const shift = anchorShift(state.last, next);
+    if (shift !== null && shift > 0) {
+      for (let i = 0; i < shift && i < next.length; i++) state.retired.add(next[i]);
+      next = next.slice(shift);
+    }
+    if (next.length > 0 && isSmoothPreviewTransition(state.last, next)) {
+      const cut = state.last.indexOf(next[0]);
+      if (cut > 0) {
+        for (let i = 0; i < cut; i++) state.retired.add(state.last[i]);
+      }
+      state.last = next;
+    } else {
+      next = uncoveredPreviewTail(state.last, blob);
+      state.last = next;
+    }
   }
   state.lastKey = key;
   state.lastResult = next;
   return next;
+}
+
+const MIN_ANCHOR_CHARS = 8;
+
+/** How far DOWN the previously shown rows moved in `next` (0 = in place,
+ * null = no shown row survived — e.g. every row rewrapped). */
+function anchorShift(prev: readonly string[], next: readonly string[]): number | null {
+  let weak: number | null = null;
+  for (let i = 0; i < prev.length; i++) {
+    const j = next.indexOf(prev[i]);
+    if (j < 0) continue;
+    if (prev[i].trim().length >= MIN_ANCHOR_CHARS) return Math.max(0, j - i);
+    if (weak === null) weak = Math.max(0, j - i);
+  }
+  return weak;
 }
 
 /**

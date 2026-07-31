@@ -55,7 +55,7 @@ export function useStreamPreview(
     if (!event) return [];
     const content = displayablePreview(event.frozen.concat(event.live));
     const windowed = uncoveredPreviewTail(content, blob).slice(-MAX_PREVIEW_ROWS);
-    return stabilizePreview(stabilizer.current, event.turn_seq, windowed);
+    return stabilizePreview(stabilizer.current, event.turn_seq, windowed, content.length > 0, blob);
   }, [event, blob]);
 
   // Turn over and fully covered by canon → drop the stale event entirely.

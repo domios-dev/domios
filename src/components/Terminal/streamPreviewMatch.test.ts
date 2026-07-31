@@ -272,3 +272,124 @@ test("interactive question and option rows survive the chrome filters", () => {
     "› 3. MySQL",
   ]);
 });
+
+// Live opencode long-prose turn: the TUI re-emits the wrapped paragraph with
+// new break points, pushing shown rows DOWN (insert-above) or replacing every
+// row string. Shown rows must keep their position; a full rewrap holds.
+test("stabilizer: paragraph rewrap re-anchors instead of inserting above", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["screen. When a terminal emulator receives more", "lines than fit, it stores them."]);
+  assert.deepEqual(
+    stabilizePreview(state, 1, [
+      "Terminal scrollback is the mechanism by which",
+      "screen. When a terminal emulator receives more",
+      "lines than fit, it stores them.",
+      "New appended row streams below.",
+    ]),
+    [
+      "screen. When a terminal emulator receives more",
+      "lines than fit, it stores them.",
+      "New appended row streams below.",
+    ],
+  );
+});
+
+test("stabilizer: full rewrap with no surviving row holds the display", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["screen. When a terminal emulator receives", "more lines than fit, it stores them."]);
+  assert.deepEqual(
+    stabilizePreview(state, 1, ["screen. When a terminal", "emulator receives more lines", "than fit, it stores them. And"]),
+    ["screen. When a terminal emulator receives", "more lines than fit, it stores them."],
+  );
+});
+
+// Live opencode: '~ Preparing write...' morphing to '← Write file' is a
+// tool-status row, not message content.
+test("tool-status glyph rows are never previewable", () => {
+  const rows = ["     ~ Preparing write...", "     ← Write streaming-probe.txt", "     Real prose stays."];
+  assert.deepEqual(displayablePreview(rows), ["     Real prose stays."]);
+});
+
+// Live opencode: the status bar says "esc interrupt" (no "to") and leads with
+// progress dots — both must be chrome.
+test("progress-dot status bars are never previewable", () => {
+  const rows = [
+    "   ⬝⬝⬝⬝⬝⬝■■  esc interrupt                    23.6K (12%)  ctrl+p commands",
+    "     esc interrupt",
+    "     real prose row survives here",
+  ];
+  assert.deepEqual(displayablePreview(rows), ["     real prose row survives here"]);
+});
+
+// Final opencode capture, turn 3: the wrapped cwd/token/keys footer is a
+// column-aligned row — internal 6+ space runs never occur in wrapped prose.
+test("column-aligned footer rows are never previewable", () => {
+  const rows = [
+    "   /private/tmp/claude-502/scratchpad/probe-opencode-         21.3K (11 ctrl+p",
+    "   consilium/501ecdcd/scratchpad/probe-opencode                              commands",
+    "   Prose keeps single spaces when it wraps across rows like this one does.",
+  ];
+  assert.deepEqual(displayablePreview(rows), [
+    "   Prose keeps single spaces when it wraps across rows like this one does.",
+  ]);
+});
+
+// Final opencode capture, turn 9 (long-prose): mid-window rewrap changed a
+// row ABOVE the streaming tail in place — hold; tail growth still flows.
+test("stabilizer: mid-window rewrap holds, tail growth passes", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["first shown row stays", "second shown row here", "third streaming tail"]);
+  assert.deepEqual(
+    stabilizePreview(state, 1, ["first shown row stays", "second shown row HERE rewrapped", "third streaming tail plus"]),
+    ["first shown row stays", "second shown row here", "third streaming tail"],
+  );
+  assert.deepEqual(
+    stabilizePreview(state, 1, ["first shown row stays", "second shown row here", "third streaming tail plus more"]),
+    ["first shown row stays", "second shown row here", "third streaming tail plus more"],
+  );
+});
+
+// Claude capture: the completed-turn verb row ("✻ Brewed for 2s") and
+// line-numbered file dumps leaked as leftovers.
+test("completed-verb and numbered file rows are never previewable", () => {
+  const rows = ["✻ Brewed for 2s", "✻ Sautéed for 16s", "      1 hello streaming", "  Real prose."];
+  assert.deepEqual(displayablePreview(rows), ["  Real prose."]);
+});
+
+// Claude capture: post-turn frames are all-chrome, so the hold kept covered
+// content alive for minutes. A hold must respect coverage: held rows already
+// in canon die even while holding.
+test("stabilizer: a hold never outlives canonical coverage", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["the answer paragraph is here", "still streaming more"], true, "");
+  const blob = canonicalBlob(["the answer paragraph is here still streaming more"]);
+  assert.deepEqual(stabilizePreview(state, 1, [], false, blob), []);
+});
+
+test("stabilizer: transient all-chrome frame still holds uncovered content", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["fresh uncovered content row"], true, "");
+  assert.deepEqual(stabilizePreview(state, 1, [], false, ""), ["fresh uncovered content row"]);
+});
+
+// Required interactive-prompt coverage (opencode): the question dialog is
+// ┃-framed like tool output, but a framed run containing checkbox/radio
+// option rows is a genuine question the user must see — kept wholesale,
+// minus key-glyph hint rows. Framed runs WITHOUT options stay tool junk.
+test("framed interactive question dialogs survive; framed tool output does not", () => {
+  const dialog = [
+    "┃  How was this opencode-in-CodeTerm probe session? Select all that apply.",
+    "┃  1. [ ] Smooth",
+    "┃     Everything worked as expected",
+    "┃  2. [x] Confusing",
+    "┃  ⇆ tab ↑↓ select enter toggle esc dismiss",
+  ];
+  assert.deepEqual(displayablePreview(dialog), [
+    "┃  How was this opencode-in-CodeTerm probe session? Select all that apply.",
+    "┃  1. [ ] Smooth",
+    "┃     Everything worked as expected",
+    "┃  2. [x] Confusing",
+  ]);
+  const toolFrame = ["┃ $ cargo build --release", "┃ Compiling codeterm v1.7.8", "  prose survives"];
+  assert.deepEqual(displayablePreview(toolFrame), ["  prose survives"]);
+});
