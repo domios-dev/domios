@@ -119,6 +119,7 @@ export function CodetermActionCard({
 }: Props) {
   const inv = recognize(commandFor(event));
   const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName) : undefined;
+  const sendSucceeded = sent?.status?.ok === true;
   const target = inv ? navigationTarget(inv, event.result) : null;
   const descriptor = inv ? describeAction(inv, event.result, resolveTabName) : { lead: "codeterm", chips: [] };
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
@@ -130,12 +131,13 @@ export function CodetermActionCard({
   );
   const displayEvent: ToolEvent = {
     ...event,
+    status: sendSucceeded ? "success" : event.status,
     summary: descriptor.object ?? descriptor.lead,
     detail: undefined,
   };
   const isTabList = inv?.path.join(" ") === "tab list";
   const tabListJson = isTabList && inv?.flags.json === true;
-  const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || event.status === "error"));
+  const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || (event.status === "error" && !sendSucceeded)));
 
   return (
     <ToolCardFrame
