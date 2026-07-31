@@ -81,9 +81,12 @@ test("CodeBlock renders highlighted code structure and copy button", async () =>
   const block = host.querySelector<HTMLElement>('[data-testid="chat-code-block"]');
   assert(block?.classList.contains("min-w-0"), "code block should not expand a flex parent");
   assert(block?.classList.contains("max-w-full"), "code block should stay within the chat width");
+  const toolbar = host.querySelector<HTMLElement>('[data-testid="chat-code-toolbar"]');
+  assert(toolbar?.classList.contains("select-none"), "copying rendered code should exclude toolbar chrome");
   const scrollHost = host.querySelector<HTMLElement>(`.${SYNTAX_HIGHLIGHT_ROOT_CLASS}.overflow-x-auto.overflow-y-auto`);
   assert(scrollHost?.style.maxHeight === "500px", "code block should cap height at 500px");
   assert(scrollHost?.classList.contains("w-full"), "code lines should scroll inside a width-constrained host");
+  assert(scrollHost?.classList.contains("select-text"), "code source remains selectable");
   const highlightedCode = scrollHost?.querySelector<HTMLElement>("code");
   assert(highlightedCode?.style.whiteSpace === "pre", "code should preserve original line width");
   assert(highlightedCode?.style.wordBreak === "normal", "code should not break long lines");
