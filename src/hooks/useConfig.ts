@@ -4,7 +4,7 @@ import { listen } from "../lib/bridge";
 import type { AppConfig } from "../lib/types";
 import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
-function defaultConfig(): AppConfig {
+export function defaultConfig(): AppConfig {
   return {
   theme: readCachedTheme() ?? DEFAULT_THEME,
   font: {
@@ -51,11 +51,11 @@ function defaultConfig(): AppConfig {
   },
   memory: {
     extraction_agent: "",
-    extraction_model: "haiku",
+    extraction_model: "",
     auto_extract: true,
     dreaming_agent: "",
-    dreaming_model: "haiku",
-    worker_model: "haiku",
+    dreaming_model: "",
+    worker_model: "",
     worker_timeout_seconds: 1800,
     dedup_threshold: 0.15,
     file_sync_enabled: true,

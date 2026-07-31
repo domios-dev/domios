@@ -8,6 +8,7 @@ import {
   attachModelsUpdatedRefresh,
   shouldRefreshAgentProviders,
   syncAgentDescriptorCache,
+  visibleAgentProviders,
 } from "./useAgentProviders";
 
 let failed = 0;
@@ -68,6 +69,13 @@ test("models-updated refresh is wired alongside contributions changes", () => {
   assert(shouldRefreshAgentProviders("contributions-changed"), "contribution event should refresh");
   assert(shouldRefreshAgentProviders("models-updated"), "models-updated should refresh");
   assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
+});
+
+test("loading or failed catalogs expose no stale provider entries", () => {
+  const stale = [provider("stale-provider")];
+  assert(visibleAgentProviders(stale, true, null).length === 0, "loading hides stale entries");
+  assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
+  assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
 });
 
 test("models-updated listener refetches while mounted", () => {
