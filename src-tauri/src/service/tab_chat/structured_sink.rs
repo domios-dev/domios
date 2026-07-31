@@ -386,7 +386,7 @@ mod tests {
         let after_transport = ledger.finish(&send.send_id, Ok(())).unwrap();
         assert_eq!(
             after_transport.state,
-            ChatSendState::Pending,
+            ChatSendState::Unknown,
             "bare transport success never proves an unanchored send"
         );
 
