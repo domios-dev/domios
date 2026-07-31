@@ -524,6 +524,7 @@ mod tests {
                 directory.path(),
                 &PlanIndexQuery {
                     query: "Restart searchable".into(),
+                    kind: None,
                     scope: None,
                     limit: Some(5),
                 },
@@ -598,6 +599,7 @@ mod tests {
                 directory.path(),
                 &PlanIndexQuery {
                     query: "Delete searchable".into(),
+                    kind: None,
                     scope: None,
                     limit: Some(5),
                 },
