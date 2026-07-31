@@ -610,6 +610,20 @@ mod tests {
     }
 
     #[test]
+    fn rebind_window_send_is_not_sent_by_transport_classification_alone() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger
+            .try_start("tab-1", "Reply with exactly: REBIND-1", None)
+            .unwrap();
+        let finished = ledger.finish(&pending.send_id, Ok(())).unwrap();
+        assert_eq!(
+            finished.state,
+            ChatSendState::Pending,
+            "transport Ok is not attribution: sent requires a turn in the tab's own bound session"
+        );
+    }
+
+    #[test]
     fn already_sent_deliveries_are_never_reconfirmed() {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "hello", None).unwrap();
