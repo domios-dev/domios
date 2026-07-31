@@ -535,6 +535,7 @@ fn run_plan(
             query,
             project,
             kind,
+            scope,
             limit,
             active: _,
             archived,
@@ -557,6 +558,9 @@ fn run_plan(
             }
             if let Some(kind) = kind {
                 params["kind"] = json!(kind);
+            }
+            if let Some(scope) = scope {
+                params["scope"] = json!(scope);
             }
             let val = call(client, "plan.search", params)?;
             if json {

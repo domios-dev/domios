@@ -31,6 +31,56 @@ fn parse_plan_cli_result<const N: usize>(args: [&str; N]) -> Result<ParsedPlan, 
 }
 
 #[test]
+fn plan_search_kind_arguments() {
+    let parsed = parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "search",
+        "delivery ledger evidence",
+        "--kind",
+        "task",
+        "--scope",
+        "workspace:ws_1",
+    ])
+    .expect("plan search filters parse");
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::Search {
+                kind, scope, limit, ..
+            },
+        } => {
+            assert_eq!(kind.as_deref(), Some("task"));
+            assert_eq!(scope.as_deref(), Some("workspace:ws_1"));
+            assert_eq!(limit, 10);
+        }
+        _ => panic!("expected plan search"),
+    }
+
+    let error = match parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "search",
+        "delivery ledger evidence",
+        "--kind",
+        "nonsense",
+    ]) {
+        Ok(_) => panic!("unknown plan search kind must fail"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    for kind in [
+        "plan",
+        "plan_section",
+        "spec",
+        "spec_section",
+        "task",
+        "stride",
+    ] {
+        assert!(message.contains(kind), "missing {kind} in: {message}");
+    }
+}
+
+#[test]
 fn plan_record_parses_batch_sugar() {
     let parsed = parse_plan_cli_result([
         "codeterm",
