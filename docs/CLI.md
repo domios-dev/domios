@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1890,10 +1890,11 @@ Search synced plan/spec/task/stride history for this project
 - `--active`
 - `--all`
 - `--archived`
-- `--kind`
+- `--kind` — Restrict to plan, plan_section, spec, spec_section, task, or stride
 - `--limit`
 - `--project`
 - `<query>`
+- `--scope` — Restrict to an indexed scope such as global or workspace:<id>
 
 #### `codeterm plan section`
 

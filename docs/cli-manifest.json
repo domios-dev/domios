@@ -7108,7 +7108,7 @@
               "positional": false,
               "value_name": "KIND",
               "default": null,
-              "help": null,
+              "help": "Restrict to plan, plan_section, spec, spec_section, task, or stride",
               "aliases": []
             },
             {
@@ -7133,6 +7133,14 @@
               "value_name": "QUERY",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": null,
+              "help": "Restrict to an indexed scope such as global or workspace:<id>",
               "aliases": []
             }
           ],
