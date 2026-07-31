@@ -300,36 +300,58 @@ pub fn extract_completion_summary(screen_lines: &[String]) -> Option<StatusLine>
     let start = nonempty.len().saturating_sub(16);
     for row in nonempty[start..].iter().rev() {
         let row = *row;
-        let ellipsis = row.contains('…') || row.contains("...");
-        let leading_spinner = row
-            .trim_start()
-            .chars()
-            .next()
-            .is_some_and(|c| STATUS_SPINNERS.contains(&c));
         // An active spinner below the summary means a NEW turn is live: the
         // stale summary above it must not read as the current state.
-        if leading_spinner && ellipsis {
+        if is_active_spinner_row(row) {
             return None;
         }
-        if ellipsis || row.contains('(') {
-            continue;
+        if let Some(summary) = completion_summary_from_row(row) {
+            return Some(summary);
         }
-        if !row.chars().any(|c| STATUS_SPINNERS.contains(&c)) {
-            continue;
-        }
-        let Some(elapsed_ms) = sum_hms(row) else {
-            continue;
-        };
-        let line = row.trim_start_matches(|c: char| {
-            STATUS_SPINNERS.contains(&c) || c == '·' || c.is_whitespace()
-        });
-        return Some(StatusLine {
-            line: compact_status_message(line),
-            phase: Some("done".to_string()),
-            elapsed_ms: Some(elapsed_ms),
-        });
     }
     None
+}
+
+pub(super) fn completion_summary_immediately_precedes_status_repaint(
+    screen_lines: &[String],
+) -> bool {
+    let nonempty: Vec<&str> = screen_lines
+        .iter()
+        .map(|row| row.trim_end())
+        .filter(|row| !row.is_empty())
+        .collect();
+    let start = nonempty.len().saturating_sub(16);
+    nonempty[start..].windows(2).any(|rows| {
+        completion_summary_from_row(rows[0]).is_some() && is_active_spinner_row(rows[1])
+    })
+}
+
+fn is_active_spinner_row(row: &str) -> bool {
+    let ellipsis = row.contains('…') || row.contains("...");
+    let leading_spinner = row
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| STATUS_SPINNERS.contains(&c));
+    leading_spinner && ellipsis
+}
+
+fn completion_summary_from_row(row: &str) -> Option<StatusLine> {
+    if row.contains('…') || row.contains("...") || row.contains('(') {
+        return None;
+    }
+    if !row.chars().any(|c| STATUS_SPINNERS.contains(&c)) {
+        return None;
+    }
+    let elapsed_ms = sum_hms(row)?;
+    let line = row.trim_start_matches(|c: char| {
+        STATUS_SPINNERS.contains(&c) || c == '·' || c.is_whitespace()
+    });
+    Some(StatusLine {
+        line: compact_status_message(line),
+        phase: Some("done".to_string()),
+        elapsed_ms: Some(elapsed_ms),
+    })
 }
 
 #[cfg(test)]
