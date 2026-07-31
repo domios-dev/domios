@@ -55,6 +55,10 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 
 Run shared dev, broad gates, and release checks from the canonical checkout as a team operating rule. Build scripts must not enforce ownership by branch name: lanes may run focused checks or isolated dev when needed, while the machine build gateway serializes heavy work.
 
+Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
+
+Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
+
 ## Build speed (worktrees, tests, profiles)
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
@@ -270,4 +274,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
