@@ -122,6 +122,64 @@ fn resolve_dispatch_lane(
     })
 }
 
+fn preflight_checkout_occupancy(
+    plan: &crate::plan::Plan,
+    dispatched_task_id: &str,
+    checkout_path: &str,
+) -> Result<(), JsonRpcError> {
+    let canonical_path = if plan.canonical_project_path.trim().is_empty() {
+        plan.project_path.as_str()
+    } else {
+        plan.canonical_project_path.as_str()
+    };
+    let occupant = plan.tasks.iter().find_map(|task| {
+        task.execution_attempts.iter().find_map(|attempt| {
+            if attempt.closed_at.is_some() {
+                return None;
+            }
+            let attempt_path = attempt
+                .worktree_path
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+                .unwrap_or(canonical_path);
+            crate::service::ServiceContext::paths_equal(checkout_path, attempt_path)
+                .then_some((task.id.as_str(), attempt.id.as_str()))
+        })
+    });
+    let Some((occupying_task_id, occupying_attempt_id)) = occupant else {
+        return Ok(());
+    };
+    let update_command = format!(
+        "codeterm plan task update {} {} --worktree <isolated-worktree-path> --branch <isolated-branch> --base <base-ref>",
+        plan.id, dispatched_task_id
+    );
+    let dispatch_command = format!(
+        "codeterm plan task dispatch {} {}",
+        plan.id, dispatched_task_id
+    );
+    let message = format!(
+        "dispatch refused: checkout '{checkout_path}' is occupied by live attempt \
+         '{occupying_attempt_id}' of task '{occupying_task_id}' in plan '{}'. No worker was \
+         spawned. Assign an existing isolated lane, then dispatch again:\n  {update_command}\n  \
+         {dispatch_command}",
+        plan.id
+    );
+    Err(JsonRpcError {
+        code: -32011,
+        message: message.clone(),
+        data: Some(json!({
+            "type": "checkout_occupied",
+            "stage": "checkout_occupancy",
+            "reason": message,
+            "occupying_task_id": occupying_task_id,
+            "occupying_attempt_id": occupying_attempt_id,
+            "checkout_path": checkout_path,
+            "update_command": update_command,
+            "dispatch_command": dispatch_command,
+        })),
+    })
+}
+
 fn lane_metadata_for_dispatch(
     original: &TaskLaneMetadata,
     provenance: &WorkerLaneProvenance,
@@ -690,6 +748,7 @@ pub(super) fn dispatch(
     };
     let lane_resolution =
         resolve_dispatch_lane(explicit_cwd.as_deref(), &canonical_cwd, &detail.task.lane)?;
+    preflight_checkout_occupancy(&plan, &task_id, &lane_resolution.spawn_cwd)?;
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: Some(lane_resolution.spawn_cwd.clone()),
