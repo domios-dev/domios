@@ -1,0 +1,16 @@
+{
+  "skill_name": "spawned-agent-primer",
+  "description": "Shared capabilities every spawned CodeTerm agent receives before its role and assignment.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "rich-workflow-visualization",
+      "prompt": "Without running commands, briefly explain which native CodeTerm rendering formats you would use for a workflow visualization and when inline HTML is appropriate.",
+      "expected_output": "Knows the shared rich-rendering contract available to every spawned CodeTerm agent.",
+      "expectations": [
+        "Identifies Mermaid and a self-contained sandboxed HTML block as workflow visualization options",
+        "States that inline HTML is only for light native markup"
+      ]
+    }
+  ]
+}
