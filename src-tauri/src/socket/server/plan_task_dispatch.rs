@@ -132,6 +132,7 @@ fn preflight_checkout_occupancy(
     } else {
         plan.canonical_project_path.as_str()
     };
+    let normalized_checkout = codeterm_paths::normalize_cwd(checkout_path);
     let occupant = plan.tasks.iter().find_map(|task| {
         task.execution_attempts.iter().find_map(|attempt| {
             if attempt.closed_at.is_some() {
@@ -142,7 +143,7 @@ fn preflight_checkout_occupancy(
                 .as_deref()
                 .filter(|path| !path.trim().is_empty())
                 .unwrap_or(canonical_path);
-            crate::service::ServiceContext::paths_equal(checkout_path, attempt_path)
+            (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path))
                 .then_some((task.id.as_str(), attempt.id.as_str()))
         })
     });
