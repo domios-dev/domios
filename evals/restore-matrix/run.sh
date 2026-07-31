@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# WHAT: Prove provider sessions and isolated markers survive a hard dev restart.
+# WHY: A saved mux snapshot must restore every agent without session cross-wiring.
+# ORACLE: Durable provider-store markers reappear in the same tabs and chat views.
 set -u
 set -o pipefail
 
@@ -27,9 +30,10 @@ WORKSPACE_CWD="C:/temp/$WORKSPACE_NAME"
 RUN_DIR="$EVAL_LIB_OUT_BASE/restore-matrix-$RUN_ID"
 MANIFEST="$RUN_DIR/manifest.json"
 SLOTS_TSV="$RUN_DIR/slots.tsv"
+SLOTS_DIR="$RUN_DIR/slots"
 SUCCESS=0
 WORKSPACE_ID=""
-mkdir -p "$RUN_DIR" "$WORKSPACE_CWD"
+mkdir -p "$RUN_DIR" "$SLOTS_DIR" "$WORKSPACE_CWD"
 : > "$SLOTS_TSV"
 
 cleanup() {
@@ -80,36 +84,50 @@ PY
 
 replace_slot_field() {
   local provider="$1" idx="$2" field="$3" value="$4"
-  local lock="$SLOTS_TSV.lock"
-  while ! mkdir "$lock" 2>/dev/null; do
-    sleep 0.1
-  done
-PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$provider" "$idx" "$field" "$value" <<'PY'
+  PYTHONIOENCODING=utf-8 python - "$SLOTS_DIR/$provider-$idx.tsv" "$field" "$value" <<'PY'
 import os, pathlib, sys
-path, provider, idx, field, value = sys.argv[1:6]
+path, field, value = sys.argv[1:4]
 fields = ['provider','idx','model','tab_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
 col = fields.index(field)
-rows = []
 path = pathlib.Path(path)
-for line in path.read_text(encoding='utf-8').splitlines():
-    parts = line.split('\t')
-    while len(parts) < len(fields):
-        parts.append('')
-    if parts[0] == provider and parts[1] == idx:
-        parts[col] = value.replace('\t', ' ').replace('\n', ' ')
-    rows.append('\t'.join(parts))
+parts = path.read_text(encoding='utf-8').rstrip('\n').split('\t')
+while len(parts) < len(fields):
+    parts.append('')
+parts[col] = value.replace('\t', ' ').replace('\n', ' ')
 tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-tmp.write_text('\n'.join(rows) + ('\n' if rows else ''), encoding='utf-8')
+tmp.write_text('\t'.join(parts) + '\n', encoding='utf-8')
 os.replace(tmp, path)
 PY
-  local rc=$?
-  rmdir "$lock" 2>/dev/null || true
-  return "$rc"
 }
 
 append_slot() {
   local provider="$1" idx="$2" model="$3" marker="$4"
-  printf '%s\t%s\t%s\t\t\t%s\t\t\t0\t\t\n' "$provider" "$idx" "$model" "$marker" >> "$SLOTS_TSV"
+  printf '%s\t%s\t%s\t\t\t%s\t\t\t0\t\t\n' "$provider" "$idx" "$model" "$marker" > "$SLOTS_DIR/$provider-$idx.tsv"
+}
+
+merge_slots() {
+  python - "$SLOTS_DIR" "$SLOTS_TSV" <<'PY'
+import pathlib, sys
+slots_dir, output = map(pathlib.Path, sys.argv[1:3])
+rows = []
+for path in slots_dir.glob("*.tsv"):
+    parts = path.read_text(encoding="utf-8").rstrip("\n").split("\t")
+    rows.append((parts[0], int(parts[1]), "\t".join(parts)))
+rows.sort(key=lambda row: (row[0], row[1]))
+output.write_text("\n".join(row[2] for row in rows) + ("\n" if rows else ""), encoding="utf-8")
+PY
+}
+
+split_slots() {
+  python - "$SLOTS_TSV" "$SLOTS_DIR" <<'PY'
+import pathlib, sys
+source, slots_dir = map(pathlib.Path, sys.argv[1:3])
+for line in source.read_text(encoding="utf-8").splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\t")
+    (slots_dir / f"{parts[0]}-{parts[1]}.tsv").write_text(line + "\n", encoding="utf-8")
+PY
 }
 
 json_field() {
@@ -131,7 +149,7 @@ PY
 
 marker_materialized_in_store() {
   local provider="$1" idx="$2"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$provider" "$idx" "$WORKSPACE_NAME" "$WORKSPACE_CWD" <<'PY'
+  PYTHONIOENCODING=utf-8 python - "$SLOTS_DIR/$provider-$idx.tsv" "$provider" "$idx" "$WORKSPACE_NAME" "$WORKSPACE_CWD" <<'PY'
 import json, os, pathlib, sqlite3, sys
 slots_path, provider, idx, workspace_name = sys.argv[1:5]
 workspace_cwd = sys.argv[5]
@@ -295,23 +313,16 @@ PY
 }
 
 refresh_slot_pre() {
-  local provider="$1" idx="$2" timeout="${3:-45}"
-  local tab_id tab_id sid tab_json deadline
+  local provider="$1" idx="$2"
+  local tab_id tab_id sid tab_json
   tab_id=$(awk -F '\t' -v p="$provider" -v i="$idx" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
   [ -n "$tab_id" ] || return 1
-  deadline=$((SECONDS + timeout))
-  while [ $SECONDS -lt $deadline ]; do
-    tab_json=$(tab_json_by_id "$tab_id" 2>/dev/null || true)
-    tab_id=$(echo "$tab_json" | json_field "data.get('tab_id')")
-    sid=$(echo "$tab_json" | json_field "data.get('agent_session_id')")
-    [ -n "$tab_id" ] && replace_slot_field "$provider" "$idx" tab_id "$tab_id"
-    [ -n "$sid" ] && replace_slot_field "$provider" "$idx" sid_before "$sid"
-    if [ -n "$tab_id" ] && [ -n "$sid" ]; then
-      return 0
-    fi
-    sleep 2
-  done
-  return 0
+  tab_json=$(tab_json_by_id "$tab_id" 2>/dev/null || true)
+  tab_id=$(echo "$tab_json" | json_field "data.get('tab_id')")
+  sid=$(echo "$tab_json" | json_field "data.get('agent_session_id')")
+  [ -n "$tab_id" ] && replace_slot_field "$provider" "$idx" tab_id "$tab_id"
+  [ -n "$sid" ] && replace_slot_field "$provider" "$idx" sid_before "$sid"
+  [ -n "$tab_id" ]
 }
 
 refresh_all_slots_pre() {
@@ -334,6 +345,7 @@ for r in rows:
         r[6] = tab.get('agent_session_id') or ''
 pathlib.Path(slots_path).write_text('\n'.join('\t'.join(r) for r in rows) + '\n', encoding='utf-8')
 PY
+  split_slots
   local line line_usv provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -343,6 +355,7 @@ PY
       replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$tab_id")"
     fi
   done < "$SLOTS_TSV"
+  merge_slots
 }
 
 spawn_slot() {
@@ -374,48 +387,104 @@ spawn_slot() {
 send_marker_and_wait() {
   local provider="$1" idx="$2" tab_id="$3" marker="$4"
   local prompt="Reply with exactly $marker and nothing else."
-  local out deadline payload response status body attempt evidence
+  local out evidence wait_result
 
-  payload=$(python - "$prompt" <<'PY'
-import json, sys
-print(json.dumps({"text": sys.argv[1], "enter": True}))
+  refresh_slot_pre "$provider" "$idx" || true
+  wait_result=$(PYTHONIOENCODING=utf-8 python - "$tab_id" "$marker" "$prompt" "$RM_MATERIALIZE_TIMEOUT" 2>&1 <<'PY'
+import json, os, queue, sys, threading, time, urllib.request, uuid
+
+tab_id, marker, prompt, timeout_text = sys.argv[1:]
+timeout = int(timeout_text)
+deadline = time.monotonic() + timeout
+headers = {"Authorization": f"Bearer {os.environ['CODETERM_API_TOKEN']}"}
+events = queue.Queue()
+failure = queue.Queue(maxsize=1)
+ready = threading.Event()
+
+def request(path, payload):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("provider-store deadline elapsed before request")
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "http://127.0.0.1:7686" + path,
+        data=body,
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=remaining) as response:
+        return json.load(response)
+
+def stream_events():
+    req = urllib.request.Request(
+        "http://127.0.0.1:7686/api/events/stream",
+        headers={**headers, "Accept": "text/event-stream"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            ready.set()
+            for raw in response:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if line.startswith("data:"):
+                    events.put(json.loads(line[5:].strip()))
+    except Exception as error:
+        if failure.empty():
+            failure.put(error)
+        ready.set()
+
+threading.Thread(target=stream_events, daemon=True).start()
+if not ready.wait(timeout=min(10, timeout)):
+    raise SystemExit("event stream did not acknowledge subscription")
+if not failure.empty():
+    raise SystemExit(f"event stream failed: {failure.get()}")
+
+subscription = f"restore-matrix-{uuid.uuid4().hex}"
+request(f"/api/tabs/{tab_id}/chat-raw/start", {"subscriptionId": subscription})
+request(f"/api/tabs/{tab_id}/send", {"text": prompt, "enter": True})
+
+event_name = f"tab-chat-msg-{tab_id}"
+while True:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise SystemExit("provider store emitted no marker event before deadline")
+    try:
+        event = events.get(timeout=remaining)
+    except queue.Empty:
+        raise SystemExit("provider store emitted no marker event before deadline")
+    if event.get("event_type") == "overflow":
+        raise SystemExit(f"event stream lost coverage: {event.get('data')}")
+    if event.get("event_type") == event_name and marker in json.dumps(event.get("data"), ensure_ascii=False):
+        print("provider-store-event")
+        raise SystemExit(0)
 PY
-)
-  for attempt in 1 2; do
-    response=$(curl -s --max-time 120 -w '\n%{http_code}' -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" --data "$payload" "http://127.0.0.1:7686/api/tabs/$tab_id/send")
-    status=$(printf '%s' "$response" | tail -n 1)
-    body=$(printf '%s' "$response" | sed '$d')
-    if [ "$status" != "200" ]; then
-      replace_slot_field "$provider" "$idx" skipped 1
-      replace_slot_field "$provider" "$idx" reason "send failed HTTP $status: $body"
-      echo "SKIP provider=$provider slot=$idx tab=$tab_id reason=send failed HTTP $status: $body"
-      return 1
+) || wait_result="${wait_result:-provider store event wait failed}"
+
+  if [ "$wait_result" = "provider-store-event" ]; then
+    refresh_slot_pre "$provider" "$idx" || true
+    evidence=$(marker_materialized_in_store "$provider" "$idx" 2>/dev/null || true)
+    if [ -n "$evidence" ]; then
+      echo "PASS pre-marker-store provider=$provider slot=$idx tab=$tab_id marker=$marker evidence=$evidence"
+      return 0
     fi
-    deadline=$((SECONDS + RM_MATERIALIZE_TIMEOUT))
-    while [ $SECONDS -lt $deadline ]; do
-      refresh_slot_pre "$provider" "$idx" 1 || true
-      evidence=$(marker_materialized_in_store "$provider" "$idx" 2>/dev/null || true)
-      if [ -n "$evidence" ]; then
-        echo "PASS pre-marker-store provider=$provider slot=$idx tab=$tab_id marker=$marker evidence=$evidence"
-        return 0
-      fi
-      out=$(dc tab get-text --tab "$tab_id" 2>&1 || true)
-      if printf '%s' "$out" | marker_in_text "$marker"; then
-        echo "INFO pre-marker-terminal-visible provider=$provider slot=$idx tab=$tab_id marker=$marker waiting_for_provider_store"
-      fi
-      if echo "$out" | grep -Eiq 'rate-limit-options|session limit|usage limit|upgrade your plan|sign in|login|authenticate'; then
-        replace_slot_field "$provider" "$idx" skipped 1
-        replace_slot_field "$provider" "$idx" reason "auth/rate-limit screen before marker materialized"
-        echo "SKIP provider=$provider slot=$idx tab=$tab_id reason=auth/rate-limit screen before marker materialized"
-        return 1
-      fi
-      sleep 5
-    done
-    echo "WARN provider=$provider slot=$idx tab=$tab_id marker did not materialize after send attempt $attempt"
-  done
+    replace_slot_field "$provider" "$idx" skipped 1
+    replace_slot_field "$provider" "$idx" reason "provider-store event lacked durable marker evidence"
+    echo "SEND_SETUP_FAIL provider=$provider slot=$idx tab=$tab_id reason=provider-store event lacked durable marker evidence"
+    return 1
+  fi
+
+  out=$(dc tab get-text --tab "$tab_id" 2>&1 || true)
+  if printf '%s' "$out" | marker_in_text "$marker"; then
+    echo "INFO pre-marker-terminal-visible provider=$provider slot=$idx tab=$tab_id marker=$marker without provider-store event"
+  fi
+  if echo "$out" | grep -Eiq 'rate-limit-options|session limit|usage limit|upgrade your plan|sign in|login|authenticate'; then
+    replace_slot_field "$provider" "$idx" skipped 1
+    replace_slot_field "$provider" "$idx" reason "auth/rate-limit screen before marker materialized"
+    echo "SKIP provider=$provider slot=$idx tab=$tab_id reason=auth/rate-limit screen before marker materialized"
+    return 1
+  fi
   replace_slot_field "$provider" "$idx" skipped 1
-  replace_slot_field "$provider" "$idx" reason "send/setup failure: marker did not materialize pre-kill after retry"
-  echo "SEND_SETUP_FAIL provider=$provider slot=$idx tab=$tab_id reason=marker did not materialize pre-kill after retry"
+  replace_slot_field "$provider" "$idx" reason "send/setup failure: $wait_result"
+  echo "SEND_SETUP_FAIL provider=$provider slot=$idx tab=$tab_id reason=$wait_result"
   return 1
 }
 
@@ -484,6 +553,7 @@ spawn_all_slots() {
   for pid in "${pids[@]}"; do
     wait "$pid" || true
   done
+  merge_slots
 }
 
 send_all_markers() {
@@ -502,6 +572,7 @@ send_all_markers() {
   for pid in "${pids[@]}"; do
     wait "$pid" || true
   done
+  merge_slots
 }
 
 assert_post_chat_isolation() {
@@ -633,6 +704,7 @@ WORKSPACE_ID=$(new_workspace "$WORKSPACE_NAME" "$WORKSPACE_CWD")
 
 echo "== prepare slots providers=[$RM_PROVIDERS] per_provider=$RM_PER_PROVIDER"
 prepare_slots
+merge_slots
 
 echo "== parallel spawn all slots"
 spawn_all_slots
@@ -654,8 +726,8 @@ fi
 write_manifest pre-restart
 
 echo "== save session before hard restart"
-dev_post /api/session/save > /dev/null || true
-sleep 3
+save_response=$(dev_post /api/session/save) || { echo "FAIL session save request was not acknowledged"; exit 1; }
+[ "$(printf '%s' "$save_response" | json_field "data.get('ok')")" = "True" ] || { echo "FAIL session save response did not acknowledge durability: $save_response"; exit 1; }
 
 echo "== hard restart dev with Playwright/CDP env"
 (
@@ -663,7 +735,6 @@ echo "== hard restart dev with Playwright/CDP env"
   bash build.sh kill
   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev --wait
 ) || exit 1
-sleep 5
 
 echo "== API post-restore assertions"
 refresh_post_sids_and_assert_api || exit 1
