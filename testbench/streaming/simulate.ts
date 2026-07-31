@@ -13,9 +13,20 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 import {
+  MAX_PREVIEW_ROWS,
   canonicalBlob,
+  displayablePreview,
+  normalizeStreamLine,
   uncoveredPreviewTail,
 } from "../../src/components/Terminal/streamPreviewMatch";
+
+/** A rendered row that canon already covers is a visible duplicate. The length
+ * floor keeps coincidental short fragments from counting. */
+const DUPE_MIN_CHARS = 12;
+function isCoveredDupe(row: string, blob: string): boolean {
+  const normalized = normalizeStreamLine(row);
+  return normalized.length >= DUPE_MIN_CHARS && blob.includes(normalized);
+}
 
 interface MotionJson {
   turn_seq: number;
@@ -54,10 +65,12 @@ function loadChatArrivals(path: string, epochMs: number): ChatArrival[] {
 }
 
 /** A frame transition is smooth when it only cuts rows from the top, appends
- * at the bottom, or extends the final row. Anything else is visible jank. */
+ * at the bottom, or extends the final row. Anything else is visible jank.
+ * `drop` stays below prev.length: a full-window replacement is jank, never a
+ * vacuous "cut everything" match. */
 function isSmoothTransition(prev: string[], next: string[]): boolean {
   if (prev.length === 0 || next.length === 0) return true;
-  for (let drop = 0; drop <= prev.length; drop++) {
+  for (let drop = 0; drop < prev.length; drop++) {
     const kept = prev.slice(drop);
     if (kept.length > next.length) continue;
     let matches = true;
@@ -106,6 +119,15 @@ function main(): void {
     leftover_rows: number;
     leftover_sample: string[];
     jank_frames: number;
+    /** Frames where a displayed decisive row was already covered by canon. */
+    dupe_frames: number;
+    /** Mid-turn frames where the displayed row count shrank (height thrash). */
+    height_shrink_frames: number;
+    /** Rows displayed when the next turn began, split post-hoc: covered by
+     * later canon = handover (in-flight message, correct), never covered by
+     * any canon = leftover (true stale junk). */
+    boundary_rows: string[];
+    handover_rows: number;
   }
   const turns: TurnStat[] = [];
   let current: TurnStat | null = null;
@@ -122,8 +144,7 @@ function main(): void {
     }
     if (motion.turn_seq !== prevSeq) {
       if (current) {
-        current.leftover_rows = prevDisplayed.length;
-        current.leftover_sample = prevDisplayed.slice(0, 6);
+        current.boundary_rows = prevDisplayed;
         turns.push(current);
       }
       current = {
@@ -135,6 +156,10 @@ function main(): void {
         leftover_rows: 0,
         leftover_sample: [],
         jank_frames: 0,
+        dupe_frames: 0,
+        height_shrink_frames: 0,
+        boundary_rows: [],
+        handover_rows: 0,
       };
       frozenBySeq.set(motion.turn_seq, []);
       prevSeq = motion.turn_seq;
@@ -144,33 +169,57 @@ function main(): void {
     frozen.push(...motion.turn_frozen);
     frozenBySeq.set(motion.turn_seq, frozen);
 
-    const view = frozen.concat(motion.turn_live);
-    const displayed = uncoveredPreviewTail(view, canonicalBlob(landed));
+    // Exact UI pipeline (useStreamPreview): junk filter, coverage cut, row cap.
+    const blob = canonicalBlob(landed);
+    const view = displayablePreview(frozen.concat(motion.turn_live));
+    const displayed = uncoveredPreviewTail(view, blob).slice(-MAX_PREVIEW_ROWS);
     if (current) {
       if (displayed.length > 0 && current.first_preview_ms === null) {
         current.first_preview_ms = frame.t_ms;
       }
       current.peak_preview_rows = Math.max(current.peak_preview_rows, displayed.length);
       if (!isSmoothTransition(prevDisplayed, displayed)) current.jank_frames += 1;
+      if (displayed.some((row) => isCoveredDupe(row, blob))) current.dupe_frames += 1;
+      if (displayed.length > 0 && displayed.length < prevDisplayed.length) {
+        current.height_shrink_frames += 1;
+      }
     }
     prevDisplayed = displayed;
   }
   if (current) {
-    current.leftover_rows = prevDisplayed.length;
-    current.leftover_sample = prevDisplayed.slice(0, 6);
+    current.boundary_rows = prevDisplayed;
     turns.push(current);
   }
+  // Post-hoc split against the FULL conversation canon: a boundary row later
+  // covered was an in-flight message (handover, correct); one never covered
+  // anywhere is true stale junk (leftover).
+  const fullBlob = canonicalBlob(landed);
+  for (const turn of turns) {
+    const stale = turn.boundary_rows.filter((row) => {
+      const n = normalizeStreamLine(row);
+      return n.length > 0 && !fullBlob.includes(n);
+    });
+    turn.handover_rows = turn.boundary_rows.length - stale.length;
+    turn.leftover_rows = stale.length;
+    turn.leftover_sample = stale.slice(0, 6);
+    turn.boundary_rows = turn.boundary_rows.slice(0, 6);
+  }
 
+  const leads = turns
+    .filter((t) => t.first_preview_ms !== null && t.first_canonical_ms !== null)
+    .map((t) => (t.first_canonical_ms as number) - (t.first_preview_ms as number))
+    .sort((a, b) => a - b);
   const summary = {
     turns: turns.length,
     turns_with_preview: turns.filter((t) => t.first_preview_ms !== null).length,
-    avg_lead_ms:
-      turns
-        .filter((t) => t.first_preview_ms !== null && t.first_canonical_ms !== null)
-        .map((t) => (t.first_canonical_ms as number) - (t.first_preview_ms as number))
-        .reduce((a, b, _, arr) => a + b / arr.length, 0) || null,
+    avg_lead_ms: leads.length ? leads.reduce((a, b) => a + b, 0) / leads.length : null,
+    min_lead_ms: leads.length ? leads[0] : null,
+    median_lead_ms: leads.length ? leads[Math.floor(leads.length / 2)] : null,
+    max_lead_ms: leads.length ? leads[leads.length - 1] : null,
     turns_with_leftovers: turns.filter((t) => t.leftover_rows > 0).length,
     total_jank_frames: turns.reduce((a, t) => a + t.jank_frames, 0),
+    total_dupe_frames: turns.reduce((a, t) => a + t.dupe_frames, 0),
+    total_height_shrink_frames: turns.reduce((a, t) => a + t.height_shrink_frames, 0),
   };
 
   writeFileSync(outPath, JSON.stringify({ summary, turns }, null, 2));
