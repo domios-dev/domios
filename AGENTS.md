@@ -41,6 +41,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
+./build.sh worktree-check   # isolated lane-safe cargo check while shared dev runs
 ./build.sh test-one app NAME # one focused capped app test (pty/cli also supported)
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
@@ -60,6 +61,10 @@ Run shared dev, broad gates, and release checks from the canonical checkout as a
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
+
+While foreground dev owns the gateway, use `worktree-check` for an isolated
+compile check and `test-one` for a focused test. Never hand-compose a private
+`CARGO_TARGET_DIR` or wait behind dev.
 
 Use `./build.sh help` and the named build operations. Do not hand-compose Cargo manifests, packages, profiles, or gateway commands when a build operation already owns that intent.
 
@@ -282,4 +287,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
