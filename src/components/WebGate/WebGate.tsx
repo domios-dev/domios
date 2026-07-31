@@ -10,6 +10,7 @@ import {
   webJson,
 } from "../../lib/webApi";
 import { PwaSetup } from "./PwaSetup";
+import { installWebHistoryGuard } from "./webHistoryGuard";
 
 type GateState = "checking" | "need-token" | "ready";
 
@@ -57,7 +58,9 @@ export function WebGate({ children }: { children: ReactNode }) {
         window.location.pathname + (qs ? `?${qs}` : ""),
       );
     }
+    const removeHistoryGuard = installWebHistoryGuard();
     void validate();
+    return removeHistoryGuard;
   }, [validate]);
 
   const submit = useCallback(async () => {
