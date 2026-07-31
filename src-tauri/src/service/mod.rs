@@ -357,14 +357,14 @@ impl ServiceContext {
         evidence: Result<bool, delivery_error::DeliveryError>,
     ) -> Result<(), delivery_error::DeliveryError> {
         use crate::multiplexer::types::PendingDeliveryChannel;
-        let digest = self
+        let has_pending_delivery = self
             .mux
             .read()
             .get_tab(tab_id)
             .and_then(|tab| tab.pending_delivery.as_ref())
             .filter(|record| record.channel == PendingDeliveryChannel::InteractiveInput)
-            .map(|record| record.content_digest.clone());
-        let Some(digest) = digest else {
+            .is_some();
+        if !has_pending_delivery {
             return evidence.and_then(|observed| {
                 if observed {
                     Ok(())
@@ -375,7 +375,7 @@ impl ServiceContext {
                     })
                 }
             });
-        };
+        }
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
             delivery_error::DeliveryError::SubmitUnconfirmed {
@@ -396,8 +396,7 @@ impl ServiceContext {
             detail: format!("pending delivery persistence failed: {message}"),
         })?;
         reconciliation?;
-        self.pending_delivery_payloads
-            .delete(&digest)
+        self.cleanup_confirmed_pending_delivery(tab_id)
             .map_err(|error| delivery_error::DeliveryError::SubmitUnconfirmed {
                 tab: tab_id.to_string(),
                 detail: format!("confirmed payload cleanup failed: {error}"),
@@ -409,23 +408,75 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
-        let digest = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.as_ref())
-            .filter(|record| record.state().is_accepted())
-            .map(|record| record.content_digest.clone());
-        let Some(digest) = digest else { return Ok(()) };
-        crate::service::session_persist::persist_session_after_mutation(
+        self.cleanup_pending_delivery(tab_id, true, "confirmed")
+    }
+
+    pub(crate) fn cleanup_confirmed_pending_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        self.cleanup_pending_delivery(tab_id, true, "confirmed")
+    }
+
+    fn discard_pending_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        self.cleanup_pending_delivery(tab_id, false, "explicit_discard")
+    }
+
+    fn cleanup_pending_delivery(
+        &self,
+        tab_id: &str,
+        accepted_only: bool,
+        decision: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        let record = {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
+                return Ok(());
+            };
+            if accepted_only
+                && !tab
+                    .pending_delivery
+                    .as_ref()
+                    .is_some_and(|record| record.state().is_accepted())
+            {
+                return Ok(());
+            }
+            tab.pending_delivery.take()
+        };
+        let Some(record) = record else { return Ok(()) };
+        let digest = record.content_digest.clone();
+        let mut retired = Some(record);
+        if let Err(message) = crate::service::session_persist::persist_session_after_mutation(
             self,
             crate::service::session_persist::SessionPersistUrgency::Prompt,
-        )
-        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
-            digest: digest.clone(),
-            message,
-        })?;
-        self.pending_delivery_payloads.delete(&digest)?;
+        ) {
+            if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                tab.pending_delivery = retired.take();
+            }
+            return Err(pending_delivery_payloads::PayloadStoreError::Io { digest, message });
+        }
+        if let Err(error) = self
+            .pending_delivery_payloads
+            .free_terminal_pair(&mut retired, decision)
+        {
+            if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                tab.pending_delivery = retired.take();
+            }
+            let rollback = crate::service::session_persist::persist_session_after_mutation(
+                self,
+                crate::service::session_persist::SessionPersistUrgency::Prompt,
+            );
+            return Err(pending_delivery_payloads::PayloadStoreError::Io {
+                digest,
+                message: match rollback {
+                    Ok(()) => error.to_string(),
+                    Err(message) => format!("{error}; record rollback failed: {message}"),
+                },
+            });
+        }
         Ok(())
     }
     // ── Event helpers (used by all sub-modules) ─────────────────────
