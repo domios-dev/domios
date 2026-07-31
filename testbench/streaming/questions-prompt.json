@@ -1,0 +1,9 @@
+{
+  "description": "Interactive-prompt coverage: drives each provider to raise its OWN native ask-user UI (claude AskUserQuestion, codex/opencode native ask-user prompt) so the capture contains a genuine question turn plus the answer round-trip. drive-recording.sh answers the raised prompt via its Question-status handler.",
+  "questions": [
+    {
+      "id": "interactive-prompt",
+      "prompt": "Using your internal tools, show me an interactive questionnaire with buttons/options and wait for my answer."
+    }
+  ]
+}

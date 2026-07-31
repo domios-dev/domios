@@ -12,7 +12,11 @@ Goal metrics (see `simulate.ts` output):
 - **leftovers** — preview rows still displayed after the turn's canonical
   messages arrived (must trend to 0: nothing stale sticks around),
 - **jank** — frame transitions that are not "cut from top / append at bottom /
-  extend last row" (must trend to 0: no visual jumping).
+  extend last row" (must trend to 0: no visual jumping),
+- **dupes** — frames where the preview still renders decisive text already
+  covered by canonical chat,
+- **height-shrinks** — mid-turn frames where the preview window shrinks and
+  makes the chat layout jump.
 
 ## 1. Record a session (dev daemon, port 7686)
 
@@ -23,19 +27,13 @@ variants):
 ```bash
 source evals/_lib/lib.sh                       # dev-locked `dc` wrapper
 dc agent spawn claude --title streaming-probe  # note the tab id + pty tab id
-# arm the PTY cast capture:
-dev_post "/api/tabs/<TAB>/capture/start" '{}'
-# start the canonical-arrival sidecar (records wall-clock per message batch):
-python testbench/streaming/record-chat-timeline.py --tab <TAB> \
-    --out captures/streaming/<provider>/chat-timeline.ndjson &
-# drive the conversation: send each prompt from questions.json via
-#   dc tab send --tab <TAB> "<prompt>"
-# waiting for the tab to settle idle between prompts.
-dev_post "/api/tabs/<TAB>/capture/stop" '{}'   # returns the .cast path
+testbench/streaming/drive-recording.sh <TAB> claude
 ```
 
-Keep the capture's `captured_at_ms` (meta from capture/stop or meta.json) —
-it aligns the sidecar's wall clock with the cast clock.
+The driver writes `session.cast`, `chat-timeline.ndjson`, capture start/stop
+responses, and `meta.json` under `captures/streaming/<provider>/`. Keep
+`meta.json`'s `captured_at_ms`; it aligns the sidecar's wall clock with the
+cast clock.
 
 ## 2. Render the motion timeline
 
@@ -53,7 +51,7 @@ docs/BUILD.md.)
 npx tsx testbench/streaming/simulate.ts \
   --timeline timeline-motion.json \
   --chat chat-timeline.ndjson \
-  --epoch-ms <captured_at_ms> \
+  --epoch-ms "$(python -c 'import json; print(json.load(open("meta.json"))["captured_at_ms"])')" \
   --out streaming-report.json
 ```
 
@@ -76,4 +74,8 @@ summaries side by side. Regressions in the matcher or decoder show up as
 falling lead, rising leftovers, or rising jank on the SAME recordings —
 re-run steps 2-3 only, no re-recording needed.
 
-<!-- revision: 1 -->
+```bash
+node testbench/streaming/score-all.mjs
+```
+
+<!-- revision: 3 -->
