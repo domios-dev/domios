@@ -58,6 +58,12 @@ fn plan_with_attempt(
 fn dispatch_refuses_occupied_checkout() {
     let (root, plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(None, None);
     let checkout = root.path().display().to_string();
+    #[cfg(windows)]
+    assert_ne!(plan.canonical_project_path, checkout);
+    assert_eq!(
+        codeterm_paths::normalize_cwd(&plan.canonical_project_path),
+        codeterm_paths::normalize_cwd(&checkout)
+    );
     let error = preflight_checkout_occupancy(&plan, &dispatched_task_id, &checkout).unwrap_err();
 
     assert_eq!(error.code, -32011);
