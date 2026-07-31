@@ -186,6 +186,9 @@ impl DeliverySeam for super::ServiceContext {
 
 impl super::ServiceContext {
     /// Deliver an enveloped machine/system message through the optimistic gateway.
+    /// Delivery never touches the worker report obligation: no `DeliveryClass`
+    /// starts a worker turn, so the obligation arms only at the turn-starting
+    /// boundary (task dispatch calls `require_worker_report` explicitly).
     pub(crate) fn gateway_deliver(
         &self,
         target: &str,
@@ -193,8 +196,7 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<Delivery, String> {
-        let result = self
-            .gateway
+        self.gateway
             .submit(
                 self,
                 OutboundMessage {
@@ -214,19 +216,7 @@ impl super::ServiceContext {
                     text: body.to_string(),
                 })
             })
-            .map_err(|e| e.to_string());
-        if result.is_ok() && class == DeliveryClass::AgentTraffic {
-            let is_bound_worker = {
-                let mux = self.mux.read();
-                mux.get_tab(target).is_some_and(|tab| {
-                    tab.role == Some(crate::multiplexer::types::AgentRole::Worker)
-                })
-            } && self.plan_store.task_binding_for_tab(target).is_some();
-            if is_bound_worker {
-                self.gateway.require_worker_report(target);
-            }
-        }
-        result
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -331,6 +321,12 @@ impl MessageGateway {
         self.worker_report_required.lock().remove(tab_id)
     }
 
+    /// Non-destructive probe of the obligation state, for assertions.
+    #[cfg(test)]
+    pub(crate) fn worker_report_required(&self, tab_id: &str) -> bool {
+        self.worker_report_required.lock().contains(tab_id)
+    }
+
     pub fn submit<S: DeliverySeam>(
         &self,
         seam: &S,
@@ -409,3 +405,6 @@ fn replay(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ordering_tests;
