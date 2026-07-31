@@ -113,6 +113,12 @@ trait SubmitTransport {
     fn turn_generation(&self) -> u64 {
         0
     }
+    /// Wait until the status generation changes. A wake triggers predicate
+    /// re-evaluation and is never acknowledgement evidence itself.
+    fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
+        let _ = (turn_generation, deadline);
+        false
+    }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
@@ -176,6 +182,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
 
     fn turn_generation(&self) -> u64 {
         self.status_signal.generation()
+    }
+
+    fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
+        deadline
+            .checked_duration_since(Instant::now())
+            .is_some_and(|remaining| self.status_signal.wait_after(turn_generation, remaining))
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -285,10 +297,12 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
+    turn_armed: u64,
     deadline: Instant,
     strategy: &VerifySubmitStrategy,
 ) -> bool {
     let mut generation = armed;
+    let mut turn_generation = turn_armed;
     loop {
         if submission_acknowledged_now(
             transport,
@@ -301,11 +315,37 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
         ) {
             return true;
         }
-        if !transport.wait_change(generation, deadline) {
+        // Once the composer drains, status is the only signal that can wake
+        // fresh-turn re-evaluation while the screen stays quiet.
+        let observed = if draft_left_composer(
+            transport,
+            text,
+            baseline_evidence,
+            echo_observed,
+            armed,
+        ) {
+            transport.wait_turn_change(turn_generation, deadline)
+        } else {
+            transport.wait_change(generation, deadline)
+        };
+        if !observed {
             return false;
         }
         generation = transport.generation();
+        turn_generation = transport.turn_generation();
     }
+}
+
+fn draft_left_composer<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    baseline_evidence: usize,
+    echo_observed: bool,
+    armed: u64,
+) -> bool {
+    echo_observed
+        && transport.generation() != armed
+        && transport.draft_evidence_count(text) <= baseline_evidence
 }
 
 fn submission_acknowledged_now<T: SubmitTransport>(
@@ -319,12 +359,11 @@ fn submission_acknowledged_now<T: SubmitTransport>(
 ) -> bool {
     let changed = transport.generation() != armed;
     let fresh_turn = changed && !turn_was_started && transport.turn_started();
-    let draft_left_composer =
-        echo_observed && changed && transport.draft_evidence_count(text) <= baseline_evidence;
+    let drained = draft_left_composer(transport, text, baseline_evidence, echo_observed, armed);
     if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
         return fresh_turn;
     }
-    draft_left_composer || fresh_turn
+    drained || fresh_turn
 }
 
 /// Failure bound for one acknowledgement attempt: the remaining turn budget is
@@ -475,6 +514,7 @@ fn run_with_submit_key<T: SubmitTransport>(
             echo_observed,
             turn_was_started,
             enter_armed,
+            turn_armed,
             attempt_ack_deadline(submit_key_writes, turn_deadline),
             &strategy,
         );
@@ -597,3 +637,5 @@ mod dropped_enter_tests;
 mod submission_matrix;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod turn_signal_tests;
