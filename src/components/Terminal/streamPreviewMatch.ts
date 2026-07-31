@@ -47,6 +47,11 @@ const PROGRESS_DOTS = /^\s*[⬝▪▫■□]{2,}/u;
 const MULTI_COLUMN_ROW = /\S\s{6,}\S/u;
 const RIGHT_ALIGNED_ROW = /^\s{40,}\S/u;
 
+/** Narrow-geometry footer wraps: the token-counter segment ("27.7K (14ctrl+p"
+ * — the wrap can eat the space) and bare path-fragment continuation rows. */
+const TOKEN_COUNTER = /\d+(?:\.\d+)?K\s*\(\d+\s*ctrl\+/u;
+const PATH_FRAGMENT_ROW = /^\s*[\w.-]+(?:\/[\w.-]+)+\/?\s*$/u;
+
 /** The TUI's own input-prompt echo of the user's draft/submitted text.
  * Interactive-question OPTION rows ("❯ 1. Yes") reuse the same glyph but are
  * genuine assistant content the user must see — never filtered. */
@@ -131,6 +136,8 @@ export function isPreviewJunkRow(line: string): boolean {
     PROGRESS_DOTS.test(line) ||
     MULTI_COLUMN_ROW.test(line) ||
     RIGHT_ALIGNED_ROW.test(line) ||
+    TOKEN_COUNTER.test(line) ||
+    PATH_FRAGMENT_ROW.test(line) ||
     (COMPOSER_ECHO.test(line) && !OPTION_ROW.test(line)) ||
     MODEL_CWD_FOOTER.test(line) ||
     DIFF_ROW.test(line) ||

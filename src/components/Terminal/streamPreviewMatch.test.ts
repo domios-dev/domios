@@ -512,3 +512,16 @@ test("wrapped tail of a dropped framed Tip row dies with its head", () => {
   ];
   assert.deepEqual(displayablePreview(rows), ["  Normal prose continues here."]);
 });
+
+// opencode-narrow80: the 80-col footer wraps differently — the token counter
+// loses its space ('(14ctrl+p') and the cwd continues as a bare path row.
+test("narrow-geometry footer wraps are never previewable", () => {
+  const rows = [
+    "   /private/tmp/claude-502/-Users-dev-Developer-     27.7K (14ctrl+p",
+    "   ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode",
+    "   A PTY is a kernel object that pairs a master and a slave device.",
+  ];
+  assert.deepEqual(displayablePreview(rows), [
+    "   A PTY is a kernel object that pairs a master and a slave device.",
+  ]);
+});

@@ -8,17 +8,22 @@ stabilizer. "OLD" = the pre-consilium pipeline at base commit `400950d6e`
 scored with the fixed (honest) harness; the original jank metric was
 tautologically 0 and is not comparable.
 
-## questions.json matrix — providers × geometries
+## questions.json matrix — 3 providers × 3 geometries (complete)
 
 | capture | jank OLD→NEW | leftover-turns OLD→NEW | dupe-frames OLD→NEW | height-shrinks OLD→NEW | lead NEW (min/avg ms) |
 |---|---|---|---|---|---|
 | codex 120×32   | 7 → **0**  | 3 → **0**  | 32 → **0**   | 0 → **0**  | +108 / +878 |
 | codex 80×30    | 5 → **0**  | 4 → **0**  | 5 → **0**    | 0 → **0**  | +78 / +873 |
 | codex 140×36   | 2 → **0**  | 3 → **0**  | 10 → **0**   | 0 → **0**  | +114 / +1136 |
-| opencode 120×32 | 66 → **0** | 14 → **0** | 3847 → **0** | 7 → **0**  | +1 / +592 |
-| opencode 140×36 | 13 → **0** | 14 → **0** | 0 → **0**    | 7 → **0**  | n/a — decoder gap, see below |
 | claude 120×32  | 52 → **0** | 6 → **0**  | 82 → **0**   | 12 → **0** | +301 / +3436 |
+| claude 80×30   | 45 → **0** | 4 → **0**  | 131 → **0**  | 11 → **1** | +287 / +3314 |
 | claude 140×36  | 41 → **0** | 12 → **0** | 103 → **0**  | 11 → **0** | +287 / +3261 |
+| opencode 120×32 | 66 → **0** | 14 → **0** | 3847 → **0** | 7 → **0**  | +1 / +592 |
+| opencode 80×30 | 40 → **0** | 12 → **0** | 99 → **0**   | 2 → **0**  | +870 / +1394 |
+| opencode 140×36 | 13 → **0** | 14 → **0** | 0 → **0**    | 7 → **0**  | n/a — decoder gap C, see below |
+
+The single remaining height-shrink frame (claude 80×30, one frame across the
+entire matrix) is a documented cosmetic residual.
 
 Lead compares preview birth against the turn's first canonical ASSISTANT
 arrival (tool cards and user echoes are never the preview's comparison
@@ -35,7 +40,7 @@ bootstrap turns only.
 | provider | preview renders question (criterion 1) | detection exactly-once (criterion 2) |
 |---|---|---|
 | opencode | PASS — full raise→answer→close round-trip: dialog previews, block dies with the answer, jank 0 / leftovers 0 / dupes 0 | PASS — one status transition (Waiting), one clean notification, preview events flow |
-| codex    | pending capture | pending capture |
+| codex    | provider declined at model level ("I can't access the interactive question tool in this mode", repeated on a clean tab) — not a CodeTerm defect; codex's own pickers (directory trust) prove the render path exists | n/a — no dialog raised |
 | claude   | **daemon gap — routed to eight main** (decoder emits zero events for the dialog; composer-cut excises the cursor-holding dialog; question state never fires) | **daemon gap — routed to eight main** |
 
 Known cosmetic nit (daemon lane): the cursor-highlighted option row churns,

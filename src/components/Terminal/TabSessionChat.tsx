@@ -38,6 +38,7 @@ import { reattachTabChat } from "./chatReattach";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { useStreamPreview } from "./useStreamPreview";
+import { StreamPreviewFloat } from "./StreamPreviewFloat";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 
@@ -725,7 +726,7 @@ export function TabSessionChat({
           }}
           title="Scroll to latest"
           aria-label={hiddenNewerCount > 0 ? `Show latest (${hiddenNewerCount} newer)` : "Scroll to latest"}
-          className="absolute right-4 bottom-4 z-10 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
+          className="absolute right-4 bottom-4 z-30 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
         >
           {hiddenNewerCount > 0 && (
@@ -737,44 +738,13 @@ export function TabSessionChat({
         </button>
       )}
       </div>
-      {/* Streaming preview float: OUT of chat flow (zero-height anchor +
-          absolute panel above the composer) with a FIXED panel height, so
-          the chat's layout never changes when the preview grows or dies. */}
-      {!effectiveChatBackend && (liveAgentState.state === "working" || streamPreview.length > 0) && (
-        <div className="relative z-20 h-0">
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-1 mx-auto w-full max-w-4xl px-2"
-            data-testid="chat-stream-preview"
-            data-float="fixed"
-            role="status"
-            aria-label="Streaming preview"
-          >
-            <div
-              className="flex flex-col overflow-hidden rounded-md border px-2.5 py-1 shadow-lg"
-              style={{
-                height: "9.5rem",
-                background: "var(--ct-surface, #161b22)",
-                borderColor: "var(--ct-border, #30363d)",
-              }}
-            >
-              <div
-                className="flex-none truncate font-mono text-xs"
-                data-testid="chat-stream-preview-status"
-                style={{ color: "var(--ct-muted-fg)" }}
-              >
-                ● working{liveAgentState.status_line ? ` — ${liveAgentState.status_line}` : "…"}
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden">
-                <pre
-                  className="whitespace-pre-wrap font-mono text-xs opacity-70"
-                  style={{ color: "var(--ct-muted-fg)" }}
-                >
-                  {streamPreview.join("\n")}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
+      {!effectiveChatBackend && (
+        <StreamPreviewFloat
+          rows={streamPreview}
+          working={liveAgentState.state === "working"}
+          statusLine={liveAgentState.status_line}
+          elapsedMs={liveAgentState.elapsed_ms}
+        />
       )}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
