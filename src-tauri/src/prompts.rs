@@ -346,8 +346,8 @@ mod tests {
     fn orchestrator_suffix_is_bounded_and_fully_rendered() {
         let rendered = orchestrator_suffix();
         assert!(rendered.split_whitespace().count() < 650);
-        assert!(rendered.contains("Keep your control loop responsive"));
-        assert!(rendered.contains("blocking tool call"));
+        assert!(rendered.contains("Keep the control loop responsive"));
+        assert!(rendered.contains("explicit completion signal"));
         assert!(rendered.contains("verification proportional to risk"));
         assert!(rendered.contains("OPEN RISK"));
         assert!(rendered.contains("dispatch_ready"));
@@ -382,7 +382,7 @@ mod tests {
         let rendered = orchestrator_suffix();
 
         for policy in [
-            "chooses canonical checkout or",
+            "canonical checkout or",
             "isolated lane",
             "Design the smallest deterministic user-layer oracle",
             "final integration or release verification",
