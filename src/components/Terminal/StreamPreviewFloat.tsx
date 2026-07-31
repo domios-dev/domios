@@ -13,47 +13,61 @@ function formatElapsed(ms?: number | null): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-const BAR_HEIGHT = 34;
+const LINE_HEIGHT = 28;
+
+function reducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 /**
- * Slim single-line activity bar rendered IN FLOW as the last child of the
- * chat message list: it can never overlap settled messages, and its height
- * is constant while streaming (one truncated line), so the chat never jumps
- * mid-stream. Shows the latest cleaned preview line with a pulsing dot,
- * elapsed timer. Collapses
- * height→0 and unmounts at turn end — the real message is already above it.
+ * Plain extra STATUS LINE (no box, no surface — same visual family as the
+ * bottom agent-status line) shown in flow below the last message only while
+ * the turn is working: pulsing dot, Working, the latest truncated preview
+ * tail, right-aligned elapsed. Enters and exits by a 300ms ease-out
+ * opacity+height animation (instant under prefers-reduced-motion); reserves
+ * nothing when idle. One line, never grows.
  */
 export function StreamPreviewFloat({ rows, working, statusLine, elapsedMs }: StreamPreviewFloatProps) {
   const show = working || rows.length > 0;
   const [mounted, setMounted] = useState(show);
+  const [entered, setEntered] = useState(show);
   useEffect(() => {
-    if (show) setMounted(true);
+    if (show) {
+      setMounted(true);
+      return;
+    }
+    setEntered(false);
+    if (reducedMotion()) setMounted(false);
   }, [show]);
+  useEffect(() => {
+    if (!mounted || !show) return;
+    if (reducedMotion()) {
+      setEntered(true);
+      return;
+    }
+    // Commit one frame at height 0 / opacity 0 so the enter transition runs.
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, [mounted, show]);
   if (!mounted) return null;
 
   const lastLine = rows.length > 0 ? rows[rows.length - 1] : statusLine ?? "";
   const elapsed = formatElapsed(elapsedMs);
   return (
     <div
-      className="w-full max-w-4xl min-w-0 mx-auto overflow-hidden transition-all duration-200"
-      style={{ height: show ? BAR_HEIGHT : 0, opacity: show ? 1 : 0 }}
+      className="ct-stream-line w-full max-w-4xl min-w-0 mx-auto overflow-hidden"
+      style={{ height: entered ? LINE_HEIGHT : 0, opacity: entered ? 1 : 0 }}
       onTransitionEnd={() => {
         if (!show) setMounted(false);
       }}
       data-testid="chat-stream-preview"
-      data-float="bar"
+      data-float="line"
       role="status"
       aria-label="Streaming activity"
     >
       <div
-        className="relative flex items-center gap-2 overflow-hidden rounded-md px-2.5"
-        style={{
-          height: BAR_HEIGHT,
-          background: "color-mix(in srgb, var(--ct-surface, #161b22) 72%, transparent)",
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-          color: "var(--ct-muted-fg)",
-        }}
+        className="flex items-center gap-2 px-2.5"
+        style={{ height: LINE_HEIGHT, color: "var(--ct-muted-fg)" }}
       >
         <span
           className="ct-stream-dot inline-block h-2 w-2 flex-none animate-pulse rounded-full"
@@ -72,7 +86,9 @@ export function StreamPreviewFloat({ rows, working, statusLine, elapsedMs }: Str
         {elapsed && <span className="flex-none font-mono text-xs tabular-nums">{elapsed}</span>}
       </div>
       <style>{`
+        .ct-stream-line { transition: height 300ms ease-out, opacity 300ms ease-out; }
         @media (prefers-reduced-motion: reduce) {
+          .ct-stream-line { transition: none; }
           .ct-stream-dot { animation: none; }
         }
       `}</style>
