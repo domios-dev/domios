@@ -19,6 +19,23 @@ The source fence is limited to 200,000 characters. Preview content may use
 
 ## File-backed source
 
+For a known absolute local path, use a standalone artifact directive in the
+reply. The directive must occupy its own paragraph:
+
+```text
+@ct-page C:\Users\User\Desktop\design-system.html
+@ct-image C:\Users\User\Desktop\preview.png
+@ct-document C:\Users\User\Desktop\notes.md
+```
+
+`@ct-page` supports `.html` and `.htm`; `@ct-image` supports PNG, JPEG, GIF,
+WebP, BMP, and AVIF; `@ct-document` renders Markdown and safely displays UTF-8
+text, logs, JSON, YAML, TOML, and CSV. CodeTerm validates the absolute path,
+extension, and size before exposing the bounded file to the renderer. SVG is
+excluded from image previews because it can contain active or external content.
+
+The earlier fenced HTML form remains supported:
+
 When an HTML file already exists at a known absolute path, keep it as the single
 source instead of copying its contents into the reply:
 
@@ -103,4 +120,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

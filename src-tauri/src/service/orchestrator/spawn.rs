@@ -423,9 +423,10 @@ impl ServiceContext {
                 );
             } else {
                 if emit_state_change {
-                    self.set_tab_role(
+                    self.set_tab_role_with_profile(
                         &tab_id,
                         role_str,
+                        params.role_profile.as_deref(),
                         params.parent_tab_id.as_deref(),
                         params.can_spawn,
                     )?;

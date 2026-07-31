@@ -76,7 +76,7 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn starter_prompt_text(&self, prompt: StarterPrompt) -> Option<String> {
-        Some(launch::starter_prompt_text(prompt).to_string())
+        launch::starter_prompt_text(prompt).map(str::to_string)
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {

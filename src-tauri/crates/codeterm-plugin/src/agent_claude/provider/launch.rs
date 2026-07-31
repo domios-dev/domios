@@ -8,12 +8,13 @@ const ASSIGNED_TASK_START_PROMPT: &str =
 const IDLE_WAKEUP_START_PROMPT: &str =
     "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> &'static str {
+pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> Option<&'static str> {
     match prompt {
-        crate::provider::StarterPrompt::AssignedTask => ASSIGNED_TASK_START_PROMPT,
-        crate::provider::StarterPrompt::IdleWakeup => IDLE_WAKEUP_START_PROMPT,
+        crate::provider::StarterPrompt::NoStarter => None,
+        crate::provider::StarterPrompt::AssignedTask => Some(ASSIGNED_TASK_START_PROMPT),
+        crate::provider::StarterPrompt::IdleWakeup => Some(IDLE_WAKEUP_START_PROMPT),
         crate::provider::StarterPrompt::TeamBootstrap => {
-            crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()
+            Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim())
         }
     }
 }
@@ -46,10 +47,10 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         let path = ShellSyntax::task_file_path(task);
         parts.push("--append-system-prompt-file".to_string());
         parts.push(ShellSyntax::quote(&path));
-        parts.push("--".to_string());
-        parts.push(ShellSyntax::quote(starter_prompt_text(
-            params.starter_prompt,
-        )));
+        if let Some(prompt) = starter_prompt_text(params.starter_prompt) {
+            parts.push("--".to_string());
+            parts.push(ShellSyntax::quote(prompt));
+        }
     }
 
     parts.join(" ")
@@ -127,7 +128,7 @@ mod tests {
     fn task_bound_starter_remains_byte_identical() {
         assert_eq!(
             starter_prompt_text(crate::provider::StarterPrompt::AssignedTask),
-            ASSIGNED_TASK_START_PROMPT
+            Some(ASSIGNED_TASK_START_PROMPT)
         );
     }
 
@@ -139,7 +140,7 @@ mod tests {
         };
         assert_eq!(
             starter_prompt_text(params.starter_prompt),
-            IDLE_WAKEUP_START_PROMPT
+            Some(IDLE_WAKEUP_START_PROMPT)
         );
     }
 
@@ -147,8 +148,20 @@ mod tests {
     fn team_manager_starter_names_the_host_context() {
         assert_eq!(
             starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap),
-            crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()
+            Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim())
         );
+    }
+
+    #[test]
+    fn system_instructions_can_launch_without_a_visible_starter_turn() {
+        let params = AgentLaunchParams {
+            task: Some("system instructions".into()),
+            starter_prompt: crate::provider::StarterPrompt::NoStarter,
+            ..Default::default()
+        };
+        let command = build_launch_command(&params);
+        assert!(command.contains("--append-system-prompt-file"));
+        assert!(!command.contains(" -- "));
     }
 
     #[test]

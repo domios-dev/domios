@@ -362,6 +362,9 @@ mod tests {
         assert!(RICH_RENDERING_GUIDANCE.contains("Mermaid"));
         assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
         assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-image"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-document"));
         assert!(RICH_RENDERING_GUIDANCE.contains("inline HTML only for light native markup"));
     }
 
@@ -370,6 +373,7 @@ mod tests {
         assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
         assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
         assert!(RICH_RENDERING_GUIDANCE.contains("render Mermaid"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
     }
 
     #[test]

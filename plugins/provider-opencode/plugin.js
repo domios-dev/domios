@@ -40,6 +40,7 @@ var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
+  if (params.starterPrompt === "no_starter") return void 0;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -162,8 +163,9 @@ var plugin = {
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    if (p.task) {
-      parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
+    const prompt = starterPrompt(p);
+    if (p.task && prompt) {
+      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
     if (localTaskPath) {
       const local = host.shell.quoteFor(localTaskPath, host.platform());
