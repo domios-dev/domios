@@ -431,30 +431,26 @@ fn windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter() {
 }
 
 #[test]
-fn batch_item_enter_defaults_false() {
+fn batch_item_defaults_to_immediate_submit() {
     let json = r#"{"text": "hello"}"#;
     let item: SendBatchItem = serde_json::from_str(json).unwrap();
     assert_eq!(item.text, "hello");
-    assert_eq!(
-        item.enter, false,
-        "SendBatchItem.enter defaults to false (serde default)"
-    );
     assert!(item.delay_ms.is_none());
 }
 
 #[test]
-fn batch_item_enter_explicit_true() {
+fn batch_item_ignores_legacy_enter_true() {
     let json = r#"{"text": "cmd", "enter": true, "delay_ms": 100}"#;
     let item: SendBatchItem = serde_json::from_str(json).unwrap();
-    assert!(item.enter);
+    assert_eq!(item.text, "cmd");
     assert_eq!(item.delay_ms, Some(100));
 }
 
 #[test]
-fn batch_item_enter_explicit_false() {
+fn batch_item_ignores_legacy_enter_false() {
     let json = r#"{"text": "partial", "enter": false}"#;
     let item: SendBatchItem = serde_json::from_str(json).unwrap();
-    assert!(!item.enter);
+    assert_eq!(item.text, "partial");
 }
 
 use crate::pty::screen_state::screen_has_shell_prompt;

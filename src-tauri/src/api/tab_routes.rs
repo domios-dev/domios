@@ -14,7 +14,7 @@ pub use send::{chat_send_status, chat_send_text, send_text};
 
 #[cfg(test)]
 pub(crate) use send::{
-    default_true, send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
+    send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
     TabInputTransport,
 };
 
@@ -350,7 +350,7 @@ pub async fn exec_in_tab(
     if has_agent {
         state
             .svc
-            .send_text(&tab_id, &body.command, true)
+            .send_text(&tab_id, &body.command)
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
     } else {
         state

@@ -106,6 +106,9 @@ impl SubmitTransport for RecordingTransport {
                 .set(self.swallowed_submit_keys.get() - 1);
             return Ok(());
         }
+        if self.draft.borrow().is_empty() {
+            return Ok(());
+        }
         self.draft.borrow_mut().clear();
         self.turns.set(self.turns.get() + 1);
         self.turn_started.set(!self.fast_completion.get());
@@ -174,7 +177,10 @@ fn exact_payload(
         &[payload.as_bytes().to_vec()]
     );
     assert_eq!(transport.payload_writes.get(), 1);
-    assert_eq!(transport.submit_key_writes.get(), usize::from(submit));
+    assert_eq!(
+        transport.submit_key_writes.get(),
+        if submit { MAX_SUBMIT_KEY_WRITES } else { 0 }
+    );
     assert_eq!(transport.turns.get(), usize::from(submit));
     assert_eq!(result.submit_observed, submit);
     pass(provider, dimension);
@@ -296,7 +302,7 @@ fn swallowed_enter(provider: &str, capabilities: &SpawnCapabilities) {
     assert!(result.submit_observed);
     assert_eq!(transport.payload_writes.get(), 1);
     assert!(transport.submit_key_writes.get() <= MAX_SUBMIT_KEY_WRITES);
-    assert_eq!(transport.submit_key_writes.get(), 2);
+    assert_eq!(transport.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
     pass(provider, "bounded_key_only_swallowed_enter_retry");
 }
 

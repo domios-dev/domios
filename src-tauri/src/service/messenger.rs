@@ -303,7 +303,7 @@ impl Messenger {
                     if pty_agent_target {
                         svc.send_to_agent_when_ready_detached(&resolved_target, text);
                     } else {
-                        svc.send_text_detached(&resolved_target, text, true);
+                        svc.send_text_detached(&resolved_target, text);
                     }
                     Ok::<(), String>(())
                 })?;

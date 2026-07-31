@@ -43,20 +43,7 @@ fn send_text_body_with_batch() {
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     let batch = body.batch.unwrap();
     assert_eq!(batch.len(), 3);
-    assert!(batch[0].enter, "batch item enter defaults to true");
-    assert!(!batch[1].enter);
-    assert!(batch[2].enter);
     assert_eq!(batch[2].delay_ms, Some(500));
-}
-
-#[test]
-fn batch_command_enter_defaults_true() {
-    let json = r#"{"text": "echo hi"}"#;
-    let cmd: BatchCommand = serde_json::from_str(json).unwrap();
-    assert!(
-        cmd.enter,
-        "BatchCommand.enter defaults to true via default_true()"
-    );
 }
 
 #[test]
@@ -139,10 +126,6 @@ fn exec_empty_command_appends_cr() {
     assert_eq!(apply_exec_enter(""), "\r");
 }
 
-#[test]
-fn default_true_returns_true() {
-    assert!(default_true());
-}
 
 /// send is always fire-and-forget — the `verify` field was removed in #101
 /// because TUI agents intercept input and don't echo per-character, making

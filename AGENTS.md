@@ -166,7 +166,7 @@ Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the W
 tests, scripts, launch pipelines, retries, UI lifecycle, PTY input, and process
 management. Forbidden mechanisms include `thread::sleep`, `tokio::time::sleep`,
 `setTimeout`, fixed-delay warmups, polling intervals, delayed Enter/input writes,
-and "settle" waits. They create races instead of proving readiness.
+and "settle" waits. They create races instead of proving readiness. The sole exception is the bounded PTY submit-key recovery schedule; elapsed time triggers another key attempt, never readiness or success.
 
 State transitions must wait on explicit handles or observable events: channels,
 condvars, process exit, stream completion, PTY/screen signals, DOM events,
@@ -185,7 +185,10 @@ into false failures. Before ANY change there, read and obey
 written at most once; after the paste reaches the write queue a failure may
 only classify as `submit_unconfirmed`, never `pty_unavailable`; false
 uncertainty is reconciled by exact session-turn evidence, never by guessing
-from screen output. Delivery state is internal telemetry: Chat UI never renders
+from screen output. Submit recovery is blind: write the payload once, then issue
+the bounded key-only burst without screen/composer gating. One resettable cycle
+exists per PTY; a new send cancels the old cycle instead of queueing messages.
+Delivery state is internal telemetry: Chat UI never renders
 delivery banners, failure cards, Retry actions, or notifications. Do not add
 acknowledgement heuristics, payload retries, sleeps, or provider-id branches
 to this path — if evidence quality is the problem, improve the evidence
@@ -278,4 +281,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 13 -->
+<!-- revision: 15 -->

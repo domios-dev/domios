@@ -50,8 +50,6 @@ pub(crate) fn restored_agent_materialization(
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendBatchItem {
     pub text: String,
-    #[serde(default)]
-    pub enter: bool,
     pub delay_ms: Option<u64>,
 }
 

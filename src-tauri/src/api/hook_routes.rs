@@ -351,7 +351,7 @@ pub async fn hook_session_start(
     {
         state
             .svc
-            .send_text_detached(&resume.tab_id, &resume.text, true);
+            .send_text_detached(&resume.tab_id, &resume.text);
         let _ = state.svc.plan_store.mark_handoff_resume_sent(
             &resume.plan_id,
             &resume.handoff_id,

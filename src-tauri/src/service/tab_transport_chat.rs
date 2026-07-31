@@ -249,7 +249,7 @@ impl TabTransport for ChatBackendTransport<'_> {
 
     fn send_batch(&self, batch: Vec<SendBatchItem>) -> Result<(), String> {
         for item in batch {
-            self.send(&item.text, item.enter)?;
+            self.send(&item.text, true)?;
         }
         Ok(())
     }

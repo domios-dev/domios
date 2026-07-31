@@ -262,7 +262,7 @@ impl ServiceContext {
                         .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
                 })
             };
-            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text, true));
+            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text));
             drop(pty_claim);
             if let Err(error) = result {
                 if delivery_is_unknown(&error) {
@@ -335,8 +335,8 @@ impl ServiceContext {
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
     /// a causal turn transition or an actionable delivery failure.
-    pub fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.send_text_delivery(tab_id, text, enter)
+    pub fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
+        self.send_text_delivery(tab_id, text)
             .map_err(|error| error.ledger_message())
     }
 
@@ -344,7 +344,25 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         text: &str,
-        enter: bool,
+    ) -> Result<(), DeliveryError> {
+        self.send_text_input_delivery(tab_id, text, true)
+    }
+
+    pub(crate) fn send_text_input(
+        &self,
+        tab_id: &str,
+        text: &str,
+        submit: bool,
+    ) -> Result<(), String> {
+        self.send_text_input_delivery(tab_id, text, submit)
+            .map_err(|error| error.ledger_message())
+    }
+
+    fn send_text_input_delivery(
+        &self,
+        tab_id: &str,
+        text: &str,
+        submit: bool,
     ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
@@ -352,7 +370,7 @@ impl ServiceContext {
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
         let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
-        self.send_text_to_pty_smart_delivery(&pty_id, text, enter)
+        self.send_text_to_pty_smart_delivery(&pty_id, text, submit)
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -386,7 +404,6 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         text: &str,
-        enter: bool,
     ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
@@ -394,7 +411,7 @@ impl ServiceContext {
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
         let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
-        self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
+        self.send_text_to_pty_smart_guaranteed(&pty_id, text)
     }
 
     /// Capability-aware delivery. PTY agent transactions remain pending until
@@ -403,9 +420,18 @@ impl ServiceContext {
         &self,
         pty_id: &str,
         text: &str,
-        enter: bool,
     ) -> Result<(), String> {
-        self.send_text_to_pty_smart_delivery(pty_id, text, enter)
+        self.send_text_to_pty_smart_delivery(pty_id, text, true)
+            .map_err(|error| error.ledger_message())
+    }
+
+    pub(crate) fn send_text_to_pty_input(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit: bool,
+    ) -> Result<(), String> {
+        self.send_text_to_pty_smart_delivery(pty_id, text, submit)
             .map_err(|error| error.ledger_message())
     }
 
@@ -413,7 +439,7 @@ impl ServiceContext {
         &self,
         pty_id: &str,
         text: &str,
-        enter: bool,
+        submit: bool,
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
@@ -425,7 +451,7 @@ impl ServiceContext {
         }
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
-            return self.send_text_to_pty_delivery(pty_id, delivery_target, text, enter);
+            return self.send_text_to_pty_delivery(pty_id, delivery_target, text, submit);
         };
         let text = sanitize_agent_prompt_input(text);
         let strategy = self
@@ -437,13 +463,13 @@ impl ServiceContext {
             self,
             pty_id,
             &text,
-            enter,
+            submit,
             submit_key,
             strategy,
             crate::service::inject_verify::VerifyOpts {
                 require_prompt_first: false,
                 verify_echo: true,
-                verify_submit: enter,
+                verify_submit: submit,
                 ..Default::default()
             },
             None,
@@ -475,7 +501,6 @@ impl ServiceContext {
         &self,
         pty_id: &str,
         text: &str,
-        enter: bool,
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
@@ -503,13 +528,13 @@ impl ServiceContext {
                 super::submit_transaction::PtySubmitEntry::Direct,
                 &text,
                 |text| {
-                    self.send_text_verified(pty_id, text, enter, strategy, opts)
+                    self.send_text_verified(pty_id, text, true, strategy, opts)
                         .map(|_| ())
                         .map_err(|error| DeliveryError::from_injection(delivery_target, error))
                 },
             );
         }
-        self.send_text_to_pty_delivery(pty_id, delivery_target, text, enter)
+        self.send_text_to_pty_delivery(pty_id, delivery_target, text, true)
     }
 
     /// Deliver the initial agent launch command to a bare shell — no verify path
@@ -536,9 +561,17 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         text: &str,
-        enter: bool,
     ) -> Result<(), String> {
-        self.send_text_detached(tab_id, text, enter);
+        self.send_text_detached(tab_id, text);
+        Ok(())
+    }
+
+    pub(crate) async fn stage_text_when_ready(
+        &self,
+        tab_id: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        self.send_text_input_detached(tab_id, text, false);
         Ok(())
     }
 
@@ -635,9 +668,9 @@ impl ServiceContext {
 
     /// `send_text` by PTY id, skipping tab→pty resolution — use when the caller
     /// holds a verified pty_id and must not race a `link_pty` swap of `tab.pty_id`.
-    pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
+    pub fn send_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
         let tab_id = self.resolve_tab_and_ready_agent(pty_id).0;
-        self.send_text_to_pty_delivery(pty_id, tab_id.as_deref().unwrap_or(pty_id), text, enter)
+        self.send_text_to_pty_delivery(pty_id, tab_id.as_deref().unwrap_or(pty_id), text, true)
             .map_err(|error| error.ledger_message())
     }
 
@@ -732,12 +765,16 @@ impl ServiceContext {
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
     /// Failures emit inline Chat status; delivery diagnostics never become
     /// global Notifications.
-    pub fn send_text_detached(&self, tab_id: &str, text: &str, enter: bool) {
+    pub fn send_text_detached(&self, tab_id: &str, text: &str) {
+        self.send_text_input_detached(tab_id, text, true);
+    }
+
+    pub(crate) fn send_text_input_detached(&self, tab_id: &str, text: &str, submit: bool) {
         let svc = self.clone();
         let tab = tab_id.to_string();
         let text = text.to_string();
         std::thread::spawn(move || {
-            if let Err(error) = svc.send_text(&tab, &text, enter) {
+            if let Err(error) = svc.send_text_input(&tab, &text, submit) {
                 if delivery_is_unknown(&error) {
                     log::warn!("[send-async] delivery to Tab {tab} remains unknown");
                     return;

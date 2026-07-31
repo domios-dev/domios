@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
-    fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String>;
+    fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn read_tab_output(
         &self,
         tab_id: &str,
@@ -68,8 +68,6 @@ pub enum Command {
     SendText {
         tab_id: String,
         text: String,
-        #[serde(default = "default_true")]
-        enter: bool,
     },
 
     /// Get tab output (terminal buffer)
@@ -165,10 +163,6 @@ pub enum Command {
     PtyKill { tab_id: String },
 }
 
-fn default_true() -> bool {
-    true
-}
-
 /// Unified result type for all commands.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
@@ -212,11 +206,7 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
             *agents_only,
         ),
         Command::TabInspect { tab_ids } => cmd_tab_inspect(ctx, tab_ids),
-        Command::SendText {
-            tab_id,
-            text,
-            enter,
-        } => cmd_send_text(ctx, tab_id, text, *enter),
+        Command::SendText { tab_id, text } => cmd_send_text(ctx, tab_id, text),
         Command::GetOutput {
             tab_id,
             offset,
@@ -451,13 +441,8 @@ pub(crate) fn build_tab_summary_json(
         .collect()
 }
 
-fn cmd_send_text(
-    ctx: &dyn CommandPort,
-    tab_id: &str,
-    text: &str,
-    enter: bool,
-) -> Result<CommandResult, String> {
-    ctx.send_text(tab_id, text, enter)?;
+fn cmd_send_text(ctx: &dyn CommandPort, tab_id: &str, text: &str) -> Result<CommandResult, String> {
+    ctx.send_text(tab_id, text)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -631,29 +616,15 @@ mod tests {
         let json = r#"{"cmd": "send_text", "tab_id": "abc", "text": "hello"}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::SendText {
-                tab_id,
-                text,
-                enter,
-            } => {
+            Command::SendText { tab_id, text } => {
                 assert_eq!(tab_id, "abc");
                 assert_eq!(text, "hello");
-                assert!(enter); // default true
             }
             _ => panic!("wrong variant"),
         }
     }
 
     #[test]
-    fn test_command_deserialize_send_text_enter_false() {
-        let json = r#"{"cmd": "send_text", "tab_id": "abc", "text": "hello", "enter": false}"#;
-        let cmd: Command = serde_json::from_str(json).unwrap();
-        match cmd {
-            Command::SendText { enter, .. } => assert!(!enter),
-            _ => panic!("wrong variant"),
-        }
-    }
-
     #[test]
     fn test_command_deserialize_get_output() {
         let json = r#"{"cmd": "get_output", "tab_id": "abc", "strip_ansi": true}"#;
@@ -763,7 +734,6 @@ mod tests {
             Command::SendText {
                 tab_id: "p".into(),
                 text: "hi".into(),
-                enter: true,
             },
             Command::GetOutput {
                 tab_id: "p".into(),

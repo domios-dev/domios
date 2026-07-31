@@ -390,7 +390,7 @@ impl ServiceContext {
         let Some(exit_command) = exit_command else {
             return;
         };
-        if let Err(error) = self.send_text(&snap.tab_id, &exit_command, true) {
+        if let Err(error) = self.send_text(&snap.tab_id, &exit_command) {
             log::warn!(
                 "[agent_restart] graceful exit send failed for tab={}: {}",
                 snap.tab_id,

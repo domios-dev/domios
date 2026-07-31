@@ -135,7 +135,7 @@ fn collapsed_paste_frame_releases_the_submit_key_exactly_once() {
     assert!(result.echo_observed);
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 1);
-    assert_eq!(io.enters(), 1);
+    assert_eq!(io.enters(), MAX_SUBMIT_KEY_WRITES);
 }
 
 #[test]
@@ -171,5 +171,5 @@ fn key_only_submit_never_verifies_an_empty_payload_echo() {
     assert_eq!(result.bytes_written, 0);
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 0, "a key-only submit never rewrites a payload");
-    assert_eq!(io.enters(), 1);
+    assert_eq!(io.enters(), MAX_SUBMIT_KEY_WRITES);
 }

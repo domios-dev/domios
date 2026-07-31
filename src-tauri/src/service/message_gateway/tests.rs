@@ -5,7 +5,7 @@ use super::*;
 #[derive(Default)]
 struct FakeSeam {
     enveloped: RefCell<Vec<(String, String, String)>>,
-    texts: RefCell<Vec<(String, String, bool)>>,
+    texts: RefCell<Vec<(String, String)>>,
     batches: RefCell<Vec<(String, usize)>>,
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
     error: Option<String>,
@@ -45,10 +45,10 @@ impl DeliverySeam for FakeSeam {
         })
     }
 
-    fn deliver_text(&self, tab: &str, text: &str, enter: bool) -> Result<(), String> {
+    fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
         self.texts
             .borrow_mut()
-            .push((tab.to_string(), text.to_string(), enter));
+            .push((tab.to_string(), text.to_string()));
         self.guard()
     }
 
@@ -72,7 +72,6 @@ fn msg_with_class(target: &str, class: DeliveryClass) -> OutboundMessage {
         target: target.to_string(),
         body: MessageBody::Text {
             body: "body".to_string(),
-            enter: true,
         },
         envelope: None,
         class,
@@ -121,7 +120,6 @@ fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
         target: target.to_string(),
         body: MessageBody::Text {
             body: body.to_string(),
-            enter: true,
         },
         envelope: None,
         class: DeliveryClass::UserTurn,
@@ -141,7 +139,6 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
         target: "p1".to_string(),
         body: MessageBody::Text {
             body: "hello".to_string(),
-            enter: true,
         },
         envelope: Some(envelope.clone()),
         class: DeliveryClass::AgentTraffic,
@@ -172,7 +169,7 @@ fn plain_text_submit_matches_direct_send_text() {
 
     let calls = fake.texts.borrow();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0], ("p1".to_string(), "raw body".to_string(), true));
+    assert_eq!(calls[0], ("p1".to_string(), "raw body".to_string()));
     assert!(fake.enveloped.borrow().is_empty(), "not routed to envelope");
 }
 
@@ -185,12 +182,10 @@ fn batch_submit_forwards_to_batch_path() {
         body: MessageBody::Batch(vec![
             SendBatchItem {
                 text: "one".to_string(),
-                enter: false,
                 delay_ms: None,
             },
             SendBatchItem {
                 text: "two".to_string(),
-                enter: true,
                 delay_ms: Some(5),
             },
         ]),
