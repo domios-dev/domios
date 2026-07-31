@@ -1,7 +1,7 @@
 # Agent Model Catalog
 
-How CodeTerm decides what models to show in `/model` picker, Settings → Agents,
-and the CLI's `--model` flag.
+How CodeTerm decides what models and reasoning efforts to show in agent pickers,
+Settings → Agents, and launch flags.
 
 ## Architecture
 
@@ -154,8 +154,8 @@ regenerate. Only `<provider>.toml` is load-bearing.
    - `replace = false` (default) → merge built-ins with the file by id.
 2. No override file → registered built-ins straight from the plugin.
 
-Syntax error or empty `[[models]]`? CodeTerm logs a warning and falls back
-to plugin built-ins — the picker never goes empty.
+Syntax error or no `[[models]]` / `[[efforts]]` entries? CodeTerm logs a warning
+and falls back to plugin built-ins — the picker never goes empty.
 
 ## Override format
 
@@ -189,6 +189,9 @@ Inside the file:
 # Optional: which model is selected by default for fresh sessions.
 default = "opus"
 
+# Optional: which reasoning effort is selected by default.
+default_effort = "medium"
+
 # Optional: when true, IGNORE built-ins and use only the list below.
 # When false / absent (default), the list below MERGES with built-ins by id.
 # replace = true
@@ -207,6 +210,11 @@ description = "Best for everyday tasks."
 id = "haiku"
 display_name = "Claude Haiku 4.5"
 description = "Fastest for quick answers."
+
+[[efforts]]
+id = "xhigh"
+display_name = "Extra high"
+description = "Maximum reasoning depth."
 ```
 
 | Field          | Required | Notes |
@@ -215,6 +223,14 @@ description = "Fastest for quick answers."
 | `id`           | yes      | Must match what the CLI accepts (`claude --model <id>`, `codex -m <id>`). Wrong id → launch failure. |
 | `display_name` | yes      | Shown in pickers. Free text. |
 | `description`  | no       | Secondary description text. |
+
+`[[efforts]]` entries use the same required `id` and `display_name` fields and
+optional `description`. They merge by id like models, so adding `xhigh` keeps
+the provider's shipped levels and makes `xhigh` valid for capability-based
+launch validation. With `replace = true`, both lists are replaced by the file.
+
+Unknown top-level fields or sections are parse errors: CodeTerm logs the error
+and keeps provider defaults instead of silently discarding user configuration.
 
 Empty file or syntax error → CodeTerm logs a warning and falls back to built-ins.
 Picker never goes empty.
@@ -312,6 +328,6 @@ codeterm agent providers --json | jq '.providers[] | {id, default_model, models:
 ## See also
 
 - `~/.codeterm/models/README.md` — short user-facing pointer (auto-installed)
-- `src-tauri/src/agent/model_catalog.rs` — override/catalog implementation
+- `src-tauri/crates/codeterm-plugin/src/model_catalog.rs` — override/catalog implementation
 - `docs/contributing/architecture.md` — plugin architecture overview
-<!-- revision: 3 -->
+<!-- revision: 4 -->
