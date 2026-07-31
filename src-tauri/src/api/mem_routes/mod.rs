@@ -41,9 +41,15 @@ pub use pinned::{
 pub use search::mem_search;
 pub use sync::{mem_sync, mem_sync_status};
 pub use workers::{
-    workers_get, workers_kill, workers_list, workers_log, workers_progress, workers_report,
-    workers_spawn,
+    cancel_worker, workers_get, workers_kill, workers_list, workers_log, workers_progress,
+    workers_report, workers_spawn,
 };
+
+/// Exact Worker id a request is attributed to, for commit authorization. Absent
+/// header means the write belongs to no extraction generation.
+pub(super) fn worker_id_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers.get(WORKER_ID_HEADER).and_then(|v| v.to_str().ok())
+}
 
 pub(crate) fn validate_item_fields(
     title: &str,
