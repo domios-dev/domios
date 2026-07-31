@@ -219,6 +219,7 @@ pub async fn resume_session_api(
         task: None,
         starter_prompt: Default::default(),
         task_id: None,
+        task_launch_authority: None,
         plan_task: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,

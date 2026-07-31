@@ -247,7 +247,7 @@ fn fresh_spawn_paths_keep_shared_invariants_and_orchestrator_onboarding() {
     assert!(!orchestrator_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
     assert!(!service_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
     assert!(orchestrator_spawn.contains("launch_agent_in_background("));
-    assert!(service_spawn.contains("launch_agent_in_background("));
+    assert!(service_spawn.contains("launch_agent_in_background_with_env("));
     assert!(
         orchestrator_spawn.contains("spawn_onboarding_task")
             || orchestrator_spawn.contains("role_onboarding_task")
@@ -262,7 +262,12 @@ fn launch_paths_route_through_seam() {
         include_str!("../pty_io/lifecycle.rs"),
     ]
     .into_iter()
-    .map(|source| source.matches("launch_agent_in_background(").count())
+    .map(|source| {
+        source.matches("launch_agent_in_background(").count()
+            + source
+                .matches("launch_agent_in_background_with_env(")
+                .count()
+    })
     .sum::<usize>();
 
     assert_eq!(call_count, 3);
@@ -274,6 +279,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         task: task.map(|t| t.to_string()),
         starter_prompt: Default::default(),
         task_id: None,
+        task_launch_authority: None,
         plan_task: None,
         agent_name: None,
         args: None,

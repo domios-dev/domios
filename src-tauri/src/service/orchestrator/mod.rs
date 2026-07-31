@@ -13,10 +13,12 @@ pub(crate) use launch::{
     spawn_onboarding_task, AgentRegistry, LaunchGeneration,
 };
 pub(crate) use launch::{
-    build_agent_command, launch_agent_in_background, provider_launch_task, record_provider_session,
-    record_reader_termination, role_launch_task, ProviderSessionBinding,
+    build_agent_command, launch_agent_in_background, launch_agent_in_background_with_env,
+    provider_launch_task, record_provider_session, record_reader_termination, role_launch_task,
+    ProviderSessionBinding,
 };
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
+pub(crate) use types::TaskLaunchAuthority;
 pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 
 #[cfg(test)]

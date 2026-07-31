@@ -123,7 +123,9 @@ pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 pub(crate) use orchestrator::{
     arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
 };
-pub(crate) use orchestrator::{record_provider_session, ProviderSessionBinding};
+pub(crate) use orchestrator::{
+    record_provider_session, ProviderSessionBinding, TaskLaunchAuthority,
+};
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,

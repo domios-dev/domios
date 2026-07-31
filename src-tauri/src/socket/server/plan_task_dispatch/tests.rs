@@ -3,8 +3,8 @@ use super::{
     complete_dispatch_transaction, dispatch_ready_event, dispatch_worker_identity,
     lane_metadata_for_dispatch, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
-    unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
-    DispatchEvidence,
+    task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
+    worker_ack_timeout_event, DispatchEvidence,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -384,6 +384,28 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
     assert!(lane.branch.is_none());
     assert!(lane.base.is_none());
     assert_eq!(git_worktree_count(&project), 1);
+}
+
+#[test]
+fn atomic_dispatch_carries_assigned_authority_into_pty_launch() {
+    let lane = TaskLaneMetadata {
+        base: Some("assigned-base".into()),
+        ..Default::default()
+    };
+    let env = task_launch_authority_for_dispatch("assigned-plan", "assigned-task", &lane).env();
+
+    assert_eq!(
+        env.get("CODETERM_PLAN_ID").map(String::as_str),
+        Some("assigned-plan")
+    );
+    assert_eq!(
+        env.get("CODETERM_TASK_ID").map(String::as_str),
+        Some("assigned-task")
+    );
+    assert_eq!(
+        env.get("CODETERM_LANE_BASE").map(String::as_str),
+        Some("assigned-base")
+    );
 }
 
 #[test]

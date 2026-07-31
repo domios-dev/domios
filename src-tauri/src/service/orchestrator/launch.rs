@@ -527,13 +527,18 @@ fn start_backend_reader(
     })
 }
 
-fn spawn_backend_pty(svc: &ServiceContext, tab_id: &str) -> Result<BackendPty, LaunchFailure> {
+fn spawn_backend_pty(
+    svc: &ServiceContext,
+    tab_id: &str,
+    launch_env: &std::collections::HashMap<String, String>,
+) -> Result<BackendPty, LaunchFailure> {
     let cwd = svc
         .mux
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.cwd.clone());
-    let env_vars = svc.tab_env(tab_id);
+    let mut env_vars = svc.tab_env(tab_id);
+    env_vars.extend(launch_env.clone());
     let (pty_id, _) = svc
         .pty
         .lock()
@@ -616,6 +621,31 @@ pub(crate) fn launch_agent_in_background(
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
+    launch_agent_in_background_with_env(
+        svc,
+        tab_id,
+        launch_cmd,
+        agent_cmd,
+        origin,
+        task,
+        fallback_spec,
+        Default::default(),
+        ready_tx,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn launch_agent_in_background_with_env(
+    svc: ServiceContext,
+    tab_id: String,
+    launch_cmd: String,
+    agent_cmd: String,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    task: Option<String>,
+    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    launch_env: std::collections::HashMap<String, String>,
+    ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+) {
     let registry = svc.agent_registry.clone();
     let launch_started = std::time::Instant::now();
     let (role, role_profile) = svc
@@ -679,7 +709,7 @@ pub(crate) fn launch_agent_in_background(
                     return;
                 }
             },
-            None => match spawn_backend_pty(&svc, &tab_id) {
+            None => match spawn_backend_pty(&svc, &tab_id, &launch_env) {
                 Ok(backend_pty) => (backend_pty, false),
                 Err(failure) => {
                     let error = failure.reason();
