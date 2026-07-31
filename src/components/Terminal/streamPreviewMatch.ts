@@ -135,13 +135,26 @@ export function isPreviewJunkRow(line: string): boolean {
 }
 
 /** A framed run is an interactive QUESTION dialog (content, not tool junk)
- * when it contains a checkbox/radio option row ("1. [ ] Smooth"). */
+ * when it contains a checkbox/radio option row ("1. [ ] Smooth") — strong,
+ * one suffices — or two-plus plain numbered option rows ("1. Wrap up",
+ * opencode's single-select picker has no markers). */
 const FRAME_ROW = /^\s*[│┃]/u;
-const FRAMED_OPTION = /^\s*[│┃]?\s*\d+[.)]\s*(?:\[[xX✓ ]*\]|\([xX✓• ]*\))/u;
+const FRAMED_CHECKBOX = /^\s*[│┃]?\s*\d+[.)]\s*(?:\[[xX✓ ]*\]|\([xX✓• ]*\))/u;
+const FRAMED_NUMBERED = /^\s*[│┃]\s*\d+[.)]\s+\S/u;
 const KEY_GLYPH_HINT = /[⇆⏎]|↑↓/u;
 
-function hasQuestionDialog(rows: readonly string[]): boolean {
-  return rows.some((row) => FRAMED_OPTION.test(row));
+function isDialogRun(rows: readonly string[]): boolean {
+  let numbered = 0;
+  for (const row of rows) {
+    if (FRAMED_CHECKBOX.test(row)) return true;
+    if (FRAMED_NUMBERED.test(row)) numbered++;
+  }
+  return numbered >= 2;
+}
+
+/** Whether a displayed view contains an interactive question dialog. */
+export function hasQuestionDialog(rows: readonly string[]): boolean {
+  return isDialogRun(rows);
 }
 
 /**
@@ -153,12 +166,8 @@ export function capPreviewRows(rows: readonly string[]): string[] {
   for (let i = 0; i < rows.length; i++) {
     if (!FRAME_ROW.test(rows[i])) continue;
     let end = i;
-    let hasOption = false;
-    while (end < rows.length && FRAME_ROW.test(rows[end])) {
-      if (FRAMED_OPTION.test(rows[end])) hasOption = true;
-      end++;
-    }
-    if (hasOption) return rows.slice(i, i + MAX_PREVIEW_ROWS);
+    while (end < rows.length && FRAME_ROW.test(rows[end])) end++;
+    if (isDialogRun(rows.slice(i, end))) return rows.slice(i, i + MAX_PREVIEW_ROWS);
     i = end - 1;
   }
   return rows.slice(-MAX_PREVIEW_ROWS);
@@ -172,12 +181,8 @@ export function displayablePreview(lines: readonly string[]): string[] {
   while (i < lines.length) {
     if (FRAME_ROW.test(lines[i])) {
       let end = i;
-      let hasOption = false;
-      while (end < lines.length && FRAME_ROW.test(lines[end])) {
-        if (FRAMED_OPTION.test(lines[end])) hasOption = true;
-        end++;
-      }
-      if (hasOption) {
+      while (end < lines.length && FRAME_ROW.test(lines[end])) end++;
+      if (isDialogRun(lines.slice(i, end))) {
         for (let k = i; k < end; k++) {
           if (!KEY_GLYPH_HINT.test(lines[k])) out.push(lines[k]);
         }
