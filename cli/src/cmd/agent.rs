@@ -232,10 +232,9 @@ fn env_default(current: Option<String>, var: &str) -> Option<String> {
 
 fn missing_report_binding_incident(tab_id: &str) -> String {
     format!(
-        "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no resolvable \
-         plan/task binding.\nImpact: this outcome cannot be attached to its authoritative task \
-         safely.\nFallback: pass explicit --plan and --task and alert the Orchestrator; no plan \
-         or task was guessed."
+        "ORCHESTRATION AUTHORITY REFUSED: tab '{tab_id}' has no explicit plan/task assignment.\n\
+         Impact: this mutation cannot be attached to an authoritative task safely.\n\
+         Required: assign the tab or pass explicit --plan and --task; no plan or task was guessed."
     )
 }
 
