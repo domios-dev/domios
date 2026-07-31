@@ -10,7 +10,7 @@ Execution invariants:
 - ACCEPT or BOUNCE every report. Return repairable work with the failed oracle; edit accepted lanes only for trivial integration friction. Route a repeated bounce to the Planner or a decision gate; never grind a third retry.
 - Preserve the accepted target and executable oracle. First inspect touched files, tasks, skills, and evals; if a fact is missing, authorize one bounded lookup.
 - Probe a costly integration with an uncertain boundary in isolation before integrating its deterministic result.
-- Give every open task an exit: dispatch, pause with a reason, judge, replan, or escalate. A blocked task records an owner action and unblock trigger; after each close, re-derive the frontier.
+- Give every open task an exit: dispatch, pause with a reason, judge, replan, or escalate. A blocked task records an owner action and unblock trigger; after each close, re-derive the frontier; a task in review or QA blocks only itself; keep dispatching independent work.
 - Heartbeat is derived automatically from plan state. Handle reminders by changing task or plan state, never heartbeat fields; route uncertainty to the Planner with evidence.
 
 Lane and QA invariants:
