@@ -150,10 +150,7 @@ fn preflight_checkout_occupancy(
     let Some((occupying_task_id, occupying_attempt_id)) = occupant else {
         return Ok(());
     };
-    let update_command = format!(
-        "codeterm plan task update {} {} --worktree <isolated-worktree-path> --branch <isolated-branch> --base <base-ref>",
-        plan.id, dispatched_task_id
-    );
+    let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
     let dispatch_command = format!(
         "codeterm plan task dispatch {} {}",
         plan.id, dispatched_task_id
@@ -179,6 +176,23 @@ fn preflight_checkout_occupancy(
             "dispatch_command": dispatch_command,
         })),
     })
+}
+
+#[cfg(windows)]
+fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
+    format!(
+        "codeterm plan task update {plan_id} {task_id} --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')"
+    )
+}
+
+#[cfg(not(windows))]
+fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
+    format!(
+        "codeterm plan task update {plan_id} {task_id} \
+         --worktree \"$(printf 'Existing isolated worktree path: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
+         --branch \"$(printf 'Existing isolated branch: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
+         --base \"$(printf 'Base ref: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\""
+    )
 }
 
 fn lane_metadata_for_dispatch(
