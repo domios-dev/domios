@@ -119,6 +119,7 @@ pub enum Commands {
     /// knows who to reply to. Key/sequence examples (use --actions):
     ///   --actions "up,up,enter"   replay last commands
     ///   --actions "ctrl-c"        interrupt
+    ///   --actions "y"             answer a character prompt
     ///   --actions "esc"           dismiss
     ///   --actions "down*3,enter"  repeat with *N
     ///   "git status" --actions "enter"   text then submit
@@ -151,8 +152,8 @@ pub enum Commands {
         stdin: bool,
 
         /// Terminal actions to run after optional text, comma-separated.
-        /// Full key set: enter, esc, tab, backspace, delete, up, down, left,
-        /// right, home, end, pageup, pagedown, space, ctrl-c, plus
+        /// Keys: literal characters, enter, esc, tab, backspace, delete, up,
+        /// down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus
         /// delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3).
         /// With --actions, text is inserted first but not auto-submitted;
         /// include enter when you want to submit it.
