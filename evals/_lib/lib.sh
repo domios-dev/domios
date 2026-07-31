@@ -81,9 +81,31 @@ dev_env() {
 # Convenience: GET an API path, returns JSON. Hardcoded to dev (7686)
 # so it CANNOT accidentally hit prod even if the parent shell's
 # CODETERM_API_PORT is 7685.
-dev_get() {
-  curl -s --max-time 10 -H "$CODETERM_DEV_AUTH_HEADER" "http://127.0.0.1:7686$1"
+dev_http() {
+  local method="$1" path="$2" body="${3:-}" response status
+  local -a args=(-sS --max-time 30 -o - -w $'\n%{http_code}' -X "$method"
+    -H "$CODETERM_DEV_AUTH_HEADER")
+  if [ "$method" = POST ]; then
+    args+=(-H "Content-Type: application/json" --data "$body")
+  fi
+  if ! response="$(curl "${args[@]}" "http://127.0.0.1:7686$path")"; then
+    echo "ERROR [dev-http]: $method $path failed before an HTTP response" >&2
+    return 7
+  fi
+  status="${response##*$'\n'}"
+  response="${response%$'\n'*}"
+  if [ "${CODETERM_HTTP_STATUS_LOG:-0}" = 1 ]; then
+    echo "[dev-http] $method $path -> HTTP $status" >&2
+  fi
+  if [[ "$status" != 2* ]]; then
+    echo "ERROR [dev-http]: $method $path -> HTTP $status" >&2
+    [ -z "$response" ] || printf '%s\n' "$response" >&2
+    return 22
+  fi
+  printf '%s' "$response"
 }
+
+dev_get() { dev_http GET "$1"; }
 
 dev_post() {
   local path="$1"; shift
@@ -91,9 +113,7 @@ dev_post() {
   # `}`, appending a stray `}` to every non-empty body (invalid JSON).
   local body="${1:-}"
   [ -n "$body" ] || body='{}'
-  curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
-    -H "Content-Type: application/json" --data "$body" \
-    "http://127.0.0.1:7686$path"
+  dev_http POST "$path" "$body"
 }
 
 dev_post_as_tab() {
