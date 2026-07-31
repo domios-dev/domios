@@ -96,6 +96,7 @@
     "graphology-communities-louvain": "^2.0.2",
     "html2canvas-pro": "^2.0.2",
     "lucide-react": "^1.7.0",
+    "remark-parse": "^11.0.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -104,6 +105,7 @@
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "unified": "^11.0.5",
     "sigma": "^3.0.0",
     "use-sync-external-store": "^1.6.0"
   }
