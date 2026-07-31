@@ -4,6 +4,9 @@
 /// Translate a single action-key name (`"down"`, `"enter"`, `"ctrl-c"`, …) into
 /// the bytes a terminal expects. Returns `None` for an unknown key.
 pub fn action_key_bytes(key: &str) -> Option<Vec<u8>> {
+    if key.chars().count() == 1 {
+        return Some(key.as_bytes().to_vec());
+    }
     let normalized = key.replace('_', "-").to_ascii_lowercase();
     match normalized.as_str() {
         "enter" | "return" => Some(b"\r".to_vec()),
@@ -60,6 +63,13 @@ mod tests {
     #[test]
     fn ctrl_key_maps_to_control_byte() {
         assert_eq!(action_key_bytes("ctrl-c"), Some(vec![3]));
+    }
+
+    #[test]
+    fn literal_character_maps_to_utf8_bytes() {
+        assert_eq!(action_key_bytes("y"), Some(b"y".to_vec()));
+        assert_eq!(action_key_bytes("A"), Some(b"A".to_vec()));
+        assert_eq!(action_key_bytes("✓"), Some("✓".as_bytes().to_vec()));
     }
 
     #[test]
