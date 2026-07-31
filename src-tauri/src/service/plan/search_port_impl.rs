@@ -144,6 +144,62 @@ mod tests {
     }
 
     #[test]
+    fn canonical_issue_queries_return_owning_hit_id() {
+        let port = MemSearchPort;
+        let conn = Connection::open_in_memory().unwrap();
+        port.init_schema(&conn).unwrap();
+        let blobs = tempfile::tempdir().unwrap();
+        let add = |title: &str, body: &str| {
+            store::insert(
+                &conn,
+                &NewMemItem {
+                    kind: MemKind::Task,
+                    scope: MemScope::Global,
+                    title: title.into(),
+                    summary: None,
+                    area: None,
+                    tags: vec![],
+                    body: body.into(),
+                    source: None,
+                    importance: 3.0,
+                    source_path: None,
+                    pinned: false,
+                },
+                blobs.path(),
+            )
+            .unwrap()
+        };
+        let owning_id = add(
+            "Owning task",
+            "https://github.com/rollacode/codeterm-releases/issues/18 Dirty-worktree report gate blames a lane for another lane files",
+        );
+        for title in ["rollacode notes", "issues catalog"] {
+            add(title, "Unrelated prose");
+        }
+
+        for query in [
+            "codeterm-releases/issues/18",
+            "rollacode/codeterm-releases#18",
+            "https://github.com/rollacode/codeterm-releases/issues/18",
+            "Dirty-worktree report gate blames a lane for another lane files",
+        ] {
+            let hits = port
+                .run_search(
+                    &conn,
+                    &PlanIndexQuery {
+                        query: query.into(),
+                        kind: None,
+                        scope: None,
+                        limit: Some(1),
+                    },
+                    blobs.path(),
+                )
+                .unwrap();
+            assert_eq!(hits[0].id, owning_id, "query: {query}");
+        }
+    }
+
+    #[test]
     fn plan_search_kind_filter() {
         let port = MemSearchPort;
         let conn = Connection::open_in_memory().unwrap();
