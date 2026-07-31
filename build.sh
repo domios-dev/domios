@@ -4,6 +4,7 @@
 #   ./build.sh dev       — dev mode (hot reload, incremental)
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
 #                          responds (handy for scripts/agents)
+#   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
@@ -158,7 +159,7 @@ CT_PORT="${CODETERM_API_PORT:-7686}"
 CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 case "$CMD" in
-  dev|kill|e2e|e2e:llm)
+  dev|dev-prebuilt|kill|e2e|e2e:llm)
     if [ "$CT_PORT" = "7685" ]; then
       if [ -n "$CT_INSTANCE" ]; then
         echo "ERROR: refusing to run $CMD against prod port 7685 (CODETERM_INSTANCE=$CT_INSTANCE)." >&2
@@ -194,7 +195,7 @@ export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
 export CODETERM_CDP_PORT="$CT_CDP_PORT"
 
 CT_DEV_WAIT=0
-if [ "$CMD" = "dev" ]; then
+if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   for arg in "${@:2}"; do
     case "$arg" in
       --wait|--wait-build) CT_DEV_WAIT=1 ;;
@@ -251,8 +252,11 @@ if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
   exit 0
 fi
 
-# Wire .githooks as the hooks directory
-git config core.hooksPath .githooks 2>/dev/null || true
+# A cold prebuilt refusal must be read-only; every other command keeps the
+# existing hook setup behavior.
+if [ "$CMD" != "dev-prebuilt" ]; then
+  git config core.hooksPath .githooks 2>/dev/null || true
+fi
 
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
@@ -553,6 +557,55 @@ tauri_debug_dir() {
   fi
 }
 
+dev_app_path() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$(tauri_debug_dir)/codeterm"
+  else
+    printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
+  fi
+}
+
+dev_cli_path() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$CT_DATA_DIR/bin/codeterm"
+  else
+    printf '%s\n' "$CT_DATA_DIR/bin/codeterm.exe"
+  fi
+}
+
+dev_provenance_record() {
+  printf '%s\n' "$CT_DATA_DIR/dev-build-provenance.json"
+}
+
+write_dev_provenance() {
+  local build_sha="$1"
+  node scripts/dev-prep.mjs --write-provenance \
+    --record "$(dev_provenance_record)" \
+    --build-sha "$build_sha" \
+    --app "$(dev_app_path)" \
+    --cli "$(dev_cli_path)" \
+    --embed "$CT_DEV_EMBED_BUNDLE" \
+    --frontend "$(pwd -P)/dist" \
+    --instance "$CT_INSTANCE" \
+    --api-port "$CT_PORT" \
+    --vite-port "$CT_VITE_PORT" \
+    --cdp-port "$CT_CDP_PORT" \
+    --identifier "$CT_IDENTIFIER"
+}
+
+validate_dev_provenance() {
+  node scripts/dev-prep.mjs --check-provenance \
+    --record "$(dev_provenance_record)" \
+    --app "$(dev_app_path)" \
+    --cli "$(dev_cli_path)" \
+    --frontend "$(pwd -P)/dist" \
+    --instance "$CT_INSTANCE" \
+    --api-port "$CT_PORT" \
+    --vite-port "$CT_VITE_PORT" \
+    --cdp-port "$CT_CDP_PORT" \
+    --identifier "$CT_IDENTIFIER"
+}
+
 install_cli_to() {
   local bin_dir="$1"
   local release_dir
@@ -612,15 +665,15 @@ dev_conf_path() {
 }
 
 ensure_real_embed_bundle() {
-  local host exe_ext embed_bundle embed_size
+  local host exe_ext embed_size
   host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
   exe_ext=""
   case "$OSTYPE" in msys*|cygwin*|win32) exe_ext=".exe" ;; esac
-  embed_bundle="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
+  CT_DEV_EMBED_BUNDLE="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
   prepare_bundle_stubs
   embed_size=0
-  if [ -f "$embed_bundle" ]; then
-    embed_size=$(stat -c %s "$embed_bundle" 2>/dev/null || stat -f %z "$embed_bundle" 2>/dev/null || echo 0)
+  if [ -f "$CT_DEV_EMBED_BUNDLE" ]; then
+    embed_size=$(stat -c %s "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || stat -f %z "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || echo 0)
   fi
   if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
     echo "Building codeterm-embed before dev (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})..."
@@ -946,6 +999,7 @@ case "$CMD" in
 CodeTerm build commands
 
   dev                         Start the visible shared dev instance
+  dev-prebuilt                Restart a validated dev build without Cargo
   check                       Fast Rust compile check
   worktree-check              Isolated lane-safe Rust compile check
   test-one <app|pty|cli> NAME Run one focused capped Rust test
@@ -1211,6 +1265,37 @@ EOF
     kill_dev
     echo "Done."
     ;;
+  dev-prebuilt)
+    if [ -n "$CT_INSTANCE" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+      export CARGO_TARGET_DIR="$(named_dev_target_dir)"
+      export CODETERM_ALLOW_EXTERNAL_TARGET=1
+    fi
+    if ! validate_dev_provenance; then
+      echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
+      echo "Run ./build.sh dev --wait to rebuild and record it; ./build.sh dev / ./build.sh build remain the build remedies." >&2
+      exit 2
+    fi
+    kill_dev
+    export PATH="$CT_DATA_DIR/bin:$PATH"
+    export CODETERM_CLI_PATH="$(dev_cli_path)"
+    export CODETERM_DEV=1
+    export CODETERM_WEB_DIST="$(pwd -P)/dist"
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
+    start_web_watch
+    start_dev_static_server
+    PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
+    if [ "$CT_DEV_WAIT" -eq 1 ]; then
+      node scripts/dev-prep.mjs --launch-prebuilt \
+        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
+      HEALTH="$(dev_health_status)"
+      EXPECTED_BUILD_SHA="$(git rev-parse HEAD)"
+      SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
+      echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+    else
+      echo "Starting provenance-validated prebuilt dev..."
+      exec "$(dev_app_path)"
+    fi
+    ;;
   dev)
     if named_dev_wait_isolated; then
       prepare_named_dev_target
@@ -1300,6 +1385,7 @@ EOF
               sleep 2
               continue
             fi
+            write_dev_provenance "$SHA"
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
             # Named --wait startup never acquires the shared gateway, so it must
             # not claim its canonical lock after readiness.
