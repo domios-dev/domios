@@ -465,3 +465,50 @@ test("single-select numbered dialogs survive; lone framed numbered rows do not",
   const toolish = ["┃ 1. compiling codeterm", "┃ done in 3s", "  prose survives"];
   assert.deepEqual(displayablePreview(toolish), ["  prose survives"]);
 });
+
+// Answered round-trip, option-2 nit: once a PARTIAL dialog frame was
+// accepted, the complete frame was a mid-window insert — held forever.
+// Dialog views track the decoder verbatim: internal redraws always accepted.
+test("stabilizer: a dialog completing mid-window is accepted verbatim", () => {
+  const state = createPreviewStabilizerState();
+  const partial = [
+    "┃  What would you like me to do next?",
+    "┃  1. Wrap up",
+    "┃     Conclude the probe and report final status",
+    "┃     Investigate further before concluding",
+  ];
+  const complete = [
+    "┃  What would you like me to do next?",
+    "┃  1. Wrap up",
+    "┃     Conclude the probe and report final status",
+    "┃  2. Investigate",
+    "┃     Investigate further before concluding",
+  ];
+  stabilizePreview(state, 1, partial, true, "");
+  assert.deepEqual(stabilizePreview(state, 1, complete, true, ""), complete);
+});
+
+// Wide-140 geometry leaks (per ruling, all client chrome): apostrophe-elided
+// gerund spinners, the client feedback survey, border+fragment composite
+// rows, right-aligned banners, and wrapped tails of dropped ⎿/Tip rows.
+test("wide-geometry chrome composites are never previewable", () => {
+  const rows = [
+    "· Beboppin'…",
+    "✶ Beboppin'… (1s · ↓ 1 tokens)",
+    "● How is Claude doing this session? (optional)",
+    "  1: Bad    2: Fine   3: Good   0: Dismiss",
+    "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    ad6a-4126-a64c-a27f7643937c/",
+    "                                                                                                OpenCode includes free models",
+    "  Real assistant prose stays visible.",
+  ];
+  assert.deepEqual(displayablePreview(rows), ["  Real assistant prose stays visible."]);
+});
+
+test("wrapped tail of a dropped framed Tip row dies with its head", () => {
+  const rows = [
+    "  ⎿ Tip: Dynamic workflows let Claude write a script that orchestrates many agents. Mention the keyword ultraco",
+    "     use a workflow directly.",
+    "  Normal prose continues here.",
+  ];
+  assert.deepEqual(displayablePreview(rows), ["  Normal prose continues here."]);
+});

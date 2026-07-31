@@ -42,8 +42,10 @@ const KEY_HINT_ROW = /^\s*esc\b.*\bto\s+\p{L}+/iu;
 const PROGRESS_DOTS = /^\s*[⬝▪▫■□]{2,}/u;
 
 /** Column-aligned status/footer rows (cwd path … token count … key hints):
- * an internal run of 6+ spaces never occurs in wrapped message prose. */
+ * an internal run of 6+ spaces never occurs in wrapped message prose. Same
+ * family: right-aligned banner rows pushed 40+ columns in. */
 const MULTI_COLUMN_ROW = /\S\s{6,}\S/u;
+const RIGHT_ALIGNED_ROW = /^\s{40,}\S/u;
 
 /** The TUI's own input-prompt echo of the user's draft/submitted text.
  * Interactive-question OPTION rows ("❯ 1. Yes") reuse the same glyph but are
@@ -52,8 +54,10 @@ const COMPOSER_ECHO = /^\s*[❯›]\s/u;
 const OPTION_ROW = /^\s*[❯›]\s*\d+[.)]/u;
 
 /** Horizontal rules, box-drawing and block-element separators (composer
- * borders, dividers, progress bars). */
+ * borders, dividers, progress bars) — including rows where a long border run
+ * is followed by unrelated tail text (wide-geometry status rows). */
 const RULE_ROW = /^[\s─-▟—―]+$/u;
+const BORDER_PREFIX = /^\s*[─-▟]{10,}/u;
 
 /** Braille-spinner status rows ("⠋ Thinking"). */
 const SPINNER_ROW = /^\s*[⠁-⣿]\s/u;
@@ -89,8 +93,13 @@ const TOOL_STATUS_GLYPH = /^\s*[~←→↺✔✘✗]\s/u;
  * "· Garnishing…"): a lone gerund ending in an ellipsis, optional counter —
  * and nothing else, so prose that merely starts with "Waiting…" survives.
  * The completed form ("✻ Brewed for 2s") is the same status family. */
-const THINKING_SPINNER = /^\s*[✢✳✶✷✻✽·∗⁕*+]?\s*\p{L}+(?:-\p{L}+)*[…⋯]\s*(?:\([^()]*\))?\s*$/u;
-const COMPLETED_VERB = /^\s*[✢✳✶✷✻✽·∗⁕*+]\s*\p{L}+(?:-\p{L}+)*\s+for\s+\d+(?:m\s?\d+)?s\s*$/u;
+const THINKING_SPINNER = /^\s*[✢✳✶✷✻✽·∗⁕*+]?\s*\p{L}+(?:[-'’]\p{L}+)*['’]?[…⋯]\s*(?:\([^()]*\))?\s*$/u;
+const COMPLETED_VERB = /^\s*[✢✳✶✷✻✽·∗⁕*+]\s*\p{L}+(?:[-'’]\p{L}+)*['’]?\s+for\s+\d+(?:m\s?\d+)?s\s*$/u;
+
+/** Session feedback nag ("● How is Claude doing this session? (optional)"
+ * with its "1: Bad    2: Fine   3: Good   0: Dismiss" score row). */
+const FEEDBACK_NAG = /\?\s*\(optional\)\s*$/u;
+const SCORE_ROW = /^\s*(?:\d+:\s*\p{L}+\s{2,}){2,}\d+:\s*\p{L}+\s*$/u;
 
 /** Line-numbered file dumps ("      1 hello streaming") — tool output. */
 const NUMBERED_FILE_ROW = /^\s{4,}\d+\s\S/u;
@@ -108,6 +117,9 @@ export function isPreviewJunkRow(line: string): boolean {
     line.trim().length === 0 ||
     JUNK_ROW.test(line) ||
     RULE_ROW.test(line) ||
+    BORDER_PREFIX.test(line) ||
+    FEEDBACK_NAG.test(line) ||
+    SCORE_ROW.test(line) ||
     SPINNER_ROW.test(line) ||
     QUEUE_ROW.test(line) ||
     PAREN_FOOTER.test(line) ||
@@ -118,6 +130,7 @@ export function isPreviewJunkRow(line: string): boolean {
     KEY_HINT_ROW.test(line) ||
     PROGRESS_DOTS.test(line) ||
     MULTI_COLUMN_ROW.test(line) ||
+    RIGHT_ALIGNED_ROW.test(line) ||
     (COMPOSER_ECHO.test(line) && !OPTION_ROW.test(line)) ||
     MODEL_CWD_FOOTER.test(line) ||
     DIFF_ROW.test(line) ||
@@ -177,6 +190,7 @@ export function capPreviewRows(rows: readonly string[]): string[] {
  * framed interactive-question dialog, which the user must see. */
 export function displayablePreview(lines: readonly string[]): string[] {
   const out: string[] = [];
+  let junkWrap = false;
   let i = 0;
   while (i < lines.length) {
     if (FRAME_ROW.test(lines[i])) {
@@ -187,10 +201,22 @@ export function displayablePreview(lines: readonly string[]): string[] {
           if (!KEY_GLYPH_HINT.test(lines[k])) out.push(lines[k]);
         }
       }
+      junkWrap = false;
       i = end;
       continue;
     }
-    if (!isPreviewJunkRow(lines[i])) out.push(lines[i]);
+    // Soft-wrapped tail of a dropped ⎿-framed / Tip row carries no frame
+    // glyph of its own — the indented continuation dies with its head row.
+    if (junkWrap && /^\s{4,}\S/u.test(lines[i])) {
+      i++;
+      continue;
+    }
+    if (isPreviewJunkRow(lines[i])) {
+      junkWrap = /^\s*⎿/u.test(lines[i]) || TIP_BANNER.test(lines[i]);
+    } else {
+      out.push(lines[i]);
+      junkWrap = false;
+    }
     i++;
   }
   return out;
@@ -220,9 +246,10 @@ export function isSmoothPreviewTransition(
   next: readonly string[],
 ): boolean {
   if (prev.length === 0 || next.length === 0) return true;
-  // A question dialog opening or closing is a deliberate modal event the
-  // user must see immediately — never churn to smooth over or hold back.
-  if (hasQuestionDialog(prev) !== hasQuestionDialog(next)) return true;
+  // Question dialogs are modal: opening, closing, and internal redraws
+  // (toggles, options materializing) are deliberate events the user must
+  // see verbatim — never churn to smooth over or hold back.
+  if (hasQuestionDialog(prev) || hasQuestionDialog(next)) return true;
   for (let drop = 0; drop < prev.length; drop++) {
     const kept = prev.slice(drop);
     if (kept.length > next.length) continue;
@@ -267,10 +294,12 @@ export function stabilizePreview(
     state.retired.clear();
     state.last = [];
   }
-  // A question dialog is modal: it always displays whole, never trimmed by
-  // earlier retirements (its rows may have scrolled out pre-anchor).
+  // A question dialog is modal: it always displays whole and verbatim, never
+  // trimmed by retirements or anchor shifts (rows may have scrolled out or
+  // materialized between frames).
+  const dialog = hasQuestionDialog(rows);
   let start = 0;
-  if (!hasQuestionDialog(rows)) {
+  if (!dialog) {
     while (start < rows.length && state.retired.has(rows[start])) start++;
   }
   let next = rows.slice(start);
@@ -280,7 +309,7 @@ export function stabilizePreview(
   } else if (state.last.length === 0) {
     state.last = next;
   } else {
-    const shift = anchorShift(state.last, next);
+    const shift = dialog ? 0 : anchorShift(state.last, next);
     if (shift !== null && shift > 0) {
       for (let i = 0; i < shift && i < next.length; i++) state.retired.add(next[i]);
       next = next.slice(shift);
