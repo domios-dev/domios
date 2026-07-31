@@ -162,7 +162,13 @@ fn enrich_ready_report_in_scope(
         }
     }
     if !acknowledge_dirty {
-        if let Some(dirty) = load_lane_dirty(cwd) {
+        let owned_sha = sha.as_deref().and_then(|given| resolve_commit(cwd, given));
+        if let Some(dirty) = load_lane_dirty(
+            cwd,
+            inspection.checkout,
+            inspection.base.as_deref(),
+            owned_sha.as_deref(),
+        )? {
             return Err(readiness_dirty_error(dirty));
         }
     }
@@ -173,13 +179,28 @@ fn enrich_ready_report_in_scope(
     ))
 }
 
-fn load_lane_dirty(cwd: &Path) -> Option<Vec<String>> {
-    let dirty = git_lines(cwd, &["status", "--porcelain", "-uall"]).ok()?;
-    let lane_dirty = lane_dirty_files(&dirty);
+fn load_lane_dirty(
+    cwd: &Path,
+    checkout: CheckoutKind,
+    base: Option<&str>,
+    owned_sha: Option<&str>,
+) -> Result<Option<Vec<String>>, ReportRefusal> {
+    let dirty = git_lines(cwd, &["status", "--porcelain", "-uall"]).map_err(git_refusal)?;
+    let mut lane_dirty = lane_dirty_files(&dirty);
+    if let (CheckoutKind::SharedCanonical, Some(base), Some(owned_sha)) =
+        (checkout, base, owned_sha)
+    {
+        let owned_paths: BTreeSet<String> =
+            git_lines(cwd, &["diff", "--name-only", base, owned_sha])
+                .map_err(git_refusal)?
+                .into_iter()
+                .collect();
+        lane_dirty.retain(|path| owned_paths.contains(path));
+    }
     if lane_dirty.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(lane_dirty)
+        Ok(Some(lane_dirty))
     }
 }
 
@@ -752,6 +773,33 @@ mod tests {
             false,
         )
         .unwrap();
+
+        assert_eq!(reported.as_deref(), Some(owned.as_str()));
+    }
+
+    #[test]
+    fn shared_checkout_ignores_dirty_file_outside_owned_commit_paths() {
+        let dir = repo();
+        let base = branch_head(dir.path());
+        fs::write(dir.path().join("owned.txt"), "owned\n").unwrap();
+        run(dir.path(), &["add", "owned.txt"]);
+        run(dir.path(), &["commit", "-m", "owned"]);
+        let owned = branch_head(dir.path());
+        fs::write(dir.path().join("later.txt"), "foreign commit\n").unwrap();
+        run(dir.path(), &["add", "later.txt"]);
+        run(dir.path(), &["commit", "-m", "foreign"]);
+        fs::write(dir.path().join("foreign.txt"), "foreign dirt\n").unwrap();
+
+        let (_, reported, _) = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned.clone()),
+            Some(base),
+            None,
+            false,
+        )
+        .expect("foreign dirty paths must not block the owning lane's report");
 
         assert_eq!(reported.as_deref(), Some(owned.as_str()));
     }
