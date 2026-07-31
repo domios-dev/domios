@@ -3,7 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { AgentStateIndicator } from "./AgentStateIndicator";
+import { AgentStateIndicator, shouldRenderAgentStateIndicator } from "./AgentStateIndicator";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -34,6 +34,21 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   });
   return { host, root };
 }
+
+test("question chrome requires an authoritative actionable prompt", () => {
+  assert(
+    !shouldRenderAgentStateIndicator("question", true, false),
+    "diagnostic question state alone never renders Waiting for you",
+  );
+  assert(
+    shouldRenderAgentStateIndicator("question", false, true),
+    "an authoritative question renders even before transcript messages",
+  );
+  assert(
+    shouldRenderAgentStateIndicator("working", true, false),
+    "ordinary working status still renders with transcript messages",
+  );
+});
 
 test("question close is accessible and only dismisses the current generation", async () => {
   let cancelCalls = 0;

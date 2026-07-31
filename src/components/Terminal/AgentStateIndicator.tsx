@@ -38,6 +38,14 @@ export interface AgentState {
   longIdle?: boolean;
 }
 
+export function shouldRenderAgentStateIndicator(
+  state: AgentStateKind,
+  hasMessages: boolean,
+  authoritativeQuestion: boolean,
+): boolean {
+  return state === "question" ? authoritativeQuestion : hasMessages;
+}
+
 type Tone = "accent" | "warn" | "info" | "danger" | "ok";
 
 function toneColor(tone: Tone): string {
