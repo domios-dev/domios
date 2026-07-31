@@ -8,14 +8,17 @@ stabilizer. "OLD" = the pre-consilium pipeline at base commit `400950d6e`
 scored with the fixed (honest) harness; the original jank metric was
 tautologically 0 and is not comparable.
 
-## questions.json matrix (fixed 7-prompt set, 120×32 unless noted)
+## questions.json matrix — providers × geometries
 
-| capture | jank OLD→NEW | leftover-turns OLD→NEW | dupe-frames OLD→NEW | height-shrinks OLD→NEW | lead NEW (min/avg/median/max ms) |
+| capture | jank OLD→NEW | leftover-turns OLD→NEW | dupe-frames OLD→NEW | height-shrinks OLD→NEW | lead NEW (min/avg ms) |
 |---|---|---|---|---|---|
-| codex          | 7 → **0**  | 3 → **0**  | 32 → **0**   | 0 → **0**  | +108 / +878 / +1050 / +1915 |
-| opencode       | 66 → **0** | 14 → **0** | 3847 → **0** | 7 → **0**  | +1 / +592 / +613 / +1412 |
-| codex-narrow80 (80×30) | 5 → **0** | 4 → **0** | 5 → **0** | 0 → **0** | +78 / +873 / +492 / +2810 |
-| claude         | 52 → **0** | 6 → **0**  | 82 → **0**   | 12 → **0** | +301 / +3436 / +2366 / +12917 |
+| codex 120×32   | 7 → **0**  | 3 → **0**  | 32 → **0**   | 0 → **0**  | +108 / +878 |
+| codex 80×30    | 5 → **0**  | 4 → **0**  | 5 → **0**    | 0 → **0**  | +78 / +873 |
+| codex 140×36   | 2 → **0**  | 3 → **0**  | 10 → **0**   | 0 → **0**  | +114 / +1136 |
+| opencode 120×32 | 66 → **0** | 14 → **0** | 3847 → **0** | 7 → **0**  | +1 / +592 |
+| opencode 140×36 | 13 → **0** | 14 → **0** | 0 → **0**    | 7 → **0**  | n/a — decoder gap, see below |
+| claude 120×32  | 52 → **0** | 6 → **0**  | 82 → **0**   | 12 → **0** | +301 / +3436 |
+| claude 140×36  | 41 → **0** | 12 → **0** | 103 → **0**  | 11 → **0** | +287 / +3261 |
 
 Lead compares preview birth against the turn's first canonical ASSISTANT
 arrival (tool cards and user echoes are never the preview's comparison
@@ -78,7 +81,20 @@ behavior, not a leftover: the user must see an open question until answered.
 ## Product findings routed to eight main (daemon lane, out of scope here)
 
 - `GET /api/events/stream` never emits `tab-status-changed` (recorder-2).
-- claude interactive dialog: decoder composer-cut excises the dialog
-  (motion_decoder.rs `turn_live_view` + blank-as-chrome), question state
-  never fires — both criteria unfulfillable at the matcher layer.
-- volatile-exclusion hides the cursor-highlighted dialog option row.
+- Decoder gap A — claude interactive dialog: composer-cut excises the
+  cursor-holding dialog (motion_decoder.rs `turn_live_view` +
+  blank-as-chrome); zero preview events during the dialog.
+- Decoder gap B — claude question state: a genuine AskUserQuestion raises
+  no status transition and no Input-needed notification (missed true
+  positive; opencode on the same daemon transitions to Waiting).
+- Decoder gap C — opencode at 140 cols: the decoder emits zero message
+  content rows (all 1060 timeline rows are footer region: badge, cwd
+  fragments, border, progress bar) — nothing can preview at that geometry.
+- Cosmetic: volatile-exclusion can hide the cursor-highlighted dialog
+  option row for a frame.
+
+The matcher/display layer is converged everywhere the decoder delivers
+content; the wide-140 chrome families (apostrophe-elided spinner verbs,
+client feedback survey — ruled chrome, border+fragment composites,
+right-aligned banners, wrapped tails of dropped framed rows) are filtered
+with regression tests.
