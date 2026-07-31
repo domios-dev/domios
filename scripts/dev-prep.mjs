@@ -29,6 +29,7 @@ const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
 const node = process.execPath;
 const provenanceSchema = 1;
+const childExitDeadlineMs = 10_000;
 const inputPathspecs = [
   "build.sh",
   "package.json",
@@ -342,17 +343,38 @@ function checkRuntime(options) {
   console.log("[dev-prebuilt] runtime prerequisites matched");
 }
 
-function terminateOwnedChild(child) {
-  if (!child || !Number.isInteger(child.pid) || child.exitCode !== null) return;
-  if (isWin) {
-    const result = spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-    if (result.status !== 0) child.kill("SIGKILL");
-    return;
-  }
+async function terminateOwnedChild(child) {
+  if (!child || !Number.isInteger(child.pid) || child.exitCode !== null || child.signalCode !== null) return;
+  child.ref();
+  let deadline;
+  let onExit;
+  const exited = new Promise((resolveExit, rejectExit) => {
+    onExit = resolveExit;
+    child.once("exit", onExit);
+    deadline = setTimeout(
+      () => rejectExit(new Error(`prebuilt app pid ${child.pid} did not exit within ${childExitDeadlineMs}ms`)),
+      childExitDeadlineMs,
+    );
+  });
   try {
-    process.kill(-child.pid, "SIGKILL");
-  } catch {
-    child.kill("SIGKILL");
+    if (isWin) {
+      const result = spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+        timeout: childExitDeadlineMs,
+      });
+      if (result.status !== 0) child.kill("SIGKILL");
+    } else {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+    }
+    await exited;
+  } finally {
+    if (deadline) clearTimeout(deadline);
+    if (onExit) child.off("exit", onExit);
+    child.unref();
   }
 }
 
@@ -416,7 +438,7 @@ async function launchPrebuilt(options) {
       deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms`)), deadlineMs);
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
-    terminateOwnedChild(child);
+    await terminateOwnedChild(child);
     throw error;
   } finally {
     if (deadline) clearTimeout(deadline);
