@@ -45,6 +45,13 @@ fn windows_runtime_env_scrub_block() -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
+fn windows_helper_broker_script() -> &'static str {
+    "$line = 'cmd.exe /d /c \"\"' + $env:CODETERM_SELF_INSTALL_HELPER + '\"\"'; \
+     $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$line}; \
+     if ($result.ReturnValue -ne 0) { Write-Error ('Win32_Process.Create failed: ' + $result.ReturnValue); exit 1 }"
+}
+
+#[cfg(target_os = "windows")]
 fn windows_install_script(
     log_path: &std::path::Path,
     installer_path: &str,
@@ -134,19 +141,38 @@ pub fn run_install_from_file(
     } else if continue_prompt.is_some() {
         eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-tab / $CODETERM_TAB_ID — prompt will be DROPPED");
     }
-    eprintln!("[install --from-file] Detaching. Daemon will go down in ~2s.");
+    eprintln!("[install --from-file] Detaching installer helper.");
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    let spawn = std::process::Command::new("cmd.exe")
-        .args(["/c", "start", "/B", "/MIN", "cmd.exe", "/c"])
-        .arg(&bat_path)
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
-        .spawn();
+    let broker = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            windows_helper_broker_script(),
+        ])
+        .env("CODETERM_SELF_INSTALL_HELPER", &bat_path)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
 
-    if let Err(e) = spawn {
-        eprintln!("Failed to spawn self-install helper: {}", e);
-        std::process::exit(1);
+    let broker = match broker {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            eprintln!(
+                "Failed to detach self-install helper: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Failed to start self-install broker: {}", e);
+            std::process::exit(1);
+        }
+    };
+    if !broker.stderr.is_empty() {
+        eprintln!("{}", String::from_utf8_lossy(&broker.stderr).trim());
     }
 
     if json_output {
@@ -308,7 +334,17 @@ pub fn run_install_from_file(
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::{windows_continue_block, windows_install_script};
+    use super::{windows_continue_block, windows_helper_broker_script, windows_install_script};
+
+    #[test]
+    fn helper_is_created_by_out_of_job_windows_broker() {
+        let script = windows_helper_broker_script();
+
+        assert!(script.contains("Invoke-CimMethod -ClassName Win32_Process"));
+        assert!(script.contains("CODETERM_SELF_INSTALL_HELPER"));
+        assert!(script.contains("ReturnValue -ne 0"));
+        assert!(!script.contains("Start-Process"));
+    }
 
     #[test]
     fn continuation_is_deleted_only_after_acknowledged_submit() {

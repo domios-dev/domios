@@ -40,7 +40,7 @@ impl PlanSearchPort for MemSearchPort {
             limit: q.limit,
             ..Default::default()
         };
-        search::run(conn, &sq, blobs_dir).map(|hits| {
+        search::hybrid_rrf(conn, &sq, blobs_dir).map(|hits| {
             hits.into_iter()
                 .map(|h| PlanIndexHit {
                     score: h.score,
@@ -54,5 +54,63 @@ impl PlanSearchPort for MemSearchPort {
                 })
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mem::{MemKind, MemScope, NewMemItem};
+
+    #[test]
+    fn plan_search_includes_semantic_only_hits() {
+        let port = MemSearchPort;
+        port.ensure_embedding_registered();
+        let conn = Connection::open_in_memory().unwrap();
+        port.init_embedding_ext(&conn);
+        port.init_schema(&conn).unwrap();
+        let blobs = tempfile::tempdir().unwrap();
+        let body = "Vehicle repair mechanics diagnose engines, brakes, tires, and transmissions.";
+        let id = store::insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "Workshop diagnostics".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: body.into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            blobs.path(),
+        )
+        .unwrap();
+        port.embed(&conn, &id, body).unwrap();
+        let query = PlanIndexQuery {
+            query: "automobile maintenance".into(),
+            scope: None,
+            limit: Some(5),
+        };
+
+        assert!(search::run(
+            &conn,
+            &search::SearchQuery {
+                query: query.query.clone(),
+                limit: query.limit,
+                ..Default::default()
+            },
+            blobs.path(),
+        )
+        .unwrap()
+        .is_empty());
+        assert!(port
+            .run_search(&conn, &query, blobs.path())
+            .unwrap()
+            .iter()
+            .any(|hit| hit.id == id));
     }
 }
