@@ -28,7 +28,6 @@ import { AgentStateIndicator, shouldRenderAgentStateIndicator } from "./AgentSta
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
-import { useStreamPreview } from "./useStreamPreview";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
@@ -522,17 +521,6 @@ export function TabSessionChat({
     longIdle,
   ]);
 
-  const canonicalContents = useMemo(
-    () => enrichedMessages.slice(-20).map((entry) => entry.msg.content ?? ""),
-    [enrichedMessages],
-  );
-  const streamPreview = useStreamPreview(
-    tabId,
-    isActive && !effectiveChatBackend,
-    liveAgentState.state === "working",
-    canonicalContents,
-  );
-
   const composerModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
@@ -681,24 +669,6 @@ export function TabSessionChat({
             </div>
           );
         })}
-        {streamPreview.length > 0 && (
-          <div
-            className="w-full max-w-4xl min-w-0 mx-auto"
-            data-testid="chat-stream-preview"
-            role="status"
-            aria-label="Streaming preview"
-          >
-            <pre
-              className="whitespace-pre-wrap border-l-2 py-1 pl-2.5 font-mono text-xs opacity-70"
-              style={{
-                borderColor: "var(--ct-accent, #58a6ff)",
-                color: "var(--ct-muted-fg)",
-              }}
-            >
-              {streamPreview.join("\n")}
-            </pre>
-          </div>
-        )}
         <ChatSetupState
           tab={tab}
           view={bootSetupView}

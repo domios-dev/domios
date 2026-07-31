@@ -64,7 +64,6 @@ mod spawn_plan_task;
 pub(crate) mod spawn_title;
 mod status_reconciliation;
 pub mod store;
-pub(crate) mod stream_preview;
 pub mod structured_prompt;
 pub mod sync_watcher;
 pub(crate) mod tab;
