@@ -348,7 +348,7 @@
         },
         {
           "name": "spawn",
-          "about": "Spawn a new agent; roleless unless --role is provided",
+          "about": "Spawn a new agent; roleless unless --role is provided.",
           "aliases": [],
           "args": [
             {
@@ -11247,7 +11247,7 @@
         },
         {
           "name": "refresh",
-          "about": "Trigger a fresh probe (runs the agent hidden, parses /status)",
+          "about": "Re-read usage from the provider's own quota-free source (never spends quota)",
           "aliases": [],
           "args": [
             {

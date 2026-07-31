@@ -193,6 +193,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         description: None,
         // Hidden — user observes cron runs via the cron history log viewer, not as a live tab. Mirrors the mem worker pattern.
         visibility: TabVisibility::Hidden,
+        audience: Default::default(),
         eager: false,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),

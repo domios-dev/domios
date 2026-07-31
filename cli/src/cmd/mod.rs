@@ -44,6 +44,7 @@ pub mod plan_task_update;
 pub mod plugin;
 pub mod print;
 pub mod report_guard;
+pub mod report_lane;
 pub mod send_text;
 pub mod service;
 pub mod sessions;

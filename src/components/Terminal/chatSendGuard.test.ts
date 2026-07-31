@@ -1,4 +1,4 @@
-import { DUPLICATE_SEND_NOTICE, DUPLICATE_SEND_WINDOW_MS, isDuplicateSend } from "./chatSendGuard";
+import { DUPLICATE_SEND_WINDOW_MS, isDuplicateSend } from "./chatSendGuard";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
@@ -15,9 +15,4 @@ assert(
   "the window closing allows an intentional resend",
 );
 assert(!isDuplicateSend(stamp, "hello other.png", 10_100), "different payload is never a duplicate");
-assert(
-  DUPLICATE_SEND_NOTICE.toLowerCase().includes("duplicate"),
-  "the notice explains the drop (composer surfaces it — silent drops lose messages)",
-);
-
 console.log("chat send guard checks passed");

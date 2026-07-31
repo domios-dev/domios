@@ -39,6 +39,10 @@ pub struct SpawnTabSpec {
     pub description: Option<String>,
     #[serde(default)]
     pub visibility: TabVisibility,
+    /// Audience axis for input-request notifications; declared here, never
+    /// inferred from provider id, title, or prompt text.
+    #[serde(default)]
+    pub audience: crate::multiplexer::types::TabAudience,
     #[serde(default)]
     pub eager: bool,
     pub command: TabCommand,
@@ -334,6 +338,7 @@ impl ServiceContext {
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = agent.role_profile.clone();
+                tab.audience = spec.audience;
             }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_tab_description(&result, Some(description.clone()));
@@ -543,8 +548,9 @@ impl ServiceContext {
         let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            if let Some(ref dir) = resolved_cwd {
-                if let Some(tab) = mux.get_tab_mut(&result) {
+            if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.audience = spec.audience;
+                if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
             }
@@ -606,6 +612,7 @@ impl ServiceContext {
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
+                tab.audience = spec.audience;
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
@@ -729,6 +736,7 @@ impl ServiceContext {
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
+                tab.audience = spec.audience;
                 tab.role_profile = agent.role_profile.clone();
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());

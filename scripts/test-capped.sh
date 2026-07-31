@@ -19,7 +19,9 @@ set -euo pipefail
 TEST_CAP_SECS="${TEST_CAP_SECS:-90}"
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')}"
+# No awk `exit`: it closes the pipe, SIGPIPEs rustc, and pipefail then aborts the
+# whole script at exit 141 with zero output.
+HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2}')}"
 
 [[ -n "$HOST_TRIPLE" ]] || {
     printf 'error: unable to determine Rust host triple.\n' >&2
@@ -80,9 +82,40 @@ fi
 configure_windows_test_target
 ensure_embed_sidecar
 
-# GNU timeout owns the bounded failure deadline. It preserves the child status
-# unless it enforces the deadline, avoiding MSYS job-control group kills.
-if timeout --signal=TERM --kill-after=5s "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"; then
+# The cap owns the bounded failure deadline. It preserves the child status unless
+# it enforces the deadline, avoiding MSYS job-control group kills.
+run_capped() {
+    local secs="$1"
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --signal=TERM --kill-after=5s "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout --signal=TERM --kill-after=5s "$secs" "$@"
+    else
+        # Stock macOS ships no GNU coreutils; this fallback keeps the same
+        # contract: own process group, TERM at the cap, KILL 5s later, exit 124.
+        perl -e '
+            my $secs = shift @ARGV;
+            my $pid = fork();
+            die "test-capped: fork failed: $!\n" unless defined $pid;
+            if ($pid == 0) { setpgrp(0, 0); exec @ARGV or die "test-capped: exec failed: $!\n"; }
+            my $stage = 0;
+            $SIG{ALRM} = sub {
+                if ($stage == 0) { $stage = 1; kill("TERM", -$pid); alarm(5); }
+                else { $stage = 2; kill("KILL", -$pid); alarm(5); }
+            };
+            alarm($secs);
+            my $reaped;
+            do { $reaped = waitpid($pid, 0); } while ($reaped < 0 && $! =~ /Interrupted/);
+            my $status = $?;
+            alarm(0);
+            exit(124) if $stage > 0;
+            exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+        ' "$secs" "$@"
+    fi
+}
+
+if run_capped "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"; then
     exit 0
 else
     CARGO_EXIT=$?

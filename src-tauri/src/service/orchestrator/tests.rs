@@ -284,6 +284,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     }

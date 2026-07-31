@@ -36,8 +36,16 @@ pub fn notify_agent_input_request(
     svc: State<'_, crate::service::ServiceState>,
     tab_id: String,
     session_id: String,
+    prompt_identity: Option<String>,
+    resolved: Option<bool>,
 ) -> Result<String, String> {
-    svc.create_agent_input_request_notification(tab_id, session_id)
+    if resolved.unwrap_or(false) {
+        let prompt_identity =
+            prompt_identity.ok_or_else(|| "Resolved prompt identity is required".to_string())?;
+        svc.resolve_agent_input_request_notification(&tab_id, &session_id, &prompt_identity);
+        return Ok(String::new());
+    }
+    svc.create_agent_input_request_notification(tab_id, session_id, prompt_identity)
 }
 
 /// List notifications, optionally filtered to unread only.

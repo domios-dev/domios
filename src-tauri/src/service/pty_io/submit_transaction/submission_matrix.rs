@@ -41,7 +41,6 @@ struct Strategy {
 #[derive(Default)]
 struct RecordingTransport {
     generation: Cell<u64>,
-    turn_generation: Cell<u64>,
     turn_started: Cell<bool>,
     fast_completion: Cell<bool>,
     swallowed_submit_keys: Cell<usize>,
@@ -90,10 +89,6 @@ impl SubmitTransport for RecordingTransport {
         self.turn_started.get()
     }
 
-    fn turn_generation(&self) -> u64 {
-        self.turn_generation.get()
-    }
-
     fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
         self.payload_writes.set(self.payload_writes.get() + 1);
         self.payloads.borrow_mut().push(text.as_bytes().to_vec());
@@ -113,7 +108,6 @@ impl SubmitTransport for RecordingTransport {
         }
         self.draft.borrow_mut().clear();
         self.turns.set(self.turns.get() + 1);
-        self.turn_generation.set(self.turn_generation.get() + 1);
         self.turn_started.set(!self.fast_completion.get());
         self.generation.set(self.generation.get() + 1);
         Ok(())
@@ -283,11 +277,10 @@ fn fast_completion(provider: &str, capabilities: &SpawnCapabilities) {
         opts(),
     )
     .unwrap();
-    assert!(result.submit_observed);
-    assert!(!result.submit_anomaly);
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
     assert!(!transport.turn_started());
-    assert_eq!(transport.turn_generation.get(), 1);
-    pass(provider, "fast_completion_classified");
+    pass(provider, "fast_completion_requires_turn_evidence");
 }
 
 fn swallowed_enter(provider: &str, capabilities: &SpawnCapabilities) {
@@ -474,7 +467,7 @@ fn run_provider(manifest: &str) {
             "evidence_tier",
             "optimistic_reconciliation_terminal",
             "persistence_across_remount",
-            "fast_completion_classified",
+            "fast_completion_requires_turn_evidence",
             "bounded_key_only_swallowed_enter_retry",
             "visible_failure_and_retry",
             "busy_provider_zero_write",

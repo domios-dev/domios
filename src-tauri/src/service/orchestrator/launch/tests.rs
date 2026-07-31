@@ -59,6 +59,7 @@ fn worker_brief_without_ingestion_is_not_confirmed() {
             echo_observed: false,
             submit_observed: false,
             submit_anomaly: false,
+            submit_key_writes: 0,
             elapsed: std::time::Duration::ZERO,
         })
     });
@@ -104,6 +105,7 @@ fn worker_brief_is_one_payload_and_one_turn() {
                         echo_observed: true,
                         submit_observed: true,
                         submit_anomaly: false,
+                        submit_key_writes: 1,
                         elapsed: std::time::Duration::ZERO,
                     })
                 },

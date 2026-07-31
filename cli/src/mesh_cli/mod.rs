@@ -7,6 +7,7 @@ use super::{Commands, UpdateAction};
 
 mod api_map;
 mod auth;
+mod compat;
 mod parse;
 mod relay;
 mod rpc;

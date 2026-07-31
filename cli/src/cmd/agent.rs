@@ -232,10 +232,9 @@ fn env_default(current: Option<String>, var: &str) -> Option<String> {
 
 fn missing_report_binding_incident(tab_id: &str) -> String {
     format!(
-        "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no resolvable \
-         plan/task binding.\nImpact: this outcome cannot be attached to its authoritative task \
-         safely.\nFallback: pass explicit --plan and --task and alert the Orchestrator; no plan \
-         or task was guessed."
+        "ORCHESTRATION AUTHORITY REFUSED: tab '{tab_id}' has no explicit plan/task assignment.\n\
+         Impact: this mutation cannot be attached to an authoritative task safely.\n\
+         Required: assign the tab or pass explicit --plan and --task; no plan or task was guessed."
     )
 }
 
@@ -562,7 +561,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
             }
+            let lane_worktree = if crate::cmd::report_guard::is_readiness_status(status) {
+                crate::cmd::report_lane::lane_worktree(
+                    client,
+                    plan.as_deref(),
+                    task.as_deref(),
+                    &tab_id,
+                )
+            } else {
+                None
+            };
             let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
+                lane_worktree.as_deref(),
                 status,
                 branch,
                 sha,
@@ -662,6 +672,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             max_actions,
             bound_task,
             plan_task,
+            non_user_facing,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
                 && workspace.is_none()
@@ -789,6 +800,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
+            }
+            if non_user_facing {
+                body["audience"] = serde_json::json!("automation");
             }
             // Record the spawner's tab for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {

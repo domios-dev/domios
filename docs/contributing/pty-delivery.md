@@ -69,8 +69,9 @@ well-meaning "one more heuristic" changes. Read this before touching
   the remaining truth).
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
-- A send with no evidence and a terminal classification stays visibly
-  `failed` with Retry. Real loss is never hidden.
+- A send with no evidence and a terminal classification remains `failed` in
+  the internal ledger and logs. Chat UI stays optimistic and never renders
+  delivery banners, failure cards, Retry actions, or notifications.
 
 ## Hard don'ts
 
@@ -95,4 +96,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

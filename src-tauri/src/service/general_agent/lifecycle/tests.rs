@@ -64,6 +64,7 @@ impl LaunchTransportProbe {
             echo_observed: true,
             submit_observed: true,
             submit_anomaly: false,
+            submit_key_writes: 1,
             elapsed: Duration::ZERO,
         })
     }
@@ -155,6 +156,7 @@ fn observed_submission_is_the_only_source_of_confirmation() {
             echo_observed: true,
             submit_observed: false,
             submit_anomaly: true,
+            submit_key_writes: 1,
             elapsed: Duration::ZERO,
         }),
     );

@@ -12,6 +12,22 @@ pub(crate) struct ConfigQuery {
     key: Option<String>,
 }
 
+/// The stored `api.host`/`api.port` is a request to bind, not proof of one: the
+/// live socket is snapshotted at process start and no config write can move it.
+fn api_bind_disclosure(
+    state: &AppState,
+    cfg: &crate::config::schema::AppConfig,
+) -> Option<serde_json::Value> {
+    let pending = state
+        .rest_api
+        .pending_bind(&format!("{}:{}", cfg.api.host, cfg.api.port))?;
+    Some(serde_json::json!({
+        "restart_required": true,
+        "live": pending.live,
+        "configured": pending.configured,
+    }))
+}
+
 pub async fn get_config_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -28,7 +44,13 @@ pub async fn get_config_api(
     match q.key {
         Some(key) => {
             let val = dot_get(&full, &key).ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
-            Ok(Json(serde_json::json!({ "key": key, "value": val })))
+            let mut answer = serde_json::json!({ "key": &key, "value": val });
+            if matches!(key.as_str(), "api.host" | "api.port") {
+                if let Some(bind) = api_bind_disclosure(&state, &cfg) {
+                    answer["api_bind"] = bind;
+                }
+            }
+            Ok(Json(answer))
         }
         None => Ok(Json(full)),
     }
@@ -146,7 +168,16 @@ pub async fn patch_config_api(
         });
     }
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut applied = serde_json::json!({ "ok": true });
+    if let Some(bind) = api_bind_disclosure(&state, &new_cfg) {
+        log::warn!(
+            "[api] config stores {} but the live listener holds {} — restart to apply",
+            bind["configured"],
+            bind["live"]
+        );
+        applied["api_bind"] = bind;
+    }
+    Ok(Json(applied))
 }
 
 fn dot_get(val: &serde_json::Value, path: &str) -> Option<serde_json::Value> {

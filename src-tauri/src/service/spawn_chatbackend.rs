@@ -321,6 +321,7 @@ impl ServiceContext {
                     session_id: String::new(),
                 };
                 tab.chat_view = true;
+                tab.audience = spec.audience;
                 tab.role_profile = role_profile.clone();
                 tab.watcher = watcher.clone();
                 if let Some(ref dir) = resolved_cwd {
@@ -494,6 +495,7 @@ impl ServiceContext {
                 .unwrap_or((None, None));
             let inner = crate::service::tab_chat::structured_sink::make_sink(
                 app,
+                svc.mux.clone(),
                 source_session_id,
                 session_binding_nonce,
                 Some(svc.chat_send_ledger.clone()),

@@ -1,4 +1,5 @@
 import { act } from "react";
+import { existsSync, readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Tab } from "../../lib/types";
@@ -9,11 +10,6 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import {
-  resetChatSendStatusForTest,
-  trackChatSend,
-  type ChatSendStatus,
-} from "./chatSendStatus";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -57,33 +53,6 @@ function setupDom() {
   }
   Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
   return window;
-}
-
-function implicitRole(element: Element): string | null {
-  const explicit = element.getAttribute("role");
-  if (explicit) return explicit;
-  if (element.tagName === "BUTTON") return "button";
-  if (element.tagName === "TEXTAREA") return "textbox";
-  return null;
-}
-
-function accessibleName(element: Element): string {
-  return element.getAttribute("aria-label")?.trim()
-    || element.textContent?.trim()
-    || element.getAttribute("title")?.trim()
-    || "";
-}
-
-function getByRole<T extends Element>(
-  root: ParentNode,
-  role: string,
-  name: RegExp,
-): T {
-  const match = Array.from(root.querySelectorAll("*")).find(
-    (element) => implicitRole(element) === role && name.test(accessibleName(element)),
-  );
-  if (!match) throw new Error(`No ${role} with accessible name ${name}`);
-  return match as T;
 }
 
 function tabState(tabId: string): ExtendedState {
@@ -148,38 +117,10 @@ function muxActions(): MultiplexerActionsContextType {
   };
 }
 
-function status(
-  sendId: string,
-  state: ChatSendStatus["state"],
-  sequence: number,
-  error: string | null = null,
-): ChatSendStatus {
-  return {
-    send_id: sendId,
-    tab_id: "delivery-tab",
-    state,
-    error,
-    ledger_id: "ledger-1",
-    sequence,
-    retained_from: 1,
-  };
-}
-
-async function renderChat(
-  sendResults: ChatSendStatus[],
-  commands: string[],
-  statusResults: ChatSendStatus[] = [],
-): Promise<{
-  host: HTMLDivElement;
-  root: Root;
-  emitStatus: (next: ChatSendStatus) => void;
-}> {
+async function renderChat(): Promise<{ host: HTMLDivElement; root: Root }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
-  let statusListener: ((event: { payload: ChatSendStatus }) => void) | null = null;
-
   __setInvokeForTest((async (command: string) => {
-    commands.push(command);
     if (command === "chat_start") {
       return {
         text: "",
@@ -190,24 +131,11 @@ async function renderChat(
         subscription_id: "delivery-subscription",
       };
     }
-    if (command === "chat_send_status") return statusResults;
     if (command === "delayed_send_list") return [];
-    if (command === "chat_send_text") {
-      const next = sendResults.shift();
-      if (!next) throw new Error("unexpected ledger send");
-      return next;
-    }
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
-  __setListenForTest(async (event, handler) => {
-    if (event === "chat-send-status") {
-      statusListener = handler as (event: { payload: ChatSendStatus }) => void;
-    }
-    return () => {
-      if (event === "chat-send-status") statusListener = null;
-    };
-  });
+  __setListenForTest(async () => () => {});
 
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -226,159 +154,50 @@ async function renderChat(
     await Promise.resolve();
     await Promise.resolve();
   });
-  return {
-    host,
-    root,
-    emitStatus: (next) => statusListener?.({ payload: next }),
-  };
+  return { host, root };
 }
 
-async function trackPending(pending: ChatSendStatus, message: string): Promise<void> {
-  await act(async () => {
-    trackChatSend(pending, {
-      message_id: `opt-${pending.send_id}`,
-      message,
-    });
-    await Promise.resolve();
-  });
+function assertNoDeliveryUi(host: ParentNode): void {
+  const text = host.textContent ?? "";
+  assert(!/sending…|submission confirmed|submission unconfirmed|delivery failed/i.test(text), "no delivery copy");
+  assert(
+    !Array.from(host.querySelectorAll("button")).some((button) => /retry/i.test(button.textContent ?? "")),
+    "no delivery Retry action",
+  );
+  assert(!host.querySelector('[role="alert"]'), "no delivery alert");
 }
 
-test("submit_unconfirmed is attached to its message and retry uses the ledger", async () => {
-  resetChatSendStatusForTest();
-  const commands: string[] = [];
-  const pending = status("send-1", "pending", 1);
-  const retryPending = status("send-2", "pending", 2);
-  const { host, root, emitStatus } = await renderChat([retryPending], commands);
-  const warn = console.warn;
-  let warnCalls = 0;
-  console.warn = () => {
-    warnCalls += 1;
-  };
-  try {
-    await trackPending(pending, "Ship the visible ledger");
-    const optimistic = getByRole<HTMLElement>(host, "article", /ship the visible ledger/i);
-    getByRole(optimistic, "status", /sending/i);
+test("Chat has no delivery status surface", async () => {
+  const { host, root } = await renderChat();
 
-    await act(async () => {
-      emitStatus(status("send-1", "failed", 1, "submit_unconfirmed: submit key was not acknowledged"));
-    });
-    const failedMessage = getByRole<HTMLElement>(host, "article", /ship the visible ledger/i);
-    const alert = getByRole<HTMLElement>(failedMessage, "alert", /submission unconfirmed/i);
-    const retry = getByRole<HTMLButtonElement>(alert, "button", /retry/i);
-    assert(retry.disabled === false, "retry is enabled");
-    assert(retry.tabIndex === 0, "retry participates in keyboard focus order");
-    assert(warnCalls === 0, "delivery failure does not terminate in console.warn");
-
-    await act(async () => {
-      retry.click();
-      retry.click();
-      await Promise.resolve();
-    });
-    assert(
-      commands.filter((command) => command === "chat_send_text").length === 1,
-      "retry re-enters the chat-send ledger once while recovery is pending",
-    );
-    assert(!commands.includes("write_pty_string"), "retry never writes the payload directly to a PTY");
-  } finally {
-    console.warn = warn;
-    await act(async () => root.unmount());
-    host.remove();
-  }
-});
-
-test("terminal sent state reconciles the optimistic message", async () => {
-  resetChatSendStatusForTest();
-  const commands: string[] = [];
-  const pending = status("send-3", "pending", 3);
-  const { host, root, emitStatus } = await renderChat([], commands);
-  await trackPending(pending, "Reconcile this message");
-  const optimistic = getByRole<HTMLElement>(host, "article", /reconcile this message/i);
-  getByRole(optimistic, "status", /sending/i);
-
-  await act(async () => {
-    emitStatus(status("send-3", "sent", 3));
-  });
-  const reconciled = getByRole<HTMLElement>(host, "article", /reconcile this message/i);
-  getByRole(reconciled, "status", /submission confirmed/i);
+  assertNoDeliveryUi(host);
 
   await act(async () => root.unmount());
   host.remove();
 });
 
-test("evidence-reconciled sent clears a false failure and its retry", async () => {
-  resetChatSendStatusForTest();
-  const commands: string[] = [];
-  const pending = status("send-6", "pending", 6);
-  const { host, root, emitStatus } = await renderChat([], commands);
-  await trackPending(pending, "Delivered but misclassified");
-
-  await act(async () => {
-    emitStatus(status("send-6", "failed", 6, "pty_unavailable: Tab has no usable PTY"));
-  });
-  const failed = getByRole<HTMLElement>(host, "article", /delivered but misclassified/i);
-  getByRole(failed, "alert", /delivery failed/i);
-
-  await act(async () => {
-    emitStatus(status("send-6", "sent", 6));
-  });
-  const reconciled = getByRole<HTMLElement>(host, "article", /delivered but misclassified/i);
-  getByRole(reconciled, "status", /submission confirmed/i);
-  const staleRetry = Array.from(reconciled.querySelectorAll("button")).find((button) =>
-    /retry/i.test(button.textContent ?? ""),
-  );
-  assert(!staleRetry, "no Retry survives exact delivery evidence");
-
-  await act(async () => root.unmount());
-  host.remove();
+test("TabSessionChat cannot subscribe to or render delivery telemetry", () => {
+  const source = readFileSync(new URL("./TabSessionChat.tsx", import.meta.url), "utf8");
+  assert(!source.includes("observeChatSendStatus"), "no delivery-status subscription");
+  assert(!source.includes("ChatDeliveryState"), "no delivery-state renderer");
+  assert(!source.includes("retryChatDelivery"), "no delivery Retry path");
 });
 
-test("failed message and retry remain visible after remount while the ledger vouches", async () => {
-  resetChatSendStatusForTest();
-  const firstCommands: string[] = [];
-  const pending = status("send-4", "pending", 4);
-  const failed = status("send-4", "failed", 4, "submit_unconfirmed");
-  const first = await renderChat([], firstCommands);
-  await trackPending(pending, "Persist this failed message");
-  await act(async () => {
-    first.emitStatus(failed);
-  });
-  await act(async () => first.root.unmount());
-  first.host.remove();
+test("the send boundary logs failures and has no delivery notification path", () => {
+  const source = readFileSync(new URL("./ChatComposer.tsx", import.meta.url), "utf8");
+  const sendStart = source.indexOf("async function send(");
+  const sendEnd = source.indexOf("async function scheduleDraft", sendStart);
+  const sendBody = source.slice(sendStart, sendEnd);
 
-  // Same daemon: the reconcile endpoint still returns the retained failure.
-  const remount = await renderChat([status("send-5", "pending", 5)], [], [failed]);
-  const message = getByRole<HTMLElement>(remount.host, "article", /persist this failed message/i);
-  const alert = getByRole<HTMLElement>(message, "alert", /submission unconfirmed/i);
-  getByRole(alert, "button", /retry/i);
-
-  await act(async () => remount.root.unmount());
-  remount.host.remove();
-});
-
-test("daemon restart removes an unvouched failure record instead of preserving it", async () => {
-  resetChatSendStatusForTest();
-  const pending = status("send-7", "pending", 7);
-  const first = await renderChat([], []);
-  await trackPending(pending, "Lost across restart");
-  await act(async () => {
-    first.emitStatus(status("send-7", "failed", 7, "pty_unavailable: Tab has no usable PTY"));
-  });
-  await act(async () => first.root.unmount());
-  first.host.remove();
-
-  // Restarted daemon: fresh ledger, reconcile no longer vouches for the send.
-  const remount = await renderChat([], [], []);
-  const staleAlert = Array.from(remount.host.querySelectorAll("*")).find(
-    (element) => implicitRole(element) === "alert" && /delivery failed/i.test(accessibleName(element)),
+  assert(sendBody.includes('console.warn("[chat-send] optimistic delivery failed"'), "failure is logged");
+  assert(
+    !sendBody.includes("showComposerError(e instanceof Error ? e.message : String(e));"),
+    "delivery failure never enters notification UI",
   );
-  assert(!staleAlert, "an unvouched failure must not survive a daemon restart");
-  const staleRetry = Array.from(remount.host.querySelectorAll("button")).find((button) =>
-    /retry/i.test(button.textContent ?? ""),
+  assert(
+    !existsSync(new URL("./ChatDeliveryState.tsx", import.meta.url)),
+    "delivery status component is deleted",
   );
-  assert(!staleRetry, "no Retry without a vouching ledger record");
-
-  await act(async () => remount.root.unmount());
-  remount.host.remove();
 });
 
 async function main() {

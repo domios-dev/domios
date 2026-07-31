@@ -353,6 +353,16 @@ impl PendingDeliveryProvenance {
     }
 }
 
+/// Who a tab's prompts are owed to; declared at spawn, never inferred from
+/// strings. `Automation` prompts have no human owner and must not notify.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabAudience {
+    #[default]
+    User,
+    Automation,
+}
+
 /// A tab represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -511,6 +521,9 @@ pub struct Tab {
     /// Used by graph-worker tabs that live only in the memory panel.
     #[serde(default)]
     pub hidden: bool,
+    /// Audience axis for input-request notifications (orthogonal to `hidden`).
+    #[serde(default)]
+    pub audience: TabAudience,
     /// Whether this tab should be rendered in the TabBar. Defaults to true.
     /// Graph-worker tabs set this to false even when temporarily focused.
     #[serde(default = "default_show_in_tabbar")]
@@ -637,6 +650,7 @@ mod tests {
             exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
+            audience: Default::default(),
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
