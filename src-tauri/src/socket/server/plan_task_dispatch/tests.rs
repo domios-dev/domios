@@ -25,6 +25,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+mod checkout_occupancy;
 mod worker_ack;
 
 #[test]
