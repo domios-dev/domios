@@ -22,11 +22,10 @@ import type { LoopForTaskResult } from "./loopForTask";
 import type { WorkingOnRowModel } from "./workingOnRow";
 
 export const BOARD_COLUMN_DEFS = [
-  { key: "pending", label: "Pending", statuses: [TaskStatus.Pending] as TaskStatusType[] },
+  { key: "pending", label: "Pending", statuses: [TaskStatus.Pending, TaskStatus.Paused] as TaskStatusType[] },
   { key: "in_progress", label: "In progress", statuses: [TaskStatus.InProgress] as TaskStatusType[] },
   { key: "in_review", label: "In review", statuses: [TaskStatus.InReview] as TaskStatusType[] },
   { key: "blocked", label: "Blocked", statuses: [TaskStatus.Blocked] as TaskStatusType[] },
-  { key: "paused", label: "Paused", statuses: [TaskStatus.Paused] as TaskStatusType[] },
   { key: "done", label: "Done", statuses: [TaskStatus.Done] as TaskStatusType[] },
 ] as const;
 

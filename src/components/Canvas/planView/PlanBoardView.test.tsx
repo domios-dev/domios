@@ -111,7 +111,7 @@ test("renders board columns with context header and task cards", async () => {
   assert(host.querySelector('[data-testid="plan-board-spec-title"]'), "spec trigger");
   assert(host.querySelector('[data-testid="plan-board-plan-goal"]')?.textContent?.includes("Deliver auth"), "goal");
   const columns = host.querySelectorAll('[data-testid="plan-board-column"]');
-  assert(columns.length === 6, `column count=${columns.length}`);
+  assert(columns.length === 5, `column count=${columns.length}`);
   const inProgress = host.querySelector('[data-testid="plan-board-column"][data-column="in_progress"]');
   const card = inProgress?.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "in-progress card");
@@ -231,7 +231,7 @@ test("done column collapses to recent N with show-all toggle", async () => {
   assert(expandedCards?.length === doneTasks.length, `expanded cards=${expandedCards?.length}`);
 });
 
-test("paused tasks render in a distinct paused column with status and reason title", async () => {
+test("paused tasks render in pending with status and reason title", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
@@ -245,11 +245,12 @@ test("paused tasks render in a distinct paused column with status and reason tit
     ],
   };
   const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} />);
-  const pausedCol = host.querySelector('[data-testid="plan-board-column"][data-column="paused"]');
-  assert(pausedCol, "paused column");
-  assert(pausedCol?.querySelector('[data-testid="plan-board-column-count"]')?.textContent === "1", "paused count");
-  const pausedCard = pausedCol?.querySelector('[data-task-id="task-paused"]') as HTMLElement;
-  assert(pausedCard, "paused card in paused column");
+  const pendingCol = host.querySelector('[data-testid="plan-board-column"][data-column="pending"]');
+  assert(pendingCol, "pending column");
+  assert(pendingCol?.querySelector('[data-testid="plan-board-column-count"]')?.textContent === "2", "pending includes paused count");
+  assert(!host.querySelector('[data-testid="plan-board-column"][data-column="paused"]'), "paused column removed");
+  const pausedCard = pendingCol?.querySelector('[data-task-id="task-paused"]') as HTMLElement;
+  assert(pausedCard, "paused card in pending column");
   assert(pausedCard.className.includes("plan-board-task-card-paused"), "paused card style");
   assert(pausedCard.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
   assert(pausedCard.querySelector('[data-testid="status-chip"]')?.textContent === "paused", "paused status chip");
