@@ -186,9 +186,8 @@ impl DeliverySeam for super::ServiceContext {
 
 impl super::ServiceContext {
     /// Deliver an enveloped machine/system message through the optimistic gateway.
-    /// Delivery never touches the worker report obligation: no `DeliveryClass`
-    /// starts a worker turn, so the obligation arms only at the turn-starting
-    /// boundary (task dispatch calls `require_worker_report` explicitly).
+    /// Delivery never starts a worker turn or touches its report obligation.
+    /// Task dispatch arms that obligation explicitly.
     pub(crate) fn gateway_deliver(
         &self,
         target: &str,

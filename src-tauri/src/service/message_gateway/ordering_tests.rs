@@ -99,10 +99,8 @@ fn deliver_ack(bw: &BoundWorker) {
         .expect("acknowledgement delivery");
 }
 
-/// report-accepted → ack-delivered → provider-stop, in that exact order, each
-/// step driven by a direct call (no timing anywhere). The acknowledgement is
-/// not a turn-starting delivery: it must not re-arm the obligation, and
-/// provider-stop must not fabricate a synthetic Partial afterwards.
+/// Report-accepted → ack-delivered → provider-stop, driven without timing.
+/// The acknowledgement must not re-arm the obligation or fabricate a Partial.
 #[test]
 #[cfg_attr(
     not(windows),
@@ -165,9 +163,8 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     assert_eq!(bw.task().status, TaskStatus::InReview);
 }
 
-/// Preservation: a genuinely unreported turn still produces the synthetic
-/// provider-stop handoff (the dispatch-armed obligation is consumed exactly
-/// once and the Partial reaches the orchestrator's report store).
+/// A genuinely unreported turn still produces one provider-stop handoff.
+/// The resulting Partial must reach the orchestrator's report store.
 #[test]
 #[cfg_attr(
     not(windows),
