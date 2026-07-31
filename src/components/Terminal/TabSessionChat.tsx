@@ -714,6 +714,14 @@ export function TabSessionChat({
           </div>
         )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
+        {!effectiveChatBackend && (
+          <StreamPreviewFloat
+            rows={streamPreview}
+            working={liveAgentState.state === "working"}
+            statusLine={liveAgentState.status_line}
+            elapsedMs={liveAgentState.elapsed_ms}
+          />
+        )}
         </div>
       </div>
       {(showScrollDown || hiddenNewerCount > 0) && (
@@ -738,14 +746,6 @@ export function TabSessionChat({
         </button>
       )}
       </div>
-      {!effectiveChatBackend && (
-        <StreamPreviewFloat
-          rows={streamPreview}
-          working={liveAgentState.state === "working"}
-          statusLine={liveAgentState.status_line}
-          elapsedMs={liveAgentState.elapsed_ms}
-        />
-      )}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
