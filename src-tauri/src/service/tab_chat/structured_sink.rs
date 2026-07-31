@@ -354,10 +354,8 @@ mod tests {
         ));
     }
 
-    /// Inverse guard for the missing-store/rebind case: a send whose session
-    /// store had not materialized carries no anchor, and still reaches `Sent`
-    /// from a genuine attributable bound-session turn arriving through the
-    /// live gate — no store-watch, tailer, or other readiness machinery.
+    /// Missing-store inverse guard: an unanchored send still reaches `Sent`
+    /// from an attributable bound-session turn, with no readiness machinery.
     #[test]
     fn missing_store_send_confirms_from_attributable_bound_session_turn() {
         use crate::service::chat_send_transaction::{
