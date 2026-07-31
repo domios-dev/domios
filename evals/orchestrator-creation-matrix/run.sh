@@ -23,6 +23,11 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+PYTHON_BIN="$(command -v python3 || command -v python)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "ABORT: neither python3 nor python is available on PATH" >&2
+  exit 7
+fi
 
 # --- result accounting ----------------------------------------------
 declare -a ROWS           # "SCENARIO|VERDICT|detail"
@@ -568,7 +573,7 @@ scenario_H() {
   # Attempt orchestration new attributed to the worker as spawner via REST.
   local h2_p_before h2_resp h2_p_after
   h2_p_before=$(tab_count)
-h2_body=$(python3 - "$WS" "$worker" <<'PY'
+h2_body=$("$PYTHON_BIN" - "$WS" "$worker" <<'PY'
 import json, sys
 sys.stdout.write(json.dumps({
     "orchestrator_agent": "claude",
