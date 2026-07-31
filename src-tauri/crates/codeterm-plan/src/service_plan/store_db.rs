@@ -441,6 +441,10 @@ fn searchable_plan_body(plan: &Plan) -> String {
         body.push('\n');
         body.push_str(&task.acceptance_criteria.join("\n"));
         body.push('\n');
+        for external_ref in &task.external_refs {
+            body.push_str(&external_ref.canonical_url);
+            body.push('\n');
+        }
         body.push_str(&task.body);
         body.push('\n');
     }
@@ -465,6 +469,45 @@ mod tests {
     use crate::plan::{OrchestratorRef, PlannerRef};
     use crate::service_plan::ports::PlanIndexQuery;
     use crate::service_plan::{NewTask, PlanStore};
+
+    #[test]
+    fn searchable_plan_body_includes_external_refs() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(directory.path());
+        let plan = store
+            .create_plan(
+                "External reference database index".into(),
+                directory.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Owning task".into(),
+                    acceptance_criteria: vec!["Acceptance marker".into()],
+                    body: "Body marker".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let mut plan = store.get(&plan.id).unwrap();
+        plan.tasks[0].external_refs = vec![
+            crate::service_plan::external_refs::canonicalize_external_ref(
+                "rollacode/codeterm-releases#17",
+            )
+            .unwrap(),
+        ];
+
+        let body = searchable_plan_body(&plan);
+
+        assert!(body.contains("Acceptance marker"));
+        assert!(body.contains("https://github.com/rollacode/codeterm-releases/issues/17"));
+    }
 
     #[test]
     fn plan_round_trips_from_one_wal_database() {
