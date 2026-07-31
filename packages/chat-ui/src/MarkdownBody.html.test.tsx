@@ -220,6 +220,30 @@ test("standalone ct artifact directives render pages, images, and documents", as
   configureLocalArtifactLoader(null);
 });
 
+test("standalone ct directives preserve Windows and forward-slash paths", async () => {
+  const windowsPath = "C:\\Users\\User\\.codex\\generated_images\\windows.png";
+  const forwardPath = "C:/Users/User/.codex/generated_images/forward.png";
+  const requested: string[] = [];
+  configureLocalArtifactLoader(async (path, kind) => {
+    assert(kind === "image", "path compatibility fixture should remain an image directive");
+    requested.push(path);
+    return { data: "data:image/png;base64,AA==", media_type: "image/png" };
+  });
+
+  const { host } = await render(
+    <RichMarkdown text={`@ct-image ${windowsPath}\n\n@ct-image ${forwardPath}`} />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  assert(requested[0] === windowsPath, "Markdown must not consume backslashes before punctuation");
+  assert(requested[1] === forwardPath, "forward-slash paths should remain unchanged");
+  assert(host.querySelectorAll("[data-testid='chat-ct-image'] img").length === 2, "both path forms should render");
+  configureLocalArtifactLoader(null);
+});
+
 test("ct directives inside code fences remain inert code", async () => {
   const { host } = await render(<RichMarkdown text={"```text\n@ct-image C:\\\\secret.png\n```"} />);
   assert(!host.querySelector("[data-testid='chat-ct-image']"), "code-fenced directive is not executed");

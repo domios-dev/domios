@@ -33,6 +33,8 @@ WebP, BMP, and AVIF; `@ct-document` renders Markdown and safely displays UTF-8
 text, logs, JSON, YAML, TOML, and CSV. CodeTerm validates the absolute path,
 extension, and size before exposing the bounded file to the renderer. SVG is
 excluded from image previews because it can contain active or external content.
+Windows paths may use either backslashes or forward slashes; both forms are
+preserved exactly when the preview file is resolved.
 
 The earlier fenced HTML form remains supported:
 
@@ -120,4 +122,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

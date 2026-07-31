@@ -51,6 +51,16 @@ function wrapsCodeElement(node: unknown): boolean {
   return children.some((child) => child.type === "element" && child.tagName === "code");
 }
 
+function sourceForNode(source: string, node: unknown): string | null {
+  const position = (node as {
+    position?: { start?: { offset?: number }; end?: { offset?: number } };
+  } | undefined)?.position;
+  const start = position?.start?.offset;
+  const end = position?.end?.offset;
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  return source.slice(start, end);
+}
+
 function isBlockCodeNode(node: unknown): boolean {
   if (!node || typeof node !== "object" || !("position" in node)) return false;
   const position = (node as { position?: { start?: { line?: number }; end?: { line?: number } } }).position;
@@ -172,12 +182,15 @@ export function RichMarkdown({
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
-        p: ({ node: _node, children, ...props }) => {
+        p: ({ node, children, ...props }) => {
           const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
             ? React.Children.toArray(children).join("")
             : null;
-          const directive = localArtifacts && textChild
-            ? parseLocalArtifactDirective(textChild)
+          const directiveSource = textChild === null
+            ? null
+            : sourceForNode(renderedText, node) ?? textChild;
+          const directive = localArtifacts && directiveSource
+            ? parseLocalArtifactDirective(directiveSource)
             : null;
           if (directive) {
             return (
