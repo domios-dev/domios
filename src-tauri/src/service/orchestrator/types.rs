@@ -111,6 +111,8 @@ pub struct SpawnAgentParams {
     pub(crate) starter_prompt: crate::agent::provider::StarterPrompt,
     /// Bound task id (CODETERM_TASK_ID).
     pub task_id: Option<String>,
+    #[serde(default, skip)]
+    pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
     pub workspace_id: Option<String>,
@@ -165,8 +167,39 @@ pub struct SpawnAgentParams {
     pub structured_prompt_server: Option<crate::agent::provider::StructuredPromptServer>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskLaunchAuthority {
+    pub(crate) plan_id: String,
+    pub(crate) task_id: String,
+    pub(crate) lane_base: Option<String>,
+}
+
+impl TaskLaunchAuthority {
+    pub(crate) fn env(&self) -> std::collections::HashMap<String, String> {
+        let mut env = std::collections::HashMap::from([
+            ("CODETERM_PLAN_ID".into(), self.plan_id.clone()),
+            ("CODETERM_TASK_ID".into(), self.task_id.clone()),
+        ]);
+        if let Some(base) = self
+            .lane_base
+            .as_ref()
+            .filter(|base| !base.trim().is_empty())
+        {
+            env.insert("CODETERM_LANE_BASE".into(), base.clone());
+        }
+        env
+    }
+}
+
 impl SpawnAgentParams {
     pub(crate) fn normalize_role_profile(&mut self) -> Result<(), String> {
         crate::service::role_profile::normalize_spawn_params(self)
+    }
+
+    pub(crate) fn task_launch_env(&self) -> std::collections::HashMap<String, String> {
+        self.task_launch_authority
+            .as_ref()
+            .map(TaskLaunchAuthority::env)
+            .unwrap_or_default()
     }
 }

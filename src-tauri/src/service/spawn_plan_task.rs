@@ -56,6 +56,11 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
+    params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
+        plan_id: resolved.plan_id.clone(),
+        task_id: resolved.task_id.clone(),
+        lane_base: detail.task.lane.base.clone(),
+    });
     let instruction = params.task.take();
     let brief = crate::service::plan::task_brief::render_task_brief(
         &detail.task,
@@ -284,7 +289,7 @@ mod tests {
         let (store, plan_id, _) = store_with_task(dir.path());
         let mut params = SpawnAgentParams {
             role: Some("Worker".into()),
-            plan_id: Some(plan_id),
+            plan_id: Some(plan_id.clone()),
             plan_task: Some("spawn-bind".into()),
             task: Some("Check the adjacent caller concern.".into()),
             ..Default::default()
@@ -292,6 +297,15 @@ mod tests {
 
         prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
 
+        let authority = params.task_launch_env();
+        assert_eq!(
+            authority.get("CODETERM_PLAN_ID").map(String::as_str),
+            Some(plan_id.as_str())
+        );
+        assert_eq!(
+            authority.get("CODETERM_TASK_ID").map(String::as_str),
+            params.task_id.as_deref()
+        );
         let prompt = params.task.unwrap();
         assert!(prompt.starts_with("You are Ada. Keep the change bounded."));
         let body = prompt.find("Implement the task-owned behavior.").unwrap();
