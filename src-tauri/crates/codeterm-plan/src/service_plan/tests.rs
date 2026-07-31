@@ -288,6 +288,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         model: None,
         model_rationale: None,
         acceptance_criteria: vec![],
+        external_refs: vec![],
         test_plan: None,
         qa_plan: None,
         correctness: None,

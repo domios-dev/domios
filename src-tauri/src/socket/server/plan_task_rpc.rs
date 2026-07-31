@@ -29,6 +29,17 @@ fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRp
         .map_err(|_| plan_rpc_err(PlanError::BadStatus))
 }
 
+fn external_ref_values(p: Option<&Value>) -> Result<Vec<String>, JsonRpcError> {
+    let Some(value) = p.and_then(|params| params.get("external_refs")) else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_value(value.clone()).map_err(|error| JsonRpcError {
+        code: -32602,
+        message: format!("invalid external_refs: expected an array of reference strings: {error}"),
+        data: Some(json!({ "type": "invalid_external_ref_input" })),
+    })
+}
+
 fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<(), JsonRpcError> {
     let Some(model) = p
         .and_then(|value| value.get("model"))
@@ -318,8 +329,9 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let external_refs = external_ref_values(p)?;
             let tid = store
-                .add_task(
+                .add_task_with_external_refs(
                     &id,
                     NewTask {
                         name,
@@ -395,6 +407,7 @@ pub(super) fn dispatch(
                             .map(str::to_string),
                         tags: tags_field(p),
                     },
+                    &external_refs,
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -459,6 +472,9 @@ pub(super) fn dispatch(
             let qa_plan = optional_string_field(p, "qa_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
+            let external_refs = external_ref_values(p)?;
+            crate::service::plan::external_refs::canonicalize_external_refs(&external_refs)
+                .map_err(plan_rpc_err)?;
             if let Some(depends_on) = dependency_vec_field(p)? {
                 store
                     .update_task_dependencies(&id, &tid, depends_on, now)
@@ -513,6 +529,11 @@ pub(super) fn dispatch(
                         correctness,
                         now,
                     )
+                    .map_err(plan_rpc_err)?;
+            }
+            if !external_refs.is_empty() {
+                store
+                    .add_task_external_refs(&id, &tid, &external_refs, now)
                     .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &id);
@@ -753,7 +774,7 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::{dependency_vec_field, validate_model_field};
+    use super::{dependency_vec_field, external_ref_values, validate_model_field};
     use serde_json::json;
 
     #[test]
@@ -779,6 +800,20 @@ mod tests {
             dependency_vec_field(Some(&json!({ "depends_on": [] }))),
             Ok(Some(ids)) if ids.is_empty()
         ));
+    }
+
+    #[test]
+    fn rpc_external_ref_values_require_an_array_of_strings() {
+        assert_eq!(
+            external_ref_values(Some(&json!({
+                "external_refs": ["rollacode/codeterm-releases#17"]
+            })))
+            .unwrap(),
+            vec!["rollacode/codeterm-releases#17".to_string()]
+        );
+        let error = external_ref_values(Some(&json!({ "external_refs": "#17" }))).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert!(error.message.contains("array of reference strings"));
     }
 
     #[test]
