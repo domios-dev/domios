@@ -51,7 +51,7 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
 const testWindow = setupDom();
 
 const { RichMarkdown } = await import("./MarkdownBody");
-const { sanitizeStyleValue, containsHtmlMarkup } = await import("./htmlSanitize");
+const { sanitizeStyleValue, containsHtmlMarkup, normalizeMultilineHtmlBlocks } = await import("./htmlSanitize");
 const { buildHtmlPreviewDocument } = await import("./HtmlPreviewBlock");
 
 test("containsHtmlMarkup gates on real tags, not comparisons", () => {
@@ -91,6 +91,32 @@ test("details/summary renders as a disclosure", async () => {
   assert(host.querySelector("summary")?.textContent === "More", "summary text rendered");
 });
 
+test("blank lines inside a multiline HTML visualization stay inside the HTML block", async () => {
+  const text = [
+    "Before the map",
+    "",
+    '<div style="display: flex">',
+    "",
+    '  <div style="padding: 12px">Root</div>',
+    "",
+    "  <div>",
+    '    <div style="border: 1px solid green">Working</div>',
+    "",
+    '    <div style="border: 1px solid red">Failed</div>',
+    "  </div>",
+    "",
+    "</div>",
+  ].join("\n");
+  const normalized = normalizeMultilineHtmlBlocks(text);
+  assert(!normalized.slice(normalized.indexOf("<div")).includes("\n\n"), "blank lines inside the root HTML block are removed");
+  const { host } = await render(<RichMarkdown text={text} />);
+  assert(host.textContent?.includes("Before the map"), "markdown before the visualization survives");
+  assert(host.textContent?.includes("Root"), "root node renders");
+  assert(host.textContent?.includes("Working"), "working child renders");
+  assert(host.textContent?.includes("Failed"), "failed child renders");
+  assert(!host.querySelector("[data-testid='chat-plain-code-block']"), "nested HTML never becomes a markdown code block");
+});
+
 test("script tags and event handlers are stripped", async () => {
   const { host } = await render(
     <RichMarkdown text={"<div onclick=\"alert(1)\">hi</div><script>alert(2)</script><img src=x onerror=\"alert(3)\">"} />,
@@ -120,12 +146,13 @@ test("dangerous inline style declarations are scrubbed but safe ones survive", a
 });
 
 test("html code fence renders a locked-down sandboxed frame", async () => {
-  const { host } = await render(<RichMarkdown text={"```html\n<b>hello</b>\n<script>1</script>\n```"} />);
+  const fencedSource = "<div>\n\n  <b>hello</b>\n</div>";
+  const { host } = await render(<RichMarkdown text={`\`\`\`html\n${fencedSource}\n\`\`\``} />);
   const frame = host.querySelector("iframe[data-testid='chat-html-preview-frame']");
   assert(frame, "preview iframe rendered for an html fence");
   assert(frame!.getAttribute("sandbox") === "allow-scripts", "sandbox must be allow-scripts only");
   const srcdoc = frame!.getAttribute("srcdoc") ?? "";
-  assert(srcdoc.includes("<b>hello</b>"), "fence source is embedded verbatim");
+  assert(srcdoc.includes(fencedSource), "fence source and its blank lines are embedded verbatim");
   assert(srcdoc.includes("Content-Security-Policy"), "CSP meta is embedded");
 });
 
