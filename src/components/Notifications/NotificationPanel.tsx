@@ -15,6 +15,7 @@ interface NotificationPanelProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
+  onClearAll: () => void;
   onJumpToTab: (tabId: string, workspaceId: string | null) => void;
   onClose: () => void;
 }
@@ -24,6 +25,7 @@ export function NotificationPanel({
   onMarkRead,
   onMarkAllRead,
   onDelete,
+  onClearAll,
   onJumpToTab,
   onClose,
 }: NotificationPanelProps) {
@@ -36,29 +38,47 @@ export function NotificationPanel({
     },
     [onMarkRead],
   );
-  const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[var(--ct-accent)]`;
+  const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
 
   return (
-    <div data-testid="notification-panel" className="flex max-h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-16px))] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)] shrink-0">
-        <span className="flex items-center gap-2 text-sm font-medium text-[var(--ct-fg)]">
-          <Bell size={14} /> Notifications
+    <div
+      data-testid="notification-panel"
+      className="flex w-[min(360px,calc(100vw-16px))] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
+      style={{ maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))" }}
+    >
+      <div className="flex min-h-9 shrink-0 items-center justify-between border-b border-[var(--ct-border)] px-2.5 py-1">
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--ct-fg)]">
+          <Bell size={13} /> Notifications
         </span>
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={onMarkAllRead}
-            className={`${headerBtnClass} border-[color-mix(in srgb, var(--ct-accent) 35%, var(--ct-border) 65%)]`}
+            disabled={sorted.length === 0}
+            className={`${headerBtnClass} text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`}
             title="Mark all read"
           >
             Read all
           </button>
           <button
-            onClick={onClose}
-            className="ct-btn ct-btn-ghost w-7 h-7"
-            aria-label="Close notifications"
+            type="button"
+            onClick={onClearAll}
+            disabled={sorted.length === 0}
+            className={`${headerBtnClass} gap-1 text-[var(--ct-muted-fg)] hover:text-[var(--ct-red)]`}
+            title="Clear all notifications"
           >
-            <X size={13} />
+            <Trash2 size={11} />
+            Clear all
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]"
+            aria-label="Close notifications"
+            title="Close"
+          >
+            <X size={15} strokeWidth={2} />
           </button>
         </div>
       </div>

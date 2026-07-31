@@ -37,6 +37,7 @@ const calls = {
   deleted: [] as string[],
   navigated: [] as Array<[string, string | null]>,
   readAll: 0,
+  clearedAll: 0,
 };
 
 async function run() {
@@ -47,17 +48,23 @@ async function run() {
         onMarkRead={(id) => calls.read.push(id)}
         onMarkAllRead={() => calls.readAll++}
         onDelete={(id) => calls.deleted.push(id)}
+        onClearAll={() => calls.clearedAll++}
         onNavigate={(tabId, workspaceId) => calls.navigated.push([tabId, workspaceId])}
       />,
     );
   });
 
-  assert(host.textContent?.includes("1"), "bell should show unread count");
+  assert(host.textContent?.includes("+1"), "bell should show the themed unread increment");
+  assert(host.querySelector(".ct-notification-bell-ring"), "new unread notification should ring the bell");
+  assert(host.querySelector(".ct-notification-badge-pop"), "new unread notification should pop the badge");
   await act(async () => {
     (host.querySelector('[data-testid="notification-bell"]') as HTMLElement).click();
   });
   const panel = document.querySelector('[data-testid="notification-panel"]');
   assert(panel, "bell should open a portal panel");
+  assert(panel.className.includes("max-w-[calc(100vw-16px)]"), "panel should stay within the mobile viewport width");
+  assert(panel.getAttribute("style")?.includes("100dvh"), "panel height should follow the dynamic mobile viewport");
+  assert(panel.querySelector('[aria-label="Close notifications"]'), "panel should expose a visible close control");
   assert(!panel.textContent?.includes(item.body!), "complete message should start collapsed");
 
   const expand = panel.querySelector<HTMLButtonElement>('[aria-label="Show complete message for Agent needs input"]');
@@ -72,10 +79,12 @@ async function run() {
 
   await act(async () => {
     (Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("Read all")) as HTMLElement).click();
+    (Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("Clear all")) as HTMLElement).click();
     (panel.querySelector('[aria-label="Delete Agent needs input"]') as HTMLElement).click();
     (Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("Show Tab")) as HTMLElement).click();
   });
   assert(calls.readAll === 1, "Read all should use the shared notification action");
+  assert(calls.clearedAll === 1, "Clear all should remove notification history through the shared action");
   assert(calls.deleted.join() === item.id, "Delete should remove only the selected notification");
   assert(
     calls.navigated.length === 1
