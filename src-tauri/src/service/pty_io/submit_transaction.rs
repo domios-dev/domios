@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::Instant;
+use std::thread::Thread;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
@@ -14,6 +16,78 @@ use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = 3;
+
+struct SubmitCycle {
+    generation: AtomicU64,
+    waiter: Mutex<Option<Thread>>,
+}
+
+impl SubmitCycle {
+    fn new() -> Self {
+        Self {
+            generation: AtomicU64::new(0),
+            waiter: Mutex::new(None),
+        }
+    }
+
+    fn reset(&self) -> u64 {
+        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Some(waiter) = self.waiter.lock().take() {
+            waiter.unpark();
+        }
+        generation
+    }
+
+    fn is_current(&self, generation: u64) -> bool {
+        self.generation.load(Ordering::Acquire) == generation
+    }
+
+    fn wait_until(&self, generation: u64, deadline: Instant) -> bool {
+        if !self.is_current(generation) {
+            return false;
+        }
+        *self.waiter.lock() = Some(std::thread::current());
+        while self.is_current(generation) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            std::thread::park_timeout(remaining);
+        }
+        self.waiter.lock().take();
+        self.is_current(generation)
+    }
+}
+
+fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
+    static CYCLES: OnceLock<Mutex<HashMap<String, Weak<SubmitCycle>>>> = OnceLock::new();
+    CYCLES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn reset_submit_cycle(pty_id: &str) -> (Arc<SubmitCycle>, u64) {
+    let cycle = {
+        let mut cycles = submit_cycles().lock();
+        if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
+            cycle
+        } else {
+            let cycle = Arc::new(SubmitCycle::new());
+            cycles.insert(pty_id.to_string(), Arc::downgrade(&cycle));
+            cycle
+        }
+    };
+    let generation = cycle.reset();
+    (cycle, generation)
+}
+
+fn retire_submit_cycle(pty_id: &str, cycle: &Arc<SubmitCycle>) {
+    let mut cycles = submit_cycles().lock();
+    let current_is_cycle = cycles
+        .get(pty_id)
+        .and_then(Weak::upgrade)
+        .is_some_and(|current| Arc::ptr_eq(&current, cycle));
+    if current_is_cycle && Arc::strong_count(cycle) == 1 {
+        cycles.remove(pty_id);
+    }
+}
 
 fn framed_composer_row(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
@@ -128,6 +202,12 @@ trait SubmitTransport {
         let _ = (turn_generation, deadline);
         false
     }
+    fn wait_retry_deadline(&self, deadline: Instant) {
+        let _ = deadline;
+    }
+    fn retry_active(&self) -> bool {
+        true
+    }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
@@ -138,6 +218,8 @@ struct PtySubmitTransport<'a> {
     signal: Arc<ScreenChangeSignal>,
     status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    submit_cycle: Arc<SubmitCycle>,
+    submit_generation: u64,
 }
 
 fn bracketed_paste(text: &str) -> String {
@@ -197,6 +279,15 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         deadline
             .checked_duration_since(Instant::now())
             .is_some_and(|remaining| self.status_signal.wait_after(turn_generation, remaining))
+    }
+
+    fn wait_retry_deadline(&self, deadline: Instant) {
+        self.submit_cycle
+            .wait_until(self.submit_generation, deadline);
+    }
+
+    fn retry_active(&self) -> bool {
+        self.submit_cycle.is_current(self.submit_generation)
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -299,53 +390,6 @@ fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
     }
 }
 
-fn wait_submission_acknowledged<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    baseline_evidence: usize,
-    paste_observed: &mut bool,
-    turn_was_started: bool,
-    armed: u64,
-    turn_armed: u64,
-    deadline: Instant,
-    strategy: &VerifySubmitStrategy,
-) -> bool {
-    let mut generation = armed;
-    let mut turn_generation = turn_armed;
-    loop {
-        *paste_observed |= transport.draft_evidence_count(text) > baseline_evidence;
-        if submission_acknowledged_now(
-            transport,
-            text,
-            baseline_evidence,
-            *paste_observed,
-            turn_was_started,
-            armed,
-            strategy,
-        ) {
-            return true;
-        }
-        // Once the composer drains, status is the only signal that can wake
-        // fresh-turn re-evaluation while the screen stays quiet.
-        let observed = if draft_left_composer(
-            transport,
-            text,
-            baseline_evidence,
-            *paste_observed,
-            armed,
-        ) {
-            transport.wait_turn_change(turn_generation, deadline)
-        } else {
-            transport.wait_change(generation, deadline)
-        };
-        if !observed {
-            return false;
-        }
-        generation = transport.generation();
-        turn_generation = transport.turn_generation();
-    }
-}
-
 fn draft_left_composer<T: SubmitTransport>(
     transport: &T,
     text: &str,
@@ -376,19 +420,6 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     drained || fresh_turn
 }
 
-/// Failure bound for one acknowledgement attempt: the remaining turn budget is
-/// split so every unwritten retry keeps a reachable window before
-/// `turn_deadline`. The last attempt always waits out the full deadline.
-fn attempt_ack_deadline(keys_written: usize, turn_deadline: Instant) -> Instant {
-    let retries_left = MAX_SUBMIT_KEY_WRITES.saturating_sub(keys_written);
-    if retries_left == 0 {
-        return turn_deadline;
-    }
-    let now = Instant::now();
-    let remaining = turn_deadline.saturating_duration_since(now);
-    now + remaining / (retries_left as u32 + 1)
-}
-
 #[cfg(test)]
 fn run<T: SubmitTransport>(
     transport: &T,
@@ -414,8 +445,8 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     let baseline_evidence = transport.draft_evidence_count(text);
     let bytes_written = transport.write_paste(text, turn_deadline)?;
-    let mut paste_observed = text.is_empty()
-        || transport.draft_evidence_count(text) > baseline_evidence;
+    let mut paste_observed =
+        text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
     if !enter {
         return Ok(InjectionResult {
@@ -432,14 +463,17 @@ fn run_with_submit_key<T: SubmitTransport>(
     let mut submit_observed = !two_phase;
     let mut submit_key_writes = 0usize;
     for _ in 0..MAX_SUBMIT_KEY_WRITES {
-        // The first CR is the delivery itself and always goes out; a RETRY
-        // write may never begin with an expired phase deadline — enqueueing it
-        // can only produce a doomed ack wait or a stray late keypress.
-        if submit_key_writes > 0 && Instant::now() >= turn_deadline {
+        if !transport.retry_active() {
             break;
         }
+        if submit_key_writes > 0 {
+            let retry_deadline = started + Duration::from_secs(submit_key_writes as u64);
+            transport.wait_retry_deadline(retry_deadline.min(turn_deadline));
+            if !transport.retry_active() || Instant::now() >= turn_deadline {
+                break;
+            }
+        }
         let enter_armed = transport.generation();
-        let turn_armed = transport.turn_generation();
         // The paste already reached the PTY: a submit-key write failure can
         // only mean unconfirmed submission, never a zero-write terminal error.
         if let Err(error) = transport.write_submit_key(submit_key, turn_deadline) {
@@ -462,30 +496,16 @@ fn run_with_submit_key<T: SubmitTransport>(
         if !two_phase {
             break;
         }
-        submit_observed = wait_submission_acknowledged(
+        paste_observed |= transport.draft_evidence_count(text) > baseline_evidence;
+        submit_observed |= submission_acknowledged_now(
             transport,
             text,
             baseline_evidence,
-            &mut paste_observed,
+            paste_observed,
             turn_was_started,
             enter_armed,
-            turn_armed,
-            attempt_ack_deadline(submit_key_writes, turn_deadline),
             &strategy,
         );
-        if !submit_observed && transport.turn_generation() != turn_armed {
-            log::debug!(
-                "[submit-transaction] ignored status-only generation change without turn evidence"
-            );
-        }
-        if submit_observed {
-            break;
-        }
-        // Re-key only while the draft remains in the composer, proving the CR did not take.
-        // A cleared composer without turn evidence is ambiguous; a stray key proves nothing.
-        if transport.draft_evidence_count(text) <= baseline_evidence {
-            break;
-        }
     }
 
     Ok(InjectionResult {
@@ -519,6 +539,7 @@ pub(crate) fn submit_text_with_key(
     opts: VerifyOpts,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 ) -> Result<InjectionResult, InjectionError> {
+    let (submit_cycle, submit_generation) = reset_submit_cycle(pty_id);
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
@@ -530,9 +551,10 @@ pub(crate) fn submit_text_with_key(
         signal,
         status_signal,
         permit,
+        submit_cycle: Arc::clone(&submit_cycle),
+        submit_generation,
     };
-    let required = enter && opts.verify_submit;
-    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).and_then(
+    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).map(
         |result| {
             if result.submit_anomaly {
                 log::warn!(
@@ -543,9 +565,7 @@ pub(crate) fn submit_text_with_key(
                     result.elapsed.as_millis()
                 );
             }
-            let elapsed = result.elapsed;
-            let tail = transport.observe().map(|o| o.tail).unwrap_or_default();
-            result.require_submission(required, elapsed, tail)
+            result
         },
     );
     if let Err(ref error) = result {
@@ -566,6 +586,7 @@ pub(crate) fn submit_text_with_key(
     }
     drop(transaction);
     retire_transaction_lock(pty_id, &lock);
+    retire_submit_cycle(pty_id, &submit_cycle);
     result
 }
 

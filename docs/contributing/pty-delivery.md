@@ -14,17 +14,14 @@ well-meaning "one more heuristic" changes. Read this before touching
 1. **The payload is written at most once.** One bracketed paste to the exact
    PTY the caller resolved. Nothing may ever re-write the payload — not a
    retry loop, not a recovery path, not a watchdog.
-2. **Submission is one Enter, plus a bounded key-only recovery.** The CR is a
-   separate write issued immediately after the payload write is acknowledged;
-   visual evidence never withholds it. If confirmation is missed, only the
-   submit *key* may be re-written, within `MAX_SUBMIT_KEY_WRITES` and the
-   10-second recovery deadline, and only while the payload is demonstrably
-   still parked in the composer. Once the composer clears, no stray key is
-   allowed.
-3. **Verification classifies; it never gates delivery on heuristics it cannot
-   prove.** Screen-echo counting, draft-left-composer, turn transitions are
-   *evidence collectors*. Their failure produces `submit_unconfirmed`
-   (uncertainty), never a fabricated success and never a zero-write claim.
+2. **Submission is a bounded blind key-only burst.** Write CR immediately,
+   then again at one and two seconds. Never gate these writes on screen,
+   composer, status, or provider identity; never repeat the payload. Each PTY
+   owns one resettable burst: a new send cancels the old burst immediately
+   instead of waiting behind a CodeTerm message queue.
+3. **Verification classifies; it never controls key delivery.** Only an exact
+   attributable session user turn confirms delivery. Missing evidence remains
+   uncertainty, never a fabricated success or a zero-write claim.
 
 ## Classification invariants (`DeliveryError`)
 
@@ -99,4 +96,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 5 -->
+<!-- revision: 7 -->

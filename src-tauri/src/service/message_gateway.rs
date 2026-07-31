@@ -56,9 +56,8 @@ pub enum KeyStroke {
 /// The payload of an outbound submission.
 #[derive(Debug, Clone)]
 pub enum MessageBody {
-    /// Plain or enveloped text. `enter` matches the existing `send_text` flag and
-    /// is ignored on the enveloped path (which always submits).
-    Text { body: String, enter: bool },
+    /// Plain or enveloped text. Text messages always submit.
+    Text { body: String },
     /// A text prefix followed by ordered key actions (arrows, ctrl-keys, delays).
     Keys {
         text: String,
@@ -125,7 +124,7 @@ pub trait DeliverySeam {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String>;
-    fn deliver_text(&self, tab: &str, text: &str, enter: bool) -> Result<(), String>;
+    fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String>;
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
 }
@@ -163,8 +162,8 @@ impl DeliverySeam for super::ServiceContext {
         Messenger::deliver(self, to_tab, envelope, body)
     }
 
-    fn deliver_text(&self, tab: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.send_text_detached(tab, text, enter);
+    fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
+        self.send_text_detached(tab, text);
         Ok(())
     }
 
@@ -177,7 +176,7 @@ impl DeliverySeam for super::ServiceContext {
         execute_ordered_actions(
             text,
             &ordered,
-            |body, enter| self.send_text(tab, body, enter),
+            |body, enter| self.send_text_input(tab, body, enter),
             |bytes| self.write_raw(tab, bytes),
             await_action_deadline,
         )
@@ -202,7 +201,6 @@ impl super::ServiceContext {
                     target: target.to_string(),
                     body: MessageBody::Text {
                         body: body.to_string(),
-                        enter: true,
                     },
                     envelope: Some(envelope),
                     class,
@@ -357,7 +355,7 @@ impl MessageGateway {
     ) -> Result<DeliveryReceipt, DeliveryError> {
         let key = msg.idempotency_key.clone();
         match &msg.body {
-            MessageBody::Text { body, enter } => match &msg.envelope {
+            MessageBody::Text { body } => match &msg.envelope {
                 Some(envelope) => {
                     let delivery = seam
                         .deliver_enveloped(&msg.target, envelope.clone(), body)
@@ -365,7 +363,7 @@ impl MessageGateway {
                     Ok(receipt(Some(delivery), key))
                 }
                 None => {
-                    seam.deliver_text(&msg.target, body, *enter)
+                    seam.deliver_text(&msg.target, body)
                         .map_err(|e| classify(&msg.target, e))?;
                     Ok(receipt(None, key))
                 }

@@ -454,7 +454,7 @@ impl crate::service::ServiceContext {
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                svc.send_text_delivery(&tab_id, text, true)
+                svc.send_text_delivery(&tab_id, text)
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {

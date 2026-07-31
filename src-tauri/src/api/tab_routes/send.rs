@@ -109,10 +109,6 @@ impl From<DeliveryError> for SendRejection {
 
 pub(super) use self::await_pty_link as wait_for_pty_link;
 
-pub(crate) fn default_true() -> bool {
-    true
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TabInputTransport {
     Pty,
@@ -171,8 +167,6 @@ pub(crate) struct SendTextBody {
 #[derive(Deserialize)]
 pub(crate) struct BatchCommand {
     pub(crate) text: String,
-    #[serde(default = "default_true")]
-    pub(crate) enter: bool,
     pub(crate) delay_ms: Option<u64>,
 }
 
@@ -397,7 +391,7 @@ pub async fn send_text(
             if !raw_text.is_empty() {
                 state
                     .svc
-                    .send_text_when_ready(&tab_id, &text, false)
+                    .stage_text_when_ready(&tab_id, &text)
                     .await
                     .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
             }
@@ -408,7 +402,7 @@ pub async fn send_text(
                 crate::service::pty_io::execute_ordered_actions(
                     &text,
                     &ordered,
-                    |body, enter| svc.send_text(&action_tab, body, enter),
+                    |body, enter| svc.send_text_input(&action_tab, body, enter),
                     |bytes| svc.write_raw(&action_tab, bytes),
                     crate::service::pty_io::await_action_deadline,
                 )
@@ -445,7 +439,6 @@ pub async fn send_text(
             .into_iter()
             .map(|c| crate::service::pty_io::SendBatchItem {
                 text: prepend(&stage(c.text)),
-                enter: c.enter,
                 delay_ms: c.delay_ms,
             })
             .collect();
@@ -493,7 +486,7 @@ pub async fn send_text(
         let text = prepend(&raw_text);
         state
             .svc
-            .send_text_when_ready(&tab_id, &text, true)
+            .send_text_when_ready(&tab_id, &text)
             .await
             .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
@@ -518,7 +511,7 @@ pub async fn send_text(
     // `actions` or `raw`.
     state
         .svc
-        .send_text_when_ready(&tab_id, &text, true)
+        .send_text_when_ready(&tab_id, &text)
         .await
         .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
     record_push_activity(&state, &svc_token_match, &tab_id, &text);

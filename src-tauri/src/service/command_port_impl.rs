@@ -12,9 +12,9 @@ impl CommandPort for ServiceContext {
         self.mux.read().snapshot()
     }
 
-    fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String> {
+    fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
         // Fire-and-forget so interactive sends never wait for terminal evidence.
-        self.send_text_detached(tab_id, text, enter);
+        self.send_text_detached(tab_id, text);
         Ok(())
     }
 

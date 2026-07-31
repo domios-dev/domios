@@ -129,15 +129,15 @@ fn three_acceptance_axes_confirm_the_submission_through_the_turn_signal() {
 
     assert!(result.submit_observed);
     assert_eq!(transport.payload_writes.get(), 1);
-    assert_eq!(transport.submit_key_writes.get(), 1);
+    assert_eq!(transport.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
     assert!(!transport.draft_visible.get(), "composer back to baseline");
     assert!(transport
         .observe()
         .is_some_and(|state| state.tail.contains(RESPONSE_MARKER)));
     assert_eq!(
         transport.turn_waits.borrow().len(),
-        1,
-        "the turn transition must be sampled on its own signal"
+        0,
+        "screen and status waits never gate the blind submit-key burst"
     );
 }
 
@@ -158,15 +158,8 @@ fn irrelevant_status_transition_does_not_acknowledge_or_spin_submission() {
     let waits = transport.turn_waits.borrow();
 
     assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
-    assert_eq!(
-        waits.iter().map(|(generation, _)| *generation).collect::<Vec<_>>(),
-        vec![0, 1],
-        "the second wait must advance past the irrelevant status generation"
-    );
-    assert_eq!(
-        waits[0].1, waits[1].1,
-        "an irrelevant wake keeps the original failure deadline"
-    );
+    assert!(waits.is_empty(), "status churn never gates key recovery");
+    assert_eq!(transport.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
 }
 
 /// Mirrors the production boundary: a submit that required acknowledgement and

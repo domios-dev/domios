@@ -232,7 +232,7 @@ pub fn suggest_install_pwsh(
             }
             std::thread::sleep(std::time::Duration::from_millis(150));
         }
-        if let Err(e) = svc_arc.send_text(&tab_id_bg, cmd_text, true) {
+        if let Err(e) = svc_arc.send_text(&tab_id_bg, cmd_text) {
             log::warn!("[suggest_install_pwsh] send_text failed: {}", e);
         }
     });

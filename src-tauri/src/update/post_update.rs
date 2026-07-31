@@ -75,7 +75,7 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
     // Grace for the agent to finish drawing its prompt and accept input.
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    match svc.send_text(&tab_id, &text, true) {
+    match svc.send_text(&tab_id, &text) {
         Ok(_) => {
             log::info!("[post-update] injected message into general Tab {}", tab_id);
             if let Err(e) = std::fs::remove_file(&p) {

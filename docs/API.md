@@ -122,7 +122,7 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 | GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact tab summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Return the full tab payload for the selected tab IDs only. |
 | POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh tab through the same verified send path used by `/api/tabs/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** tab is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
-| POST | `/api/tabs/{id}/send` | `{text?, enter?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, enter?, delay_ms?}], source_tab?}` | Send text or terminal actions to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written or queued. `actions` supports keys (`enter`, `esc`, arrows, `tab`, `backspace`, `delete`, `home/end`, `pageup/pagedown`, `space`, `ctrl-c`) and millisecond delays. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
+| POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | Plain text and every batch item always submit. Use `actions` or `raw` only for explicit low-level terminal input. Returns `{ok:true}` after accepting delivery. |
 | POST | `/api/tabs/{id}/stop` | — | Stop the tab's PTY process |
 | POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
@@ -1113,7 +1113,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
 # Send with batch (e.g. launch Claude Code)
 curl -X POST "http://host:7685/api/tabs/$TAB/send" \
   -H "Content-Type: application/json" \
-  -d '{"batch": [{"text": "claude", "enter": true}, {"text": "", "enter": true, "delay_ms": 8000}]}'
+  -d '{"batch": [{"text": "claude"}, {"text": "", "delay_ms": 8000}]}'
 
 # Register webhook for agent events
 curl -X POST http://host:7685/api/webhooks \
@@ -1183,7 +1183,7 @@ Newline-delimited JSON:
 | `tab.list` | — | List tabs |
 | `tab.focus` | `{tab_id}` | Focus tab |
 | `tab.close` | `{tab_id}` | Close tab |
-| `tab.send_text` | `{tab_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
+| `tab.send_text` | `{tab_id, text}` | Send a text message to PTY; submission is mandatory |
 | `tab.get_output` | `{tab_id, max_bytes?}` | Read terminal output |
 | `tab.rename` | `{tab_id, title}` | Rename tab (pinned) |
 | `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
@@ -1399,4 +1399,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 99 -->
+<!-- revision: 100 -->

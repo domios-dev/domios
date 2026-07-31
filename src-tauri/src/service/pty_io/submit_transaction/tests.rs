@@ -496,8 +496,8 @@ mod fast_turn {
         let io = SettlesBeforeFirstWait::new();
         let result = run(&io, "fast-turn", true, tui(), opts()).unwrap();
 
-        assert!(io.wait_calls.get() >= 1);
-        assert_eq!(io.submit_key_writes.get(), 1);
+        assert_eq!(io.wait_calls.get(), 0);
+        assert_eq!(io.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
         assert!(!result.submit_observed);
         assert!(result.submit_anomaly);
     }
@@ -620,9 +620,7 @@ mod bounded_recovery {
 
         assert_eq!(io.payload_writes.get(), 1);
         assert!(io.submit_key_writes.get() <= MAX_SUBMIT_KEY_WRITES);
-        // The draft left the composer without turn evidence: ambiguous, so no
-        // blind re-keys — recovery fires only while the draft is still parked.
-        assert_eq!(io.submit_key_writes.get(), 1);
+        assert_eq!(io.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
         assert!(!result.submit_observed);
         assert!(result.submit_anomaly);
     }

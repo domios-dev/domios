@@ -147,7 +147,7 @@ pub(super) fn dispatch(
                     (result.mode == "new" && send.order == 1) || result.mode == "compact"
                 }) {
                     svc.as_ref()
-                        .send_text_detached(&result.tab_id, &send.text, send.enter);
+                        .send_text_input_detached(&result.tab_id, &send.text, send.enter);
                 }
                 emit_plan_changed(app, &id);
             }
