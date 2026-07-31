@@ -512,6 +512,7 @@ impl ServiceContext {
             tab_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
+            crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
             role_suffixed_task,
             fallback_spec,
             ready_tx,
@@ -873,13 +874,20 @@ impl ServiceContext {
             })
             .unwrap_or_default();
 
-        let wrapped_task = agent.task.as_ref().map(|t| {
+        let assignment = agent.task.as_ref().map(|t| {
             if let Some(ref preamble) = agent.task_preamble {
                 format!("{}{}", preamble, t)
             } else {
                 t.clone()
             }
         });
+        let wrapped_task = crate::service::orchestrator::provider_launch_task(
+            &self.agent_registry,
+            &agent.provider,
+            assignment.as_deref(),
+            agent.role.as_deref(),
+            agent.role_profile.as_deref(),
+        );
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();
@@ -887,6 +895,8 @@ impl ServiceContext {
         let provider = agent.provider.clone();
         let launch_session_id = launch_session_id.clone();
         let task_for_thread = wrapped_task.clone();
+        let role_for_thread = agent.role.clone();
+        let role_profile_for_thread = agent.role_profile.clone();
         // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
         let task_delivery = self
             .agent_registry
@@ -959,11 +969,14 @@ impl ServiceContext {
                 })
                 .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
             crate::service::launch_diagnostics::log_launch(
-                "hidden_agent",
+                crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn,
                 &tab_id_outer,
                 &provider,
                 &launch_cmd,
                 task_for_thread.as_deref(),
+                role_for_thread.as_deref(),
+                role_profile_for_thread.as_deref(),
+                "provider_descriptor",
             );
 
             match svc_outer.resolve_pty_id(&tab_id_outer) {

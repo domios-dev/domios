@@ -71,6 +71,9 @@ pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
 
+/// Shared rich-rendering capability included in every CodeTerm agent contract.
+pub const RICH_RENDERING_GUIDANCE: &str = include_str!("../prompts/rich_rendering_guidance.md");
+
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");
@@ -356,9 +359,17 @@ mod tests {
 
     #[test]
     fn spawned_agent_primer_exposes_rich_rendering() {
-        assert!(AGENT_CODETERM_PRIMER.contains("Mermaid"));
-        assert!(AGENT_CODETERM_PRIMER.contains("sandboxed `html` block"));
-        assert!(AGENT_CODETERM_PRIMER.contains("inline HTML only for light native markup"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("Mermaid"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("inline HTML only for light native markup"));
+    }
+
+    #[test]
+    fn worker_context_exposes_rich_rendering() {
+        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("render Mermaid"));
     }
 
     #[test]
@@ -498,6 +509,7 @@ mod tests {
             "general_agent.md",
             "agent_codeterm_primer.md",
             "worker_codeterm_context.md",
+            "rich_rendering_guidance.md",
             "codeterm_cli.md",
             "bootstrap_instructions.md",
             "worker_task_preamble.md",

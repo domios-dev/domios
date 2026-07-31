@@ -13,7 +13,7 @@ pub(crate) use launch::{
     spawn_onboarding_task, AgentRegistry, LaunchGeneration,
 };
 pub(crate) use launch::{
-    build_agent_command, launch_agent_in_background, record_provider_session,
+    build_agent_command, launch_agent_in_background, provider_launch_task, record_provider_session,
     record_reader_termination, role_launch_task, ProviderSessionBinding,
 };
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};

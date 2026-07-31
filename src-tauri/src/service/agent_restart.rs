@@ -98,6 +98,8 @@ struct TabRestartSnapshot {
     session_id: Option<String>,
     cwd: Option<String>,
     auto_approve: bool,
+    role: Option<String>,
+    role_profile: Option<String>,
 }
 
 #[derive(Debug)]
@@ -146,8 +148,20 @@ impl ServiceContext {
         let session_was_stale = !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         let session_present = !session_was_stale && snap.session_id.is_some();
-        let Some(launch_cmd) = build_relaunch_command(self, &snap, session_present)
-            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
+        let launch_task = (!session_present)
+            .then(|| {
+                crate::service::orchestrator::provider_launch_task(
+                    &self.agent_registry,
+                    &snap.provider,
+                    None,
+                    snap.role.as_deref(),
+                    snap.role_profile.as_deref(),
+                )
+            })
+            .flatten();
+        let Some(launch_cmd) =
+            build_relaunch_command(self, &snap, session_present, launch_task.as_deref())
+                .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
         else {
             return Err(RestartAttemptError::Failed {
                 outcome,
@@ -172,7 +186,8 @@ impl ServiceContext {
             snap.tab_id.clone(),
             launch_cmd,
             snap.provider.clone(),
-            None,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::Restart,
+            launch_task,
             None,
             None,
         );
@@ -287,6 +302,8 @@ impl ServiceContext {
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
             auto_approve: true,
+            role: tab.role.map(|role| format!("{role:?}")),
+            role_profile: tab.role_profile.clone(),
         })
     }
 
@@ -329,6 +346,8 @@ impl ServiceContext {
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
             auto_approve: tab.auto_approve,
+            role: tab.role.map(|role| format!("{role:?}")),
+            role_profile: tab.role_profile.clone(),
         })
     }
 
@@ -479,6 +498,7 @@ fn build_relaunch_command(
     svc: &ServiceContext,
     snap: &TabRestartSnapshot,
     session_present: bool,
+    launch_task: Option<&str>,
 ) -> Option<String> {
     let provider = &snap.provider;
     let auto_approve = snap.auto_approve;
@@ -499,6 +519,7 @@ fn build_relaunch_command(
         auto_approve,
         session_present,
         structured_prompt_server,
+        launch_task,
     )
 }
 
@@ -509,6 +530,7 @@ fn build_relaunch_command_with_registry(
     auto_approve: bool,
     session_present: bool,
     structured_prompt_server: Option<StructuredPromptServer>,
+    launch_task: Option<&str>,
 ) -> Option<String> {
     if session_present && structured_prompt_server.is_some() {
         if let Some(sid) = session_id {
@@ -538,7 +560,7 @@ fn build_relaunch_command_with_registry(
     registry.with_provider(provider, |p| {
         p.build_launch_command(&AgentLaunchParams {
             agent_name: None,
-            task: None,
+            task: launch_task.map(str::to_string),
             starter_prompt: Default::default(),
             args: None,
             skip_permissions: auto_approve,

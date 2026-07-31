@@ -72,15 +72,35 @@ pub(crate) fn role_launch_task(
     }
 }
 
+pub(crate) fn provider_launch_task(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    assignment: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    let system_prompt_capable = registry
+        .with_provider(provider_id, |provider| {
+            matches!(
+                crate::service::launch_delivery::mode_for_descriptor(
+                    &provider.system_prompt_delivery(),
+                ),
+                crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+            )
+        })
+        .unwrap_or(false);
+    role_launch_task(assignment, role, role_profile, system_prompt_capable)
+}
+
 pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
-    match assignment.filter(|text| !text.trim().is_empty()) {
-        Some(assignment) => format!(
-            "{}\n\n## Assignment\n\n{}",
-            crate::prompts::AGENT_CODETERM_PRIMER.trim(),
-            assignment
-        ),
-        None => crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+    let mut sections = vec![
+        crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+        crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
+    ];
+    if let Some(assignment) = assignment.filter(|text| !text.trim().is_empty()) {
+        sections.push(format!("## Assignment\n\n{assignment}"));
     }
+    sections.join("\n\n")
 }
 
 fn worker_agent_system_prompt(assignment: Option<&str>) -> String {
@@ -89,6 +109,7 @@ fn worker_agent_system_prompt(assignment: Option<&str>) -> String {
         .unwrap_or((None, ""));
     let mut sections = vec![identity.unwrap_or("You are a CodeTerm Worker.").to_string()];
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
+    sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());
     if !assignment.trim().is_empty() {
         sections.push(format!("## Assignment\n\n{}", assignment.trim()));
     }
@@ -590,12 +611,43 @@ pub(crate) fn launch_agent_in_background(
     tab_id: String,
     launch_cmd: String,
     agent_cmd: String,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
     let launch_started = std::time::Instant::now();
+    let (role, role_profile) = svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .map(|tab| {
+            (
+                tab.role.map(agent_role_label).map(str::to_string),
+                tab.role_profile.clone(),
+            )
+        })
+        .unwrap_or_default();
+    let prompt_delivery = registry
+        .with_provider(&agent_cmd, |provider| {
+            match provider.system_prompt_delivery() {
+                crate::agent::provider::SystemPromptDelivery::CliFlag(_) => "cli_flag",
+                crate::agent::provider::SystemPromptDelivery::SessionConfig => "session_config",
+                crate::agent::provider::SystemPromptDelivery::External => "confirmed_fallback",
+            }
+        })
+        .unwrap_or("unknown");
+    crate::service::launch_diagnostics::log_launch(
+        origin,
+        &tab_id,
+        &agent_cmd,
+        &launch_cmd,
+        task.as_deref(),
+        role.as_deref(),
+        role_profile.as_deref(),
+        prompt_delivery,
+    );
     // thread spawns: callers get the tab id immediately and may send right away.
     if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
         p.agent_booting = true;
@@ -1015,6 +1067,14 @@ pub(crate) fn launch_agent_in_background(
     });
 }
 
+fn agent_role_label(role: crate::multiplexer::types::AgentRole) -> &'static str {
+    match role {
+        crate::multiplexer::types::AgentRole::Orchestrator => "Orchestrator",
+        crate::multiplexer::types::AgentRole::Manager => "Manager",
+        crate::multiplexer::types::AgentRole::Worker => "Worker",
+    }
+}
+
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 pub(crate) fn build_agent_command(
@@ -1097,12 +1157,5 @@ pub(crate) fn build_agent_command(
             parts.extend(args.iter().cloned());
             parts.join(" ")
         });
-    crate::service::launch_diagnostics::log_launch(
-        "visible_agent",
-        "-",
-        agent_cmd,
-        &cmd,
-        launch_task.as_deref(),
-    );
     cmd
 }

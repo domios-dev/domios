@@ -417,7 +417,7 @@ pub fn start_general_agent(
             })
             .unwrap_or(true);
         let bootstrap = std::fs::read_to_string(general_dir().join("bootstrap.md")).ok();
-        startup_message = compose_startup_message(fallback, system_prompt, bootstrap);
+        startup_message = compose_startup_message(fallback, system_prompt.clone(), bootstrap);
         if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
                 &tab_id,
@@ -430,7 +430,7 @@ pub fn start_general_agent(
         }
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
-            task: None,
+            task: (!fallback).then_some(system_prompt.clone()),
             starter_prompt: Default::default(),
             args: None,
             skip_permissions: true,
@@ -442,7 +442,7 @@ pub fn start_general_agent(
                 &ga_cwd,
             ),
         };
-        match svc.agent_registry.with_provider(provider_name, |p| {
+        let command = match svc.agent_registry.with_provider(provider_name, |p| {
             crate::agent::stub_launch::apply(provider_name, p.build_launch_command(&params))
         }) {
             Some(cmd) => cmd,
@@ -453,10 +453,37 @@ pub fn start_general_agent(
                 );
                 return;
             }
-        }
+        };
+        crate::service::launch_diagnostics::log_launch(
+            crate::service::launch_diagnostics::AgentLaunchOrigin::GeneralAgent,
+            &tab_id,
+            provider_name,
+            &command,
+            params.task.as_deref().or(startup_message.as_deref()),
+            Some("Orchestrator"),
+            Some("general_agent"),
+            if fallback {
+                "confirmed_fallback"
+            } else {
+                "system_prompt"
+            },
+        );
+        command
     };
 
-    log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
+    if use_resume {
+        crate::service::launch_diagnostics::log_launch(
+            crate::service::launch_diagnostics::AgentLaunchOrigin::GeneralAgent,
+            &tab_id,
+            provider_name,
+            &cmd,
+            None,
+            Some("Orchestrator"),
+            Some("general_agent"),
+            "resumed_session",
+        );
+    }
+    log::info!("[general-agent] Launching on PTY {}", pty_id);
     let payload: Vec<u8> = if cfg!(windows) {
         // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
         format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()

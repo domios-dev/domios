@@ -542,9 +542,11 @@ pub fn build_agent_launch_command(
             .with_provider(&agent_id, |p| p.model_launch_args(&model))
     })
     .unwrap_or_default();
+    let launch_task =
+        crate::service::provider_launch_task(&svc.agent_registry, &agent_id, None, None, None);
     let params = crate::agent::provider::AgentLaunchParams {
         agent_name: None,
-        task: None,
+        task: launch_task,
         starter_prompt: Default::default(),
         args: if model_args.is_empty() {
             None

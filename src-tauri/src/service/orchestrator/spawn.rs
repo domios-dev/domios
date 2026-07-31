@@ -610,6 +610,7 @@ impl ServiceContext {
             tab_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
+            crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
             bg_task,
             fallback_spec,
             ready_tx,
