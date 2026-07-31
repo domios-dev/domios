@@ -38,6 +38,12 @@ pub enum PlanTaskAction {
         why_file: Option<String>,
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
+        #[arg(
+            long = "external-ref",
+            value_name = "URL_OR_REPO#NUMBER",
+            help = "GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number"
+        )]
+        external_ref: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -176,6 +182,12 @@ pub enum PlanTaskAction {
         sections: Option<String>,
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
+        #[arg(
+            long = "external-ref",
+            value_name = "URL_OR_REPO#NUMBER",
+            help = "GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number"
+        )]
+        external_ref: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -382,6 +394,19 @@ mod tests {
         for subcommand in ["add", "update"] {
             let help = depends_on_help(subcommand);
             assert!(help.contains("model_rationale"), "{subcommand}: {help}");
+        }
+    }
+
+    #[test]
+    fn task_add_and_update_help_document_external_ref_forms() {
+        for subcommand in ["add", "update"] {
+            let help = depends_on_help(subcommand);
+            assert!(help.contains("--external-ref"), "{subcommand}: {help}");
+            assert!(help.contains("full issue URL"), "{subcommand}: {help}");
+            assert!(
+                help.contains("owner/repository#number"),
+                "{subcommand}: {help}"
+            );
         }
     }
 }

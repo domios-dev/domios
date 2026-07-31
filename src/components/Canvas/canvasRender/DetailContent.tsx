@@ -297,6 +297,24 @@ function TaskDetail({
       <AgentIdentity tab={agentTab} persona={persona} />
       <LanePanel lane={task.lane} tabs={tabs} onOpenTab={onOpenTab} />
       <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
+      {task.external_refs?.length ? (
+        <Block label="External references" testId="task-external-references">
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+            {task.external_refs.map((reference) => (
+              <a
+                key={`${reference.kind}:${reference.repository}#${reference.number}`}
+                href={reference.canonical_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--ct-accent)", wordBreak: "break-all" }}
+              >
+                {reference.repository}#{reference.number}
+                {reference.relationship ? ` · ${reference.relationship.replace("_", " ")}` : ""}
+              </a>
+            ))}
+          </div>
+        </Block>
+      ) : null}
       {attachmentThumbnails && (
         <Block label="Attachments">
           <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>

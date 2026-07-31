@@ -64,6 +64,27 @@ test("renders task detail body", async () => {
   assert(host.querySelector('[data-testid="canvas-detail-content"]'), "task body");
 });
 
+test("renders canonical external references in task detail", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    external_refs: [{
+      kind: "github_issue",
+      repository: "rollacode/codeterm-releases",
+      number: 17,
+      canonical_url: "https://github.com/rollacode/codeterm-releases/issues/17",
+      relationship: "relates_to",
+    }],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} onClose={() => {}} />,
+  );
+  const block = host.querySelector('[data-testid="task-external-references"]');
+  const link = block?.querySelector("a") as HTMLAnchorElement | null;
+  assert(block?.textContent?.includes("rollacode/codeterm-releases#17"), "reference label visible");
+  assert(link?.href === task.external_refs?.[0].canonical_url, "canonical URL is the link target");
+  assert(block?.textContent?.includes("relates to"), "relationship visible");
+});
+
 test("renders canonical status chip in task detail", async () => {
   const task: Task = { ...FIXTURE_TASK, status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued", status_label: "In QA · queued #1" };
   const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };

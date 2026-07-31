@@ -288,6 +288,7 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
         print_task_presentation(val);
         print_competition(task, plan, id);
         print_executor_role(task);
+        print_external_refs(task);
         if let Some(body) = task
             .get("body")
             .and_then(|v| v.as_str())
@@ -545,6 +546,49 @@ fn print_task_quality(task: &Value) {
         if !correctness.is_empty() {
             println!("correctness: {correctness}");
         }
+    }
+}
+
+fn print_external_refs(task: &Value) {
+    for line in render_external_refs(task) {
+        println!("{line}");
+    }
+}
+
+fn render_external_refs(task: &Value) -> Vec<String> {
+    task.get("external_refs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let url = item.get("canonical_url").and_then(Value::as_str)?;
+            let relationship = item
+                .get("relationship")
+                .and_then(Value::as_str)
+                .map(|value| format!(" ({value})"))
+                .unwrap_or_default();
+            Some(format!("external_ref: {url}{relationship}"))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod external_ref_render_tests {
+    use super::render_external_refs;
+    use serde_json::json;
+
+    #[test]
+    fn task_show_renders_canonical_external_ref_and_relationship() {
+        let lines = render_external_refs(&json!({
+            "external_refs": [{
+                "canonical_url": "https://github.com/rollacode/codeterm-releases/issues/17",
+                "relationship": "fixes"
+            }]
+        }));
+        assert_eq!(
+            lines,
+            ["external_ref: https://github.com/rollacode/codeterm-releases/issues/17 (fixes)"]
+        );
     }
 }
 

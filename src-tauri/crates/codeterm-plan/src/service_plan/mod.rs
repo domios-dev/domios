@@ -9,6 +9,7 @@ pub mod complete_wrapup;
 pub mod convert_storage;
 pub mod digest_rules;
 pub mod element_queries;
+pub mod external_refs;
 pub mod gates;
 pub mod handoff;
 pub mod heartbeat;

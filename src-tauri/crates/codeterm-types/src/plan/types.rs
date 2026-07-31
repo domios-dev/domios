@@ -1,3 +1,4 @@
+use super::external_refs::ExternalRef;
 use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -546,6 +547,8 @@ pub struct Task {
     pub personality_provenance: Option<IdentityProvenance>,
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    pub external_refs: Vec<ExternalRef>,
     pub test_plan: Option<String>,
     #[serde(default)]
     pub qa_plan: Option<String>,
@@ -1096,6 +1099,7 @@ mod tests {
             personality: None,
             personality_provenance: None,
             acceptance_criteria: vec!["ac".into()],
+            external_refs: vec![],
             test_plan: Some("Oracle: run x".into()),
             qa_plan: None,
             correctness: None,

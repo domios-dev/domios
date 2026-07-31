@@ -39,6 +39,7 @@ fn build_params(
     tags: Vec<String>,
     primary: Option<String>,
     handle: Option<String>,
+    external_refs: Vec<String>,
 ) -> Value {
     let mut params = json!({ "task_id": task_id });
     if let Some(pid) = plan_id {
@@ -128,6 +129,9 @@ fn build_params(
     if let Some(handle) = handle {
         params["handle"] = json!(handle);
     }
+    if !external_refs.is_empty() {
+        params["external_refs"] = json!(external_refs);
+    }
     maybe_inject_caller_tab(&mut params);
     params
 }
@@ -175,6 +179,7 @@ pub(crate) fn run(
     tags: Vec<String>,
     primary: Option<String>,
     handle: Option<String>,
+    external_refs: Vec<String>,
 ) -> Result<Value, String> {
     let why_text = resolve_text(why, why_file)?;
     let body_text = resolve_text(body, body_file)?;
@@ -217,6 +222,7 @@ pub(crate) fn run(
         tags,
         primary,
         handle,
+        external_refs,
     );
     call_plan_rpc(client, "plan.task.update", params)
 }
@@ -227,7 +233,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn omitted_dependencies_leave_params_unchanged() {
+    fn external_ref_is_added_while_omitted_dependencies_stay_unchanged() {
         let params = build_params(
             Some("pl_1".into()),
             "task_1".into(),
@@ -264,8 +270,13 @@ mod tests {
             vec![],
             None,
             None,
+            vec!["rollacode/codeterm-releases#17".into()],
         );
         assert!(params.get("depends_on").is_none());
+        assert_eq!(
+            params.get("external_refs"),
+            Some(&json!(["rollacode/codeterm-releases#17"]))
+        );
     }
 
     #[test]
@@ -306,6 +317,7 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(
             params.get("depends_on").cloned(),
@@ -351,6 +363,7 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(params.get("depends_on").cloned(), Some(json!([])));
     }
@@ -393,6 +406,7 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(params.get("status"), Some(&json!("in_progress")));
         assert_eq!(params.pointer("/lane/tab_id"), Some(&json!("worker-tab")));
@@ -436,6 +450,7 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(
             params.get("test_plan"),

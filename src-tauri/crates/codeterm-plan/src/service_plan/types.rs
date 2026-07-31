@@ -93,6 +93,7 @@ pub enum PlanError {
         slug: String,
     },
     InvalidPlanSkillSlug,
+    InvalidExternalRef(String),
     Io(String),
 }
 
@@ -144,6 +145,9 @@ impl fmt::Display for PlanError {
             PlanError::BadStatus => write!(f, "invalid status"),
             PlanError::BadMode => write!(f, "invalid plan mode"),
             PlanError::BadPriority => write!(f, "invalid priority"),
+            PlanError::InvalidExternalRef(message) => {
+                write!(f, "invalid external reference: {message}")
+            }
             PlanError::TaskCreationRequiresApproval => write!(
                 f,
                 "plan is still in planning mode; run `codeterm plan approve <plan>` before creating tasks, or pass --force for deliberate draft tasks"
@@ -441,6 +445,10 @@ impl PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 serde_json::json!({ "type": "invalid_plan_skill_slug" })
             }
+            PlanError::InvalidExternalRef(message) => serde_json::json!({
+                "type": "invalid_external_ref",
+                "message": message,
+            }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }

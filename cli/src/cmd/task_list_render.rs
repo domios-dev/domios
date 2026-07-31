@@ -66,8 +66,19 @@ fn append_simple_task(
     let name = task_str(item, "name").unwrap_or("?");
     let status = task_str(item, "status").unwrap_or("?");
     let plan = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let external_refs = task_value(item)
+        .get("external_refs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("canonical_url").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join(",");
+    let suffix = (!external_refs.is_empty())
+        .then(|| format!("\t{external_refs}"))
+        .unwrap_or_default();
     out.push_str(&format!(
-        "{}{id}\t{status}\t{plan}\t{name}\n",
+        "{}{id}\t{status}\t{plan}\t{name}{suffix}\n",
         "  ".repeat(depth)
     ));
     if let Some(id) = task_str(item, "id") {
@@ -103,5 +114,24 @@ mod tests {
         ]);
         assert!(rendered.contains("task_parent\tin_progress\tpl_1\tParent\n"));
         assert!(rendered.contains("  task_child\tpending\tpl_1\tChild\n"));
+    }
+
+    #[test]
+    fn simple_task_list_renders_external_references() {
+        let rendered = render_simple_task_list(&[json!({
+            "plan_id": "pl_1",
+            "task": {
+                "id": "task_1",
+                "name": "Linked",
+                "status": "pending",
+                "external_refs": [{
+                    "kind": "github_issue",
+                    "repository": "rollacode/codeterm-releases",
+                    "number": 17,
+                    "canonical_url": "https://github.com/rollacode/codeterm-releases/issues/17"
+                }]
+            }
+        })]);
+        assert!(rendered.contains("https://github.com/rollacode/codeterm-releases/issues/17"));
     }
 }

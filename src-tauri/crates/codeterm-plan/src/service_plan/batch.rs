@@ -398,6 +398,7 @@ impl PlanStore {
                                     model,
                                     model_rationale: why,
                                     acceptance_criteria: vec![],
+                                    external_refs: vec![],
                                     test_plan: None,
                                     qa_plan: None,
                                     correctness: None,
