@@ -1,6 +1,7 @@
 use super::{PlanError, PlanStore, TaskLaneUpdate};
 use crate::plan::{
-    Plan, PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority, TaskStatus,
+    ExternalRef, Plan, PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority,
+    TaskStatus,
 };
 use std::cell::RefCell;
 
@@ -36,6 +37,7 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     model: Option<String>,
     model_rationale: Option<String>,
     acceptance_criteria: Vec<String>,
+    external_refs: Vec<ExternalRef>,
     test_plan: Option<String>,
     qa_plan: Option<String>,
     correctness: Option<String>,
@@ -83,6 +85,7 @@ impl PlanStore {
             model: task.model.clone(),
             model_rationale: task.model_rationale.clone(),
             acceptance_criteria: task.acceptance_criteria.clone(),
+            external_refs: task.external_refs.clone(),
             test_plan: task.test_plan.clone(),
             qa_plan: task.qa_plan.clone(),
             correctness: task.correctness.clone(),
@@ -221,6 +224,9 @@ impl PlanStore {
         }
         if task.acceptance_criteria != expected.acceptance_criteria {
             return Err(fail("acceptance_criteria"));
+        }
+        if task.external_refs != expected.external_refs {
+            return Err(fail("external_refs"));
         }
         if task.test_plan != expected.test_plan {
             return Err(fail("test_plan"));
@@ -412,6 +418,36 @@ impl PlanStore {
         }
         if handle.is_some_and(|expected| task.handle.as_deref() != Some(expected)) {
             return Err(fail("handle"));
+        }
+        Ok(())
+    }
+
+    pub(in crate::service_plan) fn verify_task_external_refs_added(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        expected: &[ExternalRef],
+    ) -> Result<(), PlanError> {
+        let task = self.read_task_for_verification(plan_id, task_id)?;
+        for item in expected {
+            let matches = task
+                .external_refs
+                .iter()
+                .filter(|candidate| {
+                    candidate.kind == item.kind
+                        && candidate.repository == item.repository
+                        && candidate.number == item.number
+                })
+                .count();
+            if matches != 1 {
+                return Err(Self::task_readback_error(
+                    "task_external_refs_update",
+                    format!(
+                        "expected exactly one {}#{} reference for {}",
+                        item.repository, item.number, task.id
+                    ),
+                ));
+            }
         }
         Ok(())
     }

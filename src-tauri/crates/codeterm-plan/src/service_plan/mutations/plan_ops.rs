@@ -288,6 +288,18 @@ impl PlanStore {
     }
 
     pub fn add_task(&self, plan_id: &str, new: NewTask, now_ms: u64) -> Result<String, PlanError> {
+        self.add_task_with_external_refs(plan_id, new, &[], now_ms)
+    }
+
+    pub fn add_task_with_external_refs(
+        &self,
+        plan_id: &str,
+        new: NewTask,
+        external_refs: &[String],
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        let external_refs =
+            crate::service_plan::external_refs::canonicalize_external_refs(external_refs)?;
         let tid = self.mint_id("task");
         let assigned_tab_id = new
             .assigned_tab_id
@@ -304,6 +316,7 @@ impl PlanStore {
             model: new.model,
             model_rationale: new.model_rationale,
             acceptance_criteria: new.acceptance_criteria,
+            external_refs,
             test_plan: new.test_plan,
             qa_plan: new.qa_plan,
             correctness: new.correctness,

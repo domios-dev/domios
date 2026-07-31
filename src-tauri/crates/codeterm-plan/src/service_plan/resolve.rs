@@ -542,6 +542,7 @@ mod tests {
             model: None,
             model_rationale: None,
             acceptance_criteria: vec![],
+            external_refs: vec![],
             test_plan: None,
             qa_plan: None,
             correctness: None,

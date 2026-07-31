@@ -170,6 +170,14 @@ export interface TaskExecutionAttempt {
   winner?: boolean;
 }
 
+export interface ExternalRef {
+  kind: "github_issue";
+  repository: string;
+  number: number;
+  canonical_url: string;
+  relationship?: "fixes" | "relates_to";
+}
+
 export interface Task {
   id: string;
   name: string;
@@ -193,6 +201,7 @@ export interface Task {
   executor_role?: string | null;
   personality?: string | null;
   acceptance_criteria?: string[];
+  external_refs?: ExternalRef[];
   test_plan?: string;
   /** Correctness vector — what "done right" means (rendered in the READ detail). */
   correctness?: string;
