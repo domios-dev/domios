@@ -355,6 +355,13 @@ mod tests {
     }
 
     #[test]
+    fn spawned_agent_primer_exposes_rich_rendering() {
+        assert!(AGENT_CODETERM_PRIMER.contains("Mermaid"));
+        assert!(AGENT_CODETERM_PRIMER.contains("sandboxed `html` block"));
+        assert!(AGENT_CODETERM_PRIMER.contains("inline HTML only for light native markup"));
+    }
+
+    #[test]
     fn orchestration_policy_keeps_checkout_choice_and_final_user_oracle_in_sync() {
         const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
         let rendered = orchestrator_suffix();
