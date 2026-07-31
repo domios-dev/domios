@@ -356,13 +356,7 @@ impl ServiceContext {
                 }
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
-                tab.role_profile = params.role_profile.clone();
-                tab.agent_booting = true;
-                crate::service::boot_stage::apply_boot_stage(
-                    tab,
-                    crate::service::boot_stage::BootStage::PtyStarting,
-                    None,
-                );
+                initialize_ordinary_pty_agent_tab(tab, &params);
             }
             if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result);
@@ -773,6 +767,21 @@ impl ServiceContext {
     }
 }
 
+/// Every params-owned field on a fresh ordinary-PTY agent tab is applied here;
+/// a second init site is how a declared field (`audience`) once got dropped.
+pub(crate) fn initialize_ordinary_pty_agent_tab(
+    tab: &mut crate::multiplexer::types::Tab,
+    params: &SpawnAgentParams,
+) {
+    tab.role_profile = params.role_profile.clone();
+    tab.agent_booting = true;
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        crate::service::boot_stage::BootStage::PtyStarting,
+        None,
+    );
+}
+
 /// Deterministic hierarchy defaults: a local Worker with no explicit --parent
 /// belongs to its CALLER, and reports route to its parent — never to whichever
 /// other orchestrator happens to share the workspace.
@@ -798,6 +807,50 @@ mod hierarchy_defaults_tests {
             spawned_by_tab_id: spawned_by.map(str::to_string),
             ..Default::default()
         }
+    }
+
+    // Live bounce oracle (dev aa793130a, notification 958a78b0): POST
+    // /api/agents/spawn with audience=automation still minted a user bell.
+    #[test]
+    fn ordinary_pty_tab_creation_carries_automation_audience_from_params() {
+        use crate::multiplexer::types::TabAudience;
+        let mut state = crate::multiplexer::state::MultiplexerState::empty();
+        let ws_id = state.create_workspace("ws".to_string(), None).id;
+        let tab_id = state.create_tab(&ws_id).expect("tab created");
+        let params = SpawnAgentParams {
+            agent: Some("claude".into()),
+            audience: TabAudience::Automation,
+            ..Default::default()
+        };
+
+        initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
+
+        assert_eq!(
+            state.get_tab(&tab_id).expect("tab").audience,
+            TabAudience::Automation,
+            "audience declared on SpawnAgentParams must survive into the ordinary PTY tab record"
+        );
+    }
+
+    // Negative control: an undeclared spawn stays user-facing on the same path.
+    #[test]
+    fn ordinary_pty_tab_creation_defaults_to_user_audience() {
+        use crate::multiplexer::types::TabAudience;
+        let mut state = crate::multiplexer::state::MultiplexerState::empty();
+        let ws_id = state.create_workspace("ws".to_string(), None).id;
+        let tab_id = state.create_tab(&ws_id).expect("tab created");
+        let params = SpawnAgentParams {
+            agent: Some("claude".into()),
+            ..Default::default()
+        };
+
+        initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
+
+        assert_eq!(
+            state.get_tab(&tab_id).expect("tab").audience,
+            TabAudience::User,
+            "an undeclared spawn keeps the user audience and still bells"
+        );
     }
 
     #[test]
