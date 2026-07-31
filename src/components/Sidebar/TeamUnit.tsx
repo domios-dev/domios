@@ -3,8 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { Tab, ProviderDescriptor, Team } from "../../lib/types";
 import { ProviderGlyph } from "../ProviderGlyph";
-import type { Plan } from "../Canvas/types";
-import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
+import { TaskStatus, type Plan } from "../Canvas/types";
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
@@ -51,17 +50,27 @@ const EMPTY_BUCKETS: TeamTaskBucket[] = [
 
 export function deriveTeamTaskBuckets(
   plan: Plan,
-  tabs: Record<string, Tab>,
+  _tabs: Record<string, Tab>,
 ): TeamTaskBucket[] {
-  const counts = new Map(
-    groupTasksIntoColumns(plan, tabs).columns.map((column) => [column.key, column.cards.length]),
-  );
+  const counts = new Map<TeamTaskBucket["key"], number>(EMPTY_BUCKETS.map((bucket) => [bucket.key, 0]));
+  for (const task of plan.tasks) {
+    const key: TeamTaskBucket["key"] | null =
+      task.status === TaskStatus.Pending || task.status === TaskStatus.InProgress
+        ? "todo"
+        : task.status === TaskStatus.InReview
+          ? "review"
+          : task.status === TaskStatus.Blocked
+            ? "blocked"
+            : task.status === TaskStatus.Paused
+              ? "paused"
+              : task.status === TaskStatus.Done
+                ? "done"
+                : null;
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
   return EMPTY_BUCKETS.map((bucket) => ({
     ...bucket,
-    count:
-      bucket.key === "todo"
-        ? (counts.get("pending") ?? 0) + (counts.get("in_progress") ?? 0)
-        : counts.get(bucket.key === "review" ? "in_review" : bucket.key) ?? 0,
+    count: counts.get(bucket.key) ?? 0,
   }));
 }
 
