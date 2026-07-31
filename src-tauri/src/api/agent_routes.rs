@@ -250,6 +250,7 @@ pub async fn spawn_agent(
         task: body.task,
         starter_prompt: Default::default(),
         task_id: body.task_id,
+        task_launch_authority: None,
         plan_task: body.plan_task,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,

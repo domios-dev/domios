@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::orchestrator::{build_agent_command, launch_agent_in_background};
+use super::orchestrator::{build_agent_command, launch_agent_in_background_with_env};
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
@@ -507,7 +507,7 @@ impl ServiceContext {
             launch_session_id.as_deref(),
             &self.agent_registry,
         );
-        launch_agent_in_background(
+        launch_agent_in_background_with_env(
             self.clone(),
             tab_id.clone(),
             launch_cmd,
@@ -515,6 +515,7 @@ impl ServiceContext {
             crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
             role_suffixed_task,
             fallback_spec,
+            agent.extra_env.clone(),
             ready_tx,
         );
 

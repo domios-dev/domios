@@ -48,6 +48,7 @@ impl SpawnTabSpec {
     }
 
     fn from_agent_params_command(params: SpawnAgentParams, command: Option<TabCommand>) -> Self {
+        let task_launch_env = params.task_launch_env();
         let agent_command = command.unwrap_or_else(|| {
             TabCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
@@ -64,7 +65,7 @@ impl SpawnTabSpec {
                 auto_approve: params.skip_permissions.unwrap_or(true),
                 report_target_tab_id: params.report_target_tab_id.clone(),
                 worker_id: None,
-                extra_env: Default::default(),
+                extra_env: task_launch_env,
                 task_preamble: None,
                 spawned_by: None,
                 spawned_by_tab_id: params.spawned_by_tab_id.clone(),
@@ -113,6 +114,7 @@ impl SpawnTabSpec {
             task: agent.task.clone(),
             starter_prompt: Default::default(),
             task_id: None,
+            task_launch_authority: None,
             plan_task: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
@@ -355,5 +357,56 @@ mod tests {
             .channel,
             crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
         );
+    }
+
+    #[test]
+    fn assigned_worker_task_authority_reaches_pty_spec() {
+        let mut params = SpawnAgentParams {
+            agent: Some("worker-provider".into()),
+            role: Some("Worker".into()),
+            plan_id: Some("assigned-plan".into()),
+            task_id: Some("assigned-task".into()),
+            plan_task: Some("assigned-task".into()),
+            ..Default::default()
+        };
+        params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
+            plan_id: "assigned-plan".into(),
+            task_id: "assigned-task".into(),
+            lane_base: Some("assigned-base".into()),
+        });
+        let spec = SpawnTabSpec::from_agent_params(params);
+        let TabCommand::Agent(agent) = spec.command else {
+            panic!("worker must use the PTY agent path");
+        };
+
+        assert_eq!(
+            agent.extra_env.get("CODETERM_PLAN_ID").map(String::as_str),
+            Some("assigned-plan")
+        );
+        assert_eq!(
+            agent.extra_env.get("CODETERM_TASK_ID").map(String::as_str),
+            Some("assigned-task")
+        );
+        assert_eq!(
+            agent
+                .extra_env
+                .get("CODETERM_LANE_BASE")
+                .map(String::as_str),
+            Some("assigned-base")
+        );
+    }
+
+    #[test]
+    fn roleless_spawn_does_not_promote_inherited_task_defaults() {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            plan_id: Some("inherited-plan".into()),
+            task_id: Some("inherited-task".into()),
+            ..Default::default()
+        });
+        let TabCommand::Agent(agent) = spec.command else {
+            panic!("probe must use the PTY agent path");
+        };
+
+        assert!(agent.extra_env.is_empty());
     }
 }
