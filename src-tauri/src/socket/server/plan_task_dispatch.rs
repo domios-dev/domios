@@ -883,14 +883,10 @@ pub(super) fn build_brief_with_personality(
     effective_personality: Option<&str>,
 ) -> String {
     let mut out = String::new();
-    if let Some(identity) = crate::service::plan::worker_identity::compose_worker_identity(
+    let identity = crate::service::plan::worker_identity::compose_task_worker_identity(
+        task,
         effective_personality,
-        task.role_guidance.as_deref(),
-        Some(task.name.as_str()),
-    ) {
-        out.push_str(&identity);
-        out.push_str("\n\n");
-    }
+    );
     out.push_str(&format!("# {}\n\n", task.name));
 
     let body = task.body.trim();
@@ -899,12 +895,30 @@ pub(super) fn build_brief_with_personality(
         out.push_str("\n\n");
     }
 
+    if let Some(intent) = task
+        .intent
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("## Intent\n{intent}\n\n"));
+    }
+
     if !task.acceptance_criteria.is_empty() {
         out.push_str("## Acceptance criteria\n");
         for c in &task.acceptance_criteria {
             out.push_str(&format!("- {c}\n"));
         }
         out.push('\n');
+    }
+
+    if let Some(correctness) = task
+        .correctness
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("## Correctness\n{correctness}\n\n"));
     }
 
     if let Some(tp) = task
@@ -932,10 +946,7 @@ pub(super) fn build_brief_with_personality(
         out.push('\n');
     }
 
-    out.push_str(
-        "## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n",
-    );
-    out
+    crate::service::plan::worker_identity::attach_worker_identity(&identity, &out)
 }
 
 #[cfg(test)]

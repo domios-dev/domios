@@ -78,9 +78,9 @@ pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 pub(crate) mod test_fixture;
+#[cfg(test)]
+mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
@@ -118,7 +118,9 @@ pub use inject_verify::{
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(test)]
-pub(crate) use orchestrator::{arm_provider_session_for_test, LaunchGeneration};
+pub(crate) use orchestrator::{
+    arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
+};
 pub(crate) use orchestrator::{record_provider_session, ProviderSessionBinding};
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
