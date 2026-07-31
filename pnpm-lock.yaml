@@ -123,6 +123,9 @@ importers:
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.60.0
+      '@tailwindcss/browser':
+        specifier: 4.2.1
+        version: 4.2.1
       '@tailwindcss/vite':
         specifier: ^4.2.1
         version: 4.2.1(vite@8.0.0(@types/node@25.9.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
@@ -1622,6 +1625,9 @@ packages:
     resolution: {integrity: sha512-OFWkfAXEsm+X8l1K4K49cC0psB0gQ+gqxKA08HG5piNPdzrDZ5gG9Gza6htZ5AirOVwd/4/uq/gPpD5En+H+3Q==}
     peerDependencies:
       sigma: '>=3.0.0-beta.10'
+
+  '@tailwindcss/browser@4.2.1':
+    resolution: {integrity: sha512-MxT97DWtwSupE6I4spsGQMewI6BbRY/dXZJd1f+WtWqqci++ApWfoQsVqtlRscmWSFWvPn5pzf3Wi/d2IF0w5A==}
 
   '@tailwindcss/node@4.2.1':
     resolution: {integrity: sha512-jlx6sLk4EOwO6hHe1oCGm1Q4AN/s0rSrTTPBGPM0/RQ6Uylwq17FuU8IeJJKEjtc6K6O07zsvP+gDO6MMWo7pg==}
@@ -4816,7 +4822,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
       estree-walker: 2.0.2
-      picomatch: 4.0.3
+      picomatch: 4.0.5
     optionalDependencies:
       rollup: 4.62.2
 
@@ -4898,6 +4904,8 @@ snapshots:
   '@sigma/edge-curve@3.1.0(sigma@3.0.2(graphology-types@0.24.8))':
     dependencies:
       sigma: 3.0.2(graphology-types@0.24.8)
+
+  '@tailwindcss/browser@4.2.1': {}
 
   '@tailwindcss/node@4.2.1':
     dependencies:

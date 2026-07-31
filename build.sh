@@ -1216,6 +1216,7 @@ EOF
     ensure_deps
     ct_configure_sccache
     echo "Building CLI..."
+    touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     # Every dev instance gets its own CLI; production updates its bundled CLI.
     install_cli_to "$CT_DATA_DIR/bin"

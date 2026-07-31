@@ -491,6 +491,32 @@ fn pty_env_preserves_explicit_assigned_worker_authority() {
     }
 }
 
+#[test]
+fn pty_env_prefers_the_configured_codeterm_cli() {
+    let cli_path = if cfg!(windows) {
+        r"C:\dev\bin\codeterm.exe"
+    } else {
+        "/tmp/dev/bin/codeterm"
+    };
+    let other_path = if cfg!(windows) {
+        r"C:\prod\bin"
+    } else {
+        "/tmp/prod/bin"
+    };
+    let expected = std::path::Path::new(cli_path).parent().unwrap();
+    let inherited = std::env::join_paths([other_path]).unwrap();
+    let assigned = HashMap::from([
+        ("CODETERM_CLI_PATH".to_string(), cli_path.to_string()),
+        ("PATH".to_string(), inherited.to_string_lossy().into_owned()),
+    ]);
+    let mut cmd = CommandBuilder::new("probe");
+
+    apply_pty_env(&mut cmd, &assigned);
+
+    let paths: Vec<_> = std::env::split_paths(cmd.get_env("PATH").unwrap()).collect();
+    assert_eq!(paths.first().map(std::path::PathBuf::as_path), Some(expected));
+}
+
 /// `launch_agent_in_background` relies on `write` returning `Err("PTY not
 /// found: <id>")` so the success log is gated and the misleading "agent
 /// launched" line never fires when the PTY lookup races and misses.

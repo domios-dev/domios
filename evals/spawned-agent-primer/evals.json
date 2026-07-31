@@ -11,6 +11,29 @@
         "Identifies Mermaid and a self-contained sandboxed HTML block as workflow visualization options",
         "States that inline HTML is only for light native markup"
       ]
+    },
+    {
+      "id": 2,
+      "name": "sandboxed-html-runtime",
+      "prompt": "Without running commands, briefly describe how you would directly render an animated interactive HTML status card in CodeTerm. Also say what you would do only if the card later needed an unfamiliar CodeTerm-specific runtime capability or a local file chosen by the user.",
+      "expected_output": "Knows the safe self-contained HTML runtime without assuming network or arbitrary filesystem access.",
+      "expectations": [
+        "States that bundled Tailwind utilities are available for layout, interaction states, transitions, or animations",
+        "Uses ct.help() only when an unfamiliar CodeTerm-specific runtime capability is actually needed",
+        "Uses ct.file.pick() only for an explicitly user-selected local file",
+        "Does NOT claim direct network or arbitrary filesystem access"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "file-backed-html-render",
+      "prompt": "You created C:\\Users\\dev\\Desktop\\design-system.html and the user wants that exact file to be the single source rendered in the current CodeTerm reply. Show the minimal reply syntax. Do not copy the file contents.",
+      "expected_output": "Uses the file-backed HTML fence rather than duplicating the file or asking the user to pick it.",
+      "expectations": [
+        "Includes an html fence whose entire body is @file C:\\Users\\dev\\Desktop\\design-system.html",
+        "Does NOT copy or paraphrase the HTML file contents",
+        "Does NOT use ct.file.pick() or ct.file.renderHtml() for a known file path"
+      ]
     }
   ]
 }

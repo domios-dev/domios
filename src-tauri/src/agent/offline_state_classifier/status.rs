@@ -81,8 +81,15 @@ pub fn extract_status_line(screen_lines: &[String]) -> Option<StatusLine> {
         let elapsed_ms = parse_elapsed_ms(row);
         let has_token = row.to_lowercase().contains("tok");
         let strong_spinner = row.chars().any(|c| STATUS_SPINNERS.contains(&c));
+        // A just-started turn renders `✳ Verb…` with no elapsed/token suffix yet.
+        let leading_spinner = row
+            .trim_start()
+            .chars()
+            .next()
+            .is_some_and(|c| STATUS_SPINNERS.contains(&c));
         let is_widget = (has_ellipsis && (elapsed_ms.is_some() || has_token))
-            || (strong_spinner && elapsed_ms.is_some());
+            || (strong_spinner && elapsed_ms.is_some())
+            || (leading_spinner && has_ellipsis);
         if !is_widget {
             continue;
         }
@@ -293,7 +300,18 @@ pub fn extract_completion_summary(screen_lines: &[String]) -> Option<StatusLine>
     let start = nonempty.len().saturating_sub(16);
     for row in nonempty[start..].iter().rev() {
         let row = *row;
-        if row.contains('…') || row.contains("...") || row.contains('(') {
+        let ellipsis = row.contains('…') || row.contains("...");
+        let leading_spinner = row
+            .trim_start()
+            .chars()
+            .next()
+            .is_some_and(|c| STATUS_SPINNERS.contains(&c));
+        // An active spinner below the summary means a NEW turn is live: the
+        // stale summary above it must not read as the current state.
+        if leading_spinner && ellipsis {
+            return None;
+        }
+        if ellipsis || row.contains('(') {
             continue;
         }
         if !row.chars().any(|c| STATUS_SPINNERS.contains(&c)) {
@@ -372,5 +390,32 @@ mod tests {
         let status = extract_status_line(&screen).expect("status line");
 
         assert_eq!(status.line, "Creating… (4s · ↓64 tokens)");
+    }
+
+    #[test]
+    fn bare_just_started_spinner_is_a_status_line() {
+        let screen = lines(&["✳ Fluttering…"]);
+        let status = extract_status_line(&screen).expect("status line");
+        assert_eq!(status.phase.as_deref(), Some("work"));
+        assert_eq!(status.elapsed_ms, None);
+        assert!(status.line.starts_with("Fluttering…"), "{}", status.line);
+    }
+
+    #[test]
+    fn fresh_spinner_below_summary_suppresses_stale_completion() {
+        let screen = lines(&[
+            "✻ Baked for 2m 56s",
+            "❯ Add an optional wall-wrap mode toggled by a checkbox on the start screen.",
+            "✳ Fluttering…",
+            "❯",
+        ]);
+        assert!(super::extract_completion_summary(&screen).is_none());
+    }
+
+    #[test]
+    fn completion_summary_still_extracts_after_turn_ends() {
+        let screen = lines(&["assistant prose", "✻ Baked for 2m 56s", "❯"]);
+        let summary = super::extract_completion_summary(&screen).expect("summary");
+        assert_eq!(summary.line, "Baked for 2m 56s");
     }
 }

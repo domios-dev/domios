@@ -61,7 +61,7 @@ codeterm tab rename --tab "$CODETERM_TAB_ID" "short task name"
 Your replies render as GitHub-flavored markdown plus two rich blocks. Reach for them when a picture beats a paragraph; stay in prose otherwise.
 
 - **Mermaid** — a `mermaid` fence renders as a diagram (`flowchart`, `sequenceDiagram`, `stateDiagram-v2`, `gantt`, `erDiagram`, `pie`, `timeline`, …). Labels are sanitized and click handlers are disabled, so don't rely on interactivity.
-- **HTML** — an `html` fence renders live in a sandboxed frame: full CSS and inline JS, but no network at all. Inline every style and script and use `data:` URIs for images; remote CDNs, fonts and fetch are blocked. The user can flip the block between Preview and Code.
+- **HTML** — an `html` fence has bundled Tailwind v4, CSS, and JavaScript. Render ordinary self-contained visuals directly; do not inspect CodeTerm docs/capabilities or call `ct.help()` unless an unfamiliar `ct.*` API is actually needed. To render an existing HTML file without copying it, put only `@file ABSOLUTE_PATH` inside the fence; CodeTerm reads and sanitizes that file as the single source. Unknown local files require explicit user selection through `ct.file.pick()` or `ct.file.renderHtml()`. Direct network and arbitrary filesystem access are blocked. The user can flip the block between Preview and Code.
 - **Inline HTML** inside normal text is allowed for light markup: `<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan` on table cells. Scripts, iframes, event handlers and `position:`/`url()` styles are stripped.
 
 ### Secrets — pluggable secret store

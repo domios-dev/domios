@@ -8,6 +8,7 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
     ("MESH", include_str!("../../../docs/MESH.md")),
     ("MEMORY", include_str!("../../../docs/MEMORY.md")),
     ("BUILD", include_str!("../../../docs/BUILD.md")),
+    ("HTML", include_str!("../../../docs/HTML.md")),
     ("PROMPTS", include_str!("../../../docs/PROMPTS.md")),
     ("SKILLS", include_str!("../../../docs/SKILLS.md")),
     ("TESTING", include_str!("../../../docs/TESTING.md")),
@@ -204,6 +205,14 @@ mod tests {
         let rendered = render_doc("lanes", true, None, false).expect("LANES doc exists");
 
         assert!(rendered.contains("# Lane Lifecycle Standard"));
+    }
+
+    #[test]
+    fn html_doc_is_registered() {
+        let rendered = render_doc("html", true, None, false).expect("HTML doc exists");
+
+        assert!(rendered.contains("# Sandboxed HTML in chat"));
+        assert!(rendered.contains("ct.file.pick(options)"));
     }
 
     #[test]
