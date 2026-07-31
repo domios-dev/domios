@@ -57,13 +57,16 @@ export function StreamPreviewFloat({ rows, working, statusLine, elapsedMs }: Str
         }}
       >
         <span
-          className="inline-block h-2 w-2 flex-none animate-pulse rounded-full"
+          className="ct-stream-dot inline-block h-2 w-2 flex-none animate-pulse rounded-full"
           style={{ background: "var(--ct-accent, #58a6ff)" }}
         />
         <span className="flex-none font-mono text-xs">Working</span>
+        {/* Announced once via the canonical message when it lands; a live
+            region here would re-announce every streamed line change. */}
         <span
           className="min-w-0 flex-1 truncate whitespace-nowrap font-mono text-xs opacity-80"
           data-testid="chat-stream-preview-line"
+          aria-hidden
         >
           {lastLine}
         </span>
@@ -90,6 +93,7 @@ export function StreamPreviewFloat({ rows, working, statusLine, elapsedMs }: Str
             width: 100%;
             animation: ct-stream-static-pulse 1.6s ease-in-out infinite;
           }
+          .ct-stream-dot { animation: none; }
         }
       `}</style>
     </div>
