@@ -476,12 +476,13 @@ mod tests {
 
     #[test]
     fn checkout_occupied_error_is_actionable() {
+        let update_command = "codeterm plan task update plan_a task_b --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')";
         let data = json!({
             "type": "checkout_occupied",
             "occupying_task_id": "task_a",
             "occupying_attempt_id": "attempt_a",
             "checkout_path": "C:\\repo",
-            "update_command": "codeterm plan task update plan_a task_b --worktree <isolated-worktree-path> --branch <isolated-branch> --base <base-ref>",
+            "update_command": update_command,
             "dispatch_command": "codeterm plan task dispatch plan_a task_b",
         });
         let message =
@@ -497,6 +498,12 @@ mod tests {
         assert!(message.contains("--worktree"), "{message}");
         assert!(message.contains("--branch"), "{message}");
         assert!(message.contains("--base"), "{message}");
+        assert!(message.contains(update_command), "{message}");
+        assert!(!message.contains("<isolated-"), "{message}");
+        assert!(
+            message.contains("codeterm plan task dispatch plan_a task_b"),
+            "{message}"
+        );
         assert!(message.contains("No worker was spawned"), "{message}");
     }
 
