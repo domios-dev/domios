@@ -321,6 +321,7 @@ impl ServiceContext {
                     session_id: String::new(),
                 };
                 tab.chat_view = true;
+                tab.audience = spec.audience;
                 tab.role_profile = role_profile.clone();
                 tab.watcher = watcher.clone();
                 if let Some(ref dir) = resolved_cwd {

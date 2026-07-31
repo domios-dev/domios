@@ -262,6 +262,7 @@ impl MultiplexerState {
             exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
+            audience: Default::default(),
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,

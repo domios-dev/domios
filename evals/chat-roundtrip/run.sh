@@ -157,7 +157,9 @@ ws_id() {
 
 spawn_agent() {
   local provider="$1" ws="$2" title="$3"
-  dc agent spawn "$provider" --workspace "$ws" --cwd "$WS_CWD" --title "$title" 2>&1 \
+  # --non-user-facing: bench prompts (e.g. the /model picker case) are the
+  # harness's to answer — they must never bell the user's Input-needed inbox.
+  dc agent spawn "$provider" --workspace "$ws" --cwd "$WS_CWD" --title "$title" --non-user-facing 2>&1 \
     | grep -oiE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 

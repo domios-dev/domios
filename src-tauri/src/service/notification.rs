@@ -1,6 +1,7 @@
 //! Notification creation with OS toast support.
 
 use super::ServiceContext;
+use crate::multiplexer::types::TabAudience;
 use crate::notification::{
     store::{AgentInputAdmission, NotificationLevel},
     NotifState,
@@ -17,12 +18,14 @@ enum NotificationAdmission {
 }
 
 fn admit_agent_input_request(
+    audience: TabAudience,
     tab_session_id: Option<&str>,
     session_id: &str,
     state: Option<&AgentLiveState>,
     pending_prompt: Option<&PendingPrompt>,
     requested_identity: Option<&str>,
 ) -> Result<String, String> {
+    let _ = audience;
     if tab_session_id != Some(session_id) {
         return Err("Tab session is no longer authoritative".to_string());
     }
@@ -187,6 +190,7 @@ impl ServiceContext {
                 .get_tab(&tab_id)
                 .ok_or_else(|| "Tab not found".to_string())?;
             let body = admit_agent_input_request(
+                tab.audience,
                 tab.agent_session_id.as_deref(),
                 &session_id,
                 tab.agent_state.as_ref(),
@@ -335,7 +339,27 @@ mod tests {
             pending_prompt: Option<&PendingPrompt>,
             requested_identity: Option<&str>,
         ) -> Result<String, String> {
+            self.admit_and_deliver_for(
+                TabAudience::User,
+                tab_session_id,
+                session_id,
+                state,
+                pending_prompt,
+                requested_identity,
+            )
+        }
+
+        fn admit_and_deliver_for(
+            &self,
+            audience: TabAudience,
+            tab_session_id: Option<&str>,
+            session_id: &str,
+            state: Option<&AgentLiveState>,
+            pending_prompt: Option<&PendingPrompt>,
+            requested_identity: Option<&str>,
+        ) -> Result<String, String> {
             let body = admit_agent_input_request(
+                audience,
                 tab_session_id,
                 session_id,
                 state,
@@ -369,6 +393,57 @@ mod tests {
             assert_eq!(self.native.lock().len(), 0);
             assert_eq!(self.emitted.lock().len(), 0);
         }
+    }
+
+    // Dev incident on e0b779a8: bench tab drove raw /model, its authoritative
+    // "Select model" prompt belled the shared UI. Real prompt, nobody's to answer.
+    #[test]
+    fn automation_declared_tab_never_notifies_despite_authoritative_prompt() {
+        let probe = DeliveryProbe::new();
+        let mut state = question_state(Some("Select model"));
+        state.subtype = Some(QuestionSubtype::ModelPicker);
+        let pending = prompt("Select model");
+
+        let result = probe.admit_and_deliver_for(
+            TabAudience::Automation,
+            Some("session-owned"),
+            "session-owned",
+            Some(&state),
+            Some(&pending),
+            Some("Select model"),
+        );
+
+        assert!(
+            result.is_err(),
+            "a tab declared non-user-facing owns no human audience; its authoritative prompt must not notify: {result:?}"
+        );
+        probe.assert_silent();
+    }
+
+    // Negative control: the audience gate is keyed on the declared property
+    // only — the same authoritative prompt on a USER tab still bells exactly once.
+    #[test]
+    fn user_tab_with_same_authoritative_prompt_still_notifies_exactly_once() {
+        let probe = DeliveryProbe::new();
+        let mut state = question_state(Some("Select model"));
+        state.subtype = Some(QuestionSubtype::ModelPicker);
+        let pending = prompt("Select model");
+
+        for _ in 0..3 {
+            let result = probe.admit_and_deliver_for(
+                TabAudience::User,
+                Some("session-owned"),
+                "session-owned",
+                Some(&state),
+                Some(&pending),
+                Some("Select model"),
+            );
+            assert!(result.is_ok(), "user-facing authoritative prompt admits: {result:?}");
+        }
+
+        assert_eq!(probe.store.lock().list(false).len(), 1);
+        assert_eq!(probe.native.lock().len(), 1);
+        assert_eq!(probe.emitted.lock().len(), 1);
     }
 
     #[test]
