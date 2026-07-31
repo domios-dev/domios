@@ -332,6 +332,21 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    task_update_core(&state.svc, &headers, &id, &tid, body)
+}
+
+fn task_update_core(
+    service: &crate::service::ServiceState,
+    headers: &HeaderMap,
+    id: &str,
+    tid: &str,
+    body: Value,
+) -> PlanRouteResult {
+    crate::plan::task_update_fields::validate_task_update_fields(
+        &body,
+        crate::plan::task_update_fields::TaskUpdateSeam::Rest,
+    )
+    .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
     let section_ids = if body.get("sections").is_some() {
         let requested_sections = body
             .get("sections")
@@ -345,10 +360,9 @@ pub async fn task_update(
             })
             .unwrap_or_default();
         Some(
-            state
-                .svc
+            service
                 .plan_store
-                .resolve_task_section_ids(&id, &requested_sections)
+                .resolve_task_section_ids(id, &requested_sections)
                 .map_err(plan_err)?,
         )
     } else {
@@ -383,14 +397,15 @@ pub async fn task_update(
     let test_plan = optional_string_field(&body, "test_plan");
     let qa_plan = optional_string_field(&body, "qa_plan");
     let correctness = optional_string_field(&body, "correctness");
-    state
-        .svc
+    service
         .plan_store
         .update_task_with_lane(
-            &id,
-            &tid,
+            id,
+            tid,
             body.get("name").and_then(|v| v.as_str()),
-            body.get("type").and_then(|v| v.as_str()),
+            body.get("type")
+                .or_else(|| body.get("kind"))
+                .and_then(|v| v.as_str()),
             optional_string_field(&body, "model"),
             optional_string_field(&body, "why"),
             body.get("status").and_then(|v| v.as_str()),
@@ -400,7 +415,9 @@ pub async fn task_update(
             optional_string_field(&body, "intent"),
             optional_string_field(&body, "executor_role"),
             section_ids,
-            body.get("parent_task_id").map(|v| v.as_str()),
+            body.get("parent_task_id")
+                .or_else(|| body.get("parent"))
+                .map(|v| v.as_str()),
             optional_string_field(&body, "group"),
             &tags,
             body.get("primary").and_then(|v| v.as_str()),
@@ -410,10 +427,9 @@ pub async fn task_update(
         )
         .map_err(plan_err)?;
     if let Some(depends_on) = depends_on {
-        state
-            .svc
+        service
             .plan_store
-            .update_task_dependencies(&id, &tid, depends_on, epoch_ms())
+            .update_task_dependencies(id, tid, depends_on, epoch_ms())
             .map_err(plan_err)?;
     }
     if acceptance_criteria.is_some()
@@ -421,12 +437,11 @@ pub async fn task_update(
         || qa_plan.is_some()
         || correctness.is_some()
     {
-        state
-            .svc
+        service
             .plan_store
             .update_task_quality(
-                &id,
-                &tid,
+                id,
+                tid,
                 acceptance_criteria,
                 test_plan,
                 qa_plan,
@@ -436,12 +451,11 @@ pub async fn task_update(
             .map_err(plan_err)?;
     }
     if body.get("role_guidance").is_some() {
-        state
-            .svc
+        service
             .plan_store
             .update_task_role_guidance(
-                &id,
-                &tid,
+                id,
+                tid,
                 optional_string_field(&body, "role_guidance"),
                 epoch_ms(),
             )
@@ -457,12 +471,11 @@ pub async fn task_update(
             })
             .transpose()
             .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
-        state
-            .svc
+        service
             .plan_store
             .update_task_personality(
-                &id,
-                &tid,
+                id,
+                tid,
                 optional_string_field(&body, "personality"),
                 provenance,
                 epoch_ms(),
@@ -472,17 +485,15 @@ pub async fn task_update(
     if let Some(value) = body.get("competition") {
         let update = serde_json::from_value(value.clone())
             .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
-        state
-            .svc
+        service
             .plan_store
-            .update_task_competition(&id, &tid, update, epoch_ms())
+            .update_task_competition(id, tid, update, epoch_ms())
             .map_err(plan_err)?;
     }
     if !external_refs.is_empty() {
-        state
-            .svc
+        service
             .plan_store
-            .add_task_external_refs(&id, &tid, &external_refs, epoch_ms())
+            .add_task_external_refs(id, tid, &external_refs, epoch_ms())
             .map_err(plan_err)?;
     }
     // (orchestrator) directly, so a separate `agent report` isn't needed.
@@ -494,11 +505,13 @@ pub async fn task_update(
             .get("intent")
             .and_then(|v| v.as_str())
             .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
-        state
-            .svc
-            .notify_owner_task_in_review(&id, &tid, by_tab, intent);
+        service.notify_owner_task_in_review(id, tid, by_tab, intent);
     }
-    emit_plan_changed(&state, &id);
+    crate::api::events::emit_everywhere(
+        &service.app_handle,
+        "plan-changed",
+        serde_json::json!({ "plan_id": id }),
+    );
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -699,7 +712,99 @@ mod tests {
     use crate::multiplexer::state::MultiplexerState;
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
     use std::sync::Arc;
+
+    fn update_fixture() -> (ServiceFixture, String, String) {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let mut plan = Plan::new(
+            "Update validation".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Original".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        (fixture, plan.id, task_id)
+    }
+
+    fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
+        let plan = fixture.service.plan_store.get(plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        serde_json::to_string_pretty(task).unwrap()
+    }
+
+    #[test]
+    fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
+        for key in ["nonsense_field", "external_ref", "externalRefs"] {
+            let (fixture, plan_id, task_id) = update_fixture();
+            let service = Arc::new(fixture.service.clone());
+            let before = full_task_record(&fixture, &plan_id, &task_id);
+            let mut body = json!({});
+            body[key] = json!("ignored");
+
+            let result = task_update_core(
+                &service,
+                &HeaderMap::new(),
+                &plan_id,
+                &task_id,
+                body,
+            );
+            let after = full_task_record(&fixture, &plan_id, &task_id);
+            assert!(
+                result.is_err(),
+                "key {key} unexpectedly succeeded\nbefore:\n{before}\nafter:\n{after}"
+            );
+            let (status, Json(error)) = result.unwrap_err();
+
+            assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "key: {key}");
+            let message = error["error"].as_str().unwrap();
+            assert!(message.contains(key), "{message}");
+            assert!(message.contains("accepted"), "{message}");
+            assert!(message.contains("external_refs"), "{message}");
+            assert_eq!(
+                after,
+                before,
+                "rejected key {key} changed the full task record"
+            );
+        }
+    }
+
+    #[test]
+    fn rest_update_external_refs_round_trips_non_null() {
+        let (fixture, plan_id, task_id) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+
+        task_update_core(
+            &service,
+            &HeaderMap::new(),
+            &plan_id,
+            &task_id,
+            json!({ "external_refs": ["rollacode/codeterm-releases#17"] }),
+        )
+        .unwrap();
+
+        let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        assert_eq!(task.external_refs.len(), 1);
+        assert_eq!(
+            task.external_refs[0].canonical_url,
+            "https://github.com/rollacode/codeterm-releases/issues/17"
+        );
+    }
+
     #[test]
     fn rest_respawn_persists_spawned_attempt_title_and_session() {
         let dir = tempfile::tempdir().unwrap();

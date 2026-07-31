@@ -40,6 +40,31 @@ fn external_ref_values(p: Option<&Value>) -> Result<Vec<String>, JsonRpcError> {
     })
 }
 
+fn validate_task_update_params(p: Option<&Value>) -> Result<(), JsonRpcError> {
+    let Some(params) = p else {
+        return Ok(());
+    };
+    crate::plan::task_update_fields::validate_task_update_fields(
+        params,
+        crate::plan::task_update_fields::TaskUpdateSeam::Socket,
+    )
+    .map_err(|error| {
+        let error_type = if error.unknown_key.is_some() {
+            "unknown_task_update_key"
+        } else {
+            "invalid_task_update_params"
+        };
+        JsonRpcError {
+            code: -32602,
+            message: error.to_string(),
+            data: Some(json!({
+                "type": error_type,
+                "key": error.unknown_key,
+            })),
+        }
+    })
+}
+
 fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<(), JsonRpcError> {
     let Some(model) = p
         .and_then(|value| value.get("model"))
@@ -454,6 +479,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.update" => {
+            validate_task_update_params(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
@@ -774,8 +800,112 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::{dependency_vec_field, external_ref_values, validate_model_field};
+    use super::{dependency_vec_field, dispatch, external_ref_values, validate_model_field};
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::{OrchestratorRef, Plan};
+    use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
     use serde_json::json;
+    use std::sync::Arc;
+
+    fn update_fixture() -> (ServiceFixture, String, String) {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let mut plan = Plan::new(
+            "Update validation".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Original".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        (fixture, plan.id, task_id)
+    }
+
+    fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
+        let plan = fixture.service.plan_store.get(plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        serde_json::to_string_pretty(task).unwrap()
+    }
+
+    #[test]
+    fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
+        for key in ["nonsense_field", "external_ref", "externalRefs"] {
+            let (fixture, plan_id, task_id) = update_fixture();
+            let service = Arc::new(fixture.service.clone());
+            let before = full_task_record(&fixture, &plan_id, &task_id);
+            let mut params = json!({
+                "plan_id": plan_id.clone(),
+                "task_id": task_id.clone()
+            });
+            params[key] = json!("ignored");
+            let params = Some(params);
+
+            let result = dispatch(
+                "plan.task.update",
+                &params,
+                &fixture.service.app_handle,
+                &service,
+                99,
+            );
+            let after = full_task_record(&fixture, &plan_id, &task_id);
+            assert!(
+                result.is_err(),
+                "key {key} unexpectedly succeeded\nbefore:\n{before}\nafter:\n{after}"
+            );
+            let error = result.unwrap_err();
+
+            assert_eq!(error.code, -32602, "key: {key}");
+            assert!(error.message.contains(key), "{}", error.message);
+            assert!(error.message.contains("accepted"), "{}", error.message);
+            assert!(error.message.contains("external_refs"), "{}", error.message);
+            assert_eq!(error.data.as_ref().unwrap()["key"], key);
+            assert_eq!(
+                after,
+                before,
+                "rejected key {key} changed the full task record"
+            );
+        }
+    }
+
+    #[test]
+    fn socket_update_external_refs_round_trips_non_null() {
+        let (fixture, plan_id, task_id) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+        let params = Some(json!({
+            "plan_id": plan_id.clone(),
+            "task_id": task_id.clone(),
+            "external_refs": ["rollacode/codeterm-releases#17"]
+        }));
+
+        dispatch(
+            "plan.task.update",
+            &params,
+            &fixture.service.app_handle,
+            &service,
+            99,
+        )
+        .unwrap();
+
+        let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        assert_eq!(task.external_refs.len(), 1);
+        assert_eq!(
+            task.external_refs[0].canonical_url,
+            "https://github.com/rollacode/codeterm-releases/issues/17"
+        );
+    }
 
     #[test]
     fn rpc_dependency_field_omitted_is_none() {
