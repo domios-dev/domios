@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canonicalBlob, normalizeStreamLine, uncoveredPreviewTail } from "./streamPreviewMatch";
+import {
+  canonicalBlob,
+  displayablePreview,
+  normalizeStreamLine,
+  uncoveredPreviewTail,
+} from "./streamPreviewMatch";
 
 test("normalize strips gutter glyphs and markdown syntax", () => {
   assert.equal(normalizeStreamLine("⏺ I'll create the game."), "I'll create the game.");
@@ -46,4 +51,28 @@ test("nothing is cut when canonical has not landed yet", () => {
 test("fully covered preview collapses to empty", () => {
   const blob = canonicalBlob(["alpha beta", "gamma delta"]);
   assert.deepEqual(uncoveredPreviewTail(["alpha beta", "gamma delta"], blob), []);
+});
+
+// Regression from the live codex recording: a `•` bullet row blocked the whole
+// prefix cut, so the preview stayed rendered as a duplicate forever.
+test("bullet-prefixed rows match their canonical text", () => {
+  const blob = canonicalBlob(["Запускаю короткую поэму построчно с задержкой — хороший тест."]);
+  const preview = ["• Запускаю короткую поэму построчно с задержкой — хороший тест."];
+  assert.deepEqual(uncoveredPreviewTail(preview, blob), []);
+});
+
+test("tool frames and collapse markers are never previewable", () => {
+  const rows = [
+    "⏺ Writing the poem now",
+    "│ @('line one','line two')",
+    "… +6 lines (ctrl + o to expand)",
+    "└ Ночь легла на холодный экран,",
+    "⎿  Wrote 335 lines to snake.html",
+    "+3 lines (ctrl + t to view transcript)",
+    "  normal prose continues",
+  ];
+  assert.deepEqual(displayablePreview(rows), [
+    "⏺ Writing the poem now",
+    "  normal prose continues",
+  ]);
 });

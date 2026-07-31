@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
-import { canonicalBlob, uncoveredPreviewTail } from "./streamPreviewMatch";
+import { canonicalBlob, displayablePreview, uncoveredPreviewTail } from "./streamPreviewMatch";
 
 /** Cumulative in-flight turn reconstruction emitted by the daemon's motion
  * decoder. Idempotent: `frozen` and `live` replace previous state entirely. */
@@ -11,7 +11,7 @@ export interface StreamPreviewEventPayload {
   live: string[];
 }
 
-const MAX_RENDER_ROWS = 30;
+const MAX_RENDER_ROWS = 8;
 
 /**
  * Ephemeral streaming preview for PTY agent tabs: the decoder's turn view
@@ -47,13 +47,23 @@ export function useStreamPreview(
   const blob = useMemo(() => canonicalBlob(canonicalContents), [canonicalContents]);
   const displayed = useMemo(() => {
     if (!event) return [];
-    return uncoveredPreviewTail(event.frozen.concat(event.live), blob).slice(-MAX_RENDER_ROWS);
+    const content = displayablePreview(event.frozen.concat(event.live));
+    return uncoveredPreviewTail(content, blob).slice(-MAX_RENDER_ROWS);
   }, [event, blob]);
 
   // Turn over and fully covered by canon → drop the stale event entirely.
   useEffect(() => {
     if (!agentWorking && event !== null && displayed.length === 0) setEvent(null);
   }, [agentWorking, displayed.length, event]);
+
+  // The swap: once the turn is over, the next canonical update IS the final
+  // content — the preview dies unconditionally instead of lingering as a dupe.
+  const lastBlobRef = useRef(blob);
+  useEffect(() => {
+    const blobChanged = lastBlobRef.current !== blob;
+    lastBlobRef.current = blob;
+    if (blobChanged && !agentWorking) setEvent(null);
+  }, [blob, agentWorking]);
 
   return displayed;
 }

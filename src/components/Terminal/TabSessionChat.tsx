@@ -688,15 +688,17 @@ export function TabSessionChat({
             role="status"
             aria-label="Streaming preview"
           >
-            <pre
-              className="whitespace-pre-wrap border-l-2 py-1 pl-2.5 font-mono text-xs opacity-70"
-              style={{
-                borderColor: "var(--ct-accent, #58a6ff)",
-                color: "var(--ct-muted-fg)",
-              }}
+            <div
+              className="flex flex-col justify-end overflow-hidden border-l-2 py-1 pl-2.5"
+              style={{ borderColor: "var(--ct-accent, #58a6ff)", maxHeight: "9.5rem" }}
             >
-              {streamPreview.join("\n")}
-            </pre>
+              <pre
+                className="whitespace-pre-wrap font-mono text-xs opacity-70"
+                style={{ color: "var(--ct-muted-fg)" }}
+              >
+                {streamPreview.join("\n")}
+              </pre>
+            </div>
           </div>
         )}
         <ChatSetupState

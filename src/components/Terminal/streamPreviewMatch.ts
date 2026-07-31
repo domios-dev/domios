@@ -1,7 +1,7 @@
 // Shared by the Chat UI streaming preview block and the offline streaming
 // eval harness (testbench/streaming). One matcher, no drift.
 
-const GUTTER_GLYPHS = /^[\s⏺●○◐◑⎿│┃║❯›→✻✳✢✶✷✺✽∗⋆*·└├▸▹]+/u;
+const GUTTER_GLYPHS = /^[\s⏺●○◐◑⎿│┃║❯›→✻✳✢✶✷✺✽∗⋆*·•◦‣∙⁃└├▸▹-]+/u;
 const MARKUP_CHARS = /[*_`~#|>\\]/g;
 
 /** Rendered terminal row → comparable text: gutter glyphs and markdown
@@ -23,6 +23,20 @@ export function canonicalBlob(contents: readonly string[]): string {
 }
 
 const MIN_MATCH_CHARS = 4;
+
+/** Nested tool-output framing and collapse markers rendered by agent TUIs.
+ * These rows are terminal chrome, never message content: canonical tool cards
+ * already render the real payload. */
+const JUNK_ROW = /^\s*(?:[│┃║└├⎿…]|\+?\d+\s+lines?\b)/u;
+
+export function isPreviewJunkRow(line: string): boolean {
+  return JUNK_ROW.test(line);
+}
+
+/** Rows worth previewing as message content: junk frames dropped. */
+export function displayablePreview(lines: readonly string[]): string[] {
+  return lines.filter((line) => !isPreviewJunkRow(line));
+}
 
 /**
  * Cut the longest preview prefix covered by canonical content; the uncovered
