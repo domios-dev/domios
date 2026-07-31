@@ -261,6 +261,12 @@ impl ScreenState {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
     }
 
+    pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {
+        self.parsers
+            .get(pty_id)
+            .map(|parser| parser.screen().bracketed_paste())
+    }
+
     pub fn native_prompt_input(
         &self,
         pty_id: &str,

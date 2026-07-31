@@ -57,7 +57,8 @@ const FILE_TASK_PROMPT =
   "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string {
+function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string | undefined {
+  if (prompt === "no_starter") return undefined;
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (prompt === "team_bootstrap") {
     if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -128,7 +129,7 @@ function isBrailleSpinner(ch: string): boolean {
 
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
   },
   detectFromTitle(title: string): boolean {
@@ -281,8 +282,11 @@ const plugin: PluginModule = {
       const visiblePath = writeTaskTempFile(p.task);
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      parts.push("--");
-      parts.push(host.shell.quoteFor(starterPrompt(p.starterPrompt, p.starterPromptText), host.platform()));
+      const prompt = starterPrompt(p.starterPrompt, p.starterPromptText);
+      if (prompt) {
+        parts.push("--");
+        parts.push(host.shell.quoteFor(prompt, host.platform()));
+      }
     }
     return parts.join(" ");
   },

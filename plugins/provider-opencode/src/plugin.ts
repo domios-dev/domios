@@ -20,7 +20,8 @@ const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(params: LaunchParams): string {
+function starterPrompt(params: LaunchParams): string | undefined {
+  if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -34,7 +35,7 @@ const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 let lastPromptShape: "horizontal" | "vertical" = "horizontal";
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title: string): boolean {
@@ -169,8 +170,9 @@ const plugin: PluginModule = {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    if (p.task) {
-      parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
+    const prompt = starterPrompt(p);
+    if (p.task && prompt) {
+      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
     if (localTaskPath) {
       const local = host.shell.quoteFor(localTaskPath, host.platform());

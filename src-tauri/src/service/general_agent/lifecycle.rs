@@ -431,7 +431,7 @@ pub fn start_general_agent(
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: (!fallback).then_some(system_prompt.clone()),
-            starter_prompt: Default::default(),
+            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: None,
             skip_permissions: true,
             session_id: pre_session_id,
