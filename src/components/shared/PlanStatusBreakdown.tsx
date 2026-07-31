@@ -14,7 +14,7 @@ export interface PlanStatusBreakdownProps extends HTMLAttributes<HTMLSpanElement
   itemTestIdPrefix?: string;
 }
 
-const STATUS_ORDER: readonly PlanStatusKind[] = ["todo", "review", "blocked", "paused", "done"];
+const STATUS_ORDER: readonly PlanStatusKind[] = ["todo", "review", "blocked", "done"];
 
 export function PlanStatusBreakdown({
   counts,
