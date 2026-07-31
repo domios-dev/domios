@@ -40,7 +40,7 @@ bootstrap turns only.
 | provider | preview renders question (criterion 1) | detection exactly-once (criterion 2) |
 |---|---|---|
 | opencode | PASS — full raise→answer→close round-trip: dialog previews, block dies with the answer, jank 0 / leftovers 0 / dupes 0 | PASS — one status transition (Waiting), one clean notification, preview events flow |
-| codex    | provider declined at model level ("I can't access the interactive question tool in this mode", repeated on a clean tab) — not a CodeTerm defect; codex's own pickers (directory trust) prove the render path exists | n/a — no dialog raised |
+| codex    | PROVIDER GATE, not a CodeTerm defect — codex's runtime refuses its picker in Default mode ("unavailable in the current Default mode", reproduced 3 attempts / 2 tabs / with+without charter); the question degrades to prose and previews normally (scored: jank 0, leftovers 0, lead +182ms) | n/a — no dialog raised; codex's own directory-trust picker proves the widget exists (mode setting is the lever) |
 | claude   | **daemon gap — routed to eight main** (decoder emits zero events for the dialog; composer-cut excises the cursor-holding dialog; question state never fires) | **daemon gap — routed to eight main** |
 
 Known cosmetic nit (daemon lane): the cursor-highlighted option row churns,
