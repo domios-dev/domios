@@ -24,7 +24,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
-import { AgentStateIndicator } from "./AgentStateIndicator";
+import { AgentStateIndicator, shouldRenderAgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
@@ -465,6 +465,11 @@ export function TabSessionChat({
     backendState?.state ?? null,
     backendState?.subtype ?? null,
   );
+  const inputRequestAdmission = deriveInputRequestAdmission(
+    pendingPrompt,
+    backendState?.state ?? null,
+    backendState?.subtype ?? null,
+  );
   useEffect(() => {
     const admission = deriveInputRequestAdmission(
       pendingPrompt,
@@ -677,7 +682,11 @@ export function TabSessionChat({
           onOpenTerminal={onOpenTerminalFallback}
           onEscape={focusComposer}
         />
-        {!inlinePrompt && (renderedEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
+        {!inlinePrompt && shouldRenderAgentStateIndicator(
+          liveAgentState.state,
+          renderedEnrichedMessages.length > 0,
+          inputRequestAdmission.notificationReady,
+        ) && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
