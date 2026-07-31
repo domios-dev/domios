@@ -144,6 +144,7 @@ impl ServiceFixture {
             pending_delivery_payloads,
             chat_send_ledger: Arc::new(Default::default()),
             worker_identity_allocator: Arc::new(Mutex::new(Default::default())),
+            worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         };
         Self {

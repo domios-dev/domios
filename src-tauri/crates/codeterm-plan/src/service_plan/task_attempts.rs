@@ -282,6 +282,9 @@ fn build_prompt(
         out.push_str(report.trim());
         out.push('\n');
     }
+    out.push_str("\n");
+    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
+    out.push('\n');
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
@@ -367,6 +370,9 @@ fn build_compete_prompt(
         out.push_str(&lane_lines.join("\n"));
         out.push('\n');
     }
+    out.push_str("\n");
+    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
+    out.push('\n');
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
@@ -750,14 +756,11 @@ impl PlanStore {
                 )?;
             }
             let task = &mut plan.tasks[task_index];
-            if task.status == TaskStatus::Pending {
-                task.status = TaskStatus::InProgress;
-                task.status_changed_at = now_ms;
-            }
             task.assigned_tab_id = Some(tab_id.into());
             task.lane.tab_id = Some(tab_id.into());
             task.taken_by_role = role.map(str::to_string);
             task.peer = None;
+            task.status_label = Some("starting".into());
             task.updated_at = now_ms;
             let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
             attempt.provider = Some(draft.provider.clone());
@@ -799,10 +802,6 @@ impl PlanStore {
                 )?;
             }
             let task = &mut plan.tasks[task_index];
-            if task.status == TaskStatus::Pending {
-                task.status = TaskStatus::InProgress;
-                task.status_changed_at = now_ms;
-            }
             task.status_label = Some("competitive".into());
             task.updated_at = now_ms;
             let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);

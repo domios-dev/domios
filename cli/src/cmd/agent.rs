@@ -647,6 +647,29 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             handle_result(json, result);
         }
+        AgentAction::Ack { tab, plan, task } => {
+            let tab_id = resolve_tab(client, tab);
+            let plan_id = env_default(plan, "CODETERM_PLAN_ID");
+            let task_id = env_default(task, "CODETERM_TASK_ID");
+            let mut body = serde_json::json!({ "tab_id": tab_id });
+            if let Some(plan_id) = plan_id {
+                body["plan_id"] = serde_json::json!(plan_id);
+            }
+            if let Some(task_id) = task_id {
+                body["task_id"] = serde_json::json!(task_id);
+            }
+            let result = client.call("agent.ack", Some(body));
+            match result {
+                Ok(value) if json => {
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                }
+                Ok(_) => println!("acknowledged"),
+                Err(error) => {
+                    eprintln!("ACK NOT ACCEPTED: {error}");
+                    std::process::exit(1);
+                }
+            }
+        }
         AgentAction::Spawn {
             agent,
             title,

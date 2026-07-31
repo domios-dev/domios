@@ -297,6 +297,8 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub assigned_at: Option<u64>,
     #[serde(default)]
+    pub acknowledged_at: Option<u64>,
+    #[serde(default)]
     pub reported_at: Option<u64>,
     #[serde(default)]
     pub reviewed_at: Option<u64>,

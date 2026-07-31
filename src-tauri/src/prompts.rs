@@ -347,6 +347,9 @@ mod tests {
         assert!(rendered.contains("blocking tool call"));
         assert!(rendered.contains("verification proportional to risk"));
         assert!(rendered.contains("OPEN RISK"));
+        assert!(rendered.contains("dispatch_ready"));
+        assert!(rendered.contains("worker_ack_timeout"));
+        assert!(rendered.contains("never poll or resend blindly"));
         assert!(!rendered.contains("{bounce_unwinding_contract}"));
         assert!(!rendered.contains("{plan_skills_principles}"));
     }

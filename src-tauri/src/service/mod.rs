@@ -84,6 +84,7 @@ mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
+pub(crate) mod worker_ack;
 mod worker_identity;
 mod worker_lane;
 #[cfg(test)]
@@ -257,6 +258,7 @@ pub struct ServiceContext {
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
+    pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
