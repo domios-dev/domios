@@ -270,7 +270,8 @@ fn parse_repeat(token: &str) -> Result<(&str, u32), String> {
 }
 
 fn parse_action_token(token: &str) -> Result<SendActionSpec, String> {
-    let lower = token.trim().to_ascii_lowercase();
+    let token = token.trim();
+    let lower = token.to_ascii_lowercase();
     if let Some(value) = lower
         .strip_prefix("delay:")
         .or_else(|| lower.strip_prefix("delay="))
@@ -286,7 +287,7 @@ fn parse_action_token(token: &str) -> Result<SendActionSpec, String> {
     {
         return parse_action_delay(&lower).map(SendActionSpec::Delay);
     }
-    let key = canonical_key_name(&lower)?;
+    let key = canonical_key_name(token)?;
     Ok(SendActionSpec::Key(key))
 }
 
@@ -313,7 +314,8 @@ fn parse_action_delay(value: &str) -> Result<u64, String> {
 
 fn canonical_key_name(key: &str) -> Result<String, String> {
     let normalized = key.replace('_', "-");
-    let mapped = match normalized.as_str() {
+    let lower = normalized.to_ascii_lowercase();
+    let mapped = match lower.as_str() {
         "enter" | "return" => "enter",
         "esc" | "escape" => "esc",
         "tab" => "tab",
@@ -329,9 +331,10 @@ fn canonical_key_name(key: &str) -> Result<String, String> {
         "pagedown" | "page-down" | "pgdn" => "pagedown",
         "space" => "space",
         other if parse_ctrl_key(other).is_some() => other,
+        _ if key.chars().count() == 1 => return Ok(key.to_string()),
         _ => {
             return Err(format!(
-                "unknown action key '{}'; use enter, esc, tab, backspace, delete, arrows, home/end, pageup/pagedown, space, ctrl-c",
+                "unknown action key '{}'; use a literal character, enter, esc, tab, backspace, delete, arrows, home/end, pageup/pagedown, space, ctrl-c",
                 key
             ))
         }
@@ -341,6 +344,9 @@ fn canonical_key_name(key: &str) -> Result<String, String> {
 
 #[cfg(test)]
 fn key_action_bytes(key: &str) -> Option<Vec<u8>> {
+    if key.chars().count() == 1 {
+        return Some(key.as_bytes().to_vec());
+    }
     let normalized = key.replace('_', "-").to_ascii_lowercase();
     match normalized.as_str() {
         "enter" | "return" => Some(b"\r".to_vec()),
@@ -562,6 +568,18 @@ mod tests {
         assert_eq!(
             parse_actions_spec("ctrl-c").unwrap(),
             vec![SendActionSpec::Key("ctrl-c".into())]
+        );
+    }
+
+    #[test]
+    fn actions_parser_accepts_literal_character_keys() {
+        assert_eq!(
+            parse_actions_spec("y,n,A").unwrap(),
+            vec![
+                SendActionSpec::Key("y".into()),
+                SendActionSpec::Key("n".into()),
+                SendActionSpec::Key("A".into()),
+            ]
         );
     }
 
