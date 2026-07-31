@@ -342,7 +342,7 @@ impl ServiceContext {
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
-        let Some((lines, tail, cursor_hidden, composer_ready, cursor_row)) = ({
+        let Some((lines, tail, cursor_hidden, composer_ready)) = ({
             let screen_state = self.screen_state.lock();
             let Some((lines, tail)) = screen_state.lines_and_tail(pty_id, LIVE_TAIL_ROWS) else {
                 return;
@@ -351,24 +351,16 @@ impl ServiceContext {
                 .native_prompt_input(pty_id)
                 .map(|input| input.cursor_hidden)
                 .unwrap_or(false);
-            let cursor_state = screen_state.cursor_input_state(pty_id);
-            let composer_ready = cursor_state
+            let composer_ready = screen_state
+                .cursor_input_state(pty_id)
                 .map(|(_alt, vis, row, rows)| {
                     crate::agent::offline_state_classifier::composer_cursor_ready(vis, row, rows)
                 })
                 .unwrap_or(false);
-            let cursor_row = cursor_state.map(|(_alt, _vis, row, _rows)| row as usize);
-            Some((lines, tail, cursor_hidden, composer_ready, cursor_row))
+            Some((lines, tail, cursor_hidden, composer_ready))
         }) else {
             return;
         };
-
-        // Ephemeral stream preview: telemetry only, never feeds classification.
-        if let Some(event) =
-            crate::service::stream_preview::step(pty_id, &tab_id, &lines, cursor_row)
-        {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
-        }
 
         // agent_tracker (4): two-clock quiescence.
         let Some((byte_idle_ms, semantic_idle_ms)) =

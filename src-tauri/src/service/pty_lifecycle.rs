@@ -416,11 +416,7 @@ fn handle_pty_screen_death_after_validation(
         return false;
     }
     after_validation();
-    let removed = screen_state.lock().remove_if_generation(pty_id, generation);
-    if removed {
-        crate::service::stream_preview::remove(pty_id);
-    }
-    removed
+    screen_state.lock().remove_if_generation(pty_id, generation)
 }
 
 fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
