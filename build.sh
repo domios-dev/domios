@@ -947,6 +947,7 @@ CodeTerm build commands
 
   dev                         Start the visible shared dev instance
   check                       Fast Rust compile check
+  worktree-check              Isolated lane-safe Rust compile check
   test-one <app|pty|cli> NAME Run one focused capped Rust test
   test                        Run the application Rust unit suite
   verify                      Run check, tests, and source-size gate
@@ -1077,7 +1078,6 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     ;;
   worktree-check)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_exceptional_worktree_target
     prepare_bundle_stubs
     cargo check --manifest-path src-tauri/Cargo.toml "${@:2}"

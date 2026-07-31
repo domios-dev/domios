@@ -105,6 +105,13 @@ dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cu
   exit 1
 }
 
+worktree_flow="$(sed -n '/^  worktree-check)/,/^    ;;/p' build.sh)"
+grep -q 'prepare_exceptional_worktree_target' <<< "$worktree_flow"
+if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then
+  echo "isolated worktree check must not wait behind the shared dev gateway" >&2
+  exit 1
+fi
+
 embed_bundle_flow="$(sed -n '/^ensure_real_embed_bundle()/,/^}/p' build.sh)"
 grep -q 'CODETERM_DEV=1 node scripts/bundle-embed.js' <<< "$embed_bundle_flow" || {
   echo "dev must ad-hoc sign codeterm-embed without a Developer ID identity" >&2
