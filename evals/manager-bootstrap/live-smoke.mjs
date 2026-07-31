@@ -203,8 +203,8 @@ async function main() {
       waitForSession(events, pair.planner_tab_id),
     ]);
     await Promise.all([
-      api(`/api/tabs/${pair.orchestrator_tab_id}/chat/start`, { method: "POST", body: "{}" }),
-      api(`/api/tabs/${pair.planner_tab_id}/chat/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.orchestrator_tab_id}/chat-raw/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.planner_tab_id}/chat-raw/start`, { method: "POST", body: "{}" }),
     ]);
 
     await Promise.all([
