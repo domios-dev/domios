@@ -232,10 +232,15 @@ fn paste_before_submit(provider: &str, capabilities: &SpawnCapabilities) {
         opts(),
     )
     .unwrap();
-    assert_eq!(
-        transport.events.borrow().as_slice(),
-        &["payload", "ingested", "submit"]
-    );
+    let events = transport.events.borrow();
+    let first_submit = events
+        .iter()
+        .position(|event| *event == "submit")
+        .expect("the bounded key-only burst must submit");
+    assert_eq!(&events[..first_submit], &["payload", "ingested"]);
+    assert!(events[first_submit..]
+        .iter()
+        .all(|event| *event == "submit"));
     pass(provider, "paste_ingested_before_submit");
 }
 

@@ -715,13 +715,21 @@ fn tui_turn_transition_confirms_submission() {
 
     assert!(result.submit_observed);
     assert!(io.turn_started());
+    let writes = io.writes.borrow();
     assert_eq!(
-        &*io.writes.borrow(),
-        &[
-            "paste:general bootstrap",
-            "enter:> [Pasted text #1 +45 lines]"
-        ],
-        "a confirmed turn must stop the optimistic submit recovery"
+        writes
+            .iter()
+            .filter(|write| write.starts_with("paste:"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        writes
+            .iter()
+            .filter(|write| write.starts_with("enter:"))
+            .count(),
+        MAX_SUBMIT_KEY_WRITES,
+        "observed acceptance classifies but never stops the key-only burst"
     );
 }
 
