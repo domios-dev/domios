@@ -16,6 +16,7 @@ use std::time::Duration;
 /// false only once the passed failure deadline has expired.
 struct ParkedDraft {
     drops_remaining: Cell<usize>,
+    starts_turn: bool,
     draft_visible: Cell<bool>,
     turn: Cell<bool>,
     generation: Cell<u64>,
@@ -30,6 +31,7 @@ impl ParkedDraft {
     fn dropping(drops: usize) -> Self {
         Self {
             drops_remaining: Cell::new(drops),
+            starts_turn: true,
             draft_visible: Cell::new(false),
             turn: Cell::new(false),
             generation: Cell::new(0),
@@ -38,6 +40,13 @@ impl ParkedDraft {
             submit_key_writes: Cell::new(0),
             idle: Mutex::new(()),
             never_signaled: Condvar::new(),
+        }
+    }
+
+    fn lifecycle_only_drain() -> Self {
+        Self {
+            starts_turn: false,
+            ..Self::dropping(0)
         }
     }
 }
@@ -104,9 +113,13 @@ impl SubmitTransport for ParkedDraft {
             return Ok(());
         }
         self.draft_visible.set(false);
-        self.turn.set(true);
+        if self.starts_turn {
+            self.turn.set(true);
+            self.turn_generation.set(self.turn_generation.get() + 1);
+        } else {
+            self.turn_generation.set(self.turn_generation.get() + 2);
+        }
         self.generation.set(self.generation.get() + 1);
-        self.turn_generation.set(self.turn_generation.get() + 1);
         Ok(())
     }
 }
@@ -142,6 +155,31 @@ fn parked_draft_after_dropped_enter_recovers_before_turn_deadline() {
     );
     assert!(io.turn.get(), "the recovered Enter starts a real turn");
     assert_eq!(io.submit_key_writes.get(), 2);
+}
+
+#[test]
+fn restart_status_transitions_without_a_turn_do_not_acknowledge_submission() {
+    let mut tracker = codeterm_types::pty::TabStatusTracker::new();
+    tracker.update_output("pty-restart", [1; 32]);
+    tracker.set_idle("pty-restart");
+    let signal = tracker.arm_status_change_signal("pty-restart");
+    let before_restart = signal.generation();
+    tracker.set_dead("pty-restart");
+    tracker.set_waiting("pty-restart");
+
+    assert_eq!(
+        signal.generation(),
+        before_restart + 2,
+        "restart lifecycle transitions advance the generic status signal"
+    );
+    let io = ParkedDraft::lifecycle_only_drain();
+
+    let result = run(&io, "post-restart payload", true, tui(), short_opts()).unwrap();
+
+    assert_eq!(io.payload_writes.get(), 1);
+    assert!(io.turn_generation.get() >= 2);
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
 }
 
 #[test]
