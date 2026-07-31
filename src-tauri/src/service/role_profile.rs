@@ -35,6 +35,7 @@ impl SpawnAgentParams {
             task: json_str(params, "task"),
             starter_prompt: Default::default(),
             task_id: json_str(params, "task_id"),
+            task_launch_authority: None,
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),

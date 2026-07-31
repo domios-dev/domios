@@ -144,6 +144,18 @@ fn lane_metadata_for_dispatch(
     lane
 }
 
+fn task_launch_authority_for_dispatch(
+    plan_id: &str,
+    task_id: &str,
+    lane: &TaskLaneMetadata,
+) -> crate::service::TaskLaunchAuthority {
+    crate::service::TaskLaunchAuthority {
+        plan_id: plan_id.to_string(),
+        task_id: task_id.to_string(),
+        lane_base: lane.base.clone(),
+    }
+}
+
 pub(super) fn await_agent_ready(
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
     deadline: Instant,
@@ -724,6 +736,15 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("provenance_validation", error));
         }
     };
+    let original_task = detail.task.clone();
+    let original_plan_mode = plan.mode.clone();
+    let lane_for_commit = detail.task.lane.clone();
+    let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
+    spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
+        &plan_id,
+        &task_id,
+        &starting_lane,
+    ));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
@@ -740,10 +761,6 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    let original_task = detail.task.clone();
-    let original_plan_mode = plan.mode.clone();
-    let lane_for_commit = detail.task.lane.clone();
-    let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
     let attempt_id = match store.begin_task_dispatch(
         &plan_id,
         &task_id,
