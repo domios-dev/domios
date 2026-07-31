@@ -196,7 +196,7 @@ async function verifySingle(events, provider) {
     });
     tabId = spawned.tab_id;
     await waitForSession(events, tabId);
-    await api(`/api/tabs/${tabId}/chat/start`, { method: "POST", body: "{}" });
+    await api(`/api/tabs/${tabId}/chat-raw/start`, { method: "POST", body: "{}" });
     await waitForAssistant(events, tabId, (text) => text.trim() === expected);
     console.log(`PASS single ${provider}: exact assistant-only oracle returned`);
   } finally {
@@ -258,8 +258,8 @@ async function verifyTeam(events, orchestratorProvider, plannerProvider) {
       waitForSession(events, pair.planner_tab_id),
     ]);
     await Promise.all([
-      api(`/api/tabs/${pair.orchestrator_tab_id}/chat/start`, { method: "POST", body: "{}" }),
-      api(`/api/tabs/${pair.planner_tab_id}/chat/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.orchestrator_tab_id}/chat-raw/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.planner_tab_id}/chat-raw/start`, { method: "POST", body: "{}" }),
     ]);
     await Promise.all([
       waitForBootstrap(

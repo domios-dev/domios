@@ -102,15 +102,89 @@ rows=[s for s in (json.load(sys.stdin) or []) if s.get('send_id')==sys.argv[1]]
 print(rows[0]['state'] if rows else 'absent')" "$send_id" 2>/dev/null
 }
 
-poll_ledger_sent() {
-  local tab="$1" send_id="$2" deadline=$((SECONDS + TIMEOUT)) state="pending"
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    state="$(ledger_state_of "$tab" "$send_id")"
-    [ "$state" = "sent" ] && { echo sent; return 0; }
-    sleep 2
-  done
-  echo "$state"
-  return 1
+await_ledger_state() {
+  local tab="$1" send_id="$2"
+  "$PY" - "$tab" "$send_id" "$TIMEOUT" <<'PY'
+import json, os, queue, sys, threading, time, urllib.request
+
+tab_id, send_id, timeout_text = sys.argv[1:]
+deadline = time.monotonic() + int(timeout_text)
+headers = {"Authorization": f"Bearer {os.environ['CODETERM_API_TOKEN']}"}
+states = queue.Queue()
+ready = threading.Event()
+failure = queue.Queue(maxsize=1)
+
+def stream_events():
+    request = urllib.request.Request(
+        "http://127.0.0.1:7686/api/events/stream",
+        headers={**headers, "Accept": "text/event-stream"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=int(timeout_text) + 10) as response:
+            ready.set()
+            for raw in response:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                event = json.loads(line[5:].strip())
+                data = event.get("data") or {}
+                if (
+                    event.get("event_type") == "chat-send-status"
+                    and data.get("tab_id") == tab_id
+                    and data.get("send_id") == send_id
+                ):
+                    states.put(data.get("state", "absent"))
+    except Exception as error:
+        if failure.empty():
+            failure.put(error)
+        ready.set()
+
+threading.Thread(target=stream_events, daemon=True).start()
+if not ready.wait(timeout=min(10, int(timeout_text))):
+    print("event_stream_unavailable")
+    raise SystemExit(4)
+if not failure.empty():
+    print(f"event_stream_failed:{failure.get()}")
+    raise SystemExit(4)
+
+request = urllib.request.Request(
+    f"http://127.0.0.1:7686/api/tabs/{tab_id}/chat-send", headers=headers
+)
+with urllib.request.urlopen(request, timeout=30) as response:
+    rows = json.load(response) or []
+current = next((row.get("state") for row in rows if row.get("send_id") == send_id), "absent")
+
+while True:
+    if current == "confirmed":
+        print(current)
+        raise SystemExit(0)
+    if current == "unknown":
+        print(current)
+        raise SystemExit(2)
+    if current == "failed":
+        print(current)
+        raise SystemExit(3)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        print(current)
+        raise SystemExit(4)
+    try:
+        current = states.get(timeout=remaining)
+    except queue.Empty:
+        print(current)
+        raise SystemExit(4)
+PY
+}
+
+assert_confirmed_state() {
+  local provider="$1" case_name="$2" state="$3"
+  case "$state" in
+    confirmed) pass "$provider $case_name: exact turn evidence confirmed delivery" ;;
+    accepted) fail "$provider $case_name: deadline reached while delivery remained accepted" ;;
+    unknown) fail "$provider $case_name: delivery remained genuinely unconfirmed" ;;
+    failed) fail "$provider $case_name: delivery failed" ;;
+    *) fail "$provider $case_name: unexpected ledger state=$state" ;;
+  esac
 }
 
 count_user_turns() {
@@ -361,7 +435,7 @@ case_picker() {
 
 # --- Case: ledger transaction (POST /chat-send) ----------------------
 # The Chat composer's REAL seam. Asserts the authoritative ledger reaches
-# state=sent for the exact send_id, the user turn lands EXACTLY once, and no
+# state=confirmed for the exact send_id, the user turn lands EXACTLY once, and no
 # failed entry (the false-Retry class) is retained for the tab.
 case_ledger() {
   local provider="$1" tab="$2"
@@ -372,12 +446,8 @@ case_ledger() {
   resp="$(ledger_send "$tab" "$prompt")"
   send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
   if [ -z "$send_id" ]; then fail "$provider ledger: chat-send rejected: $resp"; return 1; fi
-  local final; final="$(poll_ledger_sent "$tab" "$send_id")"
-  if [ "$final" = "sent" ]; then
-    pass "$provider ledger: send_id=$send_id reached sent"
-  else
-    fail "$provider ledger: send_id=$send_id final state=$final (want sent)"
-  fi
+  local final; final="$(await_ledger_state "$tab" "$send_id")"
+  assert_confirmed_state "$provider" "ledger send_id=$send_id" "$final"
   local n; n="$(count_user_turns "$tab" "LEDGER-$nonce")"
   if [ "$n" = "1" ]; then
     pass "$provider ledger: exactly one user turn in transcript"
@@ -421,12 +491,8 @@ case_ledger_detached() {
     return 1
   fi
   pass "$provider ledger-detached: exact turn persisted while detached"
-  local final; final="$(poll_ledger_sent "$tab" "$send_id")"
-  if [ "$final" = "sent" ]; then
-    pass "$provider ledger-detached: reattach reconciled send_id=$send_id to sent (no Retry)"
-  else
-    fail "$provider ledger-detached: send_id=$send_id state=$final after evidence persisted (false Retry class)"
-  fi
+  local final; final="$(await_ledger_state "$tab" "$send_id")"
+  assert_confirmed_state "$provider" "ledger-detached send_id=$send_id" "$final"
 }
 
 # --- Case: ledger send after agent restart (rebind exact-once) -------
@@ -449,12 +515,8 @@ case_ledger_restart() {
   resp="$(ledger_send "$tab" "$prompt")"
   send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
   if [ -z "$send_id" ]; then fail "$provider ledger-restart: chat-send rejected: $resp"; return 1; fi
-  local final; final="$(poll_ledger_sent "$tab" "$send_id")"
-  if [ "$final" = "sent" ]; then
-    pass "$provider ledger-restart: post-restart send reached sent"
-  else
-    fail "$provider ledger-restart: post-restart send state=$final"
-  fi
+  local final; final="$(await_ledger_state "$tab" "$send_id")"
+  assert_confirmed_state "$provider" "ledger-restart send_id=$send_id" "$final"
   local n; n="$(count_user_turns "$tab" "REBIND-$nonce")"
   if [ "$n" = "1" ]; then
     pass "$provider ledger-restart: exactly one user turn after rebind"
