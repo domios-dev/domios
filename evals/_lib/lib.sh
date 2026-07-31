@@ -116,7 +116,15 @@ dev_post_as_tab() {
 # 2026-05-07. Fail loud with non-zero exit instead of silently
 # dispatching to the wrong daemon.
 dc() {
-  local cli
+  local cli caller_tab_id=""
+  if [ "${1:-}" = "--as-tab" ]; then
+    caller_tab_id="${2:-}"
+    [ -n "$caller_tab_id" ] || {
+      echo "ERROR [dc]: --as-tab requires a dev Tab id" >&2
+      return 7
+    }
+    shift 2
+  fi
   cli="$(dev_data_dir)/bin/codeterm"
   if [ ! -x "$cli" ]; then
     echo "ERROR [dc]: active dev CLI is missing or not executable: $cli" >&2
@@ -132,7 +140,7 @@ dc() {
   CODETERM_API_PORT=7686 \
   CODETERM_API_TOKEN="$CODETERM_API_TOKEN" \
   CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
-  CODETERM_TAB_ID= \
+  CODETERM_TAB_ID="$caller_tab_id" \
   CODETERM_PARENT_TAB_ID= \
   "$cli" "$@"
 }

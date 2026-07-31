@@ -122,6 +122,7 @@ A bare `codeterm` call can therefore mutate prod instead of dev.
 ```bash
 source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
 dc workspace list           # locked to dev — fails with exit 7 if dev is down
+dc --as-tab "$CODETERM_TAB_ID" plan create --title "smoke" # preserve an explicit dev caller
 ```
 
 Sourcing the lib auto-calls `dev_env` (port 7686 + dev token + dev
@@ -287,4 +288,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
