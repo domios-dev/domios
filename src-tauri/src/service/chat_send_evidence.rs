@@ -1,15 +1,15 @@
 //! Closed-chat evidence reconciliation for Chat sends.
 //!
 //! A send whose live delta stream was not running (Chat closed during
-//! delivery) can still be classified honestly: each send records an
-//! authoritative [`SendEvidenceAnchor`] (provider, cwd, session id, transcript
-//! byte offset at send start), and on ledger read the scan inspects ONLY that
-//! session's append window at/after the boundary. Pre-send history, other
-//! sessions, and already-consumed turns can never confirm a send.
+//! delivery) can still be classified honestly: each send captures its bound
+//! session and a safe [`SendEvidenceAnchor`] when one exists. Ledger reads
+//! inspect ONLY that session's bounded append window. Pre-send history, other
+//! sessions, and already-used turns can never confirm a send.
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
     normalize_turn_evidence, ChatSendLedger, ChatSendStatus, EvidenceWindow, SendEvidenceAnchor,
+    SendLiveBinding,
 };
 use crate::service::ServiceContext;
 
@@ -60,9 +60,8 @@ fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> V
     }
 }
 
-/// A cursor-less NON-empty structured store has no bounded append window — an
-/// unbounded window would let pre-send history confirm the send, so no anchor
-/// is minted and the send stays live-sink-only.
+/// A cursor-less NON-empty structured store has no bounded append window and
+/// stays live-sink-only.
 pub(crate) fn structured_boundary(
     chat: &crate::agent::chat_types::StructuredChat,
 ) -> Option<EvidenceWindow> {
@@ -72,6 +71,26 @@ pub(crate) fn structured_boundary(
     Some(EvidenceWindow::Structured {
         cursor: chat.cursor.clone(),
     })
+}
+
+fn jsonl_boundary(path: Option<std::path::PathBuf>) -> Option<EvidenceWindow> {
+    let transcript_offset = std::fs::metadata(path?).ok()?.len();
+    Some(EvidenceWindow::Jsonl { transcript_offset })
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingJsonlEvidenceStream {
+    provider_id: String,
+    cwd: String,
+    session_id: String,
+    binding_nonce: Option<String>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct CapturedSendEvidence {
+    pub(crate) anchor: Option<SendEvidenceAnchor>,
+    pub(crate) live_binding: Option<SendLiveBinding>,
+    pending_jsonl_stream: Option<PendingJsonlEvidenceStream>,
 }
 
 /// One turn instance confirms at most one send: a scan may only confirm when
@@ -99,24 +118,40 @@ pub(crate) fn scan_transcript_evidence(
 }
 
 impl ServiceContext {
-    /// Capture the send's authoritative transcript identity and append-window
-    /// boundary at send start. `None` when the tab has no bound agent session
-    /// yet, or when a structured store cannot supply a boundary cursor — such
-    /// a send can only be confirmed by the live delta stream.
-    pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> Option<SendEvidenceAnchor> {
-        let (provider_id, cwd, session_id) = {
+    /// Capture the bound session plus its safe append-window anchor, if one
+    /// exists. An unbounded store remains live-sink-only.
+    pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> CapturedSendEvidence {
+        let captured = {
             let mux = self.mux.read();
-            let tab = mux.get_tab(tab_id)?;
-            (
-                tab.agent_type.clone()?,
-                tab.cwd.clone().unwrap_or_default(),
-                tab.agent_session_id.clone()?,
-            )
+            mux.get_tab(tab_id).map(|tab| {
+                (
+                    tab.agent_type.clone(),
+                    tab.cwd.clone().unwrap_or_default(),
+                    tab.agent_session_id.clone(),
+                    tab.session_binding_nonce.clone(),
+                )
+            })
+        };
+        let Some((provider_id, cwd, session_id, binding_nonce)) = captured else {
+            return CapturedSendEvidence::default();
+        };
+        let live_binding =
+            (session_id.is_some() || binding_nonce.is_some()).then(|| SendLiveBinding {
+                session_id: session_id.clone(),
+                binding_nonce: binding_nonce.clone(),
+            });
+        let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
+            return CapturedSendEvidence {
+                anchor: None,
+                live_binding,
+                pending_jsonl_stream: None,
+            };
         };
         let structured = self
             .agent_registry
             .with_provider(&provider_id, |provider| provider.uses_structured_chat())
             .unwrap_or(false);
+        let mut pending_jsonl_stream = None;
         let window = if structured {
             let chat = self
                 .agent_registry
@@ -124,24 +159,109 @@ impl ServiceContext {
                     provider.read_structured_chat(&cwd, &session_id, None)
                 })
                 .unwrap_or_default();
-            structured_boundary(&chat)?
+            structured_boundary(&chat)
         } else {
-            let transcript_offset = self
+            let path = self
                 .agent_registry
                 .with_provider(&provider_id, |provider| {
                     provider.session_jsonl_path(&cwd, &session_id)
                 })
-                .flatten()
-                .and_then(|path| std::fs::metadata(path).ok())
-                .map_or(0, |metadata| metadata.len());
-            EvidenceWindow::Jsonl { transcript_offset }
+                .flatten();
+            let window = jsonl_boundary(path.clone());
+            if window.is_none() && path.is_some_and(|path| !path.exists()) {
+                pending_jsonl_stream = Some(PendingJsonlEvidenceStream {
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    session_id: session_id.clone(),
+                    binding_nonce,
+                });
+            }
+            window
         };
-        Some(SendEvidenceAnchor {
+        let anchor = window.map(|window| SendEvidenceAnchor {
             provider_id,
             cwd,
-            session_id,
+            session_id: session_id.clone(),
             window,
-        })
+        });
+        CapturedSendEvidence {
+            anchor,
+            live_binding,
+            pending_jsonl_stream,
+        }
+    }
+
+    pub(crate) fn ensure_live_chat_send_evidence(
+        &self,
+        tab_id: &str,
+        captured: &CapturedSendEvidence,
+    ) {
+        let Some(stream) = captured.pending_jsonl_stream.as_ref() else {
+            return;
+        };
+        const SUBSCRIPTION_ID: &str = "chat-send-evidence";
+        self.chat_registry.shutdown_tab(tab_id);
+        let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
+            self.app_handle.clone(),
+            self.mux.clone(),
+            0,
+            Some(stream.session_id.clone()),
+            stream.binding_nonce.clone(),
+            Some(self.chat_send_ledger.clone()),
+        );
+        let materialized_path = self
+            .agent_registry
+            .with_provider(&stream.provider_id, |provider| {
+                provider.session_jsonl_path(&stream.cwd, &stream.session_id)
+            })
+            .flatten();
+        let materialized_offset = materialized_path
+            .as_ref()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .map(|metadata| metadata.len());
+        if let Some(start_offset) = materialized_offset {
+            let tailer = crate::service::tab_chat::spawn_tailer(
+                crate::service::tab_chat::TailConfig {
+                    tab_id: tab_id.to_string(),
+                    provider_id: stream.provider_id.clone(),
+                    cwd: stream.cwd.clone(),
+                    session_id: stream.session_id.clone(),
+                    start_offset,
+                    poll_interval: crate::service::tab_chat::live_chat_poll_interval(),
+                },
+                self.agent_registry.clone(),
+                sink,
+            );
+            self.chat_registry.insert(
+                tab_id.to_string(),
+                stream.session_id.clone(),
+                SUBSCRIPTION_ID.to_string(),
+                tailer,
+            );
+            return;
+        }
+        if materialized_path.is_some_and(|path| path.exists()) {
+            log::warn!(
+                "[chat-send] tab={} session={} transcript boundary metadata unavailable",
+                tab_id,
+                stream.session_id
+            );
+            return;
+        }
+        let watch = crate::service::tab_chat::spawn_store_watch(
+            crate::service::tab_chat::StoreWatchConfig {
+                tab_id: tab_id.to_string(),
+                provider_id: stream.provider_id.clone(),
+                cwd: stream.cwd.clone(),
+                session_id: stream.session_id.clone(),
+                poll_interval:
+                    crate::service::tab_chat::store_watch::PENDING_STORE_WATCH_POLL_INTERVAL,
+            },
+            self.agent_registry.clone(),
+            self.chat_registry.clone(),
+            sink,
+        );
+        watch.register(&self.chat_registry, SUBSCRIPTION_ID.to_string());
     }
 
     /// Reconcile unconfirmed sends against their recorded session append
@@ -308,8 +428,27 @@ mod tests {
 
     fn fail_send(ledger: &ChatSendLedger, status: &ChatSendStatus) {
         ledger
-            .finish(&status.send_id, Err("pty_unavailable: false failure".into()))
+            .finish(
+                &status.send_id,
+                Err("pty_unavailable: false failure".into()),
+            )
             .unwrap();
+    }
+
+    #[test]
+    fn missing_jsonl_store_has_no_unbounded_evidence_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("not-materialized.jsonl");
+
+        assert_eq!(jsonl_boundary(Some(path.clone())), None);
+
+        std::fs::write(&path, b"existing-history").unwrap();
+        assert_eq!(
+            jsonl_boundary(Some(path)),
+            Some(EvidenceWindow::Jsonl {
+                transcript_offset: 16
+            })
+        );
     }
 
     #[test]
@@ -403,7 +542,7 @@ mod tests {
         // The live delta sink already consumed the turn for the oldest send.
         let live = fx
             .ledger
-            .confirm_delivered_user_turn("tab-1", "same text")
+            .confirm_delivered_user_turn("tab-1", "sess-a", "same text")
             .unwrap();
         assert_eq!(live.send_id, first.send_id);
         fail_send(&fx.ledger, &second);
@@ -430,7 +569,10 @@ mod tests {
 
         let finished = fx
             .ledger
-            .finish(&send.send_id, Err("pty_unavailable: late classification".into()))
+            .finish(
+                &send.send_id,
+                Err("pty_unavailable: late classification".into()),
+            )
             .unwrap();
         assert_eq!(finished.state, ChatSendState::Sent);
         assert_eq!(finished.error, None);
@@ -439,11 +581,54 @@ mod tests {
     #[test]
     fn sends_without_an_anchor_are_never_scanned() {
         let fx = Fixture::new();
-        let send = fx.ledger.try_start("tab-1", "deploy the fix", None).unwrap();
+        let send = fx
+            .ledger
+            .try_start("tab-1", "deploy the fix", None)
+            .unwrap();
         fail_send(&fx.ledger, &send);
         fx.append_user_turn("sess-a", "deploy the fix");
 
         assert!(fx.scan("tab-1").is_empty());
+    }
+
+    #[test]
+    fn missing_store_anchor_is_live_only_and_keeps_session_identity() {
+        let fx = Fixture::new();
+        let send = fx
+            .ledger
+            .try_start_scoped(
+                "tab-1",
+                "deploy the fix",
+                None,
+                Some(SendLiveBinding {
+                    session_id: Some("sess-a".into()),
+                    binding_nonce: Some("binding-a".into()),
+                }),
+            )
+            .unwrap();
+        fail_send(&fx.ledger, &send);
+        fx.append_user_turn("sess-a", "deploy the fix");
+
+        assert!(fx.scan("tab-1").is_empty());
+        assert!(fx
+            .ledger
+            .confirm_delivered_user_turn_scoped(
+                "tab-1",
+                "sess-other",
+                Some("binding-a"),
+                "deploy the fix",
+            )
+            .is_none());
+        let confirmed = fx
+            .ledger
+            .confirm_delivered_user_turn_scoped(
+                "tab-1",
+                "sess-a",
+                Some("binding-a"),
+                "deploy the fix",
+            )
+            .unwrap();
+        assert_eq!(confirmed.state, ChatSendState::Sent);
     }
 
     /// Honest cursor-window structured store (the `uses_structured_chat`
@@ -609,10 +794,16 @@ mod tests {
         fail_send(&fx.ledger, &send);
         fx.append_user_row("sess-other", "deploy the fix");
 
-        assert!(fx.scan("tab-1").is_empty(), "pre-send + foreign rows are not evidence");
+        assert!(
+            fx.scan("tab-1").is_empty(),
+            "pre-send + foreign rows are not evidence"
+        );
         let retained = fx.ledger.reconcile("tab-1");
         assert_eq!(retained[0].state, ChatSendState::Failed);
-        assert!(retained[0].error.is_some(), "absent evidence stays actionable");
+        assert!(
+            retained[0].error.is_some(),
+            "absent evidence stays actionable"
+        );
     }
 
     #[test]

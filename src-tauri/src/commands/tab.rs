@@ -395,6 +395,7 @@ pub fn chat_start_core(
         {
             let sink = crate::service::tab_chat::structured_sink::make_sink(
                 svc.app_handle.clone(),
+                svc.mux.clone(),
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
                 Some(svc.chat_send_ledger.clone()),
@@ -449,6 +450,7 @@ pub fn chat_start_core(
         {
             let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
+                svc.mux.clone(),
                 0,
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
@@ -505,6 +507,7 @@ pub fn chat_start_core(
     {
         let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
+            svc.mux.clone(),
             msg_count,
             Some(session_id.clone()),
             session_binding_nonce.clone(),

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 use crate::agent::chat_types::ChatMsg;
+use crate::multiplexer::commands::MuxState;
 
 pub trait StructuredSink: Send + Sync {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>);
@@ -47,6 +48,7 @@ pub fn emit_chat_msgs(
 
 pub struct TauriStructuredSink {
     app: AppHandle,
+    mux: MuxState,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
@@ -54,11 +56,15 @@ pub struct TauriStructuredSink {
 
 impl StructuredSink for TauriStructuredSink {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
-        if let Some(ledger) = self.send_ledger.as_deref() {
-            crate::service::chat_send_transaction::reconcile_delivered_turns(
-                &self.app, ledger, tab_id, &messages,
-            );
-        }
+        reconcile_current_session_turns(
+            &self.app,
+            &self.mux,
+            self.send_ledger.as_deref(),
+            tab_id,
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+            &messages,
+        );
         emit_chat_msgs(
             &self.app,
             tab_id,
@@ -72,12 +78,14 @@ impl StructuredSink for TauriStructuredSink {
 
 pub(crate) fn make_sink(
     app: AppHandle,
+    mux: MuxState,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
 ) -> Arc<dyn StructuredSink> {
     Arc::new(TauriStructuredSink {
         app,
+        mux,
         source_session_id,
         session_binding_nonce,
         send_ledger,
@@ -149,6 +157,7 @@ fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
 /// codex) and sqlite providers (opencode) share one client rendering path.
 pub struct FlattenDeltaSink {
     app: AppHandle,
+    mux: MuxState,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
@@ -169,11 +178,15 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         if out.is_empty() {
             return;
         }
-        if let Some(ledger) = self.send_ledger.as_deref() {
-            crate::service::chat_send_transaction::reconcile_delivered_turns(
-                &self.app, ledger, tab_id, &out,
-            );
-        }
+        reconcile_current_session_turns(
+            &self.app,
+            &self.mux,
+            self.send_ledger.as_deref(),
+            tab_id,
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+            &out,
+        );
         let event = format!("tab-chat-msg-{}", tab_id);
         let payload = ChatMsgEvent {
             tab_id,
@@ -192,6 +205,7 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
 
 pub(crate) fn make_flatten_sink(
     app: AppHandle,
+    mux: MuxState,
     base_start: usize,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
@@ -199,6 +213,7 @@ pub(crate) fn make_flatten_sink(
 ) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
         app,
+        mux,
         source_session_id,
         session_binding_nonce,
         send_ledger,
@@ -206,9 +221,57 @@ pub(crate) fn make_flatten_sink(
     })
 }
 
+fn reconcile_current_session_turns(
+    app: &AppHandle,
+    mux: &MuxState,
+    ledger: Option<&crate::service::chat_send_transaction::ChatSendLedger>,
+    tab_id: &str,
+    source_session_id: Option<&str>,
+    source_binding_nonce: Option<&str>,
+    messages: &[ChatMsg],
+) {
+    let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
+        return;
+    };
+    if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
+        return;
+    }
+    crate::service::chat_send_transaction::reconcile_delivered_turns(
+        app,
+        ledger,
+        tab_id,
+        source_session_id,
+        source_binding_nonce,
+        messages,
+    );
+}
+
+fn source_is_current_binding(
+    mux: &MuxState,
+    tab_id: &str,
+    source_session_id: &str,
+    source_binding_nonce: Option<&str>,
+) -> bool {
+    let current = {
+        let mux = mux.read();
+        mux.get_tab(tab_id).map(|tab| {
+            (
+                tab.agent_session_id.clone(),
+                tab.session_binding_nonce.clone(),
+            )
+        })
+    };
+    current.is_some_and(|(session_id, binding_nonce)| {
+        session_id.as_deref() == Some(source_session_id)
+            && binding_nonce.as_deref() == source_binding_nonce
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lock_hold::TimedRwLock;
+    use crate::multiplexer::state::MultiplexerState;
     use crate::service::tab_chat::chatbackend_history;
 
     #[derive(Default)]
@@ -229,6 +292,45 @@ mod tests {
             content: content.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn stale_session_sink_cannot_supply_delivery_evidence_after_rebind() {
+        let (state, tab_id) = MultiplexerState::new();
+        let mux = Arc::new(TimedRwLock::new("chat-send-binding-test", state));
+        {
+            let mut state = mux.write();
+            let tab = state.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("session-old".into());
+            tab.session_binding_nonce = Some("binding-old".into());
+        }
+
+        assert!(source_is_current_binding(
+            &mux,
+            &tab_id,
+            "session-old",
+            Some("binding-old")
+        ));
+
+        {
+            let mut state = mux.write();
+            let tab = state.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("session-new".into());
+            tab.session_binding_nonce = Some("binding-new".into());
+        }
+
+        assert!(!source_is_current_binding(
+            &mux,
+            &tab_id,
+            "session-old",
+            Some("binding-old")
+        ));
+        assert!(source_is_current_binding(
+            &mux,
+            &tab_id,
+            "session-new",
+            Some("binding-new")
+        ));
     }
 
     #[test]

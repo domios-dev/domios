@@ -47,6 +47,12 @@ pub(crate) struct SendEvidenceAnchor {
     pub(crate) window: EvidenceWindow,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SendLiveBinding {
+    pub(crate) session_id: Option<String>,
+    pub(crate) binding_nonce: Option<String>,
+}
+
 pub(crate) struct EvidenceCandidate {
     pub(crate) send_id: String,
     pub(crate) payload: String,
@@ -61,6 +67,7 @@ struct ChatSendLedgerState {
     /// correlation — never serialized back to the UI.
     payload_by_id: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
+    live_binding_by_id: HashMap<String, SendLiveBinding>,
     latest_by_tab: HashMap<String, String>,
     latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
@@ -74,6 +81,7 @@ impl Default for ChatSendLedgerState {
             by_id: HashMap::new(),
             payload_by_id: HashMap::new(),
             anchor_by_id: HashMap::new(),
+            live_binding_by_id: HashMap::new(),
             latest_by_tab: HashMap::new(),
             latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
@@ -101,6 +109,20 @@ impl ChatSendLedger {
         tab_id: &str,
         text: &str,
         anchor: Option<SendEvidenceAnchor>,
+    ) -> Result<ChatSendStatus, String> {
+        let live_binding = anchor.as_ref().map(|anchor| SendLiveBinding {
+            session_id: Some(anchor.session_id.clone()),
+            binding_nonce: None,
+        });
+        self.try_start_scoped(tab_id, text, anchor, live_binding)
+    }
+
+    pub(crate) fn try_start_scoped(
+        &self,
+        tab_id: &str,
+        text: &str,
+        anchor: Option<SendEvidenceAnchor>,
+        live_binding: Option<SendLiveBinding>,
     ) -> Result<ChatSendStatus, String> {
         let mut state = self.state.lock();
         let in_flight = state
@@ -135,6 +157,11 @@ impl ChatSendLedger {
         if let Some(anchor) = anchor {
             state.anchor_by_id.insert(status.send_id.clone(), anchor);
         }
+        if let Some(binding) = live_binding {
+            state
+                .live_binding_by_id
+                .insert(status.send_id.clone(), binding);
+        }
         while state.order.len() > MAX_RESULTS {
             let Some(position) = state.order.iter().position(|send_id| {
                 state
@@ -151,6 +178,7 @@ impl ChatSendLedger {
             state.by_id.remove(&expired);
             state.payload_by_id.remove(&expired);
             state.anchor_by_id.remove(&expired);
+            state.live_binding_by_id.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
                 .latest_failure_by_tab
@@ -172,7 +200,6 @@ impl ChatSendLedger {
             match result {
                 _ if status.state == ChatSendState::Sent => None,
                 Ok(()) => {
-                    status.state = ChatSendState::Sent;
                     status.error = None;
                     None
                 }
@@ -199,6 +226,17 @@ impl ChatSendLedger {
     pub(crate) fn confirm_delivered_user_turn(
         &self,
         tab_id: &str,
+        source_session_id: &str,
+        turn_text: &str,
+    ) -> Option<ChatSendStatus> {
+        self.confirm_delivered_user_turn_scoped(tab_id, source_session_id, None, turn_text)
+    }
+
+    pub(crate) fn confirm_delivered_user_turn_scoped(
+        &self,
+        tab_id: &str,
+        source_session_id: &str,
+        source_binding_nonce: Option<&str>,
         turn_text: &str,
     ) -> Option<ChatSendStatus> {
         let evidence = normalize_turn_evidence(turn_text);
@@ -213,6 +251,19 @@ impl ChatSendLedger {
                 state.by_id.get(*send_id).is_some_and(|status| {
                     status.tab_id == tab_id && status.state != ChatSendState::Sent
                 }) && state.payload_by_id.get(*send_id) == Some(&evidence)
+                    && state
+                        .live_binding_by_id
+                        .get(*send_id)
+                        .is_none_or(|binding| {
+                            binding
+                                .session_id
+                                .as_deref()
+                                .is_none_or(|session_id| session_id == source_session_id)
+                                && binding
+                                    .binding_nonce
+                                    .as_deref()
+                                    .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
+                        })
             })?
             .clone();
         let status = Self::mark_sent(&mut state, &send_id)?;
@@ -349,16 +400,24 @@ pub(crate) fn reconcile_delivered_turns(
     app: &tauri::AppHandle,
     ledger: &ChatSendLedger,
     tab_id: &str,
+    source_session_id: &str,
+    source_binding_nonce: Option<&str>,
     messages: &[crate::agent::chat_types::ChatMsg],
 ) {
     for msg in messages.iter().filter(|msg| msg.kind == "user") {
-        let Some(status) = ledger.confirm_delivered_user_turn(tab_id, &msg.content) else {
+        let Some(status) = ledger.confirm_delivered_user_turn_scoped(
+            tab_id,
+            source_session_id,
+            source_binding_nonce,
+            &msg.content,
+        ) else {
             continue;
         };
         log::info!(
-            "[chat-send] send_id={} tab={} confirmed by exact session turn evidence",
+            "[chat-send] send_id={} tab={} session={} confirmed by exact turn evidence",
             status.send_id,
-            status.tab_id
+            status.tab_id,
+            source_session_id
         );
         crate::api::events::emit_everywhere(app, "chat-send-status", &status);
     }
@@ -370,8 +429,14 @@ impl crate::service::ServiceContext {
         tab_id: &str,
         text: String,
     ) -> Result<ChatSendStatus, String> {
-        let anchor = self.chat_send_anchor(tab_id);
-        let pending = self.chat_send_ledger.try_start(tab_id, &text, anchor)?;
+        let evidence = self.chat_send_anchor(tab_id);
+        let pending = self.chat_send_ledger.try_start_scoped(
+            tab_id,
+            &text,
+            evidence.anchor.clone(),
+            evidence.live_binding.clone(),
+        )?;
+        self.ensure_live_chat_send_evidence(tab_id, &evidence);
         let response = pending.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
@@ -431,7 +496,7 @@ mod tests {
 
         let result = run_chat_send(&ledger, pending, "hello", |_| Ok(()));
 
-        assert_eq!(result.state, ChatSendState::Sent);
+        assert_eq!(result.state, ChatSendState::Pending);
         assert_eq!(ledger.reconcile("tab-1"), vec![result]);
     }
 
@@ -453,13 +518,21 @@ mod tests {
         let ledger = ChatSendLedger::default();
         let mut pending = Vec::new();
         for index in 0..MAX_IN_FLIGHT {
-            pending.push(ledger.try_start(&format!("tab-{index}"), "payload", None).unwrap());
+            pending.push(
+                ledger
+                    .try_start(&format!("tab-{index}"), "payload", None)
+                    .unwrap(),
+            );
         }
 
         assert!(ledger.try_start("overflow", "payload", None).is_err());
         assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT);
 
         ledger.finish(&pending[0].send_id, Ok(())).unwrap();
+        assert!(ledger.try_start("still-full", "payload", None).is_err());
+        ledger
+            .confirm_delivered_user_turn("tab-0", "session-0", "payload")
+            .unwrap();
         assert!(ledger.try_start("released", "payload", None).is_ok());
         assert_eq!(ledger.state.lock().by_id.len(), MAX_IN_FLIGHT + 1);
     }
@@ -535,7 +608,7 @@ mod tests {
         });
 
         let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "deploy the fix")
+            .confirm_delivered_user_turn("tab-1", "session-1", "deploy the fix")
             .expect("exact same-tab turn evidence confirms the failed send");
         assert_eq!(confirmed.send_id, pending.send_id);
         assert_eq!(confirmed.state, ChatSendState::Sent);
@@ -548,7 +621,7 @@ mod tests {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "restart dev", None).unwrap();
         let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "  restart dev  ")
+            .confirm_delivered_user_turn("tab-1", "session-1", "  restart dev  ")
             .expect("turn evidence may arrive before classification finishes");
         assert_eq!(confirmed.state, ChatSendState::Sent);
 
@@ -574,13 +647,60 @@ mod tests {
         });
 
         assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "different text")
+            .confirm_delivered_user_turn("tab-1", "session-1", "different text")
             .is_none());
         assert!(ledger
-            .confirm_delivered_user_turn("tab-2", "exact payload")
+            .confirm_delivered_user_turn("tab-2", "session-1", "exact payload")
             .is_none());
-        assert!(ledger.confirm_delivered_user_turn("tab-1", "   ").is_none());
+        assert!(ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "   ")
+            .is_none());
         assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Failed);
+    }
+
+    #[test]
+    fn stale_session_or_binding_delta_cannot_confirm_a_rebound_send() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger
+            .try_start_scoped(
+                "tab-1",
+                "exact payload",
+                None,
+                Some(SendLiveBinding {
+                    session_id: Some("session-new".into()),
+                    binding_nonce: Some("binding-new".into()),
+                }),
+            )
+            .unwrap();
+        ledger.finish(&pending.send_id, Ok(())).unwrap();
+
+        assert!(ledger
+            .confirm_delivered_user_turn_scoped(
+                "tab-1",
+                "session-new",
+                Some("binding-old"),
+                "exact payload",
+            )
+            .is_none());
+        assert!(ledger
+            .confirm_delivered_user_turn_scoped(
+                "tab-1",
+                "session-old",
+                Some("binding-new"),
+                "exact payload",
+            )
+            .is_none());
+        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Pending);
+
+        let confirmed = ledger
+            .confirm_delivered_user_turn_scoped(
+                "tab-1",
+                "session-new",
+                Some("binding-new"),
+                "exact payload",
+            )
+            .unwrap();
+        assert_eq!(confirmed.state, ChatSendState::Sent);
     }
 
     #[test]
@@ -590,7 +710,7 @@ mod tests {
         let second = ledger.try_start("tab-1", "same text", None).unwrap();
 
         let confirmed = ledger
-            .confirm_delivered_user_turn("tab-1", "same text")
+            .confirm_delivered_user_turn("tab-1", "session-1", "same text")
             .unwrap();
         assert_eq!(confirmed.send_id, first.send_id);
         assert!(ledger
@@ -601,11 +721,11 @@ mod tests {
             .is_some_and(|status| status.state == ChatSendState::Pending));
 
         let confirmed_second = ledger
-            .confirm_delivered_user_turn("tab-1", "same text")
+            .confirm_delivered_user_turn("tab-1", "session-1", "same text")
             .unwrap();
         assert_eq!(confirmed_second.send_id, second.send_id);
         assert!(ledger
-            .confirm_delivered_user_turn("tab-1", "same text")
+            .confirm_delivered_user_turn("tab-1", "session-1", "same text")
             .is_none());
     }
 
@@ -624,10 +744,45 @@ mod tests {
     }
 
     #[test]
+    fn transport_ok_for_rebind_window_send_defers_to_turn_evidence() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger
+            .try_start("tab-1", "Reply with exactly: REBIND-2", None)
+            .unwrap();
+        let mut writes = Vec::new();
+        let result = run_chat_send(
+            &ledger,
+            pending.clone(),
+            "Reply with exactly: REBIND-2",
+            |text| {
+                writes.push(text.to_string());
+                Ok(())
+            },
+        );
+        assert_eq!(writes.len(), 1, "payload written exactly once");
+        assert_eq!(
+            result.state,
+            ChatSendState::Pending,
+            "a successful submit before the session rebinds stays pending until turn evidence"
+        );
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "rebound-session", "Reply with exactly: REBIND-2")
+            .expect("the attributable turn confirms the held send");
+        assert_eq!(confirmed.send_id, pending.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
+        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Sent);
+    }
+
+    #[test]
     fn already_sent_deliveries_are_never_reconfirmed() {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "hello", None).unwrap();
         run_chat_send(&ledger, pending, "hello", |_| Ok(()));
-        assert!(ledger.confirm_delivered_user_turn("tab-1", "hello").is_none());
+        ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "hello")
+            .unwrap();
+        assert!(ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "hello")
+            .is_none());
     }
 }
