@@ -2,12 +2,10 @@ use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-use crate::agent::reports::ReportDetails;
 use crate::plan::{Task, TaskLaneMetadata};
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
 };
-use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::PlanError;
 use crate::service::{
     verify_worker_lane, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
@@ -146,7 +144,7 @@ fn lane_metadata_for_dispatch(
     lane
 }
 
-fn await_agent_ready(
+pub(super) fn await_agent_ready(
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
     deadline: Instant,
 ) -> Result<(), String> {
@@ -164,7 +162,7 @@ fn await_agent_ready(
     }
 }
 
-fn wait_for_tab_session(
+pub(super) fn wait_for_tab_session(
     svc: &ServiceState,
     tab_id: &str,
     deadline: Instant,
@@ -248,7 +246,7 @@ fn epoch_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn publish_startup_report(
+pub(super) fn publish_startup_report(
     svc: &ServiceState,
     parent_tab_id: &str,
     worker_tab_id: &str,
@@ -257,78 +255,73 @@ fn publish_startup_report(
     task_id: &str,
     payload: Value,
 ) {
-    let message = payload.to_string();
-    let details = ReportDetails {
-        plan_id: Some(plan_id.to_string()),
-        task_id: Some(task_id.to_string()),
-        ..Default::default()
-    };
-    let report = svc.report_store.lock().add_detailed(
+    svc.publish_worker_lifecycle_report(
         parent_tab_id,
         worker_tab_id,
         worker_title,
-        &message,
-        details,
-        None,
+        plan_id,
+        task_id,
+        payload,
     );
-    if !svc.report_store.lock().claim(&report.id) {
-        return;
-    }
-    svc.events.broadcast(
-        "agent.report",
-        json!({
-            "target_tab_id": parent_tab_id,
-            "report": report.clone(),
-        }),
-    );
-    crate::api::events::emit_everywhere(
-        &svc.app_handle,
-        "agent-report",
-        json!({
-            "target_tab_id": parent_tab_id,
-            "from_tab_id": worker_tab_id,
-            "from_title": worker_title,
-            "message": message,
-            "report": report.clone(),
-        }),
-    );
-    let envelope = crate::service::messenger::MessageEnvelope::report(worker_title, worker_tab_id);
-    if let Err(error) = svc.gateway_deliver(
-        parent_tab_id,
-        envelope,
-        &report.inject_body(),
-        crate::service::message_gateway::DeliveryClass::AgentTraffic,
-    ) {
-        svc.report_store.lock().release_delivery(&report.id);
-        log::warn!(
-            "[dispatch-startup] parent delivery failed task={} tab={}: {}",
-            task_id,
-            worker_tab_id,
-            error
-        );
-    } else {
-        svc.report_store.lock().mark_delivered(&report.id);
-    }
 }
 
-struct DispatchStartup {
-    app: AppHandle,
-    svc: ServiceState,
-    plan_id: String,
-    task_id: String,
-    tab_id: String,
-    attempt_id: String,
-    parent_tab_id: String,
-    worker_title: String,
-    original_task: Task,
-    original_plan_mode: crate::plan::PlanMode,
-    lane_for_commit: TaskLaneMetadata,
-    provenance: WorkerLaneProvenance,
-    provisioned_lane: Option<ProvisionedWorkerLane>,
+pub(super) fn arm_worker_ack_deadline(
+    svc: &ServiceState,
+    parent_tab_id: &str,
+    worker_tab_id: &str,
+    worker_title: &str,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    spawn_command: String,
+) {
+    svc.arm_worker_ack_deadline(
+        parent_tab_id,
+        worker_tab_id,
+        worker_title,
+        plan_id,
+        task_id,
+        attempt_id,
+        spawn_command,
+    );
+}
+
+#[cfg(test)]
+fn worker_ack_timeout_event(
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    attempt_id: &str,
+    spawn_command: &str,
+) -> Value {
+    crate::service::worker_ack::worker_ack_timeout_event(
+        plan_id,
+        task_id,
+        tab_id,
+        attempt_id,
+        spawn_command,
+    )
+}
+
+pub(super) struct DispatchStartup {
+    pub(super) app: AppHandle,
+    pub(super) svc: ServiceState,
+    pub(super) plan_id: String,
+    pub(super) task_id: String,
+    pub(super) tab_id: String,
+    pub(super) attempt_id: String,
+    pub(super) parent_tab_id: String,
+    pub(super) worker_title: String,
+    pub(super) original_task: Task,
+    pub(super) original_plan_mode: crate::plan::PlanMode,
+    pub(super) lane_for_commit: TaskLaneMetadata,
+    pub(super) provenance: WorkerLaneProvenance,
+    pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
+    pub(super) spawn_command: String,
 }
 
 impl DispatchStartup {
-    fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
+    pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
         let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
         let provisioned_lane = self.provisioned_lane;
         let outcome = complete_dispatch_transaction(
@@ -379,7 +372,16 @@ impl DispatchStartup {
 
         match outcome {
             Ok(evidence) => {
-                self.svc.gateway.require_worker_report(&self.tab_id);
+                arm_worker_ack_deadline(
+                    &self.svc,
+                    &self.parent_tab_id,
+                    &self.tab_id,
+                    &self.worker_title,
+                    &self.plan_id,
+                    &self.task_id,
+                    &self.attempt_id,
+                    self.spawn_command.clone(),
+                );
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
@@ -594,9 +596,8 @@ pub(super) fn resolve_dispatch_routing(
     }
 }
 
-/// Atomic: spawn a Worker tab, assign the task (in_progress + lane metadata),
-/// then deliver the brief. Any post-spawn failure reverts the task and closes
-/// the tab, so a task is never left in_progress without a live tab.
+/// Spawn a Worker and record runtime readiness without claiming ownership.
+/// Failure before ACK restores plan state and closes the spawned tab.
 pub(super) fn dispatch(
     params: &Option<Value>,
     app: &AppHandle,
@@ -807,6 +808,7 @@ pub(super) fn dispatch(
         lane_for_commit,
         provenance: initial_provenance.clone(),
         provisioned_lane,
+        spawn_command: format!("codeterm plan task dispatch {plan_id} {task_id}"),
     };
     std::thread::spawn(move || startup.run(ready_rx));
 
@@ -873,80 +875,19 @@ where
 
 /// Assemble the worker brief: body, acceptance, test plan, section links,
 /// strides (milestones — T4 enriches later), and the mandatory report command.
-pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
+pub(super) fn build_brief(
+    task: &Task,
+    sections: &[crate::service::plan::task_queries::TaskSection],
+) -> String {
     build_brief_with_personality(task, sections, task.personality.as_deref())
 }
 
 pub(super) fn build_brief_with_personality(
     task: &Task,
-    sections: &[TaskSection],
+    sections: &[crate::service::plan::task_queries::TaskSection],
     effective_personality: Option<&str>,
 ) -> String {
-    let mut out = String::new();
-    let identity = crate::service::plan::worker_identity::compose_task_worker_identity(
-        task,
-        effective_personality,
-    );
-    out.push_str(&format!("# {}\n\n", task.name));
-
-    let body = task.body.trim();
-    if !body.is_empty() {
-        out.push_str(body);
-        out.push_str("\n\n");
-    }
-
-    if let Some(intent) = task
-        .intent
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        out.push_str(&format!("## Intent\n{intent}\n\n"));
-    }
-
-    if !task.acceptance_criteria.is_empty() {
-        out.push_str("## Acceptance criteria\n");
-        for c in &task.acceptance_criteria {
-            out.push_str(&format!("- {c}\n"));
-        }
-        out.push('\n');
-    }
-
-    if let Some(correctness) = task
-        .correctness
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        out.push_str(&format!("## Correctness\n{correctness}\n\n"));
-    }
-
-    if let Some(tp) = task
-        .test_plan
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        out.push_str(&format!("## Test plan\n{tp}\n\n"));
-    }
-
-    if !sections.is_empty() {
-        out.push_str("## Sections\n");
-        for s in sections {
-            out.push_str(&format!("- {} ({})\n", s.title, s.id));
-        }
-        out.push('\n');
-    }
-
-    if !task.milestones.is_empty() {
-        out.push_str("## Strides\n");
-        for m in &task.milestones {
-            out.push_str(&format!("- [{}] {}\n", m.kind, m.text));
-        }
-        out.push('\n');
-    }
-
-    crate::service::plan::worker_identity::attach_worker_identity(&identity, &out)
+    crate::service::plan::task_brief::render_task_brief(task, sections, effective_personality, None)
 }
 
 #[cfg(test)]

@@ -125,6 +125,7 @@ impl ServiceContext {
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
+        self.prepare_worker_plan_task_spawn(&mut params)?;
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
@@ -199,6 +200,7 @@ impl ServiceContext {
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
+        self.prepare_worker_plan_task_spawn(&mut params)?;
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.

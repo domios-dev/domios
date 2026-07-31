@@ -57,6 +57,7 @@ pub mod stride_context;
 pub mod stride_log;
 pub mod tag_model;
 pub mod task_attempts;
+pub mod task_brief;
 mod task_dispatch;
 pub mod task_queries;
 mod task_remove;

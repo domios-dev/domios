@@ -10,7 +10,9 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
+use crate::service::{
+    persist_attempt_executor_identity, respawn_title_provenance, verify_worker_lane, ServiceState,
+};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -615,22 +617,50 @@ pub(super) fn dispatch(
             let draft = store
                 .build_task_respawn_draft(&id, &tid, request)
                 .map_err(plan_rpc_err)?;
+            let original_task = task.clone();
+            let original_plan_mode = plan.mode.clone();
+            let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
+                plan.project_path.clone()
+            } else {
+                plan.canonical_project_path.clone()
+            };
+            let provenance = verify_worker_lane(
+                &canonical_cwd,
+                &draft.cwd,
+                task.lane.branch.as_deref(),
+                task.lane.base.as_deref(),
+            )
+            .map_err(|error| JsonRpcError {
+                code: -32603,
+                message: format!("respawn lane verification failed: {error}"),
+                data: None,
+            })?;
+            let parent_tab_id = draft
+                .parent_tab_id
+                .clone()
+                .or_else(|| plan.owner.tab_id.clone())
+                .ok_or(JsonRpcError {
+                    code: -32602,
+                    message: "respawn requires a parent Orchestrator tab".into(),
+                    data: None,
+                })?;
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
                 title: draft.title.clone(),
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
-                parent_tab_id: draft.parent_tab_id.clone(),
+                parent_tab_id: Some(parent_tab_id.clone()),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
-                spawned_by_tab_id: draft.parent_tab_id.clone(),
+                spawned_by_tab_id: Some(parent_tab_id.clone()),
                 ..Default::default()
             };
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let spawn = svc
-                .spawn_agent_sync(spawn_params)
+                .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -657,8 +687,34 @@ pub(super) fn dispatch(
             )
             .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
+            let startup = super::plan_task_dispatch::DispatchStartup {
+                app: app.clone(),
+                svc: svc.clone(),
+                plan_id: id.clone(),
+                task_id: tid.clone(),
+                tab_id: spawn.tab_id.clone(),
+                attempt_id: created.attempt.id.clone(),
+                parent_tab_id,
+                worker_title: spawn.title.clone(),
+                original_task,
+                original_plan_mode,
+                lane_for_commit: task.lane.clone(),
+                provenance,
+                provisioned_lane: None,
+                spawn_command: format!(
+                    "codeterm plan task respawn {id} {tid} --attempt {}",
+                    draft.source_attempt.id
+                ),
+            };
+            std::thread::spawn(move || startup.run(ready_rx));
             Ok(json!({
                 "ok": true,
+                "accepted": true,
+                "state": "awaiting_dispatch_ready",
+                "readiness": {
+                    "ready": false,
+                    "awaiting_event": "dispatch_ready",
+                },
                 "plan_id": id,
                 "task_id": tid,
                 "tab_id": spawn.tab_id,

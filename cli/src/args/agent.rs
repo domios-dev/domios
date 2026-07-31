@@ -147,6 +147,18 @@ pub enum AgentAction {
     },
     /// Send a report to your parent in the hierarchy
     Report(ReportArgs),
+    /// Acknowledge receipt and ownership of the assigned task
+    Ack {
+        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+        /// Plan id (default: $CODETERM_PLAN_ID)
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
+        /// Task id (default: $CODETERM_TASK_ID)
+        #[arg(long, env = "CODETERM_TASK_ID")]
+        task: Option<String>,
+    },
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
@@ -418,6 +430,21 @@ mod tests {
                 action: AgentAction::Ledger { tab },
             } => assert_eq!(tab.as_deref(), Some("orch-1")),
             _ => panic!("expected agent ledger action"),
+        }
+    }
+
+    #[test]
+    fn ack_parses_without_verbose_payload() {
+        let cli = Cli::try_parse_from(["codeterm", "agent", "ack"]).expect("ack should parse");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Ack { tab, plan, task },
+            } => {
+                assert!(tab.is_none());
+                assert!(plan.is_none());
+                assert!(task.is_none());
+            }
+            _ => panic!("expected agent ack action"),
         }
     }
 

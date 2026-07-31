@@ -711,6 +711,7 @@ impl ServiceContext {
     /// same id on the same tab and are unaffected.
     pub fn set_agent_session_id(&self, tab_id: &str, session_id: Option<String>) {
         let session_bound = session_id.is_some();
+        let bound_session_id = session_id.clone();
         let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
             let conflict = mux
@@ -740,6 +741,22 @@ impl ServiceContext {
         }
         if session_bound {
             crate::service::general_agent::binding_wait::notify_session_bound();
+        }
+        if let Some(session_id) = bound_session_id.as_deref() {
+            match self
+                .plan_store
+                .mark_live_task_attempt_runtime_ready_for_tab(tab_id, session_id, epoch_ms())
+            {
+                Ok(Some(ready)) => crate::api::events::emit_everywhere(
+                    &self.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": ready.plan_id }),
+                ),
+                Ok(None) => {}
+                Err(error) => log::warn!(
+                    "[set_agent_session_id] task attempt readiness failed tab={tab_id}: {error}"
+                ),
+            }
         }
         self.bind_planner_session(tab_id);
         self.heal_recovery_state_if_ready();

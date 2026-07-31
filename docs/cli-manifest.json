@@ -28,6 +28,38 @@
       "args": [],
       "subcommands": [
         {
+          "name": "ack",
+          "about": "Acknowledge receipt and ownership of the assigned task",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": "Plan id (default: $CODETERM_PLAN_ID)",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task id (default: $CODETERM_TASK_ID)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "allow-spawn",
           "about": "Toggle whether a tab can spawn children",
           "aliases": [],
@@ -429,6 +461,14 @@
               "value_name": "MODEL",
               "default": null,
               "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available",
+              "aliases": []
+            },
+            {
+              "name": "non-user-facing",
+              "positional": false,
+              "value_name": "NON_USER_FACING",
+              "default": null,
+              "help": "Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications",
               "aliases": []
             },
             {

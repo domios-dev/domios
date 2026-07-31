@@ -274,11 +274,30 @@ pub async fn spawn_agent(
         manager_bootstrap: None,
         structured_prompt_server: None,
     };
+    let plan_task = params.plan_task.clone();
     let result = state
         .svc
         .spawn_agent(params, None)
         .await
         .map_err(SpawnRejection::from)?;
+    let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
+        match state.svc.arm_bound_worker_ack_deadline_for_tab(
+            &result.tab_id,
+            format!("codeterm agent spawn --plan-task {task_ref}"),
+        ) {
+            Ok(true) => None,
+            Ok(false) => Some(format!(
+                "worker ACK tracking was not armed for task-bound tab {}",
+                result.tab_id
+            )),
+            Err(error) => Some(format!(
+                "worker ACK tracking failed for tab {}: {error}",
+                result.tab_id
+            )),
+        }
+    } else {
+        None
+    };
 
     let mut resp = serde_json::json!({
         "id": result.tab_id,
@@ -297,6 +316,13 @@ pub async fn spawn_agent(
     });
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
+    }
+    if let Some(warning) = ack_warning {
+        resp["orchestration_incident"] = serde_json::json!({
+            "kind": "worker_ack_tracking_failed",
+            "impact": warning,
+            "fallback": "Inspect the existing tab once. Do not blind-resend.",
+        });
     }
     if let Some(ref fallback) = result.model_fallback {
         resp["model_fallback"] = serde_json::json!(fallback);

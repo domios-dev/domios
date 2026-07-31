@@ -3,7 +3,8 @@ use super::{
     complete_dispatch_transaction, dispatch_ready_event, dispatch_worker_identity,
     lane_metadata_for_dispatch, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
-    unqualified_model_error, verify_dispatched_task_binding, DispatchEvidence,
+    unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
+    DispatchEvidence,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -23,6 +24,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+mod worker_ack;
 
 #[test]
 fn regression_block_error_names_every_gate_in_message_and_data() {
@@ -461,100 +464,6 @@ fn dispatch_rollback_closes_tab_and_removes_provisioned_lane() {
         .unwrap()
         .trim()
         .is_empty());
-}
-
-#[test]
-fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
-    let (root, project) = git_project();
-    let resolved = resolve_dispatch_lane(
-        None,
-        project.to_str().unwrap(),
-        &TaskLaneMetadata::default(),
-    )
-    .unwrap();
-    assert!(resolved.existing.is_none());
-    let provision_count = Cell::new(0);
-    provision_count.set(provision_count.get() + 1);
-    let lane = provision_lane_for_test(&resolved.spawn_cwd, "dispatch_success").unwrap();
-    let actual = lane.verify().unwrap();
-    assert_eq!(provision_count.get(), 1);
-    assert_eq!(git_worktree_count(&project), 2);
-
-    let store = PlanStore::new_for_test(root.path());
-    let plan = store
-        .create_plan_for_team(
-            "Dispatch".into(),
-            project.display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-            "team".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    let mut approved = store.get(&plan.id).unwrap();
-    approved.mode = PlanMode::Approved;
-    store.save(&mut approved, 2).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "worker".into(),
-                lane: TaskLaneMetadata {
-                    workspace_id: Some("workspace".into()),
-                    destination: Some("master".into()),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-    let original = store.show_task(&task_id).unwrap().task;
-    let attempt_id = store
-        .begin_task_dispatch(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            "Ada",
-            lane_metadata_for_dispatch(&original.lane, &actual),
-            4,
-        )
-        .unwrap();
-    let starting = store.show_task(&task_id).unwrap().task;
-    let starting_attempt = starting.execution_attempts.last().unwrap();
-    assert_eq!(starting.status, TaskStatus::InProgress);
-    assert_eq!(starting.status_label.as_deref(), Some("starting"));
-    assert_eq!(starting_attempt.id, attempt_id);
-    assert_eq!(starting_attempt.session_id, None);
-
-    store
-        .finish_task_dispatch(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            &attempt_id,
-            "session-worker",
-            lane_metadata_for_dispatch(&original.lane, &actual),
-            5,
-        )
-        .unwrap();
-
-    let task = store.show_task(&task_id).unwrap().task;
-    let attempt = task.execution_attempts.last().unwrap();
-    assert_eq!(task.status, TaskStatus::InProgress);
-    assert_eq!(task.status_label, None);
-    assert_eq!(
-        task.lane.worktree_path.as_deref(),
-        Some(actual.worktree_path.as_str())
-    );
-    assert_eq!(task.lane.branch.as_deref(), Some(actual.branch.as_str()));
-    assert_eq!(attempt.worktree_path, task.lane.worktree_path);
-    assert_eq!(attempt.branch, task.lane.branch);
-    assert_eq!(attempt.base, task.lane.base);
-    assert_eq!(attempt.destination, task.lane.destination);
-    assert_eq!(attempt.session_id.as_deref(), Some("session-worker"));
-    assert_eq!(task.lane.workspace_id.as_deref(), Some("workspace"));
-    lane.cleanup().unwrap();
 }
 
 #[test]
@@ -1147,6 +1056,7 @@ fn launched_worker_prompt_orders_task_identity_before_context_and_commands() {
     let body = prompt.find("Keep the task body complete.").unwrap();
     let intent = prompt.find("## Intent").unwrap();
     let correctness = prompt.find("## Correctness").unwrap();
+    let ack = prompt.find("codeterm agent ack").unwrap();
     let report = prompt
         .find("codeterm agent report --status in_review")
         .unwrap();
@@ -1156,7 +1066,7 @@ fn launched_worker_prompt_orders_task_identity_before_context_and_commands() {
 
     assert!(identity < context && context < body);
     assert!(body < intent && intent < correctness);
-    assert!(correctness < report && report < fallback);
+    assert!(correctness < ack && ack < report && report < fallback);
     assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
 

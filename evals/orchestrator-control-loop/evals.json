@@ -38,6 +38,18 @@
         "Enqueues and claims independent QA with `codeterm plan qa queue --task` and `codeterm plan qa next --claim`",
         "Uses `codeterm plan qa pass` only after the independent QA command"
       ]
+    },
+    {
+      "id": 4,
+      "name": "worker-start-requires-ack",
+      "prompt": "I dispatched a task. CodeTerm pushed dispatch_ready, but the Worker has not acknowledged yet. Explain what state you record and what you do if no acknowledgement arrives within the bounded deadline.",
+      "expected_output": "Keeps the task out of in_progress until worker_ack and handles worker_ack_timeout with one inspection rather than polling or duplicate dispatch.",
+      "expectations": [
+        "Treats `dispatch_ready` as runtime binding only and does not mark the task started yet",
+        "States that only pushed `worker_ack` moves the task to in_progress",
+        "States that `worker_ack_timeout` requires one inspection of the existing tab",
+        "Does NOT poll, blindly resend, or duplicate-dispatch"
+      ]
     }
   ]
 }

@@ -147,7 +147,10 @@ fn planner_profile_uses_planner_suffix() {
 fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
     let brief = crate::service::plan::worker_identity::attach_worker_identity(
         "You are Hopper — executor for: repair delivery",
-        "# Repair delivery\n\nFix the ledger.",
+        &format!(
+            "# Repair delivery\n\nFix the ledger.\n\n{}",
+            crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION
+        ),
     );
     let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
     let identity = task.find("You are Hopper").unwrap();
@@ -156,6 +159,7 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
         .unwrap();
     let assignment = task.find("## Assignment").unwrap();
     let brief = task.find("# Repair delivery").unwrap();
+    let ack = task.find("codeterm agent ack").unwrap();
     let report = task
         .find("codeterm agent report --status in_review")
         .unwrap();
@@ -165,7 +169,7 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
 
     assert!(identity < context);
     assert!(context < assignment && assignment < brief);
-    assert!(brief < report && report < fallback);
+    assert!(brief < ack && ack < report && report < fallback);
     assert!(!task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
     assert!(task.ends_with(

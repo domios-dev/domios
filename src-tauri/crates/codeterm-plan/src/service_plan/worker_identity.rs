@@ -1,6 +1,7 @@
 use crate::plan::Task;
 
 pub const WORKER_IDENTITY_END: &str = "<!-- codeterm-worker-identity-end -->";
+pub const WORKER_ACK_INSTRUCTION: &str = "Before inspecting files or narrating work, run `codeterm agent ack`. It confirms task ownership and does not replace the final report.";
 
 fn trimmed(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())

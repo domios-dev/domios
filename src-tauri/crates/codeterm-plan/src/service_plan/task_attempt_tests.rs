@@ -717,6 +717,10 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
     );
     assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
+    let ack = draft.task_prompt.find("codeterm agent ack").unwrap();
+    let report = draft.task_prompt.find("When done, run exactly:").unwrap();
+    assert!(draft.task_prompt.find("Original task body:").unwrap() < ack);
+    assert!(ack < report);
 }
 
 #[test]
@@ -766,6 +770,10 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     );
     assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(prompt.matches("You are Hopper.").count(), 1);
+    let ack = prompt.find("codeterm agent ack").unwrap();
+    let report = prompt.find("When done, run exactly:").unwrap();
+    assert!(prompt.find("Task body:").unwrap() < ack);
+    assert!(ack < report);
 }
 
 #[test]

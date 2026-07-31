@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -19,6 +19,14 @@ The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm 
 #### `codeterm agent`
 
 Agent hierarchy management
+
+#### `codeterm agent ack`
+
+Acknowledge receipt and ownership of the assigned task
+
+- `--plan` — Plan id (default: $CODETERM_PLAN_ID)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--task` — Task id (default: $CODETERM_TASK_ID)
 
 #### `codeterm agent allow-spawn`
 
@@ -113,6 +121,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
+- `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent-tab` — Parent tab ID (for Workers)
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator

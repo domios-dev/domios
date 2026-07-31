@@ -625,6 +625,22 @@ pub async fn task_respawn(
         epoch_ms(),
     )
     .map_err(plan_err)?;
+    let parent_tab_id = created
+        .attempt
+        .orchestrator_tab_id
+        .as_deref()
+        .or(created.attempt.parent_tab_id.as_deref());
+    if let Some(parent_tab_id) = parent_tab_id {
+        state.svc.arm_worker_ack_deadline(
+            parent_tab_id,
+            &spawn.tab_id,
+            &spawn.title,
+            &id,
+            &tid,
+            &created.attempt.id,
+            format!("codeterm plan task respawn {id} {tid}"),
+        );
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "ok": true,
