@@ -73,7 +73,7 @@ impl<'a> ReadinessScope<'a> {
 
 #[allow(clippy::type_complexity)]
 pub fn enrich_ready_report(
-    lane_worktree: Option<&Path>,
+    task_scope: Option<&crate::cmd::report_lane::TaskReadinessScope>,
     status: Option<ReportStatusArg>,
     branch: Option<String>,
     sha: Option<String>,
@@ -81,6 +81,8 @@ pub fn enrich_ready_report(
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
+    let lane_worktree = task_scope.and_then(|scope| scope.worktree_path.as_deref());
+    let base = base.or_else(|| task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: Path::new("."),
