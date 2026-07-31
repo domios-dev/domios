@@ -444,6 +444,7 @@ pub(crate) fn build_tab_summary_json(
                 "status": tab.agent_state.as_ref().map(|state| state.state),
                 "role": tab.role,
                 "backing_kind": backing_kind,
+                "pending_delivery": tab.pending_delivery,
                 "focused": focused_id == Some(tab.id.as_str()),
             }))
         })
@@ -966,6 +967,45 @@ mod tests {
         assert!(tab.get("session_binding_nonce").is_none());
         assert!(tab.get("agent_state").is_none());
         assert!(tab.get("model_fallback").is_none());
+    }
+
+    #[test]
+    fn pending_delivery_survives_persistence_and_compact_projection() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
+        use crate::session::store::SessionStore;
+
+        let (mut state, tab_id) = MultiplexerState::new();
+        let mut pending = PendingDeliveryRecord::new(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            PendingDeliveryChannel::InteractiveInput,
+        );
+        pending.mark_unconfirmed();
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending.clone());
+
+        let snapshot = state.to_session_snapshot();
+        let temp = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(temp.path().to_path_buf());
+        store.save(&snapshot).unwrap();
+        let persisted = store.load_last().unwrap().unwrap();
+        let restored = MultiplexerState::from_session_snapshot(&persisted);
+        let restored_snapshot = restored.snapshot();
+        let workspace_id = restored_snapshot.workspaces[0].id.as_str();
+        let projection =
+            build_tab_summary_json(&restored_snapshot, Some(workspace_id), false, false);
+        let projected = projection
+            .iter()
+            .find(|tab| tab["id"].as_str() == Some(tab_id.as_str()))
+            .unwrap();
+
+        assert_eq!(
+            restored.get_tab(&tab_id).unwrap().pending_delivery,
+            Some(pending.clone())
+        );
+        assert_eq!(
+            projected.get("pending_delivery"),
+            Some(&serde_json::to_value(pending).unwrap())
+        );
     }
 
     #[test]

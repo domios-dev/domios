@@ -98,6 +98,10 @@ pub(crate) struct SpawnAgentBody {
     nudge_cooldown_secs: Option<u64>,
     max_actions_per_tick: Option<u32>,
     activate: Option<bool>,
+    /// Audience for input-request notifications. `automation` declares a tab
+    /// (bench/probe) whose prompts have no human owner and must never bell.
+    #[serde(default)]
+    audience: crate::multiplexer::types::TabAudience,
 }
 
 /// Orchestrator-side remote (cross-mesh) workers. `?tab=<id>` filters to one
@@ -266,6 +270,7 @@ pub async fn spawn_agent(
         nudge_cooldown_secs: body.nudge_cooldown_secs,
         max_actions_per_tick: body.max_actions_per_tick,
         activate: body.activate,
+        audience: body.audience,
         manager_bootstrap: None,
         structured_prompt_server: None,
     };

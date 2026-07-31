@@ -93,6 +93,8 @@ pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     }
 }
 
+mod delete;
+pub use delete::{mem_delete, mem_forget_area};
 #[cfg(test)]
 mod tests;
 
@@ -167,12 +169,15 @@ pub async fn mem_save(
     let body_clone = item.body.clone();
     let kind_for_extract = item.kind;
     let changed_by = changed_by_from_headers(&headers);
-    let id = crate::mem::store::with_changed_by(&changed_by, || {
-        if body.replace {
-            state.svc.mem.save_replace(item)
-        } else {
-            state.svc.mem.save(item)
-        }
+    let worker_id = super::worker_id_from_headers(&headers);
+    let id = crate::mem::store::with_write_worker(worker_id, || {
+        crate::mem::store::with_changed_by(&changed_by, || {
+            if body.replace {
+                state.svc.mem.save_replace(item)
+            } else {
+                state.svc.mem.save(item)
+            }
+        })
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
@@ -198,34 +203,6 @@ pub async fn mem_save(
     }
 
     Ok(Json(serde_json::json!({ "id": id })))
-}
-
-pub async fn mem_delete(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let changed_by = changed_by_from_headers(&headers);
-    let removed = crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.delete(&id))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    emit_activity(&state, &headers, "delete", vec![id.clone()]);
-    Ok(Json(serde_json::json!({ "deleted": removed })))
-}
-
-pub async fn mem_forget_area(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(area): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let count = state
-        .svc
-        .mem
-        .delete_by_area(&area)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    emit_activity(&state, &headers, "delete", vec![format!("area:{}", area)]);
-    Ok(Json(serde_json::json!({ "deleted": count, "area": area })))
 }
 
 #[derive(Deserialize, Default)]
@@ -316,8 +293,10 @@ pub async fn mem_update(
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
     let updated =
-        crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        crate::mem::store::with_write_worker(super::worker_id_from_headers(&headers), || {
+            crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
+        })
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
     }

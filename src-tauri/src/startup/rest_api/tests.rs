@@ -460,7 +460,7 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
     let control = RestApiControl::new();
     let mut recovery_events = control.take_recovery_events().unwrap();
     let generation = control.begin_generation();
-    control.listener_bound(generation);
+    control.listener_bound(generation, "127.0.0.1:7686".parse().unwrap());
     control.mark_listening(generation).unwrap();
     let mut claims = crate::liveness::RecoveryResyncClaims::default();
 
@@ -486,4 +486,66 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
             "one recovery transition must enqueue exactly one event"
         );
     }
+}
+
+#[tokio::test]
+async fn pending_bind_discloses_the_live_socket_while_config_diverges() {
+    let address = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let control = Arc::new(RestApiControl::new());
+    let mut status = control.subscribe_status();
+    let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
+    wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
+
+    assert_eq!(control.bound_addr(), Some(address));
+    assert_eq!(
+        control.pending_bind(&address.to_string()),
+        None,
+        "a config value the live socket already serves is applied, not pending"
+    );
+
+    let diverged = format!("127.0.0.1:{}", address.port() + 1);
+    let pending = control
+        .pending_bind(&diverged)
+        .expect("a configured bind the live socket does not serve must be disclosed as pending");
+    assert_eq!(pending.live, address.to_string());
+    assert_eq!(pending.configured, diverged);
+    task.abort();
+}
+
+#[tokio::test]
+async fn unbindable_configured_value_is_disclosed_not_assumed_applied() {
+    let address = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let control = Arc::new(RestApiControl::new());
+    let mut status = control.subscribe_status();
+    let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
+    wait_for_status(&control, &mut status, |s| {
+        s.phase == RestApiPhase::Listening
+    })
+    .await;
+
+    let pending = control
+        .pending_bind(&format!("not-an-address:{}", address.port()))
+        .expect("a configured value that cannot be proven live must never read back as applied");
+    assert_eq!(pending.live, address.to_string());
+    task.abort();
+}
+
+#[tokio::test]
+async fn pending_bind_is_silent_without_a_bound_listener() {
+    let control = RestApiControl::new();
+    assert_eq!(control.bound_addr(), None);
+    assert_eq!(
+        control.pending_bind("127.0.0.1:7686"),
+        None,
+        "with no listener owned there is no live bind to contradict"
+    );
 }

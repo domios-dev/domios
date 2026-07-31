@@ -663,16 +663,10 @@ pub fn run() {
             let plan_turn_counter =
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());
             plan_store.bind_turn_counter(plan_turn_counter.clone());
-            let live_pending_delivery_digests = states
-                .mux
-                .read()
-                .snapshot()
-                .tabs
-                .values()
-                .filter_map(|tab| tab.pending_delivery.as_ref())
-                .filter(|record| record.state() == crate::multiplexer::types::PendingDeliveryState::Pending)
-                .map(|record| record.content_digest.clone())
-                .collect();
+            let live_pending_delivery_digests =
+                crate::service::pending_delivery_payloads::live_payload_digests(
+                    &states.mux.read().snapshot(),
+                );
             let pending_delivery_payloads = Arc::new(
                 crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
                     &crate::paths::data_dir(),
@@ -788,6 +782,12 @@ pub fn run() {
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state
+                .mem
+                .extraction_authority()
+                .set_cancel_sink(Arc::new(crate::mem_host::WorkerCancelSink(
+                    service_state.clone(),
+                )));
             {
                 let config = states.config.lock().clone();
                 if config.general_agent.enabled && config.general_agent.first_run_complete {

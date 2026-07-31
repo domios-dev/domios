@@ -1,42 +1,56 @@
-//! WHAT: the turn transition lands on the status signal, not on a repaint.
-//! WHY: three acceptance axes were observable live and confirmation still refused.
-//! ORACLE: the recorded waits name which signal the acknowledgement path sampled.
+//! Status wakes re-evaluate attributable turn evidence after the composer drains.
+//! Recorded generations prove irrelevant status churn cannot acknowledge or spin.
 use super::tests::{opts, tui};
 use super::*;
 use crate::service::chat_send_transaction::{run_chat_send, ChatSendLedger, ChatSendState};
 use crate::service::delivery_error::DeliveryError;
 use crate::service::inject_verify::InjectionResult;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 const PAYLOAD: &str = "Reply with exactly this token and nothing else: MARKER-1";
 const RESPONSE_MARKER: &str = "● MARKER-1";
 
-/// The live trace: the payload lands as one turn, the response marker renders,
-/// the composer returns to baseline, and the screen then goes quiet. The turn
-/// transition is published afterwards, on the status signal only.
+/// Models a quiet screen after the composer drains, with the next status wake
+/// either starting an attributable turn or carrying unrelated lifecycle churn.
 struct QuietScreenAfterTurnTransition {
     generation: Cell<u64>,
     turn_generation: Cell<u64>,
+    turn_started: Cell<bool>,
     draft_visible: Cell<bool>,
     payload_writes: Cell<usize>,
     submit_key_writes: Cell<usize>,
     screen_waits: Cell<usize>,
-    turn_waits: Cell<usize>,
-    publishes_turn_transition: bool,
+    turn_waits: RefCell<Vec<(u64, Instant)>>,
+    status_wakes_remaining: Cell<usize>,
+    starts_turn_on_wake: bool,
 }
 
 impl QuietScreenAfterTurnTransition {
-    fn new(publishes_turn_transition: bool) -> Self {
+    fn with_status_wakes(status_wakes: usize, starts_turn_on_wake: bool) -> Self {
         Self {
             generation: Cell::new(0),
             turn_generation: Cell::new(0),
+            turn_started: Cell::new(false),
             draft_visible: Cell::new(false),
             payload_writes: Cell::new(0),
             submit_key_writes: Cell::new(0),
             screen_waits: Cell::new(0),
-            turn_waits: Cell::new(0),
-            publishes_turn_transition,
+            turn_waits: RefCell::new(Vec::new()),
+            status_wakes_remaining: Cell::new(status_wakes),
+            starts_turn_on_wake,
         }
+    }
+
+    fn starting_turn() -> Self {
+        Self::with_status_wakes(1, true)
+    }
+
+    fn no_status_change() -> Self {
+        Self::with_status_wakes(0, false)
+    }
+
+    fn irrelevant_status_then_timeout() -> Self {
+        Self::with_status_wakes(1, false)
     }
 }
 
@@ -64,23 +78,28 @@ impl SubmitTransport for QuietScreenAfterTurnTransition {
         false
     }
 
-    /// The paste repaint already marked the tab as working, exactly as the live
-    /// tracker does, so a fresh-turn transition can never be the evidence.
     fn turn_started(&self) -> bool {
-        true
+        self.turn_started.get()
     }
 
     fn turn_generation(&self) -> u64 {
         self.turn_generation.get()
     }
 
-    fn wait_turn_change(&self, turn_generation: u64, _deadline: Instant) -> bool {
-        self.turn_waits.set(self.turn_waits.get() + 1);
-        if !self.publishes_turn_transition {
+    fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
+        self.turn_waits
+            .borrow_mut()
+            .push((turn_generation, deadline));
+        if self.status_wakes_remaining.get() == 0 {
             return false;
         }
+        self.status_wakes_remaining
+            .set(self.status_wakes_remaining.get() - 1);
         if self.turn_generation.get() == turn_generation {
             self.turn_generation.set(turn_generation + 1);
+        }
+        if self.starts_turn_on_wake {
+            self.turn_started.set(true);
         }
         true
     }
@@ -104,8 +123,8 @@ impl SubmitTransport for QuietScreenAfterTurnTransition {
 }
 
 #[test]
-fn three_acceptance_axes_reach_confirmation_through_the_turn_signal() {
-    let transport = QuietScreenAfterTurnTransition::new(true);
+fn three_acceptance_axes_confirm_the_submission_through_the_turn_signal() {
+    let transport = QuietScreenAfterTurnTransition::starting_turn();
     let result = submit(&transport).expect("acceptance was observable");
 
     assert!(result.submit_observed);
@@ -116,7 +135,7 @@ fn three_acceptance_axes_reach_confirmation_through_the_turn_signal() {
         .observe()
         .is_some_and(|state| state.tail.contains(RESPONSE_MARKER)));
     assert_eq!(
-        transport.turn_waits.get(),
+        transport.turn_waits.borrow().len(),
         1,
         "the turn transition must be sampled on its own signal"
     );
@@ -124,12 +143,30 @@ fn three_acceptance_axes_reach_confirmation_through_the_turn_signal() {
 
 #[test]
 fn a_turn_that_never_advances_stays_unconfirmed() {
-    let transport = QuietScreenAfterTurnTransition::new(false);
+    let transport = QuietScreenAfterTurnTransition::no_status_change();
     let error = submit(&transport).expect_err("a drained composer alone is not acceptance");
 
     assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
     assert_eq!(transport.payload_writes.get(), 1);
     assert!(transport.submit_key_writes.get() <= MAX_SUBMIT_KEY_WRITES);
+}
+
+#[test]
+fn irrelevant_status_transition_does_not_acknowledge_or_spin_submission() {
+    let transport = QuietScreenAfterTurnTransition::irrelevant_status_then_timeout();
+    let error = submit(&transport).expect_err("status churn is wake-only");
+    let waits = transport.turn_waits.borrow();
+
+    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
+    assert_eq!(
+        waits.iter().map(|(generation, _)| *generation).collect::<Vec<_>>(),
+        vec![0, 1],
+        "the second wait must advance past the irrelevant status generation"
+    );
+    assert_eq!(
+        waits[0].1, waits[1].1,
+        "an irrelevant wake keeps the original failure deadline"
+    );
 }
 
 /// Mirrors the production boundary: a submit that required acknowledgement and
@@ -145,13 +182,28 @@ fn submit(transport: &QuietScreenAfterTurnTransition) -> Result<InjectionResult,
 fn ledger_send(publishes_turn_transition: bool) -> (ChatSendState, Option<String>) {
     let ledger = ChatSendLedger::default();
     let pending = ledger.try_start("tab-1", PAYLOAD, None).unwrap();
-    let transport = QuietScreenAfterTurnTransition::new(publishes_turn_transition);
+    let transport = if publishes_turn_transition {
+        QuietScreenAfterTurnTransition::starting_turn()
+    } else {
+        QuietScreenAfterTurnTransition::no_status_change()
+    };
     let status = run_chat_send(&ledger, pending, PAYLOAD, |_| {
         submit(&transport)
             .map(|_| ())
             .map_err(|error| DeliveryError::from_injection("tab-1", error))
     });
     assert_eq!(transport.payload_writes.get(), 1);
+    if publishes_turn_transition {
+        assert_eq!(
+            status.state,
+            ChatSendState::Pending,
+            "transport acknowledgement waits for exact turn evidence"
+        );
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", PAYLOAD)
+            .unwrap();
+        return (confirmed.state, confirmed.error);
+    }
     (status.state, status.error)
 }
 

@@ -40,7 +40,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 12. **List tabs / hierarchy**: `codeterm tab list` (workspace tree, sub-agents nested; `--agents` filters to agent tabs)
 13. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent-tab ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab; task delivery is provider-owned and is not an inter-tab `-=-codeterm:tab...-=-` message)
 14. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
-15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent ID --task "work"`
+15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab ID --task "work"`
 16. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * * *" --task "Review TODOs"` (uses `$CODETERM_WORKSPACE_ID` by default; add `--once` for oneshot: `--schedule "in 30m" --once`)
 17. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
 18. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
@@ -206,13 +206,13 @@ The `task` field is baked into the launch command via the `-p` flag, so the agen
 
 ```bash
 # Spawn a Worker under the Orchestrator
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CODETERM_TAB_ID --task "run tests"
+codeterm agent spawn claude --title "Worker-1" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
 
 # Spawn defaults to claude if no agent specified
-codeterm agent spawn --title "Helper" --role Worker --parent $CODETERM_TAB_ID
+codeterm agent spawn --title "Helper" --role Worker --parent-tab $CODETERM_TAB_ID
 
 # Cross-workspace spawn
-codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent $CODETERM_TAB_ID
+codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab $CODETERM_TAB_ID
 ```
 
 Returns: tab_id, tab_id, pty_id, agent, title, role.
@@ -252,4 +252,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

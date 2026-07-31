@@ -2,6 +2,10 @@
 
 use crate::data_dir_name;
 
+use super::compat::{
+    dialect_from_identify, request_for_dialect, response_for_dialect, MeshApiDialect,
+};
+
 /// A logical tab send (POST `.../send`) — the only relay shape that gets a
 /// delivery id for at-most-once dedupe on the target.
 pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
@@ -65,7 +69,6 @@ pub(crate) fn resolve_peer_url(
     peer_api_url(peer)
 }
 
-/// Send a relay envelope to a peer's /api/mesh/relay and return the parsed JSON response.
 pub(crate) fn relay_call(
     http: &reqwest::blocking::Client,
     peer_url: &str,
@@ -173,20 +176,17 @@ pub fn mesh_relay_fetch_json(
             std::process::exit(1);
         }
     };
-    match relay_call(http, &peer_url, &signed_token, method, path, body) {
-        Ok(val) => {
-            if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
-                if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-                    eprintln!("Error: {}", err);
-                    std::process::exit(1);
-                }
-            }
-            val.get("data").cloned().unwrap_or(serde_json::Value::Null)
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
+    match perform_compatible_mesh_relay_call(
+        http,
+        &peer_url,
+        &signed_token,
+        target,
+        method,
+        path,
+        body,
+    ) {
+        Ok(val) => val,
+        Err(failure) => failure.print_and_exit(false),
     }
 }
 
@@ -319,6 +319,53 @@ pub(crate) fn perform_mesh_relay_call(
     classify_relay_response(peer_name, status, &bytes)
 }
 
+fn perform_compatible_mesh_relay_call(
+    http: &reqwest::blocking::Client,
+    peer_url: &str,
+    signed_token: &str,
+    peer_name: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let dialect = if path == "/api/identify" {
+        MeshApiDialect::Current
+    } else {
+        let identify = perform_mesh_relay_call(
+            http,
+            peer_url,
+            signed_token,
+            peer_name,
+            "GET",
+            "/api/identify",
+            None,
+        )?;
+        dialect_from_identify(&identify)
+    };
+    let request_token = if path == "/api/identify" {
+        signed_token.to_string()
+    } else {
+        crate::read_mesh_signed_token().ok_or_else(|| {
+            MeshSpawnFailure::new(
+                peer_name,
+                "cannot sign mesh request after peer contract preflight",
+                "restore this machine's mesh identity, then retry",
+            )
+        })?
+    };
+    let (path, body) = request_for_dialect(dialect, path, body);
+    perform_mesh_relay_call(
+        http,
+        peer_url,
+        &request_token,
+        peer_name,
+        method,
+        &path,
+        body.as_deref(),
+    )
+    .map(|value| response_for_dialect(dialect, value))
+}
+
 /// Resolve a peer (refreshing once on miss) and mint a signed request token —
 /// shared by every relay entry point.
 fn resolve_peer_for_relay(
@@ -385,7 +432,7 @@ pub(crate) fn mesh_relay_invoke_result(
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
     let (peer_url, signed_token) = resolve_peer_for_relay(http, base, token, target)?;
-    perform_mesh_relay_call(http, &peer_url, &signed_token, target, method, path, body)
+    perform_compatible_mesh_relay_call(http, &peer_url, &signed_token, target, method, path, body)
 }
 
 /// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
@@ -523,7 +570,7 @@ pub(crate) fn spawn_and_maybe_register_at_resolved_peer(
     spawn_body: &serde_json::Value,
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let data = perform_mesh_relay_call(
+    let data = perform_compatible_mesh_relay_call(
         http,
         peer_url,
         signed_token,

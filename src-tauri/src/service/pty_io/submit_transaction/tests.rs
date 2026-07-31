@@ -237,23 +237,21 @@ impl ComposerRedrawWithoutTurn {
     }
 }
 
-struct CompletedTurnBetweenObservations {
+struct ClearedComposerWithoutObservedTurn {
     generation: Cell<u64>,
-    turn_generation: Cell<u64>,
     draft_visible: Cell<bool>,
 }
 
-impl CompletedTurnBetweenObservations {
+impl ClearedComposerWithoutObservedTurn {
     fn new() -> Self {
         Self {
             generation: Cell::new(0),
-            turn_generation: Cell::new(0),
             draft_visible: Cell::new(false),
         }
     }
 }
 
-impl SubmitTransport for CompletedTurnBetweenObservations {
+impl SubmitTransport for ClearedComposerWithoutObservedTurn {
     fn observe(&self) -> Option<Observation> {
         Some(Observation { tail: "> ".into() })
     }
@@ -274,10 +272,6 @@ impl SubmitTransport for CompletedTurnBetweenObservations {
         false
     }
 
-    fn turn_generation(&self) -> u64 {
-        self.turn_generation.get()
-    }
-
     fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
         self.draft_visible.set(true);
         self.generation.set(self.generation.get() + 1);
@@ -286,7 +280,6 @@ impl SubmitTransport for CompletedTurnBetweenObservations {
 
     fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
         self.draft_visible.set(false);
-        self.turn_generation.set(self.turn_generation.get() + 2);
         self.generation.set(self.generation.get() + 1);
         Ok(())
     }
@@ -443,7 +436,6 @@ mod fast_turn {
 
     struct SettlesBeforeFirstWait {
         generation: Cell<u64>,
-        turn_generation: Cell<u64>,
         draft_visible: Cell<bool>,
         wait_calls: Cell<usize>,
         submit_key_writes: Cell<usize>,
@@ -453,7 +445,6 @@ mod fast_turn {
         fn new() -> Self {
             Self {
                 generation: Cell::new(0),
-                turn_generation: Cell::new(0),
                 draft_visible: Cell::new(false),
                 wait_calls: Cell::new(0),
                 submit_key_writes: Cell::new(0),
@@ -480,17 +471,12 @@ mod fast_turn {
                 return false;
             }
             self.draft_visible.set(false);
-            self.turn_generation.set(self.turn_generation.get() + 1);
             self.generation.set(self.generation.get() + 1);
             true
         }
 
         fn turn_started(&self) -> bool {
             false
-        }
-
-        fn turn_generation(&self) -> u64 {
-            self.turn_generation.get()
         }
 
         fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
@@ -506,14 +492,14 @@ mod fast_turn {
     }
 
     #[test]
-    fn settled_turn_before_first_wait_return_is_acknowledged() {
+    fn settled_screen_without_observed_turn_stays_unconfirmed() {
         let io = SettlesBeforeFirstWait::new();
         let result = run(&io, "fast-turn", true, tui(), opts()).unwrap();
 
-        assert_eq!(io.wait_calls.get(), 1);
+        assert!(io.wait_calls.get() >= 1);
         assert_eq!(io.submit_key_writes.get(), 1);
-        assert!(result.submit_observed);
-        assert!(!result.submit_anomaly);
+        assert!(!result.submit_observed);
+        assert!(result.submit_anomaly);
     }
 }
 
@@ -579,11 +565,6 @@ impl SubmitTransport for IndistinguishableTrace {
         false
     }
 
-    fn turn_generation(&self) -> u64 {
-        self.record("turn_generation:0".into());
-        0
-    }
-
     fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
         self.payload_writes.set(self.payload_writes.get() + 1);
         self.draft_visible.set(true);
@@ -639,17 +620,18 @@ mod bounded_recovery {
 
         assert_eq!(io.payload_writes.get(), 1);
         assert!(io.submit_key_writes.get() <= MAX_SUBMIT_KEY_WRITES);
-        assert_eq!(io.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
+        // The draft left the composer without turn evidence: ambiguous, so no
+        // blind re-keys — recovery fires only while the draft is still parked.
+        assert_eq!(io.submit_key_writes.get(), 1);
         assert!(!result.submit_observed);
         assert!(result.submit_anomaly);
     }
-
 }
 
 #[test]
-fn completed_tui_turn_between_observations_confirms_submission() {
+fn cleared_tui_composer_without_observed_turn_stays_unconfirmed() {
     let result = run(
-        &CompletedTurnBetweenObservations::new(),
+        &ClearedComposerWithoutObservedTurn::new(),
         "fast opencode turn",
         true,
         tui(),
@@ -657,8 +639,8 @@ fn completed_tui_turn_between_observations_confirms_submission() {
     )
     .unwrap();
 
-    assert!(result.submit_observed);
-    assert!(!result.submit_anomaly);
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
 }
 
 #[test]

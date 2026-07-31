@@ -37,6 +37,8 @@ pub struct InjectionResult {
     /// The submit needed the bounded recovery path after paste or turn evidence
     /// was missed. Success still required the provider turn transition.
     pub submit_anomaly: bool,
+    /// Submit-key writes issued by this transaction (0 when no Enter was sent).
+    pub submit_key_writes: usize,
     pub elapsed: Duration,
 }
 
@@ -352,6 +354,7 @@ mod tests {
             echo_observed: true,
             submit_observed: false,
             submit_anomaly: false,
+            submit_key_writes: 1,
             elapsed: Duration::ZERO,
         };
         assert!(matches!(
@@ -367,6 +370,7 @@ mod tests {
             echo_observed: true,
             submit_observed: false,
             submit_anomaly: true,
+            submit_key_writes: 1,
             elapsed: Duration::ZERO,
         };
         let accepted = result

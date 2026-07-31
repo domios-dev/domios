@@ -503,6 +503,10 @@ impl ScreenState {
         signal
     }
 
+    pub fn pty_generation(&self, pty_id: &str) -> Option<u64> {
+        self.pty_generations.get(pty_id).copied()
+    }
+
     pub fn arm_screen_change_signal(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
         self.screen_change_signals
             .entry(pty_id.to_string())
