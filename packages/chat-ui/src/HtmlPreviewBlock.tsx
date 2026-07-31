@@ -27,6 +27,12 @@ if(window.ResizeObserver){new ResizeObserver(post).observe(document.documentElem
 })();<\/script>`;
 
 type ThemeVars = { bg: string; fg: string; accent: string; muted: string; border: string };
+type RectBounds = { top: number; left: number; width: number; height: number };
+
+function readBounds(element: HTMLElement): RectBounds {
+  const rect = element.getBoundingClientRect();
+  return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+}
 
 function readThemeVars(): ThemeVars {
   const fallback = { bg: "#0d1117", fg: "#c9d1d9", accent: "#58a6ff", muted: "#8b949e", border: "#30363d" };
@@ -106,7 +112,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
   const scrollHostRef = useRef<HTMLElement | null>(null);
-  const [bounds, setBounds] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [bounds, setBounds] = useState<RectBounds | null>(null);
   const theme = useMemo(() => readThemeVars(), []);
   const doc = useMemo(() => buildHtmlPreviewDocument(normalizedText, theme), [normalizedText, theme]);
   const lineCountValue = useMemo(() => normalizedText.replace(/\n$/, "").split("\n").length, [normalizedText]);
@@ -136,11 +142,48 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
     };
   }, [isFullscreen]);
 
+  const updateFullscreenBounds = useCallback(() => {
+    const host = scrollHostRef.current;
+    if (!host) {
+      setBounds(null);
+      return;
+    }
+    const next = readBounds(host);
+    setBounds((current) => current
+      && current.top === next.top
+      && current.left === next.left
+      && current.width === next.width
+      && current.height === next.height
+      ? current
+      : next);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+    const host = scrollHostRef.current;
+    updateFullscreenBounds();
+    window.addEventListener("resize", updateFullscreenBounds);
+    host?.addEventListener("scroll", updateFullscreenBounds, { passive: true });
+    const observer = host && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(updateFullscreenBounds)
+      : null;
+    if (observer && host) {
+      observer.observe(host);
+    }
+    return () => {
+      window.removeEventListener("resize", updateFullscreenBounds);
+      host?.removeEventListener("scroll", updateFullscreenBounds);
+      observer?.disconnect();
+    };
+  }, [isFullscreen, updateFullscreenBounds]);
+
   const openFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
     const host = findScrollableContainer(blockRef.current);
     scrollHostRef.current = host;
-    setBounds(host ? host.getBoundingClientRect().toJSON() : null);
+    setBounds(host ? readBounds(host) : null);
     setIsFullscreen(true);
   };
 

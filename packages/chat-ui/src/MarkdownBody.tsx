@@ -56,6 +56,84 @@ function isBlockCodeNode(node: unknown): boolean {
   return position?.start?.line !== position?.end?.line;
 }
 
+function MarkdownCode({
+  node,
+  className,
+  children,
+  ...props
+}: React.ComponentProps<"code"> & { node?: unknown }) {
+  const language = resolveCodeLanguage(className, children);
+  const plainCode = extractCodeText(children);
+  const blockCode = isBlockCodeNode(node);
+  if (!language && !blockCode) {
+    return (
+      <code
+        className="px-1 py-0.5 rounded text-xs font-mono"
+        style={{
+          background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
+          color: "var(--ct-fg, #c9d1d9)",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
+        }}
+        {...props}
+      >
+        {plainCode}
+      </code>
+    );
+  }
+  if (!language) {
+    return (
+      <code
+        data-testid="chat-plain-code-block"
+        className="my-2 block max-w-full overflow-x-auto whitespace-pre rounded-md border p-3 font-mono text-xs leading-[1.4]"
+        style={{
+          background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 7%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+          color: "var(--ct-fg, #c9d1d9)",
+        }}
+        {...props}
+      >
+        {plainCode}
+      </code>
+    );
+  }
+  if (language === "html") {
+    return <HtmlPreviewBlock text={plainCode} />;
+  }
+  return (
+    <CodeBlock
+      text={plainCode}
+      language={language}
+      maxHeight={language.toLowerCase() === "mermaid" ? MERMAID_BLOCK_MAX_HEIGHT : CODE_BLOCK_DEFAULT_MAX_HEIGHT}
+      collapsible
+      collapseAfterLines={LONG_CODE_PREVIEW_LINES}
+    />
+  );
+}
+
+function MarkdownPre({
+  node,
+  children,
+  ...props
+}: React.ComponentProps<"pre"> & { node?: unknown }) {
+  if (wrapsCodeElement(node)) {
+    return <>{children}</>;
+  }
+  return (
+    <pre
+      className="my-2 max-w-full overflow-x-auto rounded-md border p-3 font-mono text-xs leading-[1.4]"
+      style={{
+        background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 7%, transparent)",
+        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+        color: "var(--ct-fg, #c9d1d9)",
+      }}
+      {...props}
+    >
+      {children}
+    </pre>
+  );
+}
+
 type RehypePlugins = React.ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
 
 /** Raw-HTML parsing only pays for itself on messages that actually carry tags. */
@@ -116,74 +194,8 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
             {...props}
           />
         ),
-        // Block code: SyntaxHighlighter/CodeBlock. Inline code: styled span.
-        code: ({ node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
-          const language = resolveCodeLanguage(className, children);
-          const plainCode = extractCodeText(children);
-          const blockCode = isBlockCodeNode(node);
-          if (!language && !blockCode) {
-            return (
-              <code
-                className="px-1 py-0.5 rounded text-xs font-mono"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
-                  color: "var(--ct-fg, #c9d1d9)",
-                  overflowWrap: "anywhere",
-                  wordBreak: "break-word",
-                }}
-                {...props}
-              >
-                {plainCode}
-              </code>
-            );
-          }
-          if (!language) {
-            return (
-              <code
-                data-testid="chat-plain-code-block"
-                className="my-2 block max-w-full overflow-x-auto whitespace-pre rounded-md border p-3 font-mono text-xs leading-[1.4]"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 7%, transparent)",
-                  borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-                  color: "var(--ct-fg, #c9d1d9)",
-                }}
-                {...props}
-              >
-                {plainCode}
-              </code>
-            );
-          }
-          if (language === "html") {
-            return <HtmlPreviewBlock text={plainCode} />;
-          }
-          return (
-            <CodeBlock
-              text={plainCode}
-              language={language}
-              maxHeight={language.toLowerCase() === "mermaid" ? MERMAID_BLOCK_MAX_HEIGHT : CODE_BLOCK_DEFAULT_MAX_HEIGHT}
-              collapsible
-              collapseAfterLines={LONG_CODE_PREVIEW_LINES}
-            />
-          );
-        },
-        pre: ({ node, children, ...props }: React.ComponentProps<"pre"> & { node?: unknown }) => {
-          if (wrapsCodeElement(node)) {
-            return <>{children}</>;
-          }
-          return (
-            <pre
-              className="my-2 max-w-full overflow-x-auto rounded-md border p-3 font-mono text-xs leading-[1.4]"
-              style={{
-                background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 7%, transparent)",
-                borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-                color: "var(--ct-fg, #c9d1d9)",
-              }}
-              {...props}
-            >
-              {children}
-            </pre>
-          );
-        },
+        code: MarkdownCode,
+        pre: MarkdownPre,
         details: ({ node: _node, ...props }) => (
           <details
             className="my-2 rounded-md border px-2 py-1.5"
