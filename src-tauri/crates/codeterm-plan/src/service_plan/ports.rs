@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone)]
 pub struct PlanIndexQuery {
     pub query: String,
+    pub kind: Option<String>,
     pub scope: Option<String>,
     pub limit: Option<usize>,
 }

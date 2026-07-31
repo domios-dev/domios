@@ -162,6 +162,7 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         root.path(),
         &PlanIndexQuery {
             query: "plan button soft-lock".into(),
+            kind: None,
             scope: None,
             limit: Some(5),
         },
@@ -853,6 +854,7 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
             &linked,
             &PlanIndexQuery {
                 query: "unique linked worktree recall phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -868,6 +870,7 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
             &linked,
             &PlanIndexQuery {
                 query: "unique linked worktree recall phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -912,6 +915,7 @@ fn reindex_removes_deleted_units_and_old_text() {
             root.path(),
             &PlanIndexQuery {
                 query: "vanishing phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -933,6 +937,7 @@ fn reindex_removes_deleted_units_and_old_text() {
             root.path(),
             &PlanIndexQuery {
                 query: "vanishing phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -1006,6 +1011,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
             root.path(),
             &PlanIndexQuery {
                 query: "plan button soft-lock".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -1022,6 +1028,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
             root.path(),
             &PlanIndexQuery {
                 query: "plan button soft-lock".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -1065,6 +1072,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
             root.path(),
             &PlanIndexQuery {
                 query: "archive phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -1079,6 +1087,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
             root.path(),
             &PlanIndexQuery {
                 query: "archive phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -1090,6 +1099,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
             root.path(),
             &PlanIndexQuery {
                 query: "archive phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
@@ -1104,6 +1114,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
             root.path(),
             &PlanIndexQuery {
                 query: "archive phrase".into(),
+                kind: None,
                 scope: None,
                 limit: Some(5),
             },
