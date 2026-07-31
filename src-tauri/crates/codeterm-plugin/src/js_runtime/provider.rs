@@ -170,6 +170,15 @@ impl JsProvider {
                 },
             );
         }
+        crate::model_catalog::register_reasoning_efforts(
+            &manifest.id,
+            manifest
+                .reasoning_efforts
+                .iter()
+                .map(ReasoningEffortInfo::from)
+                .collect(),
+            manifest.default_reasoning_effort.clone(),
+        );
         let has_custom_settings_schema = super::vm::has_method(&vm, "settingsSchema");
         Self {
             vm,
@@ -842,15 +851,12 @@ impl AgentProvider for JsProvider {
     }
 
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
-        self.manifest
-            .reasoning_efforts
-            .iter()
-            .map(ReasoningEffortInfo::from)
-            .collect()
+        crate::model_catalog::resolve_reasoning_efforts(&self.manifest.id)
     }
 
     fn default_reasoning_effort(&self) -> Option<String> {
-        self.manifest.default_reasoning_effort.clone()
+        crate::model_catalog::resolve_default_reasoning_effort(&self.manifest.id)
+            .or_else(|| self.manifest.default_reasoning_effort.clone())
     }
 
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {

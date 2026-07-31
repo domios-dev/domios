@@ -30,7 +30,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::{AgentProvider, ModelInfo};
+use crate::provider::{AgentProvider, ModelInfo, ReasoningEffortInfo};
 
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
@@ -45,6 +45,15 @@ struct CatalogModel {
 }
 
 #[derive(Debug, Deserialize)]
+struct CatalogEffort {
+    id: String,
+    display_name: String,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CatalogFile {
     /// Default model id. Optional — falls through to the registered default
     /// when absent.
@@ -60,6 +69,10 @@ struct CatalogFile {
     replace: bool,
     #[serde(default)]
     models: Vec<CatalogModel>,
+    #[serde(default)]
+    default_effort: Option<String>,
+    #[serde(default)]
+    efforts: Vec<CatalogEffort>,
 }
 
 /// A plugin's built-in catalog as registered at startup.
@@ -67,6 +80,12 @@ struct CatalogFile {
 pub struct RegisteredDefaults {
     pub models: Vec<ModelInfo>,
     pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RegisteredEfforts {
+    efforts: Vec<ReasoningEffortInfo>,
+    default: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +142,11 @@ fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
+    static REG: OnceLock<RwLock<HashMap<String, RegisteredEfforts>>> = OnceLock::new();
+    REG.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
 /// Plugin entry point: register the built-in catalog for `provider_id`.
 /// Idempotent — calling twice replaces the prior registration (handy for
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
@@ -131,6 +155,17 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
     registry()
         .write()
         .insert(provider_id.to_string(), ProviderModels::seed(defaults));
+}
+
+pub fn register_reasoning_efforts(
+    provider_id: &str,
+    efforts: Vec<ReasoningEffortInfo>,
+    default: Option<String>,
+) {
+    effort_registry().write().insert(
+        provider_id.to_string(),
+        RegisteredEfforts { efforts, default },
+    );
 }
 
 /// Default freshness window for live discovery. A snapshot younger than this
@@ -310,6 +345,29 @@ pub fn resolve_default(provider_id: &str) -> Option<String> {
         .and_then(|d| d.default.clone())
 }
 
+pub fn resolve_reasoning_efforts(provider_id: &str) -> Vec<ReasoningEffortInfo> {
+    let registered = effort_registry()
+        .read()
+        .get(provider_id)
+        .map(|defaults| defaults.efforts.clone())
+        .unwrap_or_default();
+    match load_override(provider_id) {
+        None => registered,
+        Some(override_file) if override_file.replace => override_file.efforts,
+        Some(override_file) => merge_efforts(&registered, &override_file.efforts),
+    }
+}
+
+pub fn resolve_default_reasoning_effort(provider_id: &str) -> Option<String> {
+    if let Some(default) = load_override(provider_id).and_then(|o| o.default_effort) {
+        return Some(default);
+    }
+    effort_registry()
+        .read()
+        .get(provider_id)
+        .and_then(|defaults| defaults.default.clone())
+}
+
 pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
     let models = resolve_models(provider_id);
     let requested = requested.map(str::trim).filter(|m| !m.is_empty());
@@ -389,6 +447,8 @@ struct ProviderOverride {
     default: Option<String>,
     replace: bool,
     models: Vec<ModelInfo>,
+    default_effort: Option<String>,
+    efforts: Vec<ReasoningEffortInfo>,
 }
 
 pub fn models_dir() -> PathBuf {
@@ -488,6 +548,8 @@ struct ProviderOverrideOwned {
     default: Option<String>,
     replace: bool,
     models: Vec<ModelInfo>,
+    default_effort: Option<String>,
+    efforts: Vec<ReasoningEffortInfo>,
 }
 
 fn override_cache() -> &'static RwLock<HashMap<String, CachedOverride>> {
@@ -506,6 +568,8 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                 default: o.default.clone(),
                 replace: o.replace,
                 models: o.models.clone(),
+                default_effort: o.default_effort.clone(),
+                efforts: o.efforts.clone(),
             });
         }
     }
@@ -528,9 +592,9 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                     );
                     None
                 }
-                Ok(p) if p.models.is_empty() && !p.replace => {
+                Ok(p) if p.models.is_empty() && p.efforts.is_empty() && !p.replace => {
                     log::warn!(
-                        "[model_catalog] {} has no `[[models]]` entries — falling back to plugin defaults",
+                        "[model_catalog] {} has no `[[models]]` or `[[efforts]]` entries — falling back to plugin defaults",
                         path.display()
                     );
                     None
@@ -546,6 +610,16 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             display_name: m.display_name,
                             description: m.description,
                             available: m.available,
+                        })
+                        .collect(),
+                    default_effort: p.default_effort,
+                    efforts: p
+                        .efforts
+                        .into_iter()
+                        .map(|effort| ReasoningEffortInfo {
+                            id: effort.id,
+                            display_name: effort.display_name,
+                            description: effort.description,
                         })
                         .collect(),
                 })),
@@ -567,6 +641,8 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
         default: o.default.clone(),
         replace: o.replace,
         models: o.models.clone(),
+        default_effort: o.default_effort.clone(),
+        efforts: o.efforts.clone(),
     })
 }
 
@@ -576,19 +652,34 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
 /// the end. Result: built-in updates flow in automatically, user additions
 /// stick around, user re-titles of built-ins win.
 fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo> {
-    let mut merged: Vec<ModelInfo> = builtin
+    merge_by_id(builtin, overrides, |model| model.id.as_str())
+}
+
+fn merge_efforts(
+    builtin: &[ReasoningEffortInfo],
+    overrides: &[ReasoningEffortInfo],
+) -> Vec<ReasoningEffortInfo> {
+    merge_by_id(builtin, overrides, |effort| effort.id.as_str())
+}
+
+fn merge_by_id<T, F>(builtin: &[T], overrides: &[T], id: F) -> Vec<T>
+where
+    T: Clone,
+    F: for<'a> Fn(&'a T) -> &'a str,
+{
+    let mut merged: Vec<T> = builtin
         .iter()
-        .map(|b| {
+        .map(|entry| {
             overrides
                 .iter()
-                .find(|o| o.id == b.id)
+                .find(|override_entry| id(override_entry) == id(entry))
                 .cloned()
-                .unwrap_or_else(|| b.clone())
+                .unwrap_or_else(|| entry.clone())
         })
         .collect();
-    for o in overrides {
-        if !merged.iter().any(|m| m.id == o.id) {
-            merged.push(o.clone());
+    for override_entry in overrides {
+        if !merged.iter().any(|entry| id(entry) == id(override_entry)) {
+            merged.push(override_entry.clone());
         }
     }
     merged
@@ -638,21 +729,32 @@ pub fn ensure_readme_installed() {
 /// edits, and saves.
 pub fn refresh_example_files() {
     let dir = models_dir();
-    let snapshot: Vec<(String, RegisteredDefaults)> = registry()
+    let registered_efforts = effort_registry().read().clone();
+    let snapshot: Vec<(String, RegisteredDefaults, RegisteredEfforts)> = registry()
         .read()
         .iter()
-        .map(|(k, v)| (k.clone(), v.as_defaults()))
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                v.as_defaults(),
+                registered_efforts.get(k).cloned().unwrap_or_default(),
+            )
+        })
         .collect();
-    for (id, defaults) in snapshot {
+    for (id, defaults, efforts) in snapshot {
         let path = dir.join(format!("{}.example.toml", id));
-        let body = render_example(&id, &defaults);
+        let body = render_example(&id, &defaults, &efforts);
         if let Err(e) = std::fs::write(&path, body) {
             log::warn!("[model_catalog] could not write {}: {}", path.display(), e);
         }
     }
 }
 
-fn render_example(provider_id: &str, defaults: &RegisteredDefaults) -> String {
+fn render_example(
+    provider_id: &str,
+    defaults: &RegisteredDefaults,
+    effort_defaults: &RegisteredEfforts,
+) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "# Example model catalog for `{0}`.\n\
@@ -663,7 +765,7 @@ fn render_example(provider_id: &str, defaults: &RegisteredDefaults) -> String {
          #\n\
          # ## Merge semantics (default)\n\
          #\n\
-         # By default, your `[[models]]` MERGE with built-ins by id:\n\
+         # By default, `[[models]]` and `[[efforts]]` MERGE with built-ins by id:\n\
          #   - Same id          → your entry replaces the built-in (keeps order).\n\
          #   - New id           → your entry is APPENDED at the end.\n\
          #   - Built-in id you didn't mention → stays, auto-updates on release.\n\
@@ -686,6 +788,9 @@ fn render_example(provider_id: &str, defaults: &RegisteredDefaults) -> String {
     if let Some(d) = &defaults.default {
         out.push_str(&format!("default = \"{}\"\n\n", d));
     }
+    if let Some(default) = &effort_defaults.default {
+        out.push_str(&format!("default_effort = \"{}\"\n\n", default));
+    }
     for m in &defaults.models {
         out.push_str("[[models]]\n");
         out.push_str(&format!("id = \"{}\"\n", m.id));
@@ -697,6 +802,21 @@ fn render_example(provider_id: &str, defaults: &RegisteredDefaults) -> String {
             out.push_str(&format!(
                 "description = \"{}\"\n",
                 desc.replace('"', "\\\"")
+            ));
+        }
+        out.push('\n');
+    }
+    for effort in &effort_defaults.efforts {
+        out.push_str("[[efforts]]\n");
+        out.push_str(&format!("id = \"{}\"\n", effort.id));
+        out.push_str(&format!(
+            "display_name = \"{}\"\n",
+            effort.display_name.replace('"', "\\\"")
+        ));
+        if let Some(description) = &effort.description {
+            out.push_str(&format!(
+                "description = \"{}\"\n",
+                description.replace('"', "\\\"")
             ));
         }
         out.push('\n');
@@ -718,7 +838,7 @@ For every provider with a model picker, CodeTerm drops a
 ```bash
 cd ~/.codeterm/models/
 cp claude.example.toml claude.toml
-# edit claude.toml — change display names, add models, set default
+# edit claude.toml — change models or reasoning efforts, set defaults
 ```
 
 CodeTerm picks `claude.toml` up immediately (no restart). Static provider
@@ -739,6 +859,7 @@ fall back to provider defaults.
 ```toml
 # Optional: which model is selected by default for fresh sessions.
 default = "opus"
+default_effort = "medium"
 
 [[models]]
 id = "opus"
@@ -749,6 +870,11 @@ description = "Best for everyday, complex tasks."
 id = "sonnet"
 display_name = "Claude Sonnet 4.6"
 description = "Best for everyday tasks."
+
+[[efforts]]
+id = "xhigh"
+display_name = "Extra high"
+description = "Maximum reasoning depth."
 ```
 
 - `id` MUST match what the underlying CLI accepts (`claude --model <id>`,
@@ -756,6 +882,8 @@ description = "Best for everyday tasks."
   launch failures.
 - `display_name` is what the picker UI shows.
 - `description` is optional secondary text.
+- `[[efforts]]` entries extend or replace accepted reasoning-effort ids using
+  the same merge rules as models.
 
 ## Merge vs replace
 
@@ -779,8 +907,8 @@ the entire list, period.
 2. Provider defaults: either the provider's live CLI catalog when available,
    or plugin defaults shipped with the current CodeTerm build.
 
-Syntax error or empty `[[models]]`? CodeTerm logs a warning and falls back
-to built-ins — the picker never goes empty.
+Syntax error or no `[[models]]` / `[[efforts]]` entries? CodeTerm logs a warning
+and falls back to built-ins — the picker never goes empty.
 
 ## Full docs
 

@@ -732,6 +732,62 @@ fn reasoning_effort_capability_is_declared_and_gated() {
     );
 }
 
+#[test]
+fn model_catalog_override_applies_reasoning_efforts() {
+    use std::sync::Arc;
+
+    let id = "model-catalog-effort-override-fixture";
+    let manifest_json = format!(
+        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
+                "models":[{{"id":"fixture-model","displayName":"Fixture Model"}}],
+                "reasoningEfforts":[
+                    {{"id":"low","displayName":"Low"}},
+                    {{"id":"medium","displayName":"Medium"}},
+                    {{"id":"high","displayName":"High"}}
+                ],
+                "defaultReasoningEffort":"medium",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
+    );
+    let manifest: super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(
+        id,
+        "module.exports.default = {};".to_string(),
+        Some(manifest_json),
+    )
+    .expect("fixture vm");
+    let override_path = crate::model_catalog::models_dir().join(format!("{id}.toml"));
+    std::fs::write(
+        &override_path,
+        r#"[[models]]
+id = "fixture-model"
+display_name = "Fixture Model"
+
+[[efforts]]
+id = "xhigh"
+display_name = "Extra high"
+description = "Maximum reasoning depth."
+"#,
+    )
+    .unwrap();
+
+    let provider = JsProvider::new(manifest, Arc::new(vm));
+    let _ = provider.available_models();
+    let efforts: Vec<String> = provider
+        .reasoning_efforts()
+        .into_iter()
+        .map(|effort| effort.id)
+        .collect();
+    let validation = provider.validate_reasoning_effort(Some("xhigh"));
+
+    let _ = std::fs::remove_file(&override_path);
+    assert!(
+        efforts.iter().any(|effort| effort == "xhigh"),
+        "model-catalog override discarded [[efforts]]; resolved efforts: {efforts:?}"
+    );
+    assert!(validation.is_ok());
+}
+
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
 /// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
 /// provider — they are two reads of the same capability and a split would show
