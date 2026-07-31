@@ -808,37 +808,28 @@ button,
   z-index: 1100;
 }
 
-@keyframes ct-toast-timeout {
-  from {
-    width: 100%;
-  }
-  to {
-    width: 0%;
-  }
-}
-
 .ct-toast-inline {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 5px;
   min-width: 0;
   height: 28px;
 }
 
 .ct-toast-inline-panel {
   position: relative;
+  display: flex;
+  align-items: center;
   height: 26px;
-  max-width: 0;
+  max-width: min(440px, 40vw);
   overflow: hidden;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--ct-border) 76%, transparent);
   border-radius: 6px;
-  background:
-    linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--ct-surface) 34%, transparent) 18%, color-mix(in srgb, var(--ct-surface) 52%, transparent) 100%);
-  opacity: 0;
-  transform: translateX(8px);
+  background: color-mix(in srgb, var(--ct-surface) 88%, var(--ct-titlebar-bg));
   white-space: nowrap;
-  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--toast-accent) 32%, transparent);
+  box-shadow:
+    0 4px 16px rgb(0 0 0 / 18%),
+    inset -2px 0 0 color-mix(in srgb, var(--toast-accent) 45%, transparent);
 }
 
 .ct-toast-inline-content {
@@ -852,35 +843,55 @@ button,
   padding: 0 11px 0 9px;
   font-size: 11px;
   line-height: 1;
-  opacity: 0;
-  transform: translateX(10px);
 }
 
-.ct-toast-inline--open .ct-toast-inline-panel {
-  animation: ct-toast-panel-in 520ms cubic-bezier(0.18, 0.86, 0.28, 1) both;
+.ct-toast-enter {
+  animation: ct-toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.ct-toast-inline--open .ct-toast-inline-content {
-  animation: ct-toast-content-in 320ms cubic-bezier(0.18, 0.86, 0.28, 1) 120ms both;
+.ct-toast-timed {
+  animation: ct-toast-life var(--ct-toast-duration) ease both;
 }
 
-.ct-toast-inline--closed .ct-toast-inline-panel {
-  animation: ct-toast-panel-out 620ms cubic-bezier(0.32, 0, 0.2, 1) both;
+.ct-toast-exit {
+  animation: ct-toast-out 140ms ease-in both;
 }
 
-.ct-toast-inline--closed .ct-toast-inline-content {
-  animation: ct-toast-content-out 180ms ease both;
+@keyframes ct-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
 }
 
-.ct-toast-inline-seed {
-  flex: 0 0 auto;
-  width: 5px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--toast-accent);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--toast-accent) 0%, transparent);
-  opacity: 0;
-  transform: scaleY(0.22);
+@keyframes ct-toast-life {
+  0% {
+    opacity: 0;
+    transform: translateX(6px) scale(0.98);
+  }
+  5%, 94% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(4px) scale(0.98);
+  }
+}
+
+@keyframes ct-toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(4px) scale(0.98);
+  }
 }
 
 .ct-toast-pending {
@@ -893,191 +904,85 @@ button,
   padding: 0 6px;
   color: var(--ct-muted-fg);
   font-size: 10px;
-  background: color-mix(in srgb, var(--ct-surface) 45%, transparent);
-  animation: ct-toast-pending-in 220ms ease both;
+  background: color-mix(in srgb, var(--ct-surface) 72%, var(--ct-titlebar-bg));
+  animation: ct-toast-badge-in 180ms ease-out both;
 }
 
-.ct-toast-inline--open .ct-toast-inline-seed {
-  animation: ct-toast-seed-launch 460ms cubic-bezier(0.18, 0.86, 0.28, 1) both;
-}
-
-.ct-toast-inline--closed .ct-toast-inline-seed {
-  animation: ct-toast-seed-catch 620ms cubic-bezier(0.32, 0, 0.2, 1) both;
-}
-
-@keyframes ct-toast-seed-launch {
-  0% {
+@keyframes ct-toast-badge-in {
+  from {
     opacity: 0;
-    transform: scaleY(0.18);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--toast-accent) 0%, transparent);
+    transform: scale(0.82);
   }
-  18% {
+  to {
     opacity: 1;
-    transform: scaleY(1.16);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--toast-accent) 14%, transparent);
-  }
-  54% {
-    opacity: 0.55;
-    transform: scaleY(0.82);
-  }
-  100% {
-    opacity: 0;
-    transform: scaleY(0.22);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--toast-accent) 0%, transparent);
+    transform: scale(1);
   }
 }
 
-@keyframes ct-toast-seed-catch {
-  0% {
-    opacity: 0;
-    transform: scaleY(0.22);
+.ct-notification-bell-ring {
+  color: var(--ct-accent);
+  transform-origin: 50% 12%;
+  animation: ct-notification-bell-ring 440ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes ct-notification-bell-ring {
+  0%, 100% {
+    transform: rotate(0);
   }
   22% {
-    opacity: 0.95;
-    transform: scaleY(1.12);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--toast-accent) 14%, transparent);
+    transform: rotate(-13deg);
   }
-  72% {
-    opacity: 0.65;
-    transform: scaleY(0.72);
+  44% {
+    transform: rotate(10deg);
   }
-  100% {
-    opacity: 0;
-    transform: scaleY(0.18);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--toast-accent) 0%, transparent);
+  64% {
+    transform: rotate(-6deg);
+  }
+  82% {
+    transform: rotate(3deg);
   }
 }
 
-@keyframes ct-toast-panel-in {
-  0% {
-    max-width: 0;
-    opacity: 0;
-    transform: translateX(10px);
-    filter: blur(1px);
-  }
-  18% {
-    opacity: 0.35;
-  }
-  100% {
-    max-width: min(440px, 40vw);
-    opacity: 1;
-    transform: translateX(0);
-    filter: blur(0);
-  }
+.ct-notification-badge-pop {
+  animation: ct-notification-badge-pop 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-@keyframes ct-toast-panel-out {
-  0% {
-    max-width: min(440px, 40vw);
-    opacity: 1;
-    transform: translateX(0);
-    filter: blur(0);
-  }
-  18% {
-    opacity: 0.92;
-  }
-  74% {
-    max-width: 10px;
-    opacity: 0.48;
-    transform: translateX(7px);
-    filter: blur(0.5px);
-  }
-  100% {
-    max-width: 0;
-    opacity: 0;
-    transform: translateX(10px);
-    filter: blur(1px);
-  }
-}
-
-@keyframes ct-toast-content-in {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes ct-toast-pending-in {
-  from {
-    opacity: 0;
-    transform: translateX(4px) scale(0.92);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-@keyframes ct-toast-content-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(8px);
-  }
-}
-
-.ct-toast-stack-divider {
-  width: 1px;
-  height: 16px;
-  margin: 0 2px 0 3px;
-  flex-shrink: 0;
-  background: color-mix(in srgb, var(--ct-tray-divider) 45%, transparent);
-  transform-origin: center;
-  animation: ct-toast-divider-in 420ms cubic-bezier(0.18, 0.86, 0.28, 1) both;
-}
-
-@keyframes ct-toast-divider-in {
+@keyframes ct-notification-badge-pop {
   0% {
     opacity: 0;
-    transform: scaleY(0.08);
-    filter: blur(1px);
+    transform: scale(0.5);
   }
   55% {
-    opacity: 0.38;
-    transform: scaleY(1.1);
-    filter: blur(0);
+    opacity: 1;
+    transform: scale(1.16);
   }
   100% {
-    opacity: 0.5;
-    transform: scaleY(1);
-    filter: blur(0);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-toast-grow--open {
+  .ct-toast-enter,
+  .ct-toast-exit,
+  .ct-notification-bell-ring,
+  .ct-notification-badge-pop,
+  .ct-toast-pending {
     animation: none;
   }
-  .ct-toast-inline--open .ct-toast-inline-panel,
-  .ct-toast-inline--closed .ct-toast-inline-panel,
-  .ct-toast-inline--open .ct-toast-inline-content,
-  .ct-toast-inline--closed .ct-toast-inline-content,
-  .ct-toast-inline--open .ct-toast-inline-seed,
-  .ct-toast-inline--closed .ct-toast-inline-seed,
-  .ct-toast-stack-divider {
-    animation: none;
-  }
-  .ct-toast-inline-panel,
-  .ct-toast-inline-content,
-  .ct-toast-inline-seed {
-    transition: none;
+
+  .ct-toast-timed {
+    animation: ct-toast-life-reduced var(--ct-toast-duration) linear both;
   }
 }
 
-.ct-toast-inline-progress {
-  position: absolute;
-  right: 0;
-  bottom: 2px;
-  height: 1px;
-  background: color-mix(in srgb, var(--toast-accent) 58%, transparent);
-  border-radius: 999px;
+@keyframes ct-toast-life-reduced {
+  0%, 99.9% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* Top-right anchored menu pop — scales out of the trigger corner */

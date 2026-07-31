@@ -184,6 +184,7 @@ function AppInner() {
     markRead,
     markAllRead,
     deleteNotification,
+    clearNotifications,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
@@ -515,9 +516,9 @@ function AppInner() {
         onMarkNotificationRead={markRead}
         onMarkAllNotificationsRead={markAllRead}
         onDeleteNotification={deleteNotification}
+        onClearNotifications={clearNotifications}
         onDismissToast={dismissToast}
         onNavigateToast={navigateToNotificationTab}
-        workspaceCanvasActive={workspaceCanvasVisible}
       />
       <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
