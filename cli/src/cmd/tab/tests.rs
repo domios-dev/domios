@@ -105,6 +105,17 @@ fn render_tree_includes_description() {
 }
 
 #[test]
+fn render_tree_marks_only_the_calling_tab() {
+    let tabs = vec![
+        json!({"id":"self01","tab_title":"current","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"peer02","tab_title":"peer","workspace_name":"W","workspace_id":"w"}),
+    ];
+    let out = render_tab_tree_with_current(&tabs, Some("self01"));
+    assert!(out.contains("self01 current (self)\n"));
+    assert!(!out.contains("peer02 peer (self)"));
+}
+
+#[test]
 fn short_needle_does_not_match_id_prefix() {
     let tabs = vec![
         make_tab("aaaaa1", "OtherTab", Some("claude"), None),

@@ -32,7 +32,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     } else if list.is_empty() {
                         println!("(no tabs)");
                     } else {
-                        print!("{}", render_tab_tree(&list));
+                        let current_tab = std::env::var("CODETERM_TAB_ID").ok();
+                        print!(
+                            "{}",
+                            render_tab_tree_with_current(&list, current_tab.as_deref())
+                        );
                     }
                 }
                 other => handle_result(json, other),
@@ -737,12 +741,20 @@ pub fn format_tab_row(p: &serde_json::Value) -> String {
 /// rows, sub-agents nested under their parent by `parent_tab_id`. Compact
 /// on purpose — this output is read by agents too, so every line costs tokens.
 pub fn render_tab_tree(tabs: &[serde_json::Value]) -> String {
+    render_tab_tree_with_current(tabs, None)
+}
+
+pub fn render_tab_tree_with_current(
+    tabs: &[serde_json::Value],
+    current_tab_id: Option<&str>,
+) -> String {
     struct Row {
         id: String,
         label: String,
         model: String,
         description: String,
         parent: Option<String>,
+        is_current: bool,
     }
     // HashMap-unordered).
     let mut groups: std::collections::BTreeMap<(String, String), Vec<Row>> =
@@ -775,6 +787,7 @@ pub fn render_tab_tree(tabs: &[serde_json::Value]) -> String {
         let ws_name = sfield(p, "workspace_name").to_string();
         let ws_id = sfield(p, "workspace_id").to_string();
         groups.entry((ws_name, ws_id)).or_default().push(Row {
+            is_current: current_tab_id == Some(id.as_str()),
             id,
             label,
             model,
@@ -826,22 +839,25 @@ pub fn render_tab_tree(tabs: &[serde_json::Value]) -> String {
         while let Some((i, depth)) = stack.pop() {
             let r = &rows[i];
             let indent = "  ".repeat(depth + 1);
+            let current_suffix = if r.is_current { " (self)" } else { "" };
             if r.model.is_empty() {
                 out.push_str(&format!(
-                    "{}{} {}{}\n",
+                    "{}{} {}{}{}\n",
                     indent,
                     r.id,
                     r.label,
-                    format_description_suffix(&r.description)
+                    format_description_suffix(&r.description),
+                    current_suffix
                 ));
             } else {
                 out.push_str(&format!(
-                    "{}{} {:<w$} {}{}\n",
+                    "{}{} {:<w$} {}{}{}\n",
                     indent,
                     r.id,
                     r.label,
                     r.model,
                     format_description_suffix(&r.description),
+                    current_suffix,
                     w = label_w
                 ));
             }
