@@ -108,6 +108,25 @@ fn turn_buffer_freezes_only_post_boundary_rows() {
 }
 
 #[test]
+fn composer_draft_below_cursor_rule_never_leaks_into_turn_live() {
+    let mut decoder = MotionDecoder::new();
+    decoder.step(&grid(&["❯", "", "", "", "", ""]));
+    decoder.begin_turn();
+    let frame = decoder.step_with_cursor(
+        &grid(&[
+            "reply row one",
+            "reply row two",
+            "──────────",
+            "❯ next prompt being typed",
+            "──────────",
+            "  ⏵⏵ auto mode on · esc to interrupt",
+        ]),
+        Some(3),
+    );
+    assert_eq!(frame.turn_live, vec!["reply row one", "reply row two"]);
+}
+
+#[test]
 fn full_redraw_is_repaint_not_motion() {
     let mut decoder = MotionDecoder::new();
     decoder.step(&grid(&["a", "b", "c", "d", "e"]));
