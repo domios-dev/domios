@@ -36,7 +36,6 @@ async function main() {
     todo: 4,
     review: 3,
     blocked: 2,
-    paused: 1,
     done: 1,
   })) {
     const item = host.querySelector<HTMLElement>(`[data-status="${status}"]`);
@@ -50,17 +49,16 @@ async function main() {
           ? "yellow"
           : status === "blocked"
             ? "red"
-            : status === "paused"
-              ? "muted"
-              : "green"})`,
+            : "green"})`,
     );
   }
+  assert(!host.querySelector('[data-status="paused"]'), "paused is omitted from the compact readout");
   const separators = host.querySelectorAll('[data-testid="plan-status-separator"]');
-  assert.equal(separators.length, 4, "five status counts have four real separators");
+  assert.equal(separators.length, 3, "four visible status counts have three real separators");
   for (const separator of separators) assert.equal(separator.textContent?.trim(), "·");
   assert.equal(
     breakdown.getAttribute("aria-label"),
-    "4 todo, 3 review, 2 blocked, 1 paused, 1 done",
+    "4 todo, 3 review, 2 blocked, 1 done",
     "the one-line visual has a concise accessible summary",
   );
   await act(async () => root.unmount());
