@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   canonicalBlob,
+  capPreviewRows,
   createPreviewStabilizerState,
   displayablePreview,
+  isSmoothPreviewTransition,
   normalizeStreamLine,
   stabilizePreview,
   uncoveredPreviewTail,
@@ -392,4 +394,35 @@ test("framed interactive question dialogs survive; framed tool output does not",
   ]);
   const toolFrame = ["┃ $ cargo build --release", "┃ Compiling codeterm v1.7.8", "  prose survives"];
   assert.deepEqual(displayablePreview(toolFrame), ["  prose survives"]);
+});
+
+// Policy ruling: a question dialog taller than the cap anchors the window at
+// its question row — options without their question are unreadable. Plain
+// streaming content keeps last-rows semantics.
+test("cap anchors at the question row for tall dialogs", () => {
+  const dialog = [
+    "earlier prose row",
+    "┃  How was this probe session? Select all that apply.",
+    "┃  1. [ ] Smooth",
+    "┃     Everything worked",
+    "┃  2. [ ] Confusing",
+    "┃     Setup was unclear",
+    "┃  3. [ ] Slow",
+    "┃     Long waits",
+    "┃  4. [ ] Broken",
+    "┃     Errors everywhere",
+    "┃  5. [ ] Other",
+  ];
+  const capped = capPreviewRows(dialog);
+  assert.equal(capped.length, 8);
+  assert.equal(capped[0], "┃  How was this probe session? Select all that apply.");
+  const prose = Array.from({ length: 12 }, (_, i) => `prose row ${i}`);
+  assert.deepEqual(capPreviewRows(prose), prose.slice(-8));
+});
+
+test("question dialog open and close are deliberate modal transitions", () => {
+  const prose = ["streaming prose one", "streaming prose two"];
+  const dialog = ["┃  Pick one now please", "┃  1. [ ] Yes", "┃  2. [ ] No"];
+  assert.equal(isSmoothPreviewTransition(prose, dialog), true);
+  assert.equal(isSmoothPreviewTransition(dialog, prose), true);
 });

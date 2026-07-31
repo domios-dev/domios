@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import {
-  MAX_PREVIEW_ROWS,
   canonicalBlob,
+  capPreviewRows,
   createPreviewStabilizerState,
   displayablePreview,
   stabilizePreview,
@@ -54,7 +54,7 @@ export function useStreamPreview(
   const displayed = useMemo(() => {
     if (!event) return [];
     const content = displayablePreview(event.frozen.concat(event.live));
-    const windowed = uncoveredPreviewTail(content, blob).slice(-MAX_PREVIEW_ROWS);
+    const windowed = capPreviewRows(uncoveredPreviewTail(content, blob));
     return stabilizePreview(stabilizer.current, event.turn_seq, windowed, content.length > 0, blob);
   }, [event, blob]);
 

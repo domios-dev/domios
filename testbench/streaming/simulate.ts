@@ -13,8 +13,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 import {
-  MAX_PREVIEW_ROWS,
   canonicalBlob,
+  capPreviewRows,
   createPreviewStabilizerState,
   displayablePreview,
   isSmoothPreviewTransition,
@@ -157,7 +157,7 @@ function main(): void {
     // cap, smooth-or-hold stabilizer.
     const blob = canonicalBlob(landed);
     const view = displayablePreview(frozen.concat(motion.turn_live));
-    const windowed = uncoveredPreviewTail(view, blob).slice(-MAX_PREVIEW_ROWS);
+    const windowed = capPreviewRows(uncoveredPreviewTail(view, blob));
     const displayed = stabilizePreview(stabilizer, motion.turn_seq, windowed, view.length > 0, blob);
     if (current) {
       if (displayed.length > 0 && current.first_preview_ms === null) {
