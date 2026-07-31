@@ -234,3 +234,41 @@ test("keyboard-hint rows are never previewable", () => {
   const rows = ["  esc again to edit previous message", "  Escaping the loop requires a break statement."];
   assert.deepEqual(displayablePreview(rows), ["  Escaping the loop requires a break statement."]);
 });
+
+// Live opencode run: a block-element border row flapped against the braille
+// spinner as 1-row full swaps; queued prompts pin as "↳ …" + "(…)" footers
+// while answer rows insert above them; codex warm-up shows system banners.
+test("border, spinner, queue-footer, and banner rows are never previewable", () => {
+  const rows = [
+    "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+    "     ⠋ Thinking",
+    "     ⠙ Thinking",
+    "  ↳ Write a python function fizzbuzz(n) that returns a list of strings.",
+    "  (… immediately)",
+    "Tip: New Use /fast to toggle fast mode.",
+    "• You have 1 usage limit reset available. Run /usage to use one.",
+    "  A queue is a FIFO data structure (first in, first out).",
+  ];
+  assert.deepEqual(displayablePreview(rows), [
+    "  A queue is a FIFO data structure (first in, first out).",
+  ]);
+});
+
+// Required interactive-prompt coverage: a genuine built-in question UI is
+// assistant CONTENT — the question and its option rows must never be
+// filtered as composer chrome, while a plain echoed draft still is.
+test("interactive question and option rows survive the chrome filters", () => {
+  const rows = [
+    "⏺ Which database should the new service use?",
+    "❯ 1. PostgreSQL (recommended)",
+    "  2. SQLite",
+    "› 3. MySQL",
+    "› keep the old one for now",
+  ];
+  assert.deepEqual(displayablePreview(rows), [
+    "⏺ Which database should the new service use?",
+    "❯ 1. PostgreSQL (recommended)",
+    "  2. SQLite",
+    "› 3. MySQL",
+  ]);
+});
