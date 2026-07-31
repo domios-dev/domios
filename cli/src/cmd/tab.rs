@@ -15,11 +15,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             } else {
                 workspace.or_else(|| std::env::var("CODETERM_WORKSPACE_ID").ok())
             };
-            let params = serde_json::json!({
-                "workspace_id": workspace_id,
-                "focused_workspace": !all_workspaces && workspace_id.is_none(),
-                "agents_only": agents,
-            });
+            let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
+            let params = tab_list_params(workspace_id, all_workspaces, agents, caller_tab_id);
             match client.call("tab.list", Some(params)) {
                 Ok(value) => {
                     let Some(arr) = value.as_array() else {
@@ -423,6 +420,26 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         }
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
     }
+}
+
+fn tab_list_params(
+    workspace_id: Option<String>,
+    all_workspaces: bool,
+    agents_only: bool,
+    caller_tab_id: Option<String>,
+) -> serde_json::Value {
+    let focused_workspace = !all_workspaces && workspace_id.is_none();
+    let caller_tab_id = if focused_workspace {
+        caller_tab_id
+    } else {
+        None
+    };
+    serde_json::json!({
+        "workspace_id": workspace_id,
+        "caller_tab_id": caller_tab_id,
+        "focused_workspace": focused_workspace,
+        "agents_only": agents_only,
+    })
 }
 
 fn handle_tab_capture(

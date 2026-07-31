@@ -18,6 +18,7 @@ pub(super) fn dispatch(
     match method {
         "tab.list" => {
             let workspace_id = opt_string_param(params, "workspace_id");
+            let caller_tab_id = opt_string_param(params, "caller_tab_id");
             let focused_workspace = params
                 .as_ref()
                 .and_then(|value| value.get("focused_workspace"))
@@ -31,6 +32,7 @@ pub(super) fn dispatch(
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::TabSummary {
                     workspace_id,
+                    caller_tab_id,
                     focused_workspace,
                     agents_only,
                 },

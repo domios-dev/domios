@@ -26,9 +26,15 @@ pub async fn list_tabs(
     check_auth(&state, &headers)?;
     let focused_workspace =
         !query.all_workspaces && (query.focused_workspace || query.workspace_id.is_none());
+    let caller_tab_id = if query.all_workspaces {
+        None
+    } else {
+        caller_tab_header(&headers)
+    };
     let result = crate::dispatch::dispatch(
         &crate::dispatch::Command::TabSummary {
             workspace_id: query.workspace_id,
+            caller_tab_id,
             focused_workspace,
             agents_only: query.agents,
         },
