@@ -1,4 +1,4 @@
-//! `tab.*`, `agents.list_providers`, and `browser.open` JSON-RPC handlers.
+//! `tab.*` and `agents.list_providers` JSON-RPC handlers.
 
 use serde_json::Value;
 use tauri::AppHandle;

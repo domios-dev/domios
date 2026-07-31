@@ -43,16 +43,10 @@ every_gates = 15  # emit a one-shot self-review block every N gate/bounce events
 
 [keybindings]
 new_tab = "Ctrl+T"
+reopen_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+W"
 next_tab = "Ctrl+Tab"     # cycle forward through plan entry + session tabs in sidebar order
 prev_tab = "Ctrl+Shift+Tab"  # cycle backward
-split_right = "Ctrl+Shift+ArrowRight"
-split_down = "Ctrl+Shift+ArrowDown"
-close_tab = "Ctrl+Shift+Q"
-focus_tab_left = "Alt+ArrowLeft"
-focus_tab_right = "Alt+ArrowRight"
-focus_tab_up = "Alt+ArrowUp"
-focus_tab_down = "Alt+ArrowDown"
 new_workspace = "Ctrl+Shift+N"
 copy = "Ctrl+Shift+C"
 paste = "Ctrl+Shift+V"
@@ -60,7 +54,6 @@ search = "Ctrl+Shift+F"
 zoom_in = "Ctrl+="
 zoom_out = "Ctrl+-"
 zoom_reset = "Ctrl+0"
-open_browser = "Ctrl+Shift+B"
 open_settings = "Ctrl+,"
 
 [socket]
@@ -481,4 +474,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
