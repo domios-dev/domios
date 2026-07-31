@@ -140,6 +140,30 @@ const FRAME_ROW = /^\s*[│┃]/u;
 const FRAMED_OPTION = /^\s*[│┃]?\s*\d+[.)]\s*(?:\[[xX✓ ]*\]|\([xX✓• ]*\))/u;
 const KEY_GLYPH_HINT = /[⇆⏎]|↑↓/u;
 
+function hasQuestionDialog(rows: readonly string[]): boolean {
+  return rows.some((row) => FRAMED_OPTION.test(row));
+}
+
+/**
+ * Cap the preview window. Streaming content shows its LAST rows; a framed
+ * question dialog instead anchors at its first row — options without their
+ * question are unreadable, so the question + leading options win the window.
+ */
+export function capPreviewRows(rows: readonly string[]): string[] {
+  for (let i = 0; i < rows.length; i++) {
+    if (!FRAME_ROW.test(rows[i])) continue;
+    let end = i;
+    let hasOption = false;
+    while (end < rows.length && FRAME_ROW.test(rows[end])) {
+      if (FRAMED_OPTION.test(rows[end])) hasOption = true;
+      end++;
+    }
+    if (hasOption) return rows.slice(i, i + MAX_PREVIEW_ROWS);
+    i = end - 1;
+  }
+  return rows.slice(-MAX_PREVIEW_ROWS);
+}
+
 /** Rows worth previewing as message content: junk frames dropped, except a
  * framed interactive-question dialog, which the user must see. */
 export function displayablePreview(lines: readonly string[]): string[] {
@@ -191,6 +215,9 @@ export function isSmoothPreviewTransition(
   next: readonly string[],
 ): boolean {
   if (prev.length === 0 || next.length === 0) return true;
+  // A question dialog opening or closing is a deliberate modal event the
+  // user must see immediately — never churn to smooth over or hold back.
+  if (hasQuestionDialog(prev) !== hasQuestionDialog(next)) return true;
   for (let drop = 0; drop < prev.length; drop++) {
     const kept = prev.slice(drop);
     if (kept.length > next.length) continue;
