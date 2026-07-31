@@ -35,16 +35,17 @@ async function main() {
     listener = handler as typeof listener;
     return () => {};
   });
-  __setInvokeForTest((async (cmd: string) => {
+  __setInvokeForTest((async (cmd: string, args: { agentSessionId?: string | null }) => {
     if (cmd === "chat_start") {
       starts += 1;
+      const sourceSessionId = args.agentSessionId ?? null;
       return {
         text: "",
         offset: 0,
         pending: true,
-        source_session_id: "bound-session",
+        source_session_id: sourceSessionId,
         session_binding_nonce: null,
-        subscription_id: "test-subscription",
+        subscription_id: sourceSessionId == null ? null : "test-subscription",
       };
     }
     if (cmd === "chat_stop") stops += 1;
@@ -58,8 +59,8 @@ async function main() {
     messages: [] as string[],
     retry: () => {},
   };
-  function Harness() {
-    const session = useChatSession({ tabId: "tab", agentSessionId: "bound-session", sessionBindingNonce: null });
+  function Harness({ sessionId }: { sessionId: string | null }) {
+    const session = useChatSession({ tabId: "tab", agentSessionId: sessionId, sessionBindingNonce: null });
     latest = {
       attachmentState: session.attachmentState,
       error: session.error,
@@ -72,8 +73,15 @@ async function main() {
 
   const host = document.createElement("div");
   const root = createRoot(host);
-  await act(async () => root.render(<Harness />));
-  if (starts !== 1) throw new Error("pending snapshot started more than once");
+  await act(async () => root.render(<Harness sessionId={null} />));
+  if (starts !== 1) throw new Error("fresh snapshot started more than once");
+  if (latest.attachmentState !== "awaiting_session") throw new Error("fresh chat did not await its first session");
+  if (latest.recovering) throw new Error("fresh chat was misclassified as recovering history");
+  if (latest.error != null) throw new Error("fresh chat surfaced a history error");
+  if (recoveryDeadline != null) throw new Error("fresh chat armed a missing-session deadline");
+
+  await act(async () => root.render(<Harness sessionId="bound-session" />));
+  if (Number(starts) !== 2) throw new Error("bound snapshot did not start exactly once");
   if (stops !== 0) throw new Error("pending snapshot stopped the listener");
   await act(async () => listener?.({
     payload: {
@@ -87,19 +95,19 @@ async function main() {
   if (latest.messages[0] !== "history restored") throw new Error("history was not restored");
 
   await act(async () => latest.retry());
-  if (Number(starts) !== 2) throw new Error("retry did not request a fresh snapshot");
+  if (Number(starts) !== 3) throw new Error("retry did not request a fresh snapshot");
   if (!recoveryDeadline) throw new Error("pending recovery did not arm a failure deadline");
   await act(async () => recoveryDeadline?.());
-  if (latest.attachmentState !== "failed") throw new Error("deadline did not fail the attachment");
+  if (String(latest.attachmentState) !== "failed") throw new Error("deadline did not fail the attachment");
   if (latest.recovering) throw new Error("deadline left the chat recovering");
-  if (!latest.error?.includes("timed out")) throw new Error("deadline did not surface a retryable error");
+  if (!String(latest.error).includes("timed out")) throw new Error("deadline did not surface a retryable error");
 
   await act(async () => root.unmount());
   Object.defineProperty(globalThis, "setTimeout", {
     value: nativeSetTimeout,
     configurable: true,
   });
-  console.log("PASS pending recovery restores on event and fails on a bounded deadline");
+  console.log("PASS fresh chat stays idle; known-session recovery restores or fails on a bounded deadline");
 }
 
 void main();

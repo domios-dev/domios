@@ -29,7 +29,8 @@ const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(params: LaunchParams): string {
+function starterPrompt(params: LaunchParams): string | undefined {
+  if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -48,7 +49,7 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title: string): boolean {
@@ -173,8 +174,11 @@ const plugin: PluginModule = {
         parts.push("-c");
         parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
       }
-      parts.push("--");
-      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
+      const prompt = starterPrompt(p);
+      if (prompt) {
+        parts.push("--");
+        parts.push(host.shell.quoteFor(prompt, host.platform()));
+      }
       if (host.platform() === "windows") {
         return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
       }

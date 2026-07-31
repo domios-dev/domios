@@ -414,6 +414,10 @@ export function useChatSession({
     sessionId: agentSessionId,
     sessionBindingNonce: sessionBindingNonce ?? null,
   });
+  const sessionHistoryRef = useRef({
+    tabId,
+    hadBoundSession: agentSessionId != null,
+  });
   const lifecycleRef = useRef(0);
   /** Lifecycle of the last merged snapshot: unchanged => resync (merge),
    *  new => fresh listener attach (replace). */
@@ -474,6 +478,17 @@ export function useChatSession({
   allowUnboundAuthorityRef.current = allowUnboundAuthority;
   attachmentStateRef.current = attachmentState;
   attachGenerationRef.current = attachGeneration;
+
+  useEffect(() => {
+    if (sessionHistoryRef.current.tabId !== tabId) {
+      sessionHistoryRef.current = {
+        tabId,
+        hadBoundSession: agentSessionId != null,
+      };
+      return;
+    }
+    if (agentSessionId != null) sessionHistoryRef.current.hadBoundSession = true;
+  }, [agentSessionId, tabId]);
 
   useEffect(() => {
     setOptimistic([]);
@@ -681,13 +696,19 @@ export function useChatSession({
           if (requestedSessionId == null && !allowUnboundAuthorityRef.current) {
             replaceActiveSubscription(null);
             setAttachmentState("awaiting_session");
-            setRecovering(true);
             setLoading(false);
-            armRecoveryDeadline(
-              lifecycle,
-              generation,
-              "Chat history recovery timed out while waiting for the agent session.",
-            );
+            if (sessionHistoryRef.current.hadBoundSession) {
+              setRecovering(true);
+              armRecoveryDeadline(
+                lifecycle,
+                generation,
+                "Chat history recovery timed out while waiting for the agent session.",
+              );
+            } else {
+              clearRecoveryDeadline();
+              setRecovering(false);
+              setError(null);
+            }
           }
           return;
         }

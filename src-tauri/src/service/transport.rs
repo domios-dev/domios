@@ -143,7 +143,7 @@ impl AgentTransport for PtyTransport {
         let params = AgentLaunchParams {
             agent_name: None,
             task: launch_task.clone(),
-            starter_prompt: Default::default(),
+            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: (!model_args.is_empty()).then_some(model_args),
             skip_permissions: ctx.skip_permissions,
             session_id: None,

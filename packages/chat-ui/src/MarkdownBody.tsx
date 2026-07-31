@@ -8,6 +8,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
+import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
@@ -143,7 +144,15 @@ const HTML_REHYPE_PLUGINS = [
   rehypeScrubInlineStyles,
 ] as unknown as RehypePlugins;
 
-export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: number }) {
+export function RichMarkdown({
+  text,
+  fontScale,
+  localArtifacts = true,
+}: {
+  text: string;
+  fontScale?: number;
+  localArtifacts?: boolean;
+}) {
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
@@ -163,7 +172,25 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
-        p: ({ node: _node, ...props }) => <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props} />,
+        p: ({ node: _node, children, ...props }) => {
+          const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
+            ? React.Children.toArray(children).join("")
+            : null;
+          const directive = localArtifacts && textChild
+            ? parseLocalArtifactDirective(textChild)
+            : null;
+          if (directive) {
+            return (
+              <LocalArtifactBlock
+                directive={directive}
+                renderMarkdown={(source) => (
+                  <RichMarkdown text={source} fontScale={fontScale} localArtifacts={false} />
+                )}
+              />
+            );
+          }
+          return <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>;
+        },
         ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
         ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
         li: ({ node: _node, children, ...props }) => (
@@ -224,9 +251,13 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
             {...props}
           />
         ),
-        img: ({ node: _node, ...props }) => (
-          <img className="my-1 inline-block max-w-full rounded" loading="lazy" {...props} />
-        ),
+        img: ({ node: _node, ...props }) => {
+          const source = typeof props.src === "string" ? props.src.trim() : "";
+          if (!localArtifacts && !/^data:image\/(?!svg\+xml)/i.test(source)) {
+            return <span className="text-xs opacity-60">[external image omitted]</span>;
+          }
+          return <img className="my-1 inline-block max-w-full rounded" loading="lazy" {...props} />;
+        },
         a: ({ node: _node, ...props }) => (
           <a
             target="_blank"

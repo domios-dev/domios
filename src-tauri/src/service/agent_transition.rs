@@ -66,6 +66,17 @@ impl ServiceContext {
         parent_tab_id: Option<&str>,
         can_spawn: Option<bool>,
     ) -> Result<(), String> {
+        self.set_tab_role_with_profile(tab_id, role_str, None, parent_tab_id, can_spawn)
+    }
+
+    pub(crate) fn set_tab_role_with_profile(
+        &self,
+        tab_id: &str,
+        role_str: &str,
+        role_profile: Option<&str>,
+        parent_tab_id: Option<&str>,
+        can_spawn: Option<bool>,
+    ) -> Result<(), String> {
         let destination = match Self::parse_role(role_str)? {
             AgentRole::Orchestrator => AgentPlacement::Orchestrator {
                 can_spawn: can_spawn.unwrap_or(true),
@@ -74,7 +85,7 @@ impl ServiceContext {
                 parent_tab_id: parent_tab_id
                     .ok_or("Manager requires a parent_tab_id")?
                     .to_string(),
-                role_profile: None,
+                role_profile: role_profile.map(str::to_string),
             },
             AgentRole::Worker => AgentPlacement::Worker {
                 parent_tab_id: parent_tab_id

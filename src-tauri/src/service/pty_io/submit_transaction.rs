@@ -222,9 +222,13 @@ struct PtySubmitTransport<'a> {
     submit_generation: u64,
 }
 
-fn bracketed_paste(text: &str) -> String {
-    let leading_space = if cfg!(windows) { " " } else { "" };
-    format!("\x1b[200~{leading_space}{text}\x1b[201~")
+fn xterm_paste(text: &str, bracketed_paste_mode: bool) -> String {
+    let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
+    if bracketed_paste_mode {
+        format!("\x1b[200~{normalized}\x1b[201~")
+    } else {
+        normalized
+    }
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
@@ -294,7 +298,20 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if text.is_empty() {
             return Ok(0);
         }
-        let paste = bracketed_paste(text);
+        let bracketed_paste_mode = self
+            .svc
+            .screen_state
+            .lock()
+            .bracketed_paste_mode(self.pty_id)
+            .unwrap_or(false);
+        let paste = xterm_paste(text, bracketed_paste_mode);
+        log::info!(
+            "[submit-audit] paste-encoding pty={} bracketed_paste_mode={} source_bytes={} encoded_bytes={}",
+            self.pty_id,
+            bracketed_paste_mode,
+            text.len(),
+            paste.len()
+        );
         let session = self
             .svc
             .pty
