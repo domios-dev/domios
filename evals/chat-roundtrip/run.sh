@@ -131,7 +131,7 @@ chat_snapshot() { dev_get "/api/tabs/$1/chat?since=0"; }
 mux_state() { dev_get /api/mux/state; }
 
 # The UI seam the web chat view hits: chat_start_core, which returns
-# {pending, messages}. Unlike /chat/start (tab_chat_routes) it does NOT 400
+# {pending, messages}. Unlike the transcript-only GET route, it does not fail
 # before the session binds — it returns pending:true, exactly what the chat UI
 # sees. This is the oracle for the "stuck pending / session: -" binding bug.
 chat_raw_start() { dev_post "/api/tabs/$1/chat-raw/start" '{"subscriptionId":"rt-harness"}'; }
@@ -224,7 +224,7 @@ case_elementary() {
   local nonce; nonce="RT$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: PONG-$nonce"
   echo "[chat-roundtrip] $provider: elementary — send + await echo & reply"
-  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
+  chat_raw_start "$tab" >/dev/null
   local sent_ms; sent_ms="$(now_ms)"
   chat_send "$tab" "$prompt"
   local cap; cap="$(poll_roundtrip "$tab" "$prompt" "$sent_ms")"
@@ -246,7 +246,7 @@ case_rapid() {
   local provider="$1" tab="$2"
   echo "[chat-roundtrip] $provider: rapid multi-send (3 quick messages)"
   local base; base="RR$(now_ms)"
-  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
+  chat_raw_start "$tab" >/dev/null
   chat_send "$tab" "rapid one $base"; sleep 1
   chat_send "$tab" "rapid two $base"; sleep 1
   chat_send "$tab" "rapid three $base"
@@ -272,7 +272,7 @@ case_rapid() {
 case_ordering() {
   local provider="$1" tab="$2" n=5
   echo "[chat-roundtrip] $provider: ordering — send $n distinct msgs, assert send-order in transcript"
-  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
+  chat_raw_start "$tab" >/dev/null
   local base; base="OR$(now_ms)"
   local i
   for i in $(seq 1 "$n"); do
@@ -331,7 +331,7 @@ case_binding() {
 case_picker() {
   local provider="$1" tab="$2"
   echo "[chat-roundtrip] $provider: picker-extraction — drive a menu + assert question/options extracted"
-  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
+  chat_raw_start "$tab" >/dev/null
   # /model shows the model picker — a real interactive menu that ALWAYS renders.
   # (Approval menus are suppressed when the tab is auto-approve/skip-permissions,
   # which is CodeTerm's spawn default — so they're not a reliable picker trigger.)
@@ -402,7 +402,7 @@ case_ledger_detached() {
   local nonce; nonce="LD$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: DETACH-$nonce"
   echo "[chat-roundtrip] $provider: ledger-detached — no live sink during delivery; reattach reconciles to sent"
-  # Runs FIRST on the freshly spawned tab: no chat/start has ever been called,
+  # Runs first on the fresh tab, before any chat subscription starts.
   # so no delta tailer/poller exists — detached by construction.
   local resp send_id
   resp="$(ledger_send "$tab" "$prompt")"
