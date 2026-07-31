@@ -204,6 +204,17 @@ if [ "$CMD" = "dev" ]; then
         ;;
     esac
   done
+else
+  BUILD_ARGS=()
+  for arg in "${@:2}"; do
+    if [ "$arg" = "--wait-build" ]; then
+      export CODETERM_BUILD_GATEWAY_MODE=queue
+    else
+      BUILD_ARGS+=("$arg")
+    fi
+  done
+  set -- "$CMD" "${BUILD_ARGS[@]}"
+  export CODETERM_BUILD_GATEWAY_MODE="${CODETERM_BUILD_GATEWAY_MODE:-fail-fast}"
 fi
 
 named_dev_target_dir() {
