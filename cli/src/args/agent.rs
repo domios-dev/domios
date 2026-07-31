@@ -192,7 +192,7 @@ pub enum AgentAction {
     ///
     /// Two spawn shapes:
     ///   Worker (leaf task you own; reports back; never spawns further):
-    ///     spawn claude --role Worker --parent $CODETERM_TAB_ID --task "...
+    ///     spawn claude --role Worker --parent-tab $CODETERM_TAB_ID --task "...
     ///     when done: codeterm agent report '<summary>'"
     ///   Orchestrator (independent objective / separate workspace / remote):
     ///     spawn codex --role Orchestrator --workspace WS_ID --task "..."
@@ -200,6 +200,7 @@ pub enum AgentAction {
     /// --task is launch-time input, NOT a routed inbound message: no
     /// return-address marker is injected. If the child must report or reply
     /// somewhere, put the exact report/send command in the task body.
+    #[command(verbatim_doc_comment)]
     Spawn {
         /// Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude.
         #[arg(default_value = "claude")]

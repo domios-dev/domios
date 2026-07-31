@@ -2,7 +2,7 @@
 //! CLI ships with them — agents can `codeterm docs <name>` on demand without
 //! polluting the system prompt.
 
-const DOCS: &[(&str, &str)] = &[
+pub(crate) const DOCS: &[(&str, &str)] = &[
     ("CONFIG", include_str!("../../../docs/CONFIG.md")),
     ("API", include_str!("../../../docs/API.md")),
     ("MESH", include_str!("../../../docs/MESH.md")),

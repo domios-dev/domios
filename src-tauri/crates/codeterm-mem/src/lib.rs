@@ -5,6 +5,7 @@ pub mod auto_extract;
 pub mod dreaming;
 pub mod embed_queue;
 pub mod embeddings;
+pub mod extraction_authority;
 pub mod file_sync;
 pub mod graph;
 pub mod graph_layout;
@@ -23,7 +24,9 @@ pub mod worker_agent;
 pub mod worker_pool;
 pub mod workers;
 
-mod manager_crud;
+#[cfg(test)]
+mod extraction_commit_tests;
+pub mod manager_crud;
 mod manager_graph;
 mod manager_layout;
 mod manager_queries;
@@ -40,8 +43,13 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+pub use extraction_authority::{
+    BindOutcome, CommitAuthority, ExtractionAuthority, ExtractionCancelSink, GenerationId,
+    RevokedGeneration,
+};
 pub use graph::{Entity, Relation};
 pub use layers::WakeUpOptions;
+pub use manager_crud::AreaForgetOutcome;
 #[cfg(feature = "embeddings")]
 pub use reindex::compose_embed_text;
 pub use reindex::{body_is_embeddable, MIN_EMBED_BODY_CHARS};
@@ -60,6 +68,26 @@ pub struct MemManager {
     pub(crate) embed_queue: embed_queue::EmbedQueue,
     pub(crate) heavy_ops_permits: Arc<Semaphore>,
     pub(crate) layout: graph_layout::LayoutState,
+    pub(crate) extraction: Arc<ExtractionAuthority>,
+}
+
+impl MemManager {
+    pub fn extraction_authority(&self) -> &Arc<ExtractionAuthority> {
+        &self.extraction
+    }
+
+    /// Refuse the commit when the ambient write origin resolves to a generation
+    /// whose source was deleted. Checked on every write at this boundary, so a
+    /// generation that already started executing still cannot land.
+    pub(crate) fn guard_commit(&self) -> Result<(), String> {
+        let authority = self
+            .extraction
+            .authorize_worker(store::current_write_worker().as_deref());
+        match authority.refusal() {
+            Some(reason) => Err(reason),
+            None => Ok(()),
+        }
+    }
 }
 
 impl MemManager {
@@ -107,6 +135,7 @@ impl MemManager {
             embed_queue,
             heavy_ops_permits,
             layout,
+            extraction: Arc::new(ExtractionAuthority::new()),
         }))
     }
 
@@ -123,6 +152,7 @@ impl MemManager {
             embed_queue: embed_queue::EmbedQueue::disabled(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
+            extraction: Arc::new(ExtractionAuthority::new()),
         }))
     }
 
@@ -166,6 +196,7 @@ impl MemManager {
             embed_queue: embed_queue::EmbedQueue::disabled(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
             layout,
+            extraction: Arc::new(ExtractionAuthority::new()),
         }))
     }
 
