@@ -79,6 +79,8 @@ pub(crate) use team::rename_team_core;
 pub(crate) use team::rename_team_with_state_change;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) mod test_fixture;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
