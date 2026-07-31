@@ -710,12 +710,13 @@ mod tests {
     use super::*;
     use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
     use std::sync::Arc;
 
-    fn update_fixture() -> (ServiceFixture, String, String) {
+    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
         let (mux, _) = MultiplexerState::new();
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(
@@ -724,6 +725,32 @@ mod tests {
             OrchestratorRef::from_tab("orch"),
         );
         fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let parent_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Parent".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let dependency_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Dependency".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
         let task_id = fixture
             .service
             .plan_store
@@ -734,10 +761,16 @@ mod tests {
                     kind: "implement".into(),
                     ..Default::default()
                 },
-                2,
+                4,
             )
             .unwrap();
-        (fixture, plan.id, task_id)
+        (
+            fixture,
+            plan.id,
+            task_id,
+            parent_task_id,
+            dependency_task_id,
+        )
     }
 
     fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
@@ -749,7 +782,7 @@ mod tests {
     #[test]
     fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
         for key in ["nonsense_field", "external_ref", "externalRefs"] {
-            let (fixture, plan_id, task_id) = update_fixture();
+            let (fixture, plan_id, task_id, _, _) = update_fixture();
             let service = Arc::new(fixture.service.clone());
             let before = full_task_record(&fixture, &plan_id, &task_id);
             let mut body = json!({});
@@ -783,8 +816,42 @@ mod tests {
     }
 
     #[test]
+    fn rest_every_supported_update_key_reaches_the_real_handler() {
+        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+        let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
+        assert_eq!(
+            payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            TASK_UPDATE_KEYS
+        );
+
+        for (key, body) in payloads {
+            let result = task_update_core(
+                &service,
+                &HeaderMap::new(),
+                &plan_id,
+                &task_id,
+                body,
+            );
+            let failure = result
+                .as_ref()
+                .err()
+                .map(|error| {
+                    let status = &error.0;
+                    let body = &error.1.0;
+                    format!("{status}: {body}")
+                })
+                .unwrap_or_default();
+            assert!(
+                result.is_ok(),
+                "REST failed supported key {key}: {failure}"
+            );
+        }
+    }
+
+    #[test]
     fn rest_update_external_refs_round_trips_non_null() {
-        let (fixture, plan_id, task_id) = update_fixture();
+        let (fixture, plan_id, task_id, _, _) = update_fixture();
         let service = Arc::new(fixture.service.clone());
 
         task_update_core(

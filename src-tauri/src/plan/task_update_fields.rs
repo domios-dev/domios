@@ -100,14 +100,102 @@ fn accepted_keys(seam: TaskUpdateSeam) -> Vec<&'static str> {
 }
 
 #[cfg(test)]
+pub(crate) fn valid_task_update_payloads(
+    parent_task_id: &str,
+    dependency_task_id: &str,
+) -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "acceptance_criteria",
+            serde_json::json!({ "acceptance_criteria": ["Criterion"] }),
+        ),
+        ("body", serde_json::json!({ "body": "Updated body" })),
+        (
+            "competition",
+            serde_json::json!({ "competition": { "enabled": true, "attempts": 2 } }),
+        ),
+        (
+            "correctness",
+            serde_json::json!({ "correctness": "Correct result" }),
+        ),
+        (
+            "dependency_task_ids",
+            serde_json::json!({ "dependency_task_ids": [dependency_task_id] }),
+        ),
+        (
+            "depends_on",
+            serde_json::json!({ "depends_on": [dependency_task_id] }),
+        ),
+        (
+            "executor_role",
+            serde_json::json!({ "executor_role": "rust-backend-dev" }),
+        ),
+        (
+            "external_refs",
+            serde_json::json!({ "external_refs": ["rollacode/codeterm-releases#18"] }),
+        ),
+        ("group", serde_json::json!({ "group": "stream-a" })),
+        (
+            "handle",
+            serde_json::json!({ "handle": "updated-handle" }),
+        ),
+        ("intent", serde_json::json!({ "intent": "Updated intent" })),
+        ("kind", serde_json::json!({ "kind": "review" })),
+        (
+            "lane",
+            serde_json::json!({ "lane": { "branch": "lane/update-test" } }),
+        ),
+        ("model", serde_json::json!({ "model": "test:model" })),
+        ("name", serde_json::json!({ "name": "Updated name" })),
+        ("parent", serde_json::json!({ "parent": parent_task_id })),
+        (
+            "parent_task_id",
+            serde_json::json!({ "parent_task_id": parent_task_id }),
+        ),
+        (
+            "personality",
+            serde_json::json!({ "personality": "Dumas" }),
+        ),
+        (
+            "personality_provenance",
+            serde_json::json!({ "personality_provenance": "user_supplied" }),
+        ),
+        ("primary", serde_json::json!({ "primary": "area:test" })),
+        ("priority", serde_json::json!({ "priority": "p2" })),
+        ("qa_plan", serde_json::json!({ "qa_plan": "Run QA" })),
+        (
+            "role_guidance",
+            serde_json::json!({ "role_guidance": "Review carefully" }),
+        ),
+        ("sections", serde_json::json!({ "sections": "" })),
+        ("status", serde_json::json!({ "status": "pending" })),
+        (
+            "status_label",
+            serde_json::json!({ "status_label": "ready" }),
+        ),
+        ("tags", serde_json::json!({ "tags": ["area:test"] })),
+        (
+            "test_plan",
+            serde_json::json!({ "test_plan": "Run focused test" }),
+        ),
+        ("type", serde_json::json!({ "type": "review" })),
+        ("why", serde_json::json!({ "why": "Routing reason" })),
+    ]
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Map;
 
     #[test]
     fn every_supported_update_key_is_accepted_at_both_seams() {
-        for key in TASK_UPDATE_KEYS {
-            let body = Value::Object(Map::from_iter([(key.to_string(), Value::Null)]));
+        let payloads = valid_task_update_payloads("task_parent", "task_dependency");
+        let payload_keys = payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+        assert_eq!(payload_keys, TASK_UPDATE_KEYS);
+        for (key, body) in payloads {
+            assert_eq!(body.as_object().unwrap().len(), 1, "payload for {key}");
+            assert!(body.get(key).is_some(), "payload for {key}");
             assert!(
                 validate_task_update_fields(&body, TaskUpdateSeam::Socket).is_ok(),
                 "Socket rejected supported key {key}"

@@ -802,13 +802,14 @@ pub(super) fn dispatch(
 mod tests {
     use super::{dependency_vec_field, dispatch, external_ref_values, validate_model_field};
     use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
     use crate::plan::{OrchestratorRef, Plan};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
     use serde_json::json;
     use std::sync::Arc;
 
-    fn update_fixture() -> (ServiceFixture, String, String) {
+    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
         let (mux, _) = MultiplexerState::new();
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(
@@ -817,6 +818,32 @@ mod tests {
             OrchestratorRef::from_tab("orch"),
         );
         fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let parent_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Parent".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let dependency_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Dependency".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
         let task_id = fixture
             .service
             .plan_store
@@ -827,10 +854,16 @@ mod tests {
                     kind: "implement".into(),
                     ..Default::default()
                 },
-                2,
+                4,
             )
             .unwrap();
-        (fixture, plan.id, task_id)
+        (
+            fixture,
+            plan.id,
+            task_id,
+            parent_task_id,
+            dependency_task_id,
+        )
     }
 
     fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
@@ -842,7 +875,7 @@ mod tests {
     #[test]
     fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
         for key in ["nonsense_field", "external_ref", "externalRefs"] {
-            let (fixture, plan_id, task_id) = update_fixture();
+            let (fixture, plan_id, task_id, _, _) = update_fixture();
             let service = Arc::new(fixture.service.clone());
             let before = full_task_record(&fixture, &plan_id, &task_id);
             let mut params = json!({
@@ -880,8 +913,40 @@ mod tests {
     }
 
     #[test]
+    fn socket_every_supported_update_key_reaches_the_real_handler() {
+        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+        let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
+        assert_eq!(
+            payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            TASK_UPDATE_KEYS
+        );
+
+        for (index, (key, mut params)) in payloads.into_iter().enumerate() {
+            params["plan_id"] = json!(plan_id.clone());
+            params["task_id"] = json!(task_id.clone());
+            let result = dispatch(
+                "plan.task.update",
+                &Some(params),
+                &fixture.service.app_handle,
+                &service,
+                100 + index as u64,
+            );
+            let failure = result
+                .as_ref()
+                .err()
+                .map(|error| error.message.as_str())
+                .unwrap_or("");
+            assert!(
+                result.is_ok(),
+                "Socket failed supported key {key}: {failure}"
+            );
+        }
+    }
+
+    #[test]
     fn socket_update_external_refs_round_trips_non_null() {
-        let (fixture, plan_id, task_id) = update_fixture();
+        let (fixture, plan_id, task_id, _, _) = update_fixture();
         let service = Arc::new(fixture.service.clone());
         let params = Some(json!({
             "plan_id": plan_id.clone(),
