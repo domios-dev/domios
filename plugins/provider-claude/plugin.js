@@ -902,6 +902,7 @@ var NOISE_FRAGMENTS = [
 var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(prompt, hostText) {
+  if (prompt === "no_starter") return void 0;
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (prompt === "team_bootstrap") {
     if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -1090,8 +1091,11 @@ var plugin = {
       const visiblePath = writeTaskTempFile(p.task);
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      parts.push("--");
-      parts.push(host.shell.quoteFor(starterPrompt(p.starterPrompt, p.starterPromptText), host.platform()));
+      const prompt = starterPrompt(p.starterPrompt, p.starterPromptText);
+      if (prompt) {
+        parts.push("--");
+        parts.push(host.shell.quoteFor(prompt, host.platform()));
+      }
     }
     return parts.join(" ");
   },

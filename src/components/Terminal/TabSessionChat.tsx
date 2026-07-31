@@ -632,10 +632,6 @@ export function TabSessionChat({
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
               Recovering chat history…
             </div>
-          ) : bootSetupView.kind === "none" ? (
-            <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
-              No messages yet.
-            </div>
           ) : null
         )}
         {renderedEnrichedMessages.map(({ msg, item, origin }) => {

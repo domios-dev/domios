@@ -60,8 +60,8 @@ export interface LaunchParams {
   agentName?: string;
   sessionId?: string;
   task?: string;
-  /** Provider-visible wake-up turn, selected by the host's task-delivery policy. */
-  starterPrompt?: "assigned_task" | "idle_wakeup" | "team_bootstrap";
+  /** Optional provider-visible starter turn selected by the host. */
+  starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap";
   /** Host-owned text for starter prompts shared across providers. */
   starterPromptText?: string;
   /// Fixed local server the host wants this agent's structured-prompt handle to
@@ -83,7 +83,7 @@ export interface ParsedPrompt {
 }
 
 export interface AgentProvider {
-  starterPromptText?(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
+  starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;

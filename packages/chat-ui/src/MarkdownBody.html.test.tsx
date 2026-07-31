@@ -54,6 +54,8 @@ const { RichMarkdown } = await import("./MarkdownBody");
 const { sanitizeStyleValue, containsHtmlMarkup, normalizeMultilineHtmlBlocks } = await import("./htmlSanitize");
 const { buildHtmlPreviewDocument, parseHtmlFileDirective, sanitizeLocalHtml } = await import("./HtmlPreviewBlock");
 const { configureHtmlFileLoader } = await import("./htmlFileLoader");
+const { configureLocalArtifactLoader } = await import("./localArtifactLoader");
+const { parseLocalArtifactDirective } = await import("./LocalArtifactBlock");
 
 test("containsHtmlMarkup gates on real tags, not comparisons", () => {
   assert(containsHtmlMarkup("press <kbd>Ctrl</kbd>"), "opening tag detected");
@@ -178,6 +180,50 @@ test("file-backed HTML fence loads and sanitizes its single source", async () =>
   assert(host.textContent?.includes("Local file"), "file provenance is visible");
   assert(reads === 1, "file is loaded once on mount");
   configureHtmlFileLoader(null);
+});
+
+test("standalone ct artifact directives render pages, images, and documents", async () => {
+  const pagePath = "C:\\Users\\dev\\Desktop\\view.html";
+  const imagePath = "C:\\Users\\dev\\Desktop\\preview.png";
+  const documentPath = "C:\\Users\\dev\\Desktop\\notes.md";
+  configureHtmlFileLoader(async (path) => {
+    assert(path === pagePath, "ct-page uses the existing sandboxed page loader");
+    return "<main>Page from file</main>";
+  });
+  configureLocalArtifactLoader(async (path, kind) => {
+    if (kind === "image") {
+      assert(path === imagePath, "ct-image preserves its absolute path");
+      return { data: "data:image/png;base64,AA==", media_type: "image/png" };
+    }
+    assert(path === documentPath && kind === "document", "ct-document preserves kind and path");
+    return {
+      data: "# Document title\n\n![tracker](https://example.test/pixel.png)",
+      media_type: "text/markdown",
+    };
+  });
+
+  assert(parseLocalArtifactDirective(`@ct-page "${pagePath}"`)?.path === pagePath, "quoted ct-page parses");
+  const { host } = await render(
+    <RichMarkdown text={`@ct-page ${pagePath}\n\n@ct-image ${imagePath}\n\n@ct-document ${documentPath}`} />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "ct-page renders in the HTML sandbox");
+  assert(host.querySelector<HTMLImageElement>("[data-testid='chat-ct-image'] img")?.src.startsWith("data:image/png"), "ct-image renders bounded data");
+  assert(host.querySelector("[data-testid='chat-ct-document'] h1")?.textContent === "Document title", "Markdown document renders as a document");
+  assert(!host.querySelector("[data-testid='chat-ct-document'] img"), "document Markdown cannot fetch external images");
+  assert(host.textContent?.includes("external image omitted"), "blocked document media is explicit");
+
+  configureHtmlFileLoader(null);
+  configureLocalArtifactLoader(null);
+});
+
+test("ct directives inside code fences remain inert code", async () => {
+  const { host } = await render(<RichMarkdown text={"```text\n@ct-image C:\\\\secret.png\n```"} />);
+  assert(!host.querySelector("[data-testid='chat-ct-image']"), "code-fenced directive is not executed");
+  assert(host.textContent?.includes("@ct-image"), "literal directive remains visible");
 });
 
 test("html fullscreen survives a markdown parent rerender", async () => {

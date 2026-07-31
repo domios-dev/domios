@@ -165,7 +165,11 @@ async function renderTabSessionChat(
     root.render(
       <MuxStateStoreContext.Provider value={store}>
         <MultiplexerActionsContext.Provider value={muxActions()}>
-          <TabSessionChat tabId={tabId} chatBackend isVisible />
+          <TabSessionChat
+            tabId={tabId}
+            chatBackend={state.tabs[tabId]?.backing?.kind === "chat_backend"}
+            isVisible
+          />
         </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
@@ -318,7 +322,7 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   await act(async () => root.unmount());
 });
 
-test("fresh unbound PTY chat reports recovery while keeping launch failure actionable", async () => {
+test("fresh unbound PTY chat stays silently empty while keeping launch failure actionable", async () => {
   const tabId = "fresh-unbound-chat";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -334,10 +338,15 @@ test("fresh unbound PTY chat reports recovery while keeping launch failure actio
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
   const chat = host.querySelector('[role="region"][aria-label="Tab chat: fresh-unbound-chat"]');
   const composer = host.querySelector('[aria-label="Message composer"]');
-  assert(chat?.getAttribute("aria-busy") === "true", "unbound PTY authority is announced as recovering");
-  assert(host.querySelector('[data-testid="chat-recovering-state"]'), "pending authority exposes recovery state");
+  assert(chat?.getAttribute("aria-busy") === "false", "fresh unbound PTY authority is not announced as recovering");
+  assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "fresh chat has no recovery placeholder");
+  assert(!host.querySelector('[data-testid="chat-empty-state"]'), "fresh chat has no empty-history placeholder");
   assert(composer, "usable fresh chat keeps its named composer");
   assert(
     host.querySelector('[role="alert"][aria-label="Launch failed"]'),

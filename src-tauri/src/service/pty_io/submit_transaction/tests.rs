@@ -5,6 +5,21 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
+#[test]
+fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
+    let text = "alpha\r\nbeta\ngamma\rdelta";
+    assert_eq!(
+        xterm_paste(text, true),
+        "\x1b[200~alpha\rbeta\rgamma\rdelta\x1b[201~"
+    );
+    assert_eq!(xterm_paste(text, false), "alpha\rbeta\rgamma\rdelta");
+}
+
+#[test]
+fn xterm_paste_does_not_inject_a_windows_sacrificial_space() {
+    assert_eq!(xterm_paste("payload", true), "\x1b[200~payload\x1b[201~");
+}
+
 // A CR before the post-paste frame reproduces bf1278870; the turn never starts.
 // Only causal paste evidence may release the CR, and deadlines only fail.
 struct TuiModel {

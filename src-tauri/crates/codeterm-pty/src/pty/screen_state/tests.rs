@@ -599,3 +599,15 @@ fn old_generation_cannot_remove_replacement_screen() {
     assert!(state.remove_if_generation("pty1", 2));
     assert!(state.get_screen_text("pty1").is_none());
 }
+
+#[test]
+fn bracketed_paste_mode_tracks_the_live_terminal_mode() {
+    let mut state = ScreenState::new();
+    assert_eq!(state.bracketed_paste_mode("pty1"), None);
+
+    state.process("pty1", b"\x1b[?2004h");
+    assert_eq!(state.bracketed_paste_mode("pty1"), Some(true));
+
+    state.process("pty1", b"\x1b[?2004l");
+    assert_eq!(state.bracketed_paste_mode("pty1"), Some(false));
+}
