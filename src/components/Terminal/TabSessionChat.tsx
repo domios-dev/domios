@@ -719,7 +719,6 @@ export function TabSessionChat({
             rows={streamPreview}
             working={liveAgentState.state === "working"}
             statusLine={liveAgentState.status_line}
-            elapsedMs={liveAgentState.elapsed_ms}
           />
         )}
         </div>
