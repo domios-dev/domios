@@ -530,6 +530,9 @@ mod tests {
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
         }
+        fn available_models(&self) -> Vec<crate::agent::provider::ModelInfo> {
+            crate::plugin::model_catalog::resolve_models(self.id)
+        }
         fn is_native(&self) -> bool {
             self.native
         }
@@ -702,6 +705,49 @@ mod tests {
         assert_eq!(descs[0].display_name, "Claude Code");
         assert!(!descs[0].available_models.is_empty());
         assert!(!descs[0].settings_schema.is_empty());
+    }
+
+    #[test]
+    fn listed_models_share_the_live_cache_registry() {
+        let id = "test-listed-models-share-live-cache";
+        crate::plugin::model_catalog::register(
+            id,
+            crate::plugin::model_catalog::RegisteredDefaults {
+                models: vec![crate::agent::provider::ModelInfo {
+                    id: "phantom-model".into(),
+                    display_name: "Phantom Model".into(),
+                    description: None,
+                    available: None,
+                }],
+                default: Some("phantom-model".into()),
+            },
+        );
+        crate::agent::model_catalog::put_live(
+            id,
+            vec![crate::agent::provider::ModelInfo {
+                id: "cache-model".into(),
+                display_name: "Cache Model".into(),
+                description: None,
+                available: None,
+            }],
+            Some("cache-model".into()),
+        );
+
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(FallbackStub { id, native: false }));
+        let cached: Vec<_> = crate::agent::model_catalog::resolve_models(id)
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+        let listed: Vec<_> = reg.list_descriptors().remove(0).available_models
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
+
+        let _ = std::fs::remove_file(
+            crate::agent::model_catalog::models_dir().join(format!("{id}.cache.json")),
+        );
+        assert_eq!(listed, cached, "agent models must list the cached snapshot");
     }
 
     #[test]
