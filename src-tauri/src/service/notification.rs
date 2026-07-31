@@ -25,7 +25,11 @@ fn admit_agent_input_request(
     pending_prompt: Option<&PendingPrompt>,
     requested_identity: Option<&str>,
 ) -> Result<String, String> {
-    let _ = audience;
+    // Audience axis, orthogonal to the authority checks below (task_44gqt0):
+    // an automation-declared tab's prompt is real but nobody's to answer.
+    if audience == TabAudience::Automation {
+        return Err("Tab is declared non-user-facing; prompt has no user audience".to_string());
+    }
     if tab_session_id != Some(session_id) {
         return Err("Tab session is no longer authoritative".to_string());
     }
