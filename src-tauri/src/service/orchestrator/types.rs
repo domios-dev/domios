@@ -154,6 +154,10 @@ pub struct SpawnAgentParams {
     pub nudge_cooldown_secs: Option<u64>,
     pub max_actions_per_tick: Option<u32>,
     pub activate: Option<bool>,
+    /// Audience axis for input-request notifications. `Automation` marks a tab
+    /// whose prompts have no human owner (bench/probe tabs) — they never bell.
+    #[serde(default)]
+    pub audience: crate::multiplexer::types::TabAudience,
     /// Host-set, never from the wire: the fixed structured-prompt server the
     /// host allocated for a `needs_structured_prompt_server` provider. Threaded
     /// into the launch command so the agent binds its SSE bus there.
