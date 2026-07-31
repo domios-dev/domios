@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import { resetWebEvents } from "../../lib/webEvents";
 import {
   formatLastActiveBadge,
@@ -16,6 +17,7 @@ import {
   selfHost,
   invalidateWebRequestContext,
 } from "../../lib/webApi";
+import { clampFloatingPosition, type FloatingPosition } from "../shared/floatingPosition";
 
 let nextPeerSwitchId = 0;
 
@@ -53,6 +55,8 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [switchFailed, setSwitchFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<FloatingPosition | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -79,11 +83,36 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node) && !menuRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
+
+  const placeMenu = useCallback(() => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(320, Math.max(220, window.innerWidth - 8));
+    const height = Math.min((peers.length + 1) * 44 + 8, window.innerHeight - 8);
+    const x = compact ? rect.right - width : rect.left;
+    setMenuPosition(clampFloatingPosition(x, rect.bottom + 4, width, height, window.innerWidth, window.innerHeight));
+  }, [compact, peers.length]);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    window.addEventListener("scroll", placeMenu, true);
+    return () => {
+      window.removeEventListener("resize", placeMenu);
+      window.removeEventListener("scroll", placeMenu, true);
+    };
+  }, [open, placeMenu]);
 
   useEffect(() => {
     const ready = (event: Event) => {
@@ -177,12 +206,18 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
         <span className="opacity-60 text-[9px]">▾</span>
       </button>
-      {open && (
+      {open && menuPosition && createPortal(
         <div
+          ref={menuRef}
           data-testid="peer-picker-menu"
-          className={`absolute top-full mt-1 z-50 min-w-[min(220px,calc(100vw-0.75rem))] max-w-[calc(100vw-0.75rem)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1 ${compact ? "right-0" : "left-0"}`}
+          role="menu"
+          aria-label="CodeTerm hosts"
+          className="fixed z-50 w-[min(320px,calc(100vw-0.5rem))] overflow-y-auto rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
+          style={{ top: menuPosition.top, left: menuPosition.left, maxHeight: menuPosition.maxHeight }}
         >
           <button
+            type="button"
+            role="menuitem"
             data-testid="peer-picker-self"
             onClick={() => switchTo(null)}
             className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] ${onSelf ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
@@ -197,6 +232,8 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             const badge = formatLastActiveBadge(p.last_active_ms);
             return (
               <button
+                type="button"
+                role="menuitem"
                 key={p.instance_id}
                 data-testid="peer-picker-item"
                 data-peer-name={p.instance_name}
@@ -223,7 +260,8 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               no paired peers
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
