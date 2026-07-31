@@ -449,3 +449,19 @@ test("stabilizer: retired rows still display inside a question dialog", () => {
     ["┃  Pick one please", "┃  1. [ ] Smooth", "┃  2. [ ] Confusing"],
   );
 });
+
+// Answered opencode round-trip: the SINGLE-SELECT picker has no checkbox
+// markers — plain numbered option rows. Two-plus numbered rows in a framed
+// run are a dialog; a lone framed numbered row stays tool junk.
+test("single-select numbered dialogs survive; lone framed numbered rows do not", () => {
+  const dialog = [
+    "  ┃  What would you like me to do next?",
+    "  ┃",
+    "  ┃  1. Wrap up",
+    "  ┃     Conclude the probe and report final status",
+    "  ┃  2. Investigate",
+  ];
+  assert.deepEqual(displayablePreview(dialog), dialog);
+  const toolish = ["┃ 1. compiling codeterm", "┃ done in 3s", "  prose survives"];
+  assert.deepEqual(displayablePreview(toolish), ["  prose survives"]);
+});

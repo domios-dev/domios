@@ -17,6 +17,7 @@ import {
   capPreviewRows,
   createPreviewStabilizerState,
   displayablePreview,
+  hasQuestionDialog,
   isSmoothPreviewTransition,
   normalizeStreamLine,
   stabilizePreview,
@@ -193,10 +194,15 @@ function main(): void {
   // anywhere is true stale junk (leftover).
   const fullBlob = canonicalBlob(landed);
   for (const turn of turns) {
-    const stale = turn.boundary_rows.filter((row) => {
-      const n = normalizeStreamLine(row);
-      return n.length > 0 && !fullBlob.includes(n);
-    });
+    // A question dialog at the boundary is a dialog CLOSE (answer submitted,
+    // next turn replaces the block) — option labels never land in canon by
+    // design, so they are handover, not stale junk.
+    const stale = hasQuestionDialog(turn.boundary_rows)
+      ? []
+      : turn.boundary_rows.filter((row) => {
+          const n = normalizeStreamLine(row);
+          return n.length > 0 && !fullBlob.includes(n);
+        });
     turn.handover_rows = turn.boundary_rows.length - stale.length;
     turn.leftover_rows = stale.length;
     turn.leftover_sample = stale.slice(0, 6);
