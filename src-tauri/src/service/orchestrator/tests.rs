@@ -43,16 +43,16 @@ fn roleless_spawn_task_stays_plain() {
     let task = role_onboarding_task(Some("inspect"), None, None).unwrap();
     assert!(task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(task.ends_with("inspect"));
-    assert_eq!(
-        role_onboarding_task(None, None, None).as_deref(),
-        Some(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-    );
+    let primer = role_onboarding_task(None, None, None).unwrap();
+    assert!(primer.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(primer.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
 }
 
 #[test]
 fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
     let capable = role_launch_task(None, None, None, true).expect("system primer");
-    assert_eq!(capable, crate::prompts::AGENT_CODETERM_PRIMER.trim());
+    assert!(capable.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(capable.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
     assert_eq!(role_launch_task(None, None, None, false), None);
 
     let fallback = role_launch_task(Some("inspect"), None, None, false).expect("task");
@@ -111,6 +111,12 @@ fn every_team_role_receives_the_shared_primer_exactly_once() {
                 crate::prompts::AGENT_CODETERM_PRIMER.trim()
             };
             assert_eq!(prompt.matches(context).count(), 1);
+            assert_eq!(
+                prompt
+                    .matches(crate::prompts::RICH_RENDERING_GUIDANCE.trim())
+                    .count(),
+                1
+            );
             assert_eq!(prompt.matches("team assignment").count(), 1);
         }
     }

@@ -301,11 +301,15 @@ fn restored_pty_boot_claim_excludes_lazy_materialization() {
     tab.agent_type = Some("fixture-provider".into());
     tab.agent_session_id = Some("session".into());
     tab.cwd = Some("cwd".into());
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("executor".into());
     tab.restored_from_snapshot = true;
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-boot-claim-test", state));
 
     let claim = claim_restored_pty_boot(&mux, &tab_id).unwrap().unwrap();
     assert_eq!(claim.session_id.as_deref(), Some("session"));
+    assert_eq!(claim.role.as_deref(), Some("Worker"));
+    assert_eq!(claim.role_profile.as_deref(), Some("executor"));
     assert!(claim_restored_launch(
         &mux,
         &tab_id,

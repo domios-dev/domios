@@ -1,24 +1,60 @@
 const TAIL_BYTES: usize = 4096;
 
+#[derive(Clone, Copy)]
+pub(crate) enum AgentLaunchOrigin {
+    AtomicSpawn,
+    GeneralAgent,
+    HiddenSpawn,
+    OrchestratedSpawn,
+    Restart,
+    RestoredSnapshot,
+    VisibleSpawn,
+}
+
+impl AgentLaunchOrigin {
+    fn label(self) -> &'static str {
+        match self {
+            Self::AtomicSpawn => "atomic_spawn",
+            Self::GeneralAgent => "general_agent",
+            Self::HiddenSpawn => "hidden_spawn",
+            Self::OrchestratedSpawn => "orchestrated_spawn",
+            Self::Restart => "restart",
+            Self::RestoredSnapshot => "restored_snapshot",
+            Self::VisibleSpawn => "visible_spawn",
+        }
+    }
+}
+
 pub(crate) fn log_launch(
-    context: &str,
+    origin: AgentLaunchOrigin,
     tab_id: &str,
     provider: &str,
     command: &str,
-    task: Option<&str>,
+    prompt: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+    prompt_delivery: &str,
 ) {
-    let task_bytes = task.map(|t| t.len()).unwrap_or(0);
-    let transport = task_transport(command);
+    let prompt_bytes = prompt.map(str::len).unwrap_or(0);
     log::info!(
-        "[launch-diagnostics] context={} tab={} provider={} command_bytes={} task_bytes={} task_transport={} child_exit=unavailable(pty) stderr=pty command={}",
-        context,
+        "[agent-launch] origin={} tab={} provider={} role={} role_profile={} prompt_delivery={} prompt_present={} prompt_bytes={} prompt_sha256={} command_bytes={} command_sha256={} child_exit=unavailable(pty) stderr=pty",
+        origin.label(),
         tab_id,
         provider,
+        role.unwrap_or("none"),
+        role_profile.unwrap_or("none"),
+        prompt_delivery,
+        prompt.is_some(),
+        prompt_bytes,
+        digest(prompt.unwrap_or_default()),
         command.len(),
-        task_bytes,
-        transport,
-        redact_secrets(command),
+        digest(command),
     );
+}
+
+fn digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
 pub(crate) fn log_shell_drop(
@@ -40,18 +76,6 @@ pub(crate) fn log_shell_drop(
         tail.len(),
         redact_secrets(&tail),
     );
-}
-
-fn task_transport(command: &str) -> &'static str {
-    if command.contains("--append-system-prompt-file") {
-        "file_arg"
-    } else if command.contains("Get-Content") || command.contains("$(cat ") {
-        "shell_substitution_argv"
-    } else if command.contains(" | claude") || command.contains("| claude") {
-        "stdin_pipe"
-    } else {
-        "none_or_unknown"
-    }
 }
 
 pub(crate) fn tail_bytes(text: &str, max_bytes: usize) -> String {
@@ -139,14 +163,10 @@ mod tests {
     }
 
     #[test]
-    fn task_transport_classifies_inline_substitution() {
-        assert_eq!(
-            task_transport("claude -- \"$(Get-Content 'x' -Raw -Encoding UTF8)\""),
-            "shell_substitution_argv"
-        );
-        assert_eq!(
-            task_transport("claude --append-system-prompt-file 'x' -- 'run'"),
-            "file_arg"
-        );
+    fn launch_digest_never_contains_source_text() {
+        let source = "private launch prompt";
+        let got = digest(source);
+        assert_eq!(got.len(), 64);
+        assert!(!got.contains(source));
     }
 }

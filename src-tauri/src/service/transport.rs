@@ -122,9 +122,27 @@ impl AgentTransport for PtyTransport {
             ctx.tab_id,
             &cwd,
         );
+        let (role, role_profile) = svc
+            .mux
+            .read()
+            .get_tab(ctx.tab_id)
+            .map(|tab| {
+                (
+                    tab.role.map(|role| format!("{role:?}")),
+                    tab.role_profile.clone(),
+                )
+            })
+            .unwrap_or_default();
+        let launch_task = crate::service::orchestrator::provider_launch_task(
+            &svc.agent_registry,
+            ctx.provider_id,
+            None,
+            role.as_deref(),
+            role_profile.as_deref(),
+        );
         let params = AgentLaunchParams {
             agent_name: None,
-            task: None,
+            task: launch_task.clone(),
             starter_prompt: Default::default(),
             args: (!model_args.is_empty()).then_some(model_args),
             skip_permissions: ctx.skip_permissions,
@@ -143,7 +161,8 @@ impl AgentTransport for PtyTransport {
                 ctx.tab_id.to_string(),
                 launch_command,
                 ctx.provider_id.to_string(),
-                None,
+                crate::service::launch_diagnostics::AgentLaunchOrigin::AtomicSpawn,
+                launch_task,
                 None,
                 None,
             );

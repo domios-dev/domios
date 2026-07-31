@@ -194,6 +194,8 @@ pub async fn spawn_pty_core(
         let tab_cwd = restore.cwd;
         let agent_type = restore.provider_id;
         let tab_model = restore.model;
+        let tab_role = restore.role;
+        let tab_role_profile = restore.role_profile;
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
@@ -385,25 +387,58 @@ pub async fn spawn_pty_core(
 
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
-            // Restored tab without session falls back to fresh launch.
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
-            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
-                let args = tab_model
-                    .as_deref()
-                    .filter(|m| !m.trim().is_empty())
-                    .map(|m| p.model_launch_args(m))
-                    .filter(|a| !a.is_empty());
-                crate::agent::stub_launch::apply(
+            let launch_task = crate::service::provider_launch_task(
+                &svc.agent_registry,
+                &provider_id,
+                None,
+                tab_role.as_deref(),
+                tab_role_profile.as_deref(),
+            );
+            let params = crate::service::SpawnAgentParams {
+                agent: Some(provider_id.clone()),
+                cwd: tab_cwd.clone(),
+                skip_permissions: Some(skip_perms),
+                model: tab_model.clone(),
+                role: tab_role.clone(),
+                role_profile: tab_role_profile.clone(),
+                ..Default::default()
+            };
+            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |_| {
+                crate::service::build_agent_command(
                     &provider_id,
-                    p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
-                        skip_permissions: skip_perms,
-                        args,
-                        ..Default::default()
-                    }),
+                    &params,
+                    launch_task.as_deref(),
+                    None,
+                    &svc.agent_registry,
                 )
             });
             if let Some(cmd) = launch_cmd {
+                let prompt_delivery = svc
+                    .agent_registry
+                    .with_provider(&provider_id, |provider| {
+                        match provider.system_prompt_delivery() {
+                            crate::agent::provider::SystemPromptDelivery::CliFlag(_) => "cli_flag",
+                            crate::agent::provider::SystemPromptDelivery::SessionConfig => {
+                                "session_config"
+                            }
+                            crate::agent::provider::SystemPromptDelivery::External => {
+                                "confirmed_fallback"
+                            }
+                        }
+                    })
+                    .unwrap_or("unknown");
+                crate::service::launch_diagnostics::log_launch(
+                    crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+                    pid,
+                    &provider_id,
+                    &cmd,
+                    launch_task.as_deref(),
+                    tab_role.as_deref(),
+                    tab_role_profile.as_deref(),
+                    prompt_delivery,
+                );
                 let pty_id_for_poll = pty_id.clone();
                 let pty_id_for_launch = pty_id.clone();
                 let screen_state_clone = screen_state.clone();

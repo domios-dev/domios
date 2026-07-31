@@ -17,6 +17,8 @@ pub(crate) struct RestoredLaunch {
     pub session_id: Option<String>,
     pub cwd: Option<String>,
     pub model: Option<String>,
+    pub role: Option<String>,
+    pub role_profile: Option<String>,
 }
 
 pub(crate) fn claim_restored_pty_boot(
@@ -39,6 +41,8 @@ pub(crate) fn claim_restored_pty_boot(
         session_id: tab.agent_session_id.clone(),
         cwd: tab.cwd.clone(),
         model: tab.agent_session_model.clone(),
+        role: tab.role.map(|role| format!("{role:?}")),
+        role_profile: tab.role_profile.clone(),
     }))
 }
 
@@ -87,6 +91,8 @@ pub(crate) fn claim_restored_launch(
         session_id,
         cwd: tab.cwd.clone(),
         model: tab.agent_session_model.clone(),
+        role: tab.role.map(|role| format!("{role:?}")),
+        role_profile: tab.role_profile.clone(),
     }))
 }
 
@@ -402,28 +408,57 @@ impl ServiceContext {
             |stage, error| self.emit_boot_stage(tab_id, stage, Some(error)),
             |launch, restored_task| {
                 let pc = crate::config::provider_config(&launch.provider_id);
+                let launch_task = crate::service::orchestrator::provider_launch_task(
+                    &self.agent_registry,
+                    &launch.provider_id,
+                    restored_task.as_deref(),
+                    launch.role.as_deref(),
+                    launch.role_profile.as_deref(),
+                );
                 let params = crate::service::SpawnAgentParams {
                     agent: Some(launch.provider_id.clone()),
                     cwd: launch.cwd,
                     skip_permissions: Some(pc.resume_skip_permissions.unwrap_or(true)),
                     model: launch.model,
                     resume_session_id: launch.session_id,
+                    role: launch.role,
+                    role_profile: launch.role_profile,
                     ..Default::default()
                 };
                 let launch_cmd = crate::service::orchestrator::build_agent_command(
                     &launch.provider_id,
                     &params,
-                    None,
+                    launch_task.as_deref(),
                     None,
                     &self.agent_registry,
                 );
+                let fallback_spec = self
+                    .agent_registry
+                    .with_provider(&launch.provider_id, |provider| {
+                        matches!(
+                            crate::service::launch_delivery::mode_for_descriptor(
+                                &provider.system_prompt_delivery(),
+                            ),
+                            crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
+                        )
+                    })
+                    .unwrap_or(true)
+                    .then(|| {
+                        crate::service::launch_delivery::fallback_delivery_spec(
+                            None,
+                            launch_task.as_deref(),
+                            None,
+                        )
+                    })
+                    .flatten();
                 crate::service::orchestrator::launch_agent_in_background(
                     self.clone(),
                     tab_id.to_string(),
                     launch_cmd,
                     launch.provider_id,
-                    restored_task,
-                    None,
+                    crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+                    launch_task,
+                    fallback_spec,
                     None,
                 );
             },

@@ -71,6 +71,7 @@ fn build_relaunch_falls_back_to_fresh_when_session_stale() {
         true,
         false,
         None,
+        None,
     )
     .expect("fallback launch command");
     assert!(!command.contains("--resume"));
@@ -87,6 +88,7 @@ fn build_relaunch_uses_resume_when_session_present() {
         true,
         true,
         None,
+        None,
     )
     .expect("resume command");
     assert!(command.contains("--resume"));
@@ -102,6 +104,7 @@ fn build_relaunch_unknown_provider_returns_none() {
         None,
         true,
         false,
+        None,
         None
     )
     .is_none());
@@ -170,27 +173,49 @@ fn permission_profile_reflects_auto_approve() {
 #[test]
 fn build_relaunch_preserves_permission_profile() {
     let registry = registry_with_claude();
-    let resume =
-        build_relaunch_command_with_registry(&registry, "claude", Some("sid"), true, true, None)
-            .expect("resume command");
+    let resume = build_relaunch_command_with_registry(
+        &registry,
+        "claude",
+        Some("sid"),
+        true,
+        true,
+        None,
+        None,
+    )
+    .expect("resume command");
     assert!(resume.contains("--dangerously-skip-permissions"));
 
-    let fresh =
-        build_relaunch_command_with_registry(&registry, "claude", Some("sid"), true, false, None)
-            .expect("fresh command");
+    let fresh = build_relaunch_command_with_registry(
+        &registry,
+        "claude",
+        Some("sid"),
+        true,
+        false,
+        None,
+        None,
+    )
+    .expect("fresh command");
     assert!(fresh.contains("--dangerously-skip-permissions"));
 
-    let sandboxed =
-        build_relaunch_command_with_registry(&registry, "claude", Some("sid"), false, true, None)
-            .expect("sandboxed resume command");
+    let sandboxed = build_relaunch_command_with_registry(
+        &registry,
+        "claude",
+        Some("sid"),
+        false,
+        true,
+        None,
+        None,
+    )
+    .expect("sandboxed resume command");
     assert!(!sandboxed.contains("--dangerously-skip-permissions"));
 }
 
 #[test]
 fn build_relaunch_drops_resume_without_session_id() {
     let registry = registry_with_claude();
-    let command = build_relaunch_command_with_registry(&registry, "claude", None, true, true, None)
-        .expect("fresh launch without session id");
+    let command =
+        build_relaunch_command_with_registry(&registry, "claude", None, true, true, None, None)
+            .expect("fresh launch without session id");
     assert!(!command.contains("--resume"));
 }
 
