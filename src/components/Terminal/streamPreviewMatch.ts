@@ -89,8 +89,8 @@ const TOOL_STATUS_GLYPH = /^\s*[~←→↺✔✘✗]\s/u;
  * "· Garnishing…"): a lone gerund ending in an ellipsis, optional counter —
  * and nothing else, so prose that merely starts with "Waiting…" survives.
  * The completed form ("✻ Brewed for 2s") is the same status family. */
-const THINKING_SPINNER = /^\s*[✢✳✶✷✻✽·∗⁕*+]?\s*\p{L}+[…⋯]\s*(?:\([^()]*\))?\s*$/u;
-const COMPLETED_VERB = /^\s*[✢✳✶✷✻✽·∗⁕*+]\s*\p{L}+\s+for\s+\d+(?:m\s?\d+)?s\s*$/u;
+const THINKING_SPINNER = /^\s*[✢✳✶✷✻✽·∗⁕*+]?\s*\p{L}+(?:-\p{L}+)*[…⋯]\s*(?:\([^()]*\))?\s*$/u;
+const COMPLETED_VERB = /^\s*[✢✳✶✷✻✽·∗⁕*+]\s*\p{L}+(?:-\p{L}+)*\s+for\s+\d+(?:m\s?\d+)?s\s*$/u;
 
 /** Line-numbered file dumps ("      1 hello streaming") — tool output. */
 const NUMBERED_FILE_ROW = /^\s{4,}\d+\s\S/u;
@@ -262,8 +262,12 @@ export function stabilizePreview(
     state.retired.clear();
     state.last = [];
   }
+  // A question dialog is modal: it always displays whole, never trimmed by
+  // earlier retirements (its rows may have scrolled out pre-anchor).
   let start = 0;
-  while (start < rows.length && state.retired.has(rows[start])) start++;
+  if (!hasQuestionDialog(rows)) {
+    while (start < rows.length && state.retired.has(rows[start])) start++;
+  }
   let next = rows.slice(start);
   if (next.length === 0) {
     next = coverageEmptied ? [] : uncoveredPreviewTail(state.last, blob);

@@ -426,3 +426,26 @@ test("question dialog open and close are deliberate modal transitions", () => {
   assert.equal(isSmoothPreviewTransition(prose, dialog), true);
   assert.equal(isSmoothPreviewTransition(dialog, prose), true);
 });
+
+// Claude re-record: spinner verbs can be hyphenated compounds.
+test("hyphenated spinner verbs are never previewable", () => {
+  const rows = [
+    "✳ Sock-hopping…",
+    "✢ Fiddle-faddling…",
+    "✳ Fiddle-faddling… (1s · thinking with high effort)",
+    "  Actual content survives.",
+  ];
+  assert.deepEqual(displayablePreview(rows), ["  Actual content survives."]);
+});
+
+// ux-verifier nit: option rows retired from pre-anchor frames were trimmed
+// out of the anchored dialog window. Dialog frames bypass retirement.
+test("stabilizer: retired rows still display inside a question dialog", () => {
+  const state = createPreviewStabilizerState();
+  stabilizePreview(state, 1, ["┃  1. [ ] Smooth", "some other row"], true, "");
+  stabilizePreview(state, 1, ["some other row"], true, "");
+  assert.deepEqual(
+    stabilizePreview(state, 1, ["┃  Pick one please", "┃  1. [ ] Smooth", "┃  2. [ ] Confusing"], true, ""),
+    ["┃  Pick one please", "┃  1. [ ] Smooth", "┃  2. [ ] Confusing"],
+  );
+});
