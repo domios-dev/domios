@@ -166,6 +166,10 @@ Gateway-backed commands fail fast when another job owns the machine slot, so
 an agent turn never blocks silently behind a long-lived dev process. Add
 `--wait-build` only when synchronous queueing is intentional.
 
+Use `./build.sh help` as the command index. `test-one <app|pty|cli> <filter>`
+hides manifest/package details for focused capped tests; `verify` runs the
+standard check, unit-test, and source-size integration gate.
+
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command also regenerates
 `docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs
@@ -395,4 +399,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

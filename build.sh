@@ -145,7 +145,7 @@ wait_for_dev_exit() {
 
 CMD="${1:-dev}"
 case "$CMD" in
-  gateway-*) ;;
+  gateway-*|help) ;;
   *) setup_env ;;
 esac
 
@@ -941,6 +941,24 @@ ensure_deps() {
 }
 
 case "$CMD" in
+  help)
+    cat <<'EOF'
+CodeTerm build commands
+
+  dev                         Start the visible shared dev instance
+  check                       Fast Rust compile check
+  test-one <app|pty|cli> NAME Run one focused capped Rust test
+  test                        Run the application Rust unit suite
+  verify                      Run check, tests, and source-size gate
+  qa-prep                     Prepare a worktree for QA
+  install-local               Build and install locally
+  build                       Build production artifacts
+  gateway-status              Show the machine build owner
+
+Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
+when blocking this terminal is intentional.
+EOF
+    ;;
   env)
     # Already loaded above. Use: source build.sh env
     ;;
@@ -1038,6 +1056,25 @@ case "$CMD" in
     prepare_bundle_stubs
     ct_configure_sccache
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    ;;
+  test-one)
+    test_scope="${2:?test-one requires app, pty, or cli}"
+    test_filter="${3:?test-one requires a test name or filter}"
+    case "$test_scope" in
+      app) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter" ;;
+      pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
+      cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
+      *) echo "Unknown test scope: $test_scope (expected app, pty, or cli)" >&2; exit 2 ;;
+    esac
+    ;;
+  verify)
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    ct_configure_sccache
+    cargo check --manifest-path src-tauri/Cargo.toml
+    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    bash scripts/check-file-sizes.sh --fail
     ;;
   worktree-check)
     enter_build_gateway "$CMD ${*:2}"
@@ -1327,7 +1364,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|install-local [--continue-prompt TEXT] [--continue-tab ID] [--no-continue]|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-logging-check|gateway-health-check|env}"
+    echo "Usage: ./build.sh help"
     exit 1
     ;;
 esac
