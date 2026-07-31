@@ -331,6 +331,12 @@ impl MessageGateway {
         self.worker_report_required.lock().remove(tab_id)
     }
 
+    /// Non-destructive probe of the obligation state, for assertions.
+    #[cfg(test)]
+    pub(crate) fn worker_report_required(&self, tab_id: &str) -> bool {
+        self.worker_report_required.lock().contains(tab_id)
+    }
+
     pub fn submit<S: DeliverySeam>(
         &self,
         seam: &S,
@@ -409,3 +415,6 @@ fn replay(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ordering_tests;
