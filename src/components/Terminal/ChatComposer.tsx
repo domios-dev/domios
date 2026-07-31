@@ -6,6 +6,7 @@ import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import {
   createDelayedMessage,
   deleteDelayedMessage,
@@ -19,7 +20,7 @@ import {
   filterSlashCommands,
   type SlashCommandSuggestion,
 } from "../../lib/slashCommands";
-import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
+import type { ModelInfo, PendingPrompt } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
@@ -301,9 +302,16 @@ function ChatComposerImpl({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [providerDescriptor, setProviderDescriptor] = useState<ProviderDescriptor | null>(null);
-  const [modelOptions, setModelOptions] = useState<ModelInfo[]>([]);
   const [modelHighlight, setModelHighlight] = useState(0);
+  const { providers, loading: modelCatalogLoading } = useAgentProviders();
+  const providerDescriptor = useMemo(
+    () => providers.find((provider) => provider.id === tabProvider),
+    [providers, tabProvider],
+  );
+  const modelOptions = useMemo(
+    () => providerDescriptor?.available_models ?? [],
+    [providerDescriptor],
+  );
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -329,10 +337,15 @@ function ChatComposerImpl({
       return haystack.includes(needle);
     });
   }, [modelCommandQuery, modelOptions, providerDescriptor?.model_switch_format]);
-  const modelSuggestionOpen = modelCommandQuery !== null
-    && filteredModelOptions.length > 0
+  const modelSuggestionRequested = modelCommandQuery !== null
     && !modelPickerOpen
     && modelSuggestionDismissedFor !== firstLine;
+  const modelSuggestionOpen = modelSuggestionRequested && filteredModelOptions.length > 0;
+  const modelSuggestionEmptyMessage = modelCatalogLoading
+    ? "Loading model catalog…"
+    : modelOptions.length === 0
+      ? "No models published"
+      : "No matching models";
 
   const suggestions = useMemo(
     () => filterSlashCommands(firstLine),
@@ -388,28 +401,11 @@ function ChatComposerImpl({
   }, [filteredModelOptions.length, modelSuggestionOpen]);
 
   useEffect(() => {
-    let cancelled = false;
-    invoke<ProviderDescriptor[]>("list_agent_providers")
-      .then((providers) => {
-        if (cancelled) return;
-        const provider = providers.find((candidate) => candidate.id === tabProvider) ?? null;
-        setProviderDescriptor(provider);
-        const models = provider?.available_models ?? [];
-        setModelOptions(models);
-        if (models.length) {
-          const defaultIndex = provider?.default_model
-            ? models.findIndex((model) => model.id === provider.default_model)
-            : -1;
-          setModelHighlight(defaultIndex >= 0 ? defaultIndex : 0);
-        } else {
-          setModelHighlight(0);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [tabProvider]);
+    const defaultIndex = providerDescriptor?.default_model
+      ? modelOptions.findIndex((model) => model.id === providerDescriptor.default_model)
+      : -1;
+    setModelHighlight(defaultIndex >= 0 ? defaultIndex : 0);
+  }, [modelOptions, providerDescriptor?.default_model]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -553,6 +549,15 @@ function ChatComposerImpl({
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
       clearAttachments();
+      refocusComposer();
+      return;
+    }
+    if (
+      allAttachments.length === 0
+      && modelCommandQuery !== null
+      && filteredModelOptions.length === 0
+    ) {
+      showComposerError(modelSuggestionEmptyMessage);
       refocusComposer();
       return;
     }
@@ -722,6 +727,9 @@ function ChatComposerImpl({
       )}
       {modelPickerOpen && (
         <div
+          role="dialog"
+          aria-label="Select model"
+          aria-busy={modelCatalogLoading}
           className="mb-2 rounded-md border p-2 shadow-lg"
           style={{
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, black 6%)",
@@ -746,8 +754,16 @@ function ChatComposerImpl({
               Esc
             </button>
           </div>
-          <div className="grid gap-1">
-            {modelOptions.map((model, i) => {
+          <div className="grid gap-1" role="group" aria-label="Available models">
+            {modelCatalogLoading ? (
+              <p className="px-2 py-1.5 text-xs text-[var(--ct-muted-fg)]" role="status">
+                Loading model catalog…
+              </p>
+            ) : modelOptions.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-[var(--ct-muted-fg)]" role="status">
+                No models published
+              </p>
+            ) : modelOptions.map((model, i) => {
               const selected = i === modelHighlight;
               return (
                 <button
@@ -756,6 +772,7 @@ function ChatComposerImpl({
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setModelHighlight(i)}
                   onClick={() => void chooseModel(model)}
+                  aria-pressed={selected}
                   className="w-full grid grid-cols-[1rem_minmax(0,1fr)] gap-2 rounded px-2 py-1.5 text-left text-xs"
                   style={{
                     background: selected
@@ -806,9 +823,10 @@ function ChatComposerImpl({
             onPick={pickSuggestion}
           />
           <ModelSuggestionPicker
-            models={modelSuggestionOpen ? filteredModelOptions : []}
+            models={modelSuggestionRequested && !modelCatalogLoading ? filteredModelOptions : []}
             highlighted={modelHighlight}
             defaultModel={providerDescriptor?.default_model}
+            emptyMessage={modelSuggestionRequested ? modelSuggestionEmptyMessage : undefined}
             onHighlight={setModelHighlight}
             onPick={(model) => void chooseModel(model)}
           />

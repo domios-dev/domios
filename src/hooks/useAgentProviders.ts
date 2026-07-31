@@ -20,6 +20,14 @@ export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "models-updated";
 }
 
+export function visibleAgentProviders(
+  items: ProviderDescriptor[],
+  loading: boolean,
+  error: string | null,
+): ProviderDescriptor[] {
+  return loading || error ? [] : items;
+}
+
 async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   const result = await invoke<ProviderDescriptor[]>("list_agent_providers");
   return result ?? [];
@@ -73,5 +81,5 @@ export function useAgentProviders(): {
   useEffect(() => {
     return attachModelsUpdatedRefresh(refetch);
   }, [refetch]);
-  return { providers: items, loading, error, refetch };
+  return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
 }

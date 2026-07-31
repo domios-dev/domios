@@ -27,6 +27,6 @@ export function resolveWorkerSelection(
     providerLabel: provider?.display_name ?? (selectedProvider || defaultProvider || "No provider"),
     defaultModelLabel: modelLabel(provider),
     modelOptions,
-    modelCompatible: !selectedModel || !modelOptions.length || modelOptions.some((model) => model.id === selectedModel),
+    modelCompatible: !selectedModel || modelOptions.some((model) => model.id === selectedModel),
   };
 }
