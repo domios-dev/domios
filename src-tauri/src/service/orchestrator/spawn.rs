@@ -774,6 +774,7 @@ pub(crate) fn initialize_ordinary_pty_agent_tab(
     params: &SpawnAgentParams,
 ) {
     tab.role_profile = params.role_profile.clone();
+    tab.audience = params.audience;
     tab.agent_booting = true;
     crate::service::boot_stage::apply_boot_stage(
         tab,
