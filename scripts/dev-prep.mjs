@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import crypto from "node:crypto";
 import {
+  accessSync,
   closeSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -17,6 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -135,13 +138,13 @@ function listTree(root) {
   return files;
 }
 
-function hashPath(requested, expectedType) {
+function hashPath(requested, expectedType, requireExecutable = false) {
   const path = resolve(requested);
   if (!existsSync(path)) throw new Error(`artifact is absent: ${path}`);
   const stat = lstatSync(path);
   if (expectedType === "file" && !stat.isFile()) throw new Error(`artifact is not a file: ${path}`);
   if (expectedType === "tree" && !stat.isDirectory()) throw new Error(`artifact is not a directory: ${path}`);
-  if (expectedType === "file" && !isWin && (stat.mode & 0o111) === 0) throw new Error(`artifact is not executable: ${path}`);
+  if (requireExecutable && !isWin && (stat.mode & 0o111) === 0) throw new Error(`artifact is not executable: ${path}`);
   const hash = sha256();
   let bytes = 0;
   const files = stat.isDirectory() ? listTree(path) : [path];
@@ -236,9 +239,9 @@ function buildProvenance(options) {
     inputsSha256: inputFingerprint(),
     instance: instanceFrom(options),
     artifacts: {
-      app: hashPath(paths.app, "file"),
-      cli: hashPath(paths.cli, "file"),
-      embed: hashPath(option(options, "--embed"), "file"),
+      app: hashPath(paths.app, "file", true),
+      cli: hashPath(paths.cli, "file", true),
+      embed: hashPath(option(options, "--embed"), "file", true),
       frontend: hashPath(paths.frontend, "tree"),
     },
   };
@@ -262,12 +265,12 @@ function assertKeys(value, keys, label) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} has an invalid shape`);
 }
 
-function validateArtifact(recorded, expectedPath, expectedType, label) {
+function validateArtifact(recorded, expectedPath, expectedType, label, requireExecutable = false) {
   assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], `${label} artifact`);
   const expected = resolve(expectedPath);
   if (resolve(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
   if (recorded.type !== expectedType) throw new Error(`${label} artifact type mismatch`);
-  const current = hashPath(expected, expectedType);
+  const current = hashPath(expected, expectedType, requireExecutable);
   if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
     throw new Error(`${label} artifact content mismatch`);
   }
@@ -283,7 +286,7 @@ function validateEmbedArtifact(recorded) {
     throw new Error("embed artifact name is invalid");
   }
   if (recorded.type !== "file") throw new Error("embed artifact type mismatch");
-  const current = hashPath(path, "file");
+  const current = hashPath(path, "file", true);
   if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
     throw new Error("embed artifact content mismatch");
   }
@@ -309,18 +312,59 @@ function checkProvenance(options) {
   if (JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) throw new Error("recorded instance does not match this dev instance");
   assertKeys(data.artifacts, ["app", "cli", "embed", "frontend"], "artifacts");
   const paths = artifactPaths(options);
-  validateArtifact(data.artifacts.app, paths.app, "file", "app");
-  validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI");
+  validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
+  validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI", true);
   validateEmbedArtifact(data.artifacts.embed);
   validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
   console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
+}
+
+function checkRuntime(options) {
+  const nodeModules = join(repo, "node_modules");
+  const modulesState = join(nodeModules, ".modules.yaml");
+  const viteLauncher = join(nodeModules, ".bin", isWin ? "vite.CMD" : "vite");
+  const dataDir = resolve(option(options, "--data-dir"));
+  const logDir = dirname(resolve(option(options, "--log")));
+  if (!existsSync(nodeModules) || !statSync(nodeModules).isDirectory()) throw new Error("node_modules is absent");
+  if (!existsSync(modulesState) || !statSync(modulesState).isFile() || statSync(modulesState).size === 0) {
+    throw new Error("pnpm dependency state is absent");
+  }
+  if (!existsSync(viteLauncher) || !statSync(viteLauncher).isFile() || statSync(viteLauncher).size === 0) {
+    throw new Error("local Vite launcher is absent");
+  }
+  if (!isWin) accessSync(viteLauncher, constants.X_OK);
+  accessSync(dataDir, constants.R_OK | constants.W_OK);
+  accessSync(logDir, constants.R_OK | constants.W_OK);
+  const require = createRequire(join(repo, "package.json"));
+  for (const dependency of ["vite", "@vitejs/plugin-react", "@tailwindcss/vite", "vite-plugin-pwa", "@tailwindcss/browser"]) {
+    require.resolve(dependency);
+  }
+  console.log("[dev-prebuilt] runtime prerequisites matched");
+}
+
+function terminateOwnedChild(child) {
+  if (!child || !Number.isInteger(child.pid) || child.exitCode !== null) return;
+  if (isWin) {
+    const result = spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    if (result.status !== 0) child.kill("SIGKILL");
+    return;
+  }
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    child.kill("SIGKILL");
+  }
 }
 
 async function launchPrebuilt(options) {
   const app = resolve(option(options, "--app"));
   const log = resolve(option(options, "--log"));
   const apiPort = option(options, "--api-port");
-  const deadlineMs = 30_000;
+  const fixtureDeadline = process.env.CODETERM_TEST_PREBUILT_READY_DEADLINE_MS;
+  const deadlineMs = fixtureDeadline === undefined ? 30_000 : Number(fixtureDeadline);
+  if (!Number.isInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 30_000) {
+    throw new Error("invalid prebuilt readiness failure deadline");
+  }
   if (!existsSync(app) || !statSync(app).isFile()) throw new Error(`prebuilt app is absent: ${app}`);
   mkdirSync(dirname(log), { recursive: true });
   writeFileSync(log, "");
@@ -346,6 +390,7 @@ async function launchPrebuilt(options) {
           partial = lines.pop() ?? "";
           const signal = lines.find(
             (line) =>
+              process.env.CODETERM_TEST_PREBUILT_NEVER_READY !== "1" &&
               line.includes("REST API generation ") &&
               line.includes(" health-proven on http://") &&
               new RegExp(`:${apiPort}(?:\\b|/)`).test(line),
@@ -370,6 +415,9 @@ async function launchPrebuilt(options) {
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
       deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms`)), deadlineMs);
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
+  } catch (error) {
+    terminateOwnedChild(child);
+    throw error;
   } finally {
     if (deadline) clearTimeout(deadline);
     if (watcher) watcher.close();
@@ -414,6 +462,7 @@ const command = process.argv[2];
 try {
   if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
+  else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
   else if (command === "--launch-prebuilt") await launchPrebuilt(parseOptions(process.argv.slice(3)));
   else runRegularPrep();
 } catch (error) {

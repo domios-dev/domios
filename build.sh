@@ -606,6 +606,51 @@ validate_dev_provenance() {
     --identifier "$CT_IDENTIFIER"
 }
 
+require_prebuilt_command() {
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "ERROR: prebuilt dev requires command '$command_name'" >&2
+    return 1
+  fi
+}
+
+preflight_dev_prebuilt_runtime() {
+  local command_name pnpm_command="${CODETERM_TEST_PREBUILT_PNPM_COMMAND:-pnpm}"
+  for command_name in node curl git sed head rm cat; do
+    require_prebuilt_command "$command_name" || return
+  done
+  require_prebuilt_command "$pnpm_command" || return
+  if ! "$pnpm_command" --version >/dev/null 2>&1; then
+    echo "ERROR: prebuilt dev cannot execute pnpm" >&2
+    return 1
+  fi
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    for command_name in nohup lsof pgrep xargs; do
+      require_prebuilt_command "$command_name" || return
+    done
+  else
+    for command_name in netstat taskkill grep awk; do
+      require_prebuilt_command "$command_name" || return
+    done
+    if ! command -v powershell.exe >/dev/null 2>&1 && ! command -v powershell >/dev/null 2>&1; then
+      echo "ERROR: prebuilt dev requires PowerShell for owned-process cleanup" >&2
+      return 1
+    fi
+  fi
+  node scripts/dev-prep.mjs --check-runtime \
+    --data-dir "$CT_DATA_DIR" \
+    --log "$PREBUILT_LOG"
+}
+
+cleanup_failed_prebuilt_launch() {
+  local status="$?"
+  trap - EXIT INT TERM
+  echo "ERROR: prebuilt dev launch failed; cleaning the owned dev processes." >&2
+  kill_dev || true
+  [ "$status" -ne 0 ] || status=1
+  exit "$status"
+}
+
 install_cli_to() {
   local bin_dir="$1"
   local release_dir
@@ -1270,12 +1315,19 @@ EOF
       export CARGO_TARGET_DIR="$(named_dev_target_dir)"
       export CODETERM_ALLOW_EXTERNAL_TARGET=1
     fi
+    PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
     if ! validate_dev_provenance; then
       echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
       echo "Run ./build.sh dev --wait to rebuild and record it; ./build.sh dev / ./build.sh build remain the build remedies." >&2
       exit 2
     fi
+    if ! preflight_dev_prebuilt_runtime; then
+      echo "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." >&2
+      echo "Run ./build.sh dev (or ./build.sh build) to restore prerequisites, then rerun dev-prebuilt." >&2
+      exit 2
+    fi
     kill_dev
+    trap cleanup_failed_prebuilt_launch EXIT INT TERM
     export PATH="$CT_DATA_DIR/bin:$PATH"
     export CODETERM_CLI_PATH="$(dev_cli_path)"
     export CODETERM_DEV=1
@@ -1283,7 +1335,6 @@ EOF
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     start_web_watch
     start_dev_static_server
-    PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       node scripts/dev-prep.mjs --launch-prebuilt \
         --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
@@ -1291,6 +1342,7 @@ EOF
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD)"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+      trap - EXIT INT TERM
     else
       echo "Starting provenance-validated prebuilt dev..."
       exec "$(dev_app_path)"
