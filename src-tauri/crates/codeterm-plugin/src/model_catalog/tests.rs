@@ -35,6 +35,23 @@ fn unregistered_provider_returns_empty() {
 }
 
 #[test]
+fn override_parser_rejects_unknown_top_level_sections() {
+    let error = toml::from_str::<CatalogFile>(
+        r#"[[models]]
+id = "fixture"
+display_name = "Fixture"
+
+[[effrots]]
+id = "xhigh"
+display_name = "Extra high"
+"#,
+    )
+    .expect_err("unknown override sections must not be silently discarded");
+
+    assert!(error.to_string().contains("unknown field"));
+}
+
+#[test]
 fn merge_replaces_same_id_keeps_position_and_appends_new() {
     // Built-ins: opus, sonnet, haiku in that order. User override: re-titles sonnet, adds custom finetune. Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
     let builtin = vec![
