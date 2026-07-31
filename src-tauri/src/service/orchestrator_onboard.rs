@@ -248,6 +248,7 @@ mod tests {
             protected: false,
             connected_services: vec![],
             hidden: false,
+            audience: Default::default(),
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,

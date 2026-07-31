@@ -446,6 +446,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 max_actions,
                 bound_task,
                 plan_task,
+                non_user_facing,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
@@ -554,6 +555,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(pt) = plan_task {
                     body["plan_task"] = serde_json::json!(pt);
+                }
+                if *non_user_facing {
+                    body["audience"] = serde_json::json!("automation");
                 }
                 (
                     "POST".into(),

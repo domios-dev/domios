@@ -79,6 +79,7 @@ impl SpawnTabSpec {
             title: params.title.clone(),
             description: params.description.clone(),
             visibility: TabVisibility::Visible,
+            audience: params.audience,
             eager: false,
             command: agent_command,
         }
@@ -135,6 +136,7 @@ impl SpawnTabSpec {
             nudge_cooldown_secs: None,
             max_actions_per_tick: None,
             activate: agent.activate,
+            audience: self.audience,
             structured_prompt_server: None,
         })
     }

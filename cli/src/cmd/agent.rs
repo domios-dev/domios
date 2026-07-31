@@ -673,6 +673,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             max_actions,
             bound_task,
             plan_task,
+            non_user_facing,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
                 && workspace.is_none()
@@ -800,6 +801,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
+            }
+            if non_user_facing {
+                body["audience"] = serde_json::json!("automation");
             }
             // Record the spawner's tab for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {

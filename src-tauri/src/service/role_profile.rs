@@ -59,6 +59,10 @@ impl SpawnAgentParams {
             max_actions_per_tick: json_u64(params, "max_actions_per_tick")
                 .and_then(|v| u32::try_from(v).ok()),
             activate: params.get("activate").and_then(|v| v.as_bool()),
+            audience: params
+                .get("audience")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
             manager_bootstrap: None,
             structured_prompt_server: None,
         };
