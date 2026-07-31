@@ -37,6 +37,7 @@ import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachTabChat } from "./chatReattach";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
+import { useStreamPreview } from "./useStreamPreview";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 
@@ -521,6 +522,17 @@ export function TabSessionChat({
     longIdle,
   ]);
 
+  const canonicalContents = useMemo(
+    () => enrichedMessages.slice(-20).map((entry) => entry.msg.content ?? ""),
+    [enrichedMessages],
+  );
+  const streamPreview = useStreamPreview(
+    tabId,
+    isActive && !effectiveChatBackend,
+    liveAgentState.state === "working",
+    canonicalContents,
+  );
+
   const composerModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
@@ -669,26 +681,6 @@ export function TabSessionChat({
             </div>
           );
         })}
-        {streamPreview.length > 0 && (
-          <div
-            className="w-full max-w-4xl min-w-0 mx-auto"
-            data-testid="chat-stream-preview"
-            role="status"
-            aria-label="Streaming preview"
-          >
-            <div
-              className="flex flex-col justify-end overflow-hidden border-l-2 py-1 pl-2.5"
-              style={{ borderColor: "var(--ct-accent, #58a6ff)", maxHeight: "9.5rem" }}
-            >
-              <pre
-                className="whitespace-pre-wrap font-mono text-xs opacity-70"
-                style={{ color: "var(--ct-muted-fg)" }}
-              >
-                {streamPreview.join("\n")}
-              </pre>
-            </div>
-          </div>
-        )}
         <ChatSetupState
           tab={tab}
           view={bootSetupView}
@@ -745,6 +737,45 @@ export function TabSessionChat({
         </button>
       )}
       </div>
+      {/* Streaming preview float: OUT of chat flow (zero-height anchor +
+          absolute panel above the composer) with a FIXED panel height, so
+          the chat's layout never changes when the preview grows or dies. */}
+      {!effectiveChatBackend && (liveAgentState.state === "working" || streamPreview.length > 0) && (
+        <div className="relative z-20 h-0">
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-1 mx-auto w-full max-w-4xl px-2"
+            data-testid="chat-stream-preview"
+            data-float="fixed"
+            role="status"
+            aria-label="Streaming preview"
+          >
+            <div
+              className="flex flex-col overflow-hidden rounded-md border px-2.5 py-1 shadow-lg"
+              style={{
+                height: "9.5rem",
+                background: "var(--ct-surface, #161b22)",
+                borderColor: "var(--ct-border, #30363d)",
+              }}
+            >
+              <div
+                className="flex-none truncate font-mono text-xs"
+                data-testid="chat-stream-preview-status"
+                style={{ color: "var(--ct-muted-fg)" }}
+              >
+                ● working{liveAgentState.status_line ? ` — ${liveAgentState.status_line}` : "…"}
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden">
+                <pre
+                  className="whitespace-pre-wrap font-mono text-xs opacity-70"
+                  style={{ color: "var(--ct-muted-fg)" }}
+                >
+                  {streamPreview.join("\n")}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
