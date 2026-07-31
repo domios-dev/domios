@@ -5,6 +5,8 @@ use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHi
 
 mod status;
 
+use status::completion_summary_immediately_precedes_status_repaint;
+
 pub use status::{
     extract_completion_summary, extract_status_line, has_active_turn_footer, StatusLine,
 };
@@ -154,11 +156,14 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
     let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
     let live_status_widget = extract_status_line(input.screen_lines).is_some();
     let active_footer = active_turn_footer(input.screen_lines);
+    let completed_status_repaint =
+        completion_summary_immediately_precedes_status_repaint(input.screen_lines);
     // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
     // a long think repaints only the excluded status band, so semantic-idle keeps growing.
     let live_turn = (live_status_widget || active_footer)
         && input.byte_idle_ms < WORKING_GRACE_MS
-        && extract_completion_summary(input.screen_lines).is_none();
+        && extract_completion_summary(input.screen_lines).is_none()
+        && !completed_status_repaint;
     let stale_working_status_at_prompt =
         ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS && !live_turn;
 
