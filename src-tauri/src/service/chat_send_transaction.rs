@@ -396,14 +396,14 @@ pub(crate) fn run_chat_send(
 /// Feed freshly appended session user turns into the ledger. Called from the
 /// live delta sinks only — never from history snapshots, so stale transcript
 /// rows can never confirm a send.
-pub(crate) fn reconcile_delivered_turns(
-    app: &tauri::AppHandle,
+pub(crate) fn delivered_turn_confirmations(
     ledger: &ChatSendLedger,
     tab_id: &str,
     source_session_id: &str,
     source_binding_nonce: Option<&str>,
     messages: &[crate::agent::chat_types::ChatMsg],
-) {
+) -> Vec<ChatSendStatus> {
+    let mut confirmed = Vec::new();
     for msg in messages.iter().filter(|msg| msg.kind == "user") {
         let Some(status) = ledger.confirm_delivered_user_turn_scoped(
             tab_id,
@@ -419,8 +419,9 @@ pub(crate) fn reconcile_delivered_turns(
             status.tab_id,
             source_session_id
         );
-        crate::api::events::emit_everywhere(app, "chat-send-status", &status);
+        confirmed.push(status);
     }
+    confirmed
 }
 
 impl crate::service::ServiceContext {
@@ -436,7 +437,6 @@ impl crate::service::ServiceContext {
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
         )?;
-        self.ensure_live_chat_send_evidence(tab_id, &evidence);
         let response = pending.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
