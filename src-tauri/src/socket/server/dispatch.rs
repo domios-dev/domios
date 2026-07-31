@@ -42,7 +42,6 @@ pub(super) fn dispatch(
                 "tab.rename",
                 "tab.resize",
                 "tab.kill_pty",
-                "browser.open",
                 "notification.create",
                 "notification.list",
                 "notification.clear",
@@ -235,7 +234,7 @@ pub(super) fn dispatch(
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
         "team" => team::dispatch(method, &params, mux, svc),
-        "tab" | "agents" | "browser" => tab::dispatch(method, &params, mux, app, svc),
+        "tab" | "agents" => tab::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, svc),
         "agent" => agent::dispatch(method, &params, app, svc),
         "orchestration" => orchestration::dispatch(method, &params, app, svc),

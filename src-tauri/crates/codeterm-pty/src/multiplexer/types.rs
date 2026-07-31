@@ -363,7 +363,7 @@ pub enum TabAudience {
     Automation,
 }
 
-/// A tab represents a single terminal or browser panel.
+/// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     pub id: String,
@@ -384,7 +384,7 @@ pub struct Tab {
     pub cwd: Option<String>,
     #[serde(skip, default)]
     pub provisioned_cwd: Option<String>,
-    /// URL for browser tabs.
+    /// Legacy snapshot field; current tab types never set it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Agent type (e.g. "claude") — set by frontend when detected.

@@ -215,11 +215,10 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 |-------|------|-------------|
 | `id` | `string` | Unique tab ID (8-char hex, e.g. `a3f1b2c7`) |
 | `pty_id` | `string` | Associated PTY process ID |
-| `tab_type` | `string` | `"Terminal"` or `"Browser"` (canvas for visualizations) |
+| `tab_type` | `string` | `"Terminal"` or `"Choice"` |
 | `title` | `string` | Display title (user-pinned or auto-detected) |
 | `description` | `string?` | Short tab summary, max 200 chars. Shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
-| `url` | `string?` | URL for canvas tabs (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
 | `role` | `string?` | `"Orchestrator"`, `"Worker"`, or `null` |
@@ -1400,4 +1399,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 98 -->
+<!-- revision: 99 -->
