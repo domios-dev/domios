@@ -10,8 +10,8 @@ use std::cell::{Cell, RefCell};
 const PAYLOAD: &str = "Reply with exactly this token and nothing else: MARKER-1";
 const RESPONSE_MARKER: &str = "● MARKER-1";
 
-/// Models a quiet screen after the composer drains, with the next status wake
-/// either starting an attributable turn or carrying unrelated lifecycle churn.
+/// Models a quiet screen after the composer drains, with a submit-key write
+/// either starting an attributable turn or leaving only lifecycle churn.
 struct QuietScreenAfterTurnTransition {
     generation: Cell<u64>,
     turn_generation: Cell<u64>,
@@ -22,11 +22,11 @@ struct QuietScreenAfterTurnTransition {
     screen_waits: Cell<usize>,
     turn_waits: RefCell<Vec<(u64, Instant)>>,
     status_wakes_remaining: Cell<usize>,
-    starts_turn_on_wake: bool,
+    starts_turn_on_submit: bool,
 }
 
 impl QuietScreenAfterTurnTransition {
-    fn with_status_wakes(status_wakes: usize, starts_turn_on_wake: bool) -> Self {
+    fn with_status_wakes(status_wakes: usize, starts_turn_on_submit: bool) -> Self {
         Self {
             generation: Cell::new(0),
             turn_generation: Cell::new(0),
@@ -37,7 +37,7 @@ impl QuietScreenAfterTurnTransition {
             screen_waits: Cell::new(0),
             turn_waits: RefCell::new(Vec::new()),
             status_wakes_remaining: Cell::new(status_wakes),
-            starts_turn_on_wake,
+            starts_turn_on_submit,
         }
     }
 
@@ -98,9 +98,6 @@ impl SubmitTransport for QuietScreenAfterTurnTransition {
         if self.turn_generation.get() == turn_generation {
             self.turn_generation.set(turn_generation + 1);
         }
-        if self.starts_turn_on_wake {
-            self.turn_started.set(true);
-        }
         true
     }
 
@@ -118,6 +115,10 @@ impl SubmitTransport for QuietScreenAfterTurnTransition {
         }
         self.draft_visible.set(false);
         self.generation.set(self.generation.get() + 1);
+        if self.starts_turn_on_submit {
+            self.turn_started.set(true);
+            self.turn_generation.set(self.turn_generation.get() + 1);
+        }
         Ok(())
     }
 }
