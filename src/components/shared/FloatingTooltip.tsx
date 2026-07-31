@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type CSSProperties,
@@ -31,6 +32,7 @@ export function FloatingTooltip({
 }: FloatingTooltipProps) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
@@ -115,6 +117,7 @@ export function FloatingTooltip({
           }
         }}
         aria-label={label}
+        aria-describedby={open ? tooltipId : undefined}
       >
         {children}
       </span>
@@ -122,6 +125,7 @@ export function FloatingTooltip({
         pos &&
         createPortal(
           <div
+            id={tooltipId}
             ref={tipRef}
             role="tooltip"
             className={tipClassName}
