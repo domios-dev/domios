@@ -174,7 +174,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   if (forcePlainText) {
     return (
       <div
-        className="min-w-0 w-full max-w-full overflow-auto"
+        className="min-w-0 w-full max-w-full select-text overflow-auto"
         style={{ maxHeight: fullSize ? "100%" : maxHeight }}
       >
         <pre
@@ -192,7 +192,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   }
   return (
     <div
-      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full overflow-x-auto overflow-y-auto`}
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full select-text overflow-x-auto overflow-y-auto`}
       style={{ maxHeight: fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
@@ -693,7 +693,7 @@ export function CodeBlock({
   return (
     <div ref={blockRef} className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
       <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
-        <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
           <span className="font-mono opacity-70">{language}</span>
           <span className="opacity-70">·</span>
@@ -749,12 +749,12 @@ export function CodeBlock({
           <div className="px-2 pb-1.5 text-[10px] opacity-60 text-[var(--ct-muted-fg)]">Rendering mermaid diagram...</div>
         )}
         {canCollapse && isCollapsed && !mermaidMode && !mermaidLoading && (
-          <div className="px-2 pb-1.5 text-[10px] opacity-60" style={{ color: "var(--ct-muted-fg)" }}>
+          <div className="select-none px-2 pb-1.5 text-[10px] opacity-60" style={{ color: "var(--ct-muted-fg)" }}>
             Showing preview of a long block. Expand to see all lines.
           </div>
         )}
         {canCollapse && isCollapsed && mermaidMode && (
-          <div className="px-2 pb-1.5 text-[10px] opacity-60" style={{ color: "var(--ct-muted-fg)" }}>
+          <div className="select-none px-2 pb-1.5 text-[10px] opacity-60" style={{ color: "var(--ct-muted-fg)" }}>
             Showing first and last lines only. Expand to render complete diagram.
           </div>
         )}
@@ -770,7 +770,7 @@ export function CodeBlock({
             onClick={(event) => event.stopPropagation()}
           >
             <div
-              className="flex items-center gap-1.5 px-2 py-1.5 text-xs"
+              className="flex select-none items-center gap-1.5 px-2 py-1.5 text-xs"
               style={{
                 color: "var(--ct-muted-fg)",
                 paddingTop: fullscreenHeaderTopPadding,

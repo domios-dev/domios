@@ -195,7 +195,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
   };
 
   const toolbar = (fullscreen: boolean) => (
-    <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+    <div className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
       <span className="font-medium" style={{ color: "var(--ct-fg)" }}>HTML</span>
       <span className="opacity-70">·</span>
       <span className="opacity-70">{lineCountValue} lines</span>
