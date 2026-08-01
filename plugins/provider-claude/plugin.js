@@ -367,15 +367,20 @@ function manifestModels() {
   return Array.isArray(m && m.models) ? m.models : [];
 }
 function fetchLiveModels(key) {
-  const raw = host.fetch(JSON.stringify({
-    url: "https://api.anthropic.com/v1/models",
-    method: "GET",
-    timeoutMs: 3e3,
-    headers: {
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01"
-    }
-  }));
+  let raw;
+  try {
+    raw = host.fetch(JSON.stringify({
+      url: "https://api.anthropic.com/v1/models",
+      method: "GET",
+      timeoutMs: 3e3,
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01"
+      }
+    }));
+  } catch (_) {
+    return null;
+  }
   const response = safeJson2(raw);
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
   const body = safeJson2(response.body);
@@ -1209,9 +1214,10 @@ var plugin = {
     }
     return null;
   },
-  // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
+  // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
+  // the registered manifest seed and must never be persisted as a live snapshot.
   discoverModels() {
-    return discoverAnthropicModels() || manifestModels();
+    return discoverAnthropicModels();
   },
   // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
   parseUsage(rawText, nowMs) {

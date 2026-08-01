@@ -31,13 +31,7 @@ pub struct ClaudeProvider;
 
 impl ClaudeProvider {
     pub fn new() -> Self {
-        crate::model_catalog::register(
-            "claude",
-            crate::model_catalog::RegisteredDefaults {
-                models: schemas::builtin_models(),
-                default: Some("opus".into()),
-            },
-        );
+        crate::model_catalog::register("claude", schemas::manifest_defaults());
         Self
     }
 }
@@ -474,7 +468,7 @@ mod tests {
         assert_eq!(desc.id, "claude");
         assert_eq!(desc.display_name, "Claude Code");
         assert_eq!(desc.icon_hint.as_deref(), Some("✳"));
-        assert_eq!(desc.default_model.as_deref(), Some("opus"));
+        assert_eq!(desc.default_model.as_deref(), Some("sonnet"));
         assert!(desc.supports_lazy_skills);
         assert!(desc.has_hooks);
         assert!(!desc.settings_schema.is_empty());

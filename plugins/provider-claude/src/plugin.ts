@@ -17,7 +17,7 @@ import {
   isValidClaudeSessionMessage,
   validateEntry,
 } from "./session";
-import { discoverAnthropicModels, manifestModels } from "./models";
+import { discoverAnthropicModels } from "./models";
 import {
   classifyClaudeTabState,
   TabStateSnapshot,
@@ -336,9 +336,10 @@ const plugin: PluginModule = {
     return null;
   },
 
-  // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
+  // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
+  // the registered manifest seed and must never be persisted as a live snapshot.
   discoverModels() {
-    return discoverAnthropicModels() || manifestModels();
+    return discoverAnthropicModels();
   },
 
   // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
