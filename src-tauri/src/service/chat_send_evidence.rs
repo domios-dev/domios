@@ -136,20 +136,31 @@ fn candidate_has_attributable_turn(
 ) -> bool {
     let mut claims = ledger.confirmed_evidence_claims(tab_id, session_id, &candidate.payload);
     claims.push(candidate.clone());
-    claims.sort_by_key(|claim| std::cmp::Reverse(claim.sequence));
-    claims.iter().enumerate().all(|(index, claim)| {
-        if claim.anchor.provider_id != source.provider_id
-            || claim.anchor.cwd != source.cwd
-            || claim.anchor.session_id.as_deref() != Some(session_id)
-        {
-            return false;
-        }
-        window_user_turns(registry, &claim.anchor, session_id)
-            .iter()
-            .filter(|content| normalize_turn_evidence(content) == candidate.payload)
-            .count()
-            >= index + 1
-    })
+    let matching_counts = claims
+        .iter()
+        .map(|claim| {
+            if claim.anchor.provider_id != source.provider_id
+                || claim.anchor.cwd != source.cwd
+                || claim.anchor.session_id.as_deref() != Some(session_id)
+            {
+                return None;
+            }
+            Some(
+                window_user_turns(registry, &claim.anchor, session_id)
+                    .iter()
+                    .filter(|content| normalize_turn_evidence(content) == candidate.payload)
+                    .count(),
+            )
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(mut matching_counts) = matching_counts else {
+        return false;
+    };
+    matching_counts.sort_unstable();
+    matching_counts
+        .iter()
+        .enumerate()
+        .all(|(index, count)| *count >= index + 1)
 }
 
 fn jsonl_window_user_turns(

@@ -186,11 +186,14 @@ var plugin = {
     const targetDirectory = normalizeSessionDirectory(cwd);
     if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
-    const excludeList = Array.isArray(exclude) ? exclude : typeof exclude === "string" && exclude ? [exclude] : [];
+    const excludeList = Array.isArray(exclude) ? exclude.filter((id) => typeof id === "string") : typeof exclude === "string" && exclude ? [exclude] : [];
+    const directoryAliases = targetDirectory.endsWith("/") ? [targetDirectory, targetDirectory] : [targetDirectory, targetDirectory + "/"];
+    const directoryExpression = host.platform() === "windows" ? "lower(replace(directory, char(92), '/'))" : "directory";
+    const excludeSql = excludeList.length ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")" : "";
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 20",
-      [windowMs]
+      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) AND " + directoryExpression + " IN (?2, ?3)" + excludeSql + " ORDER BY time_created DESC LIMIT 20",
+      [windowMs, ...directoryAliases, ...excludeList]
     );
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
@@ -339,7 +342,9 @@ var plugin = {
   readStructuredChat(_cwd, sessionId, cursor) {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    const [sinceMs, seenAtSinceMs] = parseStructuredCursor(cursor);
+    const parsedCursor = parseStructuredCursor(cursor);
+    if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
+    const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
       "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_created >= ?2 ORDER BY p.time_created ASC, p.id ASC",
@@ -585,14 +590,25 @@ function safeJson(s) {
   }
 }
 function normalizeSessionDirectory(value) {
-  const normalized = String(value || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  return host.platform() === "windows" ? normalized.toLowerCase() : normalized;
+  let normalized = String(value || "");
+  if (host.platform() === "windows") {
+    normalized = normalized.replace(/\\/g, "/");
+    while (normalized.length > 1 && normalized.endsWith("/") && !/^[a-z]:\/$/i.test(normalized)) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.toLowerCase();
+  }
+  while (normalized.length > 1 && normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  return normalized;
 }
 function parseStructuredCursor(cursor) {
+  if (cursor == null) return [0, []];
   const parsed = safeJson(cursor || "");
-  if (!Array.isArray(parsed) || parsed.length !== 2) return [0, []];
-  const ts = typeof parsed[0] === "number" && Number.isFinite(parsed[0]) ? parsed[0] : 0;
-  const ids = Array.isArray(parsed[1]) ? parsed[1].filter((id) => typeof id === "string") : [];
+  if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+  if (typeof parsed[0] !== "number" || !Number.isSafeInteger(parsed[0]) || parsed[0] < 0) return null;
+  if (!Array.isArray(parsed[1]) || !parsed[1].every((id) => typeof id === "string" && id.length > 0)) return null;
+  const ts = parsed[0];
+  const ids = parsed[1];
   return [ts, ids];
 }
 function displayNameFromId(id) {

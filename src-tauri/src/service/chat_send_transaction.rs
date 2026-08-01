@@ -64,7 +64,6 @@ pub(crate) struct SendLiveBinding {
 #[derive(Clone)]
 pub(crate) struct EvidenceCandidate {
     pub(crate) send_id: String,
-    pub(crate) sequence: u64,
     pub(crate) payload: String,
     pub(crate) anchor: SendEvidenceAnchor,
     pub(crate) live_binding: Option<SendLiveBinding>,
@@ -343,7 +342,6 @@ impl ChatSendLedger {
                 let anchor = state.anchor_by_id.get(send_id)?.clone();
                 Some(EvidenceCandidate {
                     send_id: send_id.clone(),
-                    sequence: status.sequence,
                     payload,
                     anchor,
                     live_binding: state.live_binding_by_id.get(send_id).cloned(),
@@ -378,7 +376,6 @@ impl ChatSendLedger {
                 }
                 Some(EvidenceCandidate {
                     send_id: send_id.clone(),
-                    sequence: status.sequence,
                     payload: payload.to_string(),
                     anchor,
                     live_binding: state.live_binding_by_id.get(send_id).cloned(),
