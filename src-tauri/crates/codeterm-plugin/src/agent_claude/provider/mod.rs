@@ -13,6 +13,8 @@ mod schemas;
 mod sessions;
 mod usage;
 
+pub(crate) use schemas::manifest_defaults;
+
 use std::path::PathBuf;
 use std::time::Duration;
 

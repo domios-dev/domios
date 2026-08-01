@@ -149,9 +149,8 @@ fn seed_registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Deterministic fingerprint of the registered seed: ids, display metadata,
-/// descriptions, static availability, order, and default. Providers without a
-/// registered seed hash the `null` serialization, so the rule stays generic.
+/// Deterministic hash of the registered seed (ids, display, descriptions,
+/// availability, order, default); no registered seed hashes `null`.
 fn seed_fingerprint(provider_id: &str) -> String {
     use sha2::{Digest, Sha256};
     let seed = seed_registry().read().get(provider_id).cloned();
