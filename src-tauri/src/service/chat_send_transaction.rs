@@ -479,6 +479,28 @@ impl crate::service::ServiceContext {
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
         )?;
+        log::info!(
+            "[delivery-timeline] event=ledger-accepted send_id={} tab={} payload_sha256={} \
+             anchor_session={} live_session={} current_nonce={}",
+            pending.send_id,
+            tab_id,
+            crate::service::launch_diagnostics::digest(&text),
+            evidence
+                .anchor
+                .as_ref()
+                .and_then(|anchor| anchor.session_id.as_deref())
+                .unwrap_or("-"),
+            evidence
+                .live_binding
+                .as_ref()
+                .and_then(|binding| binding.session_id.as_deref())
+                .unwrap_or("-"),
+            evidence
+                .live_binding
+                .as_ref()
+                .and_then(|binding| binding.binding_nonce.as_deref())
+                .unwrap_or("-"),
+        );
         let response = pending.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();

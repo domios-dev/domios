@@ -452,10 +452,12 @@ impl ServiceContext {
             crate::service::boot_stage::RestartReadiness::Ready { pty_id } => {
                 outcome.agent_ready = true;
                 outcome.new_pty_id = Some(pty_id);
+                self.log_restart_timeline("ready", &outcome);
                 Ok(outcome)
             }
             crate::service::boot_stage::RestartReadiness::Failed { pty_id, reason } => {
                 outcome.new_pty_id = pty_id;
+                self.log_restart_timeline("failed", &outcome);
                 Err(RestartAttemptError::Failed {
                     outcome,
                     reason,
@@ -464,6 +466,7 @@ impl ServiceContext {
             }
             crate::service::boot_stage::RestartReadiness::TimedOut { pty_id } => {
                 outcome.new_pty_id = pty_id;
+                self.log_restart_timeline("timed_out", &outcome);
                 Err(RestartAttemptError::Failed {
                     outcome,
                     reason: format!(
@@ -474,6 +477,36 @@ impl ServiceContext {
                 })
             }
         }
+    }
+
+    fn log_restart_timeline(&self, result: &str, outcome: &RestartOutcome) {
+        let (current_pty, boot_stage, agent_booting, session_id, current_nonce, reported_nonce) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(&outcome.tab_id);
+            (
+                tab.and_then(|tab| tab.pty_id.clone()),
+                tab.and_then(|tab| tab.boot_stage),
+                tab.is_some_and(|tab| tab.agent_booting),
+                tab.and_then(|tab| tab.agent_session_id.clone()),
+                tab.and_then(|tab| tab.session_binding_nonce.clone()),
+                tab.and_then(|tab| tab.reported_session_binding_nonce.clone()),
+            )
+        };
+        log::info!(
+            "[delivery-timeline] event=restart-return result={} tab={} old_pty={} \
+             new_pty={} current_pty={} boot_stage={:?} agent_booting={} session={} \
+             current_nonce={} reported_nonce={}",
+            result,
+            outcome.tab_id,
+            outcome.old_pty_id.as_deref().unwrap_or("-"),
+            outcome.new_pty_id.as_deref().unwrap_or("-"),
+            current_pty.as_deref().unwrap_or("-"),
+            boot_stage,
+            agent_booting,
+            session_id.as_deref().unwrap_or("-"),
+            current_nonce.as_deref().unwrap_or("-"),
+            reported_nonce.as_deref().unwrap_or("-"),
+        );
     }
 
     fn old_pty_was_torn_down(&self, snap: &TabRestartSnapshot) -> bool {
