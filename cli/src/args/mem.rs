@@ -59,6 +59,9 @@ pub enum MemAction {
         /// Max rows per fetch (default 20)
         #[arg(long, default_value = "20")]
         limit: usize,
+        /// ISO8601 lower-bound for the initial fetch (rows created at/after this time).
+        #[arg(long)]
+        since: Option<String>,
     },
     /// Partial update of an existing mem item by id. Only the flags you
     /// pass are written; everything else stays as-is.
