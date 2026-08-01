@@ -36,6 +36,8 @@ import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupS
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
+import { useStreamPreview } from "./useStreamPreview";
+import { StreamPreviewFloat } from "./StreamPreviewFloat";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 
@@ -507,6 +509,17 @@ export function TabSessionChat({
     longIdle,
   ]);
 
+  const canonicalContents = useMemo(
+    () => enrichedMessages.slice(-20).map((entry) => entry.msg.content ?? ""),
+    [enrichedMessages],
+  );
+  const streamPreview = useStreamPreview(
+    tabId,
+    isActive && !effectiveChatBackend,
+    liveAgentState.state === "working",
+    canonicalContents,
+  );
+
   const composerModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
@@ -671,6 +684,13 @@ export function TabSessionChat({
           </div>
         )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
+        {!effectiveChatBackend && (
+          <StreamPreviewFloat
+            rows={streamPreview}
+            working={liveAgentState.state === "working"}
+            statusLine={liveAgentState.status_line}
+          />
+        )}
         </div>
       </div>
       {(showScrollDown || hiddenNewerCount > 0) && (
@@ -683,7 +703,7 @@ export function TabSessionChat({
           }}
           title="Scroll to latest"
           aria-label={hiddenNewerCount > 0 ? `Show latest (${hiddenNewerCount} newer)` : "Scroll to latest"}
-          className="absolute right-4 bottom-4 z-10 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
+          className="absolute right-4 bottom-4 z-30 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
         >
           {hiddenNewerCount > 0 && (

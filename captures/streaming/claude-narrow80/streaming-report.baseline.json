@@ -1,0 +1,334 @@
+{
+  "summary": {
+    "turns": 21,
+    "turns_with_preview": 18,
+    "avg_lead_ms": 2814.4285714285716,
+    "min_lead_ms": 268,
+    "median_lead_ms": 1861,
+    "max_lead_ms": 10561,
+    "turns_with_leftovers": 4,
+    "total_jank_frames": 45,
+    "total_dupe_frames": 131,
+    "total_height_shrink_frames": 11
+  },
+  "turns": [
+    {
+      "seq": 1,
+      "started_ms": 150,
+      "first_preview_ms": 225,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 2,
+      "started_ms": 1200,
+      "first_preview_ms": 1425,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 3,
+      "started_ms": 2175,
+      "first_preview_ms": 2250,
+      "first_canonical_ms": 2537,
+      "peak_preview_rows": 2,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 1,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 4,
+      "started_ms": 4725,
+      "first_preview_ms": 4725,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 5,
+      "started_ms": 5700,
+      "first_preview_ms": 6375,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 6,
+      "started_ms": 6675,
+      "first_preview_ms": 6825,
+      "first_canonical_ms": 17386,
+      "peak_preview_rows": 8,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 14,
+      "dupe_frames": 70,
+      "height_shrink_frames": 3,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 7,
+      "started_ms": 19800,
+      "first_preview_ms": 19875,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 8,
+      "started_ms": 20850,
+      "first_preview_ms": 21000,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 2,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 9,
+      "started_ms": 21825,
+      "first_preview_ms": 21975,
+      "first_canonical_ms": 23836,
+      "peak_preview_rows": 8,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "✻ Churned for 3s"
+      ],
+      "jank_frames": 2,
+      "dupe_frames": 19,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "✻ Churned for 3s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 10,
+      "started_ms": 27975,
+      "first_preview_ms": 28050,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 11,
+      "started_ms": 29025,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 12,
+      "started_ms": 30000,
+      "first_preview_ms": 30225,
+      "first_canonical_ms": 30493,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "✻ Churned for 2s"
+      ],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "✻ Churned for 2s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 13,
+      "started_ms": 33075,
+      "first_preview_ms": 33075,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 14,
+      "started_ms": 34050,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 15,
+      "started_ms": 35025,
+      "first_preview_ms": 35250,
+      "first_canonical_ms": 35564,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 16,
+      "started_ms": 38100,
+      "first_preview_ms": 38100,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 17,
+      "started_ms": 39150,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 18,
+      "started_ms": 40125,
+      "first_preview_ms": 41250,
+      "first_canonical_ms": 44647,
+      "peak_preview_rows": 8,
+      "leftover_rows": 2,
+      "leftover_sample": [
+        "⏺ Write(streaming-probe.txt)",
+        "✻ Worked for 6s"
+      ],
+      "jank_frames": 6,
+      "dupe_frames": 32,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "⏺ Write(streaming-probe.txt)",
+        "",
+        "",
+        "",
+        "  The file already existed from earlier rounds, so this rewrote it with the same",
+        "  single line."
+      ],
+      "handover_rows": 6
+    },
+    {
+      "seq": 19,
+      "started_ms": 46800,
+      "first_preview_ms": 46800,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 20,
+      "started_ms": 47775,
+      "first_preview_ms": 48075,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 3,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "⏺ I ran through the same probe cycle several times: a one-sentence PTY"
+      ],
+      "handover_rows": 1
+    },
+    {
+      "seq": 21,
+      "started_ms": 48750,
+      "first_preview_ms": 48975,
+      "first_canonical_ms": 51988,
+      "peak_preview_rows": 8,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "✻ Baked for 5s"
+      ],
+      "jank_frames": 10,
+      "dupe_frames": 10,
+      "height_shrink_frames": 5,
+      "boundary_rows": [
+        "✻ Baked for 5s"
+      ],
+      "handover_rows": 0
+    }
+  ]
+}

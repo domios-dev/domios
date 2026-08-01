@@ -419,6 +419,7 @@ impl ServiceContext {
             reaper.wait_bounded(Duration::from_secs(5))?;
         }
         self.screen_state.lock().remove(&snap.pty_id);
+        crate::service::stream_preview::remove(&snap.pty_id);
         self.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);
         {
             let mut mux = self.mux.write();

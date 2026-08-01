@@ -1,0 +1,79 @@
+{
+  "defect": "claude interactive-prompt: (a) zero chat-stream-preview events for question dialog; (b) question-state not detected -> no Input-needed notification (missed true positive)",
+  "capture_dir": "/Users/kandrey/Developer/codeterm-worktrees/lane-streaming-consilium/captures/streaming/claude-prompt/",
+  "capture_facts": {
+    "tab": "a472fe89",
+    "provider": "claude",
+    "captured_at_ms": 1785515266785,
+    "preview_events_file": "preview-events.ndjson: 26 lines, ALL SSE keep-alive comments, 0 parseable chat-stream-preview events",
+    "question_screen": "question-screen.txt shows the genuine dialog was on screen",
+    "sidecar": "chat-timeline.ndjson contains the interactive question tool_call"
+  },
+  "independent_corpus": {
+    "file": "scratchpad/live/preview-corpus.ndjson (ux-verifier continuous SSE capture)",
+    "events_tab_a472fe89_before_window": 434,
+    "events_within_60s_before_epoch": [
+      {
+        "t_rel_ms": -57854,
+        "turn_seq": 22,
+        "frozen": 0,
+        "live": 0
+      },
+      {
+        "t_rel_ms": -52709,
+        "turn_seq": 23,
+        "frozen": 0,
+        "live": 0
+      },
+      {
+        "t_rel_ms": -47565,
+        "turn_seq": 24,
+        "frozen": 0,
+        "live": 0
+      }
+    ],
+    "events_during_question_turn": 0
+  },
+  "notification_store": {
+    "checked_at": "GET /api/notifications on dev :7686",
+    "window": "epoch +/- 300s",
+    "input_needed_notifications_in_window": 0,
+    "total_store": 6,
+    "only_question_notification_ever": "opencode tab 15aabb2b at 1785513856539 (that path works)"
+  },
+  "status_polling": "ux-verifier harness polled /api/tabs at 300ms while tracking a472fe89: no status-change to 'question' logged in the window (scratchpad/live/ux-events.ndjson)",
+  "root_cause_trace_matcher_analyst": "motion_decoder.rs turn_live_view (~279-291): composer-draft cut from nearest chrome rule above cursor; is_chrome_row counts BLANK rows as chrome; claude dialog holds cursor -> blank above dialog becomes cut point -> dialog excised -> empty view -> fingerprint unchanged -> zero events. Fix direction: exempt cursor regions containing question-dialog structure (option rows) from the composer cut, or require non-blank rule row.",
+  "working_contrast": "opencode question path (same daemon) fired exactly-once: status working->question at epoch+4309ms, one Input-needed notification at +4043ms with clean structured body \u2014 use as the reference implementation for claude detection.",
+  "reproduce": "spawn claude tab; send 'Using your internal tools, show me an interactive questionnaire with buttons/options and wait for my answer.'; observe /api/events/stream (no chat-stream-preview) and /api/notifications (no entry).",
+  "defect_D_false_positives": {
+    "summary": "opencode probe raised 5 'Input needed' notifications during ORDINARY streaming turns of the questions.json run (no question on screen), with bodies that are screen-scraped fragments of the assistant's prose/footer",
+    "notification_store_file": "scratchpad/live/notifications-283-full.json (13 total)",
+    "false_positive_examples": [
+      {
+        "ts": 1785521637244,
+        "body": "iTerm2 allow very deep history at the cost of more RAM. In essence, scrollback is an"
+      },
+      {
+        "ts": 1785521639535,
+        "body": "illusion of continuous paper maintained by an ever-growing essence, scrollback is an"
+      },
+      {
+        "ts": 1785521639614,
+        "body": "iTerm2 allow very deep history at the cost of more RAM. In essence, scrollback is an"
+      },
+      {
+        "ts": 1785521639628,
+        "body": "Context"
+      },
+      {
+        "ts": 1785521644095,
+        "body": "\u25a3  Build \u00b7 DeepSeek V4 Flash Free (New) \u00b7 2.0s ... Connect provider  /connect"
+      }
+    ],
+    "why_false": "bodies are mid-sentence prose fragments of the long-prose ANSWER and the model badge/footer bar, not questions; two are duplicates of the same fragment 2.4s apart; one is the single word 'Context'",
+    "status_correlation_from_ux_verifier_harness": "scratchpad/live/ux-events.ndjson: status flapped idle->question->idle->question repeatedly around these (e.g. question at t-2016ms, back to idle at +4581ms, question again at +7044ms) while the agent was streaming an answer; each spurious 'question' state minted a notification",
+    "earlier_duplicate_case": "one genuine PERMISSION prompt minted 5 notifications in 1.2s (ts 1785511706936..1785511708076), each with a different scraped fragment of the same command",
+    "contrast_true_positives": "the three genuine question dialogs produced exactly ONE notification each with clean structured text ('How was this opencode-in-CodeTerm probe session?', 'Which model are you evaluating in this probe?', 'What would you like me to do next?')",
+    "conclusion": "question-state detection for opencode is screen-scrape-driven and flaps during streaming; the structured path (used for the genuine dialogs) is correct. Fix direction: derive question state + notification body ONLY from the structured question event, never from screen text, and dedupe per raise."
+  }
+}
