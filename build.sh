@@ -544,6 +544,54 @@ cli_release_dir() {
   fi
 }
 
+cli_release_binary() {
+  local release_dir
+  release_dir="$(cli_release_dir)"
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s/codeterm\n' "$release_dir"
+  else
+    printf '%s/codeterm.exe\n' "$release_dir"
+  fi
+}
+
+cli_file_sha256() {
+  local path="$1" output hash
+  if command -v sha256sum >/dev/null 2>&1; then
+    output="$(sha256sum -- "$path")" || return $?
+    hash="${output%% *}"
+  elif command -v shasum >/dev/null 2>&1; then
+    output="$(shasum -a 256 -- "$path")" || return $?
+    hash="${output%% *}"
+  elif command -v openssl >/dev/null 2>&1; then
+    output="$(openssl dgst -sha256 "$path")" || return $?
+    hash="${output##* }"
+  else
+    return 127
+  fi
+  if [ "${#hash}" -ne 64 ] || [[ "$hash" == *[!0-9a-fA-F]* ]]; then
+    return 1
+  fi
+  printf '%s\n' "$hash"
+}
+
+cli_file_sha256_or_status() {
+  local path="$1" hash
+  if [ ! -f "$path" ]; then
+    printf '<missing>\n'
+  elif hash="$(cli_file_sha256 "$path" 2>/dev/null)"; then
+    printf '%s\n' "$hash"
+  else
+    printf '<unavailable>\n'
+  fi
+}
+
+report_cli_install_failure() {
+  local reason="$1" source="$2" destination="$3" source_hash="$4" destination_hash="$5"
+  printf 'ERROR: CLI install failed: %s\n' "$reason" >&2
+  printf '  built artifact: %s\n  built SHA-256: %s\n' "$source" "$source_hash" >&2
+  printf '  installed path: %s\n  installed SHA-256: %s\n' "$destination" "$destination_hash" >&2
+}
+
 tauri_debug_dir() {
   local target_root="${CARGO_TARGET_DIR:-src-tauri/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
@@ -555,13 +603,44 @@ tauri_debug_dir() {
 
 install_cli_to() {
   local bin_dir="$1"
-  local release_dir
-  release_dir="$(cli_release_dir)"
-  mkdir -p "$bin_dir"
+  local source="${2:-}" expected_hash="${3:-}" destination source_hash destination_hash
+  if [ -z "$source" ]; then
+    source="$(cli_release_binary)"
+  fi
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    cp "$release_dir/codeterm" "$bin_dir/codeterm"
+    destination="$bin_dir/codeterm"
   else
-    cp "$release_dir/codeterm.exe" "$bin_dir/codeterm.exe"
+    destination="$bin_dir/codeterm.exe"
+  fi
+
+  source_hash="$(cli_file_sha256_or_status "$source")"
+  if [ -z "$expected_hash" ]; then
+    expected_hash="$source_hash"
+  fi
+  if [ "$expected_hash" = "<missing>" ] || [ "$expected_hash" = "<unavailable>" ]; then
+    destination_hash="$(cli_file_sha256_or_status "$destination")"
+    report_cli_install_failure "built artifact cannot be hashed" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+  if [ "$source_hash" != "$expected_hash" ]; then
+    destination_hash="$(cli_file_sha256_or_status "$destination")"
+    report_cli_install_failure "built artifact changed before copy (current SHA-256: $source_hash)" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+  if ! mkdir -p "$bin_dir" || ! cp "$source" "$destination"; then
+    destination_hash="$(cli_file_sha256_or_status "$destination")"
+    report_cli_install_failure "copy did not succeed" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+
+  destination_hash="$(cli_file_sha256_or_status "$destination")"
+  if [ "$destination_hash" != "$expected_hash" ]; then
+    report_cli_install_failure "installed binary does not match the built artifact" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
   fi
   echo "CLI installed to $bin_dir"
 }
@@ -580,6 +659,12 @@ write_cli_docs() {
 if [ "${CODETERM_TEST_PRINT_CLI_RELEASE_DIR:-}" = "1" ]; then
   cli_release_dir
   exit 0
+fi
+
+if [ -n "${CODETERM_TEST_INSTALL_CLI_TO:-}" ]; then
+  install_cli_to "$CODETERM_TEST_INSTALL_CLI_TO" "${CODETERM_TEST_INSTALL_CLI_SOURCE:-}" \
+    "${CODETERM_TEST_INSTALL_CLI_HASH:-}"
+  exit $?
 fi
 
 if [ "${CODETERM_TEST_PRINT_BUILD_CACHE_POLICY:-}" = "1" ]; then
@@ -1200,8 +1285,10 @@ EOF
     ct_configure_sccache
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
+    built_cli_artifact="$(cli_release_binary)"
+    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
     write_cli_docs
-    install_cli_to "$CT_DATA_DIR/bin"
+    install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     ;;
   clean)
     enter_build_gateway "$CMD ${*:2}"
@@ -1225,8 +1312,10 @@ EOF
     echo "Building CLI..."
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
+    built_cli_artifact="$(cli_release_binary)"
+    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
     # Every dev instance gets its own CLI; production updates its bundled CLI.
-    install_cli_to "$CT_DATA_DIR/bin"
+    install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     export PATH="$CT_DATA_DIR/bin:$PATH"
     if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm"
