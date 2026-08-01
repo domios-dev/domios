@@ -10,12 +10,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             all_workspaces,
             agents,
         } => {
+            let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
             let workspace_id = if all_workspaces {
                 None
             } else {
-                workspace.or_else(|| std::env::var("CODETERM_WORKSPACE_ID").ok())
+                workspace
+                    .or_else(|| std::env::var("CODETERM_WORKSPACE_ID").ok())
+                    .or_else(|| caller_workspace_id(client, caller_tab_id.as_deref()))
             };
-            let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
             let params = tab_list_params(workspace_id, all_workspaces, agents, caller_tab_id);
             match client.call("tab.list", Some(params)) {
                 Ok(value) => {
@@ -23,7 +25,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                         handle_result(json, Ok(value));
                         return;
                     };
-                    let list = arr.clone();
+                    let mut list = arr.clone();
+                    if let Err(error) = append_remote_workers(&mut list) {
+                        eprintln!("warning: remote team members unavailable: {error}");
+                    }
                     if json {
                         print_json(&serde_json::Value::Array(list));
                     } else if list.is_empty() {
@@ -442,6 +447,87 @@ fn tab_list_params(
     })
 }
 
+fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -> Option<String> {
+    let tab_id = caller_tab_id?.trim();
+    if tab_id.is_empty() {
+        return None;
+    }
+    client
+        .call(
+            "tab.inspect",
+            Some(serde_json::json!({ "tab_ids": [tab_id] })),
+        )
+        .ok()?
+        .as_array()?
+        .first()?
+        .get("workspace_id")?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn append_remote_workers(tabs: &mut Vec<serde_json::Value>) -> Result<(), String> {
+    let (base, token) = read_api_config();
+    let http = build_http(&token).map_err(|e| e.to_string())?;
+    let response = http
+        .get(format!("{base}/api/remote-workers"))
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    let body = response.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {}", status.as_u16(), body));
+    }
+    let registry = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    merge_remote_workers(tabs, &registry);
+    Ok(())
+}
+
+fn merge_remote_workers(tabs: &mut Vec<serde_json::Value>, registry: &serde_json::Value) {
+    let Some(by_orchestrator) = registry.as_object() else {
+        return;
+    };
+    let parents: std::collections::HashMap<String, (String, String)> = tabs
+        .iter()
+        .filter_map(|tab| {
+            Some((
+                sfield(tab, "id").to_string(),
+                (
+                    sfield(tab, "workspace_name").to_string(),
+                    sfield(tab, "workspace_id").to_string(),
+                ),
+            ))
+        })
+        .collect();
+    let mut remote = Vec::new();
+    for (orchestrator, workers) in by_orchestrator {
+        let Some((workspace_name, workspace_id)) = parents.get(orchestrator) else {
+            continue;
+        };
+        let Some(workers) = workers.as_array() else {
+            continue;
+        };
+        for worker in workers {
+            let remote_tab = sfield(worker, "remote_tab");
+            if remote_tab.is_empty() {
+                continue;
+            }
+            remote.push(serde_json::json!({
+                "id": remote_tab,
+                "tab_id": remote_tab,
+                "title": sfield(worker, "title"),
+                "parent_tab_id": orchestrator,
+                "workspace_name": workspace_name,
+                "workspace_id": workspace_id,
+                "agent_session_model": sfield(worker, "model"),
+                "role": "Worker",
+                "remote_peer": sfield(worker, "peer"),
+                "remote": true,
+            }));
+        }
+    }
+    tabs.extend(remote);
+}
+
 fn handle_tab_capture(
     client: &mut SocketClient,
     json: bool,
@@ -771,6 +857,8 @@ pub fn render_tab_tree_with_current(
         model: String,
         description: String,
         parent: Option<String>,
+        role: String,
+        peer: String,
         is_current: bool,
     }
     // HashMap-unordered).
@@ -796,6 +884,8 @@ pub fn render_tab_tree_with_current(
         }
         .to_string();
         let description = sfield(p, "description").to_string();
+        let role = sfield(p, "role").to_ascii_lowercase();
+        let peer = sfield(p, "remote_peer").to_string();
         let parent = p
             .get("parent_tab_id")
             .and_then(|v| v.as_str())
@@ -810,6 +900,8 @@ pub fn render_tab_tree_with_current(
             model,
             description,
             parent,
+            role,
+            peer,
         });
     }
 
@@ -857,23 +949,31 @@ pub fn render_tab_tree_with_current(
             let r = &rows[i];
             let indent = "  ".repeat(depth + 1);
             let current_suffix = if r.is_current { " (self)" } else { "" };
+            let role_suffix = match (r.role.as_str(), r.peer.as_str()) {
+                ("", "") => String::new(),
+                (role, "") => format!(" [{}]", role),
+                ("", peer) => format!(" [@{}]", peer),
+                (role, peer) => format!(" [{} @{}]", role, peer),
+            };
             if r.model.is_empty() {
                 out.push_str(&format!(
-                    "{}{} {}{}{}\n",
+                    "{}{} {}{}{}{}\n",
                     indent,
                     r.id,
                     r.label,
                     format_description_suffix(&r.description),
+                    role_suffix,
                     current_suffix
                 ));
             } else {
                 out.push_str(&format!(
-                    "{}{} {:<w$} {}{}{}\n",
+                    "{}{} {:<w$} {}{}{}{}\n",
                     indent,
                     r.id,
                     r.label,
                     r.model,
                     format_description_suffix(&r.description),
+                    role_suffix,
                     current_suffix,
                     w = label_w
                 ));
