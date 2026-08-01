@@ -3,7 +3,7 @@
 import { act, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { Pane, MultiplexerState, Tab, Team, Workspace } from "../../lib/types";
+import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
 import { PlansProvider, useFullPlans, usePlanIndex } from "../Canvas/PlansProvider";
@@ -24,7 +24,7 @@ const API = {
 };
 const TEAM_ID = "team-one";
 const WORKSPACE_ID = "workspace-one";
-const PANE_ID = "orchestrator-one";
+const TAB_ID = "orchestrator-one";
 const OLD_PLAN_ID = "pl_0ntinb";
 const CURRENT_PLAN_ID = "pl_zmsp23";
 const listenHandlers = new Map<string, Set<ListenHandler>>();
@@ -90,38 +90,39 @@ function indexEntry(value: Plan): PlanIndexEntry {
   return {
     plan_id: value.id,
     file_path: `/workspace/.codeterm/plans/active/${value.id}/plan.json`,
+    canonical_project_path: "/workspace",
     owner: value.owner,
     title: value.title,
     status: value.status,
     updated_at: value.updated_at,
     team_id: TEAM_ID,
-    assigned_pane_ids: [PANE_ID],
+    assigned_tab_ids: [TAB_ID],
     task_count: value.tasks.length,
     open_task_count: value.tasks.length,
   };
 }
 
 function snapshot(teamName: string): MultiplexerState {
-  const pane = {
-    id: PANE_ID,
+  const tab = {
+    id: TAB_ID,
     pty_id: "pty-orchestrator",
-    pane_type: "Terminal",
+    tab_type: "Terminal",
     title: "Orchestrator",
     cwd: "/workspace",
     role: "Orchestrator",
     role_profile: null,
-    parent_pane_id: null,
+    parent_tab_id: null,
     team_id: TEAM_ID,
-  } as Pane & { team_id: string };
+  } as Tab & { team_id: string };
   return {
     workspaces: [{
       id: WORKSPACE_ID,
       name: "Workspace",
-      tabs: [{ id: "tab-orchestrator", pane_id: PANE_ID, sort_order: 0 }],
-      active_tab_id: "tab-orchestrator",
+      tabs: [TAB_ID],
+      active_tab_id: TAB_ID,
       cwd: "/workspace",
     }],
-    panes: { [PANE_ID]: pane },
+    tabs: { [TAB_ID]: tab },
     teams: [{
       id: TEAM_ID,
       name: teamName,
@@ -130,7 +131,7 @@ function snapshot(teamName: string): MultiplexerState {
       workspace_id: WORKSPACE_ID,
     }],
     active_workspace_id: WORKSPACE_ID,
-    focused_pane_id: PANE_ID,
+    focused_tab_id: TAB_ID,
   };
 }
 
@@ -214,7 +215,7 @@ function Projection() {
   }, []);
 
   const workspace = mux.workspaces[0] as Workspace;
-  const tabs = workspace.tabs as Tab[];
+  const tabs = workspace.tabs.map((tabId) => mux.tabs[tabId]).filter(Boolean);
   const teams = (mux.teams ?? []) as Team[];
   return (
     <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
@@ -222,8 +223,8 @@ function Projection() {
         workspace={workspace}
         activeTabId={workspace.active_tab_id}
         sortedTabs={tabs}
-        panes={mux.panes}
-        paneStatuses={{}}
+        tabs={mux.tabs}
+        tabStatuses={{}}
         teams={teams}
         planIndex={index.index}
         plans={full.plans}
@@ -237,7 +238,7 @@ function Projection() {
         touchMode={false}
         compact={false}
         sidebarActionText="text-xs"
-        orchestrators={Object.values(mux.panes)}
+        orchestrators={Object.values(mux.tabs)}
         onBeforeOpenPlan={() => {}}
         onActivateTab={() => {}}
         onCloseTab={() => {}}
@@ -263,7 +264,7 @@ function assertCurrentProjection(host: HTMLElement) {
     "persistent Team identity does not override an active effort title");
   assert(!host.textContent?.includes("Old active effort"), "the archived effort is absent");
   const taskCount = ["todo", "review", "blocked", "done"]
-    .map((bucket) => host.querySelector(`[data-testid="team-status-${bucket}"] .sidebar-team-readout-count`))
+    .map((bucket) => host.querySelector(`[data-testid="team-status-${bucket}"] .ct-plan-status-breakdown-count`))
     .reduce((sum, element) => sum + Number(element?.textContent ?? Number.NaN), 0);
   assert(taskCount === 0, "all stale task buckets are zero");
 }
@@ -288,7 +289,7 @@ async function main() {
   assert(host.querySelector('[data-testid="team-card-activation"]')
     ?.getAttribute("aria-label") === "Open Old active effort",
   "precondition: old active plan is visible");
-  assert(host.querySelector('[data-testid="team-status-todo"] .sidebar-team-readout-count')
+  assert(host.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')
     ?.textContent === "35", "precondition: 35 stale tasks are visible");
   await act(async () => {
     (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click();

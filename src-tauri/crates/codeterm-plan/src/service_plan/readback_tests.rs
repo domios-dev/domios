@@ -42,7 +42,7 @@ fn add_task_with_raw_handle_does_not_false_mismatch_readback() {
     let mut plan = Plan::new(
         "Readback".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut plan, 1).unwrap();
 

@@ -80,18 +80,37 @@ grep -q "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
 cli_flow="$(sed -n '/^  cli)/,/^    ;;/p' build.sh)"
 grep -q 'cargo build --release --manifest-path cli/Cargo.toml' <<< "$cli_flow"
 grep -q 'write_cli_docs' <<< "$cli_flow"
+grep -q 'install_cli_to "$CT_DATA_DIR/bin"' <<< "$cli_flow"
+if grep -q '\.codeterm/bin' <<< "$cli_flow"; then
+  echo "development CLI builds must not overwrite the production CLI" >&2
+  exit 1
+fi
 if grep -q 'enter_build_gateway' <<< "$cli_flow"; then
   echo "CLI build must not wait behind the independent app/dev gateway" >&2
   exit 1
 fi
 
 dev_flow="$(sed -n '/^  dev)/,/^    ;;/p' build.sh)"
+grep -q 'install_cli_to "$CT_DATA_DIR/bin"' <<< "$dev_flow"
+grep -q 'export PATH="$CT_DATA_DIR/bin:$PATH"' <<< "$dev_flow"
+grep -q 'export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/' <<< "$dev_flow"
+if grep -q '\.codeterm/bin' <<< "$dev_flow"; then
+  echo "dev startup must not overwrite the production CLI" >&2
+  exit 1
+fi
 dev_kill_line="$(grep -n 'kill_dev' <<< "$dev_flow" | head -1 | cut -d: -f1)"
 dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cut -d: -f1)"
 [ -n "$dev_kill_line" ] && [ -n "$dev_gateway_line" ] && [ "$dev_kill_line" -lt "$dev_gateway_line" ] || {
   echo "canonical dev restart must release the running dev owner before gateway acquisition" >&2
   exit 1
 }
+
+worktree_flow="$(sed -n '/^  worktree-check)/,/^    ;;/p' build.sh)"
+grep -q 'prepare_exceptional_worktree_target' <<< "$worktree_flow"
+if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then
+  echo "isolated worktree check must not wait behind the shared dev gateway" >&2
+  exit 1
+fi
 
 embed_bundle_flow="$(sed -n '/^ensure_real_embed_bundle()/,/^}/p' build.sh)"
 grep -q 'CODETERM_DEV=1 node scripts/bundle-embed.js' <<< "$embed_bundle_flow" || {

@@ -13,6 +13,8 @@ mod schemas;
 mod sessions;
 mod usage;
 
+pub(crate) use schemas::manifest_defaults;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -31,13 +33,7 @@ pub struct ClaudeProvider;
 
 impl ClaudeProvider {
     pub fn new() -> Self {
-        crate::model_catalog::register(
-            "claude",
-            crate::model_catalog::RegisteredDefaults {
-                models: schemas::builtin_models(),
-                default: Some("opus".into()),
-            },
-        );
+        crate::model_catalog::register("claude", schemas::manifest_defaults());
         Self
     }
 }
@@ -76,7 +72,7 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn starter_prompt_text(&self, prompt: StarterPrompt) -> Option<String> {
-        Some(launch::starter_prompt_text(prompt).to_string())
+        launch::starter_prompt_text(prompt).map(str::to_string)
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {
@@ -114,7 +110,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
-        VerifySubmitStrategy::TuiInputDrained
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::ZERO,
+        }
     }
 
     fn detect_from_title(&self, title: &str) -> bool {
@@ -463,7 +461,7 @@ mod tests {
         let p = ClaudeProvider::new();
         assert!(matches!(
             p.verify_submit_strategy(),
-            VerifySubmitStrategy::TuiInputDrained
+            VerifySubmitStrategy::TuiInputDrained { .. }
         ));
     }
 
@@ -474,7 +472,7 @@ mod tests {
         assert_eq!(desc.id, "claude");
         assert_eq!(desc.display_name, "Claude Code");
         assert_eq!(desc.icon_hint.as_deref(), Some("✳"));
-        assert_eq!(desc.default_model.as_deref(), Some("opus"));
+        assert_eq!(desc.default_model.as_deref(), Some("sonnet"));
         assert!(desc.supports_lazy_skills);
         assert!(desc.has_hooks);
         assert!(!desc.settings_schema.is_empty());

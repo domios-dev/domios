@@ -1,5 +1,5 @@
 //! Shared lane-liveness derivation — the single source of truth for how a
-//! task's assigned pane maps to a live/idle/gone verdict. Consumed by reconcile,
+//! task's assigned tab maps to a live/idle/gone verdict. Consumed by reconcile,
 //! plan-lanes, and the lane watchdog so their verdicts can never disagree.
 
 use serde::Serialize;
@@ -28,13 +28,13 @@ impl Default for LaneThresholds {
     }
 }
 
-/// Inputs a caller gathers about one in_progress/in_review task's pane. The
-/// watchdog never invents state for pane-less tasks (that stays UI-owned) — so
-/// `has_assigned_pane == false` short-circuits to `NoPane`.
+/// Inputs a caller gathers about one in_progress/in_review task's tab. The
+/// watchdog never invents state for tab-less tasks (that stays UI-owned) — so
+/// `has_assigned_tab == false` short-circuits to `NoTab`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneInputs {
-    pub has_assigned_pane: bool,
-    pub pane_present_local: bool,
+    pub has_assigned_tab: bool,
+    pub tab_present_local: bool,
     pub has_peer: bool,
     /// Mesh presence for the recorded peer: Some(true)=online, Some(false)=offline,
     /// None=unknown/not-checked.
@@ -49,11 +49,11 @@ pub struct LaneInputs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LaneLiveness {
-    NoPane,
+    NoTab,
     Working,
     IdleStalled,
     ReportOverdue,
-    PaneGone,
+    TabGone,
     PeerOffline,
 }
 
@@ -65,21 +65,21 @@ impl LaneInputs {
 
 /// Single derivation both reconcile and the watchdog share. Conservative by
 /// design: peer-offline parks the verdict (a sleeping laptop must not look gone),
-/// pane-gone only fires when the pane is absent locally AND no live peer could
+/// tab-gone only fires when the tab is absent locally AND no live peer could
 /// still host it, and report-overdue is amber (long honest work), not gone.
 pub fn derive_lane_liveness(inputs: &LaneInputs, thresholds: &LaneThresholds) -> LaneLiveness {
-    if !inputs.has_assigned_pane {
-        return LaneLiveness::NoPane;
+    if !inputs.has_assigned_tab {
+        return LaneLiveness::NoTab;
     }
     if inputs.has_peer && inputs.peer_online == Some(false) {
         return LaneLiveness::PeerOffline;
     }
-    if !inputs.pane_present_local {
+    if !inputs.tab_present_local {
         // Absent locally: gone only when no peer could still own it.
         return if inputs.has_peer {
             LaneLiveness::Working
         } else {
-            LaneLiveness::PaneGone
+            LaneLiveness::TabGone
         };
     }
     let age = inputs.activity_age();
@@ -103,15 +103,15 @@ pub struct LaneVerdict {
     pub notify_orchestrator: bool,
 }
 
-/// Map a liveness verdict onto flag/stride/notify decisions. Pane-gone reuses
+/// Map a liveness verdict onto flag/stride/notify decisions. Tab-gone reuses
 /// reconcile's `needs-reassign` label so the two surfaces agree.
 pub fn verdict_for(liveness: LaneLiveness, inputs: &LaneInputs) -> LaneVerdict {
     let (status_label, notify): (Option<&'static str>, bool) = match liveness {
-        LaneLiveness::NoPane | LaneLiveness::Working => (None, false),
+        LaneLiveness::NoTab | LaneLiveness::Working => (None, false),
         LaneLiveness::PeerOffline => (Some(PEER_OFFLINE_LABEL), false),
         LaneLiveness::IdleStalled => (Some(STALLED_LABEL), true),
         LaneLiveness::ReportOverdue => (Some(REPORT_OVERDUE_LABEL), true),
-        LaneLiveness::PaneGone => (Some(NEEDS_REASSIGN_LABEL), true),
+        LaneLiveness::TabGone => (Some(NEEDS_REASSIGN_LABEL), true),
     };
     let stride = status_label.map(|label| {
         format!(

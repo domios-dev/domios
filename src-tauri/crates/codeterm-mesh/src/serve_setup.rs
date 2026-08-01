@@ -433,6 +433,10 @@ fn health_get_blocking(url: &str) -> Result<(u16, String), String> {
     Ok((status, body))
 }
 
+pub(crate) fn endpoint_matches_build(url: &str, expected_build: &str) -> bool {
+    check_https_health(Some(url), Some(expected_build.to_string())).ok
+}
+
 /// Read any Tailscale LocalAPI JSON endpoint passively: in-process first (works
 /// in dev), then a responsibility-disclaimed helper (signed prod). Returns None
 /// when Tailscale isn't running — the loopback read simply fails, so this NEVER

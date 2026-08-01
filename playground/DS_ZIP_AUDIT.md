@@ -34,7 +34,7 @@ generic primitive gaps, but it is not a faithful export of the application.
 | `Chip`, `Meta` | Chip exists in `src/components/shared/Chip.tsx`; meta text is local. | Chip's Git-ref tones and Meta's global styling are invented; product Chip has its own API. | **Discard.** |
 | `DeltaPill`, `StatusBadge` | No playground primitive; product has unrelated worker/watcher status badges. | Invented from a nonexistent current Git diff/worktree surface. | **Discard.** |
 | `Spinner` | Gap; product `BusyState`/`BusySpinner` in `src/components/shared/BusyState.tsx`. | Dot keyframes were copied from `src/styles/agent-state.css`, but implementation omits the product reduced-motion/idle behavior and exposes an incompatible API. | **Discard** (per lead direction); use product BusyState if needed. |
-| `Dialog`, `Menu`, `Toolbar` | Gaps; product has specialized portals/menus (`DropdownMenu.tsx`, `PaneActionsMenu.tsx`, `SettingsMenu.tsx`). | Generic visual approximation. Dialog lacks focus trap, Escape/outside semantics and portal; Menu lacks keyboard roving/focus management; Toolbar is only a speculative layout. | **Discard.** |
+| `Dialog`, `Menu`, `Toolbar` | Gaps; product has specialized portals/menus (`DropdownMenu.tsx`, `TabActionsMenu.tsx`, `SettingsMenu.tsx`). | Generic visual approximation. Dialog lacks focus trap, Escape/outside semantics and portal; Menu lacks keyboard roving/focus management; Toolbar is only a speculative layout. | **Discard.** |
 
 All drop JSX files self-inject `<style>` elements. That duplicates and competes
 with `src/styles/globals.css`, bypasses Tailwind conventions, and makes the

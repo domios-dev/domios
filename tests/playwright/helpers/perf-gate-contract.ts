@@ -52,9 +52,9 @@ export function skipIsEnvOnly(specText: string): boolean {
 }
 
 // Topology-creation endpoints/verbs banned inside a @perf body regardless of quote
-// style; only the measured pane-send path (/panes/<id>/send) may mutate (C7).
+// style; only the measured tab-send path (/tabs/<id>/send) may mutate (C7).
 export const TOPOLOGY_ENDPOINTS = ["/agents/spawn", "/workspaces", "/tabs"];
-export const TOPOLOGY_VERBS = ["spawnStub(", "injectCast(", "inject-cast", "preparePerfSeed(", "createPane(", "createWorkspace(", "awaitPtyReady("];
+export const TOPOLOGY_VERBS = ["spawnStub(", "injectCast(", "inject-cast", "preparePerfSeed(", "createTab(", "createWorkspace(", "awaitPtyReady("];
 
 // Retained for the standalone body-token test; endpoint entries are quote-tagged.
 export const TOPOLOGY_MUTATION_TOKENS = [
@@ -74,8 +74,8 @@ function topologyOffenders(body: string): string[] {
     // Match the endpoint as a quoted path segment start, independent of quote char.
     if (new RegExp(`"${endpoint}(?:["/])`).test(norm)) out.push(endpoint);
   }
-  // Pane creation via POST /panes (but NOT the measured /panes/<id>/send).
-  if (/"\/panes"/.test(norm) || /post\(\s*"\/panes["/](?![^)]*\/send)/.test(norm)) out.push("/panes create");
+  // Tab creation via POST /tabs (but NOT the measured /tabs/<id>/send).
+  if (/"\/tabs"/.test(norm) || /post\(\s*"\/tabs["/](?![^)]*\/send)/.test(norm)) out.push("/tabs create");
   return out;
 }
 
@@ -136,8 +136,8 @@ export function runContract(sources: ContractSources, importers: string[]): Cont
   const fixtureArgs = [...fixture.matchAll(/(?:perfSeed|perfGate):\s*(?:\[\s*)?async\s*\(\s*\{([^}]*)\}/g)]
     .map((m) => m[1])
     .join(",");
-  const forbiddenDeps = ["ui", "api", "paneCleanup"].filter((dep) => new RegExp(`\\b${dep}\\b`).test(fixtureArgs));
-  push("C3", fixtureArgs !== "" && forbiddenDeps.length === 0, `perf fixture has no ui/api/paneCleanup dep (found: ${forbiddenDeps.join(",") || "none"})`);
+  const forbiddenDeps = ["ui", "api", "tabCleanup"].filter((dep) => new RegExp(`\\b${dep}\\b`).test(fixtureArgs));
+  push("C3", fixtureArgs !== "" && forbiddenDeps.length === 0, `perf fixture has no ui/api/tabCleanup dep (found: ${forbiddenDeps.join(",") || "none"})`);
 
   push("C4", !/test\.setTimeout\(/.test(spec) && !/test\.slow\(/.test(spec), "no test.setTimeout( or test.slow( under 00-perf-gate");
 

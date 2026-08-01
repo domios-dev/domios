@@ -2,7 +2,7 @@
 export const WEB_UNSUPPORTED: Record<string, string> = {
   get_recovery_state:
     "Native crash recovery state is sourced from the desktop supervisor",
-  get_pane_history_raw:
+  get_tab_history_raw:
     "Native xterm scrollback replay on remount; web uses read_pty tail instead",
   materialize_dropped_files:
     "Native Tauri webview file-drop paths must be materialized on the host",
@@ -10,6 +10,10 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "OS clipboard file paths; web uses navigator.clipboard.read()",
   read_clipboard_text:
     "OS clipboard text reader; web uses navigator.clipboard.readText()",
+  read_html_preview_file:
+    "Local file-backed HTML previews are available only in the desktop app",
+  read_local_preview_file:
+    "Local page, image, and document previews are available only in the desktop app",
   frontend_ready:
     "Desktop startup readiness acknowledgement has no browser equivalent",
   frontend_readiness_generation:

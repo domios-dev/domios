@@ -70,7 +70,7 @@ export interface NormalizedChatMessage {
    *  (codex floors to seconds) or absent (cursor emits none) — see `mergeById`. */
   seq?: number;
   /** Frontend join context for a parser sequence; sequence values repeat when a
-   * pane rotates to a new agent session. */
+   * tab rotates to a new agent session. */
   sourceSessionId?: string;
   /** Frontend-only arrival/send order hint for live optimistic merges. Providers
    *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
@@ -100,7 +100,7 @@ export interface NormalizedChatMessage {
   duration?: string;
   payload?: unknown;
   fromLabel?: string;
-  fromPane?: string;
+  fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
@@ -123,11 +123,11 @@ export interface ProviderChatAdapter<TMessage extends NormalizedChatMessage = No
 
 export type ChatOrigin =
   | {
-      kind: "pane";
+      kind: "tab";
       title: string;
-      paneIdShort: string;
+      tabIdShort: string;
       /** Sender's model family (opus/sonnet/haiku/codex/…) for the avatar.
-       *  The recipient is always the current pane — never embedded. */
+       *  The recipient is always the current tab — never embedded. */
       model?: string;
       /** Peer machine name when the message crossed the mesh. */
       mesh?: string;
@@ -143,8 +143,8 @@ export type ChatOrigin =
       kind: "reminder";
       /** Display name of whoever queued the reminder, when resolvable. */
       whoSet?: string;
-      /** Creator pane short id. */
-      pane?: string;
+      /** Creator tab short id. */
+      tab?: string;
       model?: string;
       /** Queued-at, ms since epoch (string on the wire). */
       setAt?: string;

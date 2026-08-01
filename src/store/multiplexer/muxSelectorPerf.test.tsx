@@ -45,14 +45,14 @@ async function setupHappyDom() {
     }
     (globalThis as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver;
   }
-  return { act, useLayoutEffect, React, createRoot };
+  return { act, useLayoutEffect, React, createRoot, window };
 }
 
 async function main() {
-  const { act, useLayoutEffect, React, createRoot } = await setupHappyDom();
+  const { act, useLayoutEffect, React, createRoot, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { MultiplexerProvider } = await import("./index");
-  const { PaneSessionChat } = await import("../../components/Terminal/PaneSessionChat");
+  const { TabSessionChat } = await import("../../components/Terminal/TabSessionChat");
 
   __setListenForTest(async () => () => {});
   __setInvokeForTest((async (cmd: string) => {
@@ -64,28 +64,25 @@ async function main() {
         workspaces: [{
           id: "ws",
           name: "ws",
-          tabs: [
-            { id: "tab-a", pane_id: paneA },
-            { id: "tab-b", pane_id: paneB },
-          ],
-          active_tab_id: "tab-a",
+          tabs: [tabA, tabB],
+          active_tab_id: tabA,
           cwd: null,
         }],
-        panes: {
-          [paneA]: {
-            id: paneA,
+        tabs: {
+          [tabA]: {
+            id: tabA,
             pty_id: null,
-            pane_type: "Terminal",
+            tab_type: "Terminal",
             title: "A",
             cwd: null,
             agent_type: "claude",
             chat_view: true,
             backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "s1" },
           },
-          [paneB]: {
-            id: paneB,
+          [tabB]: {
+            id: tabB,
             pty_id: null,
-            pane_type: "Terminal",
+            tab_type: "Terminal",
             title: "B",
             cwd: null,
             agent_type: "claude",
@@ -94,7 +91,7 @@ async function main() {
           },
         },
         active_workspace_id: "ws",
-        focused_pane_id: paneA,
+        focused_tab_id: tabA,
         generation: 1,
       };
     }
@@ -102,17 +99,21 @@ async function main() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
 
-  const paneA = "pane-a-churn";
-  const paneB = "pane-b-hidden";
+  const tabA = "tab-a-churn";
+  const tabB = "tab-b-hidden";
+  const testWindow = window as typeof window & {
+    __renderCounts?: Record<string, number>;
+    __muxPerfChurnTab?: (tabId: string) => void;
+  };
 
   function Boot() {
     useLayoutEffect(() => {
-      window.__renderCounts = {};
+      testWindow.__renderCounts = {};
     }, []);
     return (
       <MultiplexerProvider>
-        <PaneSessionChat paneId={paneA} chatBackend isVisible={false} />
-        <PaneSessionChat paneId={paneB} chatBackend isVisible={false} />
+        <TabSessionChat tabId={tabA} chatBackend isVisible={false} />
+        <TabSessionChat tabId={tabB} chatBackend isVisible={false} />
       </MultiplexerProvider>
     );
   }
@@ -135,35 +136,38 @@ async function main() {
     throw new Error("VITE_CODETERM_TEST not visible to isCodeTermFrontendTestMode");
   }
 
-  if (!window.__muxPerfChurnPane) {
-    throw new Error("__muxPerfChurnPane hook missing — VITE_CODETERM_TEST path broken");
+  if (!testWindow.__muxPerfChurnTab) {
+    throw new Error("__muxPerfChurnTab hook missing — VITE_CODETERM_TEST path broken");
   }
 
-  const beforeB = window.__renderCounts?.[paneB] ?? 0;
-  const beforeA = window.__renderCounts?.[paneA] ?? 0;
+  const beforeB = testWindow.__renderCounts?.[tabB] ?? 0;
+  const beforeA = testWindow.__renderCounts?.[tabA] ?? 0;
 
   for (let i = 0; i < 60; i += 1) {
     await act(async () => {
-      window.__muxPerfChurnPane?.(paneA);
+      testWindow.__muxPerfChurnTab?.(tabA);
     });
   }
 
-  const afterB = window.__renderCounts?.[paneB] ?? 0;
-  const afterA = window.__renderCounts?.[paneA] ?? 0;
+  const afterB = testWindow.__renderCounts?.[tabB] ?? 0;
+  const afterA = testWindow.__renderCounts?.[tabA] ?? 0;
   const deltaB = afterB - beforeB;
   const deltaA = afterA - beforeA;
 
   await act(async () => root.unmount());
   __setInvokeForTest(null);
   __setListenForTest(null);
+  await window.happyDOM.abort();
+  window.close();
 
   if (deltaB > 3) {
-    throw new Error(`hidden pane B render delta ${deltaB} exceeds budget (pre-fix ~60)`);
+    throw new Error(`hidden Tab B render delta ${deltaB} exceeds budget (pre-fix ~60)`);
   }
   if (deltaA <= 0) {
-    throw new Error(`churn owner pane A did not re-render (delta=${deltaA})`);
+    throw new Error(`churn owner Tab A did not re-render (delta=${deltaA})`);
   }
-  console.log(`PASS mux selector render isolation: paneA delta=${deltaA}, paneB delta=${deltaB}`);
+  console.log(`PASS mux selector render isolation: tabA delta=${deltaA}, tabB delta=${deltaB}`);
+  process.exit(0);
 }
 
 void main().catch((e) => {

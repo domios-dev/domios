@@ -6,11 +6,12 @@
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable — run `codeterm <cmd> --help` for flags and `codeterm docs <TOPIC>` for playbooks; this section carries only invariants and the capability map.
 
-**Env vars** (set in every tab): `$CODETERM_PANE_ID` (your internal tab id), `$CODETERM_PARENT_PANE_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
+**Env vars** (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_PARENT_TAB_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
 
 ## Hard invariants
 
 - **Discovery habit: CLI first, always.** For anything CodeTerm-related, run `codeterm <cmd> --help` and `codeterm docs <TOPIC>` BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
+- **Interactive tab discovery stays compact.** Use plain `codeterm tab list` and preserve the row marked `(self)`. Never write or run `tab list --json` interactively. Inspect only a selected tab with `codeterm tab inspect <id>`; whole-list JSON is for checked-in automation only.
 - **Routing: the prefix is the return address.** Reply on the channel named by the `-=-codeterm:...-=-` marker (see the routing table in your rules; depth: `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your tab afterward.
 - **`chat_backend` tabs have no shell.** Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - **Delayed send is not the default.** `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
@@ -25,7 +26,7 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 | Domain / trigger | Commands | Depth |
 |---|---|---|
 | Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Tabs, sending text/keys, reading a tab | `tab list` first for compact discovery; use `tab list --json` only for full inspection, then `send`, `tab chat`, `tab get-text`, `tab exec` | `docs ROUTING` |
+| Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. | `docs ROUTING` |
 | Long-running processes (servers, watchers) | `tab new --cmd "..."` — own visible tab, not your shell | — |
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent providers/models` | `docs ORCHESTRATION` |

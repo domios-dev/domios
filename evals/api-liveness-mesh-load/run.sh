@@ -20,8 +20,8 @@ else
   FIXTURE_CWD="$RUN_ROOT"
 fi
 WORKSPACE_ID=""
-PANE_ID=""
-HEARTBEAT_PANE_ID=""
+TAB_ID=""
+HEARTBEAT_TAB_ID=""
 TRANSCRIPT_PATH=""
 if is_windows; then
   REPORT_MARKER_PATH="$(cygpath -w "$RUN_ROOT/report-deliveries.txt")"
@@ -55,20 +55,20 @@ PY
     grep -E '\[chat_start\.bounded\]|\[liveness\]|\[LOCK-HOLD\]|\[SLOW-IPC\]|REST API' "$log" \
       | tail -20 >&2 || true
   fi
-  if [ -n "$PANE_ID" ]; then
-    dc tab get-text --tab "$PANE_ID" >&2 || true
+  if [ -n "$TAB_ID" ]; then
+    dc tab get-text --tab "$TAB_ID" >&2 || true
   fi
-  if [ -n "$HEARTBEAT_PANE_ID" ]; then
-    dc tab get-text --tab "$HEARTBEAT_PANE_ID" >&2 || true
+  if [ -n "$HEARTBEAT_TAB_ID" ]; then
+    dc tab get-text --tab "$HEARTBEAT_TAB_ID" >&2 || true
   fi
 }
 
 cleanup() {
-  if [ -n "$PANE_ID" ]; then
-    dc tab close "$PANE_ID" >/dev/null 2>&1 || true
+  if [ -n "$TAB_ID" ]; then
+    dc tab close "$TAB_ID" >/dev/null 2>&1 || true
   fi
-  if [ -n "$HEARTBEAT_PANE_ID" ]; then
-    dc tab close "$HEARTBEAT_PANE_ID" >/dev/null 2>&1 || true
+  if [ -n "$HEARTBEAT_TAB_ID" ]; then
+    dc tab close "$HEARTBEAT_TAB_ID" >/dev/null 2>&1 || true
   fi
   if [ -n "$WORKSPACE_ID" ]; then
     dc workspace close "$WORKSPACE_ID" >/dev/null 2>&1 || true
@@ -97,12 +97,12 @@ build="$(printf '%s' "$health" | python -c 'import json,sys; print(json.load(sys
 
 workspace="$(dc workspace create "WS-api-liveness-$$" --cwd "$FIXTURE_CWD" --json)"
 WORKSPACE_ID="$(printf '%s' "$workspace" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-pane="$(dc tab new --workspace "$WORKSPACE_ID" --cwd "$FIXTURE_CWD" \
+tab="$(dc tab new --workspace "$WORKSPACE_ID" --cwd "$FIXTURE_CWD" \
   --title "api-liveness-report-$$" --eager --json)"
-PANE_ID="$(printf '%s' "$pane" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("pane_id") or d["id"])')"
-heartbeat_pane="$(dc tab new --workspace "$WORKSPACE_ID" --cwd "$FIXTURE_CWD" \
+TAB_ID="$(printf '%s' "$tab" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tab_id") or d["id"])')"
+heartbeat_tab="$(dc tab new --workspace "$WORKSPACE_ID" --cwd "$FIXTURE_CWD" \
   --title "api-liveness-heartbeat-$$" --eager --json)"
-HEARTBEAT_PANE_ID="$(printf '%s' "$heartbeat_pane" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("pane_id") or d["id"])')"
+HEARTBEAT_TAB_ID="$(printf '%s' "$heartbeat_tab" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tab_id") or d["id"])')"
 
 TRANSCRIPT_PATH="$(python - "$FIXTURE_CWD" <<'PY'
 import json
@@ -138,7 +138,7 @@ signed="$(dev_get /api/mesh/debug/sign)"
 SIGNED_TOKEN="$(printf '%s' "$signed" | python -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 
 python - "$CODETERM_API_TOKEN" "$SIGNED_TOKEN" "$FIXTURE_CWD" \
-  "$PANE_ID" "$HEARTBEAT_PANE_ID" "$TRANSCRIPT_PATH" \
+  "$TAB_ID" "$HEARTBEAT_TAB_ID" "$TRANSCRIPT_PATH" \
   "$REPORT_MARKER_PATH" "$HEARTBEAT_MARKER_PATH" <<'PY'
 import concurrent.futures
 import json
@@ -154,8 +154,8 @@ import urllib.request
     api_token,
     signed_token,
     cwd,
-    pane_id,
-    heartbeat_pane_id,
+    tab_id,
+    heartbeat_tab_id,
     transcript_path,
     report_marker_path,
     heartbeat_marker_path,
@@ -203,12 +203,12 @@ def append_command(marker_path, label, output):
 
 report = {
     "method": "POST",
-    "path": f"/api/panes/{pane_id}/send",
-    "delivery_id": f"api-liveness-report-{pane_id}",
+    "path": f"/api/tabs/{tab_id}/send",
+    "delivery_id": f"api-liveness-report-{tab_id}",
     "body": {
         "text": append_command(report_marker_path, "report", "ORACLE_REPORT_OUTPUT"),
         "actions": [{"type": "key", "key": "enter"}],
-        "source_pane": "remote-worker",
+        "source_tab": "remote-worker",
         "source_label": "load-worker",
         "source_model": "oracle",
         "kind": "report",
@@ -216,14 +216,14 @@ report = {
 }
 heartbeat = {
     "method": "POST",
-    "path": f"/api/panes/{heartbeat_pane_id}/send",
-    "delivery_id": f"api-liveness-heartbeat-{heartbeat_pane_id}",
+    "path": f"/api/tabs/{heartbeat_tab_id}/send",
+    "delivery_id": f"api-liveness-heartbeat-{heartbeat_tab_id}",
     "body": {
         "text": append_command(
             heartbeat_marker_path, "heartbeat", "ORACLE_HEARTBEAT_OUTPUT"
         ),
         "actions": [{"type": "key", "key": "enter"}],
-        "source_pane": "remote-worker",
+        "source_tab": "remote-worker",
         "source_label": "load-worker",
         "source_model": "oracle",
         "kind": "heartbeat",
@@ -231,8 +231,8 @@ heartbeat = {
 }
 structured_error = {
     "method": "POST",
-    "path": "/api/panes/api-liveness-missing/send",
-    "delivery_id": f"api-liveness-structured-error-{pane_id}",
+    "path": "/api/tabs/api-liveness-missing/send",
+    "delivery_id": f"api-liveness-structured-error-{tab_id}",
     "body": {"text": "must-not-land"},
 }
 
@@ -240,7 +240,7 @@ jobs = [
     lambda index=index: transcript(index) for index in range(4)
 ] + [
     lambda: request("health", "/api/health", api_token, 1.0),
-    lambda: request("tab", "/api/panes?all_workspaces=true", api_token, 1.0),
+    lambda: request("tab", "/api/tabs?all_workspaces=true", api_token, 1.0),
     lambda: request("report-owner", "/api/mesh/relay", signed_token, 2.0, report),
     lambda: request("report-duplicate", "/api/mesh/relay", signed_token, 2.0, report),
     lambda: request("heartbeat", "/api/mesh/relay", signed_token, 2.0, heartbeat),
@@ -257,13 +257,13 @@ health_status, health_payload, health_elapsed = by_name["health"]
 if health_status != 200 or json.loads(health_payload).get("status") != "ok":
     raise AssertionError("health did not return a real successful response")
 tab_status, tab_payload, tab_elapsed = by_name["tab"]
-observed_panes = {item["id"] for item in json.loads(tab_payload)}
+observed_tabs = {item["id"] for item in json.loads(tab_payload)}
 if (
     tab_status != 200
-    or pane_id not in observed_panes
-    or heartbeat_pane_id not in observed_panes
+    or tab_id not in observed_tabs
+    or heartbeat_tab_id not in observed_tabs
 ):
-    raise AssertionError("tab observation did not contain the load pane")
+    raise AssertionError("tab observation did not contain the load tab")
 
 owner = json.loads(by_name["report-owner"][1])
 duplicate = json.loads(by_name["report-duplicate"][1])
@@ -276,7 +276,7 @@ error_response = json.loads(by_name["structured-error"][1])
 error = (error_response.get("data") or {}).get("error") or {}
 if (
     error_response.get("ok") is not False
-    or error.get("code") != "pane_not_reachable_on_peer"
+    or error.get("code") != "tab_not_reachable_on_peer"
     or error.get("bytes_written") is not False
 ):
     raise AssertionError(f"structured delivery error was lost: {error_response}")
@@ -295,9 +295,9 @@ print(
 )
 PY
 
-report_fence="$(dc tab exec --tab "$PANE_ID" --timeout 2000 \
+report_fence="$(dc tab exec --tab "$TAB_ID" --timeout 2000 \
   "python -c 'print(\"ORACLE_REPORT_FENCE\")'")"
-heartbeat_fence="$(dc tab exec --tab "$HEARTBEAT_PANE_ID" --timeout 2000 \
+heartbeat_fence="$(dc tab exec --tab "$HEARTBEAT_TAB_ID" --timeout 2000 \
   "python -c 'print(\"ORACLE_HEARTBEAT_FENCE\")'")"
 grep -q "ORACLE_REPORT_FENCE" <<<"$report_fence"
 grep -q "ORACLE_HEARTBEAT_FENCE" <<<"$heartbeat_fence"
@@ -315,8 +315,8 @@ if report != ["report"] or heartbeat != ["heartbeat"]:
 print("report,heartbeat")
 PY
 )"
-report_screen="$(dc tab get-text --tab "$PANE_ID")"
-heartbeat_screen="$(dc tab get-text --tab "$HEARTBEAT_PANE_ID")"
+report_screen="$(dc tab get-text --tab "$TAB_ID")"
+heartbeat_screen="$(dc tab get-text --tab "$HEARTBEAT_TAB_ID")"
 grep -q "ORACLE_REPORT_OUTPUT" <<<"$report_screen"
 grep -q "ORACLE_HEARTBEAT_OUTPUT" <<<"$heartbeat_screen"
 

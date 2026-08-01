@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke: a passing single gate must exit 0 and print QA_RUN (prod-pane env).
+# Smoke: a passing single gate must exit 0 and print QA_RUN (prod-tab env).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 out="$(CODETERM_API_PORT=7685 "$ROOT/scripts/qa-gate.sh" run shell-guards --allow-dirty --timeout 120 2>&1)"

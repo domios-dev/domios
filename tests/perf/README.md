@@ -9,7 +9,7 @@ in `pnpm test:unit`.
 ```bash
 npx tsx tests/perf/transcript-churn.bench.ts
 npx tsx tests/perf/pty-write-slicing.bench.ts
-npx tsx src/components/Terminal/PaneSessionChat.planref-stability.test.tsx
+npx tsx src/components/Terminal/TabSessionChat.planref-stability.test.tsx
 ```
 
 ## Root causes & fixes
@@ -22,9 +22,9 @@ identity churned per chunk because `visiblePlanRefs` returned a fresh array
 (→ `orderedRefs` → resolver output → new `resolvePlanRef`), plus
 `usePlanIndexOptional`'s no-provider fallback allocated a fresh object each
 render. Fix: `visiblePlanRefs` reuses the previous array when the deduped
-ref-set is unchanged (`PaneSessionChat.tsx`); `usePlanIndexOptional` returns a
+ref-set is unchanged (`TabSessionChat.tsx`); `usePlanIndexOptional` returns a
 stable shared fallback (`PlansProvider.tsx`). Guarded by
-`PaneSessionChat.planref-stability.test.tsx`.
+`TabSessionChat.planref-stability.test.tsx`.
 
 **Slow PTY scroll.** `writeTerminalBytesInFrames` wrote exactly one 64KB slice
 per rAF → hard 3.75 MB/s cap and a ~1067ms floor to replay a 4MB buffer. Fix:
@@ -51,10 +51,10 @@ payload   parse/slice   before   after   wall before/after @60fps
  4096KB      12ms          64      64    1067ms / 1067ms  (== before, no regression)
 ```
 
-## PaneSessionChat.planref-stability.test.tsx
+## TabSessionChat.planref-stability.test.tsx
 
 happy-dom render-count oracle. Streams 12 tail-delta chunks into a mounted
-`PaneSessionChat` and asserts unchanged `MessageBubble` rows re-render ≤2× (not
+`TabSessionChat` and asserts unchanged `MessageBubble` rows re-render ≤2× (not
 ~1×/chunk). Uses a test-only `window.__bubbleRenderCounts` opt-in counter added
 to `MessageBubble` (no-op in prod). Fails at 13× if either fix is reverted.
 

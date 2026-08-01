@@ -34,7 +34,7 @@ mod tests {
     fn stride(kind: &str, text: &str, ts: u64) -> Milestone {
         Milestone {
             id: format!("ms_{ts}"),
-            from: AgentRef::from_pane("p1"),
+            from: AgentRef::from_tab("p1"),
             kind: kind.into(),
             text: text.into(),
             ts,
@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn latest_retrospective_skips_supersede_markers() {
-        let mut plan = Plan::new("P".into(), "/tmp".into(), OrchestratorRef::from_pane("o"));
+        let mut plan = Plan::new("P".into(), "/tmp".into(), OrchestratorRef::from_tab("o"));
         plan.strides = vec![
             stride(RETROSPECTIVE_KIND, "first draft", 100),
             stride(RETROSPECTIVE_KIND, SUPERSEDE_NOTE, 200),
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn has_retrospective_ignores_supersede_only_history() {
-        let mut plan = Plan::new("P".into(), "/tmp".into(), OrchestratorRef::from_pane("o"));
+        let mut plan = Plan::new("P".into(), "/tmp".into(), OrchestratorRef::from_tab("o"));
         plan.strides = vec![stride(RETROSPECTIVE_KIND, SUPERSEDE_NOTE, 100)];
         assert!(!has_retrospective(&plan));
     }

@@ -32,7 +32,7 @@ pub async fn tab_focus(
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let pane_id = state
+    let exists = state
         .svc
         .mux
         .read()
@@ -40,30 +40,30 @@ pub async fn tab_focus(
         .workspaces
         .into_iter()
         .find(|ws| ws.id == workspace_id)
-        .and_then(|ws| ws.tabs.into_iter().find(|tab| tab.id == tab_id))
-        .map(|tab| tab.pane_id);
+        .is_some_and(|ws| ws.tabs.contains(&tab_id));
+    if !exists {
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+    }
     state
         .svc
         .set_active_tab(&workspace_id, &tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    if let Some(pane_id) = pane_id {
-        state
-            .svc
-            .focus_pane(&pane_id)
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    }
+    state
+        .svc
+        .focus_tab(&tab_id)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 pub async fn tab_close(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path((workspace_id, tab_id)): Path<(String, String)>,
+    Path((_workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
-        .close_tab(&workspace_id, &tab_id)
+        .close_tab(&tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -73,19 +73,19 @@ pub(crate) struct ChatViewBody {
     enabled: bool,
 }
 
-pub async fn pane_chat_view(
+pub async fn tab_chat_view(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(tab_id): Path<String>,
     Json(body): Json<ChatViewBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.set_chat_view(&pane_id, body.enabled);
+    state.svc.set_chat_view(&tab_id, body.enabled);
     // Explicit API request = remote-control command (bridge / agents / tests):
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
-        "pane-chat-view",
-        serde_json::json!({ "pane_id": pane_id, "enabled": body.enabled }),
+        "tab-chat-view",
+        serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
     );
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -136,6 +136,18 @@ pub async fn peer_cron_history(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let value = crate::commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_get(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = crate::commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
@@ -631,8 +643,8 @@ mod tests {
 // ── chat-raw — the chat view's JSONL window + tailer, web edition ──
 
 /// Same semantics and result shape as the Tauri `chat_start`: returns the
-/// recent raw-JSONL window and installs the per-pane tailer whose deltas
-/// arrive as `pane-chat-msg-{id}` over the SSE stream.
+/// recent raw-JSONL window and installs the per-tab tailer whose deltas
+/// arrive as `tab-chat-msg-{id}` over the SSE stream.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSubscriptionBody {
@@ -642,13 +654,13 @@ pub struct ChatSubscriptionBody {
 pub async fn chat_raw_start(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(tab_id): Path<String>,
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        crate::commands::chat_start_core(&svc, pane_id, body.subscription_id)
+        crate::commands::chat_start_core(&svc, tab_id, body.subscription_id)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -847,7 +859,7 @@ pub async fn chatbackend_switch_model(
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpenChatBackendPaneReq {
+pub struct OpenChatBackendTabReq {
     pub plugin_id: String,
     pub workspace_id: Option<String>,
     pub config: Option<serde_json::Value>,
@@ -856,15 +868,15 @@ pub struct OpenChatBackendPaneReq {
     pub model: Option<String>,
 }
 
-/// Web-mirror twin of the `open_chat_backend_pane` Tauri command — opens a
-/// non-PTY chatBackend pane (e.g. an LM Studio plugin) from the Extensions panel.
-pub async fn open_chat_backend_pane(
+/// Web-mirror twin of the `open_chat_backend_tab` Tauri command — opens a
+/// non-PTY chatBackend tab (e.g. an LM Studio plugin) from the Extensions panel.
+pub async fn open_chat_backend_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(req): Json<OpenChatBackendPaneReq>,
+    Json(req): Json<OpenChatBackendTabReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     let mut config = req.config.unwrap_or(serde_json::Value::Null);
     let overrides = crate::service::spawn::chatbackend_spawn_config(
         req.system_prompt.as_deref(),
@@ -885,10 +897,10 @@ pub async fn open_chat_backend_pane(
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let handle = state
         .svc
-        .spawn_pane(SpawnPaneSpec {
+        .spawn_tab(SpawnTabSpec {
             workspace_id: req.workspace_id,
-            visibility: PaneVisibility::Visible,
-            command: PaneCommand::ChatBackend {
+            visibility: TabVisibility::Visible,
+            command: TabCommand::ChatBackend {
                 plugin_id: req.plugin_id,
                 config,
                 role: None,
@@ -899,7 +911,7 @@ pub async fn open_chat_backend_pane(
             ..Default::default()
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "pane_id": handle.pane_id })))
+    Ok(Json(serde_json::json!({ "tab_id": handle.tab_id })))
 }
 
 #[derive(Deserialize)]
@@ -911,7 +923,7 @@ pub struct SessionTranscriptQuery {
 
 /// Read-only transcript of a finished run (hidden worker / cron). Renders the
 /// same normalized ChatMsg shape as the live chat-ui, parsed straight from the
-/// session jsonl — no pane, no tailer, no composer.
+/// session jsonl — no tab, no tailer, no composer.
 pub async fn session_transcript(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -920,13 +932,7 @@ pub async fn session_transcript(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let (messages, total) = tokio::task::spawn_blocking(move || {
-        crate::service::pane_chat::session_chat_snapshot(
-            &svc,
-            &q.provider,
-            &q.cwd,
-            &q.session_id,
-            0,
-        )
+        crate::service::tab_chat::session_chat_snapshot(&svc, &q.provider, &q.cwd, &q.session_id, 0)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -939,14 +945,11 @@ pub async fn session_transcript(
 pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(tab_id): Path<String>,
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state
-        .svc
-        .chat_registry
-        .stop(&pane_id, &body.subscription_id);
+    state.svc.chat_registry.stop(&tab_id, &body.subscription_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -960,13 +963,13 @@ pub(crate) struct ChatBackfillBody {
 pub async fn chat_raw_backfill(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(tab_id): Path<String>,
     Json(body): Json<ChatBackfillBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        crate::commands::chat_backfill_core(&svc, pane_id, body.before_offset, body.max_bytes)
+        crate::commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.max_bytes)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

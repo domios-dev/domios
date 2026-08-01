@@ -15,41 +15,41 @@ fn gates() -> &'static ActivationGates {
     })
 }
 
-pub struct PaneActivationPermit {
-    pane_id: String,
+pub struct TabActivationPermit {
+    tab_id: String,
 }
 
-pub fn acquire(pane_id: &str) -> PaneActivationPermit {
-    acquire_inner(pane_id, || {})
+pub fn acquire(tab_id: &str) -> TabActivationPermit {
+    acquire_inner(tab_id, || {})
 }
 
-fn acquire_inner(pane_id: &str, mut waiting: impl FnMut()) -> PaneActivationPermit {
+fn acquire_inner(tab_id: &str, mut waiting: impl FnMut()) -> TabActivationPermit {
     let gates = gates();
     let mut active = gates.active.lock();
-    while !active.insert(pane_id.to_string()) {
+    while !active.insert(tab_id.to_string()) {
         waiting();
         gates.changed.wait(&mut active);
     }
-    PaneActivationPermit {
-        pane_id: pane_id.to_string(),
+    TabActivationPermit {
+        tab_id: tab_id.to_string(),
     }
 }
 
 #[cfg(test)]
-pub fn acquire_with_wait_hook(pane_id: &str, waiting: impl FnMut()) -> PaneActivationPermit {
-    acquire_inner(pane_id, waiting)
+pub fn acquire_with_wait_hook(tab_id: &str, waiting: impl FnMut()) -> TabActivationPermit {
+    acquire_inner(tab_id, waiting)
 }
 
-pub async fn acquire_async(pane_id: String) -> Result<PaneActivationPermit, String> {
-    tokio::task::spawn_blocking(move || acquire(&pane_id))
+pub async fn acquire_async(tab_id: String) -> Result<TabActivationPermit, String> {
+    tokio::task::spawn_blocking(move || acquire(&tab_id))
         .await
-        .map_err(|error| format!("pane activation waiter failed: {error}"))
+        .map_err(|error| format!("Tab activation waiter failed: {error}"))
 }
 
-impl Drop for PaneActivationPermit {
+impl Drop for TabActivationPermit {
     fn drop(&mut self) {
         let gates = gates();
-        gates.active.lock().remove(&self.pane_id);
+        gates.active.lock().remove(&self.tab_id);
         gates.changed.notify_all();
     }
 }
@@ -60,7 +60,7 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
-    fn same_pane_waits_for_the_active_transition() {
+    fn same_tab_waits_for_the_active_transition() {
         let first = acquire("activation-serial");
         let (attempt_tx, attempt_rx) = mpsc::channel();
         let (acquired_tx, acquired_rx) = mpsc::channel();
@@ -81,7 +81,7 @@ mod tests {
     }
 
     #[test]
-    fn different_panes_do_not_block_each_other() {
+    fn different_tabs_do_not_block_each_other() {
         let _first = acquire("activation-a");
         let _second = acquire("activation-b");
     }

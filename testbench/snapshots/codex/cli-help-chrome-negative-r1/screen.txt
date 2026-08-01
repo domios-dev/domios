@@ -1,0 +1,4 @@
+For more information, try '--help'.
+  1. Usage details are available in the command reference.
+  2. Arguments are validated before the command starts.
+  3. Errors are printed to the terminal.

@@ -1,9 +1,28 @@
 use super::orchestrator::SpawnAgentParams;
-use super::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
-impl SpawnPaneSpec {
+pub(crate) fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
+    if role.is_none() {
+        crate::agent::provider::StarterPrompt::NoStarter
+    } else {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    }
+}
+
+pub(crate) fn starter_prompt_for_creation(
+    role: Option<&str>,
+    task: Option<&str>,
+) -> crate::agent::provider::StarterPrompt {
+    if role.is_some() && task.is_some_and(|task| !task.trim().is_empty()) {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    } else {
+        crate::agent::provider::StarterPrompt::NoStarter
+    }
+}
+
+impl SpawnTabSpec {
     pub fn from_agent_params(params: SpawnAgentParams) -> Self {
         Self::from_agent_params_command(params, None)
     }
@@ -13,7 +32,7 @@ impl SpawnPaneSpec {
         params: SpawnAgentParams,
     ) -> Self {
         let provider = params.agent.clone().unwrap_or_default();
-        // Route to the ChatBackend pane path only for a USER-SPAWNABLE shell.
+        // Route to the ChatBackend tab path only for a USER-SPAWNABLE shell.
         let spawnable = !provider.is_empty()
             && chatbackends
                 .get(&provider)
@@ -34,7 +53,7 @@ impl SpawnPaneSpec {
             );
             return Self::from_agent_params_command(
                 params,
-                Some(PaneCommand::ChatBackend {
+                Some(TabCommand::ChatBackend {
                     plugin_id: provider,
                     config,
                     role,
@@ -47,9 +66,10 @@ impl SpawnPaneSpec {
         Self::from_agent_params_command(params, None)
     }
 
-    fn from_agent_params_command(params: SpawnAgentParams, command: Option<PaneCommand>) -> Self {
+    fn from_agent_params_command(params: SpawnAgentParams, command: Option<TabCommand>) -> Self {
+        let task_launch_env = params.task_launch_env();
         let agent_command = command.unwrap_or_else(|| {
-            PaneCommand::Agent(AgentSpawnSpec {
+            TabCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 planned_model: params.planned_model.clone(),
                 model: params.model.clone(),
@@ -62,23 +82,26 @@ impl SpawnPaneSpec {
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
                 auto_approve: params.skip_permissions.unwrap_or(true),
-                report_target_pane_id: params.report_target_pane_id.clone(),
+                report_target_tab_id: params.report_target_tab_id.clone(),
                 worker_id: None,
-                extra_env: Default::default(),
+                extra_env: task_launch_env,
                 task_preamble: None,
                 spawned_by: None,
-                spawned_by_pane_id: params.spawned_by_pane_id.clone(),
+                spawned_by_tab_id: params.spawned_by_tab_id.clone(),
                 resume_session_id: params.resume_session_id.clone(),
                 activate: params.activate,
             })
         });
         Self {
             workspace_id: params.workspace_id.clone(),
-            parent_pane_id: params.parent_pane_id.clone(),
+            parent_tab_id: params.parent_tab_id.clone(),
+            team_id: None,
+            creator_tab_id: None,
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             description: params.description.clone(),
-            visibility: PaneVisibility::Visible,
+            visibility: TabVisibility::Visible,
+            audience: params.audience,
             eager: false,
             command: agent_command,
         }
@@ -86,15 +109,17 @@ impl SpawnPaneSpec {
 
     pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
         let agent = match &self.command {
-            PaneCommand::Agent(a) => a,
-            PaneCommand::Shell => {
+            TabCommand::Agent(a) => a,
+            TabCommand::Shell => {
                 return Err("to_agent_params called on Shell spec".into());
             }
-            PaneCommand::ChatBackend { .. } => {
+            TabCommand::ChatBackend { .. } => {
                 return Err("to_agent_params called on ChatBackend spec".into());
             }
         };
         let args = agent.extra_args.clone();
+        let starter_prompt =
+            starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),
@@ -106,23 +131,24 @@ impl SpawnPaneSpec {
             description: self.description.clone(),
             role: agent.role.clone(),
             role_profile: agent.role_profile.clone(),
-            parent_pane_id: self.parent_pane_id.clone(),
+            parent_tab_id: self.parent_tab_id.clone(),
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
-            starter_prompt: Default::default(),
+            starter_prompt,
             task_id: None,
+            task_launch_authority: None,
             plan_task: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
             existing_tab_id: None,
             skip_orchestrator_onboarding: None,
-            report_target_pane_id: agent.report_target_pane_id.clone(),
+            report_target_tab_id: agent.report_target_tab_id.clone(),
             // AgentSpawnSpec (sync/local spawn path) carries no remote target;
             // mesh workers spawn via the async HTTP path which sets it directly.
             report_target_mesh_peer: None,
             skip_permissions: Some(agent.auto_approve),
-            spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
+            spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
             model: agent.model.clone(),
             planned_model: agent.planned_model.clone(),
             reasoning_effort: agent.reasoning_effort.clone(),
@@ -135,6 +161,7 @@ impl SpawnPaneSpec {
             nudge_cooldown_secs: None,
             max_actions_per_tick: None,
             activate: agent.activate,
+            audience: self.audience,
             structured_prompt_server: None,
         })
     }
@@ -178,7 +205,7 @@ pub(crate) fn reject_direct_watcher_chatbackend_config(
     config: &serde_json::Value,
 ) -> Result<(), String> {
     if config.get("mode").and_then(|v| v.as_str()) == Some("watcher") {
-        Err("watcher panes spawn via codeterm agent spawn --role Watcher".into())
+        Err("watcher Tabs spawn via codeterm agent spawn --role Watcher".into())
     } else {
         Ok(())
     }
@@ -225,7 +252,7 @@ impl ServiceContext {
 
     /// Validate a user-requested spawn target so the sync (socket-RPC) and async
     /// (HTTP) spawn entry points agree. Returns `Ok(true)` when the id routes to
-    /// the ChatBackend pane path (a spawnable shell), `Ok(false)` for an ordinary
+    /// the ChatBackend tab path (a spawnable shell), `Ok(false)` for an ordinary
     /// agent provider, and a clean `Err` for a registered-but-not-spawnable
     /// chatBackend (e.g. the NPC backend) or an unknown id.
     pub(crate) fn classify_spawn_target_for_params(
@@ -329,7 +356,7 @@ mod tests {
 
     #[test]
     fn worker_launch_has_no_manager_bootstrap() {
-        let spec = SpawnPaneSpec::from_agent_params(SpawnAgentParams {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             agent: Some("worker-provider".into()),
             role: Some("Worker".into()),
             task: Some("worker task fixture".into()),
@@ -352,6 +379,123 @@ mod tests {
             .unwrap()
             .channel,
             crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
+        );
+    }
+
+    #[test]
+    fn assigned_worker_task_authority_reaches_pty_spec() {
+        let mut params = SpawnAgentParams {
+            agent: Some("worker-provider".into()),
+            role: Some("Worker".into()),
+            plan_id: Some("assigned-plan".into()),
+            task_id: Some("assigned-task".into()),
+            plan_task: Some("assigned-task".into()),
+            ..Default::default()
+        };
+        params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
+            plan_id: "assigned-plan".into(),
+            task_id: "assigned-task".into(),
+            lane_base: Some("assigned-base".into()),
+        });
+        let spec = SpawnTabSpec::from_agent_params(params);
+        let TabCommand::Agent(agent) = spec.command else {
+            panic!("worker must use the PTY agent path");
+        };
+
+        assert_eq!(
+            agent.extra_env.get("CODETERM_PLAN_ID").map(String::as_str),
+            Some("assigned-plan")
+        );
+        assert_eq!(
+            agent.extra_env.get("CODETERM_TASK_ID").map(String::as_str),
+            Some("assigned-task")
+        );
+        assert_eq!(
+            agent
+                .extra_env
+                .get("CODETERM_LANE_BASE")
+                .map(String::as_str),
+            Some("assigned-base")
+        );
+    }
+
+    #[test]
+    fn roleless_spawn_does_not_promote_inherited_task_defaults() {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            plan_id: Some("inherited-plan".into()),
+            task_id: Some("inherited-task".into()),
+            ..Default::default()
+        });
+        let TabCommand::Agent(agent) = spec.command else {
+            panic!("probe must use the PTY agent path");
+        };
+
+        assert!(agent.extra_env.is_empty());
+    }
+
+    #[test]
+    fn standalone_new_session_remains_no_starter() {
+        let roleless = SpawnTabSpec::from_agent_params(SpawnAgentParams::default())
+            .to_agent_params()
+            .unwrap();
+        assert_eq!(
+            roleless.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+
+        let rest = SpawnAgentParams::from_json(&serde_json::json!({"agent": "codex"})).unwrap();
+        assert!(rest.role.is_none());
+        assert!(rest.task.is_none());
+        assert_eq!(
+            rest.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn fresh_team_creation_cardinality_survives_spawn_spec_roundtrip() {
+        for (task, expected) in [
+            (None, crate::agent::provider::StarterPrompt::NoStarter),
+            (
+                Some("assigned brief".to_string()),
+                crate::agent::provider::StarterPrompt::AssignedTask,
+            ),
+        ] {
+            let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+                role: Some("Worker".into()),
+                task: task.clone(),
+                ..Default::default()
+            });
+            let json = serde_json::to_string(&spec).unwrap();
+            let restored: SpawnTabSpec = serde_json::from_str(&json).unwrap();
+            let params = restored.to_agent_params().unwrap();
+
+            assert_eq!(params.role.as_deref(), Some("Worker"));
+            assert_eq!(params.task, task);
+            assert_eq!(params.starter_prompt, expected);
+        }
+    }
+
+    #[test]
+    fn worker_without_task_does_not_inherit_assigned_starter() {
+        let worker = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            role: Some("Worker".into()),
+            ..Default::default()
+        })
+        .to_agent_params()
+        .unwrap();
+
+        assert_eq!(
+            worker.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn blank_task_never_becomes_assigned_starter() {
+        assert_eq!(
+            starter_prompt_for_creation(Some("Worker"), Some("   ")),
+            crate::agent::provider::StarterPrompt::NoStarter
         );
     }
 }

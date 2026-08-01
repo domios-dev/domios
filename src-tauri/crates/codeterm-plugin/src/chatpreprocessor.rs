@@ -8,7 +8,7 @@ use crate::capability::CapabilityRegistry;
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreprocessCtx {
-    pub pane_id: String,
+    pub tab_id: String,
     pub cwd: Option<String>,
     pub provider: Option<String>,
     pub turn_index: u64,

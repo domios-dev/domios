@@ -1,4 +1,4 @@
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 
 /** The two sibling sections inside an orchestration group. Managers are the
  *  Orchestrator's delegated leadership (Planner, Watcher);
@@ -26,12 +26,12 @@ export function sectionForRole(
 
 /** Leadership label for the model-chip slot (legacy surfaces). */
 export function roleBadgeLabel(
-  pane: Pick<Pane, "role" | "role_profile"> | null | undefined,
+  tab: Pick<Tab, "role" | "role_profile"> | null | undefined,
 ): string | null {
-  if (!pane) return null;
-  if (pane.role === "Orchestrator") return "ORCHESTRATOR";
-  if (pane.role === "Manager") {
-    const profile = (pane.role_profile ?? "").trim();
+  if (!tab) return null;
+  if (tab.role === "Orchestrator") return "ORCHESTRATOR";
+  if (tab.role === "Manager") {
+    const profile = (tab.role_profile ?? "").trim();
     return profile ? profile.toUpperCase() : "MANAGER";
   }
   return null;
@@ -39,12 +39,12 @@ export function roleBadgeLabel(
 
 /** Role shield on tab line 2 — leadership only: ORCHESTRATOR / PLANNER / WATCHER. */
 export function roleShieldLabel(
-  pane: Pick<Pane, "role" | "role_profile"> | null | undefined,
+  tab: Pick<Tab, "role" | "role_profile"> | null | undefined,
 ): string | null {
-  if (!pane?.role) return null;
-  if (pane.role === "Orchestrator") return "ORCHESTRATOR";
-  if (pane.role === "Manager") {
-    const profile = (pane.role_profile ?? "").trim();
+  if (!tab?.role) return null;
+  if (tab.role === "Orchestrator") return "ORCHESTRATOR";
+  if (tab.role === "Manager") {
+    const profile = (tab.role_profile ?? "").trim();
     return profile ? profile.toUpperCase() : "MANAGER";
   }
   return null;
@@ -64,21 +64,21 @@ function managerRank(role: string | null | undefined): number {
   return role === "Orchestrator" ? 0 : 1;
 }
 
-export function sortTeamManagers<T extends { pane: Pick<Pane, "role" | "role_profile"> }>(
+export function sortTeamManagers<T extends { tab: Pick<Tab, "role" | "role_profile"> }>(
   members: readonly T[],
 ): T[] {
-  return [...members].sort((a, b) => managerRank(a.pane.role) - managerRank(b.pane.role));
+  return [...members].sort((a, b) => managerRank(a.tab.role) - managerRank(b.tab.role));
 }
 
 /** Split a group's child nodes into Managers/Workers, preserving incoming
  *  (spawn) order within each section. */
-export function partitionBySection<T extends { pane: Pick<Pane, "role" | "role_profile"> }>(
+export function partitionBySection<T extends { tab: Pick<Tab, "role" | "role_profile"> }>(
   nodes: readonly T[],
 ): SectionPartition<T> {
   const managers: T[] = [];
   const workers: T[] = [];
   for (const node of nodes) {
-    if (sectionForRole(node.pane.role, node.pane.role_profile) === "manager") managers.push(node);
+    if (sectionForRole(node.tab.role, node.tab.role_profile) === "manager") managers.push(node);
     else workers.push(node);
   }
   return { managers, workers };

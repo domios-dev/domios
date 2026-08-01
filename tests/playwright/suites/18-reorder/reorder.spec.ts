@@ -8,7 +8,7 @@ import { ApiClient } from "../../helpers/api-client";
 
 interface StateTab {
   id: string;
-  pane_id: string;
+  tab_id: string;
   sort_order?: number;
 }
 interface StateWs {
@@ -18,7 +18,7 @@ interface StateWs {
 }
 interface MuxState {
   workspaces: StateWs[];
-  panes: Record<string, { hidden?: boolean; parent_pane_id?: string | null }>;
+  tabs: Record<string, { hidden?: boolean; parent_tab_id?: string | null }>;
 }
 
 async function muxState(api: ApiClient): Promise<MuxState> {
@@ -32,20 +32,20 @@ async function topLevelOrder(api: ApiClient, wsId: string): Promise<string[]> {
   if (!ws) return [];
   return [...ws.tabs]
     .filter((t) => {
-      const pane = st.panes[t.pane_id];
-      return pane && pane.hidden !== true && !pane.parent_pane_id;
+      const tab = st.tabs[t.tab_id];
+      return tab && tab.hidden !== true && !tab.parent_tab_id;
     })
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((t) => t.id);
 }
 
-/** Tab ids that are children of `parentPaneId`, in sort_order. */
-async function childOrder(api: ApiClient, wsId: string, parentPaneId: string): Promise<string[]> {
+/** Tab ids that are children of `parentTabId`, in sort_order. */
+async function childOrder(api: ApiClient, wsId: string, parentTabId: string): Promise<string[]> {
   const st = await muxState(api);
   const ws = st.workspaces.find((w) => w.id === wsId);
   if (!ws) return [];
   return [...ws.tabs]
-    .filter((t) => st.panes[t.pane_id]?.parent_pane_id === parentPaneId)
+    .filter((t) => st.tabs[t.tab_id]?.parent_tab_id === parentTabId)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((t) => t.id);
 }
@@ -89,8 +89,8 @@ async function syncUi(page: Page) {
 
 const tabRow = (wsId: string, tabId: string) =>
   `div[data-dnd-group="tab:${wsId}"]:has(> [data-tab-id="${tabId}"])`;
-const childRow = (parentPaneId: string, tabId: string) =>
-  `div[data-dnd-group="child:${parentPaneId}"]:has(> [data-tab-id="${tabId}"])`;
+const childRow = (parentTabId: string, tabId: string) =>
+  `div[data-dnd-group="child:${parentTabId}"]:has(> [data-tab-id="${tabId}"])`;
 const wsRow = (wsId: string) =>
   `div[data-dnd-group="workspace:workspaces"]:has(> [data-workspace-id="${wsId}"])`;
 
@@ -98,8 +98,8 @@ async function makeWorkspace(api: ApiClient, name: string): Promise<string> {
   const ws = await api.post<{ id: string }>("/workspaces", { name, activate: true });
   return ws.id;
 }
-async function makeTab(api: ApiClient, wsId: string): Promise<{ tab_id: string; pane_id: string }> {
-  return api.post<{ tab_id: string; pane_id: string }>(`/workspaces/${wsId}/tabs`, {});
+async function makeTab(api: ApiClient, wsId: string): Promise<{ tab_id: string; tab_id: string }> {
+  return api.post<{ tab_id: string; tab_id: string }>(`/workspaces/${wsId}/tabs`, {});
 }
 
 test("@golden C1 a top-level tab reorders within its workspace", async ({ api, ui }) => {
@@ -128,28 +128,28 @@ test("@golden C2 a child reorders within its parent group and cannot leave it", 
   const parent = await makeTab(api, ws);
   const c1 = await makeTab(api, ws);
   const c2 = await makeTab(api, ws);
-  await api.post(`/panes/${c1.pane_id}/role`, { role: "Worker", parent_pane_id: parent.pane_id });
-  await api.post(`/panes/${c2.pane_id}/role`, { role: "Worker", parent_pane_id: parent.pane_id });
+  await api.post(`/tabs/${c1.tab_id}/role`, { role: "Worker", parent_tab_id: parent.tab_id });
+  await api.post(`/tabs/${c2.tab_id}/role`, { role: "Worker", parent_tab_id: parent.tab_id });
 
   await syncUi(page);
   // Children render nested under the parent in their own drop group.
-  await page.locator(childRow(parent.pane_id, c2.tab_id)).first().waitFor({ state: "visible", timeout: 20_000 });
+  await page.locator(childRow(parent.tab_id, c2.tab_id)).first().waitFor({ state: "visible", timeout: 20_000 });
   const ownedChildren = [c1.tab_id, c2.tab_id];
-  expect(onlyOwned(await childOrder(api, ws, parent.pane_id), ownedChildren)).toEqual(ownedChildren);
+  expect(onlyOwned(await childOrder(api, ws, parent.tab_id), ownedChildren)).toEqual(ownedChildren);
 
   // Positive: reorder the two siblings → order flips, both stay children.
-  await keyboardDrag(page, childRow(parent.pane_id, c1.tab_id), "ArrowDown", 1);
+  await keyboardDrag(page, childRow(parent.tab_id, c1.tab_id), "ArrowDown", 1);
   await expect
-    .poll(async () => onlyOwned(await childOrder(api, ws, parent.pane_id), ownedChildren).join(","), { timeout: 15_000 })
+    .poll(async () => onlyOwned(await childOrder(api, ws, parent.tab_id), ownedChildren).join(","), { timeout: 15_000 })
     .toBe([c2.tab_id, c1.tab_id].join(","));
 
   // is rejected — the child must remain a child of the same parent.
   const topBefore = await topLevelOrder(api, ws);
-  await keyboardDrag(page, childRow(parent.pane_id, c2.tab_id), "ArrowUp", 4);
+  await keyboardDrag(page, childRow(parent.tab_id, c2.tab_id), "ArrowUp", 4);
   // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
   const st = await muxState(api);
-  expect(st.panes[c2.pane_id]?.parent_pane_id, "child must not escape its parent group").toBe(parent.pane_id);
+  expect(st.tabs[c2.tab_id]?.parent_tab_id, "child must not escape its parent group").toBe(parent.tab_id);
   expect(await topLevelOrder(api, ws), "top-level group must not absorb the child").toEqual(topBefore);
 });
 

@@ -113,7 +113,7 @@ console.log("\n--- task instructions launch ---\n");
   const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
   assert(cmd.includes("System.Web.Script.Serialization.JavaScriptSerializer"), "Windows serializes instructions without native argv interpolation");
   assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
-  assert(cmd.includes("$env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the pane lifecycle");
+  assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
   assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
   assert(cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows removes the copied task file before Codex starts");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
@@ -123,6 +123,9 @@ console.log("\n--- task instructions launch ---\n");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
   assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
+  const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
+  assert(silent.includes("--profile $ctProfileName"), "silent launch keeps developer instructions");
+  assert(!silent.includes(" -- '"), "silent launch has no positional starter turn");
   const empty = p.buildLaunchCommand({ task: "   " });
   assert(!empty.includes("Execute the assigned task."), "empty instructions never create a starter message");
   const teamText = "host-owned team bootstrap";
@@ -313,6 +316,36 @@ console.log("\n--- parseUsage: /status gauges ---\n");
     new Date(2026, 6, 14, 7, 45, 0, 0).getTime(),
     "weekly reset keeps local day/month mapping in host timezone",
   );
+}
+
+console.log("\n--- quota-free usage fetch ---\n");
+{
+  let request: Record<string, unknown> | null = null;
+  const p = loadCodexWithHost(baseHost({
+    fetch: (raw: string) => {
+      request = JSON.parse(raw);
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({
+          rate_limit: {
+            primary_window: { used_percent: 17, limit_window_seconds: 18_000, reset_at: 1_780_000_000 },
+            secondary_window: { used_percent: 92, limit_window_seconds: 604_800, reset_at: 1_781_000_000 },
+          },
+        }),
+      });
+    },
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ tokens: { access_token: "secret-token", account_id: "account-1" } }),
+    },
+  }));
+  const raw = p.fetchUsage();
+  const usage = p.parseUsage(raw, 1_000_000);
+  eq(request?.url, "https://chatgpt.com/backend-api/wham/usage", "fetchUsage uses the provider account meter endpoint");
+  eq(usage?.session_pct, 17, "fetchUsage maps the short window");
+  eq(usage?.weekly_pct, 92, "fetchUsage maps the weekly window");
+  eq(usage?.session_resets_at_ms, 1_780_000_000_000, "fetchUsage maps reset seconds to milliseconds");
+  assert(!raw.includes("secret-token"), "fetchUsage output never persists credentials");
 }
 
 console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) ---\n");
@@ -758,7 +791,7 @@ console.log("\n--- discoverModels ---\n");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
-// session-start report can prove pane ownership (release/1.4.6 binding-nonce).
+// session-start report can prove tab ownership (release/1.4.6 binding-nonce).
 {
   let writtenJson: any = null;
   let writtenScript = "";
@@ -785,7 +818,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     writtenScript.includes("codeterm-profile-cleanup-v1") &&
       writtenScript.includes('codeterm-$profileSuffix.config.toml') &&
       writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
-    "Windows session_start removes the pane-scoped profile after Codex loads it",
+    "Windows session_start removes the tab-scoped profile after Codex loads it",
     writtenScript,
   );
 }
@@ -815,6 +848,37 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
 }
 
+{
+  const stalePaneScript = [
+    "# codeterm-codex-session-binding-v1",
+    "# codeterm-profile-cleanup-v1",
+    "$tab = $env:CODETERM_PANE_ID",
+    "$nonce = $env:CODETERM_SESSION_BINDING_NONCE",
+    'Invoke-RestMethod -Uri "$base/api/panes/$tab/hook/session_start"',
+  ].join("\n");
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      readJson: () => ({
+        hooks: {
+          SessionStart: [{ hooks: [{
+            _source: "codeterm-codex-session-binding-v1",
+            commandWindows: 'powershell -File "codeterm-session-start.ps1"',
+          }] }],
+        },
+      }),
+      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? stalePaneScript : "",
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  assert(
+    p.checkIntegration().session_start_hook === false,
+    "Windows integration rejects a nonce-bearing Pane-era hook",
+  );
+}
+
 // startup reinstalls it; a hook carrying it is current.
 {
   const sessionStartHook = (cmd: string) =>
@@ -828,7 +892,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
       },
     });
   const preNonce =
-    "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+    "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
     "-H 'X-CodeTerm-Agent-Provider: codex' --data-binary @-";
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
@@ -852,7 +916,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
       SessionStart: [{
         hooks: [{
           command:
-            "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+            "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
             "-H 'X-CodeTerm-Agent-Provider: codex' " +
             '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-',
         }],

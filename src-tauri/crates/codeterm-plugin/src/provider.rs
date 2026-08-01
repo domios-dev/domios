@@ -11,6 +11,32 @@ pub enum ReadinessStrategy {
     FixedDelay { duration: Duration },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderReadinessStrategy {
+    TuiFrame { timeout: Duration },
+    StructuralComposer { timeout: Duration },
+}
+
+impl Default for ProviderReadinessStrategy {
+    fn default() -> Self {
+        Self::TuiFrame {
+            timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+impl ProviderReadinessStrategy {
+    pub fn timeout(&self) -> Duration {
+        match self {
+            Self::TuiFrame { timeout } | Self::StructuralComposer { timeout } => *timeout,
+        }
+    }
+
+    pub fn requires_composer(&self) -> bool {
+        matches!(self, Self::StructuralComposer { .. })
+    }
+}
+
 /// How to confirm that text submitted to a launched provider was actually
 /// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
 /// real receiver-side observation rather than an optimistic write.
@@ -21,10 +47,19 @@ pub enum VerifySubmitStrategy {
     ShellPrompt { timeout: Duration },
     /// Submit through an interactive TUI. The PTY boundary waits for a
     /// rendered draft before Enter, then observes the provider turn.
-    TuiInputDrained,
+    TuiInputDrained { initial_key_delay: Duration },
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
+}
+
+impl VerifySubmitStrategy {
+    pub fn initial_key_delay(&self) -> Duration {
+        match self {
+            Self::TuiInputDrained { initial_key_delay } => *initial_key_delay,
+            Self::ShellPrompt { .. } | Self::None => Duration::ZERO,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +83,7 @@ pub enum TaskDelivery {
 pub enum StarterPrompt {
     #[default]
     AssignedTask,
+    NoStarter,
     IdleWakeup,
     TeamBootstrap,
 }
@@ -56,7 +92,7 @@ impl StarterPrompt {
     pub fn host_text(self) -> Option<&'static str> {
         match self {
             Self::TeamBootstrap => Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()),
-            Self::AssignedTask | Self::IdleWakeup => None,
+            Self::NoStarter | Self::AssignedTask | Self::IdleWakeup => None,
         }
     }
 }
@@ -250,7 +286,7 @@ pub enum PathOpenKind {
 mod settings;
 pub use settings::*;
 
-/// Which runtime drives a provider's pane: a PTY process or a JS chatBackend.
+/// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
 /// Replaces the old injected `kind` string and is the spawn discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -324,7 +360,7 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_binary: Option<String>,
     /// Shell command for installing the CLI on the current platform. Frontend
-    /// pipes it into a fresh terminal pane when the user clicks Install.
+    /// pipes it into a fresh terminal tab when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
     /// Provider-declared in-agent model switch command template. `{model}` is
@@ -333,7 +369,7 @@ pub struct ProviderDescriptor {
     /// support an arg-based live session switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_switch_format: Option<String>,
-    /// Provider-declared command that starts a fresh context in the same pane.
+    /// Provider-declared command that starts a fresh context in the same tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fresh_context_command: Option<String>,
     /// Provider-declared in-agent command that compacts (summarizes) context.
@@ -342,10 +378,10 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_command: Option<String>,
     /// `true` when this provider declares a stop_keystroke — UI shows
-    /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
+    /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
-    /// `true` when the provider can render a pane as chat — either it
+    /// `true` when the provider can render a tab as chat — either it
     /// stores sessions as tailable JSONL or serves structured chat from
     /// its own store. The UI gates the chat/terminal toggle on this
     /// instead of a hardcoded provider list.
@@ -425,13 +461,8 @@ pub trait AgentProvider: Send + Sync {
     /// How to deliver the task to the agent.
     fn task_delivery(&self) -> TaskDelivery;
 
-    /// Extra delay between launch verify and PtyInput task delivery. Some TUIs
-    /// keep emitting output after the launch command completes (status bar,
-    /// MCP fetch, splash animations) and only render their input box a few
-    /// seconds later — typing the task immediately drops it into the void.
-    /// Default is zero; TUI providers override.
-    fn task_input_warmup(&self) -> Duration {
-        Duration::ZERO
+    fn provider_readiness_strategy(&self) -> ProviderReadinessStrategy {
+        ProviderReadinessStrategy::default()
     }
 
     /// How to verify that submitted text was actually processed. Default is
@@ -447,7 +478,7 @@ pub trait AgentProvider: Send + Sync {
         BusySubmitStrategy::SubmitNormally
     }
 
-    /// Detect this agent from the pane/tab title string.
+    /// Detect this agent from the tab/tab title string.
     fn detect_from_title(&self, title: &str) -> bool;
 
     /// Detect this agent from PTY output text.
@@ -507,14 +538,14 @@ pub trait AgentProvider: Send + Sync {
     /// Non-TUI usage fetch: providers whose usage lives behind a CLI/API rather
     /// than a `/usage` TUI screen (e.g. cursor) return the raw payload here. The
     /// poller feeds it to `usage_parser()` exactly like TUI-captured text but
-    /// skips spawning a hidden agent pane. `Some(Err)` is an honest fetch
+    /// skips spawning a hidden agent tab. `Some(Err)` is an honest fetch
     /// failure; `None` (default) means "use the TUI probe path".
     fn fetch_usage(&self) -> Option<Result<String, String>> {
         None
     }
 
     /// Cheap predicate (no I/O) for "usage comes from a CLI/API fetch, not a
-    /// `/usage` TUI screen". The poller probes these without a visible pane —
+    /// `/usage` TUI screen". The poller probes these without a visible tab —
     /// there's no terminal to gate on. Default `false` (TUI-probe providers).
     fn usage_is_fetch_based(&self) -> bool {
         false
@@ -635,7 +666,7 @@ pub trait AgentProvider: Send + Sync {
 
     /// Extract the agent's human-readable session display name from the
     /// current screen — e.g. Claude Code prints "vivid-bhabha-1234" in its
-    /// TUI banner. Captured once per agent run and stored on the pane so
+    /// TUI banner. Captured once per agent run and stored on the tab so
     /// `codeterm tab find <pattern>` can locate tabs by friendly name.
     /// Default returns None; providers that emit a stable handle override.
     fn extract_session_name(&self, _screen: &str) -> Option<String> {
@@ -648,21 +679,21 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// When the TUI silently rolls into a new on-disk session (opencode does
-    /// this on `/model` swap), the pane's cached `session_id` goes stale and
+    /// this on `/model` swap), the tab's cached `session_id` goes stale and
     /// `detect_session_model` keeps returning the previous model. Providers
-    /// that support this override to point the pane at the live session —
+    /// that support this override to point the tab at the live session —
     /// return `Some(new_sid)` when one exists, else `None`.
     fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
         None
     }
 
-    /// Classify a parked pane from a generic snapshot (AS1 seam). Optional — default
+    /// Classify a parked tab from a generic snapshot (AS1 seam). Optional — default
     /// `None`. An opting-in provider runs its own matchers and returns a generic
     /// verdict; core sees only that, never the fingerprints. Called only when parked.
-    fn classify_pane_state(
+    fn classify_tab_state(
         &self,
-        _snapshot: &crate::pane_state::PaneStateSnapshot,
-    ) -> Option<crate::pane_state::PaneStateClassification> {
+        _snapshot: &crate::tab_state::TabStateSnapshot,
+    ) -> Option<crate::tab_state::TabStateClassification> {
         None
     }
 
@@ -773,7 +804,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// In-agent command that starts a fresh context in the same pane, if supported.
+    /// In-agent command that starts a fresh context in the same tab, if supported.
     fn fresh_context_command(&self) -> Option<&str> {
         None
     }
@@ -799,8 +830,8 @@ pub trait AgentProvider: Send + Sync {
     /// Raw key bytes the host writes into the PTY to interrupt the
     /// agent's current generation without exiting. Most TUIs accept
     /// Esc (`""`); cursor-agent listens for Ctrl+C (`""`).
-    /// Returning `None` means the provider has no in-pane stop hook
-    /// and the UI should hide the Stop affordance for that pane.
+    /// Returning `None` means the provider has no in-tab stop hook
+    /// and the UI should hide the Stop affordance for that tab.
     fn stop_keystroke(&self) -> Option<&str> {
         None
     }
@@ -912,7 +943,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Per-platform install command run inside a fresh terminal pane when the
+    /// Per-platform install command run inside a fresh terminal tab when the
     /// user clicks "Install" in Settings. `platform` is one of `"macos"`,
     /// `"linux"`, `"windows"`. Return `None` for platforms where you don't ship
     /// an installer recipe.
@@ -993,7 +1024,7 @@ pub trait AgentProvider: Send + Sync {
         SystemPromptDelivery::External
     }
 
-    /// Whether a pane running this provider can be shown as chat. Defaults
+    /// Whether a tab running this provider can be shown as chat. Defaults
     /// to "yes if it serves structured chat"; JSONL providers override to
     /// `true`. The frontend reads this off the descriptor — no hardcoded
     /// provider list.
@@ -1004,7 +1035,7 @@ pub trait AgentProvider: Send + Sync {
     /// Whether this provider, in its CURRENT interactive run mode, exposes a
     /// STRUCTURED source for pending prompts (permission / question pickers)
     /// instead of leaving them only as ephemeral PTY terminal UI. When true,
-    /// core builds `pane.pending_prompt` from that structured handle and only
+    /// core builds `tab.pending_prompt` from that structured handle and only
     /// falls back to the native attributed-grid PTY detector when the handle
     /// yields nothing. Capability-gated — core never branches on provider id.
     ///
@@ -1016,10 +1047,10 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
-    /// Build the STRUCTURED pending prompt for an interactive pane, if one is
+    /// Build the STRUCTURED pending prompt for an interactive tab, if one is
     /// active and unanswered, from this provider's structured source. `cwd` /
-    /// `session_id` identify the pane's own session (detection keys off the
-    /// pane's OWN session, never "latest global"). Pure + I/O-only (no locks,
+    /// `session_id` identify the tab's own session (detection keys off the
+    /// tab's OWN session, never "latest global"). Pure + I/O-only (no locks,
     /// no process calls) — same contract as `parse_session_delta`. Returns
     /// `None` when there is no active structured prompt; core then falls back
     /// to the native PTY detector. Only ever invoked when

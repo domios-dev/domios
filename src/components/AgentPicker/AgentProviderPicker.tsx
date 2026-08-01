@@ -47,7 +47,7 @@ export function AgentProviderPicker({
   const onInstall = async (providerId: string) => {
     setInstallBusy(true);
     try {
-      await invoke("install_provider_in_pane", { providerId });
+      await invoke("install_provider_in_tab", { providerId });
     } finally {
       setInstallBusy(false);
     }

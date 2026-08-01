@@ -27,19 +27,19 @@ workspace_id() {
 
 spawn_claude() {
   local ws="$1" situation="$2"
-  dc agent spawn claude --workspace "$ws" --cwd "$WS_CWD" --title "tb-$situation" --json | json_field pane_id
+  dc agent spawn claude --workspace "$ws" --cwd "$WS_CWD" --title "tb-$situation" --json | json_field tab_id
 }
 
 wait_pty() {
-  local pane="$1" deadline=$((SECONDS + 60))
+  local tab="$1" deadline=$((SECONDS + 60))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local pty
     pty="$(dc tab list --json | python3 -c 'import json,sys
-pane=sys.argv[1]
+tab=sys.argv[1]
 for p in json.load(sys.stdin):
-    if p.get("id")==pane:
+    if p.get("id")==tab:
         print(p.get("pty_id") or "")
-        break' "$pane")"
+        break' "$tab")"
     [ -n "$pty" ] && return 0
     sleep 1
   done
@@ -47,11 +47,11 @@ for p in json.load(sys.stdin):
 }
 
 chat_send() {
-  local pane="$1" text="$2"
+  local tab="$1" text="$2"
   python3 -c "import json,sys;print(json.dumps({'text':sys.argv[1],'enter':True}))" "$text" \
     | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
         -H "Content-Type: application/json" --data @- \
-        "http://127.0.0.1:7686/api/panes/$pane/send" >/dev/null
+        "http://127.0.0.1:7686/api/tabs/$tab/send" >/dev/null
 }
 
 text_has_options() {
@@ -64,38 +64,38 @@ print("yes" if lettered >= 3 or numbered >= 3 else "no")'
 
 capture_case() {
   local situation="$1" prompt="$2"
-  local ws pane dir
+  local ws tab dir
   ws="$(workspace_id)"
-  pane="$(spawn_claude "$ws" "$situation")"
+  tab="$(spawn_claude "$ws" "$situation")"
   dir="$OUT_ROOT/$situation"
   mkdir -p "$dir"
   rm -f "$dir/raw.cast" "$dir/screen.txt"
 
-  echo "[snapshot-testbench] $situation pane=$pane"
-  wait_pty "$pane" || { echo "pane $pane did not attach a PTY" >&2; return 1; }
-  dc tab capture start --tab "$pane" --out "$dir/raw.cast" >/dev/null
-  chat_send "$pane" "$prompt"
+  echo "[snapshot-testbench] $situation tab=$tab"
+  wait_pty "$tab" || { echo "tab $tab did not attach a PTY" >&2; return 1; }
+  dc tab capture start --tab "$tab" --out "$dir/raw.cast" >/dev/null
+  chat_send "$tab" "$prompt"
 
   local deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local screen
-    screen="$(dc tab get-text --tab "$pane" || true)"
+    screen="$(dc tab get-text --tab "$tab" || true)"
     if [ "$(printf '%s' "$screen" | text_has_options)" = "yes" ]; then
       break
     fi
     sleep 3
   done
-  dc tab capture stop --tab "$pane" >/dev/null
+  dc tab capture stop --tab "$tab" >/dev/null
   [ -f "$dir/raw.cast" ] || { echo "capture did not write $dir/raw.cast" >&2; return 1; }
   [ -f "$dir/raw.screen.txt" ] && mv "$dir/raw.screen.txt" "$dir/screen.txt"
-  [ -f "$dir/screen.txt" ] || dc tab get-text --tab "$pane" > "$dir/screen.txt"
+  [ -f "$dir/screen.txt" ] || dc tab get-text --tab "$tab" > "$dir/screen.txt"
 
   cat > "$dir/meta.json" <<JSON
 {
   "provider": "claude",
   "situation": "$situation",
   "capturedAtMs": $(now_ms),
-  "paneId": "$pane",
+  "tabId": "$tab",
   "source": "dev-7686"
 }
 JSON

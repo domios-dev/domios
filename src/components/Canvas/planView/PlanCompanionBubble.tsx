@@ -1,25 +1,26 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ExternalLink, MessageCircle, X } from "lucide-react";
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { AgentCircle } from "../presence/AgentCircle";
 import { presenceColor } from "../presence/identity";
 import type { Plan } from "../types";
 import { orderPlansByActivity, selectDefaultPlanId } from "./boardModel";
-import { resolveCompanionPane, type CompanionKind } from "./companionResolver";
-import { resolvePlannerPaneIdFromPlan } from "../../shared/resolvePlanPeerPair";
+import { resolveCompanionTab, type CompanionKind } from "./companionResolver";
+import { resolvePlannerTabIdFromPlan } from "../../shared/resolvePlanPeerPair";
+import { ActivityDots } from "../../shared/ActivityDots";
 
 interface PlanCompanionBubbleProps {
   plans: Plan[];
-  panes: Record<string, Pane>;
+  tabs: Record<string, Tab>;
   planId?: string;
-  orchestratorPaneId?: string;
-  onOpenPane?: (paneId: string) => void;
-  // chain; production wires the real PaneSessionChat (no forked chat).
-  renderChat: (args: { paneId: string; chatBackend: boolean }) => ReactNode;
+  orchestratorTabId?: string;
+  onOpenTab?: (tabId: string) => void;
+  // chain; production wires the real TabSessionChat (no forked chat).
+  renderChat: (args: { tabId: string; chatBackend: boolean }) => ReactNode;
 }
 
-function paneHasLiveAgent(pane: Pane | undefined): boolean {
-  return !!pane && !pane.hidden && !!pane.agent_type;
+function tabHasLiveAgent(tab: Tab | undefined): boolean {
+  return !!tab && !tab.hidden && !!tab.agent_type;
 }
 
 const KIND_LABEL: Record<CompanionKind, string> = {
@@ -27,8 +28,8 @@ const KIND_LABEL: Record<CompanionKind, string> = {
   orchestrator: "Orchestrator",
 };
 
-function statusText(pane: Pane | undefined): string {
-  switch (pane?.agent_state?.state) {
+function statusText(tab: Tab | undefined): string {
+  switch (tab?.agent_state?.state) {
     case "working":
       return "Working";
     case "question":
@@ -42,24 +43,24 @@ function statusText(pane: Pane | undefined): string {
 
 export function PlanCompanionBubble({
   plans,
-  panes,
+  tabs,
   planId,
-  orchestratorPaneId,
-  onOpenPane,
+  orchestratorTabId,
+  onOpenTab,
   renderChat,
 }: PlanCompanionBubbleProps) {
   const [open, setOpen] = useState(false);
 
   const activePlan = useMemo(() => {
     const ordered = orderPlansByActivity(plans);
-    const id = selectDefaultPlanId(ordered, { planId, orchestratorPaneId, panes, workspaceId: undefined });
+    const id = selectDefaultPlanId(ordered, { planId, orchestratorTabId, tabs, workspaceId: undefined });
     return ordered.find((p) => p.id === id) ?? null;
-  }, [plans, planId, orchestratorPaneId, panes]);
+  }, [plans, planId, orchestratorTabId, tabs]);
 
   const resolution = useMemo(() => {
     if (!activePlan) return null;
-    return resolveCompanionPane(activePlan, (paneId) => paneHasLiveAgent(panes[paneId]));
-  }, [activePlan, panes]);
+    return resolveCompanionTab(activePlan, (tabId) => tabHasLiveAgent(tabs[tabId]));
+  }, [activePlan, tabs]);
 
   useEffect(() => {
     if (!resolution) setOpen(false);
@@ -77,24 +78,24 @@ export function PlanCompanionBubble({
 
   if (!resolution) return null;
 
-  const pane = panes[resolution.paneId];
-  const color = presenceColor(resolution.paneId);
+  const tab = tabs[resolution.tabId];
+  const color = presenceColor(resolution.tabId);
   const kindLabel = KIND_LABEL[resolution.kind];
-  const name = pane?.title?.trim() || kindLabel;
-  const working = pane?.agent_state?.state === "working";
-  const chatBackend = pane?.backing?.kind === "chat_backend";
-  const ownerPaneId = activePlan?.owner.pane_id ?? null;
-  const plannerPaneId = activePlan ? resolvePlannerPaneIdFromPlan(activePlan) : null;
+  const name = tab?.title?.trim() || kindLabel;
+  const working = tab?.agent_state?.state === "working";
+  const chatBackend = tab?.backing?.kind === "chat_backend";
+  const ownerTabId = activePlan?.owner.tab_id ?? null;
+  const plannerTabId = activePlan ? resolvePlannerTabIdFromPlan(activePlan) : null;
   const orchestratorName =
-    ownerPaneId && panes[ownerPaneId]?.title?.trim()
-      ? panes[ownerPaneId]!.title!.trim()
+    ownerTabId && tabs[ownerTabId]?.title?.trim()
+      ? tabs[ownerTabId]!.title!.trim()
       : "Orchestrator";
   const plannerName =
-    plannerPaneId && panes[plannerPaneId]?.title?.trim()
-      ? panes[plannerPaneId]!.title!.trim()
+    plannerTabId && tabs[plannerTabId]?.title?.trim()
+      ? tabs[plannerTabId]!.title!.trim()
       : "Planner";
   const peerPairTitle =
-    ownerPaneId && plannerPaneId
+    ownerTabId && plannerTabId
       ? `${orchestratorName} ⟷ ${plannerName}`
       : null;
   const bubbleTitle = peerPairTitle ?? `${name} · ${kindLabel}`;
@@ -123,7 +124,7 @@ export function PlanCompanionBubble({
             style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
           >
             <AgentCircle
-              agent={{ id: resolution.paneId, label: name, role: kindLabel, color }}
+              agent={{ id: resolution.tabId, label: name, role: kindLabel, color }}
               size={20}
               live={working}
             />
@@ -132,14 +133,14 @@ export function PlanCompanionBubble({
                 {name}
               </div>
               <div className="truncate text-[11px]" style={{ color: "var(--ct-fg-muted)" }}>
-                {kindLabel} · {statusText(pane)}
+                {kindLabel} · {statusText(tab)}
               </div>
             </div>
-            {onOpenPane && (
+            {onOpenTab && (
               <button
                 type="button"
-                data-testid="plan-companion-open-pane"
-                onClick={() => onOpenPane(resolution.paneId)}
+                data-testid="plan-companion-open-tab"
+                onClick={() => onOpenTab(resolution.tabId)}
                 title="Open full tab"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded border cursor-pointer"
                 style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
@@ -159,7 +160,7 @@ export function PlanCompanionBubble({
             </button>
           </header>
           <div className="min-h-0 flex-1">
-            {renderChat({ paneId: resolution.paneId, chatBackend })}
+            {renderChat({ tabId: resolution.tabId, chatBackend })}
           </div>
         </div>
       )}
@@ -180,12 +181,23 @@ export function PlanCompanionBubble({
         }}
       >
         <MessageCircle size={22} strokeWidth={2} aria-hidden style={{ color: "var(--ct-fg)" }} />
-        <span
-          data-testid="plan-companion-presence"
-          data-live={working ? "true" : "false"}
-          className={`plan-companion-presence${working ? " is-live" : ""}`}
-          style={{ background: color }}
-        />
+        {working ? (
+          <ActivityDots
+            data-testid="plan-companion-presence"
+            data-live="true"
+            size="micro"
+            tone="muted"
+            className="plan-companion-presence"
+            style={{ color }}
+          />
+        ) : (
+          <span
+            data-testid="plan-companion-presence"
+            data-live="false"
+            className="plan-companion-presence"
+            style={{ background: color }}
+          />
+        )}
       </button>
     </div>
   );

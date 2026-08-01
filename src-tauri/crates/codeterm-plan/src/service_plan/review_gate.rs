@@ -12,6 +12,7 @@ pub const REVIEW_MILESTONE_KIND: &str = "review";
 pub const REVIEW_ESCALATION_MILESTONE_KIND: &str = "review_escalation";
 pub const REVIEW_CREDIT_RECONCILE_MILESTONE_KIND: &str = "review_credit_reconcile";
 pub const REVIEW_CAPACITY_GRANT_MILESTONE_KIND: &str = "review_capacity_grant";
+const REPEATED_STRATEGY_MESSAGE: &str = "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`. Consider a fresh independent reviewer with a distinct oracle, a decision gate, or model escalation; then continue autonomously.";
 
 fn max_review_rounds() -> u32 {
     std::env::var("CODETERM_PLAN_REVIEW_MAX_ROUNDS")
@@ -159,15 +160,19 @@ pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
     Ok(())
 }
 
-/// Called once, at the moment a task's status flips into `in_review`: fixes
-/// the acceptance oracle on first entry and (on a correction round beyond the
-/// default bound) consumes any pending override into the immutable audit
-/// log. Takes `&mut Task` only (not `&mut Plan`) so callers that already hold
-/// a live per-task borrow don't have to give it up first.
+/// Fixes the acceptance oracle on first review entry or an authorized correction.
+/// Consumes bounded-round overrides into the immutable audit log.
 pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
     let rounds = max_review_rounds();
-    if task.review_oracle.is_none() {
-        task.review_oracle = Some(oracle_signature(task));
+    let current_oracle = oracle_signature(task);
+    let authorized_correction = task.review_round > 0
+        && task
+            .review_override
+            .as_ref()
+            .is_some_and(override_is_complete)
+        && task.review_oracle.as_deref() != Some(current_oracle.as_str());
+    if task.review_oracle.is_none() || authorized_correction {
+        task.review_oracle = Some(current_oracle);
     }
     if task.review_round >= rounds {
         if let Some(o) = task.review_override.take() {
@@ -220,6 +225,31 @@ fn review_milestone(
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct StrategyWarning {
+    pub consecutive_bounces: usize,
+    pub review_round: u32,
+    pub message: String,
+}
+
+pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
+    let consecutive_bounces = task
+        .review_evidence
+        .iter()
+        .rev()
+        .take_while(|evidence| {
+            evidence.verdict == ReviewVerdict::Bounce
+                && !evidence.changed_executable_surfaces
+                && !evidence.distinct_oracle
+        })
+        .count();
+    (consecutive_bounces >= 3).then(|| StrategyWarning {
+        consecutive_bounces,
+        review_round: task.review_round,
+        message: REPEATED_STRATEGY_MESSAGE.into(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ReviewTransitionResult {
     pub plan_id: String,
     pub task_id: String,
@@ -228,6 +258,8 @@ pub struct ReviewTransitionResult {
     pub verdict: ReviewVerdict,
     pub review_round: u32,
     pub follow_up_task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy_warning: Option<StrategyWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -536,6 +568,7 @@ impl PlanStore {
                 verdict: ReviewVerdict::Bounce,
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id: None,
+                strategy_warning: strategy_warning(&p.tasks[idx]),
             });
             Ok(())
         })?;
@@ -607,7 +640,9 @@ impl PlanStore {
                         personality: None,
                         personality_provenance: None,
                         acceptance_criteria: vec![],
+                        external_refs: vec![],
                         test_plan: None,
+                        qa_plan: None,
                         correctness: None,
                         status: TaskStatus::Pending,
                         review_stage: ReviewStage::Review,
@@ -632,7 +667,7 @@ impl PlanStore {
                         intent: None,
                         parent_task_id: Some(parent_id),
                         depends_on: vec![],
-                        assigned_pane_id: None,
+                        assigned_tab_id: None,
                         lane: Default::default(),
                         taken_by_role: None,
                         peer: None,
@@ -657,6 +692,7 @@ impl PlanStore {
                 verdict: ReviewVerdict::Accept,
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id,
+                strategy_warning: None,
             });
             Ok(())
         })?;

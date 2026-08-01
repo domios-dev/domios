@@ -29,7 +29,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
-| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
+| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
@@ -39,7 +39,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
-| `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
+| `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_tab_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `commands/skills.rs` — points a cron agent at the resolved skill |
 | `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `commands/skills.rs` — provides a bounded failure handoff when the requested skill is absent |
@@ -91,6 +91,13 @@ registry. When spawning a worker, include the relevant guidance inline: for exam
 Reusable operational knowledge belongs in embedded docs (`codeterm docs ...`) or
 folder skills when runnable files are required. Machine-local preferences such as
 builder capacity belong in mem preferences.
+
+## Task verification lifecycle
+
+Task `test_plan` is the implementer's focused evidence and is included in the Worker
+brief. Task `qa_plan` is the independent Orchestrator/QA oracle, is not included in that
+brief, and falls back to `test_plan` only when omitted. This keeps implementation and
+acceptance evidence distinct without requiring every task to repeat the same command.
 
 ## Loading flow
 
@@ -163,4 +170,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

@@ -13,19 +13,19 @@ fn plan_project_path(plan: &Plan) -> &str {
     }
 }
 
-pub fn detect_plan_cleanup_debt<F>(plan: &Plan, mut pane_live: F) -> Vec<CleanupDebtTask>
+pub fn detect_plan_cleanup_debt<F>(plan: &Plan, mut tab_live: F) -> Vec<CleanupDebtTask>
 where
     F: FnMut(&str) -> bool,
 {
     plan.tasks
         .iter()
         .filter_map(|task| {
-            let pane_id = task
+            let tab_id = task
                 .lane
-                .pane_id
+                .tab_id
                 .as_deref()
-                .or(task.assigned_pane_id.as_deref());
-            let pane_live = pane_id.map(|pane| pane_live(pane)).unwrap_or(false);
+                .or(task.assigned_tab_id.as_deref());
+            let tab_live = tab_id.map(|tab| tab_live(tab)).unwrap_or(false);
             let worktree_path = task.lane.worktree_path.as_deref();
             let worktree_exists = worktree_path.is_some_and(|path| Path::new(path).exists());
             detect_cleanup_debt(&CleanupDebtInput {
@@ -36,8 +36,8 @@ where
                 is_terminal: task.status.is_terminal(),
                 cleanup_status: task.lane.cleanup_status.as_deref(),
                 cleanup_hints: &task.lane.cleanup_hints,
-                pane_id,
-                pane_live,
+                tab_id,
+                tab_live,
                 worktree_path,
                 worktree_exists,
                 branch: task.lane.branch.as_deref(),
@@ -82,7 +82,9 @@ mod tests {
             model: None,
             model_rationale: None,
             acceptance_criteria: vec![],
+            external_refs: vec![],
             test_plan: None,
+            qa_plan: None,
             correctness: None,
             status: TaskStatus::Done,
             review_stage: ReviewStage::Review,
@@ -107,9 +109,9 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: None,
+            assigned_tab_id: None,
             lane: TaskLaneMetadata {
-                pane_id: Some("pane-1".into()),
+                tab_id: Some("tab-1".into()),
                 worktree_path: Some("/tmp/lane".into()),
                 branch: Some("lane/x".into()),
                 cleanup_hints: vec!["waiting for integration".into()],
@@ -127,11 +129,11 @@ mod tests {
             attachments: vec![],
         };
         plan.tasks.push(task);
-        let items = detect_plan_cleanup_debt(&plan, |pane| pane == "pane-1");
+        let items = detect_plan_cleanup_debt(&plan, |tab| tab == "tab-1");
         assert_eq!(items.len(), 1);
         assert!(items[0]
             .issues
             .iter()
-            .any(|issue| issue.detail.contains("worker pane pane-1")));
+            .any(|issue| issue.detail.contains("worker tab tab-1")));
     }
 }

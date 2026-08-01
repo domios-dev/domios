@@ -45,7 +45,7 @@ struct ResultEvent {
 
 struct RunState {
     pty_id: String,
-    pane_id: String,
+    tab_id: String,
     kind: AgentRunKind,
     scanner: Mutex<ResultEventScanner>,
     started_at: Instant,
@@ -80,13 +80,13 @@ impl RunWatcherRegistry {
         &self,
         svc: ServiceContext,
         pty_id: String,
-        pane_id: String,
+        tab_id: String,
         kind: AgentRunKind,
         timeout_secs: u64,
     ) {
         let state = Arc::new(RunState {
             pty_id: pty_id.clone(),
-            pane_id,
+            tab_id,
             kind,
             scanner: Mutex::new(ResultEventScanner::new()),
             started_at: Instant::now(),
@@ -129,8 +129,8 @@ impl RunWatcherRegistry {
             return;
         }
         log::warn!(
-            "[run-watcher] failing run now: pane={} reason={}",
-            state.pane_id,
+            "[run-watcher] failing run now: tab={} reason={}",
+            state.tab_id,
             reason
         );
         finish_run(svc, &state, false, reason);
@@ -143,8 +143,8 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub fn observe_output_status(&self, pty_id: &str, status: crate::agent::status::PaneStatus) {
-        if status != crate::agent::status::PaneStatus::Working {
+    pub fn observe_output_status(&self, pty_id: &str, status: crate::agent::status::TabStatus) {
+        if status != crate::agent::status::TabStatus::Working {
             return;
         }
         if let Some(state) = self.runs.lock().get(pty_id) {
@@ -155,7 +155,7 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub fn observe_durable_transcript(&self, svc: &ServiceContext, pane_id: &str, observed: bool) {
+    pub fn observe_durable_transcript(&self, svc: &ServiceContext, tab_id: &str, observed: bool) {
         if !observed {
             return;
         }
@@ -163,7 +163,7 @@ impl RunWatcherRegistry {
             .runs
             .lock()
             .values()
-            .find(|state| state.pane_id == pane_id)
+            .find(|state| state.tab_id == tab_id)
             .and_then(|state| {
                 if state.armed.load(Ordering::Acquire) {
                     state
@@ -184,7 +184,7 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
-        let (idle, session_bound) = pane_completion_state(svc, &state.pane_id);
+        let (idle, session_bound) = tab_completion_state(svc, &state.tab_id);
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
             state.saw_working.load(Ordering::Acquire),
@@ -195,24 +195,21 @@ impl RunWatcherRegistry {
         {
             return;
         }
-        log::info!(
-            "[run-watcher] semantic-idle complete: pane={}",
-            state.pane_id
-        );
+        log::info!("[run-watcher] semantic-idle complete: tab={}", state.tab_id);
         finish_run(svc, &state, true, "(agent returned to idle)".to_string());
         self.runs.lock().remove(pty_id);
     }
 
     /// Stop hook fired = the agent finished its turn. For a hidden worker/cron
     /// run that didn't explicitly report, treat this as success completion —
-    /// faster and cleaner than the 30s idle backstop. No-op for visible panes
+    /// faster and cleaner than the 30s idle backstop. No-op for visible tabs
     /// (no registered run) and for runs already completed via report.
-    pub fn complete_via_stop_hook(&self, svc: &ServiceContext, pane_id: &str) {
+    pub fn complete_via_stop_hook(&self, svc: &ServiceContext, tab_id: &str) {
         let state = self
             .runs
             .lock()
             .values()
-            .find(|s| s.pane_id == pane_id)
+            .find(|s| s.tab_id == tab_id)
             .cloned();
         let Some(state) = state else {
             return;
@@ -220,7 +217,7 @@ impl RunWatcherRegistry {
         if state.completed.swap(true, Ordering::AcqRel) {
             return;
         }
-        log::info!("[run-watcher] stop-hook complete: pane={}", pane_id);
+        log::info!("[run-watcher] stop-hook complete: tab={}", tab_id);
         finish_run(svc, &state, true, "(agent stopped)".to_string());
         self.runs.lock().remove(&state.pty_id);
     }
@@ -244,8 +241,8 @@ impl RunWatcherRegistry {
                     .unwrap_or_else(|| "(claude completed)".to_string());
                 let success = !signal.is_error;
                 log::info!(
-                    "[run-watcher] completion signal: pane={} success={} subtype={:?} summary_len={}",
-                    state.pane_id, success, signal.subtype, summary.len()
+                    "[run-watcher] completion signal: tab={} success={} subtype={:?} summary_len={}",
+                    state.tab_id, success, signal.subtype, summary.len()
                 );
                 finish_run(svc, &state, success, summary);
                 self.runs.lock().remove(&state.pty_id);
@@ -280,7 +277,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                     .get_full_text(&state.pty_id)
                     .unwrap_or_default();
                 crate::service::launch_diagnostics::log_shell_drop(
-                    &state.pane_id,
+                    &state.tab_id,
                     &state.pty_id,
                     &raw,
                     "restarts_exhausted",
@@ -288,9 +285,9 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                     MAX_RESTARTS,
                 );
                 log::warn!(
-                    "[run-watcher] agent died (shell) and exhausted {} restarts: pane={}",
+                    "[run-watcher] agent died (shell) and exhausted {} restarts: tab={}",
                     MAX_RESTARTS,
-                    state.pane_id
+                    state.tab_id
                 );
                 finish_run(
                     &svc,
@@ -311,7 +308,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 .get_full_text(&state.pty_id)
                 .unwrap_or_default();
             crate::service::launch_diagnostics::log_shell_drop(
-                &state.pane_id,
+                &state.tab_id,
                 &state.pty_id,
                 &raw,
                 "restart",
@@ -319,12 +316,12 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 MAX_RESTARTS,
             );
             log::warn!(
-                "[run-watcher] agent dropped to shell — resuming ({}/{}): pane={}",
+                "[run-watcher] agent dropped to shell — resuming ({}/{}): tab={}",
                 restarts + 1,
                 MAX_RESTARTS,
-                state.pane_id
+                state.tab_id
             );
-            resume_hidden_run(&svc, &state.pane_id, &state.pty_id);
+            resume_hidden_run(&svc, &state.tab_id, &state.pty_id);
             continue;
         }
 
@@ -335,15 +332,15 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         {
             state.nudge_count.fetch_add(1, Ordering::AcqRel);
             log::debug!(
-                "[run-watcher] nudge Enter (idle {}s) pane={}",
+                "[run-watcher] nudge Enter (idle {}s) tab={}",
                 idle_secs,
-                state.pane_id
+                state.tab_id
             );
             let _ = svc.pty.lock().write(&state.pty_id, b"\r");
         }
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            let session_bound = pane_completion_state(&svc, &state.pane_id).1;
+            let session_bound = tab_completion_state(&svc, &state.tab_id).1;
             let ready_for_success = can_complete_on_semantic_idle(
                 state.armed.load(Ordering::Acquire),
                 state.saw_working.load(Ordering::Acquire),
@@ -354,17 +351,17 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             let busy = !ready_for_success || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
-                    "[run-watcher] idle {}s but agent remains active — deferring reap: pane={}",
+                    "[run-watcher] idle {}s but agent remains active — deferring reap: tab={}",
                     idle_secs,
-                    state.pane_id
+                    state.tab_id
                 );
             } else {
                 if state.completed.swap(true, Ordering::AcqRel) {
                     return;
                 }
                 log::info!(
-                    "[run-watcher] idle complete: pane={} idle={}s",
-                    state.pane_id,
+                    "[run-watcher] idle complete: tab={} idle={}s",
+                    state.tab_id,
                     idle_secs
                 );
                 finish_run(
@@ -383,8 +380,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 return;
             }
             log::warn!(
-                "[run-watcher] hard timeout: pane={} elapsed={}s",
-                state.pane_id,
+                "[run-watcher] hard timeout: tab={} elapsed={}s",
+                state.tab_id,
                 elapsed_total
             );
             finish_run(
@@ -399,7 +396,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
     }
 }
 
-/// True when the pane's screen shows a bare shell prompt and none of the agent's
+/// True when the tab's screen shows a bare shell prompt and none of the agent's
 /// own UI markers — i.e. the agent process exited and we're back at the shell.
 fn agent_dropped_to_shell(svc: &ServiceContext, pty_id: &str) -> bool {
     let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
@@ -424,20 +421,20 @@ fn idle_status_is_terminal_success(svc: &ServiceContext, pty_id: &str) -> bool {
     status_is_idle(svc.agent_tracker.lock().get_status(pty_id))
 }
 
-fn status_is_idle(status: crate::agent::status::PaneStatus) -> bool {
-    status == crate::agent::status::PaneStatus::Idle
+fn status_is_idle(status: crate::agent::status::TabStatus) -> bool {
+    status == crate::agent::status::TabStatus::Idle
 }
 
-fn pane_completion_state(svc: &ServiceContext, pane_id: &str) -> (bool, bool) {
+fn tab_completion_state(svc: &ServiceContext, tab_id: &str) -> (bool, bool) {
     let mux = svc.mux.read();
-    let Some(pane) = mux.get_pane(pane_id) else {
+    let Some(tab) = mux.get_tab(tab_id) else {
         return (false, false);
     };
-    let idle = pane
+    let idle = tab
         .agent_state
         .as_ref()
         .is_some_and(|state| state.state == codeterm_types::pty::TimelineState::Idle);
-    (idle, pane.agent_session_id.is_some())
+    (idle, tab.agent_session_id.is_some())
 }
 
 fn can_complete_on_semantic_idle(
@@ -484,22 +481,22 @@ fn screen_is_bare_shell(text: &str) -> bool {
     crate::pty::screen_state::screen_has_shell_prompt(text)
 }
 
-/// Re-launch the agent in its existing pane via `--resume <session_id>` so a
+/// Re-launch the agent in its existing tab via `--resume <session_id>` so a
 /// crashed unattended run continues where it left off. No-op if the session id
 /// isn't known yet (let idle / timeout handle that case).
-fn resume_hidden_run(svc: &ServiceContext, pane_id: &str, pty_id: &str) {
+fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     let (provider, session_id) = {
         let mux = svc.mux.write();
-        let pane = mux.get_pane(pane_id);
+        let tab = mux.get_tab(tab_id);
         (
-            pane.and_then(|p| p.agent_type.clone()),
-            pane.and_then(|p| p.agent_session_id.clone()),
+            tab.and_then(|p| p.agent_type.clone()),
+            tab.and_then(|p| p.agent_session_id.clone()),
         )
     };
     let (Some(provider), Some(sid)) = (provider, session_id) else {
         log::warn!(
-            "[run-watcher] cannot resume pane={}: no provider/session",
-            pane_id
+            "[run-watcher] cannot resume tab={}: no provider/session",
+            tab_id
         );
         return;
     };
@@ -512,7 +509,7 @@ fn resume_hidden_run(svc: &ServiceContext, pane_id: &str, pty_id: &str) {
         return;
     };
     if let Err(e) = svc.send_shell_spawn(pty_id, &cmd) {
-        log::error!("[run-watcher] resume send failed pane={}: {}", pane_id, e);
+        log::error!("[run-watcher] resume send failed tab={}: {}", tab_id, e);
     }
 }
 
@@ -524,13 +521,13 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
         .unwrap_or_default();
     let clean = crate::pty::ansi::clean_terminal_output(&raw);
 
-    // Bound to the pane by the SessionStart hook; capture session_id + cwd before close_pane so the run stays renderable in the read-only chat-ui.
+    // Bound to the tab by the SessionStart hook; capture session_id + cwd before close_tab so the run stays renderable in the read-only chat-ui.
     let (session_id, run_cwd) = {
         let mux = svc.mux.write();
-        let pane = mux.get_pane(&state.pane_id);
+        let tab = mux.get_tab(&state.tab_id);
         (
-            pane.and_then(|p| p.agent_session_id.clone()),
-            pane.and_then(|p| p.cwd.clone()),
+            tab.and_then(|p| p.agent_session_id.clone()),
+            tab.and_then(|p| p.cwd.clone()),
         )
     };
 
@@ -545,7 +542,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     .set_run_session(worker_id, sid.clone(), run_cwd.clone());
             }
             let _ = svc.workers.complete(worker_id.clone().as_str(), summary);
-            let _ = svc.close_pane(&state.pane_id);
+            let _ = svc.close_tab(&state.tab_id);
         }
         AgentRunKind::Cron { job_id, run_id } => {
             if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
@@ -567,7 +564,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     let fresh = store
                         .update_run_status(job_id, run_id, status)
                         .unwrap_or(false);
-                    store.unregister_pane(&state.pane_id);
+                    store.unregister_tab(&state.tab_id);
                     (
                         store.get(job_id).map(|job| job.oneshot).unwrap_or(false),
                         fresh,
@@ -576,7 +573,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                 if fresh_transition {
                     crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, job_id);
                 }
-                let _ = svc.close_pane(&state.pane_id);
+                let _ = svc.close_tab(&state.tab_id);
                 if is_oneshot {
                     if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {
                         log::info!("Oneshot cron auto-deleting: job={}", job_id);
@@ -751,7 +748,7 @@ mod tests {
 
     #[test]
     fn scanner_ignores_mid_stream_message_stop() {
-        // kills the pane before claude can process tool results.
+        // kills the tab before claude can process tool results.
         let mut s = ResultEventScanner::new();
         let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}}}
 {"type":"stream_event","event":{"type":"message_stop"},"session_id":"a","uuid":"b"}"#;
@@ -823,9 +820,9 @@ mod tests {
 
     #[test]
     fn idle_status_is_terminal_for_any_provider() {
-        assert!(status_is_idle(crate::agent::status::PaneStatus::Idle));
-        assert!(!status_is_idle(crate::agent::status::PaneStatus::Working));
-        assert!(!status_is_idle(crate::agent::status::PaneStatus::Waiting));
+        assert!(status_is_idle(crate::agent::status::TabStatus::Idle));
+        assert!(!status_is_idle(crate::agent::status::TabStatus::Working));
+        assert!(!status_is_idle(crate::agent::status::TabStatus::Waiting));
     }
 
     #[test]

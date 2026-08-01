@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use codeterm_bridge::ports::{
-    AttachmentStorePort, BridgePanePort, ChatPreprocessorPort, ChatPreprocessorProvider,
+    AttachmentStorePort, BridgeTabPort, ChatPreprocessorPort, ChatPreprocessorProvider,
 };
 use codeterm_bridge::transcribe::TranscribeRegistry;
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
@@ -35,22 +35,22 @@ impl AttachmentStorePort for AppAttachmentStorePort {
     }
 }
 
-pub struct ServiceBridgePanePort(pub ServiceContext);
+pub struct ServiceBridgeTabPort(pub ServiceContext);
 
-impl BridgePanePort for ServiceBridgePanePort {
-    fn resolve_general_pane(&self) -> Result<String, String> {
+impl BridgeTabPort for ServiceBridgeTabPort {
+    fn resolve_general_tab(&self) -> Result<String, String> {
         self.0
             .mux
             .write()
-            .resolve_pane_id(general_agent::GENERAL_ALIAS)
+            .resolve_tab_id(general_agent::GENERAL_ALIAS)
             .ok_or_else(|| "General Agent not found".to_string())
     }
 
-    fn pane_agent_type(&self, pane_id: &str) -> Option<String> {
+    fn tab_agent_type(&self, tab_id: &str) -> Option<String> {
         self.0
             .mux
             .write()
-            .get_pane(pane_id)
+            .get_tab(tab_id)
             .and_then(|p| p.agent_type.clone())
     }
 
@@ -75,26 +75,26 @@ impl BridgePanePort for ServiceBridgePanePort {
 
     fn deliver_inbound(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         prefixed: &str,
         agent_type: Option<&str>,
     ) -> Result<(), String> {
         if agent_type.is_none() {
             let preview: String = prefixed.chars().take(120).collect();
             log::info!(
-                "[bridge] queued inbound for pane={} (agent restarting): {}",
-                pane_id,
+                "[bridge] queued inbound for tab={} (agent restarting): {}",
+                tab_id,
                 preview,
             );
-            codeterm_bridge::bridge::inbound_buffer::push(pane_id, prefixed.to_string());
+            codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed.to_string());
             return Ok(());
         }
 
-        if let Some((plugin_id, session_id)) = self.0.pane_chat_backing(pane_id) {
+        if let Some((plugin_id, session_id)) = self.0.tab_chat_backing(tab_id) {
             return self.0.chatbackend_send(&plugin_id, &session_id, prefixed);
         }
 
-        let pty_id = self.0.resolve_pty_id(pane_id)?;
+        let pty_id = self.0.resolve_pty_id(tab_id)?;
         let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
         self.0
             .pty
@@ -114,8 +114,8 @@ impl BridgePanePort for ServiceBridgePanePort {
         Ok(())
     }
 
-    fn queue_inbound(&self, pane_id: &str, prefixed: String) {
-        codeterm_bridge::bridge::inbound_buffer::push(pane_id, prefixed);
+    fn queue_inbound(&self, tab_id: &str, prefixed: String) {
+        codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed);
     }
 
     fn telegram_token(&self) -> Option<String> {

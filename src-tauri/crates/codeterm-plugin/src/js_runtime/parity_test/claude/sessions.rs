@@ -1,4 +1,4 @@
-//! Claude parity: pane-state classification, interactive-event extraction,
+//! Claude parity: tab-state classification, interactive-event extraction,
 //! and JSONL session delta/flatten parsing.
 
 use super::super::*;
@@ -6,19 +6,19 @@ use super::*;
 
 /// AS3 (Case B): the real claude plugin.js classifies a rate-limit menu as
 /// `RateLimited` through the QuickJS runtime, and its wire output round-trips
-/// into the native `PaneStateClassification` types — confirm-wait keys + a
+/// into the native `TabStateClassification` types — confirm-wait keys + a
 /// scheduled `continue your work` resume. This is the native↔JS parity for
 /// the claude classifier: the JS verdict parses natively into the exact
 /// generic shape the core reactor acts on.
 #[test]
 fn classify_rate_limit_menu_round_trips_native_types() {
-    use crate::pane_state::{PaneState, PaneStateSnapshot};
+    use crate::tab_state::{TabState, TabStateSnapshot};
     if require_plugins().is_none() {
         return;
     }
     let j = load_js("claude");
-    let snap = PaneStateSnapshot {
-        pane_id: "pane-1".into(),
+    let snap = TabStateSnapshot {
+        tab_id: "tab-1".into(),
         agent_type: "claude".into(),
         session_id: None,
         cwd: None,
@@ -34,9 +34,9 @@ fn classify_rate_limit_menu_round_trips_native_types() {
         .into(),
     };
     let c = j
-        .classify_pane_state(&snap)
+        .classify_tab_state(&snap)
         .expect("claude classifier must return a verdict");
-    assert_eq!(c.state, PaneState::RateLimited, "state");
+    assert_eq!(c.state, TabState::RateLimited, "state");
     assert!(
         c.confidence >= 0.8_f32,
         "confidence {} below threshold",
@@ -73,23 +73,23 @@ fn classify_rate_limit_menu_round_trips_native_types() {
 /// a key action — so the reactor stays its hand.
 #[test]
 fn classify_normal_screen_is_not_actionable() {
-    use crate::pane_state::{PaneState, PaneStateSnapshot};
+    use crate::tab_state::{TabState, TabStateSnapshot};
     if require_plugins().is_none() {
         return;
     }
     let j = load_js("claude");
-    let snap = PaneStateSnapshot {
-        pane_id: "pane-1".into(),
+    let snap = TabStateSnapshot {
+        tab_id: "tab-1".into(),
         agent_type: "claude".into(),
         session_id: None,
         cwd: None,
         screen_text:
             "Reading src/router.ts and tracing the middleware chain.\n(esc to interrupt)\n".into(),
     };
-    if let Some(c) = j.classify_pane_state(&snap) {
-        assert_ne!(c.state, PaneState::RateLimited);
-        assert_ne!(c.state, PaneState::ClarifyingQuestion);
-        assert_ne!(c.state, PaneState::WaitingOnAuth);
+    if let Some(c) = j.classify_tab_state(&snap) {
+        assert_ne!(c.state, TabState::RateLimited);
+        assert_ne!(c.state, TabState::ClarifyingQuestion);
+        assert_ne!(c.state, TabState::WaitingOnAuth);
         assert!(
             c.action.and_then(|a| a.keys).is_none(),
             "normal screen must not yield a key action"

@@ -566,13 +566,13 @@ mod tests {
         let opts = serde_json::json!({
             "bin": "codeterm",
             "env": {
-                "CODETERM_PANE_ID": "spoofed",
+                "CODETERM_TAB_ID": "spoofed",
                 "PLUGIN_VAR": "kept"
             }
         })
         .to_string();
         let host_env = HashMap::from([
-            ("CODETERM_PANE_ID".to_string(), "chat-pane".to_string()),
+            ("CODETERM_TAB_ID".to_string(), "chat-tab".to_string()),
             (
                 "CODETERM_SOCKET_PATH".to_string(),
                 "/tmp/codeterm.sock".to_string(),
@@ -583,8 +583,8 @@ mod tests {
             serde_json::from_str(&inject_host_env_json(&opts, &host_env).unwrap()).unwrap();
 
         assert_eq!(
-            merged.env.get("CODETERM_PANE_ID").map(String::as_str),
-            Some("chat-pane")
+            merged.env.get("CODETERM_TAB_ID").map(String::as_str),
+            Some("chat-tab")
         );
         assert_eq!(
             merged.env.get("CODETERM_SOCKET_PATH").map(String::as_str),

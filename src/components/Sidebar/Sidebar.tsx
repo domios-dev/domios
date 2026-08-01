@@ -23,9 +23,10 @@ import {
   WS_PREFIX,
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
+import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
-import { flattenSidebarTabs, collectPaneIds } from "./workspaceTabs";
-import { aggregateTabStatus } from "./sidebarTabStatus";
+import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
+import { aggregateTabStatuses } from "./tabStatuses";
 import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
@@ -40,6 +41,7 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
+import { isFirstRunGeneralTab } from "../AgentPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -108,7 +110,7 @@ export function Sidebar({
     setTabTitle,
     spawnAgentTab,
     createOrchestrationPair,
-    selectTabByPane,
+    selectTabByTab,
     addNotification,
   } = useMultiplexer();
   const state = useMuxState();
@@ -129,8 +131,8 @@ export function Sidebar({
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
   const activeWork = useMemo(
-    () => selectActiveWork(fullPlans.plans, state.panes),
-    [fullPlans.plans, state.panes],
+    () => selectActiveWork(fullPlans.plans, state.tabs),
+    [fullPlans.plans, state.tabs],
   );
   const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
@@ -206,10 +208,10 @@ export function Sidebar({
     const workspaceId = orchestrationModal.workspaceId;
     setOrchestrationModal(null);
     createOrchestrationPair({ ...result, workspaceId }).then((created) => {
-      void selectTabByPane(workspaceId, created.orchestrator_pane_id);
+      void selectTabByTab(workspaceId, created.orchestrator_tab_id);
     }).catch((e) => {
       addNotification({
-        pane_id: null,
+        tab_id: null,
         workspace_id: workspaceId,
         title: "Orchestration pair failed",
         body: e instanceof Error ? e.message : String(e),
@@ -217,11 +219,21 @@ export function Sidebar({
         sticky: true,
       });
     });
-  }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByPane]);
+  }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByTab]);
+
+  const firstRunActive = useMemo(
+    () => Object.values(state.tabs).some(isFirstRunGeneralTab),
+    [state.tabs],
+  );
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
+    if (firstRunActive) return;
     setSessionPicker({ workspaceId, workspaceCwd });
-  }, []);
+  }, [firstRunActive]);
+
+  useEffect(() => {
+    if (firstRunActive) setSessionPicker(null);
+  }, [firstRunActive]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
@@ -385,7 +397,7 @@ export function Sidebar({
   const allTabIds = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of state.workspaces) {
-      for (const tab of ws.tabs) ids.add(tab.id);
+      for (const tabId of ws.tabs) ids.add(tabId);
     }
     return ids;
   }, [state.workspaces]);
@@ -410,7 +422,7 @@ export function Sidebar({
   }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
     teamId: string;
-    managerPaneId: string;
+    managerTabId: string;
     teamName: string;
     members: OrchestrationGroupMember[];
   } | null>(null);
@@ -435,28 +447,27 @@ export function Sidebar({
     performCloseTab(wsId, tabId);
   }, [performCloseTab]);
 
-  const requestTeamClose = useCallback((wsId: string, teamId: string, managerPaneId: string) => {
+  const requestTeamClose = useCallback((wsId: string, teamId: string, managerTabId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
-    const teamTabs = ws.tabs.filter(
-      (tab) => (state.panes[tab.pane_id] as (typeof state.panes)[string] & { team_id?: string | null })?.team_id === teamId,
+    const teamTabs = tabsInWorkspace(ws.tabs, state.tabs).filter(
+      (tab) => (tab as typeof tab & { team_id?: string | null }).team_id === teamId,
     );
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
       teamId,
-      managerPaneId,
+      managerTabId,
       teamName: team?.name?.trim() || "Team",
       members: teamTabs.map((tab) => {
-        const pane = state.panes[tab.pane_id];
         return {
-          paneId: tab.pane_id,
-          title: pane?.title || "Tab",
-          role: pane?.role ?? null,
-          roleProfile: pane?.role_profile ?? null,
+          tabId: tab.id,
+          title: tab.title || "Tab",
+          role: tab.role ?? null,
+          roleProfile: tab.role_profile ?? null,
         };
       }),
     });
-  }, [state.panes, state.teams, state.workspaces]);
+  }, [state.tabs, state.teams, state.workspaces]);
   useEffect(() => {
     const kb = config?.keybindings ?? {};
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -467,7 +478,7 @@ export function Sidebar({
       const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
       if (!ws) return;
 
-      const items = buildSidebarCycleItems(ws.tabs, state.panes, false);
+      const items = buildSidebarCycleItems(ws.tabs, state.tabs, false);
       if (items.length < 2) return;
 
       const direction = forward ? 1 : -1;
@@ -506,8 +517,13 @@ export function Sidebar({
   }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
   const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
     workspace.id,
-    aggregateTabStatus(workspace.tabs.flatMap((tab) => collectPaneIds(tab, state.panes)), state.paneStatuses),
-  ])), [ordinaryWorkspaces, state.paneStatuses, state.panes]);
+    aggregateTabStatuses(
+      tabsInWorkspace(workspace.tabs, state.tabs)
+        .filter(isSidebarTabVisible)
+        .map((tab) => tab.id),
+      state.tabStatuses,
+    ),
+  ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
   const workspaceSortIds = useMemo(
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [ordinaryWorkspaces],
@@ -539,8 +555,8 @@ export function Sidebar({
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
-                const generalTabs = sortByOrder(generalWorkspace.tabs);
-                const generalOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
+                const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
+                const generalOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
                 return (
                   <section
                     data-testid="general-section"
@@ -563,8 +579,8 @@ export function Sidebar({
                       workspace={generalWorkspace}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
                       sortedTabs={generalTabs}
-                      panes={state.panes}
-                      paneStatuses={state.paneStatuses}
+                      tabs={state.tabs}
+                      tabStatuses={state.tabStatuses}
                       teams={state.teams}
                       planIndex={planIndex}
                       plans={fullPlans.plans}
@@ -586,10 +602,11 @@ export function Sidebar({
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
                       onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
+                      newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       onCloseTeam={teamActions?.onCloseTeam
-                        ? (teamId, managerPaneId) => requestTeamClose(generalWorkspace.id, teamId, managerPaneId)
+                        ? (teamId, managerTabId) => requestTeamClose(generalWorkspace.id, teamId, managerTabId)
                         : undefined}
                     />}
                   </section>
@@ -633,8 +650,7 @@ export function Sidebar({
                         </button>
                         {isExpanded && (
                           <>
-                            {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
-                          const tabPaneIds = collectPaneIds(tab, state.panes);
+                            {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
                           const isTabActive = isWorkspaceTabActive(
                             isActiveVisual,
                             workspaceCanvasActive,
@@ -650,18 +666,14 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
-                              aria-label={`Open tab ${displayTitleForTab(tab, state.panes[tab.pane_id])}`}
-                              title={displayTitleForTab(tab, state.panes[tab.pane_id])}
+                              aria-label={`Open tab ${displayTitleForTab(tab)}`}
+                              title={displayTitleForTab(tab)}
                             >
-                              {(() => {
-                                const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
-                                const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
-                                return agentType ? (
-                                  <AgentIcon providerId={agentType} className="text-[12px]" />
-                                ) : (
-                                  <TerminalIcon size={11} />
-                                );
-                              })()}
+                              {tab?.agent_type ? (
+                                <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
+                              ) : (
+                                <TerminalIcon size={11} />
+                              )}
                             </button>
                           );
                             })}
@@ -687,10 +699,10 @@ export function Sidebar({
                     onCreate={handleNewWorkspace}
                   />
                   {ordinaryWorkspaces.map((ws) => {
-                    const sortedTabs = sortByOrder(ws.tabs);
+                    const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
                     const selected = ws.id === selectedWorkspaceId;
                     const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                    const wsOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
+                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
                     return (
                       <div
                         key={ws.id}
@@ -710,6 +722,7 @@ export function Sidebar({
                       onRename={(name) => renameWorkspace(ws.id, name)}
                       onNewTerminal={() => createTab(ws.id)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                      newSessionDisabled={firstRunActive}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
                       status={workspaceStatuses[ws.id]}
@@ -722,8 +735,8 @@ export function Sidebar({
                           workspace={ws}
                           activeTabId={state.activeTabIds[ws.id] ?? null}
                           sortedTabs={sortedTabs}
-                          panes={state.panes}
-                          paneStatuses={state.paneStatuses}
+                          tabs={state.tabs}
+                          tabStatuses={state.tabStatuses}
                           teams={state.teams}
                           planIndex={planIndex}
                           plans={fullPlans.plans}
@@ -751,10 +764,11 @@ export function Sidebar({
                           onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
                           onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                          newSessionDisabled={firstRunActive}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
                           onCloseTeam={teamActions?.onCloseTeam
-                            ? (teamId, managerPaneId) => requestTeamClose(ws.id, teamId, managerPaneId)
+                            ? (teamId, managerTabId) => requestTeamClose(ws.id, teamId, managerTabId)
                             : undefined}
                         />
                       </div>
@@ -771,8 +785,8 @@ export function Sidebar({
                 <RecentlyClosed
                   views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
-                  onReopen={(wsId, idx, orphaned, paneId) => {
-                    if (orphaned) { restoreOrphaned(paneId); }
+                  onReopen={(wsId, idx, orphaned, tabId) => {
+                    if (orphaned) { restoreOrphaned(tabId); }
                     else { reopenClosed(wsId, idx); }
                   }}
                   onReopenGroup={reopenGroup}
@@ -841,39 +855,13 @@ export function Sidebar({
                   {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
                 </button>
                 {!isCompact && (
-                  <div
+                  <LiquidFlip
                     data-testid="mesh-presence-toggle"
-                    role="group"
-                    aria-label="Mesh on/off"
-                    className="flex shrink-0 items-center overflow-hidden rounded border border-[var(--ct-border)] text-[10px] font-medium"
-                  >
-                    <button
-                      type="button"
-                      data-testid="mesh-switch-off"
-                      onClick={() => setMeshEnabled(false)}
-                      aria-pressed={meshPresence !== "online"}
-                      className={`px-2 py-0.5 transition-colors ${
-                        meshPresence !== "online"
-                          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                          : "text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
-                      }`}
-                    >
-                      off
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="mesh-switch-on"
-                      onClick={() => setMeshEnabled(true)}
-                      aria-pressed={meshPresence === "online"}
-                      className={`px-2 py-0.5 transition-colors border-l border-[var(--ct-border)] ${
-                        meshPresence === "online"
-                          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                          : "text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
-                      }`}
-                    >
-                      on
-                    </button>
-                  </div>
+                    aria-label="Mesh presence"
+                    className="shrink-0 text-[10px]"
+                    checked={meshPresence === "online"}
+                    onCheckedChange={setMeshEnabled}
+                  />
                 )}
               </div>
             </div>
@@ -975,7 +963,7 @@ export function Sidebar({
           onConfirm={() => {
             void teamActions?.onCloseTeam?.(
               pendingTeamClose.teamId,
-              pendingTeamClose.managerPaneId,
+              pendingTeamClose.managerTabId,
             );
             setPendingTeamClose(null);
           }}

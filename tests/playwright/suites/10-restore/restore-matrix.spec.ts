@@ -1,7 +1,7 @@
 /**
- * WHAT: Restore-matrix verifies provider pane identity and visible markers after restart.
- * WHY: Session restore must preserve workspace, tab, pane, and agent metadata across hard daemon restarts.
- * ORACLE: Manifest slots match backend pane/tab ids and each expected marker is visible in the restored UI.
+ * WHAT: Restore-matrix verifies provider tab identity and visible markers after restart.
+ * WHY: Session restore must preserve workspace, tab, tab, and agent metadata across hard daemon restarts.
+ * ORACLE: Manifest slots match backend tab/tab ids and each expected marker is visible in the restored UI.
  */
 import { readFileSync } from "node:fs";
 import { expect, test, type ManagedUiSession } from "../../helpers/fixtures";
@@ -11,7 +11,7 @@ type MatrixSlot = {
   index: number;
   requested_model: string;
   booted_model_evidence: string | null;
-  pane_id: string | null;
+  tab_id: string | null;
   tab_id: string | null;
   marker: string;
   sid_before: string | null;
@@ -33,8 +33,8 @@ const manifest = manifestPath
 
 test.describe.configure({ retries: 0 });
 
-async function visibleChatTextForPane(ui: ManagedUiSession, paneId: string): Promise<string> {
-  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+async function visibleChatTextForTab(ui: ManagedUiSession, tabId: string): Promise<string> {
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
   if ((await chat.count()) === 0) return "";
   return await chat.first().innerText({ timeout: 5_000 }).catch(() => "");
 }
@@ -52,7 +52,7 @@ test("@golden restore matrix markers are isolated in restored provider ChatViews
   const activeManifest = manifest!;
   test.setTimeout(600_000);
   const asserted = activeManifest.slots.filter(isAssertableSlot);
-  expect(asserted.length, `no observable provider panes in ${manifestPath}`).toBeGreaterThan(0);
+  expect(asserted.length, `no observable provider tabs in ${manifestPath}`).toBeGreaterThan(0);
 
   await api.focusWorkspace(activeManifest.workspace.id);
   const wsItem = ui.page.locator(
@@ -63,52 +63,52 @@ test("@golden restore matrix markers are isolated in restored provider ChatViews
 
   const allMarkers = asserted.map((slot) => slot.marker);
   for (const slot of asserted) {
-    expect(slot.pane_id, `slot ${slot.provider}/${slot.index} missing pane_id`).toBeTruthy();
+    expect(slot.tab_id, `slot ${slot.provider}/${slot.index} missing tab_id`).toBeTruthy();
     expect(slot.tab_id, `slot ${slot.provider}/${slot.index} missing tab_id`).toBeTruthy();
 
-    await api.focusPane(slot.pane_id!);
+    await api.focusTab(slot.tab_id!);
     const tab = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${slot.tab_id}"]`);
     await expect(
       tab,
-      `tab visible for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
+      `tab visible for provider=${slot.provider} slot=${slot.index} tab=${slot.tab_id}`,
     ).toBeVisible({ timeout: 30_000 });
     await tab.click();
     await expect(
-      ui.page.locator(`[data-testid="terminal-pane"][data-pane-id="${slot.pane_id}"]`),
-      `pane mounted for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
+      ui.page.locator(`[data-testid="terminal-tab"][data-tab-id="${slot.tab_id}"]`),
+      `tab mounted for provider=${slot.provider} slot=${slot.index} tab=${slot.tab_id}`,
     ).toBeVisible({ timeout: 30_000 });
-    await api.post(`/panes/${slot.pane_id!}/chat-view`, { enabled: true });
-    const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${slot.pane_id}"]`);
+    await api.post(`/tabs/${slot.tab_id!}/chat-view`, { enabled: true });
+    const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${slot.tab_id}"]`);
     await expect(
       chat,
-      `ChatView visible for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
+      `ChatView visible for provider=${slot.provider} slot=${slot.index} tab=${slot.tab_id}`,
     ).toBeVisible({ timeout: 30_000 });
 
     try {
       await pollMarkerInDom(slot.marker, {
-        paneId: slot.pane_id!,
+        tabId: slot.tab_id!,
         timeout: 120_000,
         normalize: true,
         includeChatMessages: true,
       });
     } catch (error) {
-      const visibleText = await visibleChatTextForPane(ui, slot.pane_id!);
+      const visibleText = await visibleChatTextForTab(ui, slot.tab_id!);
       throw new Error(
-        `ChatView marker timeout provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} tab=${slot.tab_id} marker=${slot.marker} visibleTail=${JSON.stringify(visibleText.slice(-1000))}: ${String(error)}`,
+        `ChatView marker timeout provider=${slot.provider} slot=${slot.index} tab=${slot.tab_id} tab=${slot.tab_id} marker=${slot.marker} visibleTail=${JSON.stringify(visibleText.slice(-1000))}: ${String(error)}`,
       );
     }
 
-    const visibleText = await visibleChatTextForPane(ui, slot.pane_id!);
+    const visibleText = await visibleChatTextForTab(ui, slot.tab_id!);
     const normalizedVisible = markerNeedle(visibleText);
     expect(
       normalizedVisible,
-      `ChatView marker visible provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} marker=${slot.marker}`,
+      `ChatView marker visible provider=${slot.provider} slot=${slot.index} tab=${slot.tab_id} marker=${slot.marker}`,
     ).toContain(markerNeedle(slot.marker));
 
     for (const other of allMarkers.filter((m) => m !== slot.marker)) {
       expect(
         normalizedVisible.includes(markerNeedle(other)),
-        `ChatView cross-marker contamination provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} own=${slot.marker} other=${other}`,
+        `ChatView cross-marker contamination provider=${slot.provider} slot=${slot.index} tab=${slot.tab_id} own=${slot.marker} other=${other}`,
       ).toBe(false);
     }
   }

@@ -1,34 +1,34 @@
 import { memo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { GitBranch, Layers } from "lucide-react";
-import type { ClosedPaneView } from "../../lib/types";
+import type { ClosedTabView } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 
 /** A render group collapsed from the flat closed-history view. A `single`
- *  close is one pane; `cascade` is an orchestrator subtree; `workspace` is a
+ *  close is one tab; `cascade` is an orchestrator subtree; `workspace` is a
  *  whole closed workspace. */
 export interface ClosedGroup {
   id: string;
   kind: "single" | "cascade" | "workspace";
-  panes: ClosedPaneView[];
+  tabs: ClosedTabView[];
 }
 
 /** Collapse the flat newest-first view into render groups, preserving server
  *  order by each group's first appearance. */
-export function groupClosedViews(views: ClosedPaneView[]): ClosedGroup[] {
+export function groupClosedViews(views: ClosedTabView[]): ClosedGroup[] {
   const order: string[] = [];
   const byId = new Map<string, ClosedGroup>();
   for (const v of views) {
     let g = byId.get(v.group_id);
     if (!g) {
-      g = { id: v.group_id, kind: v.group_kind, panes: [] };
+      g = { id: v.group_id, kind: v.group_kind, tabs: [] };
       byId.set(v.group_id, g);
       order.push(v.group_id);
     }
-    g.panes.push(v);
+    g.tabs.push(v);
   }
   return order.map((id) => byId.get(id) as ClosedGroup);
 }
@@ -48,28 +48,28 @@ export function closedAgo(closedAtMs: number, nowMs: number = Date.now()): strin
   return new Date(closedAtMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** Newest `closed_at` within a group (panes aren't guaranteed ordered). */
+/** Newest `closed_at` within a group (tabs aren't guaranteed ordered). */
 function groupClosedAt(group: ClosedGroup): number {
-  return group.panes.reduce((max, p) => Math.max(max, p.closed_at ?? 0), 0);
+  return group.tabs.reduce((max, p) => Math.max(max, p.closed_at ?? 0), 0);
 }
 
-/** Header label for a multi-pane group — just the workspace name or the
- *  orchestrator's title. The pane count lives in the adjacent count pill, so
+/** Header label for a multi-tab group — just the workspace name or the
+ *  orchestrator's title. The tab count lives in the adjacent count pill, so
  *  it's deliberately left out of the text. */
 export function describeGroup(group: ClosedGroup): string {
   if (group.kind === "workspace") {
-    return group.panes.find((p) => p.workspace_name)?.workspace_name ?? "Workspace";
+    return group.tabs.find((p) => p.workspace_name)?.workspace_name ?? "Workspace";
   }
-  const lead = group.panes.find((p) => !p.parent_pane_id) ?? group.panes[0];
+  const lead = group.tabs.find((p) => !p.parent_tab_id) ?? group.tabs[0];
   return lead.title || "Orchestrator";
 }
 
 interface RecentlyClosedProps {
   /** Flat newest-first closed-history view; grouped here for display. */
-  views: ClosedPaneView[];
+  views: ClosedTabView[];
   showWorkspace: boolean;
-  /** Reopen a single pane (or one pane inside a group). */
-  onReopen: (workspaceId: string, index: number, orphaned: boolean, paneId: string) => void;
+  /** Reopen a single tab (or one tab inside a group). */
+  onReopen: (workspaceId: string, index: number, orphaned: boolean, tabId: string) => void;
   /** Reopen an entire cascade/workspace group at once. */
   onReopenGroup: (groupId: string) => void;
   touchMode?: boolean;
@@ -118,17 +118,17 @@ function RecentlyClosedInner({
   const metaText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
   const rowPad = touchMode ? "py-2" : "py-1.5";
 
-  const paneRow = (view: ClosedPaneView, child: boolean) => {
+  const tabRow = (view: ClosedTabView, child: boolean) => {
     const modelBadge = view.model ? formatModelBadge(view.model) : null;
     const hasMeta = (showWorkspace && view.workspace_name) || view.closed_at;
 
     return (
       <button
-        key={`${view.group_id}-${view.pane_id}-${view.index}`}
+        key={`${view.group_id}-${view.tab_id}-${view.index}`}
         data-testid="recently-closed-item"
         onClick={() => {
           setTooltip(null);
-          onReopen(view.workspace_id ?? "", view.index, view.orphaned, view.pane_id);
+          onReopen(view.workspace_id ?? "", view.index, view.orphaned, view.tab_id);
         }}
         onMouseMove={view.description ? (e) => handleMouseMove(view.description as string, e) : undefined}
         onMouseLeave={view.description ? handleMouseLeave : undefined}
@@ -185,7 +185,7 @@ function RecentlyClosedInner({
       {open && (
         <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 165 }}>
           {groups.map((group) => {
-            if (group.kind === "single") return paneRow(group.panes[0], false);
+            if (group.kind === "single") return tabRow(group.tabs[0], false);
 
             const isOpen = expanded.has(group.id);
             const KindIcon = group.kind === "workspace" ? Layers : GitBranch;
@@ -219,7 +219,7 @@ function RecentlyClosedInner({
                         <span
                           className={`${metaText} shrink-0 px-1.5 rounded-full border border-[var(--ct-border)] tabular-nums`}
                         >
-                          {group.panes.length}
+                          {group.tabs.length}
                         </span>
                         <span className={`${metaText} shrink-0 tabular-nums text-right`}>
                           {closedAgo(groupClosedAt(group))}
@@ -228,7 +228,7 @@ function RecentlyClosedInner({
                     </span>
                   </button>
                 </div>
-                {isOpen && group.panes.map((pane) => paneRow(pane, true))}
+                {isOpen && group.tabs.map((tab) => tabRow(tab, true))}
               </div>
             );
           })}

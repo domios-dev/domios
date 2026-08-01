@@ -11,7 +11,7 @@ For assertion discipline and layer-specific recipes, see `docs/contributing/writ
 | Layer | Lives in | Runner | Real LLM? | Needs dev daemon? | CI | Budget/test |
 |---|---|---|---|---|---|---|
 | Rust unit | `src-tauri/src/**/tests.rs` | `scripts/test-capped.sh … --lib` | no | no | yes (D7) | <1s |
-| TS unit | `src/**/*.test.ts`, `packages/**` | vitest (`pnpm test:unit`) | no | no | yes (D7) | <1s |
+| TS unit | `src/**/*.test.ts`, `packages/**` | tsx scripts (`npm run test:unit`) | no | no | yes (D7) | <1s |
 | Plugin | `plugins/*/tests/` | `pnpm test:plugins` | no | no | yes (exists) | <5s |
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
@@ -52,7 +52,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
 
 1. `rust-unit` — capped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
-2. `ts-unit` — `pnpm test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
+2. `ts-unit` — `npm run test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
 
@@ -83,18 +83,42 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p 
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::delivery_prefers_system_prompt_when_declared -- -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::system_prompt_channel_consumes_launch_content_without_a_fallback_turn -- -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::external_provider_defers_identical_content_to_confirmed_fallback -- -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_text_present_enter_absent_is_error -- -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_exactly_once_on_submission_evidence -- -- --exact
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::claude -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::codex -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::opencode -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::cursor -- -- --nocapture
+```
+
+The matrix reads each provider's `readinessStrategy`, `verifySubmit`, and
+`hasHooks` capabilities from `plugins/provider-*/plugin.json`. Claude, Codex,
+and OpenCode run all sixteen dimensions. Cursor runs readiness plus byte-exact
+ASCII, Unicode, and 5000-character multiline ingestion with zero submit writes;
+every submit-dependent dimension prints a quota-constraint skip reason.
+
+The frontend key and delivery-ledger oracles are focused and bounded:
+
+```bash
+npm run test:unit -- ChatComposer.submission-keys
+npm run test:unit -- chatSendStatus
+npm run test:unit -- TabSessionChat.delivery
+```
+
+The provider-row harness verifies the real `codeterm` CLI before running those
+focused oracles. Its help and dry-run surface are:
+
+```bash
+bash scripts/submission-matrix.sh --help
+bash scripts/submission-matrix.sh --provider claude --dry-run
 ```
 
 ```bash
 # Rust: agent detection, multiplexer state, prompt parsing, config
 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
-# TypeScript: every src/** + packages/** unit test (tsx scripts)
-pnpm test:unit
-# …or one file while iterating:
-npx tsx src/lib/colors.test.ts
+# TypeScript: every src/** + packages/** unit test (direct Node scheduler, 90s outer cap)
+bash -lc 'timeout --signal=TERM --kill-after=5s 90s npm run test:unit'
+# …or one file through the same bounded scheduler:
+npm run test:unit -- colors.test
 
 # Shortcuts
 ./build.sh test       # Rust unit tests only
@@ -103,7 +127,7 @@ npx tsx src/lib/colors.test.ts
 
 ### Chat attach/hydration lifecycle
 
-Use the deterministic hook oracle for Terminal → Chat activation, pane-owned
+Use the deterministic hook oracle for Terminal → Chat activation, tab-owned
 authority, bounded hydration, resync, and subscription cleanup:
 
 ```bash
@@ -112,15 +136,15 @@ npx tsx src/components/Terminal/TabContent.chatContinuity.test.tsx
 npx tsx src/components/Terminal/ChatSetupState.test.tsx
 ```
 
-The harness starts hidden with null pane authority, activates into
+The harness starts hidden with null Tab authority, activates into
 `awaiting_session`, and proves a global/foreign candidate cannot create Chat
-authority. It then commits the pane's own session id and binding nonce while
+authority. It then commits the Tab's own session id and binding nonce while
 hidden, reactivates, and requires the pre-existing transcript exactly once with
 one subscription. Its resync replaces the subscription without duplicating
-rows; wrong-pane, wrong-session, wrong-nonce, cancelled-generation, and
+rows; wrong-tab, wrong-session, wrong-nonce, cancelled-generation, and
 prior-lifecycle inputs remain rejected. The setup-state oracle proves a
 hydrated current-authority transcript suppresses stale `shell_ready` and earlier
-launch overlays. The `TabContent` oracle refreshes the mux with a new pane
+launch overlays. The `TabContent` oracle refreshes the mux with a new Tab
 snapshot carrying the same provider, model, session id, and binding nonce, then
 drives Terminal → Chat and requires one pre-existing row and one subscription
 without losing the mode switch or identity labels.
@@ -219,14 +243,14 @@ CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 |------|-------|------|
 | `test_health.py` | 2 | API health, identify |
 | `test_workspaces.py` | 4 | Workspace CRUD |
-| `test_panes.py` | 6 | Tab create, split, close, rename |
+| `test_tabs.py` | 6 | Tab create, split, close, rename |
 | `test_pty_io.py` | 13 | PTY read/write, exec, streaming |
-| `test_env.py` | 4 | CODETERM_PANE_ID env injection |
+| `test_env.py` | 4 | CODETERM_TAB_ID env injection |
 | `test_notifications.py` | 3 | Notification create, list |
 | `test_cron.py` | 5 | Cron CRUD |
 | `test_agents.py` | 5 | Agent hierarchy |
 | `test_hooks.py` | 10 | Hook endpoints, prompt parsing accuracy, full approval flow |
-| `test_multi_pane.py` | 5 | Multi-tab prompt isolation |
+| `test_multi_tab.py` | 5 | Multi-tab prompt isolation |
 | `test_attachments.py` | 3 | File attachment via API |
 | `test_logging.py` | 4 | Log file, levels |
 | `test_claude_spawn.py` | 8 | Real Claude spawn (**slow**, 30-90s each) |
@@ -352,12 +376,12 @@ The permission prompt detection pipeline detects when AI agents show interactive
 
 ### Pipeline
 
-1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-pane VT100 parser (`vt100` crate).
+1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-tab VT100 parser (`vt100` crate).
 2. **`process_pty_output()`** (`src-tauri/src/service/output.rs`) calls `has_event_markers()` on the cleaned chunk text. This is a cheap string check that gates the expensive path.
 3. **If markers found** -- `get_screen_text()` on `OutputBuffer` returns the actual terminal screen content (what the user sees), correctly handling cursor positioning, alternate screen, and TUI overlays.
 4. **`PromptDetector.evaluate_pty_output()`** (`src-tauri/src/agent/prompt.rs`) runs the state machine. It delegates to `parse_permission_prompt()` for structural fingerprint detection.
-5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the pane and emits `mux-state-changed`.
-6. **Frontend** (`ChatView.tsx`) polls mux state, sees the pending prompt, and renders Yes/No buttons. User clicks a button, which calls `mux_respond_prompt()` and sends the chosen keystroke to the PTY.
+5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the Tab and emits `mux-state-changed`.
+6. **Frontend** (`TabSessionChat.tsx`) reads mux state, sees the pending prompt, and renders response controls. User responds, which calls `mux_respond_prompt()` and sends the chosen keystroke to the PTY.
 
 ### Key source files
 
@@ -365,9 +389,9 @@ The permission prompt detection pipeline detects when AI agents show interactive
 |------|------|
 | `src-tauri/src/agent/prompt.rs` | `PromptDetector` state machine (Idle -> Active -> Cooldown -> Idle) |
 | `src-tauri/src/agent/detector.rs` | Structural fingerprint detection (`detect_interactive_prompt`, `parse_permission_prompt`) + event detection (`detect_claude_events`) |
-| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-pane VT100 parser, `get_screen_text()` |
+| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-tab VT100 parser, `get_screen_text()` |
 | `src-tauri/src/service/output.rs` | `process_pty_output()` orchestration + `apply_prompt_decision()` |
-| `src/components/ChatView/ChatView.tsx` | Frontend polling + button rendering |
+| `src/components/Terminal/TabSessionChat.tsx` | Frontend prompt state + response controls |
 
 ### State machine: PromptDetector
 
@@ -416,8 +440,8 @@ The status tracker (`agent_tracker`) determines whether an agent is Working, Wai
 
 | Path | Entry point | When used |
 |------|-------------|-----------|
-| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent panes; reliable fallback |
-| **Hook (API)** | `POST /api/panes/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
+| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent Tabs; reliable fallback |
+| **Hook (API)** | `POST /api/tabs/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
 
 Both paths converge on the same `PromptDetector` state machine and `apply_prompt_decision()`.
 
@@ -453,4 +477,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 24 -->
+<!-- revision: 30 -->

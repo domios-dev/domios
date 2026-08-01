@@ -15,8 +15,8 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const panes = {
-  p1: { id: "p1", pty_id: null, pane_type: "Terminal", title: "Worker", cwd: null } as never,
+const tabs = {
+  p1: { id: "p1", pty_id: null, tab_type: "Terminal", title: "Worker", cwd: null } as never,
 };
 
 function planWithTasks(tasks: Plan["tasks"]): Plan {
@@ -27,7 +27,7 @@ function visibleRowsFor(
   plan: Plan,
   opts: { statusFilter?: "all" | "active" | "done" | "blocked" | "cancelled"; textQuery?: string; collapsedSectionId?: string } = {},
 ) {
-  const rows = buildPlanListRows(plan, { panes });
+  const rows = buildPlanListRows(plan, { tabs });
   const expansionOverrides = new Map<string, boolean>();
   if (opts.collapsedSectionId) expansionOverrides.set(opts.collapsedSectionId, false);
   return buildVisiblePlanListRows(rows, {
@@ -38,7 +38,7 @@ function visibleRowsFor(
 }
 
 function activeEntries(plan: Plan): readonly ActiveWorkEntry[] {
-  return selectActiveWork([plan], panes).entries;
+  return selectActiveWork([plan], tabs).entries;
 }
 
 const inflightPlan = planWithTasks([

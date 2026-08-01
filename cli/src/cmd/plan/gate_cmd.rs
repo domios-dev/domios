@@ -2,7 +2,7 @@ use crate::args::plan::PlanDecisionAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, maybe_inject_caller_pane};
+use super::{call_plan_rpc, maybe_inject_caller_tab};
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
@@ -15,7 +15,7 @@ pub(super) fn handle(
             question,
             context,
             blocking_task_ids,
-            asked_by_pane,
+            asked_by_tab,
         } => {
             let mut params = json!({
                 "plan_id": plan_id,
@@ -23,10 +23,10 @@ pub(super) fn handle(
                 "context": context,
                 "blocking_task_ids": blocking_task_ids,
             });
-            if let Some(pane) = asked_by_pane {
-                params["asked_by_pane_id"] = json!(pane);
+            if let Some(tab) = asked_by_tab {
+                params["asked_by_tab_id"] = json!(tab);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let gate = call_plan_rpc(client, "plan.decision.ask", params)?;
             if json_output {
                 return Ok(Some(gate));
@@ -39,17 +39,17 @@ pub(super) fn handle(
             plan_id,
             gate_id,
             answer,
-            answered_by_pane,
+            answered_by_tab,
         } => {
             let mut params = json!({
                 "plan_id": plan_id,
                 "gate_id": gate_id,
                 "answer": answer,
             });
-            if let Some(pane) = answered_by_pane {
-                params["answered_by_pane_id"] = json!(pane);
+            if let Some(tab) = answered_by_tab {
+                params["answered_by_tab_id"] = json!(tab);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let gate = call_plan_rpc(client, "plan.decision.answer", params)?;
             if json_output {
                 return Ok(Some(gate));
@@ -66,7 +66,7 @@ pub(super) fn handle(
                 "plan_id": plan_id,
                 "request_id": request_id,
             });
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let request = call_plan_rpc(client, "plan.decision.ack_request", params)?;
             if json_output {
                 return Ok(Some(request));
@@ -137,7 +137,7 @@ fn render_gate(gate: &Value) -> String {
         .map(|a| a.len())
         .unwrap_or(0);
     let routed = gate
-        .get("routed_to_pane_id")
+        .get("routed_to_tab_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unrouted");
     let mut out = format!("[{id}] {status} blocking:{blocking} routed:{routed}\n  {question}\n");
@@ -160,13 +160,13 @@ mod tests {
             "status": "open",
             "question": "Which auth strategy?",
             "blocking_task_ids": ["task_1", "task_2"],
-            "routed_to_pane_id": "pane_planner",
+            "routed_to_tab_id": "tab_planner",
         });
         let out = render_gate(&gate);
         assert!(out.contains("[gate_abc]"));
         assert!(out.contains("open"));
         assert!(out.contains("blocking:2"));
-        assert!(out.contains("routed:pane_planner"));
+        assert!(out.contains("routed:tab_planner"));
         assert!(out.contains("Which auth strategy?"));
         assert!(!out.contains("Answer:"));
     }
@@ -178,8 +178,8 @@ mod tests {
             "status": "answered",
             "question": "Go left or right?",
             "blocking_task_ids": [],
-            "routed_to_pane_id": null,
-            "answer": { "text": "Go left.", "by_pane_id": "pane_planner", "at": 1000 },
+            "routed_to_tab_id": null,
+            "answer": { "text": "Go left.", "by_tab_id": "tab_planner", "at": 1000 },
         });
         let out = render_gate(&gate);
         assert!(out.contains("[gate_xyz]"));

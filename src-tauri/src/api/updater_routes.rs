@@ -102,7 +102,7 @@ pub struct InstallUpdateQuery {
     /// at the manifest fetch layer (rejected in release builds for non-https
     /// schemes). Used by local end-to-end tests.
     pub manifest_url: Option<String>,
-    /// Message to inject into the General Agent pane after the new daemon
+    /// Message to inject into the General Agent tab after the new daemon
     /// boots. Persisted to disk before restart so the next boot picks it up.
     pub after_update: Option<String>,
 }
@@ -114,7 +114,7 @@ pub async fn install_update(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    // Persist before restart — the new daemon picks this up on boot and injects into the General Agent pane.
+    // Persist before restart — the new daemon picks this up on boot and injects into the General Agent tab.
     if let Some(text) = q.after_update.as_deref() {
         if let Err(e) = crate::update::post_update::stash(text) {
             log::warn!("[updater] failed to stash after_update message: {}", e);

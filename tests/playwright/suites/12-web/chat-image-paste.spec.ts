@@ -11,31 +11,31 @@ const WEB_URL = `${API_BASE}/`;
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-test("@golden pasting a screenshot into the chat composer attaches it", async ({ api, webBrowser, paneCleanup, spawnAgent }) => {
+test("@golden pasting a screenshot into the chat composer attaches it", async ({ api, webBrowser, tabCleanup, spawnAgent }) => {
   test.setTimeout(120_000);
   const ctx = await webBrowser.newContext({ viewport: { width: 375, height: 812 } });
   const page: Page = await ctx.newPage();
 
-  await paneCleanup.closeUnprotectedPanes();
+  await tabCleanup.closeUnprotectedTabs();
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first().waitFor({ timeout: 20_000 });
 
-  const inbox = await paneCleanup.createPane({ title: "pw-imgpaste-inbox" });
-  let agentPaneId: string | undefined;
+  const inbox = await tabCleanup.createTab({ title: "pw-imgpaste-inbox" });
+  let agentTabId: string | undefined;
   try {
-    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
     const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
       title: "pw-imgpaste-agent",
-      parent_pane_id: inbox.id,
-      report_target_pane_id: inbox.id,
+      parent_tab_id: inbox.id,
+      report_target_tab_id: inbox.id,
       skip_permissions: true,
       activate: true,
       task: "Wait silently.",
     });
-    agentPaneId = spawned.pane_id;
+    agentTabId = spawned.tab_id;
 
     const composer = page.locator('[data-testid="chat-composer"]').filter({ visible: true }).first();
     await composer.waitFor({ timeout: 60_000 });
@@ -55,7 +55,7 @@ test("@golden pasting a screenshot into the chat composer attaches it", async ({
     await expect(chip).toBeVisible({ timeout: 10_000 });
     await expect(chip).toContainText(/screenshot\.png|image/i);
   } finally {
-    if (agentPaneId) paneCleanup.track(agentPaneId);
+    if (agentTabId) tabCleanup.track(agentTabId);
     await ctx.close();
   }
 });

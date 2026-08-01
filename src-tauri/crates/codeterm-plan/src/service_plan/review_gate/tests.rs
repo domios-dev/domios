@@ -8,7 +8,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String) {
     let mut plan = Plan::new(
         "Review".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     plan.mode = PlanMode::Execution;
     store.save(&mut plan, 1).unwrap();
@@ -65,10 +65,10 @@ fn dispatch(
     store: &PlanStore,
     plan_id: &str,
     task_id: &str,
-    pane: &str,
+    tab: &str,
     now: u64,
 ) -> Result<(), PlanError> {
-    store.assign_task(plan_id, task_id, pane, None, now)?;
+    store.assign_task(plan_id, task_id, tab, None, now)?;
     set_status(store, plan_id, task_id, "in_progress", now)
 }
 
@@ -146,8 +146,8 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     let b = add_ready_task(&store, &plan_id, "b", 2);
     let c = add_ready_task(&store, &plan_id, "c", 2);
 
-    dispatch(&store, &plan_id, &a, "pane_a", 3).unwrap();
-    dispatch(&store, &plan_id, &b, "pane_b", 3).unwrap();
+    dispatch(&store, &plan_id, &a, "tab_a", 3).unwrap();
+    dispatch(&store, &plan_id, &b, "tab_b", 3).unwrap();
     set_status(&store, &plan_id, &a, "in_review", 4).unwrap();
     set_status(&store, &plan_id, &b, "in_review", 4).unwrap();
 
@@ -156,7 +156,7 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     assert_eq!(gate.wip_count, 2);
     assert_eq!(gate.wip_limit, 2);
 
-    let err = dispatch(&store, &plan_id, &c, "pane_c", 5).unwrap_err();
+    let err = dispatch(&store, &plan_id, &c, "tab_c", 5).unwrap_err();
     assert!(matches!(
         err,
         PlanError::ReviewWipExceeded {
@@ -174,7 +174,7 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
             false,
             false,
             None,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             6,
         )
         .unwrap();
@@ -190,7 +190,7 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     let gate = store.review_gate_status(&plan_id).unwrap();
     assert!(!gate.blocked, "accepting one review must free capacity");
 
-    dispatch(&store, &plan_id, &c, "pane_c", 7).unwrap();
+    dispatch(&store, &plan_id, &c, "tab_c", 7).unwrap();
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn stranded_debt_allows_only_explicit_review_capacity_work() {
             &plan_id,
             &review,
             ReviewCapacityClass::Review,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             5,
         )
         .unwrap();
@@ -240,7 +240,7 @@ fn capacity_classification_does_not_bypass_actual_review_saturation() {
             &plan_id,
             &capacity_task,
             ReviewCapacityClass::CanonicalGate,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             3,
         )
         .unwrap();
@@ -285,7 +285,7 @@ fn assignment_status_transition_uses_the_same_capacity_classification() {
             &plan_id,
             &review,
             ReviewCapacityClass::Review,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             4,
         )
         .unwrap();
@@ -345,7 +345,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
             &plan_id,
             &task_id,
             "operator pause",
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             5,
         ),
         Err(PlanError::TransitionDenied { .. })
@@ -384,7 +384,7 @@ fn explicit_credit_reconcile_repairs_debt_and_records_a_stride() {
         .reconcile_review_credit(
             &plan_id,
             "repair historical leaked exits",
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             3,
         )
         .unwrap();
@@ -400,11 +400,11 @@ fn explicit_credit_reconcile_repairs_debt_and_records_a_stride() {
         .find(|stride| stride.id == stride_id)
         .unwrap();
     assert_eq!(stride.kind, REVIEW_CREDIT_RECONCILE_MILESTONE_KIND);
-    assert_eq!(stride.from.pane_id.as_deref(), Some("orch"));
+    assert_eq!(stride.from.tab_id.as_deref(), Some("orch"));
     assert!(stride.text.contains("-5 -> 0"));
 
     let repeated = store
-        .reconcile_review_credit(&plan_id, "same incident", AgentRef::from_pane("orch"), 4)
+        .reconcile_review_credit(&plan_id, "same incident", AgentRef::from_tab("orch"), 4)
         .unwrap();
     assert_eq!(repeated.stride_id, None);
     assert_eq!(store.get(&plan_id).unwrap().strides.len(), 1);
@@ -427,14 +427,14 @@ fn credit_reconcile_preserves_active_review_floor_and_is_idempotent() {
         .reconcile_review_credit(
             &plan_id,
             "repair leaked exits",
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             6,
         )
         .unwrap();
     assert_eq!(first.reconciled_credit, -1);
     assert!(first.stride_id.is_some());
     let second = store
-        .reconcile_review_credit(&plan_id, "same incident", AgentRef::from_pane("orch"), 7)
+        .reconcile_review_credit(&plan_id, "same incident", AgentRef::from_tab("orch"), 7)
         .unwrap();
     assert_eq!(second.reconciled_credit, -1);
     assert_eq!(second.stride_id, None);
@@ -450,7 +450,7 @@ fn capacity_grant_is_audited_immutable_and_idempotent() {
             &plan_id,
             &task_id,
             ReviewCapacityClass::Review,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             3,
         )
         .unwrap();
@@ -462,7 +462,7 @@ fn capacity_grant_is_audited_immutable_and_idempotent() {
             &plan_id,
             &task_id,
             ReviewCapacityClass::Review,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             4,
         )
         .unwrap();
@@ -482,7 +482,7 @@ fn capacity_grant_is_audited_immutable_and_idempotent() {
             &plan_id,
             &task_id,
             ReviewCapacityClass::CanonicalGate,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             5,
         )
         .is_err());
@@ -492,7 +492,7 @@ fn capacity_grant_is_audited_immutable_and_idempotent() {
 fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "bouncy", 2);
-    dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
 
     let result = store
@@ -502,11 +502,15 @@ fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
             "needs fixes",
             false,
             false,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             5,
         )
         .unwrap();
     assert_eq!(result.review_round, 1);
+    assert!(serde_json::to_value(&result)
+        .unwrap()
+        .get("strategy_warning")
+        .is_none());
 
     let plan = store.get(&plan_id).unwrap();
     let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
@@ -524,10 +528,94 @@ fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
 }
 
 #[test]
+fn third_trailing_stagnant_bounce_returns_strategy_warning_atomically() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "stagnant", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            for at in [2, 3] {
+                task.review_evidence.push(ReviewEvidence {
+                    id: format!("rev_{at}"),
+                    from: AgentRef::from_tab("reviewer"),
+                    verdict: ReviewVerdict::Bounce,
+                    note: "same approach".into(),
+                    at,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                task.review_round += 1;
+            }
+            Ok(())
+        })
+        .unwrap();
+
+    let result = store
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "same approach still fails",
+            false,
+            false,
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+    let warning = result.strategy_warning.unwrap();
+    assert_eq!(warning.consecutive_bounces, 3);
+    assert_eq!(warning.review_round, 3);
+    assert!(warning.message.contains("codeterm docs BOUNCE"));
+}
+
+#[test]
+fn strategy_warning_resets_on_accept_changed_surface_or_distinct_oracle() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "resets", 2);
+    let base = ReviewEvidence {
+        id: "rev".into(),
+        from: AgentRef::from_tab("reviewer"),
+        verdict: ReviewVerdict::Bounce,
+        note: "finding".into(),
+        at: 1,
+        changed_executable_surfaces: false,
+        distinct_oracle: false,
+    };
+    let mut task = store.show_task(&task_id).unwrap().task;
+    task.review_round = 4;
+    task.review_evidence = vec![base.clone(), base.clone(), base.clone()];
+    assert!(strategy_warning(&task).is_some());
+
+    for reset in [
+        ReviewEvidence {
+            verdict: ReviewVerdict::Accept,
+            ..base.clone()
+        },
+        ReviewEvidence {
+            changed_executable_surfaces: true,
+            ..base.clone()
+        },
+        ReviewEvidence {
+            distinct_oracle: true,
+            ..base.clone()
+        },
+    ] {
+        task.review_evidence.push(reset);
+        assert_eq!(strategy_warning(&task), None);
+        task.review_evidence.pop();
+    }
+}
+
+#[test]
 fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "deep-review", 2);
-    dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
 
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
@@ -537,7 +625,7 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
             "round 1 findings",
             false,
             false,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             5,
         )
         .unwrap();
@@ -549,7 +637,7 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
             "round 2 findings",
             false,
             false,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             7,
         )
         .unwrap();
@@ -591,7 +679,7 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
 fn oracle_scope_expansion_rejected_without_override() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "oracle-lock", 2);
-    dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
         .bounce_review(
@@ -600,7 +688,7 @@ fn oracle_scope_expansion_rejected_without_override() {
             "round 1 findings",
             false,
             false,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             5,
         )
         .unwrap();
@@ -615,8 +703,15 @@ fn oracle_scope_expansion_rejected_without_override() {
         })
         .unwrap();
 
+    let before_rejection = store.show_task(&task_id).unwrap().task;
     let err = set_status(&store, &plan_id, &task_id, "in_review", 7).unwrap_err();
     assert!(matches!(err, PlanError::ReviewOracleScopeExpansion));
+    let after_rejection = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after_rejection.status, before_rejection.status);
+    assert_eq!(
+        after_rejection.review_oracle,
+        before_rejection.review_oracle
+    );
 
     store
         .record_review_override(
@@ -632,10 +727,81 @@ fn oracle_scope_expansion_rejected_without_override() {
 }
 
 #[test]
+fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "authorized-correction", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    store
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 1 findings",
+            false,
+            false,
+            AgentRef::from_tab("rev"),
+            5,
+        )
+        .unwrap();
+
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.acceptance_criteria = vec![
+                "corrected acceptance".into(),
+                "preserves immutable history".into(),
+            ];
+            task.test_plan = Some("cargo test corrected_oracle".into());
+            Ok(())
+        })
+        .unwrap();
+    store
+        .record_review_override(
+            &plan_id,
+            &task_id,
+            "andrey",
+            "authorized correction",
+            "reproduced stale oracle",
+            7,
+        )
+        .unwrap();
+
+    let before = store.show_task(&task_id).unwrap().task;
+    let stored = before.review_oracle.as_ref().unwrap();
+    let current = oracle_signature(&before);
+    println!(
+        "stored review_oracle length={} current oracle_signature length={} equal={}",
+        stored.len(),
+        current.len(),
+        stored == &current
+    );
+    assert_ne!(stored, &current);
+    let reports_before = before.execution_attempts.clone();
+    let milestones_before = before.milestones.clone();
+    let audit_before = before.review_audit.clone();
+
+    set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap();
+
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after.status, TaskStatus::InReview);
+    assert_eq!(
+        after.review_oracle.as_deref(),
+        Some(oracle_signature(&after).as_str())
+    );
+    assert_eq!(after.execution_attempts, reports_before);
+    assert_eq!(after.milestones, milestones_before);
+    assert_eq!(after.review_audit, audit_before);
+}
+
+#[test]
 fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "residual-risk", 2);
-    dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
         .bounce_review(
@@ -644,7 +810,7 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
             "round 1",
             false,
             false,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             5,
         )
         .unwrap();
@@ -656,7 +822,7 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
             "round 2",
             false,
             false,
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             7,
         )
         .unwrap();
@@ -673,7 +839,7 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
             false,
             false,
             Some("edge case Z untested"),
-            AgentRef::from_pane("rev"),
+            AgentRef::from_tab("rev"),
             10,
         )
         .unwrap();
@@ -701,16 +867,16 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
 fn stale_review_escalation_is_idempotent() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "aging", 2);
-    dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
 
     let escalated_first = store
-        .escalate_stale_review(&plan_id, &task_id, 1000, AgentRef::from_pane("orch"), 2000)
+        .escalate_stale_review(&plan_id, &task_id, 1000, AgentRef::from_tab("orch"), 2000)
         .unwrap();
     assert!(escalated_first);
 
     let escalated_again = store
-        .escalate_stale_review(&plan_id, &task_id, 1000, AgentRef::from_pane("orch"), 2500)
+        .escalate_stale_review(&plan_id, &task_id, 1000, AgentRef::from_tab("orch"), 2500)
         .unwrap();
     assert!(
         !escalated_again,
@@ -722,7 +888,7 @@ fn stale_review_escalation_is_idempotent() {
             &plan_id,
             &task_id,
             100_000,
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             5000,
         )
         .unwrap();
@@ -771,10 +937,10 @@ fn qa_waves_group_compatible_tasks_by_shared_group() {
         )
         .unwrap();
     for t in [&a, &b] {
-        dispatch(&store, &plan_id, t, &format!("pane_{t}"), 3).unwrap();
+        dispatch(&store, &plan_id, t, &format!("tab_{t}"), 3).unwrap();
         set_status(&store, &plan_id, t, "in_review", 4).unwrap();
         store
-            .enqueue_qa(&plan_id, t, "ready", AgentRef::from_pane("orch"), 5)
+            .enqueue_qa(&plan_id, t, "ready", AgentRef::from_tab("orch"), 5)
             .unwrap();
     }
     let waves = store.qa_waves(&plan_id).unwrap();

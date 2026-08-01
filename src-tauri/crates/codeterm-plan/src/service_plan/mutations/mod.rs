@@ -160,8 +160,8 @@ fn is_terminal_task_status(status: &TaskStatus) -> bool {
 }
 
 pub(super) fn clear_task_assignment(task: &mut Task) {
-    task.assigned_pane_id = None;
-    task.lane.pane_id = None;
+    task.assigned_tab_id = None;
+    task.lane.tab_id = None;
 }
 
 fn open_subtasks(plan: &Plan, parent_task_id: &str) -> Vec<OpenSubtask> {
@@ -295,7 +295,7 @@ pub(crate) fn finalize_task_done(
     }
     task.status = TaskStatus::Done;
     crate::service_plan::qa::normalize_task_review_fields(task);
-    let assigned = task.assigned_pane_id.clone();
+    let assigned = task.assigned_tab_id.clone();
     crate::service_plan::task_attempts::mark_task_assignment_closed(
         task,
         assigned.as_deref(),
@@ -329,15 +329,15 @@ pub(super) fn validate_task_status_transition_with_lane(
     if invariants_on {
         let task = plan.tasks.iter().find(|t| t.id == task_id);
         if matches!(next, TaskStatus::InProgress) {
-            let incoming_lane_pane = lane.and_then(|update| update.pane_id.as_ref());
-            let has_pane = match incoming_lane_pane {
-                Some(pane) => pane.as_deref().is_some_and(|p| !p.trim().is_empty()),
+            let incoming_lane_tab = lane.and_then(|update| update.tab_id.as_ref());
+            let has_tab = match incoming_lane_tab {
+                Some(tab) => tab.as_deref().is_some_and(|p| !p.trim().is_empty()),
                 None => task
-                    .and_then(|t| t.assigned_pane_id.as_deref().or(t.lane.pane_id.as_deref()))
+                    .and_then(|t| t.assigned_tab_id.as_deref().or(t.lane.tab_id.as_deref()))
                     .is_some_and(|p| !p.trim().is_empty()),
             };
-            if !has_pane {
-                return Err(PlanError::InProgressRequiresPane);
+            if !has_tab {
+                return Err(PlanError::InProgressRequiresTab);
             }
             // Only fresh dispatch (claiming new capacity) is throttled; a task
             // returning to in_progress after a review bounce already holds its
@@ -386,6 +386,7 @@ pub(super) fn validate_task_status_transition_with_lane(
     Ok(())
 }
 
+pub mod agent_lifecycle;
 mod plan_ops;
 mod task_ops;
 #[cfg(test)]

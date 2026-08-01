@@ -3,7 +3,7 @@
 #
 # Root cause: allocate_server()/register_endpoint() are called ONLY from the
 # orchestrator spawn path (service/orchestrator.rs ~516, gated on
-# needs_structured_prompt_server). The direct/UI pane-creation path
+# needs_structured_prompt_server). The direct/UI tab-creation path
 # (multiplexer/commands.rs) hardcodes structured_prompt_server=None, so opencode
 # spawned via UI/CLI gets NO --port -> no SSE/structured-prompt server -> no
 # control plane and permission/questions fall back to grid parsing.
@@ -15,7 +15,7 @@
 #   (3) the server base is reachable (control plane present)
 #
 # BEFORE fix: all three FAIL (plain TUI). AFTER fix: all three PASS.
-# Pure dev API + local inspection. Disposable pane only.
+# Pure dev API + local inspection. Disposable tab only.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 source evals/_lib/lib.sh 2>/dev/null; export PATH="/usr/bin:/bin:$PATH"
@@ -28,7 +28,7 @@ ocget(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "http://127.0.0.1:7686
 
 # --via selects the spawn path under test:
 #   cli  (default) — `dc agent spawn` = the scriptable proxy for the NON-spawn_agent
-#                    paths (desktop mux_spawn_pane / CLI). This is the path that needs
+#                    paths (desktop mux_spawn_tab / CLI). This is the path that needs
 #                    the centralization fix. Currently launches WITHOUT --port.
 #   rest           — POST /api/agents/spawn = svc.spawn_agent, which ALREADY allocates
 #                    + subscribes. Green here is necessary but NOT sufficient for C8.
@@ -41,16 +41,16 @@ trap 'dc workspace close "$WS" >/dev/null 2>&1 || true' EXIT
 MARK=$(wc -l < "$LOG" 2>/dev/null || echo 0)
 PID_BEFORE=$(pgrep -x opencode | sort)
 if [ "$VIA" = rest ]; then
-  pane=$(ocpost /api/agents/spawn "$(python3 -c 'import json,sys;print(json.dumps({"agent":"opencode","workspace_id":sys.argv[1],"activate":True}))' "$WS")" | python3 -c "import sys,json;print(json.load(sys.stdin).get('pane_id',''))" 2>/dev/null)
-  echo "opencode pane=$pane (POST /api/agents/spawn = web-UI/REST path A, svc.spawn_agent)"
+  tab=$(ocpost /api/agents/spawn "$(python3 -c 'import json,sys;print(json.dumps({"agent":"opencode","workspace_id":sys.argv[1],"activate":True}))' "$WS")" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tab_id',''))" 2>/dev/null)
+  echo "opencode tab=$tab (POST /api/agents/spawn = web-UI/REST path A, svc.spawn_agent)"
 else
-  pane=$(dc agent spawn opencode --workspace "$WS" --title ocserver --json 2>&1 | python3 -c "import sys,json;print(json.load(sys.stdin).get('pane_id',''))" 2>/dev/null)
-  echo "opencode pane=$pane (dc agent spawn = CLI path C, proxy for non-spawn_agent paths)"
+  tab=$(dc agent spawn opencode --workspace "$WS" --title ocserver --json 2>&1 | python3 -c "import sys,json;print(json.load(sys.stdin).get('tab_id',''))" 2>/dev/null)
+  echo "opencode tab=$tab (dc agent spawn = CLI path C, proxy for non-spawn_agent paths)"
 fi
 python3 -c 'import time;time.sleep(9)'
 
 # Isolate the NEW opencode process spawned by THIS check (PID diff). All checks
-# read THIS pid's real state — NOT the shared dev log, which has no pane_id and is
+# read THIS pid's real state — NOT the shared dev log, which has no tab_id and is
 # contaminated by concurrent spawns (the parallel-check artifact that produced a
 # false PARTIAL: a concurrent REST spawn's --port line was mis-attributed to CLI).
 NEWPIDS=$(comm -13 <(echo "$PID_BEFORE") <(pgrep -x opencode | sort))
@@ -69,7 +69,7 @@ if [ -n "$PORT" ]; then echo "  (2) PASS: opencode pid=$OCPID listening on $PORT
 echo "== (3) control-plane reachable =="
 if [ -n "${PORT:-}" ] && curl -s --max-time 3 "http://127.0.0.1:$PORT/" >/dev/null 2>&1; then
   echo "  (3) PASS: http://127.0.0.1:$PORT reachable"; P3=1
-  echo "      base_url=http://127.0.0.1:$PORT session=$(ocget /api/panes | python3 -c "import sys,json;d=json.load(sys.stdin);print(next((p.get('agent_session_id') for p in d if p['id']=='$pane'),'?'))")"
+  echo "      base_url=http://127.0.0.1:$PORT session=$(ocget /api/tabs | python3 -c "import sys,json;d=json.load(sys.stdin);print(next((p.get('agent_session_id') for p in d if p['id']=='$tab'),'?'))")"
 else echo "  (3) FAIL: no reachable control plane"; P3=0; fi
 
 # C2 — server allocation WITHOUT a subscriber is not enough. maybe_start_subscriber()
@@ -86,10 +86,10 @@ fi
 # C8 / B-ORDER: the subscriber (P4) is only TRUSTED if the provider was actually
 # launched with --hostname/--port (P1) — a daemon→port SSE conn without a confirmed
 # launch could be a stale/wrong-port connection, not a real structured channel for
-# THIS pane. Proof order is launch(P1) -> listen(P2) -> reachable(P3) -> subscribe(P4).
+# THIS tab. Proof order is launch(P1) -> listen(P2) -> reachable(P3) -> subscribe(P4).
 echo "== RESULT (path=$VIA) =="
 if [ "${P4:-0}" = 1 ] && [ "${P1:-0}" != 1 ]; then
-  echo "B-ORDER VIOLATION: subscriber-PASS but launch had NO --hostname/--port (P1 FAIL) — SSE conn not trusted for this pane"; exit 1
+  echo "B-ORDER VIOLATION: subscriber-PASS but launch had NO --hostname/--port (P1 FAIL) — SSE conn not trusted for this tab"; exit 1
 fi
 if [ "${P1:-0}" = 1 ] && [ "${P2:-0}" = 1 ] && [ "${P3:-0}" = 1 ] && [ "${P4:-0}" = 1 ]; then
   echo "PASS [$VIA]: launched with --port (C8) AND server reachable AND subscriber active (C2) — out-of-the-box on this path"; exit 0

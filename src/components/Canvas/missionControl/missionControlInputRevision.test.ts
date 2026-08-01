@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/missionControl/missionControlInputRevision.test.ts
 
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { missionControlInputRevision } from "./missionControlInputRevision";
@@ -14,10 +14,10 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const PANE: Pane = {
-  id: "pane-a",
+const TAB: Tab = {
+  id: "tab-a",
   pty_id: "pty-a",
-  pane_type: "Terminal",
+  tab_type: "Terminal",
   title: "Worker",
   cwd: "/repo",
 };
@@ -42,21 +42,25 @@ test("revision changes when task status changes", () => {
   );
 });
 
-test("revision changes when pane title changes", () => {
+test("revision is stable for identical inputs and changes when assigned Tab presence changes", () => {
   const plan = mkPlan([
     {
       ...FIXTURE_TASK,
       id: "t1",
       status: TaskStatus.InProgress,
-      assigned_pane_id: PANE.id,
+      assigned_tab_id: TAB.id,
       milestones: [],
     },
   ]);
-  const panesA = { [PANE.id]: PANE };
-  const panesB = { [PANE.id]: { ...PANE, title: "Renamed" } };
+  const tabs = { [TAB.id]: TAB };
+  const revision = missionControlInputRevision(plan, tabs);
   assert(
-    missionControlInputRevision(plan, panesA) !== missionControlInputRevision(plan, panesB),
-    "pane title",
+    missionControlInputRevision(plan, tabs) === revision,
+    "identical inputs produce a stable revision",
+  );
+  assert(
+    missionControlInputRevision(plan, {}) !== revision,
+    "assigned Tab presence changes the revision",
   );
 });
 

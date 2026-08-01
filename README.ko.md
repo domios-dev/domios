@@ -35,7 +35,7 @@
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "다운로드": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
-     3. Rename the "내장 브라우저" section to match English `### Canvas Panels` (the feature was renamed). -->
+     3. Rename the "내장 브라우저" section to match English `### Canvas Tabls` (the feature was renamed). -->
 
 ---
 
@@ -170,15 +170,15 @@ CodeTerm은 통합을 위한 세 가지 API를 제공합니다:
 
 ```bash
 # 패널 목록
-curl http://localhost:7685/api/panes
+curl http://localhost:7685/api/tabs
 
 # 명령 실행 및 출력 받기
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # 터미널에 텍스트 보내기
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -190,10 +190,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # 부모 패널 옆의 새 패널에서 에이전트 실행
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # 실시간 출력 스트리밍 (SSE)
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### CLI 도구
@@ -206,7 +206,7 @@ codeterm workspace create "Project"
 # 터미널 제어
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # 알림
 codeterm notify "Build complete" --level info
@@ -222,7 +222,7 @@ CodeTerm은 모든 PTY 세션에서 다음을 설정합니다:
 | 변수 | 설명 |
 |----------|-------------|
 | `CODETERM` | 항상 `1` — CodeTerm 내부에서 실행 중인지 감지 |
-| `CODETERM_PANE_ID` | 현재 패널의 UUID |
+| `CODETERM_TAB_ID` | 현재 패널의 UUID |
 | `CODETERM_SOCKET_PATH` | JSON-RPC API용 소켓 경로 |
 | `TERM_PROGRAM` | `CodeTerm` |
 

@@ -2,7 +2,7 @@
   "provider": "claude",
   "situation": "prose_negative_r2",
   "capturedAtMs": 1781997273148,
-  "paneId": "a9554a01",
+  "tabId": "a9554a01",
   "source": "dev-7686",
   "until": "⏺[\\s\\S]*\\n[ ]+1\\.",
   "prompt": "Print a numbered questionnaire as plain text and tell me to answer in one line — do NOT open an interactive picker.",

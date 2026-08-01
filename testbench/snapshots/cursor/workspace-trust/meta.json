@@ -2,7 +2,7 @@
   "provider": "cursor",
   "situation": "workspace-trust",
   "capturedAtMs": 1781990806097,
-  "paneId": "8fd1197d",
+  "tabId": "8fd1197d",
   "source": "dev-7686",
   "cwd": "/tmp/cursortrustframemKA26s",
   "origin": "terminal frame reproducing live Cursor workspace trust prompt",

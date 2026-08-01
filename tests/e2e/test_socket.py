@@ -12,8 +12,8 @@ def socket_env(api) -> dict[str, str]:
     env["CODETERM_API_PORT"] = "7686"
     env["CODETERM_API_TOKEN"] = api.s.headers["Authorization"].removeprefix("Bearer ")
     env["CODETERM_SOCKET_PATH"] = r"\\.\pipe\codeterm-dev.sock" if os.name == "nt" else "codeterm-dev.sock"
-    env["CODETERM_PANE_ID"] = ""
-    env["CODETERM_PARENT_PANE_ID"] = ""
+    env["CODETERM_TAB_ID"] = ""
+    env["CODETERM_PARENT_TAB_ID"] = ""
     return env
 
 
@@ -47,7 +47,7 @@ def test_socket_eager_create_then_immediate_list_returns(api_only, tmp_path):
 
         run_socket_cli(
             [
-                "pane",
+                "tab",
                 "new",
                 "--workspace",
                 ws_id,

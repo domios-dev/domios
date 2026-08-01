@@ -5,7 +5,7 @@ use std::time::Duration;
 use chrono::Utc;
 
 use crate::bridge;
-use crate::bridge_host::{attachment_store, ServiceBridgePanePort};
+use crate::bridge_host::{attachment_store, ServiceBridgeTabPort};
 use crate::config;
 use crate::service::{self, ServiceState};
 
@@ -32,10 +32,10 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
 
     {
         let mut mux = svc.mux.write();
-        if let Some(pid) = mux.resolve_pane_id(service::general_agent::GENERAL_ALIAS) {
-            if let Some(pane) = mux.get_pane_mut(&pid) {
-                if !pane.connected_services.contains(&"telegram".to_string()) {
-                    pane.connected_services.push("telegram".to_string());
+        if let Some(pid) = mux.resolve_tab_id(service::general_agent::GENERAL_ALIAS) {
+            if let Some(tab) = mux.get_tab_mut(&pid) {
+                if !tab.connected_services.contains(&"telegram".to_string()) {
+                    tab.connected_services.push("telegram".to_string());
                 }
             }
         }
@@ -47,9 +47,9 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
         cfg.integrations.telegram_allowed_users.clone(),
         attachments,
     );
-    let pane: std::sync::Arc<dyn codeterm_bridge::ports::BridgePanePort> =
-        std::sync::Arc::new(ServiceBridgePanePort((**svc).clone()));
-    let manager = bridge::BridgeManager::new(pane);
+    let tab: std::sync::Arc<dyn codeterm_bridge::ports::BridgeTabPort> =
+        std::sync::Arc::new(ServiceBridgeTabPort((**svc).clone()));
+    let manager = bridge::BridgeManager::new(tab);
     let cancel = svc.bridge_supervisor.cancel_token();
     let status = svc.bridge_supervisor.as_status_sink();
 
@@ -66,21 +66,21 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     Ok(())
 }
 
-/// Drop the service tag from the General Agent pane's connected_services so
+/// Drop the service tag from the General Agent tab's connected_services so
 /// the frontend stops showing the integration logo. Safe to call when the
-/// pane / service tag is missing — silent no-op.
-pub fn unmark_pane_connected_service(svc: &ServiceState, service: &str) {
+/// tab / service tag is missing — silent no-op.
+pub fn unmark_tab_connected_service(svc: &ServiceState, service: &str) {
     let removed = {
         let mut mux = svc.mux.write();
-        let Some(pid) = mux.resolve_pane_id(service::general_agent::GENERAL_ALIAS) else {
+        let Some(pid) = mux.resolve_tab_id(service::general_agent::GENERAL_ALIAS) else {
             return;
         };
-        let Some(pane) = mux.get_pane_mut(&pid) else {
+        let Some(tab) = mux.get_tab_mut(&pid) else {
             return;
         };
-        let before = pane.connected_services.len();
-        pane.connected_services.retain(|s| s != service);
-        before != pane.connected_services.len()
+        let before = tab.connected_services.len();
+        tab.connected_services.retain(|s| s != service);
+        before != tab.connected_services.len()
     };
     if removed {
         svc.emit_state_changed();

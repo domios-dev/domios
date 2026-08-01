@@ -43,7 +43,7 @@ pub enum WorkspaceAction {
 }
 
 #[derive(Subcommand)]
-pub enum PaneAction {
+pub enum TabAction {
     /// List compact tab summaries in the current workspace. Use
     /// `tab inspect` for full tab details.
     ///
@@ -79,6 +79,10 @@ pub enum PaneAction {
         /// Tab title
         #[arg(long)]
         title: Option<String>,
+        /// Attach this shell to a Team as a utility terminal. The calling Tab
+        /// must already belong to that Team.
+        #[arg(long, value_name = "TEAM_ID")]
+        team: Option<String>,
         /// Spawn a shell that runs this command on start (e.g.
         /// `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be
         /// ready, so the command runs reliably even on a freshly-created tab.
@@ -119,7 +123,7 @@ pub enum PaneAction {
         title: String,
         /// Tab ID to rename (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Set a short tab description (empty clears it)
     Describe {
@@ -127,14 +131,14 @@ pub enum PaneAction {
         summary: String,
         /// Tab ID to describe (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Get visible terminal text of a tab (what the user sees)
     #[command(alias = "get_text", alias = "screen")]
     GetText {
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Include raw ANSI escape codes (colors, cursor state) instead of plain text
         #[arg(long)]
         formatted: bool,
@@ -145,7 +149,7 @@ pub enum PaneAction {
         command: String,
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Timeout in milliseconds
         #[arg(long, default_value = "10000")]
         timeout: u64,
@@ -154,7 +158,7 @@ pub enum PaneAction {
     Status {
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Fuzzy search tabs by id-prefix, tab title, friendly session name,
     /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
@@ -172,14 +176,14 @@ pub enum PaneAction {
     Stop {
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
 
     /// Read a tab's parsed chat transcript (text/thinking/tool calls/results)
     Chat {
-        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Only return messages from this index onward
         #[arg(long, default_value = "0")]
         since: usize,
@@ -188,27 +192,27 @@ pub enum PaneAction {
     /// Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file.
     Capture {
         #[command(subcommand)]
-        action: PaneCaptureAction,
+        action: TabCaptureAction,
     },
 }
 
 /// Dev-only PTY capture tap (asciicast v2). Used to build agent-state fixtures.
 #[derive(Subcommand)]
-pub enum PaneCaptureAction {
+pub enum TabCaptureAction {
     /// Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`.
     Start {
-        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Path of the `.cast` file to write.
         #[arg(long)]
         out: String,
     },
     /// Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`.
     Stop {
-        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
 }
 

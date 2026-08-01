@@ -8,7 +8,7 @@ import { ApiClient } from "../../helpers/api-client";
 
 interface StateTab {
   id: string;
-  pane_id: string;
+  tab_id: string;
   sort_order?: number;
 }
 interface StateWs {
@@ -19,7 +19,7 @@ interface StateWs {
 }
 interface MuxState {
   workspaces: StateWs[];
-  panes: Record<string, { hidden?: boolean; parent_pane_id?: string | null; protected?: boolean }>;
+  tabs: Record<string, { hidden?: boolean; parent_tab_id?: string | null; protected?: boolean }>;
 }
 
 async function muxState(api: ApiClient): Promise<MuxState> {
@@ -39,11 +39,11 @@ async function generalWorkspaceId(api: ApiClient): Promise<string> {
   return ws.id;
 }
 
-/** The General tab of a workspace — the tab whose pane is protected. */
+/** The General tab of a workspace — the tab whose tab is protected. */
 async function generalTab(api: ApiClient, wsId: string): Promise<StateTab> {
   const st = await muxState(api);
   const ws = st.workspaces.find((w) => w.id === wsId);
-  const tab = ws?.tabs.find((t) => st.panes[t.pane_id]?.protected);
+  const tab = ws?.tabs.find((t) => st.tabs[t.tab_id]?.protected);
   if (!tab) throw new Error("no protected (General) tab found");
   return tab;
 }
@@ -55,8 +55,8 @@ async function topLevelOrder(api: ApiClient, wsId: string): Promise<string[]> {
   if (!ws) return [];
   return [...ws.tabs]
     .filter((t) => {
-      const pane = st.panes[t.pane_id];
-      return pane && pane.hidden !== true && !pane.parent_pane_id;
+      const tab = st.tabs[t.tab_id];
+      return tab && tab.hidden !== true && !tab.parent_tab_id;
     })
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((t) => t.id);
@@ -94,8 +94,8 @@ async function makeWorkspace(api: ApiClient, name: string): Promise<string> {
   const ws = await api.post<{ id: string }>("/workspaces", { name, activate: true });
   return ws.id;
 }
-async function makeTab(api: ApiClient, wsId: string): Promise<{ tab_id: string; pane_id: string }> {
-  return api.post<{ tab_id: string; pane_id: string }>(`/workspaces/${wsId}/tabs`, {});
+async function makeTab(api: ApiClient, wsId: string): Promise<{ tab_id: string; tab_id: string }> {
+  return api.post<{ tab_id: string; tab_id: string }>(`/workspaces/${wsId}/tabs`, {});
 }
 
 test("@golden P1 dragging a workspace to the top cannot place it above General", async ({ api, ui }) => {

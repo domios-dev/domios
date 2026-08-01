@@ -7,11 +7,11 @@ import type { MissionAgent } from "./types";
 // mission-control-v2-mockup.html). Data is fixture-only — the live surface
 // derives the same shape from buildMissionControl + task groups.
 
-const PUCCINI: MissionAgent = { id: "pane-p", name: "Puccini", provider: "codex", state: "working" };
-const VERDI: MissionAgent = { id: "pane-v", name: "Verdi", provider: "claude", state: "working" };
-const MOZART: MissionAgent = { id: "pane-m", name: "Mozart", provider: "opencode", state: "working" };
-const BACH: MissionAgent = { id: "pane-b", name: "Bach", provider: "claude", state: "working" };
-const LISZT: MissionAgent = { id: "pane-l", name: "Liszt", provider: "codex", state: "working" };
+const PUCCINI: MissionAgent = { id: "tab-p", name: "Puccini", provider: "codex", state: "working" };
+const VERDI: MissionAgent = { id: "tab-v", name: "Verdi", provider: "claude", state: "working" };
+const MOZART: MissionAgent = { id: "tab-m", name: "Mozart", provider: "opencode", state: "working" };
+const BACH: MissionAgent = { id: "tab-b", name: "Bach", provider: "claude", state: "working" };
+const LISZT: MissionAgent = { id: "tab-l", name: "Liszt", provider: "codex", state: "working" };
 
 const FULL: FlowRiverModel = {
   planId: "pl_ux",

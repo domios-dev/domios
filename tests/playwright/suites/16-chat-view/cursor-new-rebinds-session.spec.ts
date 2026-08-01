@@ -57,7 +57,7 @@ function assistantJsonl(text: string): string {
 
 test(
   "@live cursor /new re-binds chat to the new session",
-  async ({ api, ui, paneCleanup }) => {
+  async ({ api, ui, tabCleanup }) => {
     test.skip(!existsSync(CURSOR_AGENT_BIN), "cursor-agent not installed on this machine");
 
     const nowMs = Date.now();
@@ -75,21 +75,21 @@ test(
 
     await ui.reconnect();
 
-    const spawned = await api.post<{ pane_id: string; tab_id?: string }>("/agents/spawn", {
+    const spawned = await api.post<{ tab_id: string; tab_id?: string }>("/agents/spawn", {
       agent: "cursor",
       cwd: testCwd,
       title: `pw-cursor-new-${nowMs}`,
       skip_permissions: true,
     });
-    paneCleanup.track(spawned.pane_id);
-    const paneId = spawned.pane_id;
+    tabCleanup.track(spawned.tab_id);
+    const tabId = spawned.tab_id;
 
     const tick = setInterval(async () => {
       await api
-        .post(`/panes/${paneId}/send`, { text: "x", enter: false, raw: true })
+        .post(`/tabs/${tabId}/send`, { text: "x", enter: false, raw: true })
         .catch(() => {});
       await api
-        .post(`/panes/${paneId}/send`, {
+        .post(`/tabs/${tabId}/send`, {
           actions: [{ type: "key", key: "backspace" }],
           enter: false,
           raw: true,
@@ -101,10 +101,10 @@ test(
       for (let i = 0; i < 120; i++) {
         // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 30s budget.
         await ui.page.waitForTimeout(250);
-        const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
-        const pane = panes.find((p) => p.id === paneId);
-        if (pane?.agent_session_id) {
-          session1 = pane.agent_session_id;
+        const tabs = await api.get<{ id: string; agent_session_id?: string | null }[]>("/tabs");
+        const tab = tabs.find((p) => p.id === tabId);
+        if (tab?.agent_session_id) {
+          session1 = tab.agent_session_id;
           break;
         }
       }
@@ -121,8 +121,8 @@ test(
       mkdirSync(path.dirname(jp1), { recursive: true });
       writeFileSync(jp1, assistantJsonl(REPLY_1), "utf8");
 
-      await api.post(`/panes/${paneId}/chat-view`, { enabled: true });
-      await api.focusPane(paneId);
+      await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
+      await api.focusTab(tabId);
       await ui.page.reload({ waitUntil: "domcontentloaded" });
       await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 
@@ -135,7 +135,7 @@ test(
       }
 
       const chat = ui.page.locator(
-        `[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`,
+        `[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`,
       );
       await expect(chat).toBeVisible({ timeout: 30_000 });
 
@@ -158,10 +158,10 @@ test(
       for (let i = 0; i < 160; i++) {
         // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 40s budget.
         await ui.page.waitForTimeout(250);
-        const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
-        const pane = panes.find((p) => p.id === paneId);
-        if (pane?.agent_session_id && pane.agent_session_id !== session1) {
-          reboundSession = pane.agent_session_id;
+        const tabs = await api.get<{ id: string; agent_session_id?: string | null }[]>("/tabs");
+        const tab = tabs.find((p) => p.id === tabId);
+        if (tab?.agent_session_id && tab.agent_session_id !== session1) {
+          reboundSession = tab.agent_session_id;
           break;
         }
       }

@@ -82,12 +82,19 @@ fn print_plan_body(val: &Value) {
         }
         if let Some(tasks) = val.get("tasks").and_then(|v| v.as_array()) {
             if tasks.is_empty() {
-                println!("(no tasks)");
+                if let Some(message) = val.get("task_list_message").and_then(Value::as_str) {
+                    println!("{message}");
+                } else {
+                    println!("(no tasks)");
+                }
             } else {
                 print!(
                     "{}",
                     crate::cmd::task_list_render::render_simple_task_list(tasks)
                 );
+            }
+            if let Some(summary) = val.get("task_list_summary").and_then(Value::as_str) {
+                println!("{summary}");
             }
             return;
         }
@@ -121,10 +128,23 @@ pub(crate) fn print_plan_result(json: bool, val: &Value) {
     } else {
         print_plan_body(val);
     }
+    if let Some(warning) = render_strategy_warning(val) {
+        println!("{warning}");
+    }
     print_hints_stderr(&hints);
     if let Some(nudge) = val.get("_planner_nudge").and_then(|v| v.as_str()) {
         eprintln!("{nudge}");
     }
+}
+
+fn render_strategy_warning(val: &Value) -> Option<String> {
+    let warning = val.get("strategy_warning")?;
+    let consecutive = warning.get("consecutive_bounces")?.as_u64()?;
+    let round = warning.get("review_round")?.as_u64()?;
+    let message = warning.get("message")?.as_str()?;
+    Some(format!(
+        "Strategy warning ({consecutive} consecutive stagnant bounces, review round {round}): {message}"
+    ))
 }
 
 /// With --json, callers pipe stdout into a JSON parser — an error must stay
@@ -254,5 +274,29 @@ mod tests {
     fn list_responses_have_no_canonical_mutation_id() {
         let val = json!({ "plans": [{ "plan_id": "pl_1", "title": "One" }] });
         assert!(canonical_mutation_id(&val).is_none());
+    }
+
+    #[test]
+    fn strategy_warning_plain_text_names_count_round_and_recovery() {
+        let val = json!({
+            "task_id": "task_1",
+            "strategy_warning": {
+                "consecutive_bounces": 3,
+                "review_round": 4,
+                "message": "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`."
+            }
+        });
+        let rendered = render_strategy_warning(&val).unwrap();
+        assert!(rendered.contains("3 consecutive stagnant bounces"));
+        assert!(rendered.contains("review round 4"));
+        assert!(rendered.contains("codeterm docs BOUNCE"));
+    }
+
+    #[test]
+    fn absent_strategy_warning_stays_silent() {
+        assert_eq!(
+            render_strategy_warning(&json!({ "task_id": "task_1" })),
+            None
+        );
     }
 }

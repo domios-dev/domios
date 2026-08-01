@@ -173,13 +173,13 @@ fn sanitize_remote_context(params: &mut Option<serde_json::Value>) {
     let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) else {
         return;
     };
-    object.remove("caller_pane_id");
+    object.remove("caller_tab_id");
     for key in ["owner", "from"] {
         if let Some(identity) = object
             .get_mut(key)
             .and_then(serde_json::Value::as_object_mut)
         {
-            identity.remove("pane_id");
+            identity.remove("tab_id");
             identity.remove("session_id");
             identity.remove("title");
         }
@@ -202,7 +202,7 @@ mod tests {
             assert!(method_allowed(method), "{method}");
         }
         for method in [
-            "pane.send_text",
+            "tab.send_text",
             "system.identify",
             "plugin.exec",
             "cron.list",
@@ -227,16 +227,16 @@ mod tests {
     }
 
     #[test]
-    fn remote_context_cannot_claim_a_local_pane() {
+    fn remote_context_cannot_claim_a_local_tab() {
         let mut params = Some(serde_json::json!({
-            "caller_pane_id": "foreign-pane",
-            "owner": {"pane_id": "foreign-pane", "session_id": "foreign-session"},
+            "caller_tab_id": "foreign-tab",
+            "owner": {"tab_id": "foreign-tab", "session_id": "foreign-session"},
             "body": "kept",
         }));
         sanitize_remote_context(&mut params);
         let params = params.unwrap();
-        assert!(params.get("caller_pane_id").is_none());
-        assert!(params["owner"].get("pane_id").is_none());
+        assert!(params.get("caller_tab_id").is_none());
+        assert!(params["owner"].get("tab_id").is_none());
         assert_eq!(params["body"], "kept");
     }
 }

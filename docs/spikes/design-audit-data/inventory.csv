@@ -15,12 +15,12 @@ AgentRun,src/components/AgentRun/EventRenderer.tsx,170,button,"""bg-transparent 
 AgentRun,src/components/AgentRun/EventRenderer.tsx,209,button,"""bg-transparent border-0 text-left cursor-pointer flex items-start gap-1.5 p-0 w-full""",b,yes
 AgentRun,src/components/AgentRun/RunChatPopup.tsx,118,button,"""bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-sm px-1 hover:text-[var(--ct-fg)]""",b,
 Canvas,src/components/Canvas/CanvasButton.tsx,11,button,"{`${UI_TRAY_BTN} ${active ? ""text-[var(--ct-accent)]"" : """"}`}",a,
-Canvas,src/components/Canvas/CanvasDebugPanel.tsx,101,button,,b,yes
-Canvas,src/components/Canvas/CanvasDebugPanel.tsx,127,select,,b,yes
-Canvas,src/components/Canvas/CanvasDebugPanel.tsx,154,input,,c-native,
-Canvas,src/components/Canvas/CanvasDebugPanel.tsx,166,input,,b,
-Canvas,src/components/Canvas/CanvasDebugPanel.tsx,186,button,,b,yes
-Canvas,src/components/Canvas/CanvasDebugPanel.tsx,202,button,,b,yes
+Canvas,src/components/Canvas/CanvasDebugTabl.tsx,101,button,,b,yes
+Canvas,src/components/Canvas/CanvasDebugTabl.tsx,127,select,,b,yes
+Canvas,src/components/Canvas/CanvasDebugTabl.tsx,154,input,,c-native,
+Canvas,src/components/Canvas/CanvasDebugTabl.tsx,166,input,,b,
+Canvas,src/components/Canvas/CanvasDebugTabl.tsx,186,button,,b,yes
+Canvas,src/components/Canvas/CanvasDebugTabl.tsx,202,button,,b,yes
 Canvas,src/components/Canvas/CanvasEmptyActions.tsx,38,button,"""inline-flex items-center gap-2 rounded border px-4 py-2 text-sm cursor-pointer disabled:opacity-50""",b,yes
 Canvas,src/components/Canvas/CanvasPresenceLayer.tsx,78,button,,b,yes
 Canvas,src/components/Canvas/CanvasSwarmCluster.tsx,49,button,,b,yes
@@ -52,7 +52,7 @@ Canvas/missionControl,src/components/Canvas/missionControl/MissionControlLiveVie
 Canvas/missionControl,src/components/Canvas/missionControl/MissionControlPrototype.tsx,31,button,"""mc-pill""",b,
 Canvas/missionControl,src/components/Canvas/missionControl/MissionControlPrototype.tsx,46,button,"""mc-pill""",b,
 Canvas/planView,src/components/Canvas/planView/ActiveWorkStrip.tsx,24,button,"{`active-work-strip-row${entry.stale ? "" active-work-strip-row-stale"" : """"}`}",b,
-Canvas/planView,src/components/Canvas/planView/CancelledTasksPanel.tsx,18,button,"""plan-cancelled-task-row plan-task-selectable""",b,
+Canvas/planView,src/components/Canvas/planView/CancelledTasksTabl.tsx,18,button,"""plan-cancelled-task-row plan-task-selectable""",b,
 Canvas/planView,src/components/Canvas/planView/PlanBoardView.tsx,108,button,"""plan-board-done-toggle""",b,
 Canvas/planView,src/components/Canvas/planView/PlanBoardView.tsx,118,button,"""plan-board-done-toggle""",b,
 Canvas/planView,src/components/Canvas/planView/PlanBoardView.tsx,182,button,"""plan-board-cancelled-note plan-board-cancelled-trigger""",b,
@@ -129,13 +129,13 @@ Extensions,src/components/Extensions/GlancePopover.tsx,132,button,,b,yes
 Extensions,src/components/Extensions/InstallGrantDialog.tsx,157,button,,b,yes
 Extensions,src/components/Extensions/InstallGrantDialog.tsx,172,button,,b,yes
 Extensions,src/components/Extensions/PluginBubbles.tsx,123,button,,b,yes
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,121,button,,b,yes
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,133,button,,b,yes
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,173,input,,c-native,
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,182,button,,b,yes
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,193,button,,b,yes
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,231,button,,b,yes
-Extensions,src/components/Extensions/PluginDetailPanel.tsx,251,button,,b,yes
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,121,button,,b,yes
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,133,button,,b,yes
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,173,input,,c-native,
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,182,button,,b,yes
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,193,button,,b,yes
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,231,button,,b,yes
+Extensions,src/components/Extensions/PluginDetailTabl.tsx,251,button,,b,yes
 Extensions,src/components/Extensions/PluginList.tsx,77,input,,b,yes
 Extensions,src/components/Extensions/PluginList.tsx,97,button,,b,yes
 Extensions,src/components/Extensions/PluginList.tsx,132,button,,b,yes
@@ -157,133 +157,133 @@ Extensions,src/components/Extensions/ViewNodeRenderer.tsx,142,button,,b,yes
 FloatingInput,src/components/FloatingInput/FloatingInput.tsx,105,button,"""absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md transition-colors z-10""",b,yes
 FloatingInput,src/components/FloatingInput/FloatingInput.tsx,125,textarea,"""w-full bg-transparent text-xs outline-none resize-none leading-relaxed px-3 py-2""",b,yes
 FloatingInput,src/components/FloatingInput/FloatingInput.tsx,144,button,"""flex items-center gap-2 rounded-xl shadow-lg transition-all hover:brightness-125 px-3 py-1.5 backdrop-blur-md""",b,yes
-MemoryPanel,src/components/MemoryPanel/DreamCard.tsx,259,button,"""h-7 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[10px] uppercase tracking-wider""",b,yes
-MemoryPanel,src/components/MemoryPanel/DreamCard.tsx,270,button,"""w-7 h-7 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer""",b,yes
-MemoryPanel,src/components/MemoryPanel/DreamCard.tsx,302,button,"""flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] bg-transparent border-0 cursor-pointer hover:opacity-100""",b,yes
-MemoryPanel,src/components/MemoryPanel/DreamCard.tsx,353,button,"""ml-auto h-6 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[9px] uppercase tracking-[0.2em]""",b,yes
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,169,select,"""bg-transparent border border-[var(--ct-border)] rounded px-2 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer ml-2""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,183,button,"""text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer bg-transparent border-0""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,195,input,"""w-3 h-3""",c-native,
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,209,button,"""px-3 py-1 rounded-full bg-[var(--ct-accent)] text-white text-[10px] cursor-pointer shadow-lg border-0""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,305,button,"""ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] border border-[var(--ct-border)] hover:border-[var(--ct-fg)] bg",b,
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,314,button,"""px-1.5 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-0 cursor-pointer""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryActivityTab.tsx,433,button,"""text-[10px] px-1 text-[var(--ct-muted-fg)] hover:text-[#f87171] bg-transparent border-0 cursor-pointer""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryDreamsTab.tsx,273,button,"""inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[var(--ct-bg)]/40 border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)] transition-colors""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryDreamsTab.tsx,292,button,"""flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transpar",b,yes
-MemoryPanel,src/components/MemoryPanel/MemoryDreamsTab.tsx,331,button,"""w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transpare",b,
-MemoryPanel,src/components/MemoryPanel/MemoryDreamsTab.tsx,339,button,"""w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transpare",b,
-MemoryPanel,src/components/MemoryPanel/MemoryDreamsTab.tsx,521,button,"""text-[10px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] mt-2 cursor-pointer bg-transparent border-0""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,134,button,"""bg-[var(--ct-accent)] text-white border-0 px-3 py-1 rounded text-[11px] cursor-pointer disabled:opacity-50""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,143,button,"""bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-sm px-1 hover:text-[var(--ct-fg)]""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,170,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,182,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,192,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,205,textarea,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-2 text-[11px] text-[var(--ct-fg)] font-mono leading-relaxed focus:border-[var(--ct-accent)] focus:outline",b,yes
-MemoryPanel,src/components/MemoryPanel/MemoryItemEditor.tsx,220,button,"""ml-auto bg-transparent border border-[#ef4444] text-[#ef4444] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[#ef444422]""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryListTab.tsx,129,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded pl-7 pr-2.5 py-1.5 text-xs text-[var(--ct-fg)] placeholder:text-[var(--ct-muted-fg)] focus:outline-none focus:bor",b,
-MemoryPanel,src/components/MemoryPanel/MemoryListTab.tsx,139,select,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1.5 text-xs text-[var(--ct-fg)] cursor-pointer""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryListTab.tsx,158,button,"{`px-2 py-0.5 rounded-full text-[10px] flex items-center gap-1 select-none cursor-pointer border ${active ? ""font-semibold"" : ""text-[var(--ct-muted-fg)] border-[var(--ct-border)] h",b,yes
-MemoryPanel,src/components/MemoryPanel/MemoryListTab.tsx,171,select,"""ml-1 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,206,button,"""absolute top-3 right-0 z-10 px-1.5 py-2 rounded-l bg-[var(--ct-surface)] border border-r-0 border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-poi",b,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,235,input,{`${inputClass} text-sm font-semibold`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,244,button,{`${btnClass} !px-2 !py-0.5 !text-base leading-none`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,270,textarea,{`${inputClass} resize-y`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,287,textarea,{`${inputClass} resize-y font-mono`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,307,input,{inputClass},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,321,input,"""w-full""",c-native,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,344,button,"""bg-transparent border-0 text-inherit p-0 text-xs leading-none cursor-pointer""",b,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,356,input,{`${inputClass} !w-[100px] !text-[10px]`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,379,button,{`${rowButtonClass} cursor-pointer`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,444,button,{`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,447,button,{btnClass},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,453,button,{btnClass},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,456,button,{`${btnClass} !text-[#ef4444] !border-[#ef4444]`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryNodeDetail.tsx,463,button,{btnClass},a,
-MemoryPanel,src/components/MemoryPanel/MemoryPanel.tsx,166,button,"{tabClass(activeTab === tab, touchUi)}",b,
-MemoryPanel,src/components/MemoryPanel/MemoryPanel.tsx,232,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`},a,
-MemoryPanel,src/components/MemoryPanel/MemoryPanel.tsx,243,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`},a,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,197,select,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,214,select,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,221,input,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,233,button,"""text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80""",b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,243,button,"""text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80 disabled:opacity-50""",b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,278,input,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,295,input,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,324,select,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,337,input,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySettingsTab.tsx,394,input,{inputClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySpawnWorkerDialog.tsx,84,input,{fieldClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySpawnWorkerDialog.tsx,95,textarea,{`${fieldClass} resize-y min-h-[120px]`},b,
-MemoryPanel,src/components/MemoryPanel/MemorySpawnWorkerDialog.tsx,106,select,{fieldClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySpawnWorkerDialog.tsx,121,input,{fieldClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySpawnWorkerDialog.tsx,129,button,{btnClass},b,
-MemoryPanel,src/components/MemoryPanel/MemorySpawnWorkerDialog.tsx,132,button,{`${btnClass} !bg-[var(--ct-accent)] !border-[var(--ct-accent)] !text-white`},b,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,151,button,{`${UI_BUTTON.primary} ${UI_BUTTON.compact} flex-shrink-0`},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,182,button,{`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opacity-40`},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,224,input,{`${UI_INPUT.mono} flex-1 bg-[var(--ct-titlebar-bg)]`},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,233,button,{PRIMARY_BTN_CLASS},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,239,button,{ACTION_BTN_CLASS},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,248,button,{`${UI_BUTTON.accent} ${UI_BUTTON.compact}`},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,293,button,{`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,300,button,{`${ACTION_BTN_CLASS} disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/AddPeerPanel.tsx,363,button,{`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50 flex-shrink-0`},a,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,116,button,"""px-4 py-2 bg-[var(--ct-accent)] text-[var(--ct-bg)] rounded text-xs font-medium cursor-pointer border-none""",b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,145,input,{INPUT},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,155,select,{INPUT},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,171,input,{`${INPUT_MONO} flex-1`},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,180,button,"""px-3 py-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded text-xs text-[var(--ct-fg)] cursor-pointer disabled:opacity-40 whitespace-nowrap""",b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,195,input,{INPUT_MONO},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,208,input,{INPUT_MONO},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,216,input,{INPUT_MONO},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,229,input,{INPUT_MONO},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,240,input,{INPUT_MONO},b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,250,input,,c-native,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,265,button,"""px-4 py-2 bg-transparent text-[var(--ct-muted)] rounded text-xs cursor-pointer border-none""",b,
-MeshPanel,src/components/MeshPanel/AddServiceWizard.tsx,271,button,"""px-4 py-2 bg-[var(--ct-accent)] text-[var(--ct-bg)] rounded text-xs font-medium cursor-pointer disabled:opacity-50 border-none""",b,
-MeshPanel,src/components/MeshPanel/BroadcastToggle.tsx,70,button,"{`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border cursor-pointer transition-all disabled:opacity-50 ${           active             ? ""border-[var(--ct-accent",b,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,110,input,{scheduleInputClass},a,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,116,button,{`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,123,button,{scheduleBtnClass},a,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,138,button,{`${UI_BUTTON.base} ${UI_BUTTON.compact} text-[var(--ct-muted)] border-none`},a,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,158,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,166,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/CronDrawerSection.tsx,198,button,"{`flex items-center gap-2 text-[10px] bg-transparent border-0 p-0 text-left ${inspectable ? ""cursor-pointer hover:brightness-125"" : ""cursor-default opacity-80""}`}",b,
-MeshPanel,src/components/MeshPanel/CronsTable.tsx,59,select,{SELECT_CLASS},b,
-MeshPanel,src/components/MeshPanel/MeshCanvas.tsx,220,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2.5 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px] uppercase tracking-wide""",b,
-MeshPanel,src/components/MeshPanel/MeshCanvas.tsx,231,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]""",b,
-MeshPanel,src/components/MeshPanel/MeshCanvas.tsx,238,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]""",b,
-MeshPanel,src/components/MeshPanel/MeshCanvas.tsx,245,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px]""",b,
-MeshPanel,src/components/MeshPanel/MeshCanvas.tsx,324,button,"""w-[260px] py-6 rounded-xl border-2 border-dashed border-[var(--ct-border)] bg-transparent text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-fg)] flex ",b,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,74,button,{`${DRAWER_BTN} flex-1 justify-start`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,78,button,{`${DRAWER_BTN} flex-1 justify-start`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,279,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.icon} shrink-0`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,314,input,{`${UI_INPUT.base} ${UI_INPUT.compact} ct-text-mono min-w-0 flex-1`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,323,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.icon} shrink-0`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,356,button,{`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5 disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,369,button,{`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,381,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.sm} w-full gap-1.5`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,398,button,{`${UI_TEXT.metaMuted} flex items-center gap-1 hover:text-[var(--ct-fg)]`},b,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,418,button,{`${UI_BUTTON.accent} ${UI_BUTTON.lg} gap-1.5`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,427,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 disabled:opacity-40`},a,
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,564,button,"{`flex ${touchUi ? ""h-9 w-9"" : ""h-7 w-7""} shrink-0 items-center justify-center p-0 text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] ",b,yes
-MeshPanel,src/components/MeshPanel/MeshPanel.tsx,575,button,"{tabClass(activeTab === tab, touchUi)}",b,
-MeshPanel,src/components/MeshPanel/NetworkTab.tsx,65,button,"""text-[10px] uppercase tracking-wider px-2.5 py-1 rounded border border-[var(--ct-red)]/30 text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:border-[var(--ct-red)] hover:bg-",b,
-MeshPanel,src/components/MeshPanel/NetworkTab.tsx,111,button,"""text-[10px] px-2 py-1 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors flex-shrink-0""",b,
-MeshPanel,src/components/MeshPanel/PeerTerminal.tsx,78,button,"""absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-4 py-2 rounded-full bg-[var(--ct-green,#22c55e)] text-white text-[12px] font-semibold uppercase tracking-wider ",b,yes
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,163,button,{CLOSE_BUTTON_CLASS},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,208,select,{sectionSelectClass},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,247,button,{`${peerActionBtnClass} text-[var(--ct-accent)] border-dashed border-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/10`},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,255,button,{`${peerActionBtnClass} flex-1 disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,263,button,{`${peerActionDangerClass} flex-1 disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,357,button,{CLOSE_BUTTON_CLASS},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,485,button,{`${serviceActionBtnClass} flex-1 disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/ServiceDrawer.tsx,500,button,{`${serviceActionDangerClass} disabled:opacity-50`},a,
-MeshPanel,src/components/MeshPanel/ServicesTable.tsx,75,select,{SELECT_CLASS},b,
-MeshPanel,src/components/MeshPanel/ServicesTable.tsx,87,select,{SELECT_CLASS},b,
+MemoryTabl,src/components/MemoryTabl/DreamCard.tsx,259,button,"""h-7 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[10px] uppercase tracking-wider""",b,yes
+MemoryTabl,src/components/MemoryTabl/DreamCard.tsx,270,button,"""w-7 h-7 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer""",b,yes
+MemoryTabl,src/components/MemoryTabl/DreamCard.tsx,302,button,"""flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] bg-transparent border-0 cursor-pointer hover:opacity-100""",b,yes
+MemoryTabl,src/components/MemoryTabl/DreamCard.tsx,353,button,"""ml-auto h-6 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[9px] uppercase tracking-[0.2em]""",b,yes
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,169,select,"""bg-transparent border border-[var(--ct-border)] rounded px-2 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer ml-2""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,183,button,"""text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer bg-transparent border-0""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,195,input,"""w-3 h-3""",c-native,
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,209,button,"""px-3 py-1 rounded-full bg-[var(--ct-accent)] text-white text-[10px] cursor-pointer shadow-lg border-0""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,305,button,"""ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] border border-[var(--ct-border)] hover:border-[var(--ct-fg)] bg",b,
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,314,button,"""px-1.5 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-0 cursor-pointer""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryActivityTab.tsx,433,button,"""text-[10px] px-1 text-[var(--ct-muted-fg)] hover:text-[#f87171] bg-transparent border-0 cursor-pointer""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryDreamsTab.tsx,273,button,"""inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[var(--ct-bg)]/40 border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)] transition-colors""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryDreamsTab.tsx,292,button,"""flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transpar",b,yes
+MemoryTabl,src/components/MemoryTabl/MemoryDreamsTab.tsx,331,button,"""w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transpare",b,
+MemoryTabl,src/components/MemoryTabl/MemoryDreamsTab.tsx,339,button,"""w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transpare",b,
+MemoryTabl,src/components/MemoryTabl/MemoryDreamsTab.tsx,521,button,"""text-[10px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] mt-2 cursor-pointer bg-transparent border-0""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,134,button,"""bg-[var(--ct-accent)] text-white border-0 px-3 py-1 rounded text-[11px] cursor-pointer disabled:opacity-50""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,143,button,"""bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-sm px-1 hover:text-[var(--ct-fg)]""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,170,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,182,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,192,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,205,textarea,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-2 text-[11px] text-[var(--ct-fg)] font-mono leading-relaxed focus:border-[var(--ct-accent)] focus:outline",b,yes
+MemoryTabl,src/components/MemoryTabl/MemoryItemEditor.tsx,220,button,"""ml-auto bg-transparent border border-[#ef4444] text-[#ef4444] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[#ef444422]""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryListTab.tsx,129,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded pl-7 pr-2.5 py-1.5 text-xs text-[var(--ct-fg)] placeholder:text-[var(--ct-muted-fg)] focus:outline-none focus:bor",b,
+MemoryTabl,src/components/MemoryTabl/MemoryListTab.tsx,139,select,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1.5 text-xs text-[var(--ct-fg)] cursor-pointer""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryListTab.tsx,158,button,"{`px-2 py-0.5 rounded-full text-[10px] flex items-center gap-1 select-none cursor-pointer border ${active ? ""font-semibold"" : ""text-[var(--ct-muted-fg)] border-[var(--ct-border)] h",b,yes
+MemoryTabl,src/components/MemoryTabl/MemoryListTab.tsx,171,select,"""ml-1 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,206,button,"""absolute top-3 right-0 z-10 px-1.5 py-2 rounded-l bg-[var(--ct-surface)] border border-r-0 border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-poi",b,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,235,input,{`${inputClass} text-sm font-semibold`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,244,button,{`${btnClass} !px-2 !py-0.5 !text-base leading-none`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,270,textarea,{`${inputClass} resize-y`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,287,textarea,{`${inputClass} resize-y font-mono`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,307,input,{inputClass},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,321,input,"""w-full""",c-native,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,344,button,"""bg-transparent border-0 text-inherit p-0 text-xs leading-none cursor-pointer""",b,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,356,input,{`${inputClass} !w-[100px] !text-[10px]`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,379,button,{`${rowButtonClass} cursor-pointer`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,444,button,{`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,447,button,{btnClass},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,453,button,{btnClass},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,456,button,{`${btnClass} !text-[#ef4444] !border-[#ef4444]`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryNodeDetail.tsx,463,button,{btnClass},a,
+MemoryTabl,src/components/MemoryTabl/MemoryTabl.tsx,166,button,"{tabClass(activeTab === tab, touchUi)}",b,
+MemoryTabl,src/components/MemoryTabl/MemoryTabl.tsx,232,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`},a,
+MemoryTabl,src/components/MemoryTabl/MemoryTabl.tsx,243,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`},a,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,197,select,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,214,select,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,221,input,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,233,button,"""text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80""",b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,243,button,"""text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80 disabled:opacity-50""",b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,278,input,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,295,input,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,324,select,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,337,input,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySettingsTab.tsx,394,input,{inputClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySpawnWorkerDialog.tsx,84,input,{fieldClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySpawnWorkerDialog.tsx,95,textarea,{`${fieldClass} resize-y min-h-[120px]`},b,
+MemoryTabl,src/components/MemoryTabl/MemorySpawnWorkerDialog.tsx,106,select,{fieldClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySpawnWorkerDialog.tsx,121,input,{fieldClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySpawnWorkerDialog.tsx,129,button,{btnClass},b,
+MemoryTabl,src/components/MemoryTabl/MemorySpawnWorkerDialog.tsx,132,button,{`${btnClass} !bg-[var(--ct-accent)] !border-[var(--ct-accent)] !text-white`},b,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,151,button,{`${UI_BUTTON.primary} ${UI_BUTTON.compact} flex-shrink-0`},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,182,button,{`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opacity-40`},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,224,input,{`${UI_INPUT.mono} flex-1 bg-[var(--ct-titlebar-bg)]`},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,233,button,{PRIMARY_BTN_CLASS},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,239,button,{ACTION_BTN_CLASS},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,248,button,{`${UI_BUTTON.accent} ${UI_BUTTON.compact}`},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,293,button,{`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,300,button,{`${ACTION_BTN_CLASS} disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/AddPeerTabl.tsx,363,button,{`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50 flex-shrink-0`},a,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,116,button,"""px-4 py-2 bg-[var(--ct-accent)] text-[var(--ct-bg)] rounded text-xs font-medium cursor-pointer border-none""",b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,145,input,{INPUT},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,155,select,{INPUT},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,171,input,{`${INPUT_MONO} flex-1`},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,180,button,"""px-3 py-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded text-xs text-[var(--ct-fg)] cursor-pointer disabled:opacity-40 whitespace-nowrap""",b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,195,input,{INPUT_MONO},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,208,input,{INPUT_MONO},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,216,input,{INPUT_MONO},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,229,input,{INPUT_MONO},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,240,input,{INPUT_MONO},b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,250,input,,c-native,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,265,button,"""px-4 py-2 bg-transparent text-[var(--ct-muted)] rounded text-xs cursor-pointer border-none""",b,
+MeshTabl,src/components/MeshTabl/AddServiceWizard.tsx,271,button,"""px-4 py-2 bg-[var(--ct-accent)] text-[var(--ct-bg)] rounded text-xs font-medium cursor-pointer disabled:opacity-50 border-none""",b,
+MeshTabl,src/components/MeshTabl/BroadcastToggle.tsx,70,button,"{`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border cursor-pointer transition-all disabled:opacity-50 ${           active             ? ""border-[var(--ct-accent",b,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,110,input,{scheduleInputClass},a,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,116,button,{`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,123,button,{scheduleBtnClass},a,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,138,button,{`${UI_BUTTON.base} ${UI_BUTTON.compact} text-[var(--ct-muted)] border-none`},a,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,158,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,166,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/CronDrawerSection.tsx,198,button,"{`flex items-center gap-2 text-[10px] bg-transparent border-0 p-0 text-left ${inspectable ? ""cursor-pointer hover:brightness-125"" : ""cursor-default opacity-80""}`}",b,
+MeshTabl,src/components/MeshTabl/CronsTable.tsx,59,select,{SELECT_CLASS},b,
+MeshTabl,src/components/MeshTabl/MeshCanvas.tsx,220,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2.5 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px] uppercase tracking-wide""",b,
+MeshTabl,src/components/MeshTabl/MeshCanvas.tsx,231,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]""",b,
+MeshTabl,src/components/MeshTabl/MeshCanvas.tsx,238,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]""",b,
+MeshTabl,src/components/MeshTabl/MeshCanvas.tsx,245,button,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px]""",b,
+MeshTabl,src/components/MeshTabl/MeshCanvas.tsx,324,button,"""w-[260px] py-6 rounded-xl border-2 border-dashed border-[var(--ct-border)] bg-transparent text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-fg)] flex ",b,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,74,button,{`${DRAWER_BTN} flex-1 justify-start`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,78,button,{`${DRAWER_BTN} flex-1 justify-start`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,279,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.icon} shrink-0`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,314,input,{`${UI_INPUT.base} ${UI_INPUT.compact} ct-text-mono min-w-0 flex-1`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,323,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.icon} shrink-0`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,356,button,{`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5 disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,369,button,{`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,381,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.sm} w-full gap-1.5`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,398,button,{`${UI_TEXT.metaMuted} flex items-center gap-1 hover:text-[var(--ct-fg)]`},b,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,418,button,{`${UI_BUTTON.accent} ${UI_BUTTON.lg} gap-1.5`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,427,button,{`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 disabled:opacity-40`},a,
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,564,button,"{`flex ${touchUi ? ""h-9 w-9"" : ""h-7 w-7""} shrink-0 items-center justify-center p-0 text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] ",b,yes
+MeshTabl,src/components/MeshTabl/MeshTabl.tsx,575,button,"{tabClass(activeTab === tab, touchUi)}",b,
+MeshTabl,src/components/MeshTabl/NetworkTab.tsx,65,button,"""text-[10px] uppercase tracking-wider px-2.5 py-1 rounded border border-[var(--ct-red)]/30 text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:border-[var(--ct-red)] hover:bg-",b,
+MeshTabl,src/components/MeshTabl/NetworkTab.tsx,111,button,"""text-[10px] px-2 py-1 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors flex-shrink-0""",b,
+MeshTabl,src/components/MeshTabl/PeerTerminal.tsx,78,button,"""absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-4 py-2 rounded-full bg-[var(--ct-green,#22c55e)] text-white text-[12px] font-semibold uppercase tracking-wider ",b,yes
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,163,button,{CLOSE_BUTTON_CLASS},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,208,select,{sectionSelectClass},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,247,button,{`${peerActionBtnClass} text-[var(--ct-accent)] border-dashed border-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/10`},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,255,button,{`${peerActionBtnClass} flex-1 disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,263,button,{`${peerActionDangerClass} flex-1 disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,357,button,{CLOSE_BUTTON_CLASS},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,485,button,{`${serviceActionBtnClass} flex-1 disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/ServiceDrawer.tsx,500,button,{`${serviceActionDangerClass} disabled:opacity-50`},a,
+MeshTabl,src/components/MeshTabl/ServicesTable.tsx,75,select,{SELECT_CLASS},b,
+MeshTabl,src/components/MeshTabl/ServicesTable.tsx,87,select,{SELECT_CLASS},b,
 Navigation,src/components/Navigation/NavigationBackBar.tsx,26,button,"""fixed top-11 left-1/2 -translate-x-1/2 z-[1100] flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs cursor-pointer bg-[var(--ct-surface)] border border-[var(--ct-border)]",b,
-Notifications,src/components/Notifications/NotificationPanel.tsx,51,button,"{`${headerBtnClass} border-[color-mix(in srgb, var(--ct-accent) 35%, var(--ct-border) 65%)]`}",a,
-Notifications,src/components/Notifications/NotificationPanel.tsx,58,button,{headerActionClass},a,
-Notifications,src/components/Notifications/NotificationPanel.tsx,65,button,"""ct-btn ct-btn-ghost w-7 h-7""",a,
+Notifications,src/components/Notifications/NotificationTabl.tsx,51,button,"{`${headerBtnClass} border-[color-mix(in srgb, var(--ct-accent) 35%, var(--ct-border) 65%)]`}",a,
+Notifications,src/components/Notifications/NotificationTabl.tsx,58,button,{headerActionClass},a,
+Notifications,src/components/Notifications/NotificationTabl.tsx,65,button,"""ct-btn ct-btn-ghost w-7 h-7""",a,
 Notifications,src/components/Notifications/NotificationToast.tsx,97,button,"{                 i === 0                   ? ""h-5 rounded border border-[var(--toast-accent)]/35 bg-[var(--toast-accent)]/12 px-1.5 text-[10px] text-[var(--ct-fg)] hover:bg-[var(-",b,
 Notifications,src/components/Notifications/NotificationToast.tsx,111,button,"""inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover-bg)] hover:text-[var(--ct-fg)]""",b,
 Settings,src/components/Settings/AgentsTab.tsx,50,select,"""bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
@@ -349,16 +349,16 @@ Settings,src/components/Settings/SecretsTab.tsx,697,select,{inputClass},a,
 Settings,src/components/Settings/SecretsTab.tsx,713,select,{inputClass},a,
 Settings,src/components/Settings/SecretsTab.tsx,731,button,{dangerBtnClass},a,
 Settings,src/components/Settings/SecretsTab.tsx,745,button,{`${statusBtnClass} gap-1`},a,
-Settings,src/components/Settings/SettingsPanel.tsx,165,button,"""-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-accent)] transition-opacity active:opacity-60""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,179,button,"""-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,199,button,"""flex items-start gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-le",b,
-Settings,src/components/Settings/SettingsPanel.tsx,227,select,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,269,button,"""text-[10px] text-[var(--ct-accent)] hover:underline shrink-0""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,282,button,"""text-[10px] text-[var(--ct-red)] hover:underline""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,300,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,310,input,"""w-full accent-[var(--ct-accent)]""",c-native,
-Settings,src/components/Settings/SettingsPanel.tsx,330,select,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
-Settings,src/components/Settings/SettingsPanel.tsx,351,input,"""w-full accent-[var(--ct-accent)]""",c-native,
+Settings,src/components/Settings/SettingsTabl.tsx,165,button,"""-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-accent)] transition-opacity active:opacity-60""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,179,button,"""-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,199,button,"""flex items-start gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-le",b,
+Settings,src/components/Settings/SettingsTabl.tsx,227,select,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,269,button,"""text-[10px] text-[var(--ct-accent)] hover:underline shrink-0""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,282,button,"""text-[10px] text-[var(--ct-red)] hover:underline""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,300,input,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,310,input,"""w-full accent-[var(--ct-accent)]""",c-native,
+Settings,src/components/Settings/SettingsTabl.tsx,330,select,"""w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none""",b,
+Settings,src/components/Settings/SettingsTabl.tsx,351,input,"""w-full accent-[var(--ct-accent)]""",c-native,
 Settings,src/components/Settings/ShellDiagnosticsBanner.tsx,58,button,"""text-[11px] px-2.5 py-1 rounded border bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)] hover:opacity-90""",b,
 Settings,src/components/Settings/ShellDiagnosticsBanner.tsx,64,button,"""text-[11px] px-2.5 py-1 rounded border bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:text-[var(--ct-fg)]""",b,
 Settings,src/components/Settings/UpdateSection.tsx,68,button,{`${UI_BUTTON.primary} ${UI_BUTTON.sm} gap-1.5 disabled:opacity-50`},a,
@@ -415,15 +415,15 @@ Terminal,src/components/Terminal/ComposerAttachButton.tsx,14,button,{`${btnBase}
 Terminal,src/components/Terminal/ComposerInputShell.tsx,82,button,{`${btnBase} ml-1 h-5 w-5 shrink-0 self-center rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`},b,yes
 Terminal,src/components/Terminal/ComposerPlanActivityStrip.tsx,36,button,"{`ct-composer-activity-chip h-7 max-w-full min-w-0 hover:brightness-110${stale ? "" ct-composer-activity-chip-stale"" : """"}`}",b,yes
 Terminal,src/components/Terminal/ContextMenu.tsx,85,button,,b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,48,button,"""inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]""",b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,106,button,{`${presetHeight} rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`},b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,131,button,{`${presetHeight} inline-flex items-center justify-center gap-1 rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`},b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,153,input,"{`mt-2 w-full rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? ""h-11"" : ""h-9""}`}",b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,168,button,"{`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? ""h-11"" : ""h-9""}`}",b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,203,button,"{`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-[13px] font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? ""h",b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,257,button,"{`inline-flex ${size} items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_16%,transparent)] active:scale-90 disabled:opacity-30",b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,322,textarea,"""min-h-16 resize-y rounded-lg border bg-transparent px-2.5 py-1.5 text-[13px] leading-5 outline-none""",b,yes
-Terminal,src/components/Terminal/DelayedSendPanel.tsx,333,input,"{`min-w-[12rem] flex-1 rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? ""h-10"" : ""h-8""}`}",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,48,button,"""inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]""",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,106,button,{`${presetHeight} rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`},b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,131,button,{`${presetHeight} inline-flex items-center justify-center gap-1 rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`},b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,153,input,"{`mt-2 w-full rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? ""h-11"" : ""h-9""}`}",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,168,button,"{`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? ""h-11"" : ""h-9""}`}",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,203,button,"{`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-[13px] font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? ""h",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,257,button,"{`inline-flex ${size} items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_16%,transparent)] active:scale-90 disabled:opacity-30",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,322,textarea,"""min-h-16 resize-y rounded-lg border bg-transparent px-2.5 py-1.5 text-[13px] leading-5 outline-none""",b,yes
+Terminal,src/components/Terminal/DelayedSendTabl.tsx,333,input,"{`min-w-[12rem] flex-1 rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? ""h-10"" : ""h-8""}`}",b,yes
 Terminal,src/components/Terminal/ModelSuggestionPicker.tsx,30,button,"""grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-left text-xs""",b,yes
 Terminal,src/components/Terminal/NewSessionPicker.tsx,327,button,"""px-4 py-2 text-[12px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 disabled:opacity-40 transition-opacity""",b,
 Terminal,src/components/Terminal/NewSessionPicker.tsx,348,input,"""w-3.5 h-3.5 rounded accent-[var(--ct-accent)]""",c-native,
@@ -434,8 +434,8 @@ Terminal,src/components/Terminal/NewSessionPickerParts.tsx,19,button,"""picker-m
 Terminal,src/components/Terminal/NewSessionPickerParts.tsx,132,input,"""flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none""",b,
 Terminal,src/components/Terminal/NewSessionPickerParts.tsx,143,button,"""px-2.5 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md disabled:opacity-40""",b,
 Terminal,src/components/Terminal/NewSessionPickerParts.tsx,151,button,"""px-2 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]""",b,
-Terminal,src/components/Terminal/PaneSessionChat.tsx,325,button,"""rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50""",b,yes
-Terminal,src/components/Terminal/PaneSessionChat.tsx,395,button,"""absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]""",b,yes
+Terminal,src/components/Terminal/TabSessionChat.tsx,325,button,"""rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50""",b,yes
+Terminal,src/components/Terminal/TabSessionChat.tsx,395,button,"""absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]""",b,yes
 Terminal,src/components/Terminal/PendingPromptCard.tsx,130,button,"""flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-[filter,background-color] hover:brightness-125""",b,yes
 Terminal,src/components/Terminal/PendingPromptCard.tsx,171,button,"""inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[filter] hover:brightness-125""",b,yes
 Terminal,src/components/Terminal/PendingPromptCard.tsx,188,button,"""inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-[filter] hover:brightness-110""",b,yes
@@ -446,8 +446,8 @@ Terminal,src/components/Terminal/SearchBar.tsx,100,button,,b,yes
 Terminal,src/components/Terminal/SearchBar.tsx,108,button,,b,yes
 Terminal,src/components/Terminal/SearchBar.tsx,116,button,,b,yes
 Terminal,src/components/Terminal/TerminalKeyBar.tsx,46,button,"{`inline-flex h-11 ${extra} select-none touch-manipulation items-center justify-center px-3 text-sm font-mono transition-[filter,transform] duration-75 active:translate-y-px active",b,yes
-Terminal,src/components/Terminal/TerminalPane.tsx,583,button,"""inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]""",b,yes
-Terminal,src/components/Terminal/TerminalPane.tsx,625,button,"""mt-1 flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-semibold select-none touch-manipulation transition-transform active:scale-95""",b,yes
+Terminal,src/components/Terminal/TerminalTab.tsx,583,button,"""inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]""",b,yes
+Terminal,src/components/Terminal/TerminalTab.tsx,625,button,"""mt-1 flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-semibold select-none touch-manipulation transition-transform active:scale-95""",b,yes
 Terminal,src/components/Terminal/UIModeToggle.tsx,12,button,"""absolute top-1 right-1 z-20 text-xs px-2 py-0.5 rounded""",b,yes
 Terminal/voice,src/components/Terminal/voice/VoicePreview.tsx,65,button,"""flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--ct-red,#f85149)] transition-transform hover:scale-110 disabled:opacity-40""",b,
 Terminal/voice,src/components/Terminal/voice/VoicePreview.tsx,76,button,"""flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_3px_12px_rgba(31,111,235,0.4)] transition-transform active:scale-95""",b,yes

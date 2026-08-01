@@ -4,7 +4,7 @@ export type CompanionKind = "planner" | "orchestrator";
 
 export interface CompanionResolution {
   kind: CompanionKind;
-  paneId: string;
+  tabId: string;
 }
 
 export interface CompanionPlanInput {
@@ -12,17 +12,17 @@ export interface CompanionPlanInput {
   owner: OrchestratorRef;
 }
 
-export function resolveCompanionPane(
+export function resolveCompanionTab(
   plan: CompanionPlanInput,
-  isPaneLive: (paneId: string) => boolean,
+  isTabLive: (tabId: string) => boolean,
 ): CompanionResolution | null {
   const planner = plan.planner;
-  if (planner && planner.kind === "pane" && isPaneLive(planner.pane_id)) {
-    return { kind: "planner", paneId: planner.pane_id };
+  if (planner && planner.kind === "tab" && isTabLive(planner.tab_id)) {
+    return { kind: "planner", tabId: planner.tab_id };
   }
-  const ownerPane = plan.owner?.pane_id ?? null;
-  if (ownerPane && isPaneLive(ownerPane)) {
-    return { kind: "orchestrator", paneId: ownerPane };
+  const ownerTab = plan.owner?.tab_id ?? null;
+  if (ownerTab && isTabLive(ownerTab)) {
+    return { kind: "orchestrator", tabId: ownerTab };
   }
   return null;
 }

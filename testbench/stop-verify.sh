@@ -7,7 +7,7 @@
 #   * false idle (illusion): state reverts to working after ~1500ms, OR output keeps
 #     growing (ESC didn't halt the agent — the "1500ms illusion" the code warns about).
 #
-# Pure /api/*, macOS, no DOM. Use a DISPOSABLE dev pane.
+# Pure /api/*, macOS, no DOM. Use a DISPOSABLE dev tab.
 #   testbench/stop-verify.sh --tab <id> [--mode stop|esc] [--prompt TEXT]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
@@ -18,22 +18,22 @@ get(){ /usr/bin/curl -s -H "Authorization: Bearer $TOKEN" "$B$1"; }
 nowms(){ /usr/bin/python3 -c 'import time;print(int(time.time()*1000))'; }
 sleepms(){ /usr/bin/python3 -c "import time;time.sleep($1/1000)"; }
 
-PANE=""; MODE="stop"; PROMPT="Write a 600-word essay about the history of computer terminals, in full detail."
-while [ "$#" -gt 0 ]; do case "$1" in --tab) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
-[ -n "$PANE" ] || { echo "need --tab <id>"; exit 2; }
+TAB=""; MODE="stop"; PROMPT="Write a 600-word essay about the history of computer terminals, in full detail."
+while [ "$#" -gt 0 ]; do case "$1" in --tab) TAB="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
+[ -n "$TAB" ] || { echo "need --tab <id>"; exit 2; }
 
-state(){ get /api/panes | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$PANE'),'?'))"; }
-outlen(){ get "/api/panes/$PANE/output?full=true" | /usr/bin/python3 -c "import sys,json;print(len(json.load(sys.stdin).get('output','')))"; }
+state(){ get /api/tabs | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$TAB'),'?'))"; }
+outlen(){ get "/api/tabs/$TAB/output?full=true" | /usr/bin/python3 -c "import sys,json;print(len(json.load(sys.stdin).get('output','')))"; }
 
-echo "== stop-verify pane=$PANE mode=$MODE =="
-post /api/panes/$PANE/send "$(/usr/bin/python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1],"enter":True}))' "$PROMPT")" >/dev/null
+echo "== stop-verify tab=$TAB mode=$MODE =="
+post /api/tabs/$TAB/send "$(/usr/bin/python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1],"enter":True}))' "$PROMPT")" >/dev/null
 w=0; for i in $(seq 1 60); do [ "$(state)" = working ] && { w=1; break; }; sleepms 150; done
 [ "$w" = 1 ] || { echo "FAIL: never reached Working (state=$(state))"; exit 1; }
 echo "[reached Working]"
 
 L0=$(outlen)
 T0=$(nowms)
-case "$MODE" in stop) post /api/panes/$PANE/stop '{}' >/dev/null;; esc) post /api/panes/$PANE/send '{"actions":[{"type":"key","key":"esc"}]}' >/dev/null;; esac
+case "$MODE" in stop) post /api/tabs/$TAB/stop '{}' >/dev/null;; esc) post /api/tabs/$TAB/send '{"actions":[{"type":"key","key":"esc"}]}' >/dev/null;; esac
 echo "[issued $MODE @ T0, output_len=$L0]  (suppression window = 1500ms)"
 
 # Sample state + cumulative output growth at fixed offsets. The discriminator is

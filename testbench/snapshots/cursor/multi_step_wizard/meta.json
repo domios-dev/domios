@@ -2,7 +2,7 @@
   "provider": "cursor",
   "situation": "multi_step_wizard",
   "capturedAtMs": 1781997179276,
-  "paneId": "ceb22b3d",
+  "tabId": "ceb22b3d",
   "source": "dev-7686",
   "until": "(?i)(select[ -]?all|stage|step [0-9]|❯|›|◯|◉|\\[ \\]|\\[x\\])",
   "prompt": "Make a multi-step test picker with several stages and select-all options, then wait.",

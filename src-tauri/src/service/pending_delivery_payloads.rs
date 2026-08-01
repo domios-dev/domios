@@ -49,6 +49,17 @@ impl LogPayloadEventSink for ProductPayloadLogSink {
     }
 }
 
+pub(crate) fn live_payload_digests(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+) -> HashSet<String> {
+    snapshot
+        .tabs
+        .values()
+        .filter_map(|tab| tab.pending_delivery.as_ref())
+        .map(|record| record.content_digest.clone())
+        .collect()
+}
+
 impl PendingDeliveryPayloadStore {
     pub(crate) fn open(
         data_dir: &Path,
@@ -122,6 +133,21 @@ impl PendingDeliveryPayloadStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(self.io(digest, error)),
         }
+    }
+
+    pub(crate) fn free_terminal_pair(
+        &self,
+        record: &mut Option<crate::multiplexer::types::PendingDeliveryRecord>,
+        decision: &str,
+    ) -> Result<(), PayloadStoreError> {
+        let Some(pending) = record.as_ref() else {
+            return Ok(());
+        };
+        let digest = pending.content_digest.clone();
+        self.delete(&digest)?;
+        self.sink.emit(decision, &digest);
+        *record = None;
+        Ok(())
     }
 
     pub(crate) fn replace(
@@ -370,24 +396,124 @@ mod tests {
     }
 
     #[test]
-    fn confirm_transition_deletes_payload() {
+    fn confirmed_terminal_frees_record_and_payload_together() {
         let temp = tempfile::tempdir().unwrap();
         let payload = "terminal fallback brief";
         let digest = digest(payload);
-        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        let events = Arc::new(CapturedPayloadEvents::default());
+        let store = PendingDeliveryPayloadStore::open_with_sink(
+            temp.path(),
+            &HashSet::new(),
+            events.clone(),
+        )
+        .unwrap();
         store.write(&digest, payload).unwrap();
-        let mut record =
-            PendingDeliveryRecord::new(digest.clone(), PendingDeliveryChannel::InteractiveInput);
+        let mut record = Some(PendingDeliveryRecord::new(
+            digest.clone(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
 
-        record.confirm().unwrap();
-        store.delete(&digest).unwrap();
-        store.delete(&digest).unwrap();
+        record.as_mut().unwrap().confirm().unwrap();
+        store.free_terminal_pair(&mut record, "confirmed").unwrap();
 
-        assert_eq!(record.state(), PendingDeliveryState::Confirmed);
+        assert!(record.is_none());
         assert_eq!(
             store.resolve(&digest),
-            Err(PayloadStoreError::Missing { digest })
+            Err(PayloadStoreError::Missing {
+                digest: digest.clone()
+            })
         );
+        assert!(events
+            .0
+            .lock()
+            .contains(&("confirmed".into(), digest)));
+    }
+
+    #[test]
+    fn explicit_discard_frees_record_and_payload_together() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = "discarded fallback brief";
+        let digest = digest(payload);
+        let events = Arc::new(CapturedPayloadEvents::default());
+        let store = PendingDeliveryPayloadStore::open_with_sink(
+            temp.path(),
+            &HashSet::new(),
+            events.clone(),
+        )
+        .unwrap();
+        store.write(&digest, payload).unwrap();
+        let mut record = Some(PendingDeliveryRecord::new(
+            digest.clone(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
+
+        store
+            .free_terminal_pair(&mut record, "explicit_discard")
+            .unwrap();
+
+        assert!(record.is_none());
+        assert_eq!(
+            store.resolve(&digest),
+            Err(PayloadStoreError::Missing {
+                digest: digest.clone()
+            })
+        );
+        assert!(events
+            .0
+            .lock()
+            .contains(&("explicit_discard".into(), digest)));
+    }
+
+    #[test]
+    fn retry_exhaustion_frees_record_and_payload_together() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = "retry-exhausted fallback brief";
+        let digest = digest(payload);
+        let events = Arc::new(CapturedPayloadEvents::default());
+        let store = PendingDeliveryPayloadStore::open_with_sink(
+            temp.path(),
+            &HashSet::new(),
+            events.clone(),
+        )
+        .unwrap();
+        store.write(&digest, payload).unwrap();
+        let mut record = Some(PendingDeliveryRecord::new(
+            digest.clone(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
+        record.as_mut().unwrap().mark_unconfirmed();
+
+        store
+            .free_terminal_pair(&mut record, "retry_exhausted")
+            .unwrap();
+
+        assert!(record.is_none());
+        assert_eq!(
+            store.resolve(&digest),
+            Err(PayloadStoreError::Missing {
+                digest: digest.clone()
+            })
+        );
+        assert!(events
+            .0
+            .lock()
+            .contains(&("retry_exhausted".into(), digest)));
+    }
+
+    #[test]
+    fn terminal_cleanup_failure_keeps_record_addressable() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        let mut record = Some(PendingDeliveryRecord::new(
+            "invalid".into(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
+
+        assert_eq!(
+            store.free_terminal_pair(&mut record, "confirmed"),
+            Err(PayloadStoreError::InvalidDigest)
+        );
+        assert!(record.is_some());
     }
 
     #[test]
@@ -471,7 +597,9 @@ mod tests {
         let record =
             PendingDeliveryRecord::new(digest.clone(), PendingDeliveryChannel::InteractiveInput);
 
-        let launch_option = (record.state() == PendingDeliveryState::Pending)
+        let launch_option = record
+            .state()
+            .needs_delivery()
             .then(|| store.resolve(&record.content_digest))
             .transpose()
             .unwrap();
@@ -503,8 +631,8 @@ mod tests {
     fn leakage_serialization_keeps_payload_out_of_snapshot() {
         let payload = "payload-must-never-enter-snapshots-or-logs";
         let digest = digest(payload);
-        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
-        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
             digest.clone(),
             PendingDeliveryChannel::InteractiveInput,
         ));
@@ -513,5 +641,56 @@ mod tests {
 
         assert!(serialized.contains(&digest));
         assert!(!serialized.contains(payload));
+    }
+
+    #[test]
+    fn live_digest_projection_retains_every_addressable_state() {
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let payload = "retryable launch assignment";
+        let digest = digest(payload);
+        let record =
+            PendingDeliveryRecord::new(digest.clone(), PendingDeliveryChannel::InteractiveInput);
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(record);
+        assert_eq!(
+            live_payload_digests(&state.snapshot()),
+            HashSet::from([digest.clone()])
+        );
+
+        state
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .pending_delivery
+            .as_mut()
+            .unwrap()
+            .mark_ingested();
+        assert_eq!(
+            live_payload_digests(&state.snapshot()),
+            HashSet::from([digest.clone()])
+        );
+
+        state
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .pending_delivery
+            .as_mut()
+            .unwrap()
+            .mark_unconfirmed();
+        assert_eq!(
+            live_payload_digests(&state.snapshot()),
+            HashSet::from([digest.clone()])
+        );
+
+        state
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .pending_delivery
+            .as_mut()
+            .unwrap()
+            .confirm()
+            .unwrap();
+        assert_eq!(
+            live_payload_digests(&state.snapshot()),
+            HashSet::from([digest])
+        );
     }
 }

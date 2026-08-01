@@ -95,7 +95,9 @@ struct PairedPeerDisk {
     pub access_level: super::types::AccessLevel,
     pub version: Option<String>,
     #[serde(default)]
-    pub https_url: Option<String>,
+    pub web_ui: Option<super::types::WebUiAnnouncement>,
+    #[serde(default)]
+    pub relay_protocol_version: u16,
 }
 
 /// Load all paired peers from disk.
@@ -140,7 +142,8 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
                     is_primary: d.is_primary,
                     access_level: d.access_level,
                     version: d.version,
-                    https_url: d.https_url,
+                    web_ui: d.web_ui,
+                    relay_protocol_version: d.relay_protocol_version,
                     consecutive_misses: 0,
                     last_active_ms: None,
                 },
@@ -180,7 +183,8 @@ pub fn save_peers(peers: &HashMap<String, PairedPeer>) -> Result<(), String> {
                     is_primary: p.is_primary,
                     access_level: p.access_level.clone(),
                     version: p.version.clone(),
-                    https_url: p.https_url.clone(),
+                    web_ui: p.web_ui.clone(),
+                    relay_protocol_version: p.relay_protocol_version,
                 },
             )
         })

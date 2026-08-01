@@ -20,7 +20,7 @@ function q(s: string): string {
 
 test(
   "@live opencode db-fallback binds session without hook and shows assistant replies",
-  async ({ api, ui, paneCleanup }) => {
+  async ({ api, ui, tabCleanup }) => {
     const db = opencodeDbPath();
     test.skip(!existsSync(db), "opencode DB not found — opencode not installed on this machine");
 
@@ -59,23 +59,23 @@ test(
 
     await ui.reconnect();
 
-    const spawned = await api.post<{ pane_id: string; tab_id?: string }>("/agents/spawn", {
+    const spawned = await api.post<{ tab_id: string; tab_id?: string }>("/agents/spawn", {
       agent: "opencode",
       args: ["--session", sessionId],
       title: `pw-opencode-fallback-${nowMs}`,
     });
-    paneCleanup.track(spawned.pane_id);
-    const paneId = spawned.pane_id;
+    tabCleanup.track(spawned.tab_id);
+    const tabId = spawned.tab_id;
 
     try {
       let boundSessionId: string | null = null;
       for (let i = 0; i < 120; i++) {
         // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 30s budget.
         await ui.page.waitForTimeout(250);
-        const panes = await api.get<{ id: string; agent_session_id?: string }[]>("/panes");
-        const pane = panes.find((p) => p.id === paneId);
-        if (pane?.agent_session_id) {
-          boundSessionId = pane.agent_session_id;
+        const tabs = await api.get<{ id: string; agent_session_id?: string }[]>("/tabs");
+        const tab = tabs.find((p) => p.id === tabId);
+        if (tab?.agent_session_id) {
+          boundSessionId = tab.agent_session_id;
           break;
         }
       }
@@ -91,8 +91,8 @@ test(
       ).toBe(sessionId);
 
       // Enable chat-view and verify the pre-inserted assistant reply renders.
-      await api.post(`/panes/${paneId}/chat-view`, { enabled: true });
-      await api.focusPane(paneId);
+      await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
+      await api.focusTab(tabId);
 
       await ui.page.reload({ waitUntil: "domcontentloaded" });
       await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
@@ -106,7 +106,7 @@ test(
       }
 
       const chat = ui.page.locator(
-        `[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`,
+        `[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`,
       );
       await expect(chat).toBeVisible({ timeout: 30_000 });
 

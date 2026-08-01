@@ -82,7 +82,7 @@ fn model_launch_args_native_js_parity() {
 }
 
 #[test]
-fn in_pane_command_surface_native_js_parity() {
+fn in_tab_command_surface_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }

@@ -1,7 +1,7 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import type { Plan } from "../types";
 
-export function buildTaskPresenceFingerprint(filteredPlans: readonly Plan[], panes: Record<string, Pane>): string {
+export function buildTaskPresenceFingerprint(filteredPlans: readonly Plan[], tabs: Record<string, Tab>): string {
   const ids = new Set<string>();
   const add = (v?: string | null) => {
     const s = v?.trim();
@@ -16,16 +16,16 @@ export function buildTaskPresenceFingerprint(filteredPlans: readonly Plan[], pan
       (hb?.active_lanes ?? []).join(","),
     );
     for (const t of p.tasks) {
-      add(t.assigned_pane_id);
-      add(t.lane?.pane_id);
-      for (const m of t.milestones) add(m.from?.pane_id);
-      assignmentParts.push(t.id, t.assigned_pane_id ?? "", t.lane?.pane_id ?? "");
+      add(t.assigned_tab_id);
+      add(t.lane?.tab_id);
+      for (const m of t.milestones) add(m.from?.tab_id);
+      assignmentParts.push(t.id, t.assigned_tab_id ?? "", t.lane?.tab_id ?? "");
     }
   }
   const parts: string[] = [];
   for (const id of [...ids].sort()) {
-    const pane = panes[id];
-    parts.push(id, pane ? pane.title ?? "" : "\x00");
+    const tab = tabs[id];
+    parts.push(id, tab ? tab.title ?? "" : "\x00");
   }
   return `${parts.join("\x1f")}\x1d${assignmentParts.join("\x1e")}`;
 }

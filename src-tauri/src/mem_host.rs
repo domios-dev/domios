@@ -79,6 +79,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
             .create(CronCreateParams {
                 name: params.name,
                 workspace_id: params.workspace_id,
+                team_id: None,
                 schedule: params.schedule,
                 task: params.task,
                 description: params.description,
@@ -87,7 +88,8 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 cwd: params.cwd,
                 role: params.role,
                 skill: None,
-                creator_pane_id: params.creator_pane_id,
+                creator_tab_id: params.creator_tab_id,
+                report_target_tab_id: None,
                 enabled: params.enabled,
                 max_history: params.max_history,
                 oneshot: params.oneshot,
@@ -229,14 +231,12 @@ pub fn spawn_headless_worker(
         let intent_for_spawn = intent.clone();
         let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
-            use crate::service::spawn::{
-                AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
-            };
-            let spec = SpawnPaneSpec {
-                visibility: PaneVisibility::Hidden,
+            use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
+            let spec = SpawnTabSpec {
+                visibility: TabVisibility::Hidden,
                 title: Some(format!("mem:{}", intent_title)),
                 description: None,
-                command: PaneCommand::Agent(AgentSpawnSpec {
+                command: TabCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
                     planned_model: None,
                     model: if model_for_spawn.is_empty() {
@@ -252,7 +252,7 @@ pub fn spawn_headless_worker(
                 }),
                 ..Default::default()
             };
-            svc_blocking.spawn_pane(spec)
+            svc_blocking.spawn_tab(spec)
         })
         .await;
 
@@ -260,7 +260,7 @@ pub fn spawn_headless_worker(
             Ok(Ok(h)) => h,
             Ok(Err(e)) => {
                 log::error!(
-                    "[worker] {}/{} spawn_pane failed: {}",
+                    "[worker] {}/{} spawn_tab failed: {}",
                     intent_for_spawn,
                     worker_id_task,
                     e
@@ -288,11 +288,11 @@ pub fn spawn_headless_worker(
 
         svc_task
             .workers
-            .set_pane_id(&worker_id_task, handle.pane_id.clone());
+            .set_tab_id(&worker_id_task, handle.tab_id.clone());
         log::info!(
-            "[worker] headless {} pane={} pty={}",
+            "[worker] headless {} tab={} pty={}",
             worker_id_task,
-            handle.pane_id,
+            handle.tab_id,
             handle.pty_id.as_deref().unwrap_or("?")
         );
 
@@ -307,14 +307,14 @@ pub fn spawn_headless_worker(
             }
             if tokio::time::Instant::now() > deadline {
                 log::warn!(
-                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing pane",
+                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing Tab",
                     intent_for_spawn,
                     worker_id_task
                 );
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, WorkerStatus::Orphaned);
-                let _ = svc_task.close_pane(&handle.pane_id);
+                let _ = svc_task.close_tab(&handle.tab_id);
                 break;
             }
         }
@@ -374,6 +374,22 @@ pub fn spawn_extraction_worker(
     let agent_provider = resolved.agent;
     let model = resolved.model;
     let intent = format!("extract:{mem_item_id}");
+
+    // Open the generation against the exact row the prompt was copied from. A
+    // source that vanished before we got here has no row to bind, so there is
+    // nothing to authorize and no worker worth spawning.
+    let Some(source_uid) = source_uid_of(svc, &mem_item_id) else {
+        log::info!(
+            "[auto-extract] source {} is gone before spawn, skipping",
+            mem_item_id
+        );
+        return None;
+    };
+    let generation = svc
+        .mem
+        .extraction_authority()
+        .open(&mem_item_id, &source_uid);
+
     match spawn_headless(
         svc,
         intent,
@@ -383,16 +399,52 @@ pub fn spawn_extraction_worker(
         model,
     ) {
         Ok(worker_id) => {
+            let authority = svc.mem.extraction_authority();
+            if authority.bind_worker(&generation, &worker_id)
+                == codeterm_mem::BindOutcome::AlreadyRevoked
+            {
+                // The delete landed between `open` and here; the revocation could
+                // not name this worker, so cancel it on the bind result itself.
+                log::info!(
+                    "[auto-extract] generation {} was revoked during spawn, cancelling worker {}",
+                    generation.token(),
+                    worker_id
+                );
+                crate::api::mem_routes::cancel_worker(svc, &worker_id);
+                return None;
+            }
             log::info!(
-                "[auto-extract] headless worker {} for {}",
+                "[auto-extract] headless worker {} for {} generation {}",
                 worker_id,
-                mem_item_id
+                mem_item_id,
+                generation.token()
             );
             Some(worker_id)
         }
         Err(e) => {
+            svc.mem.extraction_authority().close(&generation);
             log::warn!("[auto-extract] spawn failed for {}: {}", mem_item_id, e);
             None
+        }
+    }
+}
+
+fn source_uid_of(svc: &Arc<ServiceContext>, id: &str) -> Option<String> {
+    svc.mem.get(id).ok().flatten().map(|item| item.uid)
+}
+
+/// Cancels exactly the Workers whose extraction generation lost authority.
+/// Registered on the mem store so a delete anywhere revokes and cancels through
+/// one path instead of each delete route re-implementing it.
+pub struct WorkerCancelSink(pub Arc<ServiceContext>);
+
+impl codeterm_mem::ExtractionCancelSink for WorkerCancelSink {
+    fn cancel(&self, revoked: &[codeterm_mem::RevokedGeneration]) {
+        for r in revoked {
+            let Some(worker_id) = r.worker_id.as_deref() else {
+                continue;
+            };
+            crate::api::mem_routes::cancel_worker(&self.0, worker_id);
         }
     }
 }

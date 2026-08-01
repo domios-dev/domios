@@ -8,7 +8,7 @@ pub mod transcribe;
 
 pub use bridge::{BridgeManager, BridgeRuntimeState, BridgeSupervisor};
 pub use ports::{
-    AttachmentStorePort, BridgePanePort, ChatPreprocessorPort, ChatPreprocessorProvider,
+    AttachmentStorePort, BridgeTabPort, ChatPreprocessorPort, ChatPreprocessorProvider,
     PreprocessCtx,
 };
 pub use registry::CapabilityRegistry;

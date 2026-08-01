@@ -7,6 +7,7 @@ import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
+import { LiquidToggle } from "../shared/LiquidToggle";
 
 function testIdPart(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -121,23 +122,12 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
   return (
     <label className="flex items-center justify-between cursor-pointer" data-testid="settings-toggle-row" data-settings-toggle={testIdPart(label)}>
       <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
-      <button
-        type="button"
-        role="switch"
+      <LiquidToggle
         data-testid="settings-toggle"
         data-settings-toggle={testIdPart(label)}
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
-        }`}
-      >
-        <span
-          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-4" : "translate-x-0.5"
-          }`}
-        />
-      </button>
+        checked={checked}
+        onCheckedChange={onChange}
+      />
     </label>
   );
 }

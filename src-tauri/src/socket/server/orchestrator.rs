@@ -18,17 +18,17 @@ pub(super) fn dispatch(
     match method {
         "orchestrator.refresh" => {
             let p = params.as_ref().ok_or_else(|| invalid("params required"))?;
-            let pane_id = p
-                .get("pane_id")
+            let tab_id = p
+                .get("tab_id")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| invalid("pane_id required"))?
+                .ok_or_else(|| invalid("tab_id required"))?
                 .to_string();
             let plan_id = p
                 .get("plan_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| invalid("plan_id required"))?
                 .to_string();
-            let req = RefreshRequest::from_config(pane_id, plan_id, RefreshTrigger::Manual);
+            let req = RefreshRequest::from_config(tab_id, plan_id, RefreshTrigger::Manual);
             let outcome = svc.orchestrator_refresh(req);
             let status = match outcome {
                 RefreshOutcome::Started => "started",

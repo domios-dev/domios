@@ -14,6 +14,94 @@ export function usageNormalize(raw: string): string {
 
 interface UsageBlock { pct: number | null; resetsMs: number | null }
 
+interface UsageHost {
+  expandHome(path: string): string | null;
+  fetch(opts: string): string;
+  fs: { readFile(path: string): string | null };
+}
+
+const CLAUDE_USAGE_KIND = "codeterm_usage_v1";
+
+export function fetchClaudeUsage(host: UsageHost): string | null {
+  const credentialsPath = host.expandHome("~/.claude/.credentials.json");
+  if (!credentialsPath) return null;
+  const credentials = safeJson(host.fs.readFile(credentialsPath));
+  const oauth = objectAt(credentials, "claudeAiOauth");
+  const accessToken = stringAt(oauth, "accessToken");
+  if (!accessToken) return null;
+  const response = safeJson(host.fetch(JSON.stringify({
+    url: "https://api.anthropic.com/api/oauth/usage",
+    method: "GET",
+    timeoutMs: 6000,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "anthropic-beta": "oauth-2025-04-20",
+      "User-Agent": "codeterm-usage/1.7.8",
+    },
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const session = objectAt(body, "five_hour");
+  const weekly = objectAt(body, "seven_day");
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CLAUDE_USAGE_KIND,
+    session_pct: numberAt(session, "utilization"),
+    session_resets_at_ms: isoToMs(stringAt(session, "resets_at")),
+    weekly_pct: numberAt(weekly, "utilization"),
+    weekly_resets_at_ms: isoToMs(stringAt(weekly, "resets_at")),
+  });
+}
+
+export function parseFetchedClaudeUsage(raw: string, nowMs: number): unknown | undefined {
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") !== CLAUDE_USAGE_KIND) return undefined;
+  return {
+    provider: "claude",
+    account_id: null,
+    captured_at_ms: nowMs,
+    session_pct: numberAt(fetched, "session_pct"),
+    session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+    weekly_pct: numberAt(fetched, "weekly_pct"),
+    weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+    raw_text: raw,
+  };
+}
+
+function safeJson(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function objectAt(value: unknown, key: string): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return nested && typeof nested === "object" ? nested as Record<string, unknown> : null;
+}
+
+function stringAt(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+
+function numberAt(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+
+function isoToMs(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function usageBlockIsComplete(block: UsageBlock): boolean {
   return block.pct === null || block.resetsMs !== null;
 }

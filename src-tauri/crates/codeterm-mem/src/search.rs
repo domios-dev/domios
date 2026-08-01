@@ -425,8 +425,36 @@ fn sanitize_fts_query(q: &str, drop_stopwords: bool) -> String {
         }
         String::new()
     } else {
-        words.join(" OR ")
+        let operator = if is_canonical_issue_query(q) {
+            " AND "
+        } else {
+            " OR "
+        };
+        words.join(operator)
     }
+}
+
+fn is_canonical_issue_query(query: &str) -> bool {
+    let value = query.trim().trim_end_matches('/').to_ascii_lowercase();
+    let compact = value.split_whitespace().count() == 1;
+    if let Some((repository, number)) = value.split_once('#') {
+        return compact
+            && repository
+                .split('/')
+                .filter(|part| !part.is_empty())
+                .count()
+                == 2
+            && is_issue_number(number);
+    }
+    compact
+        && value.contains("/issues/")
+        && value
+            .rsplit_once('/')
+            .is_some_and(|(_, number)| is_issue_number(number))
+}
+
+fn is_issue_number(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn extract_keywords(q: &str) -> HashSet<String> {
@@ -887,6 +915,15 @@ mod tests {
         .unwrap();
         assert!(!r.is_empty());
         assert_eq!(r[0].item.id, "skill_home_assistant");
+    }
+
+    #[test]
+    fn canonical_issue_query_uses_conjunctive_terms() {
+        assert_eq!(
+            sanitize_fts_query("rollacode/codeterm-releases#18", true),
+            "rollacode AND codeterm AND releases AND 18"
+        );
+        assert!(sanitize_fts_query("dirty worktree report gate", true).contains(" OR "));
     }
 
     #[test]

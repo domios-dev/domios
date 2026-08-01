@@ -64,9 +64,9 @@ function setMatchMedia(matchesByQuery: Record<string, boolean>) {
 const SUMMARY: BoardPlanSummary = {
   title: "Compact plan header lane",
   ownerLabel: "Dali",
-  ownerPaneId: null,
+  ownerTabId: null,
   plannerLabel: "Planner",
-  plannerPaneId: null,
+  plannerTabId: null,
   planningState: "approved",
   executionUnlocked: true,
   done: 99,
@@ -254,7 +254,7 @@ test("remote planner binding renders short id label instead of No planner", asyn
   window.localStorage.clear();
   const plan: Plan = {
     ...FIXTURE_PLAN,
-    planner: { kind: "pane", pane_id: "planner-prod-99", title: null },
+    planner: { kind: "tab", tab_id: "planner-prod-99", title: null },
   };
   const { host } = await render(makeWideHeader(plan));
   const planner = host.querySelector('[data-testid="plan-peer-chip-planner"]');

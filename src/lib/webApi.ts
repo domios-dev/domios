@@ -13,6 +13,14 @@
 export const IS_WEB =
   typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
 
+export const GATEWAY_STATE_EVENT = "codeterm-gateway-state";
+
+function publishGatewayState(available: boolean): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new window.CustomEvent(GATEWAY_STATE_EVENT, { detail: { available } }));
+  }
+}
+
 const TOKEN_PREFIX = "codeterm-web-token:";
 const RELAY_PEER_KEY = "codeterm-web-relay-peer";
 const RELAY_NAME_KEY = "codeterm-web-relay-peer-name";
@@ -85,6 +93,14 @@ export function relayTarget(): RelayTarget | null {
   return { id, name: localStorage.getItem(relayKey(RELAY_NAME_KEY)) ?? id };
 }
 
+export function resolveRelayTarget(
+  peers: Array<{ instance_id: string; instance_name: string }>,
+  instanceId: string,
+): RelayTarget | null {
+  const peer = peers.find((candidate) => candidate.instance_id === instanceId);
+  return peer ? { id: peer.instance_id, name: peer.instance_name } : null;
+}
+
 export function setRelayTarget(id: string, name: string): void {
   localStorage.setItem(relayKey(RELAY_PEER_KEY), id);
   localStorage.setItem(relayKey(RELAY_NAME_KEY), name);
@@ -153,7 +169,16 @@ export async function localFetch(
   headers.set("Content-Type", "application/json");
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${selfHost()}${path}`, { ...init, headers });
+  try {
+    const response = await fetch(`${selfHost()}${path}`, { ...init, headers });
+    publishGatewayState(true);
+    return response;
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === "AbortError")) {
+      publishGatewayState(false);
+    }
+    throw error;
+  }
 }
 
 /** Local-daemon JSON call (bypasses any active relay target). */

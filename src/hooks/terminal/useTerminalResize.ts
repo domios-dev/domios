@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, listen } from "../../lib/bridge";
-import { paneResizeChanged } from "./paneResize";
+import { tabResizeChanged } from "./tabResize";
 
 export interface UseTerminalResizeOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -74,7 +74,7 @@ export function useTerminalResize({
     if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
     const w = el.clientWidth;
     const h = el.clientHeight;
-    if (!paneResizeChanged(lastContainerSizeRef.current, w, h)) return;
+    if (!tabResizeChanged(lastContainerSizeRef.current, w, h)) return;
     lastContainerSizeRef.current = { w, h };
     try { fitAddonRef.current?.fit(); } catch { /* teardown */ }
   }, [containerRef, fitAddonRef]);
@@ -116,15 +116,15 @@ export function useTerminalResize({
     observer.observe(containerRef.current);
     scheduleFit();
 
-    const handlePaneResize = () => {
+    const handleTabResize = () => {
       forceFitMeasuredContainer();
       commitResize();
     };
-    window.addEventListener("codeterm-pane-resize", handlePaneResize);
+    window.addEventListener("codeterm-tab-resize", handleTabResize);
     return () => {
       observer.disconnect();
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-      window.removeEventListener("codeterm-pane-resize", handlePaneResize);
+      window.removeEventListener("codeterm-tab-resize", handleTabResize);
     };
   }, [commitResize, containerRef, fitMeasuredContainer, forceFitMeasuredContainer, resizeEnabled, termReady]);
 

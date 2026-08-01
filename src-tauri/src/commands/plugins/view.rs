@@ -33,7 +33,7 @@ pub(crate) async fn glance_render(
     serde_json::to_value(view).map_err(|e| e.to_string())
 }
 
-/// Poll a single plugin's status bubble for a pane context. `null` = hide.
+/// Poll a single plugin's status bubble for a tab context. `null` = hide.
 pub(super) async fn plugin_bubble_impl(
     svc: tauri::State<'_, crate::service::ServiceState>,
     plugin_id: String,

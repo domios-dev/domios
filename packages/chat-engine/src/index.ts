@@ -11,7 +11,7 @@ const VERDICT_CONTRACT = [
   '  "status": "ok" | "attention" | "stalled",',
   '  "summary": "<one-line assessment>",',
   '  "state": <updated state object>,',
-  '  "actions": [{ "kind": "nudge" | "notify" | "report", "pane": "<optional pane id>", "message": "<text>" }]',
+  '  "actions": [{ "kind": "nudge" | "notify" | "report", "tab": "<optional Tab id>", "message": "<text>" }]',
   "}",
 ].join("\n");
 

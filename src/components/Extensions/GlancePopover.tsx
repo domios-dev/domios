@@ -14,7 +14,7 @@ import { GlanceBody, type GlanceView } from "./ViewNodeRenderer";
 
 export interface GlanceAnchor {
   right: number;
-  /** Anchor from the top (titlebar tray) or bottom (pane-footer bubble). */
+  /** Anchor from the top (titlebar tray) or bottom (tab-footer bubble). */
   top?: number;
   bottom?: number;
 }

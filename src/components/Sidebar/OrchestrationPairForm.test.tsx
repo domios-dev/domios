@@ -63,11 +63,11 @@ function provider(id: string, models: Array<{ id: string; display_name: string }
 }
 
 const PROVIDERS = [
-  provider("claude", [
-    { id: "opus", display_name: "Opus" },
-    { id: "fable", display_name: "Fable" },
+  provider("provider-a", [
+    { id: "model-a", display_name: "Model A" },
+    { id: "model-b", display_name: "Model B" },
   ]),
-  provider("codex", [{ id: "gpt-5", display_name: "GPT-5" }]),
+  provider("provider-b", [{ id: "model-c", display_name: "Model C" }]),
 ];
 
 setupDom();
@@ -88,10 +88,10 @@ test("card layout renders PairAffordance with orchestrator and planner rows", as
       providers={PROVIDERS}
       layout="card"
       values={{
-        orchestratorProviderId: "claude",
-        orchestratorModelId: "opus",
-        plannerProviderId: "claude",
-        plannerModelId: "fable",
+        orchestratorProviderId: "provider-a",
+        orchestratorModelId: "model-a",
+        plannerProviderId: "provider-a",
+        plannerModelId: "model-b",
       }}
       onChange={() => {}}
     />,
@@ -110,12 +110,12 @@ test("disabled providers render as disabled options in the dropdown", async () =
       providers={PROVIDERS}
       layout="card"
       values={{
-        orchestratorProviderId: "claude",
-        orchestratorModelId: "opus",
-        plannerProviderId: "claude",
-        plannerModelId: "fable",
+        orchestratorProviderId: "provider-a",
+        orchestratorModelId: "model-a",
+        plannerProviderId: "provider-a",
+        plannerModelId: "model-b",
       }}
-      disabledProviderIds={new Set(["codex"])}
+      disabledProviderIds={new Set(["provider-b"])}
       onChange={() => {}}
       roleTestIds={{ orchestratorProvider: "orch-provider" }}
     />,
@@ -125,9 +125,32 @@ test("disabled providers render as disabled options in the dropdown", async () =
   const providerTrigger = host.querySelector('[data-testid="orch-provider"]');
   assert(providerTrigger, "orchestrator provider trigger exists");
   await openDropdown(providerTrigger!);
-  const codexOption = document.querySelector('[data-testid="orch-provider-option-codex"]') as HTMLButtonElement | null;
-  assert(codexOption?.disabled === true, "codex option disabled in open menu");
-  assert(codexOption?.textContent?.includes("not installed"), "codex option marked not installed");
+  const disabledOption = document.querySelector('[data-testid="orch-provider-option-provider-b"]') as HTMLButtonElement | null;
+  assert(disabledOption?.disabled === true, "unavailable provider option is disabled");
+  assert(disabledOption?.textContent?.includes("not installed"), "unavailable provider is marked not installed");
+  await act(async () => root.unmount());
+});
+
+test("model selector entries match the provider catalog exactly", async () => {
+  const { host, root } = await render(
+    <OrchestrationPairForm
+      providers={PROVIDERS}
+      values={{
+        orchestratorProviderId: "provider-a",
+        orchestratorModelId: "model-a",
+        plannerProviderId: "provider-a",
+        plannerModelId: "model-b",
+      }}
+      onChange={() => {}}
+      roleTestIds={{ orchestratorModel: "orch-model" }}
+    />,
+  );
+  const trigger = host.querySelector('[data-testid="orch-model"]');
+  assert(trigger, "orchestrator model trigger exists");
+  await openDropdown(trigger);
+  const optionValues = Array.from(document.querySelectorAll('[data-testid^="orch-model-option-"]'))
+    .map((option) => option.getAttribute("data-testid")?.replace("orch-model-option-", ""));
+  assert(optionValues.join(",") === "model-a,model-b", `model entries must equal catalog, got ${optionValues}`);
   await act(async () => root.unmount());
 });
 

@@ -24,7 +24,7 @@ const plugin: ProviderPlugin = {
   statusOf,
   Renderer,
   actions: [
-    // Bare-bones for now. Provider-specific slash commands the user can trigger from pane chrome go here.
+    // Bare-bones for now. Provider-specific slash commands the user can trigger from tab chrome go here.
     {
       id: "compact",
       label: "/compact",

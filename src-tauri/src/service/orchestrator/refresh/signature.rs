@@ -1,7 +1,7 @@
 //! Structural fingerprint for "compaction has settled" (S3). We match the SHAPE
 //! of the post-compaction transcript — a summary block fenced by a horizontal
 //! rule run — never vendor copy, which changes without notice. Combined by the
-//! driver with a parked pane status; on timeout S3 proceeds regardless so an
+//! driver with a parked tab status; on timeout S3 proceeds regardless so an
 //! imperfect fingerprint can never strand the orchestrator.
 
 /// Rule glyphs a TUI uses to fence a compaction summary block.

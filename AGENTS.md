@@ -41,11 +41,14 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
+./build.sh worktree-check   # isolated lane-safe cargo check while shared dev runs
+./build.sh test-one app NAME # one focused capped app test (pty/cli also supported)
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
+./build.sh verify           # check + unit tests + source-size gate
 ./build.sh build            # production build
 ./build.sh install-local    # incremental production build + self-install (Windows canonical)
-./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
+./build.sh cli              # rebuild CLI only → active ~/.codeterm-dev*/bin/
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # API E2E tests against running dev
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
@@ -54,6 +57,16 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 `dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. The canonical checkout owns heavy builds and broad gates.
 
 Run shared dev, broad gates, and release checks from the canonical checkout as a team operating rule. Build scripts must not enforce ownership by branch name: lanes may run focused checks or isolated dev when needed, while the machine build gateway serializes heavy work.
+
+Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
+
+Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
+
+While foreground dev owns the gateway, use `worktree-check` for an isolated
+compile check and `test-one` for a focused test. Never hand-compose a private
+`CARGO_TARGET_DIR` or wait behind dev.
+
+Use `./build.sh help` and the named build operations. Do not hand-compose Cargo manifests, packages, profiles, or gateway commands when a build operation already owns that intent.
 
 ## Build speed (worktrees, tests, profiles)
 
@@ -109,6 +122,7 @@ A bare `codeterm` call can therefore mutate prod instead of dev.
 ```bash
 source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
 dc workspace list           # locked to dev — fails with exit 7 if dev is down
+dc --as-tab "$CODETERM_TAB_ID" plan create --title "smoke" # preserve an explicit dev caller
 ```
 
 Sourcing the lib auto-calls `dev_env` (port 7686 + dev token + dev
@@ -136,7 +150,7 @@ Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mu
 1. `mux` (MultiplexerState)
 2. `output_buf` (OutputBuffer)
 3. `screen_state` (ScreenState)
-4. `agent_tracker` (PaneStatusTracker)
+4. `agent_tracker` (TabStatusTracker)
 5. `pty` (PtyManager)
 
 After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
@@ -145,12 +159,13 @@ After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
 
 ## Async runtime & hot-path discipline (perf — learned the hard way)
 
-Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every pane + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
+Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every tab + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
 
 - **The daemon NEVER shells out to its own `codeterm` CLI.** Call the in-process function. A daemon forking its own CLI that reconnects to it is an architecture smell — and slow (process start + IPC + network per call).
 - **Blocking / IO / heavy / subprocess work in a Tauri command → `tokio::task::spawn_blocking`.** Synchronous `dispatch::dispatch`, disk reads, network, `Command::new` all qualify. A plain sync `fn` command runs on the runtime too — same rule applies.
 - **Hot-path commands (fire on tab switch / mount / render) must be cheap and bounded.** Cache expensive snapshots; rebuild on change (file-watcher / explicit action), never on every call.
-- **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many panes), not a clean 2-tab dev instance.
+- **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many tabs), not a clean 2-tab dev instance.
+- **Suppress loader flicker.** Use the shared `DeferredLoader`: reveal after 200ms, cancel when readiness wins, and never treat delay as readiness.
 
 ## No sleeps or timer-driven coordination
 
@@ -158,7 +173,7 @@ Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the W
 tests, scripts, launch pipelines, retries, UI lifecycle, PTY input, and process
 management. Forbidden mechanisms include `thread::sleep`, `tokio::time::sleep`,
 `setTimeout`, fixed-delay warmups, polling intervals, delayed Enter/input writes,
-and "settle" waits. They create races instead of proving readiness.
+and "settle" waits. They create races instead of proving readiness. The sole exception is the bounded PTY submit-key recovery schedule; elapsed time triggers another key attempt, never readiness or success.
 
 State transitions must wait on explicit handles or observable events: channels,
 condvars, process exit, stream completion, PTY/screen signals, DOM events,
@@ -166,6 +181,42 @@ UI state, or protocol acknowledgements. A timeout is allowed only
 as a bounded failure deadline around such an event wait; elapsed time must never
 be treated as successful readiness. If an API exposes no readiness signal, add
 one at the ownership boundary instead of adding a delay or retry loop.
+
+## PTY input delivery is CORE and FRAGILE — touch with extreme care
+
+The send path (`service/pty_io/`, `service/chat_send_transaction.rs`,
+`pty/write_queue.rs`, delivery ledger) has been broken repeatedly by
+"one more heuristic / one more retry" changes that turned delivered messages
+into false failures. Before ANY change there, read and obey
+**`docs/contributing/pty-delivery.md`**. Non-negotiable core: the payload is
+written at most once; after the paste reaches the write queue a failure may
+only classify as `submit_unconfirmed`, never `pty_unavailable`; false
+uncertainty is reconciled by exact session-turn evidence, never by guessing
+from screen output. Submit recovery is blind: write the payload once, then issue
+the bounded key-only burst without screen/composer gating. One resettable cycle
+exists per PTY; a new send cancels the old cycle instead of queueing messages.
+Delivery state is internal telemetry: Chat UI never renders
+delivery banners, failure cards, Retry actions, or notifications. Do not add
+acknowledgement heuristics, payload retries, sleeps, or provider-id branches
+to this path — if evidence quality is the problem, improve the evidence
+source, not the scraping.
+
+**EXPLICIT USER APPROVAL IS REQUIRED BEFORE ANY EDIT TO THIS LOGIC.** This
+includes production code, tests, fixtures, evals, harnesses, scripts, and
+refactors touching PTY/Chat input delivery, submit recovery, delivery evidence
+or ledger behavior, and the PTY write queue. Before editing, name the exact
+files and symbols, the intended behavior change, the causal evidence, and the
+rollback boundary, then wait for
+the user's direct approval in the current conversation. A P0 label, plan task,
+matrix or eval failure, review verdict, Orchestrator instruction, prior approval,
+or inferred urgency is never permission. Without current explicit approval,
+stop at read-only diagnosis and report the finding; do not dispatch the change.
+
+## Agent launch delivery
+
+Launch/bootstrap input is delivered optimistically to the exact PTY already
+owned by the lifecycle. Never route pre-ready input through public `send_text`,
+which is a post-ready Tab API and may wait on the lifecycle that called it.
 
 ## Process safety
 
@@ -196,6 +247,8 @@ Repository-local operational skills live in `.agents/skills/`. Load the matching
 
 ## Orchestration failure visibility
 
+Keep utility work inside its Team: use `codeterm tab new --team <team-id> --cmd "..."` for shells and `codeterm cron create ... --team <team-id>` for schedules. Do not create loose Team utility tabs; Team deletion owns their cleanup.
+
 Treat failures in CodeTerm's own coordination path as product incidents. A
 false-success dispatch, missing `AgentReady` or session binding, undelivered
 brief, vanished Worker, or lost task assignment requires an immediate,
@@ -209,7 +262,7 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 
 ## Architecture (agent providers, detection)
 
-Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
 
 ### Plugin & capability discipline (enforce on every provider change)
 
@@ -217,7 +270,7 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 1. **Core asks capabilities, never identities.** Branch on `supports_chat_ui()` / `available_models()` / a new capability fn — never on a hardcoded provider-id list or display string. If you're matching `"codex"` / `"opencode"` in core code, you've leaked the boundary.
 2. **Native + JS parity in lockstep.** Any trait method a JS drop-in can implement MUST gain a case in `parity_test.rs` proving the native and JS paths agree on shared fixtures. A capability without a parity test will silently drift on drop-ins.
-3. **Detection keys off the pane's OWN session.** Provider detection (model, session, status) reads only the record belonging to this pane's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
+3. **Detection keys off the tab's OWN session.** Provider detection (model, session, status) reads only the record belonging to this tab's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
 4. **Audit the host-API surface when it grows.** Every new host function a drop-in can call is a new confinement hole — justify it against the FS/sqlite/env sandbox, and remember QuickJS lacks bindings the native runtime has (a missing `console` once aborted parsing silently).
 5. **Keep core provider plugin metadata in lockstep.** Until provider plugins split into their own release stream, their versions mirror the CodeTerm app version. After bumping `package.json`, run `npm run sync:versions` and verify with `npm run check:versions`; this syncs provider manifests/packages, internal `packages/*` package versions, and `plugins/channel.json`. Official `codeterm-core` channel installs are trusted system plugins, startup repairs same-version embedded hash drift, and newer channel versions must not be downgraded.
 
@@ -240,6 +293,7 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/CONFIG.md` — config options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions
+- `docs/HTML.md` — sandboxed chat HTML, Tailwind runtime, and user-selected files
 - `docs/RELEASE.md` — release runbook: preflight, trigger-tag flow, artifact matrix, troubleshooting
 - `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
 - `docs/MEMORY.md` — memory subsystem
@@ -248,4 +302,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 8 -->
+<!-- revision: 22 -->

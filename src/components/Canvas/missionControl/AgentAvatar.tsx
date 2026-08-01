@@ -3,7 +3,7 @@ import type { MissionAgent } from "./types";
 interface AgentAvatarProps {
   agent: MissionAgent;
   showName?: boolean;
-  onClick?: (paneId: string) => void;
+  onClick?: (tabId: string) => void;
 }
 
 export function AgentAvatar({ agent, showName, onClick }: AgentAvatarProps) {

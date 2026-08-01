@@ -39,11 +39,11 @@ fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value
         .map_err(|err| render_plan_call_error(err, &params))
 }
 
-fn caller_pane(client: &dyn RpcClient) -> Option<String> {
+fn caller_tab(client: &dyn RpcClient) -> Option<String> {
     if client.is_remote() {
         return None;
     }
-    std::env::var("CODETERM_PANE_ID")
+    std::env::var("CODETERM_TAB_ID")
         .ok()
         .filter(|s| !s.is_empty())
 }
@@ -69,13 +69,13 @@ pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
 
 pub fn handle_canvas(client: &mut dyn RpcClient, json: bool, action: CanvasAction) {
     let result = match action {
-        CanvasAction::Focus { task, pane, plan } => {
+        CanvasAction::Focus { task, tab, plan } => {
             let mut params = json!({});
             if let Some(id) = task {
                 params["task_id"] = json!(id);
             }
-            if let Some(id) = pane {
-                params["pane_id"] = json!(id);
+            if let Some(id) = tab {
+                params["tab_id"] = json!(id);
             }
             if let Some(id) = plan {
                 params["plan_id"] = json!(id);
@@ -116,8 +116,8 @@ fn run_task(
             if let Some(project) = cwd_project(client) {
                 params["project"] = json!(project);
             }
-            if let Some(caller) = caller_pane(client) {
-                params["caller_pane_id"] = json!(caller);
+            if let Some(caller) = caller_tab(client) {
+                params["caller_tab_id"] = json!(caller);
             }
             if let Some(plan_id) = plan {
                 params["plan_id"] = json!(plan_id);
@@ -141,13 +141,13 @@ fn run_task(
             )
         }),
         TaskAction::Take { task_id } => {
-            let caller = caller_pane(client).ok_or(
-                "task take requires a pane on the target machine and is unavailable over mesh",
+            let caller = caller_tab(client).ok_or(
+                "task take requires a Tab on the target machine and is unavailable over mesh",
             )?;
             call(
                 client,
                 "task.take",
-                json!({ "task_id": task_id, "caller_pane_id": caller }),
+                json!({ "task_id": task_id, "caller_tab_id": caller }),
             )
             .map(|val| (val, None))
         }
@@ -162,16 +162,19 @@ fn run_task(
             why_file,
             criterion,
             test_plan,
+            qa_plan,
+            qa_plan_file,
             correctness,
             body,
             body_file,
             intent,
             intent_file,
-            assign_pane,
+            assign_tab,
         } => {
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
+            let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
@@ -184,9 +187,9 @@ fn run_task(
             if let Some(project) = cwd_project(client) {
                 params["project"] = json!(project);
             }
-            if let Some(caller) = caller_pane(client) {
-                params["caller_pane_id"] = json!(caller);
-                params["owner"] = json!({ "pane_id": caller });
+            if let Some(caller) = caller_tab(client) {
+                params["caller_tab_id"] = json!(caller);
+                params["owner"] = json!({ "tab_id": caller });
             }
             if let Some(m) = model {
                 params["model"] = json!(m);
@@ -200,6 +203,9 @@ fn run_task(
             if let Some(test_plan) = test_plan {
                 params["test_plan"] = json!(test_plan);
             }
+            if let Some(qa_plan) = qa_plan_text {
+                params["qa_plan"] = json!(qa_plan);
+            }
             if let Some(correctness) = correctness {
                 params["correctness"] = json!(correctness);
             }
@@ -209,8 +215,8 @@ fn run_task(
             if let Some(i) = resolve_text(intent, intent_file)? {
                 params["intent"] = json!(i);
             }
-            if let Some(pane) = assign_pane {
-                params["assign_pane"] = json!(pane);
+            if let Some(tab) = assign_tab {
+                params["assign_tab"] = json!(tab);
             }
             let mut val = call(client, "task.add", params)?;
             if let (Some(plan_id), Some(task_id)) = (
@@ -282,6 +288,7 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
         print_task_presentation(val);
         print_competition(task, plan, id);
         print_executor_role(task);
+        print_external_refs(task);
         if let Some(body) = task
             .get("body")
             .and_then(|v| v.as_str())
@@ -530,10 +537,58 @@ fn print_task_quality(task: &Value) {
             println!("test_plan: {test_plan}");
         }
     }
+    if let Some(qa_plan) = task.get("qa_plan").and_then(|v| v.as_str()) {
+        if !qa_plan.is_empty() {
+            println!("qa_plan: {qa_plan}");
+        }
+    }
     if let Some(correctness) = task.get("correctness").and_then(|v| v.as_str()) {
         if !correctness.is_empty() {
             println!("correctness: {correctness}");
         }
+    }
+}
+
+fn print_external_refs(task: &Value) {
+    for line in render_external_refs(task) {
+        println!("{line}");
+    }
+}
+
+fn render_external_refs(task: &Value) -> Vec<String> {
+    task.get("external_refs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let url = item.get("canonical_url").and_then(Value::as_str)?;
+            let relationship = item
+                .get("relationship")
+                .and_then(Value::as_str)
+                .map(|value| format!(" ({value})"))
+                .unwrap_or_default();
+            Some(format!("external_ref: {url}{relationship}"))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod external_ref_render_tests {
+    use super::render_external_refs;
+    use serde_json::json;
+
+    #[test]
+    fn task_show_renders_canonical_external_ref_and_relationship() {
+        let lines = render_external_refs(&json!({
+            "external_refs": [{
+                "canonical_url": "https://github.com/rollacode/codeterm-releases/issues/17",
+                "relationship": "fixes"
+            }]
+        }));
+        assert_eq!(
+            lines,
+            ["external_ref: https://github.com/rollacode/codeterm-releases/issues/17 (fixes)"]
+        );
     }
 }
 
@@ -547,7 +602,7 @@ fn milestone_author(from: Option<&Value>) -> Option<String> {
     if let Some(title) = title {
         return Some(title.to_string());
     }
-    from.get("pane_id")
+    from.get("tab_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -823,13 +878,13 @@ mod strides_render_tests {
             "milestones": [
                 {},
                 { "kind": "note", "ts": 0u64 },
-                { "kind": "status", "ts": 5_000u64, "from": { "pane_id": "pane_abcdef01234" } },
+                { "kind": "status", "ts": 5_000u64, "from": { "tab_id": "tab_abcdef01234" } },
             ]
         });
         let block = render_strides(&task).expect("block");
         assert!(block.starts_with("strides:"));
         assert_eq!(block.lines().count(), 4);
         assert!(block.contains("[?]"));
-        assert!(block.contains("pane_abcdef"));
+        assert!(block.contains("tab_abcdef"));
     }
 }

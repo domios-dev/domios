@@ -647,3 +647,26 @@ pub async fn peer_cron_history_request(
     )
     .await
 }
+
+#[tauri::command]
+pub async fn mesh_peer_cron_get(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    peer_cron_get_request(mesh.inner(), &instance_id, &id).await
+}
+
+pub async fn peer_cron_get_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request(
+        mesh,
+        instance_id,
+        PeerMethod::Get,
+        &format!("/api/crons/{id}"),
+    )
+    .await
+}

@@ -6,7 +6,7 @@ Provider-agnostic. Inspects the *content* of `detector.status_line` and
 mean terminal chrome bled into what should be a clean human status string:
 
   - box_run     : run of box-drawing chars (terminal border / divider bleed)
-  - block_run   : run of block/shade chars (progress-bar or panel bleed)
+  - block_run   : run of block/shade chars (progress-bar or tabl bleed)
   - control     : raw C0 control bytes (incl. NUL / BEL) in the text
   - ansi        : raw ANSI/CSI/OSC escape sequence survived into the status
   - path_only   : the whole status is just a filesystem path (no real message)

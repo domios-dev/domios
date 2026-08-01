@@ -42,7 +42,7 @@ export interface SeverOptions {
 const ROUTE_GLOB: Record<Exclude<DisruptionTarget, "all">, string> = {
   sse: "**/api/events/stream**",
   "pty-read": "**/api/pty/*/read**",
-  "pty-stream": "**/api/panes/*/output/stream**",
+  "pty-stream": "**/api/tabs/*/output/stream**",
 };
 
 const BLIP_MS = 150;

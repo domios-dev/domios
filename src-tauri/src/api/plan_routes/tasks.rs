@@ -19,10 +19,10 @@ use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
 };
 
-fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str> {
-    state.svc.mux.read().get_pane(pane_id).and_then(|pane| {
-        (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
-            && pane.role_profile.as_deref() == Some("planner"))
+fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
+    state.svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        (tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
+            && tab.role_profile.as_deref() == Some("planner"))
         .then_some("planner")
     })
 }
@@ -31,7 +31,7 @@ fn record_respawn_attempt_and_persist_identity(
     state: &AppState,
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
     title: &str,
     now_ms: u64,
@@ -40,10 +40,10 @@ fn record_respawn_attempt_and_persist_identity(
     record_respawn_attempt_and_persist_identity_for(
         &state.svc.plan_store,
         &state.svc.mux,
-        planner_role_for_pane(state, pane_id).or(Some("worker")),
+        planner_role_for_tab(state, tab_id).or(Some("worker")),
         plan_id,
         task_id,
-        pane_id,
+        tab_id,
         draft,
         title,
         now_ms,
@@ -56,7 +56,7 @@ fn record_respawn_attempt_and_persist_identity_for(
     executor_role: Option<&str>,
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
     title: &str,
     now_ms: u64,
@@ -65,14 +65,12 @@ fn record_respawn_attempt_and_persist_identity_for(
     let created = store.record_task_respawn_attempt(
         plan_id,
         task_id,
-        pane_id,
+        tab_id,
         draft,
         executor_role,
         now_ms,
     )?;
-    persist_attempt_executor_identity_for_mux(
-        store, mux, plan_id, task_id, pane_id, title, now_ms,
-    )?;
+    persist_attempt_executor_identity_for_mux(store, mux, plan_id, task_id, tab_id, title, now_ms)?;
     Ok(created)
 }
 
@@ -81,7 +79,7 @@ fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
         return Ok(None);
     };
     let mut update = TaskLaneUpdate::default();
-    update.pane_id = lane.get("pane_id").map(|v| v.as_str().map(str::to_string));
+    update.tab_id = lane.get("tab_id").map(|v| v.as_str().map(str::to_string));
     update.workspace_id = lane
         .get("workspace_id")
         .map(|v| v.as_str().map(str::to_string));
@@ -186,7 +184,11 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     acceptance_criteria: Vec<String>,
     #[serde(default)]
+    external_refs: Vec<String>,
+    #[serde(default)]
     test_plan: Option<String>,
+    #[serde(default)]
+    qa_plan: Option<String>,
     #[serde(default)]
     correctness: Option<String>,
     #[serde(default)]
@@ -208,7 +210,7 @@ pub(crate) struct TaskAddBody {
     #[serde(default, alias = "dependency_task_ids")]
     depends_on: Vec<String>,
     #[serde(default)]
-    assign_pane: Option<String>,
+    assign_tab: Option<String>,
     #[serde(default)]
     lane: TaskLaneMetadata,
     #[serde(default)]
@@ -271,10 +273,11 @@ pub async fn task_add(
         .correctness
         .as_deref()
         .is_some_and(|s| !s.trim().is_empty());
+    let external_refs = body.external_refs.clone();
     let tid = state
         .svc
         .plan_store
-        .add_task(
+        .add_task_with_external_refs(
             &id,
             NewTask {
                 name: body.name,
@@ -284,6 +287,7 @@ pub async fn task_add(
                 model_rationale: body.why,
                 acceptance_criteria: body.acceptance_criteria,
                 test_plan: body.test_plan,
+                qa_plan: body.qa_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
@@ -294,13 +298,14 @@ pub async fn task_add(
                 intent: body.intent,
                 parent_task_id: body.parent,
                 depends_on: body.depends_on,
-                assigned_pane_id: body.assign_pane,
+                assigned_tab_id: body.assign_tab,
                 lane: body.lane,
                 group: body.group,
                 priority: body.priority,
                 handle: body.handle,
                 tags: body.tags,
             },
+            &external_refs,
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -327,6 +332,21 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    task_update_core(&state.svc, &headers, &id, &tid, body)
+}
+
+fn task_update_core(
+    service: &crate::service::ServiceState,
+    headers: &HeaderMap,
+    id: &str,
+    tid: &str,
+    body: Value,
+) -> PlanRouteResult {
+    crate::plan::task_update_fields::validate_task_update_fields(
+        &body,
+        crate::plan::task_update_fields::TaskUpdateSeam::Rest,
+    )
+    .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
     let section_ids = if body.get("sections").is_some() {
         let requested_sections = body
             .get("sections")
@@ -340,10 +360,9 @@ pub async fn task_update(
             })
             .unwrap_or_default();
         Some(
-            state
-                .svc
+            service
                 .plan_store
-                .resolve_task_section_ids(&id, &requested_sections)
+                .resolve_task_section_ids(id, &requested_sections)
                 .map_err(plan_err)?,
         )
     } else {
@@ -357,14 +376,36 @@ pub async fn task_update(
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
-    state
-        .svc
+    let acceptance_criteria = body.get("acceptance_criteria").map(|_| {
+        body.get("acceptance_criteria")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    });
+    let external_refs = body
+        .get("external_refs")
+        .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
+        .transpose()
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("invalid external_refs: expected an array of reference strings: {error}"),
+            )
+        })?
+        .unwrap_or_default();
+    crate::service::plan::external_refs::canonicalize_external_refs(&external_refs)
+        .map_err(plan_err)?;
+    let test_plan = optional_string_field(&body, "test_plan");
+    let qa_plan = optional_string_field(&body, "qa_plan");
+    let correctness = optional_string_field(&body, "correctness");
+    service
         .plan_store
         .update_task_with_lane(
-            &id,
-            &tid,
+            id,
+            tid,
             body.get("name").and_then(|v| v.as_str()),
-            body.get("type").and_then(|v| v.as_str()),
+            body.get("type")
+                .or_else(|| body.get("kind"))
+                .and_then(|v| v.as_str()),
             optional_string_field(&body, "model"),
             optional_string_field(&body, "why"),
             body.get("status").and_then(|v| v.as_str()),
@@ -374,7 +415,9 @@ pub async fn task_update(
             optional_string_field(&body, "intent"),
             optional_string_field(&body, "executor_role"),
             section_ids,
-            body.get("parent_task_id").map(|v| v.as_str()),
+            body.get("parent_task_id")
+                .or_else(|| body.get("parent"))
+                .map(|v| v.as_str()),
             optional_string_field(&body, "group"),
             &tags,
             body.get("primary").and_then(|v| v.as_str()),
@@ -384,19 +427,35 @@ pub async fn task_update(
         )
         .map_err(plan_err)?;
     if let Some(depends_on) = depends_on {
-        state
-            .svc
+        service
             .plan_store
-            .update_task_dependencies(&id, &tid, depends_on, epoch_ms())
+            .update_task_dependencies(id, tid, depends_on, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if acceptance_criteria.is_some()
+        || test_plan.is_some()
+        || qa_plan.is_some()
+        || correctness.is_some()
+    {
+        service
+            .plan_store
+            .update_task_quality(
+                id,
+                tid,
+                acceptance_criteria,
+                test_plan,
+                qa_plan,
+                correctness,
+                epoch_ms(),
+            )
             .map_err(plan_err)?;
     }
     if body.get("role_guidance").is_some() {
-        state
-            .svc
+        service
             .plan_store
             .update_task_role_guidance(
-                &id,
-                &tid,
+                id,
+                tid,
                 optional_string_field(&body, "role_guidance"),
                 epoch_ms(),
             )
@@ -412,12 +471,11 @@ pub async fn task_update(
             })
             .transpose()
             .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
-        state
-            .svc
+        service
             .plan_store
             .update_task_personality(
-                &id,
-                &tid,
+                id,
+                tid,
                 optional_string_field(&body, "personality"),
                 provenance,
                 epoch_ms(),
@@ -427,26 +485,33 @@ pub async fn task_update(
     if let Some(value) = body.get("competition") {
         let update = serde_json::from_value(value.clone())
             .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
-        state
-            .svc
+        service
             .plan_store
-            .update_task_competition(&id, &tid, update, epoch_ms())
+            .update_task_competition(id, tid, update, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if !external_refs.is_empty() {
+        service
+            .plan_store
+            .add_task_external_refs(id, tid, &external_refs, epoch_ms())
             .map_err(plan_err)?;
     }
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
-        let by_pane = headers
-            .get("X-CodeTerm-Pane-Id")
+        let by_tab = headers
+            .get("X-CodeTerm-Tab-Id")
             .and_then(|v| v.to_str().ok());
         let intent = body
             .get("intent")
             .and_then(|v| v.as_str())
             .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
-        state
-            .svc
-            .notify_owner_task_in_review(&id, &tid, by_pane, intent);
+        service.notify_owner_task_in_review(id, tid, by_tab, intent);
     }
-    emit_plan_changed(&state, &id);
+    crate::api::events::emit_everywhere(
+        &service.app_handle,
+        "plan-changed",
+        serde_json::json!({ "plan_id": id }),
+    );
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -465,7 +530,7 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let from = body.from.unwrap_or_else(|| AgentRef::from_pane("unknown"));
+    let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     state
         .svc
         .plan_store
@@ -474,8 +539,8 @@ pub async fn task_close(
     emit_plan_changed(&state, &id);
     let mut resp = serde_json::json!({ "ok": true });
     if let Some(plan) = state.svc.plan_store.get(&id) {
-        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
-            state.svc.pane_probe(pane).exists
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |tab| {
+            state.svc.tab_probe(tab).exists
         });
         let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
             &cleanup
@@ -490,7 +555,7 @@ pub async fn task_close(
 
 #[derive(Deserialize)]
 pub(crate) struct TaskAssignBody {
-    pane: String,
+    tab: String,
     #[serde(default)]
     peer: Option<String>,
 }
@@ -508,9 +573,9 @@ pub async fn task_assign(
         .assign_task_with_role(
             &id,
             &tid,
-            &body.pane,
+            &body.tab,
             body.peer.as_deref(),
-            planner_role_for_pane(&state, &body.pane),
+            planner_role_for_tab(&state, &body.tab),
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -575,10 +640,10 @@ pub async fn task_respawn(
                 title: draft.title.clone(),
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
-                parent_pane_id: draft.parent_pane_id.clone(),
+                parent_tab_id: draft.parent_tab_id.clone(),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
-                spawned_by_pane_id: draft.parent_pane_id.clone(),
+                spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
                 ..Default::default()
@@ -591,18 +656,34 @@ pub async fn task_respawn(
         &state,
         &id,
         &tid,
-        &spawn.pane_id,
+        &spawn.tab_id,
         &draft,
         &spawn.title,
         epoch_ms(),
     )
     .map_err(plan_err)?;
+    let parent_tab_id = created
+        .attempt
+        .orchestrator_tab_id
+        .as_deref()
+        .or(created.attempt.parent_tab_id.as_deref());
+    if let Some(parent_tab_id) = parent_tab_id {
+        state.svc.arm_worker_ack_deadline(
+            parent_tab_id,
+            &spawn.tab_id,
+            &spawn.title,
+            &id,
+            &tid,
+            &created.attempt.id,
+            format!("codeterm plan task respawn {id} {tid}"),
+        );
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "ok": true,
         "plan_id": id,
         "task_id": tid,
-        "pane_id": spawn.pane_id,
+        "tab_id": spawn.tab_id,
         "spawn": spawn,
         "attempt": created.attempt,
         "draft": draft
@@ -629,9 +710,169 @@ mod tests {
     use super::*;
     use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
+    use serde_json::json;
     use std::sync::Arc;
+
+    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let mut plan = Plan::new(
+            "Update validation".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let parent_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Parent".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let dependency_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Dependency".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Original".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap();
+        (
+            fixture,
+            plan.id,
+            task_id,
+            parent_task_id,
+            dependency_task_id,
+        )
+    }
+
+    fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
+        let plan = fixture.service.plan_store.get(plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        serde_json::to_string_pretty(task).unwrap()
+    }
+
+    #[test]
+    fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
+        for key in ["nonsense_field", "external_ref", "externalRefs"] {
+            let (fixture, plan_id, task_id, _, _) = update_fixture();
+            let service = Arc::new(fixture.service.clone());
+            let before = full_task_record(&fixture, &plan_id, &task_id);
+            let mut body = json!({});
+            body[key] = json!("ignored");
+
+            let result = task_update_core(
+                &service,
+                &HeaderMap::new(),
+                &plan_id,
+                &task_id,
+                body,
+            );
+            let after = full_task_record(&fixture, &plan_id, &task_id);
+            assert!(
+                result.is_err(),
+                "key {key} unexpectedly succeeded\nbefore:\n{before}\nafter:\n{after}"
+            );
+            let (status, Json(error)) = result.unwrap_err();
+
+            assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "key: {key}");
+            let message = error["error"].as_str().unwrap();
+            assert!(message.contains(key), "{message}");
+            assert!(message.contains("accepted"), "{message}");
+            assert!(message.contains("external_refs"), "{message}");
+            assert_eq!(
+                after,
+                before,
+                "rejected key {key} changed the full task record"
+            );
+        }
+    }
+
+    #[test]
+    fn rest_every_supported_update_key_reaches_the_real_handler() {
+        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+        let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
+        assert_eq!(
+            payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            TASK_UPDATE_KEYS
+        );
+
+        for (key, body) in payloads {
+            let result = task_update_core(
+                &service,
+                &HeaderMap::new(),
+                &plan_id,
+                &task_id,
+                body,
+            );
+            let failure = result
+                .as_ref()
+                .err()
+                .map(|error| {
+                    let status = &error.0;
+                    let body = &error.1.0;
+                    format!("{status}: {body}")
+                })
+                .unwrap_or_default();
+            assert!(
+                result.is_ok(),
+                "REST failed supported key {key}: {failure}"
+            );
+        }
+    }
+
+    #[test]
+    fn rest_update_external_refs_round_trips_non_null() {
+        let (fixture, plan_id, task_id, _, _) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+
+        task_update_core(
+            &service,
+            &HeaderMap::new(),
+            &plan_id,
+            &task_id,
+            json!({ "external_refs": ["rollacode/codeterm-releases#17"] }),
+        )
+        .unwrap();
+
+        let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        assert_eq!(task.external_refs.len(), 1);
+        assert_eq!(
+            task.external_refs[0].canonical_url,
+            "https://github.com/rollacode/codeterm-releases/issues/17"
+        );
+    }
+
     #[test]
     fn rest_respawn_persists_spawned_attempt_title_and_session() {
         let dir = tempfile::tempdir().unwrap();
@@ -641,7 +882,7 @@ mod tests {
         let mut plan = Plan::new(
             "Respawn".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         store.save(&mut plan, 1).unwrap();
         let task_id = store
@@ -666,7 +907,7 @@ mod tests {
             provider: "test-provider".into(),
             planned_model: None,
             model: None,
-            parent_pane_id: None,
+            parent_tab_id: None,
             workspace_id: Some("ws-rest".into()),
             title: None,
             explicit_title: false,
@@ -678,7 +919,7 @@ mod tests {
             .record_task_respawn_attempt(
                 &plan.id,
                 &task_id,
-                "source-pane",
+                "source-tab",
                 &source_draft,
                 Some("worker"),
                 3,
@@ -688,8 +929,8 @@ mod tests {
             .write()
             .create_workspace("REST".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, pane_id) = mux.write().create_tab(&ws).unwrap();
-        mux.write().get_pane_mut(&pane_id).unwrap().agent_session_id = Some("rest-session".into());
+        let tab_id = mux.write().create_tab(&ws).unwrap();
+        mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("rest-session".into());
         let draft = store
             .build_task_respawn_draft(
                 &plan.id,
@@ -698,7 +939,7 @@ mod tests {
                     attempt_id: created.attempt.id.clone(),
                     provider: None,
                     model: None,
-                    parent_pane_id: None,
+                    parent_tab_id: None,
                     workspace_id: Some("ws-rest".into()),
                     title: Some("Exact User Title".into()),
                 },
@@ -710,7 +951,7 @@ mod tests {
             Some("worker"),
             &plan.id,
             &task_id,
-            &pane_id,
+            &tab_id,
             &draft,
             "Exact User Title",
             4,

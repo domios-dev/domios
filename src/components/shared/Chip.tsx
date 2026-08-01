@@ -1,5 +1,6 @@
 
 import React from "react";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 
 export type ChipVariant = "default" | "accent" | "success" | "danger" | "warning" | "muted";
 
@@ -27,10 +28,11 @@ export function Chip({
   style,
   "data-testid": testId,
 }: ChipProps) {
+  const touchMode = useTouchOptimizedUi();
   const extra = VARIANT_EXTRA[variant];
-  const cls = ["ct-small-pill", extra, className].filter(Boolean).join(" ");
+  const cls = ["ct-small-pill", "ct-liquid-interactive", extra, className].filter(Boolean).join(" ");
   return (
-    <span className={cls} style={style} data-testid={testId}>
+    <span className={cls} style={style} data-touch-mode={touchMode ? "true" : undefined} data-testid={testId}>
       {children}
     </span>
   );

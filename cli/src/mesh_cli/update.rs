@@ -21,6 +21,7 @@ pub(crate) fn resolve_update_action(
             from_file,
             continue_prompt,
             continue_tab,
+            no_continue,
             after_update: action_after_update,
         }) => UpdateAction::Install {
             auto: *auto,
@@ -28,6 +29,7 @@ pub(crate) fn resolve_update_action(
             from_file: from_file.clone(),
             continue_prompt: continue_prompt.clone(),
             continue_tab: continue_tab.clone(),
+            no_continue: *no_continue,
             after_update: action_after_update.clone().or(after_update),
         },
         None => UpdateAction::Check { force: false },

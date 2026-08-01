@@ -1,4 +1,4 @@
-//! MessageGateway — the single submission seam for outbound pane traffic.
+//! MessageGateway — the single submission seam for outbound tab traffic.
 //!
 //! PHASE 1 is a PARITY WRAPPER: it classifies, dedups, and forwards to the
 //! existing delivery paths (`Messenger::deliver`, `send_text`,
@@ -21,11 +21,11 @@ pub const IDEMPOTENCY_CAPACITY: usize = 512;
 /// metadata only — it does not yet alter routing (parity is preserved).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryClass {
-    /// A human-authored turn: the user's own prompt entering a pane.
+    /// A human-authored turn: the user's own prompt entering a tab.
     UserTurn,
-    /// Machine-authored traffic between agents (reports, cross-pane, mesh relays).
+    /// Machine-authored traffic between agents (reports, cross-tab, mesh relays).
     AgentTraffic,
-    /// A CodeTerm-originated notice or reminder injected into a pane.
+    /// A CodeTerm-originated notice or reminder injected into a tab.
     SystemNotice,
     /// Uninterpreted key/control bytes written straight to the PTY.
     RawKeys,
@@ -34,8 +34,8 @@ pub enum DeliveryClass {
 /// Where a submission entered the system — used for idempotency scoping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageOrigin {
-    /// Submitted by another local pane in this instance.
-    LocalPane,
+    /// Submitted by another local tab in this instance.
+    LocalTab,
     /// Arrived from a mesh peer over the flat peer network.
     MeshPeer,
     /// Presented a service token (external HTTP/CLI caller).
@@ -56,9 +56,8 @@ pub enum KeyStroke {
 /// The payload of an outbound submission.
 #[derive(Debug, Clone)]
 pub enum MessageBody {
-    /// Plain or enveloped text. `enter` matches the existing `send_text` flag and
-    /// is ignored on the enveloped path (which always submits).
-    Text { body: String, enter: bool },
+    /// Plain or enveloped text. Text messages always submit.
+    Text { body: String },
     /// A text prefix followed by ordered key actions (arrows, ctrl-keys, delays).
     Keys {
         text: String,
@@ -92,12 +91,12 @@ pub struct DeliveryReceipt {
 }
 
 /// Typed delivery failure. Adapter-friendly for the upstream taxonomy (BLACKSTAR
-/// task_7fei9d owns final naming); `DeliveredUnverified` and `PaneNotFound` are
+/// task_7fei9d owns final naming); `DeliveredUnverified` and `TabNotFound` are
 /// deliberately distinct so callers can retry-vs-abort correctly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryError {
-    /// The target pane could not be resolved to a live pane/PTY.
-    PaneNotFound { target: String },
+    /// The target tab could not be resolved to a live tab/PTY.
+    TabNotFound { target: String },
     /// Bytes were written but submission could not be confirmed.
     DeliveredUnverified { detail: String },
     /// Any other failure from the underlying path, kept opaque for adapters.
@@ -107,7 +106,7 @@ pub enum DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PaneNotFound { target } => write!(f, "pane not found: {target}"),
+            Self::TabNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
         }
@@ -121,13 +120,13 @@ impl std::error::Error for DeliveryError {}
 pub trait DeliverySeam {
     fn deliver_enveloped(
         &self,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String>;
-    fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String>;
-    fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
-    fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
+    fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String>;
+    fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
+    fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
 }
 
 /// Build the ordered PTY actions from gateway strokes, mirroring the HTTP route:
@@ -156,29 +155,35 @@ fn build_ordered(strokes: &[KeyStroke]) -> Result<Vec<OrderedPtyAction>, String>
 impl DeliverySeam for super::ServiceContext {
     fn deliver_enveloped(
         &self,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        Messenger::deliver(self, to_pane, envelope, body)
+        Messenger::deliver(self, to_tab, envelope, body)
     }
 
-    fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.send_text_detached(pane, text, enter);
+    fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
+        self.send_text_detached(tab, text);
         Ok(())
     }
 
-    fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
-        self.send_text_batch(pane, batch)
+    fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+        self.send_text_batch(tab, batch)
     }
 
-    fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
+    fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
         let ordered = build_ordered(strokes)?;
         execute_ordered_actions(
             text,
             &ordered,
-            |body, enter| self.send_text(pane, body, enter),
-            |bytes| self.write_raw(pane, bytes),
+            |body, enter| {
+                if enter {
+                    self.send_text(tab, body)
+                } else {
+                    self.insert_text(tab, body)
+                }
+            },
+            |bytes| self.write_raw(tab, bytes),
             await_action_deadline,
         )
     }
@@ -186,6 +191,8 @@ impl DeliverySeam for super::ServiceContext {
 
 impl super::ServiceContext {
     /// Deliver an enveloped machine/system message through the optimistic gateway.
+    /// Delivery never starts a worker turn or touches its report obligation.
+    /// Task dispatch arms that obligation explicitly.
     pub(crate) fn gateway_deliver(
         &self,
         target: &str,
@@ -193,15 +200,13 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<Delivery, String> {
-        let result = self
-            .gateway
+        self.gateway
             .submit(
                 self,
                 OutboundMessage {
                     target: target.to_string(),
                     body: MessageBody::Text {
                         body: body.to_string(),
-                        enter: true,
                     },
                     envelope: Some(envelope),
                     class,
@@ -214,19 +219,7 @@ impl super::ServiceContext {
                     text: body.to_string(),
                 })
             })
-            .map_err(|e| e.to_string());
-        if result.is_ok() && class == DeliveryClass::AgentTraffic {
-            let is_bound_worker = {
-                let mux = self.mux.read();
-                mux.get_pane(target).is_some_and(|pane| {
-                    pane.role == Some(crate::multiplexer::types::AgentRole::Worker)
-                })
-            } && self.plan_store.task_binding_for_pane(target).is_some();
-            if is_bound_worker {
-                self.gateway.require_worker_report(target);
-            }
-        }
-        result
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -235,12 +228,12 @@ impl super::ServiceContext {
 fn classify(target: &str, err: String) -> DeliveryError {
     let low = err.to_lowercase();
     if low.contains("not found")
-        || low.contains("pane missing")
+        || low.contains("Tab missing")
         || low.contains("has no pty")
         || low.contains("did not start")
         || low.contains("closed before pty")
     {
-        DeliveryError::PaneNotFound {
+        DeliveryError::TabNotFound {
             target: target.to_string(),
         }
     } else if low.contains("submit not confirmed")
@@ -331,6 +324,12 @@ impl MessageGateway {
         self.worker_report_required.lock().remove(tab_id)
     }
 
+    /// Non-destructive probe of the obligation state, for assertions.
+    #[cfg(test)]
+    pub(crate) fn worker_report_required(&self, tab_id: &str) -> bool {
+        self.worker_report_required.lock().contains(tab_id)
+    }
+
     pub fn submit<S: DeliverySeam>(
         &self,
         seam: &S,
@@ -362,7 +361,7 @@ impl MessageGateway {
     ) -> Result<DeliveryReceipt, DeliveryError> {
         let key = msg.idempotency_key.clone();
         match &msg.body {
-            MessageBody::Text { body, enter } => match &msg.envelope {
+            MessageBody::Text { body } => match &msg.envelope {
                 Some(envelope) => {
                     let delivery = seam
                         .deliver_enveloped(&msg.target, envelope.clone(), body)
@@ -370,7 +369,7 @@ impl MessageGateway {
                     Ok(receipt(Some(delivery), key))
                 }
                 None => {
-                    seam.deliver_text(&msg.target, body, *enter)
+                    seam.deliver_text(&msg.target, body)
                         .map_err(|e| classify(&msg.target, e))?;
                     Ok(receipt(None, key))
                 }
@@ -409,3 +408,6 @@ fn replay(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ordering_tests;

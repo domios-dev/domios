@@ -164,7 +164,8 @@ pub async fn do_approve(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: 0,
             consecutive_misses: 0,
             last_active_ms: None,
         };
@@ -255,7 +256,8 @@ pub async fn mesh_pair_accept(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: 0,
             consecutive_misses: 0,
             last_active_ms: None,
         };

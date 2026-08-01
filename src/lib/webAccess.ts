@@ -51,7 +51,52 @@ export function buildWebAccessUrls(
 /** Append the API token as a URL fragment (never a query — fragments aren't sent
  * to the server and survive the FQDN root form). */
 export function webLinkWithToken(url: string, token?: string | null): string {
-  return token ? `${url}#token=${encodeURIComponent(token)}` : url;
+  if (!token) return url;
+  assertTokenSafeEntryUrl(url);
+  return `${url}#token=${encodeURIComponent(token)}`;
+}
+
+function assertTokenSafeEntryUrl(value: string): void {
+  const url = new URL(value);
+  const host = url.hostname.toLowerCase();
+  const octets = host.split(".").map(Number);
+  const ipv4 = octets.length === 4
+    && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255);
+  const tailscaleIp = ipv4 && octets[0] === 100 && octets[1] >= 64 && octets[1] < 128;
+  const lanIp = ipv4 && (
+    octets[0] === 10
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] < 32)
+    || (octets[0] === 192 && octets[1] === 168)
+    || octets[0] === 127
+  );
+  const safeHttps = url.protocol === "https:" && host.endsWith(".ts.net");
+  const safeHttp = url.protocol === "http:" && (host === "localhost" || tailscaleIp || lanIp);
+  if (
+    (!safeHttps && !safeHttp)
+    || url.username
+    || url.password
+    || (url.pathname !== "/" && url.pathname !== "")
+    || url.search
+    || url.hash
+  ) {
+    throw new Error("Refusing to attach a CodeTerm token to an untrusted Web UI origin");
+  }
+}
+
+export interface WebRelayTarget {
+  id: string;
+}
+
+export function webLinkWithTokenAndRelay(
+  url: string,
+  token: string | null | undefined,
+  target: WebRelayTarget | null,
+): string {
+  if (token) assertTokenSafeEntryUrl(url);
+  const fragment = new URLSearchParams();
+  if (token) fragment.set("token", token);
+  fragment.set("relay", target?.id ?? "self");
+  return `${url.replace(/#.*$/, "")}#${fragment.toString()}`;
 }
 
 /** Curriculum hint shown when falling back to an IP+port URL: the one command

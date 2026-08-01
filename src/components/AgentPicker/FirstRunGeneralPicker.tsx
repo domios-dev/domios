@@ -2,10 +2,12 @@ import { useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentProviderPicker } from "./AgentProviderPicker";
+import { generalAgentProviders } from "./preselectProvider";
 
 export function FirstRunGeneralPicker({ providers }: { providers: ProviderDescriptor[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const eligibleProviders = generalAgentProviders(providers);
 
   const onConfirm = async (providerId: string) => {
     setBusy(true);
@@ -22,7 +24,7 @@ export function FirstRunGeneralPicker({ providers }: { providers: ProviderDescri
     <div className="h-full w-full bg-[var(--ct-bg)]" data-testid="first-run-general-picker">
       <AgentProviderPicker
         headline="Choose your General agent"
-        providers={providers}
+        providers={eligibleProviders}
         confirmLabel="Start General agent"
         busy={busy}
         onConfirm={onConfirm}

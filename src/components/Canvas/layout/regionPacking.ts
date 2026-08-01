@@ -92,7 +92,7 @@ export function packRegions(layouts: IntraPlanLayout[], s: CanvasLayoutSettings)
     ownerGroups.push({
       ownerKey: key,
       title: ownerTitle(cluster[0].owner),
-      ownerPaneId: cluster[0].owner.pane_id,
+      ownerTabId: cluster[0].owner.tab_id,
       box: groupBox,
       planIds: cluster.map((c) => c.planId),
     });

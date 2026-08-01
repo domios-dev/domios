@@ -31,6 +31,56 @@ fn parse_plan_cli_result<const N: usize>(args: [&str; N]) -> Result<ParsedPlan, 
 }
 
 #[test]
+fn plan_search_kind_arguments() {
+    let parsed = parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "search",
+        "delivery ledger evidence",
+        "--kind",
+        "task",
+        "--scope",
+        "workspace:ws_1",
+    ])
+    .expect("plan search filters parse");
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::Search {
+                kind, scope, limit, ..
+            },
+        } => {
+            assert_eq!(kind.as_deref(), Some("task"));
+            assert_eq!(scope.as_deref(), Some("workspace:ws_1"));
+            assert_eq!(limit, 10);
+        }
+        _ => panic!("expected plan search"),
+    }
+
+    let error = match parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "search",
+        "delivery ledger evidence",
+        "--kind",
+        "nonsense",
+    ]) {
+        Ok(_) => panic!("unknown plan search kind must fail"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    for kind in [
+        "plan",
+        "plan_section",
+        "spec",
+        "spec_section",
+        "task",
+        "stride",
+    ] {
+        assert!(message.contains(kind), "missing {kind} in: {message}");
+    }
+}
+
+#[test]
 fn plan_record_parses_batch_sugar() {
     let parsed = parse_plan_cli_result([
         "codeterm",
@@ -171,6 +221,8 @@ fn plan_task_update_parses_quality_fields() {
         "no separate task button",
         "--test-plan",
         "focused CLI update smoke",
+        "--qa-plan-file",
+        "qa-plan.md",
         "--correctness",
         "one Plan action focuses optional task target",
     ])
@@ -183,6 +235,7 @@ fn plan_task_update_parses_quality_fields() {
                         crate::args::plan::PlanTaskAction::Update {
                             criterion,
                             test_plan,
+                            qa_plan_file,
                             correctness,
                             ..
                         },
@@ -190,6 +243,7 @@ fn plan_task_update_parses_quality_fields() {
         } => {
             assert_eq!(criterion, vec!["no separate task button"]);
             assert_eq!(test_plan.as_deref(), Some("focused CLI update smoke"));
+            assert_eq!(qa_plan_file.as_deref(), Some("qa-plan.md"));
             assert_eq!(
                 correctness.as_deref(),
                 Some("one Plan action focuses optional task target")
@@ -329,12 +383,33 @@ fn plan_task_list_parses_plan_and_status() {
         Commands::Plan {
             action:
                 PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::List { plan_id, status },
+                    action:
+                        crate::args::plan::PlanTaskAction::List {
+                            plan_id,
+                            status,
+                            all,
+                        },
                 },
         } => {
             assert_eq!(plan_id.as_deref(), Some("pl_1"));
             assert_eq!(status.as_deref(), Some("blocked"));
+            assert!(!all);
         }
+        _ => panic!("expected plan task list"),
+    }
+}
+
+#[test]
+fn plan_task_list_parses_all() {
+    let parsed = parse_plan_cli_result(["codeterm", "plan", "task", "list", "pl_1", "--all"])
+        .expect("plan task list --all parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::List { all, .. },
+                },
+        } => assert!(all),
         _ => panic!("expected plan task list"),
     }
 }
@@ -386,6 +461,8 @@ fn plan_task_add_parses_quality_fields() {
         "task show surfaces them",
         "--test-plan",
         "cargo test service::plan::tests::task_quality_fields_persist_and_reload",
+        "--qa-plan",
+        "cargo test independent_qa_oracle",
         "--correctness",
         "round-trip unchanged",
     ])
@@ -398,6 +475,7 @@ fn plan_task_add_parses_quality_fields() {
                         crate::args::plan::PlanTaskAction::Add {
                             criterion,
                             test_plan,
+                            qa_plan,
                             correctness,
                             ..
                         },
@@ -411,6 +489,7 @@ fn plan_task_add_parses_quality_fields() {
                 test_plan.as_deref(),
                 Some("cargo test service::plan::tests::task_quality_fields_persist_and_reload")
             );
+            assert_eq!(qa_plan.as_deref(), Some("cargo test independent_qa_oracle"));
             assert_eq!(correctness.as_deref(), Some("round-trip unchanged"));
         }
         _ => panic!("expected plan task add"),

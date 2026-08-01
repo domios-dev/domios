@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "situation": "model-picker-r3",
+  "source": "dev-7686",
+  "capture": "GET /api/tabs/{id}/text?formatted=true at live /model picker",
+  "until": "Select model | Esc to cancel",
+  "prompt": "/model",
+  "providerCliVersion": "claude-code 2.x (2026-07-30)"
+}

@@ -5,7 +5,7 @@ import { IS_WEB } from "./webApi";
 const CLIENT_ID_KEY = "codeterm.client_id.v1";
 
 export interface ResizeOwner {
-  pane_id: string;
+  tab_id: string;
   pty_id: string;
   client_id: string;
   cols: number;
@@ -28,7 +28,7 @@ export function getResizeClientId(): string {
 }
 
 export async function claimResizeOwner(
-  paneId: string,
+  tabId: string,
   ptyId: string,
   clientId: string,
   cols: number,
@@ -36,7 +36,7 @@ export async function claimResizeOwner(
   force = false,
 ): Promise<ResizeOwner> {
   return invoke<ResizeOwner>("claim_resize_owner", {
-    paneId,
+    tabId,
     ptyId,
     clientId,
     cols,

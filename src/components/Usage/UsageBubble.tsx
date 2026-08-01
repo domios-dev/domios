@@ -9,10 +9,10 @@ import { usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } f
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
-      pane that already knows its provider via `usageProvider`. */
+      tab that already knows its provider via `usageProvider`. */
   provider: string;
   accountId?: string | null;
-  /// Pass-through from a single top-level `useConfig()` so every pane's
+  /// Pass-through from a single top-level `useConfig()` so every tab's
   /// bubble doesn't re-fetch + re-listen on its own. Default `false`
   /// keeps callers that haven't been migrated rendering nothing.
   trackingEnabled?: boolean;
@@ -22,7 +22,7 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 const STALE_MS = 20 * 60 * 1000;
 
 export function UsageBubble({ provider, accountId = null, trackingEnabled = false }: UsageBubbleProps) {
-  // nor register a usage-snapshot-updated listener (was a per-pane IPC fan-out).
+  // nor register a usage-snapshot-updated listener (was a per-tab IPC fan-out).
   const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -50,9 +50,9 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
   useEffect(() => {
     if (!open || !btnRef.current) return;
     const btnRect = btnRef.current.getBoundingClientRect();
-    const pane = btnRef.current.closest("[data-pane-id]") as HTMLElement | null;
-    const paneRect = pane?.getBoundingClientRect();
-    const room = paneRect ? paneRect.bottom - btnRect.bottom : window.innerHeight - btnRect.bottom;
+    const tab = btnRef.current.closest("[data-tab-id]") as HTMLElement | null;
+    const tabRect = tab?.getBoundingClientRect();
+    const room = tabRect ? tabRect.bottom - btnRect.bottom : window.innerHeight - btnRect.bottom;
     setFlipUp(room < 360);
   }, [open]);
 

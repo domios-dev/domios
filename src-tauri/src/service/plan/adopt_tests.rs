@@ -11,15 +11,15 @@ fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
         "Adopt me".into(),
         root.display().to_string(),
         OrchestratorRef {
-            pane_id: Some("old-owner".into()),
+            tab_id: Some("old-owner".into()),
             session_id: Some("old-session".into()),
             title: Some("old title".into()),
         },
     );
     plan.id = "pl_adoptme".into();
     plan.mode = PlanMode::Execution;
-    plan.planner = Some(PlannerRef::Pane {
-        pane_id: "old-planner".into(),
+    plan.planner = Some(PlannerRef::Tab {
+        tab_id: "old-planner".into(),
         session_id: Some("planner-session".into()),
         title: Some("planner".into()),
     });
@@ -49,8 +49,8 @@ fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
                 .find(|task| task.id == task_id)
                 .unwrap();
             task.status = TaskStatus::InProgress;
-            task.assigned_pane_id = Some("old-worker".into());
-            task.lane.pane_id = Some("old-worker".into());
+            task.assigned_tab_id = Some("old-worker".into());
+            task.lane.tab_id = Some("old-worker".into());
             task.lane.workspace_id = Some("old-workspace".into());
             task.lane.workspace_name = Some("Old workspace".into());
             task.lane.worktree_path = Some(root.join("old-lane").display().to_string());
@@ -85,7 +85,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
             AdoptPlanRequest {
                 source: source_dir.clone(),
                 target_project: target.path().to_path_buf(),
-                owner: OrchestratorRef::from_pane("new-owner"),
+                owner: OrchestratorRef::from_tab("new-owner"),
                 dry_run: false,
                 overwrite: false,
                 remove_source: false,
@@ -99,7 +99,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
     assert!(report
         .warnings
         .iter()
-        .any(|warning| warning.contains("task pane/lane bindings")));
+        .any(|warning| warning.contains("task Tab/lane bindings")));
     let target_root = target.path().canonicalize().unwrap();
     let adopted = target_store.get(&plan_id).unwrap();
     assert_eq!(adopted.project_path, target_root.display().to_string());
@@ -107,7 +107,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         adopted.canonical_project_path,
         target_root.display().to_string()
     );
-    assert_eq!(adopted.owner.pane_id.as_deref(), Some("new-owner"));
+    assert_eq!(adopted.owner.tab_id.as_deref(), Some("new-owner"));
     assert_eq!(adopted.status, PlanStatus::Archived);
     assert_eq!(adopted.team_id, None);
     assert_eq!(adopted.planner, None);
@@ -120,8 +120,8 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(task.body, "Preserve this body");
-    assert_eq!(task.assigned_pane_id, None);
-    assert_eq!(task.lane.pane_id, None);
+    assert_eq!(task.assigned_tab_id, None);
+    assert_eq!(task.lane.tab_id, None);
     assert_eq!(task.lane.workspace_id, None);
     assert_eq!(task.lane.worktree_path, None);
     assert_eq!(task.lane.branch.as_deref(), Some("lane/old"));
@@ -169,7 +169,7 @@ fn adopt_plan_dry_run_reports_without_writing() {
             AdoptPlanRequest {
                 source: source_dir,
                 target_project: target.path().to_path_buf(),
-                owner: OrchestratorRef::from_pane("new-owner"),
+                owner: OrchestratorRef::from_tab("new-owner"),
                 dry_run: true,
                 overwrite: false,
                 remove_source: true,
@@ -210,7 +210,7 @@ fn adopt_plan_rejects_existing_destination_without_overwrite() {
     let mut existing = Plan::new(
         "Existing".into(),
         target.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     existing.id = plan_id.clone();
     target_store.save(&mut existing, 1).unwrap();
@@ -220,7 +220,7 @@ fn adopt_plan_rejects_existing_destination_without_overwrite() {
             AdoptPlanRequest {
                 source: source_dir,
                 target_project: target.path().to_path_buf(),
-                owner: OrchestratorRef::from_pane("new-owner"),
+                owner: OrchestratorRef::from_tab("new-owner"),
                 dry_run: false,
                 overwrite: false,
                 remove_source: false,

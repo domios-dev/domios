@@ -37,8 +37,8 @@ pub use provider::JsProvider;
 
 pub use manifest::{
     manifest_settings_sections, CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind,
-    PermissionsConfig, PluginManifest, RuleConfig, SerdeModelInfo, SerdeReadinessStrategy,
-    SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, UsageConfig,
+    PermissionsConfig, PluginManifest, RuleConfig, SerdeModelInfo, SerdeProviderReadinessStrategy,
+    SerdeReadinessStrategy, SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit,
+    SessionsConfig, SkillsConfig, SpawnConfig, UsageConfig,
 };
 pub use vm::{call_json, has_method, PluginVm, VmError};

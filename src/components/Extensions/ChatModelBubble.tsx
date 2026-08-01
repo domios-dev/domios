@@ -1,12 +1,8 @@
-/**
- * Composer-row model picker for chatBackend shell panes. A shell resolves identity
- * from `backing.plugin_id` (not the agent registry); picking a model calls
- * `chatbackend_switch_model` and reflects the refreshed session info.
- * Generalized — any chatBackend shell with `available_models`, no hardcoded id.
- */
+/** chatBackend model picker backed by the live provider catalog and session API. */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import type { ModelInfo } from "../../lib/types";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -19,7 +15,11 @@ export function ChatModelBubble({
   sessionId: string;
   readOnly?: boolean;
 }) {
-  const [models, setModels] = useState<ModelInfo[]>([]);
+  const { providers, loading: catalogLoading } = useAgentProviders();
+  const models = useMemo(
+    () => providers.find((provider) => provider.id === pluginId)?.available_models ?? [],
+    [pluginId, providers],
+  );
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,10 +28,9 @@ export function ChatModelBubble({
   useEffect(() => {
     let alive = true;
     const api = getChatModelBubbleApi();
-    Promise.all([api.availableModels(pluginId), api.sessionInfo(pluginId, sessionId)])
-      .then(([available, info]) => {
+    api.sessionInfo(pluginId, sessionId)
+      .then((info) => {
         if (!alive) return;
-        setModels(available);
         setCurrentModel(info?.model ?? null);
       })
       .catch(() => {});
@@ -86,8 +85,24 @@ export function ChatModelBubble({
     if (model) void doSwitch(model);
   }, [pending, doSwitch]);
 
-  // Generalized gate: only shells that publish switchable models get the bubble.
-  if (models.length === 0) return null;
+  if (catalogLoading || models.length === 0) {
+    const status = catalogLoading ? "Loading model catalog…" : "No models published";
+    return (
+      <span
+        data-testid="chat-model-bubble-status"
+        role="status"
+        aria-live="polite"
+        className="ct-chat-model-bubble inline-flex h-7 items-center rounded-full border px-2 text-xs"
+        style={{
+          borderColor: "var(--ct-border)",
+          color: "var(--ct-muted-fg)",
+          opacity: 0.75,
+        }}
+      >
+        {status}
+      </span>
+    );
+  }
 
   if (readOnly) {
     return (
@@ -123,6 +138,8 @@ export function ChatModelBubble({
         onClick={() => setOpen((v) => !v)}
         disabled={busy}
         title="Switch model"
+        aria-haspopup="menu"
+        aria-expanded={open}
         style={{
           background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
           borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
@@ -135,6 +152,8 @@ export function ChatModelBubble({
       </button>
       {open && (
         <div
+          role="menu"
+          aria-label="Available models"
           className="absolute bottom-full left-0 mb-1 grid gap-0.5 rounded-md border p-1 shadow-lg"
           style={{
             minWidth: 180,
@@ -154,6 +173,8 @@ export function ChatModelBubble({
                 data-model-id={model.id}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => void choose(model)}
+                role="menuitemradio"
+                aria-checked={selected}
                 className="w-full grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2 rounded px-2 py-1 text-left text-xs"
                 style={{
                   background: selected

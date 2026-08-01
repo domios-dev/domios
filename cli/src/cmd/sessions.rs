@@ -196,7 +196,7 @@ pub fn handle_sessions(
                         eprintln!("Error: {} — {}", status, val);
                         std::process::exit(1);
                     }
-                    let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
                     let ws = val
                         .get("workspace_id")
                         .and_then(|v| v.as_str())
@@ -205,7 +205,7 @@ pub fn handle_sessions(
                     let cwd = val.get("cwd").and_then(|v| v.as_str()).unwrap_or("?");
                     println!("Resumed [{}] {}", provider, session_id);
                     println!("  workspace: {}", ws);
-                    println!("  pane:      {}", pane);
+                    println!("  tab:       {}", tab);
                     println!("  cwd:       {}", cwd);
                 }
                 Err(e) => {

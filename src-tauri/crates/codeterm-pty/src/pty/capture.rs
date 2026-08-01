@@ -1,6 +1,6 @@
 //! Dev-only PTY capture tap → asciicast v2 `.cast`.
 //!
-//! When capture is armed on a pane, raw PTY output bytes (ANSI intact) plus a
+//! When capture is armed on a tab, raw PTY output bytes (ANSI intact) plus a
 //! per-chunk monotonic timestamp are teed into a `.cast` file off the PTY pump.
 //! ZERO cost when not capturing: a single relaxed atomic load gates the fast path.
 //! All file IO happens on a dedicated writer thread fed by an unbounded channel,
@@ -192,7 +192,7 @@ impl CaptureRegistry {
         if map.contains_key(pty_id) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                "capture already active for this pane",
+                "capture already active for this Tab",
             ));
         }
         let writer = CastWriter::create(&out, cols, rows, timestamp)?;

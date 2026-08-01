@@ -5,7 +5,7 @@ import { shortPath } from "./MarkdownBody";
 
 interface Props {
   message: ChatMessage;
-  /** Re-run the command in the pane's PTY (VS Code command-decoration rerun). */
+  /** Re-run the command in the tab's PTY (VS Code command-decoration rerun). */
   onRerun?: (command: string) => void;
   /** Surface the command's terminal output (jump-to-command). */
   onJump?: (message: ChatMessage) => void;

@@ -2,7 +2,11 @@
 
 use crate::data_dir_name;
 
-/// A logical pane send (POST `.../send`) — the only relay shape that gets a
+use super::compat::{
+    dialect_from_identify, request_for_dialect, response_for_dialect, MeshApiDialect,
+};
+
+/// A logical tab send (POST `.../send`) — the only relay shape that gets a
 /// delivery id for at-most-once dedupe on the target.
 pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/send")
@@ -21,7 +25,7 @@ fn resolve_delivery_id() -> String {
     delivery_id_or_generate(std::env::var("CODETERM_DELIVERY_ID").ok())
 }
 
-/// Build the `/api/mesh/relay` envelope, stamping a delivery id onto pane sends
+/// Build the `/api/mesh/relay` envelope, stamping a delivery id onto tab sends
 /// so the target dedupes retries by (authenticated sender, delivery_id).
 pub(crate) fn build_relay_envelope(
     method: &str,
@@ -65,7 +69,6 @@ pub(crate) fn resolve_peer_url(
     peer_api_url(peer)
 }
 
-/// Send a relay envelope to a peer's /api/mesh/relay and return the parsed JSON response.
 pub(crate) fn relay_call(
     http: &reqwest::blocking::Client,
     peer_url: &str,
@@ -101,19 +104,19 @@ pub fn mesh_relay_cmd(
     token: &Option<String>,
     target: &str,
     action: &str,
-    pane: &str,
+    tab: &str,
     json_mode: bool,
 ) {
     let (method, path, body) = match action {
         "output" => (
             "GET",
             format!(
-                "/api/panes/{}/output",
-                if pane.is_empty() { "general" } else { pane }
+                "/api/tabs/{}/output",
+                if tab.is_empty() { "general" } else { tab }
             ),
             serde_json::json!(null),
         ),
-        "panes" => ("GET", "/api/panes".to_string(), serde_json::json!(null)),
+        "tabs" => ("GET", "/api/tabs".to_string(), serde_json::json!(null)),
         "status" => (
             "GET",
             "/api/mesh/status".to_string(),
@@ -142,8 +145,8 @@ pub fn mesh_relay_cmd(
 }
 
 /// Fetch a relayed API response as a JSON value without printing — used by
-/// callers that need to post-process the peer's response (e.g. `pane find`
-/// runs the fuzzy ranker on the peer's pane list before printing).
+/// callers that need to post-process the peer's response (e.g. `Tab find`
+/// runs the fuzzy ranker on the peer's tab list before printing).
 pub fn mesh_relay_fetch_json(
     http: &reqwest::blocking::Client,
     base: &str,
@@ -173,20 +176,17 @@ pub fn mesh_relay_fetch_json(
             std::process::exit(1);
         }
     };
-    match relay_call(http, &peer_url, &signed_token, method, path, body) {
-        Ok(val) => {
-            if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
-                if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-                    eprintln!("Error: {}", err);
-                    std::process::exit(1);
-                }
-            }
-            val.get("data").cloned().unwrap_or(serde_json::Value::Null)
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
+    match perform_compatible_mesh_relay_call(
+        http,
+        &peer_url,
+        &signed_token,
+        target,
+        method,
+        path,
+        body,
+    ) {
+        Ok(val) => val,
+        Err(failure) => failure.print_and_exit(false),
     }
 }
 
@@ -319,6 +319,53 @@ pub(crate) fn perform_mesh_relay_call(
     classify_relay_response(peer_name, status, &bytes)
 }
 
+fn perform_compatible_mesh_relay_call(
+    http: &reqwest::blocking::Client,
+    peer_url: &str,
+    signed_token: &str,
+    peer_name: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let dialect = if path == "/api/identify" {
+        MeshApiDialect::Current
+    } else {
+        let identify = perform_mesh_relay_call(
+            http,
+            peer_url,
+            signed_token,
+            peer_name,
+            "GET",
+            "/api/identify",
+            None,
+        )?;
+        dialect_from_identify(&identify)
+    };
+    let request_token = if path == "/api/identify" {
+        signed_token.to_string()
+    } else {
+        crate::read_mesh_signed_token().ok_or_else(|| {
+            MeshSpawnFailure::new(
+                peer_name,
+                "cannot sign mesh request after peer contract preflight",
+                "restore this machine's mesh identity, then retry",
+            )
+        })?
+    };
+    let (path, body) = request_for_dialect(dialect, path, body);
+    perform_mesh_relay_call(
+        http,
+        peer_url,
+        &request_token,
+        peer_name,
+        method,
+        &path,
+        body.as_deref(),
+    )
+    .map(|value| response_for_dialect(dialect, value))
+}
+
 /// Resolve a peer (refreshing once on miss) and mint a signed request token —
 /// shared by every relay entry point.
 fn resolve_peer_for_relay(
@@ -385,7 +432,7 @@ pub(crate) fn mesh_relay_invoke_result(
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
     let (peer_url, signed_token) = resolve_peer_for_relay(http, base, token, target)?;
-    perform_mesh_relay_call(http, &peer_url, &signed_token, target, method, path, body)
+    perform_compatible_mesh_relay_call(http, &peer_url, &signed_token, target, method, path, body)
 }
 
 /// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
@@ -451,7 +498,7 @@ pub fn mesh_relay_generic(
         // Unwrap envelope so `--json` output matches local CLI shape.
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
     } else if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
-        // /panes/<id>/output returns {"text": "..."} — print raw.
+        // /tabs/<id>/output returns {"text": "..."} — print raw.
         print!("{}", text);
     } else if data.is_null() {
         eprintln!("Error: unexpected response from peer (null data)");
@@ -464,8 +511,8 @@ pub fn mesh_relay_generic(
 /// Build the `POST /api/remote-workers` body that registers a freshly spawned
 /// cross-mesh worker on the origin. `report_to` and `model` come from the spawn
 /// REQUEST body (so the registry keys on the same target the worker reports to);
-/// `pane_id`/`title` come from the spawn RESPONSE. Returns `None` when there is
-/// no report target or the spawn produced no pane id (nothing to nest).
+/// `tab_id`/`title` come from the spawn RESPONSE. Returns `None` when there is
+/// no report target or the spawn produced no tab id (nothing to nest).
 pub(crate) fn remote_worker_record_body(
     peer: &str,
     spawn_body: &serde_json::Value,
@@ -476,8 +523,8 @@ pub(crate) fn remote_worker_record_body(
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
-    let pane_id = spawn_data
-        .get("pane_id")
+    let tab_id = spawn_data
+        .get("tab_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
@@ -486,11 +533,11 @@ pub(crate) fn remote_worker_record_body(
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or(pane_id);
+        .unwrap_or(tab_id);
     let mut body = serde_json::json!({
-        "orchestrator_pane": report_to,
+        "orchestrator_tab": report_to,
         "peer": peer,
-        "remote_pane": pane_id,
+        "remote_tab": tab_id,
         "title": title,
     });
     if let Some(m) = spawn_body
@@ -504,10 +551,10 @@ pub(crate) fn remote_worker_record_body(
     Some(body)
 }
 
-pub(crate) fn remote_worker_forget_body(peer: &str, remote_pane: &str) -> serde_json::Value {
+pub(crate) fn remote_worker_forget_body(peer: &str, remote_tab: &str) -> serde_json::Value {
     serde_json::json!({
         "peer": peer,
-        "remote_pane": remote_pane,
+        "remote_tab": remote_tab,
     })
 }
 
@@ -523,7 +570,7 @@ pub(crate) fn spawn_and_maybe_register_at_resolved_peer(
     spawn_body: &serde_json::Value,
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let data = perform_mesh_relay_call(
+    let data = perform_compatible_mesh_relay_call(
         http,
         peer_url,
         signed_token,
@@ -592,26 +639,26 @@ pub fn mesh_spawn_and_register(
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
-    } else if let Some(pid) = data.get("pane_id").and_then(|v| v.as_str()) {
+    } else if let Some(pid) = data.get("tab_id").and_then(|v| v.as_str()) {
         let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-        println!("Spawned: {} (pane {}) on {}", title, pid, target);
+        println!("Spawned: {} (Tab {}) on {}", title, pid, target);
     } else {
         crate::cmd::print::print_human(&data);
     }
 }
 
-/// Relay a remote pane close and remove any matching origin-side remote-worker
+/// Relay a remote tab close and remove any matching origin-side remote-worker
 /// ghost. The registry cleanup is best-effort: a successful remote close should
 /// not fail just because the origin had no stale ghost or could not delete it.
-pub fn mesh_close_pane_and_forget_remote_worker(
+pub fn mesh_close_tab_and_forget_remote_worker(
     http: &reqwest::blocking::Client,
     base: &str,
     token: &Option<String>,
     target: &str,
-    pane_id: &str,
+    tab_id: &str,
     json_mode: bool,
 ) {
-    let path = format!("/api/panes/{pane_id}/close");
+    let path = format!("/api/tabs/{tab_id}/close");
     let data = mesh_relay_invoke(http, base, token, target, "POST", &path, None, json_mode);
 
     let peer_name = find_peer(&fetch_peers(http, base, token), target)
@@ -624,7 +671,7 @@ pub fn mesh_close_pane_and_forget_remote_worker(
             "Authorization",
             format!("Bearer {}", token.as_deref().unwrap_or("")),
         )
-        .json(&remote_worker_forget_body(&peer_name, pane_id))
+        .json(&remote_worker_forget_body(&peer_name, tab_id))
         .send();
 
     if json_mode {
@@ -722,14 +769,14 @@ mod mesh_spawn_failure_tests {
 
     #[test]
     fn classify_success_returns_unwrapped_data() {
-        let body = serde_json::json!({"ok": true, "status": 200, "data": {"pane_id": "abc"}});
+        let body = serde_json::json!({"ok": true, "status": 200, "data": {"tab_id": "abc"}});
         let data = classify_relay_response(
             "blackstar",
             reqwest::StatusCode::OK,
             body.to_string().as_bytes(),
         )
         .expect("ok:true must classify as success");
-        assert_eq!(data.get("pane_id").and_then(|v| v.as_str()), Some("abc"));
+        assert_eq!(data.get("tab_id").and_then(|v| v.as_str()), Some("abc"));
     }
 
     /// Accept exactly one connection, then hang up without writing anything —
@@ -832,7 +879,7 @@ mod mesh_spawn_failure_tests {
         );
         assert!(
             !registered.load(Ordering::SeqCst),
-            "a mesh spawn that never produced a live remote pane must leave \
+            "a mesh spawn that never produced a live remote Tab must leave \
              zero residual task/lane bindings on the origin"
         );
     }

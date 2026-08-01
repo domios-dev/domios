@@ -21,14 +21,14 @@ function task(id: string, opts: Partial<Task> = {}): Task {
   return {
     id, name: id, type: "implement", model: null, model_rationale: null,
     status: "pending", status_label: null, section_ids: [], body: "",
-    intent: null, assigned_pane_id: null, peer: null, parent_task_id: null,
+    intent: null, assigned_tab_id: null, peer: null, parent_task_id: null,
     canvas: canvas(), milestones: [], created_at: 0, ...opts,
   };
 }
 function plan(tasks: Task[], sections: Section[] = []): Plan {
   return {
     id: "p", title: "p", sections, status: "active",
-    owner: { pane_id: "o", session_id: "o", title: "o" }, project_path: "/p",
+    owner: { tab_id: "o", session_id: "o", title: "o" }, project_path: "/p",
     created_at: 0, updated_at: 1, milestone_kinds: [], loops: [], elements: [],
     tasks, canvas: { viewport: null }, owner_history: [],
   };

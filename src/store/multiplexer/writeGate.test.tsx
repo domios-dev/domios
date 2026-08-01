@@ -51,9 +51,9 @@ function assert(condition: unknown, message: string): asserts condition {
 function sampleCachedState(wsId: string) {
   return {
     workspaces: [{ id: wsId, name: "Cached", tabs: [], active_tab_id: null, cwd: null }],
-    panes: {},
+    tabs: {},
     active_workspace_id: wsId,
-    focused_pane_id: null,
+    focused_tab_id: null,
     generation: 1,
   };
 }

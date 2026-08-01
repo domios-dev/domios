@@ -5,35 +5,35 @@ pub(super) struct PlannerDeliveryBinding {
 }
 
 impl crate::service::ServiceContext {
-    pub(crate) fn bind_planner_session(&self, pane_id: &str) {
+    pub(crate) fn bind_planner_session(&self, tab_id: &str) {
         let binding = {
             let mux = self.mux.read();
-            let Some(pane) = mux.get_pane(pane_id) else {
+            let Some(tab) = mux.get_tab(tab_id) else {
                 return;
             };
-            if pane.session_binding_nonce.is_none()
-                || pane.session_binding_nonce != pane.reported_session_binding_nonce
+            if tab.session_binding_nonce.is_none()
+                || tab.session_binding_nonce != tab.reported_session_binding_nonce
             {
                 return;
             }
-            pane.agent_session_id
+            tab.agent_session_id
                 .clone()
-                .zip(pane.reported_session_binding_nonce.clone())
+                .zip(tab.reported_session_binding_nonce.clone())
         };
         let Some((session_id, binding_nonce)) = binding else {
             return;
         };
         let now_ms = epoch_ms();
         for plan in self.plan_store.list_full() {
-            let Some(crate::plan::PlannerRef::Pane { pane_id: bound, .. }) = &plan.planner else {
+            let Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) = &plan.planner else {
                 continue;
             };
-            if bound != pane_id {
+            if bound != tab_id {
                 continue;
             }
             let _ = self.plan_store.rebind_planner_session(
                 &plan.id,
-                pane_id,
+                tab_id,
                 &session_id,
                 &binding_nonce,
                 now_ms,
@@ -43,37 +43,37 @@ impl crate::service::ServiceContext {
 
     pub(super) fn prepare_planner_delivery_binding(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Result<PlannerDeliveryBinding, String> {
         let is_chatbackend = matches!(
-            self.mux.read().get_pane(pane_id).map(|pane| &pane.backing),
-            Some(crate::multiplexer::types::PaneBacking::ChatBackend { .. })
+            self.mux.read().get_tab(tab_id).map(|tab| &tab.backing),
+            Some(crate::multiplexer::types::TabBacking::ChatBackend { .. })
         );
         if is_chatbackend {
-            self.chatbackend_reopen_if_restored(pane_id)?;
+            self.chatbackend_reopen_if_restored(tab_id)?;
         }
-        self.bind_planner_session(pane_id);
+        self.bind_planner_session(tab_id);
         let binding = {
             let mux = self.mux.read();
-            let pane = mux.get_pane(pane_id).ok_or("agent_unavailable")?;
-            if pane.session_binding_nonce.is_none()
-                || pane.session_binding_nonce != pane.reported_session_binding_nonce
+            let tab = mux.get_tab(tab_id).ok_or("agent_unavailable")?;
+            if tab.session_binding_nonce.is_none()
+                || tab.session_binding_nonce != tab.reported_session_binding_nonce
             {
                 return Err("agent_unavailable: planner session nonce is stale".into());
             }
-            let session_id = pane
+            let session_id = tab
                 .agent_session_id
                 .clone()
                 .ok_or("agent_unavailable: planner session missing")?;
-            let binding_nonce = pane
+            let binding_nonce = tab
                 .reported_session_binding_nonce
                 .clone()
                 .ok_or("agent_unavailable: planner binding nonce missing")?;
-            let transport = match &pane.backing {
-                crate::multiplexer::types::PaneBacking::Pty => {
+            let transport = match &tab.backing {
+                crate::multiplexer::types::TabBacking::Pty => {
                     crate::plan::PlannerDeliveryTransport::PtyAgent
                 }
-                crate::multiplexer::types::PaneBacking::ChatBackend { .. } => {
+                crate::multiplexer::types::TabBacking::ChatBackend { .. } => {
                     crate::plan::PlannerDeliveryTransport::ChatBackend
                 }
             };
@@ -84,7 +84,7 @@ impl crate::service::ServiceContext {
             }
         };
         if !self
-            .pane_probe(pane_id)
+            .tab_probe(tab_id)
             .planner_routable_for(Some(&binding.session_id))
         {
             return Err("agent_unavailable: planner is not routable".into());
@@ -94,15 +94,15 @@ impl crate::service::ServiceContext {
 
     pub(super) fn observed_planner_identity(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> (Option<String>, Option<String>) {
         let mux = self.mux.read();
-        let Some(pane) = mux.get_pane(pane_id) else {
+        let Some(tab) = mux.get_tab(tab_id) else {
             return (None, None);
         };
         (
-            pane.agent_session_id.clone(),
-            pane.reported_session_binding_nonce.clone(),
+            tab.agent_session_id.clone(),
+            tab.reported_session_binding_nonce.clone(),
         )
     }
 }

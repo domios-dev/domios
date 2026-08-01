@@ -3,15 +3,15 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 02-multiplexer.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
-import { expect, test, type PaneCleanup } from "../../helpers/fixtures";
-import { type ApiClient, type Pane } from "../../helpers/api-client";
+import { expect, test, type TabCleanup } from "../../helpers/fixtures";
+import { type ApiClient, type Tab } from "../../helpers/api-client";
 import { ensureDevConsole, killDevConsole } from "../../helpers/dev-console";
 
-async function createPane(api: ApiClient, paneCleanup: PaneCleanup, workspaceId?: string): Promise<string> {
-  const created = await api.createPane(workspaceId ? { workspace_id: workspaceId } : {});
+async function createTab(api: ApiClient, tabCleanup: TabCleanup, workspaceId?: string): Promise<string> {
+  const created = await api.createTab(workspaceId ? { workspace_id: workspaceId } : {});
   const id = (created as { id?: string }).id;
-  expect(id, `create pane response: ${JSON.stringify(created)}`).toBeTruthy();
-  paneCleanup.track(id);
+  expect(id, `create tab response: ${JSON.stringify(created)}`).toBeTruthy();
+  tabCleanup.track(id);
   return id!;
 }
 
@@ -39,48 +39,48 @@ test("@golden workspace create/focus/close round-trip, UI tracks it", async ({ a
   await expect(wsItem).toHaveCount(0);
 });
 
-test("@golden pane create/focus/close round-trip", async ({ api, paneCleanup }) => {
-  const before = await api.panes();
-  const paneId = await createPane(api, paneCleanup);
+test("@golden tab create/focus/close round-trip", async ({ api, tabCleanup }) => {
+  const before = await api.tabs();
+  const tabId = await createTab(api, tabCleanup);
 
-  let panes = await api.panes();
-  expect(panes.length).toBe(before.length + 1);
-  expect(panes.some((p) => p.id === paneId)).toBe(true);
+  let tabs = await api.tabs();
+  expect(tabs.length).toBe(before.length + 1);
+  expect(tabs.some((p) => p.id === tabId)).toBe(true);
 
-  await api.focusPane(paneId);
-  panes = await api.panes();
-  expect(panes.find((p) => p.id === paneId)?.focused).toBe(true);
+  await api.focusTab(tabId);
+  tabs = await api.tabs();
+  expect(tabs.find((p) => p.id === tabId)?.focused).toBe(true);
 
-  await api.closePane(paneId);
-  panes = await api.panes();
-  expect(panes.some((p) => p.id === paneId)).toBe(false);
+  await api.closeTab(tabId);
+  tabs = await api.tabs();
+  expect(tabs.some((p) => p.id === tabId)).toBe(false);
 });
 
-test("@smoke @regression #132: exactly one focused pane across 50 focus switches", async ({ api, paneCleanup }) => {
-  const a = await createPane(api, paneCleanup);
-  const b = await createPane(api, paneCleanup);
+test("@smoke @regression #132: exactly one focused tab across 50 focus switches", async ({ api, tabCleanup }) => {
+  const a = await createTab(api, tabCleanup);
+  const b = await createTab(api, tabCleanup);
   const targets = [a, b];
 
   for (let i = 0; i < 50; i++) {
     const target = targets[i % 2];
-    await api.focusPane(target);
-    const panes: Pane[] = await api.panes();
-    const focused = panes.filter((p) => p.focused);
+    await api.focusTab(target);
+    const tabs: Tab[] = await api.tabs();
+    const focused = tabs.filter((p) => p.focused);
     expect(
       focused.length,
-      `iteration ${i}: focused panes = [${focused.map((p) => p.id).join(", ")}]`,
+      `iteration ${i}: focused tabs = [${focused.map((p) => p.id).join(", ")}]`,
     ).toBe(1);
     expect(focused[0].id).toBe(target);
   }
 });
 
-test("@golden @restart workspace + pane survive a daemon kill/restart", async ({ api, ui, paneCleanup }) => {
+test("@golden @restart workspace + tab survive a daemon kill/restart", async ({ api, ui, tabCleanup }) => {
   test.setTimeout(300_000);
   const name = `pw-persist-${Date.now()}`;
   await api.createWorkspace(name);
   const ws = (await api.workspaces()).find((w) => w.name === name);
   expect(ws).toBeDefined();
-  const paneId = await createPane(api, paneCleanup, ws!.id);
+  const tabId = await createTab(api, tabCleanup, ws!.id);
 
   // hasn't fired for state this young — snapshot explicitly first.
   await api.post("/session/save");
@@ -92,10 +92,10 @@ test("@golden @restart workspace + pane survive a daemon kill/restart", async ({
   const workspaces = await api.workspaces();
   const restored = workspaces.find((w) => w.name === name);
   expect(restored, "workspace lost across restart").toBeDefined();
-  const panes = await api.panes();
+  const tabs = await api.tabs();
   expect(
-    panes.some((p) => p.id === paneId),
-    `pane ${paneId} lost across restart`,
+    tabs.some((p) => p.id === tabId),
+    `tab ${tabId} lost across restart`,
   ).toBe(true);
 
   // UI shows the restored workspace too.

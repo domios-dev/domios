@@ -149,7 +149,7 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
             }
         }
         MeshAction::Tabs { target } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", json);
+            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "tabs", "", json);
         }
         MeshAction::Connect { instance_id } => {
             let body = serde_json::json!({"instance_id": instance_id});

@@ -1,6 +1,6 @@
 /**
- * WHAT: Fresh panes never inherit another pane's unsent composer draft.
- * WHY: Pane ids can be reused, so closed-pane draft keys must be reclaimed.
+ * WHAT: Fresh tabs never inherit another tab's unsent composer draft.
+ * WHY: Tab ids can be reused, so closed-tab draft keys must be reclaimed.
  * ORACLE: Closing clears its key; pair-spawn composers begin empty.
  */
 import { expect, test } from "../../helpers/fixtures";
@@ -9,7 +9,7 @@ import type { ApiClient, Workspace } from "../../helpers/api-client";
 import type { Page } from "@playwright/test";
 
 const DRAFT_PREFIX = "codeterm:composer-draft:";
-const PANE_CHAT_SCOPE = `${DRAFT_PREFIX}pane-session-chat:`;
+const TAB_CHAT_SCOPE = `${DRAFT_PREFIX}tab-session-chat:`;
 const CHAT_VIEW_SCOPE = `${DRAFT_PREFIX}chat-view:`;
 const STRAY = "continue working on the 1.7.2 stability plan";
 
@@ -34,37 +34,37 @@ async function createTestWorkspace(api: ApiClient): Promise<Workspace> {
 }
 
 test.describe("@golden composer draft isolation", () => {
-  test("@golden a draft never outlives the pane that owns it (no stale key to inherit)", async ({
+  test("@golden a draft never outlives the tab that owns it (no stale key to inherit)", async ({
     api,
     ui,
   }) => {
     const page = ui.page;
     const ws = await createTestWorkspace(api);
 
-    // Materialize one live pane and seed the exact defect payload as its draft,
+    // Materialize one live tab and seed the exact defect payload as its draft,
     // as if the user had typed it and not sent. Server-minted id → real key.
-    await api.createPane({ workspace_id: ws.id });
-    const paneId = await pollUntil(
-      async () => (await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids?.[0] ?? null,
+    await api.createTab({ workspace_id: ws.id });
+    const tabId = await pollUntil(
+      async () => (await api.workspaces()).find((w) => w.id === ws.id)?.tab_ids?.[0] ?? null,
       15_000,
       500,
-      "seed pane materializes",
+      "seed tab materializes",
     );
-    const key = `${PANE_CHAT_SCOPE}${paneId}`;
+    const key = `${TAB_CHAT_SCOPE}${tabId}`;
     await page.evaluate(
       ([k, v]) => window.localStorage.setItem(k, v),
       [key, STRAY] as const,
     );
     expect((await draftKeys(page))[key], "seeded draft is present").toBe(STRAY);
 
-    // Close the pane. Its draft must not be left behind for a future
-    // (reused/colliding) pane id to inherit.
-    await api.closePane(paneId!);
+    // Close the tab. Its draft must not be left behind for a future
+    // (reused/colliding) tab id to inherit.
+    await api.closeTab(tabId!);
     await pollUntil(
-      async () => (((await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids) ?? []).includes(paneId!) ? null : true,
+      async () => (((await api.workspaces()).find((w) => w.id === ws.id)?.tab_ids) ?? []).includes(tabId!) ? null : true,
       15_000,
       500,
-      "pane is gone server-side",
+      "tab is gone server-side",
     );
 
     await expect
@@ -81,7 +81,7 @@ test.describe("@golden composer draft isolation", () => {
     const page = ui.page;
     const ws = await createTestWorkspace(api);
     const before = new Set(
-      (await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids ?? [],
+      (await api.workspaces()).find((w) => w.id === ws.id)?.tab_ids ?? [],
     );
 
     // Open the app fresh so the just-created workspace is present exactly as a
@@ -117,16 +117,16 @@ test.describe("@golden composer draft isolation", () => {
     await picker.getByRole("button", { name: "Start orchestration" }).click();
     await expect(picker).toBeHidden({ timeout: 60_000 });
 
-    const newPaneIds = await pollUntil(
+    const newTabIds = await pollUntil(
       async () => {
-        const ids = ((await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids ?? []).filter(
+        const ids = ((await api.workspaces()).find((w) => w.id === ws.id)?.tab_ids ?? []).filter(
           (id) => !before.has(id),
         );
         return ids.length >= 2 ? ids : null;
       },
       60_000,
       1_000,
-      "pair panes materialize",
+      "pair tabs materialize",
     );
 
     // What the user sees: every message composer on screen starts empty.
@@ -134,11 +134,11 @@ test.describe("@golden composer draft isolation", () => {
     for (let i = 0; i < (await composers.count()); i++) {
       await expect(composers.nth(i), `composer #${i} is empty`).toHaveValue("");
     }
-    // The defect mechanism: no stale draft key survives for the new pane ids.
+    // The defect mechanism: no stale draft key survives for the new tab ids.
     const keys = await draftKeys(page);
-    for (const id of newPaneIds!) {
-      expect(keys[`${PANE_CHAT_SCOPE}${id}`] ?? "", `pane ${id} has no stale pane-chat draft`).toBe("");
-      expect(keys[`${CHAT_VIEW_SCOPE}${id}`] ?? "", `pane ${id} has no stale chat-view draft`).toBe("");
+    for (const id of newTabIds!) {
+      expect(keys[`${TAB_CHAT_SCOPE}${id}`] ?? "", `tab ${id} has no stale tab-chat draft`).toBe("");
+      expect(keys[`${CHAT_VIEW_SCOPE}${id}`] ?? "", `tab ${id} has no stale chat-view draft`).toBe("");
     }
 
     await api.closeWorkspace(ws.id).catch(() => {});

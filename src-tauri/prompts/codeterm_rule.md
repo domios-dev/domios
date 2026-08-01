@@ -27,7 +27,7 @@ Tool-call narration in the tab is fine. Conversational reply is not.
 
 - "in terminal" / "in the console" (in any language) → CodeTerm workspace/tab, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
-- "run tests there" → `codeterm send "command" --tab PANE_ID`
+- "run tests there" → `codeterm send "command" --tab TAB_ID`
 - "stop the agent in that tab" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the tab)
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
@@ -51,10 +51,18 @@ Flow: `mesh peers` → find peer name → `tab list --mesh NAME` → find tab ID
 
 ### On session start
 
-Rename your tab to the task summary using $CODETERM_PANE_ID (always available inside CodeTerm):
+Rename your tab to the task summary using $CODETERM_TAB_ID (always available inside CodeTerm):
 ```bash
-codeterm tab rename --tab "$CODETERM_PANE_ID" "short task name"
+codeterm tab rename --tab "$CODETERM_TAB_ID" "short task name"
 ```
+
+### Rendering in the chat
+
+Your replies render as GitHub-flavored markdown plus two rich blocks. Reach for them when a picture beats a paragraph; stay in prose otherwise.
+
+- **Mermaid** — a `mermaid` fence renders as a diagram (`flowchart`, `sequenceDiagram`, `stateDiagram-v2`, `gantt`, `erDiagram`, `pie`, `timeline`, …). Labels are sanitized and click handlers are disabled, so don't rely on interactivity.
+- **Rich output** — an `html` fence has bundled Tailwind v4, CSS, and JavaScript. Render known local files without copying via standalone `@ct-page ABSOLUTE_PATH`, `@ct-image ABSOLUTE_PATH`, or `@ct-document ABSOLUTE_PATH`; unknown files require `ct.file.pick()`. Direct network and arbitrary filesystem access are blocked.
+- **Inline HTML** inside normal text is allowed for light markup: `<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan` on table cells. Scripts, iframes, event handlers and `position:`/`url()` styles are stripped.
 
 ### Secrets — pluggable secret store
 
@@ -95,4 +103,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

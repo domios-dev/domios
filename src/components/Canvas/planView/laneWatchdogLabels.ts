@@ -1,6 +1,6 @@
 import type { WorkingOnTone } from "./workingOnRow";
 
-export type LaneWarningId = "pane_gone" | "no_pane_recorded" | "branch_missing";
+export type LaneWarningId = "tab_gone" | "no_tab_recorded" | "branch_missing";
 
 export interface LaneWarningDef {
   id: LaneWarningId;
@@ -11,14 +11,14 @@ export interface LaneWarningDef {
 
 // Shared with lane_liveness.rs verdict labels — one severity ladder for UI + watchdog.
 export const LANE_WARNINGS: Record<LaneWarningId, LaneWarningDef> = {
-  pane_gone: { id: "pane_gone", label: "tab gone", tone: "red", severity: 30 },
-  no_pane_recorded: { id: "no_pane_recorded", label: "no tab recorded", tone: "amber", severity: 20 },
+  tab_gone: { id: "tab_gone", label: "tab gone", tone: "red", severity: 30 },
+  no_tab_recorded: { id: "no_tab_recorded", label: "no tab recorded", tone: "amber", severity: 20 },
   branch_missing: { id: "branch_missing", label: "branch missing", tone: "amber", severity: 10 },
 };
 
 export const CHIP_FIELD_LABELS = {
   model: "Model",
-  pane: "Tab",
+  tab: "Tab",
   peer: "Peer",
   branch: "Branch",
   age: "Age",

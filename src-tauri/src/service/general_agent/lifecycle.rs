@@ -1,30 +1,70 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
+mod readiness;
+
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
+use readiness::{await_agent_launch_evidence, await_agent_output};
+#[cfg(test)]
+use readiness::{await_agent_output_with_signal, ScreenChangeSubscription};
+
+fn deliver_before_binding<T>(
+    deliver: impl FnOnce() -> Result<(), String>,
+    wait_for_binding: impl FnOnce() -> T,
+) -> Result<T, String> {
+    deliver()?;
+    Ok(wait_for_binding())
+}
+
+/// The ledger reads the transaction's `InjectionResult` and nothing else — never a
+/// return code, never the absence of an error.
+fn launch_delivery_evidence(
+    tab_id: &str,
+    outcome: Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    >,
+) -> Result<bool, crate::service::delivery_error::DeliveryError> {
+    outcome
+        .map(|result| result.submit_observed)
+        .map_err(|error| {
+            crate::service::delivery_error::DeliveryError::from_injection(tab_id, error)
+        })
+}
 
 fn deliver_confirmed_general_message(
     svc: &crate::ServiceState,
-    pane_id: &str,
+    tab_id: &str,
+    pty_id: &str,
+    provider_id: &str,
     text: &str,
 ) -> Result<(), String> {
-    crate::service::pty_io::submit_transaction::submit_entry(
-        crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
-        text,
-        |payload| {
-            svc.send_text_detached(pane_id, payload, true);
-            Ok::<(), String>(())
-        },
-    )?;
-    svc.confirm_pending_delivery(pane_id)
-        .map_err(|error| error.to_string())
+    let evidence = launch_delivery_evidence(
+        tab_id,
+        svc.send_launch_text_optimistic(pty_id, provider_id, text, true),
+    );
+    svc.reconcile_pending_delivery(tab_id, evidence)
+        .map_err(|error| format!("{}: {error}", error.code()))
+}
+
+fn compose_startup_message(
+    fallback_system_prompt: bool,
+    system_prompt: String,
+    bootstrap: Option<String>,
+) -> Option<String> {
+    match (fallback_system_prompt, bootstrap) {
+        (true, Some(bootstrap)) => Some(format!("{system_prompt}\n\n{bootstrap}")),
+        (true, None) => Some(system_prompt),
+        (false, Some(bootstrap)) => Some(bootstrap),
+        (false, None) => None,
+    }
 }
 
 /// Start the General Agent — called from start_servers on a background thread.
 ///
 /// 1. Ensure directories + instructions file
 /// 2. Find or create General workspace (protected)
-/// 3. Find or create General pane (protected, aliased)
+/// 3. Find or create General tab (protected, aliased)
 /// 4. Spawn PTY + launch or resume agent
 /// 5. Start backend reader
 pub fn start_general_agent(
@@ -43,6 +83,16 @@ pub fn start_general_agent(
     let provider_name = &general_config.agent_provider;
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
+    if let Err(error) =
+        crate::commands::install_provider_integration_for_launch(&svc.agent_registry, provider_name)
+    {
+        log::error!(
+            "[general-agent] Provider integration is not ready for {}: {}",
+            provider_name,
+            error
+        );
+        return;
+    }
 
     // Regenerate AGENT.md in a background thread.
     // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
@@ -58,19 +108,19 @@ pub fn start_general_agent(
 
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
-        let (pane_id_opt, current_agent, current_pty_id) = {
+        let (tab_id_opt, current_agent, current_pty_id) = {
             let m = mux.write();
-            match m.resolve_pane_id(GENERAL_ALIAS) {
+            match m.resolve_tab_id(GENERAL_ALIAS) {
                 Some(pid) => {
-                    let pane = m.get_pane(&pid);
-                    let at = pane.and_then(|p| p.agent_type.clone());
-                    let pt = pane.and_then(|p| p.pty_id.clone());
+                    let tab = m.get_tab(&pid);
+                    let at = tab.and_then(|p| p.agent_type.clone());
+                    let pt = tab.and_then(|p| p.pty_id.clone());
                     (Some(pid), at, pt)
                 }
                 None => (None, None, None),
             }
         };
-        if let (Some(pid), Some(current_agent)) = (pane_id_opt.clone(), current_agent.clone()) {
+        if let (Some(pid), Some(current_agent)) = (tab_id_opt.clone(), current_agent.clone()) {
             if &current_agent == provider_name {
                 if let Some(pty_id) = current_pty_id.clone() {
                     let alive = pty.lock().get_session(&pty_id).is_some();
@@ -84,7 +134,7 @@ pub fn start_general_agent(
                         if agent_visible {
                             let unbound = mux
                                 .write()
-                                .get_pane(&pid)
+                                .get_tab(&pid)
                                 .and_then(|p| p.agent_session_id.clone())
                                 .is_none();
                             if unbound {
@@ -97,10 +147,10 @@ pub fn start_general_agent(
                                     log::info!("[general-agent] Restored durable session {} onto reused PTY {}", sid, pty_id);
                                 }
                             }
-                            log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
+                            log::info!("[general-agent] Already running (tab={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
-                        log::info!("[general-agent] Pane has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                        log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
                         if let Err(reason) =
                             terminate_pty_before_relaunch(pty, screen_state, &pty_id)
                         {
@@ -135,23 +185,23 @@ pub fn start_general_agent(
         }
     }
 
-    // Find General pane (already created by ensure_general_workspace in init_states)
-    let (pane_id, snapshot_session_id) = {
+    // Find General tab (already created by ensure_general_workspace in init_states)
+    let (tab_id, snapshot_session_id) = {
         let m = mux.write();
-        let pane = m.resolve_pane_id(GENERAL_ALIAS).or_else(|| {
+        let tab = m.resolve_tab_id(GENERAL_ALIAS).or_else(|| {
             m.list_workspaces()
                 .iter()
                 .find(|ws| ws.protected)
-                .and_then(|ws| ws.pane_ids.first().cloned())
+                .and_then(|ws| ws.tab_ids.first().cloned())
         });
-        match pane {
+        match tab {
             Some(pid) => {
-                let sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
+                let sid = m.get_tab(&pid).and_then(|p| p.agent_session_id.clone());
                 (pid, sid)
             }
             None => {
                 log::error!(
-                    "[general-agent] No General pane found — ensure_general_workspace failed?"
+                    "[general-agent] No General Tab found — ensure_general_workspace failed?"
                 );
                 return;
             }
@@ -159,7 +209,7 @@ pub fn start_general_agent(
     };
     let force_fresh_session = state::take_fresh_session_requirement();
     let session_id = if force_fresh_session {
-        svc.set_agent_session_id(&pane_id, None);
+        svc.set_agent_session_id(&tab_id, None);
         state::clear_session_id();
         log::info!("[general-agent] First-run launch requires a fresh provider session");
         None
@@ -168,11 +218,11 @@ pub fn start_general_agent(
     } else if let Some(stored) =
         state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
     {
-        svc.set_agent_session_id(&pane_id, Some(stored.clone()));
+        svc.set_agent_session_id(&tab_id, Some(stored.clone()));
         log::info!("[general-agent] Loaded durable session id: {}", stored);
         Some(stored)
     } else {
-        let exclude = mux.write().other_session_ids(&pane_id);
+        let exclude = mux.write().other_session_ids(&tab_id);
         let detected = state::detect_owned_session_id(
             &svc.agent_registry,
             provider_name,
@@ -181,7 +231,7 @@ pub fn start_general_agent(
             Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
         );
         if let Some(ref sid) = detected {
-            svc.set_agent_session_id(&pane_id, Some(sid.clone()));
+            svc.set_agent_session_id(&tab_id, Some(sid.clone()));
             state::persist_session_id(provider_name, sid);
             log::info!(
                 "[general-agent] Detected GA-owned session from filesystem: {}",
@@ -200,9 +250,9 @@ pub fn start_general_agent(
             && state::session_id_is_owned(&svc.agent_registry, provider_name, &general_cwd, id);
         if !owned {
             log::info!("[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh", id, provider_name);
-            svc.set_agent_session_id(&pane_id, None);
+            svc.set_agent_session_id(&tab_id, None);
             state::clear_session_id();
-            let exclude = mux.write().other_session_ids(&pane_id);
+            let exclude = mux.write().other_session_ids(&tab_id);
             let fresh = state::detect_owned_session_id(
                 &svc.agent_registry,
                 provider_name,
@@ -211,7 +261,7 @@ pub fn start_general_agent(
                 Some(std::time::Duration::from_secs(86400 * 7)),
             );
             if let Some(ref sid) = fresh {
-                svc.set_agent_session_id(&pane_id, Some(sid.clone()));
+                svc.set_agent_session_id(&tab_id, Some(sid.clone()));
                 state::persist_session_id(provider_name, sid);
                 log::info!("[general-agent] Detected fresh GA-owned session: {}", sid);
             }
@@ -227,7 +277,7 @@ pub fn start_general_agent(
     let cols = 120u16;
     let rows = 40u16;
     let env_vars =
-        general_agent_env_vars(&pane_id, svc.ensure_session_binding_nonce(&pane_id), config);
+        general_agent_env_vars(&tab_id, svc.rotate_session_binding_nonce(&tab_id), config);
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -235,7 +285,7 @@ pub fn start_general_agent(
             Ok((id, _)) => id,
             Err(e) => {
                 log::error!("[general-agent] Failed to spawn PTY: {}", e);
-                fail_general_agent_start(svc, mux, &pane_id, &e);
+                fail_general_agent_start(svc, mux, &tab_id, &e);
                 return;
             }
         }
@@ -243,20 +293,20 @@ pub fn start_general_agent(
 
     let displaced = {
         let mut m = mux.write();
-        let d = m.link_pty(&pane_id, pty_id.clone());
-        if let Some(pane) = m.get_pane_mut(&pane_id) {
-            pane.auto_approve = true;
+        let d = m.link_pty(&tab_id, pty_id.clone());
+        if let Some(tab) = m.get_tab_mut(&tab_id) {
+            tab.auto_approve = true;
         }
         d
     };
-    crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
+    crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
     if let Some(orphan) = displaced {
         svc.kill_ptys(&[orphan]);
     }
-    svc.set_and_lock_pane_agent_type(&pane_id, provider_name.to_string());
+    svc.set_and_lock_tab_agent_type(&tab_id, provider_name.to_string());
     // writes go to the wrong one.
     svc.emit_state_changed();
-    log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
+    log::info!("[general-agent] PTY {} linked to Tab {}", pty_id, tab_id);
 
     // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn, but we're on a plain std::thread — no tokio runtime here)
     log::info!("[general-agent] Starting backend reader for PTY {}", pty_id);
@@ -303,7 +353,7 @@ pub fn start_general_agent(
         fail_general_agent_start(
             svc,
             mux,
-            &pane_id,
+            &tab_id,
             &format!("shell readiness gave up after {}ms", waited_ms),
         );
         return;
@@ -311,7 +361,7 @@ pub fn start_general_agent(
     log::info!("[general-agent] Shell ready, building launch command...");
 
     let use_resume = session_id.is_some();
-    let mut fallback_system_prompt = None;
+    let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match svc
@@ -330,14 +380,14 @@ pub fn start_general_agent(
         }
     } else {
         // For providers supporting session-id injection, pre-generate and pin it before launch.
-        // This avoids guessing by mtime after start, especially when multiple panes share a cwd.
+        // This avoids guessing by mtime after start, especially when multiple tabs share a cwd.
         let injection = svc
             .agent_registry
             .with_provider(provider_name, |p| p.session_id_injection())
             .unwrap_or(crate::agent::provider::SessionIdInjection::None);
         let pre_session_id = if injection != crate::agent::provider::SessionIdInjection::None {
             let id = uuid::Uuid::new_v4().to_string();
-            svc.set_agent_session_id(&pane_id, Some(id.clone()));
+            svc.set_agent_session_id(&tab_id, Some(id.clone()));
             state::persist_session_id(provider_name, &id);
             log::info!(
                 "[general-agent] Pre-assigned session id {} for fresh launch",
@@ -351,7 +401,7 @@ pub fn start_general_agent(
         let ga_cwd = svc
             .mux
             .read()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .and_then(|p| p.cwd.clone())
             .unwrap_or_default();
         let system_prompt = instructions::render_system_prompt(provider_name, Some(&svc.mem));
@@ -366,32 +416,33 @@ pub fn start_general_agent(
                 )
             })
             .unwrap_or(true);
-        fallback_system_prompt = fallback.then_some(system_prompt);
-        if let Some(prompt) = fallback_system_prompt.as_deref() {
+        let bootstrap = std::fs::read_to_string(general_dir().join("bootstrap.md")).ok();
+        startup_message = compose_startup_message(fallback, system_prompt.clone(), bootstrap);
+        if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
-                &pane_id,
+                &tab_id,
                 crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                prompt,
+                message,
             ) {
-                fail_general_agent_start(svc, mux, &pane_id, &error.to_string());
+                fail_general_agent_start(svc, mux, &tab_id, &error.to_string());
                 return;
             }
         }
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
-            task: None,
-            starter_prompt: Default::default(),
+            task: (!fallback).then_some(system_prompt.clone()),
+            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: None,
             skip_permissions: true,
             session_id: pre_session_id,
             structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                 svc,
                 provider_name,
-                &pane_id,
+                &tab_id,
                 &ga_cwd,
             ),
         };
-        match svc.agent_registry.with_provider(provider_name, |p| {
+        let command = match svc.agent_registry.with_provider(provider_name, |p| {
             crate::agent::stub_launch::apply(provider_name, p.build_launch_command(&params))
         }) {
             Some(cmd) => cmd,
@@ -402,10 +453,37 @@ pub fn start_general_agent(
                 );
                 return;
             }
-        }
+        };
+        crate::service::launch_diagnostics::log_launch(
+            crate::service::launch_diagnostics::AgentLaunchOrigin::GeneralAgent,
+            &tab_id,
+            provider_name,
+            &command,
+            params.task.as_deref().or(startup_message.as_deref()),
+            Some("Orchestrator"),
+            Some("general_agent"),
+            if fallback {
+                "confirmed_fallback"
+            } else {
+                "system_prompt"
+            },
+        );
+        command
     };
 
-    log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
+    if use_resume {
+        crate::service::launch_diagnostics::log_launch(
+            crate::service::launch_diagnostics::AgentLaunchOrigin::GeneralAgent,
+            &tab_id,
+            provider_name,
+            &cmd,
+            None,
+            Some("Orchestrator"),
+            Some("general_agent"),
+            "resumed_session",
+        );
+    }
+    log::info!("[general-agent] Launching on PTY {}", pty_id);
     let payload: Vec<u8> = if cfg!(windows) {
         // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
         format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
@@ -415,76 +493,83 @@ pub fn start_general_agent(
     };
     if let Err(e) = pty.lock().write(&pty_id, &payload) {
         log::error!("[general-agent] Failed to write launch command: {}", e);
-        fail_general_agent_start(svc, mux, &pane_id, &e.to_string());
+        fail_general_agent_start(svc, mux, &tab_id, &e.to_string());
         return;
     }
 
-    let launched = await_agent_output(
+    let launched = await_agent_launch_evidence(
         screen_state,
         &svc.agent_registry,
+        mux,
+        &tab_id,
         &pty_id,
         std::time::Duration::from_secs(15),
     );
-    if !pane_still_owns_pty(mux, &pane_id, &pty_id) {
+    if !tab_still_owns_pty(mux, &tab_id, &pty_id) {
         log::info!(
-            "[general-agent] Launch on stale PTY {} for pane {} ignored; pane moved on",
+            "[general-agent] Launch on stale PTY {} for Tab {} ignored; Tab moved on",
             pty_id,
-            pane_id
+            tab_id
         );
         return;
     }
     if !launched {
-        fail_general_agent_start(svc, mux, &pane_id, "agent output deadline elapsed");
+        fail_general_agent_start(svc, mux, &tab_id, "agent output deadline elapsed");
         return;
     }
-
-    // no longer inject --session-id), so the next restart can resume this exact session.
-    if !use_resume {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        if let Some(sid) = binding_wait::wait_for_session_binding(deadline, || {
-            mux.read()
-                .get_pane(&pane_id)
-                .and_then(|pane| pane.agent_session_id.clone())
-        }) {
-            state::persist_session_id(provider_name, &sid);
-            log::info!("[general-agent] Persisted hook-bound session {}", sid);
-        } else {
-            log::warn!("[general-agent] Session binding was not reported before deadline");
-        }
-    }
-
-    svc.emit_boot_stage(&pane_id, BootStage::ProviderReady, None);
-    if let Some(prompt) = fallback_system_prompt {
-        if let Err(error) = deliver_confirmed_general_message(svc, &pane_id, &prompt) {
-            fail_general_agent_start(svc, mux, &pane_id, &error);
+    svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
+    let bound_session = match deliver_before_binding(
+        || {
+            if let Some(message) = startup_message {
+                deliver_confirmed_general_message(svc, &tab_id, &pty_id, provider_name, &message)?;
+            }
+            Ok(())
+        },
+        || {
+            if use_resume {
+                return mux
+                    .read()
+                    .get_tab(&tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone());
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            binding_wait::wait_for_session_binding(deadline, || {
+                mux.read()
+                    .get_tab(&tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone())
+            })
+        },
+    ) {
+        Ok(bound_session) => bound_session,
+        Err(error) => {
+            fail_general_agent_start(svc, mux, &tab_id, &error);
             return;
         }
-    }
+    };
+    let Some(bound_session) = bound_session else {
+        fail_general_agent_start(
+            svc,
+            mux,
+            &tab_id,
+            "authoritative provider session binding was not reported",
+        );
+        return;
+    };
     if !use_resume {
-        let bootstrap_path = general_dir().join("bootstrap.md");
-        if let Ok(bootstrap) = std::fs::read_to_string(bootstrap_path) {
-            if let Err(error) = svc
-                .create_pending_delivery(
-                    &pane_id,
-                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                    &bootstrap,
-                )
-                .map_err(|error| error.to_string())
-                .and_then(|_| deliver_confirmed_general_message(svc, &pane_id, &bootstrap))
-            {
-                fail_general_agent_start(svc, mux, &pane_id, &error);
-                return;
-            }
-        }
+        state::persist_session_id(provider_name, &bound_session);
+        log::info!(
+            "[general-agent] Persisted hook-bound session {}",
+            bound_session
+        );
     }
-    svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
-    if let Some(pane) = mux.write().get_pane_mut(&pane_id) {
-        pane.agent_booting = false;
+    if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
+        tab.agent_booting = false;
     }
+    svc.emit_boot_stage(&tab_id, BootStage::AgentReady, None);
     svc.emit_state_changed();
     log::info!(
-        "[general-agent] Started successfully (pane={}, pty={})",
-        pane_id,
+        "[general-agent] Started successfully (tab={}, pty={})",
+        tab_id,
         pty_id
     );
 }
@@ -502,13 +587,13 @@ pub fn restart_general_agent(
     log::info!("[general-agent] Manual restart requested");
 
     let mut stale_pty_id = None;
-    let mut general_pane_id = None;
+    let mut general_tab_id = None;
     {
         let m = mux.write();
-        if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
-            general_pane_id = Some(pid.clone());
-            if let Some(pane) = m.get_pane(&pid) {
-                if let Some(ref pty_id) = pane.pty_id {
+        if let Some(pid) = m.resolve_tab_id(GENERAL_ALIAS) {
+            general_tab_id = Some(pid.clone());
+            if let Some(tab) = m.get_tab(&pid) {
+                if let Some(ref pty_id) = tab.pty_id {
                     stale_pty_id = Some(pty_id.clone());
                     log::info!(
                         "[general-agent] Terminating PTY {} process tree for restart",
@@ -524,10 +609,10 @@ pub fn restart_general_agent(
     if let Some(pty_id) = stale_pty_id {
         if let Err(reason) = terminate_pty_before_relaunch(pty, screen_state, &pty_id) {
             log::error!("[general-agent] Restart blocked by PTY teardown: {reason}");
-            if let Some(pane_id) = general_pane_id {
-                svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&reason));
-                if let Some(pane) = mux.write().get_pane_mut(&pane_id) {
-                    pane.agent_booting = false;
+            if let Some(tab_id) = general_tab_id {
+                svc.emit_boot_stage(&tab_id, BootStage::SpawnFailed, Some(&reason));
+                if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
+                    tab.agent_booting = false;
                 }
                 svc.emit_state_changed();
             }
@@ -547,8 +632,8 @@ pub fn restart_general_agent(
     start_general_agent(svc, mux, pty, screen_state, config, app);
 }
 
-pub fn restart_general_agent_pane(
-    pane_id: &str,
+pub fn restart_general_agent_tab(
+    tab_id: &str,
     svc: &crate::ServiceState,
     mux: &crate::MuxState,
     pty: &crate::PtyState,
@@ -556,84 +641,81 @@ pub fn restart_general_agent_pane(
     config: &crate::config::ConfigState,
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    if validate_general_agent_pane_retry(pane_id, mux)? {
+    if validate_general_agent_tab_retry(tab_id, mux)? {
         restart_general_agent(svc, mux, pty, screen_state, config, app);
     }
     Ok(())
 }
 
-pub fn validate_general_agent_pane_retry(
-    pane_id: &str,
+pub fn validate_general_agent_tab_retry(
+    tab_id: &str,
     mux: &crate::MuxState,
 ) -> Result<bool, String> {
-    validate_general_agent_pane_retry_inner(pane_id, mux, false)
+    validate_general_agent_tab_retry_inner(tab_id, mux, false)
 }
 
-pub fn claim_general_agent_pane_retry(
-    pane_id: &str,
-    mux: &crate::MuxState,
-) -> Result<bool, String> {
-    validate_general_agent_pane_retry_inner(pane_id, mux, true)
+pub fn claim_general_agent_tab_retry(tab_id: &str, mux: &crate::MuxState) -> Result<bool, String> {
+    validate_general_agent_tab_retry_inner(tab_id, mux, true)
 }
 
-fn validate_general_agent_pane_retry_inner(
-    pane_id: &str,
+fn validate_general_agent_tab_retry_inner(
+    tab_id: &str,
     mux: &crate::MuxState,
     claim: bool,
 ) -> Result<bool, String> {
     let mut m = mux.write();
-    let general_pane_id = m
-        .resolve_pane_id(GENERAL_ALIAS)
-        .ok_or_else(|| "General Agent pane is not registered".to_string())?;
-    let requested_pane_id = m
-        .resolve_pane_id(pane_id)
-        .unwrap_or_else(|| pane_id.to_string());
-    if requested_pane_id != general_pane_id {
+    let general_tab_id = m
+        .resolve_tab_id(GENERAL_ALIAS)
+        .ok_or_else(|| "General Agent Tab is not registered".to_string())?;
+    let requested_tab_id = m
+        .resolve_tab_id(tab_id)
+        .unwrap_or_else(|| tab_id.to_string());
+    if requested_tab_id != general_tab_id {
         return Err(format!(
-            "Retry rejected: pane {} is not the General Agent pane {}",
-            requested_pane_id, general_pane_id
+            "Retry rejected: Tab {} is not the General Agent Tab {}",
+            requested_tab_id, general_tab_id
         ));
     }
-    let pane = m
-        .get_pane(&general_pane_id)
-        .ok_or_else(|| format!("General Agent pane {} is missing", general_pane_id))?;
-    if !pane.protected {
+    let tab = m
+        .get_tab(&general_tab_id)
+        .ok_or_else(|| format!("General Agent Tab {} is missing", general_tab_id))?;
+    if !tab.protected {
         return Err(format!(
-            "Retry rejected: General Agent pane {} is not protected",
-            general_pane_id
+            "Retry rejected: General Agent Tab {} is not protected",
+            general_tab_id
         ));
     }
     // `agent_booting` is the claim marker — one owner, always.
-    if pane.agent_booting {
+    if tab.agent_booting {
         log::info!(
-            "[general-agent] Retry for pane {} ignored; launch already claimed",
-            general_pane_id
+            "[general-agent] Retry for Tab {} ignored; launch already claimed",
+            general_tab_id
         );
         return Ok(false);
     }
     // A launch stage alone only blocks while a launch actually owns the agent.
     // Without an owner it is stale state, and refusing recovery on it is what
-    // left a `shell_ready` pane unrecoverable.
-    if pane.boot_stage.is_some_and(is_launch_stage) {
+    // left a `shell_ready` tab unrecoverable.
+    if tab.boot_stage.is_some_and(is_launch_stage) {
         if launch_lock::launch_in_progress() {
             log::info!(
-                "[general-agent] Retry for pane {} ignored; launch already in progress",
-                general_pane_id
+                "[general-agent] Retry for Tab {} ignored; launch already in progress",
+                general_tab_id
             );
             return Ok(false);
         }
         log::info!(
-            "[general-agent] Pane {} latched at {:?} with no live launch; treating as stale",
-            general_pane_id,
-            pane.boot_stage
+            "[general-agent] Tab {} latched at {:?} with no live launch; treating as stale",
+            general_tab_id,
+            tab.boot_stage
         );
     }
     if claim {
-        let _ = pane;
-        if let Some(pane) = m.get_pane_mut(&general_pane_id) {
-            pane.agent_booting = true;
-            pane.boot_stage = Some(BootStage::PtyStarting);
-            pane.boot_failure_reason = None;
+        let _ = tab;
+        if let Some(tab) = m.get_tab_mut(&general_tab_id) {
+            tab.agent_booting = true;
+            tab.boot_stage = Some(BootStage::PtyStarting);
+            tab.boot_failure_reason = None;
         }
     }
     Ok(true)
@@ -654,87 +736,11 @@ fn is_launch_stage(stage: BootStage) -> bool {
     )
 }
 
-fn pane_still_owns_pty(mux: &crate::MuxState, pane_id: &str, pty_id: &str) -> bool {
+fn tab_still_owns_pty(mux: &crate::MuxState, tab_id: &str, pty_id: &str) -> bool {
     mux.write()
-        .get_pane(pane_id)
+        .get_tab(tab_id)
         .and_then(|p| p.pty_id.as_deref())
         == Some(pty_id)
-}
-
-/// Wait for agent output on the screen-change boundary until the failure deadline.
-fn await_agent_output(
-    screen_state: &crate::ScreenStateHandle,
-    registry: &crate::agent::registry::AgentRegistry,
-    pty_id: &str,
-    timeout: std::time::Duration,
-) -> bool {
-    let subscription = ScreenChangeSubscription::arm(screen_state, pty_id);
-    await_agent_output_with_signal(
-        screen_state,
-        registry,
-        pty_id,
-        &subscription.signal,
-        timeout,
-        || {},
-    )
-}
-
-fn await_agent_output_with_signal(
-    screen_state: &crate::ScreenStateHandle,
-    registry: &crate::agent::registry::AgentRegistry,
-    pty_id: &str,
-    signal: &codeterm_pty::pty::screen_state::ScreenChangeSignal,
-    timeout: std::time::Duration,
-    on_wait_armed: impl FnOnce(),
-) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    let mut generation = signal.generation();
-    let mut on_wait_armed = Some(on_wait_armed);
-    loop {
-        let detected = screen_state
-            .lock()
-            .get_screen_text(pty_id)
-            .map(|screen| registry.detect_from_output(&screen).is_some())
-            .unwrap_or(false);
-        if detected {
-            return true;
-        }
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return false;
-        };
-        if let Some(on_wait_armed) = on_wait_armed.take() {
-            on_wait_armed();
-        }
-        if !signal.wait_after(generation, remaining) {
-            return false;
-        }
-        generation = signal.generation();
-    }
-}
-
-struct ScreenChangeSubscription {
-    screen_state: crate::ScreenStateHandle,
-    pty_id: String,
-    signal: std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
-}
-
-impl ScreenChangeSubscription {
-    fn arm(screen_state: &crate::ScreenStateHandle, pty_id: &str) -> Self {
-        let signal = screen_state.lock().subscribe_screen_changes(pty_id);
-        Self {
-            screen_state: screen_state.clone(),
-            pty_id: pty_id.to_string(),
-            signal,
-        }
-    }
-}
-
-impl Drop for ScreenChangeSubscription {
-    fn drop(&mut self) {
-        self.screen_state
-            .lock()
-            .unsubscribe_screen_changes(&self.pty_id, &self.signal);
-    }
 }
 
 fn terminate_pty_before_relaunch(
@@ -760,36 +766,36 @@ fn terminate_pty_before_relaunch(
     Ok(())
 }
 
-fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, pane_id: &str) {
-    svc.set_pane_agent_type(pane_id, None);
-    svc.set_agent_session_id(pane_id, None);
+fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {
+    svc.set_tab_agent_type(tab_id, None);
+    svc.set_agent_session_id(tab_id, None);
     state::clear_session_id();
-    if let Some(pane) = mux.write().get_pane_mut(pane_id) {
-        pane.pty_id = None;
+    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+        tab.pty_id = None;
     }
 }
 
 fn fail_general_agent_start(
     svc: &crate::ServiceState,
     mux: &crate::MuxState,
-    pane_id: &str,
+    tab_id: &str,
     reason: &str,
 ) {
-    svc.emit_boot_stage(pane_id, BootStage::SpawnFailed, Some(reason));
-    if let Some(pane) = mux.write().get_pane_mut(pane_id) {
-        pane.agent_booting = false;
+    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+        tab.agent_booting = false;
     }
+    svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
     svc.emit_state_changed();
 }
 
 fn general_agent_env_vars(
-    pane_id: &str,
+    tab_id: &str,
     session_binding_nonce: String,
     config: &crate::config::ConfigState,
 ) -> std::collections::HashMap<String, String> {
     let mut env = std::collections::HashMap::new();
-    env.insert("CODETERM_PANE_ID".to_string(), pane_id.to_string());
-    // Per-launch binding nonce so the session-start hook report can prove it owns this pane.
+    env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
+    // Per-launch binding nonce so the session-start hook report can prove it owns this tab.
     env.insert(
         "CODETERM_SESSION_BINDING_NONCE".to_string(),
         session_binding_nonce,
@@ -815,287 +821,4 @@ fn general_agent_env_vars(
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::agent::registry::AgentRegistry;
-    use crate::agent::test_provider::MockProvider;
-    use crate::multiplexer::commands::MuxState;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::pty::manager::PtyManager;
-    use codeterm_pty::pty::screen_state::ScreenState;
-    use codeterm_types::pty::BootStage;
-    use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    fn mux_with_general_pane(stage: Option<BootStage>) -> (MuxState, String) {
-        let mut mux = MultiplexerState::empty();
-        super::super::workspace::ensure_general_workspace(&mut mux, true);
-        let pane_id = mux
-            .resolve_pane_id(super::GENERAL_ALIAS)
-            .expect("general pane");
-        if let Some(pane) = mux.get_pane_mut(&pane_id) {
-            pane.boot_stage = stage;
-        }
-        (Arc::new(TimedRwLock::new("mux", mux)), pane_id)
-    }
-
-    #[test]
-    fn general_agent_env_uses_configured_api_port_not_parent_env() {
-        let original_port = std::env::var_os("CODETERM_API_PORT");
-        let original_url = std::env::var_os("CODETERM_API_URL");
-        unsafe {
-            std::env::set_var("CODETERM_API_PORT", "7685");
-            std::env::set_var("CODETERM_API_URL", "http://127.0.0.1:7685");
-        }
-        let mut config = crate::config::schema::AppConfig::default();
-        config.api.port = 7686;
-        config.api.token = Some("test-token".to_string());
-        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-
-        let env = super::general_agent_env_vars("pane-1", "nonce-1".to_string(), &config);
-        unsafe {
-            match original_port {
-                Some(p) => std::env::set_var("CODETERM_API_PORT", p),
-                None => std::env::remove_var("CODETERM_API_PORT"),
-            }
-            match original_url {
-                Some(u) => std::env::set_var("CODETERM_API_URL", u),
-                None => std::env::remove_var("CODETERM_API_URL"),
-            }
-        }
-
-        assert_eq!(
-            env.get("CODETERM_API_PORT").map(String::as_str),
-            Some("7686")
-        );
-        assert_eq!(
-            env.get("CODETERM_API_URL").map(String::as_str),
-            Some("http://127.0.0.1:7686"),
-            "URL must derive from config port, not the inherited prod 7685 env"
-        );
-        assert_eq!(
-            env.get("CODETERM_API_TOKEN").map(String::as_str),
-            Some("test-token")
-        );
-    }
-
-    #[test]
-    fn pane_scoped_retry_rejects_non_general_pane() {
-        let (mux, general_id) = mux_with_general_pane(Some(BootStage::SpawnFailed));
-
-        let err = super::validate_general_agent_pane_retry("other-pane", &mux).unwrap_err();
-
-        assert!(err.contains("other-pane"), "{err}");
-        assert!(err.contains(&general_id), "{err}");
-    }
-
-    #[test]
-    fn pane_scoped_retry_noops_while_launch_is_in_progress() {
-        let _serial = super::launch_lock::TEST_SERIAL.lock();
-        let (mux, general_id) = mux_with_general_pane(Some(BootStage::PtyStarting));
-        let _guard = super::launch_lock::LaunchGuard::acquire().expect("launch guard");
-
-        let should_restart = super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
-
-        assert!(!should_restart);
-    }
-
-    /// The stuck protected `Main`: latched at a launch stage with no launch
-    /// alive. Refusing recovery on the stage alone left it unrecoverable through
-    /// every CLI route.
-    #[test]
-    fn pane_scoped_retry_recovers_a_stale_launch_stage() {
-        let _serial = super::launch_lock::TEST_SERIAL.lock();
-        for stage in [BootStage::ShellReady, BootStage::AgentLaunching] {
-            let (mux, general_id) = mux_with_general_pane(Some(stage));
-
-            let should_restart =
-                super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
-
-            assert!(should_restart, "stale {stage:?} must be recoverable");
-        }
-    }
-
-    #[test]
-    fn pane_scoped_retry_allows_failed_general_pane() {
-        let (mux, general_id) = mux_with_general_pane(Some(BootStage::SpawnFailed));
-
-        let should_restart = super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
-
-        assert!(should_restart);
-    }
-
-    #[test]
-    fn pane_scoped_retry_claim_is_single_owner() {
-        let (mux, general_id) = mux_with_general_pane(Some(BootStage::SpawnFailed));
-
-        let first = super::claim_general_agent_pane_retry(&general_id, &mux).unwrap();
-        let second = super::claim_general_agent_pane_retry(&general_id, &mux).unwrap();
-
-        assert!(first);
-        assert!(!second);
-        let mux = mux.read();
-        let pane = mux.get_pane(&general_id).expect("general pane");
-        assert!(pane.agent_booting);
-        assert_eq!(pane.boot_stage, Some(BootStage::PtyStarting));
-        assert!(pane.boot_failure_reason.is_none());
-    }
-
-    #[test]
-    fn agent_output_readiness_wakes_on_screen_event() {
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-        let registry = Arc::new(AgentRegistry::new());
-        registry.register_provider(Box::new(MockProvider::new("agent-marker")));
-        let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-        let signal = subscription.signal.clone();
-        let (armed_tx, armed_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let waiter_screen = screen_state.clone();
-        let waiter_registry = registry.clone();
-        let waiter = std::thread::spawn(move || {
-            let ready = super::await_agent_output_with_signal(
-                &waiter_screen,
-                &waiter_registry,
-                "pty-1",
-                &signal,
-                Duration::from_secs(1),
-                || armed_tx.send(()).unwrap(),
-            );
-            done_tx.send(ready).unwrap();
-        });
-
-        armed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        screen_state.lock().process("pty-1", b"agent-marker ready");
-
-        assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
-        waiter.join().unwrap();
-        drop(subscription);
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn agent_output_deadline_releases_its_subscription() {
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-        let registry = AgentRegistry::new();
-
-        assert!(!super::await_agent_output(
-            &screen_state,
-            &registry,
-            "pty-1",
-            Duration::ZERO,
-        ));
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn agent_output_cleanup_does_not_close_paste_render_waiter() {
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-        let paste_signal = screen_state.lock().arm_screen_change_signal("pty-1");
-        let generation = paste_signal.generation();
-        let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-
-        drop(subscription);
-        screen_state.lock().process("pty-1", b"paste rendered");
-
-        assert!(paste_signal.wait_after(generation, Duration::ZERO));
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn lifecycle_subscriber_drop_keeps_concurrent_waiter_live() {
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-        let first = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-        let second = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-        let generation = second.signal.generation();
-
-        drop(first);
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 1);
-        screen_state
-            .lock()
-            .process("pty-1", b"second waiter remains live");
-
-        assert!(second.signal.wait_after(generation, Duration::ZERO));
-        drop(second);
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn agent_output_teardown_closes_armed_waiter() {
-        let pty = Arc::new(TimedMutex::new("pty", PtyManager::new()));
-        let (_, session) = pty
-            .lock()
-            .spawn_with_id(
-                Some("pty-1".to_string()),
-                None,
-                None,
-                80,
-                24,
-                std::collections::HashMap::new(),
-            )
-            .expect("spawn PTY");
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-        assert!(screen_state
-            .lock()
-            .bind_pty_generation("pty-1", session.generation));
-        let registry = Arc::new(AgentRegistry::new());
-        let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-        let signal = subscription.signal.clone();
-        let (armed_tx, armed_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let waiter_screen = screen_state.clone();
-        let waiter_registry = registry.clone();
-        let waiter = std::thread::spawn(move || {
-            let ready = super::await_agent_output_with_signal(
-                &waiter_screen,
-                &waiter_registry,
-                "pty-1",
-                &signal,
-                Duration::from_secs(1),
-                || armed_tx.send(()).unwrap(),
-            );
-            done_tx.send(ready).unwrap();
-        });
-
-        armed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(crate::service::pty_lifecycle::handle_pty_screen_death(
-            &pty,
-            &screen_state,
-            "pty-1",
-            session.generation,
-        ));
-
-        assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
-        waiter.join().unwrap();
-        drop(subscription);
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-        pty.lock().kill("pty-1").expect("cleanup PTY");
-    }
-
-    #[test]
-    fn stale_provider_pty_allows_relaunch_and_cleans_screen_state() {
-        let pty = Arc::new(TimedMutex::new("pty", PtyManager::new()));
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-        screen_state.lock().process("stale-pty", b"old output");
-        let signal = screen_state.lock().arm_screen_change_signal("stale-pty");
-
-        super::terminate_pty_before_relaunch(&pty, &screen_state, "stale-pty")
-            .expect("already-removed PTY must allow the configured provider to relaunch");
-
-        assert!(screen_state.lock().get_screen_text("stale-pty").is_none());
-        assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-        assert!(!signal.wait_after(signal.generation(), Duration::ZERO));
-    }
-
-    #[test]
-    fn repeated_lifecycle_subscriptions_release_screen_state_entries() {
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-
-        for _ in 0..3 {
-            let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-            assert_eq!(screen_state.lock().screen_change_subscriber_count(), 1);
-            drop(subscription);
-            assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
-        }
-    }
-}
+mod tests;

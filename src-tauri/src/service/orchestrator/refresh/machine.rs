@@ -60,7 +60,7 @@ impl Default for RefreshTuning {
 pub struct Observation {
     /// S1 readback: a new handoff element with seq > pre-refresh baseline landed.
     pub handoff_landed: bool,
-    /// S3: compaction transcript signature seen AND pane parked (Idle/Waiting).
+    /// S3: compaction transcript signature seen AND tab parked (Idle/Waiting).
     pub settle_detected: bool,
     /// S4: `Messenger::deliver` of the re-orient template confirmed submitted.
     pub reorient_delivered: bool,

@@ -12,7 +12,7 @@ interface StationProps {
 interface WorkFloorBayProps extends StationProps {
   lane: MissionLane;
   onTaskClick?: (taskId: string) => void;
-  onAgentClick?: (paneId: string) => void;
+  onAgentClick?: (tabId: string) => void;
 }
 
 export function WorkFloorBay({ lane, lod, onTaskClick, onAgentClick }: WorkFloorBayProps) {

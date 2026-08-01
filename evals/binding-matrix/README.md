@@ -1,8 +1,8 @@
 # binding-matrix — session-binding stress matrix
 
-Stress-tests provider-reported pane→session binding under churn and asserts the
-core invariant never slips: **every live agent pane is bound to its own unique
-provider session id**, even with many panes in the same cwd, `/new` resets, and
+Stress-tests provider-reported tab→session binding under churn and asserts the
+core invariant never slips: **every live agent tab is bound to its own unique
+provider session id**, even with many tabs in the same cwd, `/new` resets, and
 close+respawn cycles.
 
 ## Run
@@ -35,11 +35,11 @@ Each is followed by a full-fleet invariant check.
   `BM_PER_WS` agents spawned back-to-back into it. This is the hard case the old
   filesystem detector failed: N agents sharing a cwd must each bind to a distinct
   session, not collide on "newest for cwd".
-- **C — `/new` churn.** Half the claude panes get `/clear`; the fleet must stay
+- **C — `/new` churn.** Half the claude tabs get `/clear`; the fleet must stay
   fully bound and unique afterwards. (Note: claude reuses its session id across
   `/clear`, so the sid usually does not change — the assertion is *no slip*, not
   *sid changed*.)
-- **D — close + respawn.** A third of the panes are closed and replaced in the
+- **D — close + respawn.** A third of the tabs are closed and replaced in the
   same cwd; the closed sessions must release and the replacements bind fresh,
   with no stale/duplicate bindings left behind.
 
@@ -47,26 +47,26 @@ Each is followed by a full-fleet invariant check.
 
 Per check (`check_invariants`):
 
-- **bound** — every tracked, still-live agent pane has a non-null `agent_session_id`.
-- **unique** — no two live panes share an `agent_session_id` (binding is injective).
+- **bound** — every tracked, still-live agent tab has a non-null `agent_session_id`.
+- **unique** — no two live tabs share an `agent_session_id` (binding is injective).
 
 Plus a run-wide guard: **zero `binding nonce mismatch`** in the dev log — i.e. no
 legitimate report was wrongly rejected by the nonce check.
 
 ### Why bound+unique proves correctness (not just absence of collisions)
 
-A pane could in principle be unique yet *swapped* (A holds B's session, B holds
+A tab could in principle be unique yet *swapped* (A holds B's session, B holds
 A's). That cannot happen here by construction: each provider's session-start
-report runs **inside that pane's own process**, carrying the pane's
-`CODETERM_PANE_ID` (in the report URL) and its per-launch
+report runs **inside that tab's own process**, carrying the tab's
+`CODETERM_TAB_ID` (in the report URL) and its per-launch
 `CODETERM_SESSION_BINDING_NONCE`. The daemon binds the reported sid to *that*
-pane and rejects a nonce that doesn't match. So a report can only bind the pane
+tab and rejects a nonce that doesn't match. So a report can only bind the tab
 it came from — uniqueness across the fleet is then sufficient to prove every
-pane owns exactly its own session.
+tab owns exactly its own session.
 
 ## Output
 
-Snapshots + `tracked.txt` (pane_id/provider/ws/cwd) land under
+Snapshots + `tracked.txt` (tab_id/provider/ws/cwd) land under
 `target-check/evals/binding-matrix/<ts>/`. Exit 0 = all checks passed.
 
 <!-- revision: 1 -->

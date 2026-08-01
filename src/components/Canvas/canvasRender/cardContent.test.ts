@@ -93,10 +93,10 @@ const hasSection = (c: { sections: { title: string }[] }, title: string) => c.se
   ok("task with no body → undefined (drawn as 'No description')", empty.body === undefined);
 }
 
-// Done task shows last executor metadata, not a raw pane id assignee field.
+// Done task shows last executor metadata, not a raw tab id assignee field.
 {
   const done = buildCardContent("task", {
-    task: { ...FIXTURE_TASK, status: "done", assigned_pane_id: "pane-42", taken_by_role: "backend-dev", model: "gpt-5.5" },
+    task: { ...FIXTURE_TASK, status: "done", assigned_tab_id: "tab-42", taken_by_role: "backend-dev", model: "gpt-5.5" },
     historicalExecutor: {
       label: "Puccini",
       role: "backend-dev",

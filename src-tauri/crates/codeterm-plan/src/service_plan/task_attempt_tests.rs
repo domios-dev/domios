@@ -9,7 +9,7 @@ fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let mut plan = Plan::new(
         "Worker reports".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -51,7 +51,7 @@ fn bound_in_review_report_advances_atomically() {
         .ingest_bound_worker_report(
             &plan_id,
             &task_id,
-            &AgentRef::from_pane("worker"),
+            &AgentRef::from_tab("worker"),
             worker_report(ReportStatus::InReview, Some("abc123")),
             4,
         )
@@ -62,7 +62,7 @@ fn bound_in_review_report_advances_atomically() {
     assert_eq!(task.lane.branch.as_deref(), Some("lane/worker"));
     let report = task.execution_attempts[0].report.as_ref().unwrap();
     assert_eq!(report.sha.as_deref(), Some("abc123"));
-    assert_eq!(task.execution_attempts[0].executor_pane_id, "worker");
+    assert_eq!(task.execution_attempts[0].executor_tab_id, "worker");
     assert_eq!(report.changed_files, vec!["src/report.rs"]);
 }
 
@@ -73,7 +73,7 @@ fn in_review_report_without_sha_still_advances_bound_task() {
         .ingest_bound_worker_report(
             &plan_id,
             &task_id,
-            &AgentRef::from_pane("worker"),
+            &AgentRef::from_tab("worker"),
             worker_report(ReportStatus::InReview, None),
             4,
         )
@@ -91,7 +91,7 @@ fn partial_report_keeps_bound_task_actionable() {
         .ingest_bound_worker_report(
             &plan_id,
             &task_id,
-            &AgentRef::from_pane("worker"),
+            &AgentRef::from_tab("worker"),
             worker_report(ReportStatus::Partial, Some("abc123")),
             4,
         )
@@ -109,7 +109,7 @@ fn duplicate_stale_or_unbound_reports_never_regress_task() {
         .ingest_bound_worker_report(
             &plan_id,
             &task_id,
-            &AgentRef::from_pane("worker"),
+            &AgentRef::from_tab("worker"),
             worker_report(ReportStatus::InReview, Some("abc123")),
             4,
         )
@@ -118,7 +118,7 @@ fn duplicate_stale_or_unbound_reports_never_regress_task() {
         .ingest_bound_worker_report(
             &plan_id,
             &task_id,
-            &AgentRef::from_pane("worker"),
+            &AgentRef::from_tab("worker"),
             worker_report(ReportStatus::Partial, Some("old")),
             3,
         )
@@ -127,7 +127,7 @@ fn duplicate_stale_or_unbound_reports_never_regress_task() {
         .ingest_bound_worker_report(
             &plan_id,
             &task_id,
-            &AgentRef::from_pane("unbound"),
+            &AgentRef::from_tab("unbound"),
             worker_report(ReportStatus::InReview, Some("other")),
             5,
         )
@@ -152,7 +152,7 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     let mut p = Plan::new(
         "Respawn".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -164,6 +164,11 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
                 model: Some("codex/gpt-5.5".into()),
                 body: "Fix the task history respawn CLI.".into(),
                 role_guidance: Some("Act as planner; do not implement.".into()),
+                acceptance_criteria: vec!["preserve task authority".into()],
+                correctness: Some("The final provider prompt keeps every task field.".into()),
+                test_plan: Some("cargo test respawn_prompt".into()),
+                qa_plan: Some("independent hidden oracle".into()),
+                intent: Some("Prefer shared prompt composition.".into()),
                 lane: TaskLaneMetadata {
                     worktree_path: Some("/tmp/worktree".into()),
                     branch: Some("lane/retry".into()),
@@ -175,16 +180,16 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .assign_task(&p.id, &task_id, "tab_old", None, 3)
         .unwrap();
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
-    assert_ne!(attempt.attempt_id, "pane_old");
+    assert_ne!(attempt.attempt_id, "tab_old");
     assert!(attempt.attempt.executor_title.is_none());
     store
         .record_task_attempt_report(
             &p.id,
             &task_id,
-            &AgentRef::from_pane("pane_old"),
+            &AgentRef::from_tab("tab_old"),
             "STATUS: blocked\nFOLLOWUP: respawn needed",
             Some(ReportStatus::Blocked),
             4,
@@ -208,10 +213,33 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     assert!(draft.task_prompt.starts_with(
-        "Act as planner; do not implement.\n\nYou are a CodeTerm Worker respawned from a prior task attempt."
+        "Act as planner; do not implement.\n\
+         Your assigned task is: retry lane"
     ));
+    assert!(draft
+        .task_prompt
+        .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
+    assert!(
+        draft
+            .task_prompt
+            .find(crate::service_plan::worker_identity::WORKER_IDENTITY_END)
+            .unwrap()
+            < draft
+                .task_prompt
+                .find("You are a CodeTerm Worker respawned")
+                .unwrap()
+    );
     assert!(draft.task_prompt.contains("STATUS: blocked"));
     assert!(draft.task_prompt.contains("branch: lane/retry"));
+    assert!(draft.task_prompt.contains("preserve task authority"));
+    assert!(draft
+        .task_prompt
+        .contains("The final provider prompt keeps every task field."));
+    assert!(draft.task_prompt.contains("cargo test respawn_prompt"));
+    assert!(draft
+        .task_prompt
+        .contains("Prefer shared prompt composition."));
+    assert!(!draft.task_prompt.contains("independent hidden oracle"));
     assert!(draft
         .task_prompt
         .contains(&format!("attempt_id: {}", attempt.attempt_id)));
@@ -229,7 +257,7 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
     let mut p = Plan::new(
         "Respawn".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -248,7 +276,7 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .assign_task(&p.id, &task_id, "tab_old", None, 3)
         .unwrap();
     store
         .with_plan(&p.id, 4, |plan| {
@@ -287,7 +315,7 @@ fn task_respawn_draft_preserves_explicit_request_title() {
     let mut p = Plan::new(
         "Respawn title".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -302,7 +330,7 @@ fn task_respawn_draft_preserves_explicit_request_title() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .assign_task(&p.id, &task_id, "tab_old", None, 3)
         .unwrap();
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
 
@@ -329,7 +357,7 @@ fn task_respawn_draft_omitted_title_stays_provisional() {
     let mut p = Plan::new(
         "Respawn inherited title".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -344,7 +372,7 @@ fn task_respawn_draft_omitted_title_stays_provisional() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .assign_task(&p.id, &task_id, "tab_old", None, 3)
         .unwrap();
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
 
@@ -370,7 +398,7 @@ fn competition_keeps_planned_model_separate_from_lane_requests() {
     let mut plan = Plan::new(
         "Competition".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -415,7 +443,7 @@ fn compete_commit_revalidates_debt_after_preflight_interleaving() {
     let mut plan = Plan::new(
         "Compete capacity race".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -483,8 +511,8 @@ fn compete_commit_revalidates_debt_after_preflight_interleaving() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(task.status, TaskStatus::Pending);
-    assert_eq!(task.assigned_pane_id, None);
-    assert_eq!(task.lane.pane_id, None);
+    assert_eq!(task.assigned_tab_id, None);
+    assert_eq!(task.lane.tab_id, None);
     assert!(task.execution_attempts.is_empty());
 }
 
@@ -495,7 +523,7 @@ fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
     let mut plan = Plan::new(
         "Respawn capacity race".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     plan.review_policy.wip_limit = 1;
     store.save(&mut plan, 1).unwrap();
@@ -594,8 +622,8 @@ fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(after.status, before.status);
-    assert_eq!(after.assigned_pane_id, before.assigned_pane_id);
-    assert_eq!(after.lane.pane_id, before.lane.pane_id);
+    assert_eq!(after.assigned_tab_id, before.assigned_tab_id);
+    assert_eq!(after.lane.tab_id, before.lane.tab_id);
     assert_eq!(after.execution_attempts, before.execution_attempts);
 }
 
@@ -606,7 +634,7 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
     let mut p = Plan::new(
         "Guidance".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     p.mode = crate::plan::PlanMode::Execution;
     store.save(&mut p, 1).unwrap();
@@ -618,7 +646,7 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
                 kind: "implement".into(),
                 personality: Some("Hopper".into()),
                 role_guidance: Some("You are Hopper. Review only.".into()),
-                assigned_pane_id: Some("pane_guided".into()),
+                assigned_tab_id: Some("tab_guided".into()),
                 competition: None,
                 ..Default::default()
             },
@@ -632,7 +660,7 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
         Some("You are Hopper. Review only.")
     );
 
-    let brief = store.prepend_worker_charter_for_pane("pane_guided", "continue");
+    let brief = store.prepend_worker_charter_for_tab("tab_guided", "continue");
     let expected_prefix = format!(
         "<codeterm-worker-charter task=\"{task_id}\">\nYou are Hopper. Review only.\n\nYou are a Worker on task {task_id}."
     );
@@ -647,7 +675,7 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
     let mut p = Plan::new(
         "Respawn identity".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -665,7 +693,7 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .assign_task(&p.id, &task_id, "tab_old", None, 3)
         .unwrap();
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
 
@@ -680,9 +708,19 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
         )
         .unwrap();
 
-    let expected_prefix = "You are Hopper. Audit reconnect semantics.\n\nYou are a CodeTerm Worker respawned from a prior task attempt.\nWork only on this one task. Do not reactivate or reuse the old historical attempt.\n\n";
+    let expected_prefix = format!(
+        "You are Hopper. Audit reconnect semantics.\n\
+         Your assigned task is: retry lane\n\n{}\n\n\
+         You are a CodeTerm Worker respawned from a prior task attempt.\n\
+         Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+    );
     assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
+    let ack = draft.task_prompt.find("codeterm agent ack").unwrap();
+    let report = draft.task_prompt.find("When done, run exactly:").unwrap();
+    assert!(draft.task_prompt.find("Original task body:").unwrap() < ack);
+    assert!(ack < report);
 }
 
 #[test]
@@ -692,7 +730,7 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     let mut p = Plan::new(
         "Competition identity".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -724,10 +762,18 @@ fn competition_prompt_starts_with_same_canonical_identity() {
         .unwrap();
     let prompt = &drafts[0].task_prompt;
 
-    let expected_prefix =
-        "You are Hopper. Audit reconnect semantics.\n\nYou are one isolated competitive attempt.";
+    let expected_prefix = format!(
+        "You are Hopper. Audit reconnect semantics.\n\
+         Your assigned task is: judgeable\n\n{}\n\n\
+         You are one isolated competitive attempt.",
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+    );
     assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(prompt.matches("You are Hopper.").count(), 1);
+    let ack = prompt.find("codeterm agent ack").unwrap();
+    let report = prompt.find("When done, run exactly:").unwrap();
+    assert!(prompt.find("Task body:").unwrap() < ack);
+    assert!(ack < report);
 }
 
 #[test]
@@ -737,7 +783,7 @@ fn assignment_attempt_records_planner_role() {
     let mut p = Plan::new(
         "Planner attempt".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -753,7 +799,7 @@ fn assignment_attempt_records_planner_role() {
         )
         .unwrap();
     store
-        .assign_task_with_role(&p.id, &task_id, "planner-pane", None, Some("planner"), 3)
+        .assign_task_with_role(&p.id, &task_id, "planner-tab", None, Some("planner"), 3)
         .unwrap();
 
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
@@ -761,22 +807,22 @@ fn assignment_attempt_records_planner_role() {
 }
 
 #[test]
-fn task_attempt_ids_are_stable_distinct_from_executor_pane() {
+fn task_attempt_ids_are_stable_distinct_from_executor_tab() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut p = Plan::new(
         "Attempts".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
         .add_task(
             &p.id,
             NewTask {
-                name: "same pane".into(),
+                name: "same tab".into(),
                 kind: "implement".into(),
-                body: "Run twice in same pane.".into(),
+                body: "Run twice in same tab.".into(),
                 competition: None,
                 ..Default::default()
             },
@@ -785,18 +831,18 @@ fn task_attempt_ids_are_stable_distinct_from_executor_pane() {
         .unwrap();
 
     store
-        .assign_task(&p.id, &task_id, "pane_same", None, 3)
+        .assign_task(&p.id, &task_id, "tab_same", None, 3)
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_same", None, 4)
+        .assign_task(&p.id, &task_id, "tab_same", None, 4)
         .unwrap();
 
     let attempts = store.list_task_attempts(&p.id, &task_id).unwrap();
     assert_eq!(attempts.len(), 2);
     assert_ne!(attempts[0].attempt_id, attempts[1].attempt_id);
-    assert_ne!(attempts[0].attempt_id, "pane_same");
-    assert_eq!(attempts[0].attempt.executor_pane_id, "pane_same");
-    assert_eq!(attempts[1].attempt.executor_pane_id, "pane_same");
+    assert_ne!(attempts[0].attempt_id, "tab_same");
+    assert_eq!(attempts[0].attempt.executor_tab_id, "tab_same");
+    assert_eq!(attempts[1].attempt.executor_tab_id, "tab_same");
     assert!(attempts[0].attempt.executor_title.is_none());
     assert!(attempts[1].attempt.executor_title.is_none());
 
@@ -805,7 +851,7 @@ fn task_attempt_ids_are_stable_distinct_from_executor_pane() {
         .unwrap();
     assert_eq!(shown.attempt_id, attempts[0].attempt_id);
     assert!(store
-        .show_task_attempt(&p.id, &task_id, "pane_same")
+        .show_task_attempt(&p.id, &task_id, "tab_same")
         .is_err());
 }
 
@@ -816,7 +862,7 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
     let mut p = Plan::new(
         "Attempts".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -833,7 +879,7 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_live", None, 3)
+        .assign_task(&p.id, &task_id, "tab_live", None, 3)
         .unwrap();
     store
         .update_task(
@@ -862,13 +908,13 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
     let p = store.get(&p.id).unwrap();
     let task = p.tasks.iter().find(|task| task.id == task_id).unwrap();
     assert_eq!(task.status, TaskStatus::Cancelled);
-    assert!(task.assigned_pane_id.is_none());
-    assert!(task.lane.pane_id.is_none());
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task.lane.tab_id.is_none());
     assert_eq!(task.execution_attempts.len(), 1);
-    assert_eq!(task.execution_attempts[0].executor_pane_id, "pane_live");
+    assert_eq!(task.execution_attempts[0].executor_tab_id, "tab_live");
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
-    assert!(store.task_binding_for_pane("pane_live").is_none());
-    assert!(store.task_bindings_for_pane("pane_live").is_empty());
+    assert!(store.task_binding_for_tab("tab_live").is_none());
+    assert!(store.task_bindings_for_tab("tab_live").is_empty());
 }
 
 #[test]
@@ -878,7 +924,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
     let mut plan = Plan::new(
         "Recent titles".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -897,26 +943,26 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
         )
         .unwrap();
     store
-        .assign_task_with_role(&plan.id, &task_id, "pane-1", None, Some("worker"), 3)
+        .assign_task_with_role(&plan.id, &task_id, "tab-1", None, Some("worker"), 3)
         .unwrap();
     store
         .update_attempt_executor_identity(
             &plan.id,
             &task_id,
-            "pane-1",
+            "tab-1",
             Some("Ada"),
             Some("sess-1"),
             4,
         )
         .unwrap();
     store
-        .assign_task_with_role(&plan.id, &task_id, "pane-2", None, Some("worker"), 5)
+        .assign_task_with_role(&plan.id, &task_id, "tab-2", None, Some("worker"), 5)
         .unwrap();
     store
         .update_attempt_executor_identity(
             &plan.id,
             &task_id,
-            "pane-2",
+            "tab-2",
             Some("Bea"),
             Some("sess-2"),
             6,
@@ -940,7 +986,7 @@ fn reconcile_assignment_cleanup_closes_live_attempt_history() {
     let mut p = Plan::new(
         "Attempts".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -949,7 +995,7 @@ fn reconcile_assignment_cleanup_closes_live_attempt_history() {
             NewTask {
                 name: "reconcile".into(),
                 kind: "implement".into(),
-                body: "Pane vanished.".into(),
+                body: "Tab vanished.".into(),
                 competition: None,
                 ..Default::default()
             },
@@ -957,12 +1003,12 @@ fn reconcile_assignment_cleanup_closes_live_attempt_history() {
         )
         .unwrap();
     store
-        .assign_task(&p.id, &task_id, "pane_live", None, 3)
+        .assign_task(&p.id, &task_id, "tab_live", None, 3)
         .unwrap();
     let drift = [crate::plan::reconcile::DriftItem {
         plan_id: p.id.clone(),
         task_id: task_id.clone(),
-        kind: crate::plan::reconcile::DriftKind::BoundToClosedPane,
+        kind: crate::plan::reconcile::DriftKind::BoundToClosedTab,
         detail: "closed".into(),
         suggested_fix: "clear".into(),
         not_mine: false,
@@ -972,10 +1018,10 @@ fn reconcile_assignment_cleanup_closes_live_attempt_history() {
 
     let p = store.get(&p.id).unwrap();
     let task = p.tasks.iter().find(|task| task.id == task_id).unwrap();
-    assert!(task.assigned_pane_id.is_none());
-    assert!(task.lane.pane_id.is_none());
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task.lane.tab_id.is_none());
     assert_eq!(task.execution_attempts.len(), 1);
-    assert_eq!(task.execution_attempts[0].executor_pane_id, "pane_live");
+    assert_eq!(task.execution_attempts[0].executor_tab_id, "tab_live");
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
 }
 
@@ -987,7 +1033,7 @@ fn report_does_not_rebind_executor() {
     let mut p = Plan::new(
         "Masquerade".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -1003,11 +1049,11 @@ fn report_does_not_rebind_executor() {
         .unwrap();
     // Explicit assignment path binds the real executor A.
     store
-        .assign_task(&p.id, &task_id, "pane_A", None, 3)
+        .assign_task(&p.id, &task_id, "tab_A", None, 3)
         .unwrap();
 
     // Exercise the report path: lane truth, milestone, then attempt report.
-    let reporter_b = AgentRef::from_pane("pane_B");
+    let reporter_b = AgentRef::from_tab("tab_B");
     store
         .record_report_lane_truth(&p.id, &task_id, Some("lane/b"), None, 4)
         .unwrap();
@@ -1037,13 +1083,13 @@ fn report_does_not_rebind_executor() {
     let task = p.tasks.iter().find(|t| t.id == task_id).unwrap();
 
     // Executor binding is untouched by the report.
-    assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_A"));
-    assert_eq!(task.lane.pane_id.as_deref(), Some("pane_A"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("tab_A"));
+    assert_eq!(task.lane.tab_id.as_deref(), Some("tab_A"));
 
     // No masquerade attempt is created.
     assert_eq!(task.execution_attempts.len(), 1);
     let attempt = &task.execution_attempts[0];
-    assert_eq!(attempt.executor_pane_id, "pane_A");
+    assert_eq!(attempt.executor_tab_id, "tab_A");
 
     // The stride/milestone carries reporter B.
     let stride = task
@@ -1051,11 +1097,11 @@ fn report_does_not_rebind_executor() {
         .iter()
         .find(|m| m.kind == "note")
         .expect("reporter stride");
-    assert_eq!(stride.from.pane_id.as_deref(), Some("pane_B"));
+    assert_eq!(stride.from.tab_id.as_deref(), Some("tab_B"));
 
     // The executor's attempt retains distinct reporter attribution.
     let report = attempt.report.as_ref().expect("attempt report recorded");
-    assert_eq!(report.reporter_pane_id.as_deref(), Some("pane_B"));
+    assert_eq!(report.reporter_tab_id.as_deref(), Some("tab_B"));
     assert!(report.message.as_deref().unwrap().contains("CHANGES: done"));
 
     // Lane truth (branch) from the report was captured.
@@ -1070,7 +1116,7 @@ fn report_on_unassigned_task_never_binds_reporter() {
     let mut p = Plan::new(
         "Unbound".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -1092,9 +1138,9 @@ fn report_on_unassigned_task_never_binds_reporter() {
     let p = store.get(&p.id).unwrap();
     let task = p.tasks.iter().find(|t| t.id == task_id).unwrap();
     assert!(
-        task.assigned_pane_id.is_none(),
+        task.assigned_tab_id.is_none(),
         "a report must not bind an executor onto an unassigned task"
     );
-    assert!(task.lane.pane_id.is_none());
+    assert!(task.lane.tab_id.is_none());
     assert_eq!(task.lane.branch.as_deref(), Some("lane/b"));
 }

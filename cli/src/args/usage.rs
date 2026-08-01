@@ -18,7 +18,7 @@ pub enum UsageAction {
         #[arg(long)]
         account_id: Option<String>,
     },
-    /// Trigger a fresh probe (runs the agent hidden, parses /status).
+    /// Re-read usage from the provider's own quota-free source (never spends quota).
     Refresh {
         #[arg(long, default_value = "claude")]
         provider: String,

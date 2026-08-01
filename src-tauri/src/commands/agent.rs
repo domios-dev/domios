@@ -2,22 +2,21 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-/// Result of `install_provider_in_pane` — the new tab/pane the install
-/// command was queued in. Frontend uses these to switch focus.
+/// Result of `install_provider_in_tab` — the new tab where the install
+/// command was queued. Frontend uses this to switch focus.
 #[derive(serde::Serialize)]
-pub struct InstallPaneResult {
+pub struct InstallTabResult {
     pub tab_id: String,
-    pub pane_id: String,
 }
 
 /// Spawn a fresh tab in the active workspace and queue the provider's
 /// install command into it. The install command comes from the provider
 /// plugin's `install_command(platform)`. The Install card on the
 /// per-provider settings screen calls this.
-pub fn install_provider_in_pane_core(
+pub fn install_provider_in_tab_core(
     svc: &ServiceState,
     provider_id: String,
-) -> Result<InstallPaneResult, String> {
+) -> Result<InstallTabResult, String> {
     let platform = crate::agent::provider::current_platform_tag();
     let install_cmd = svc
         .agent_registry
@@ -39,25 +38,24 @@ pub fn install_provider_in_pane_core(
             .ok_or("No workspace found")?
     };
 
-    let (tab_id, pane_id) = svc.create_tab(&ws_id)?;
-    let _ = svc.rename_pane(&pane_id, &format!("Install {}", provider_id));
+    let tab_id = svc.create_named_tab(&ws_id, &format!("Install {}", provider_id))?;
 
     let svc_clone = svc.clone();
-    let pane_id_clone = pane_id.clone();
+    let tab_id_clone = tab_id.clone();
     std::thread::spawn(move || {
         let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let pty_id = loop {
             if let Some(pid) = svc_clone
                 .mux
                 .try_write()
-                .and_then(|m| m.get_pane(&pane_id_clone).and_then(|p| p.pty_id.clone()))
+                .and_then(|m| m.get_tab(&tab_id_clone).and_then(|p| p.pty_id.clone()))
             {
                 break pid;
             }
             if std::time::Instant::now() > frontend_deadline {
                 log::warn!(
-                    "install_provider_in_pane: PTY didn't appear for pane {}",
-                    pane_id_clone
+                    "install_provider_in_tab: PTY didn't appear for Tab {}",
+                    tab_id_clone
                 );
                 return;
             }
@@ -69,19 +67,19 @@ pub fn install_provider_in_pane_core(
             std::time::Duration::from_secs(10),
         );
         if let Err(e) = svc_clone.send_shell_spawn(&pty_id, &install_cmd) {
-            log::error!("install_provider_in_pane: failed to send cmd: {}", e);
+            log::error!("install_provider_in_tab: failed to send cmd: {}", e);
         }
     });
 
-    Ok(InstallPaneResult { tab_id, pane_id })
+    Ok(InstallTabResult { tab_id })
 }
 
 #[tauri::command]
-pub fn install_provider_in_pane(
+pub fn install_provider_in_tab(
     svc: State<'_, ServiceState>,
     provider_id: String,
-) -> Result<InstallPaneResult, String> {
-    install_provider_in_pane_core(&svc, provider_id)
+) -> Result<InstallTabResult, String> {
+    install_provider_in_tab_core(&svc, provider_id)
 }
 
 #[tauri::command]
@@ -119,16 +117,16 @@ pub fn restart_general_agent(
 }
 
 #[tauri::command]
-pub fn restart_general_agent_pane(
+pub fn restart_general_agent_tab(
     svc: State<'_, ServiceState>,
     config: State<'_, crate::config::ConfigState>,
     app: tauri::AppHandle,
-    pane_id: String,
+    tab_id: String,
 ) -> Result<(), String> {
     let svc = (*svc).clone();
     let mux = svc.mux.clone();
     let should_restart =
-        crate::service::general_agent::validate_general_agent_pane_retry(&pane_id, &mux)?;
+        crate::service::general_agent::validate_general_agent_tab_retry(&tab_id, &mux)?;
     if !should_restart {
         return Ok(());
     }
@@ -149,12 +147,17 @@ pub fn restart_general_agent_pane(
 }
 
 #[tauri::command]
-pub fn restart_agent_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.agent_restart(
-        &pane_id,
-        false,
-        crate::service::agent_restart::DEFAULT_GRACE_SECS,
-    )
+pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || {
+        svc.agent_restart(
+            &tab_id,
+            false,
+            crate::service::agent_restart::DEFAULT_GRACE_SECS,
+        )
+    })
+    .await
+    .map_err(|error| format!("restart worker failed: {error}"))?
     .map(|_| ())
     .map_err(|error| match error {
         crate::service::agent_restart::AgentRestartError::NotFound(message)

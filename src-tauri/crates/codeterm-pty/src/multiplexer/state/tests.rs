@@ -1,27 +1,27 @@
 use super::*;
-use crate::multiplexer::types::{AgentRole, PaneBacking, PaneType};
+use crate::multiplexer::types::{AgentRole, TabBacking, TabType};
 
 #[test]
 fn test_new_state_has_default_workspace() {
-    let (state, initial_pane_id) = MultiplexerState::new();
+    let (state, initial_tab_id) = MultiplexerState::new();
     assert_eq!(state.list_workspaces().len(), 1);
-    assert!(state.get_pane(&initial_pane_id).is_some());
+    assert!(state.get_tab(&initial_tab_id).is_some());
     assert_eq!(state.list_workspaces()[0].name, "Main");
     assert!(state.list_workspaces()[0].is_active);
 }
 
 #[test]
-fn test_new_state_has_focused_pane() {
-    let (state, initial_pane_id) = MultiplexerState::new();
-    assert_eq!(state.get_focused_pane_id(), Some(initial_pane_id.as_str()));
+fn test_new_state_has_focused_tab() {
+    let (state, initial_tab_id) = MultiplexerState::new();
+    assert_eq!(state.get_focused_tab_id(), Some(initial_tab_id.as_str()));
 }
 
 #[test]
-fn test_new_state_pane_is_terminal() {
-    let (state, initial_pane_id) = MultiplexerState::new();
-    let pane = state.get_pane(&initial_pane_id).unwrap();
-    assert_eq!(pane.pane_type, PaneType::Terminal);
-    assert!(pane.pty_id.is_none());
+fn test_new_state_tab_is_terminal() {
+    let (state, initial_tab_id) = MultiplexerState::new();
+    let tab = state.get_tab(&initial_tab_id).unwrap();
+    assert_eq!(tab.tab_type, TabType::Terminal);
+    assert!(tab.pty_id.is_none());
 }
 
 #[test]
@@ -60,13 +60,13 @@ fn test_create_tab() {
     let result = state.create_tab(&ws_id);
     assert!(result.is_ok());
 
-    let (tab_id, pane_id) = result.unwrap();
+    let tab_id = result.unwrap();
     assert!(!tab_id.is_empty());
-    assert!(!pane_id.is_empty());
-    assert!(state.get_pane(&pane_id).is_some());
-    let pane = state.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.role, None, "user-created tab must start roleless");
-    assert!(!pane.can_spawn, "roleless tab must not inherit can_spawn");
+    assert!(!tab_id.is_empty());
+    assert!(state.get_tab(&tab_id).is_some());
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.role, None, "user-created tab must start roleless");
+    assert!(!tab.can_spawn, "roleless tab must not inherit can_spawn");
 
     let ws = state.get_workspace(&ws_id).unwrap();
     assert_eq!(ws.tabs.len(), 2);
@@ -81,18 +81,15 @@ fn test_create_tab_invalid_workspace() {
 }
 
 #[test]
-fn test_claim_existing_tab_reuses_blank_pane_in_place() {
+fn test_claim_existing_tab_reuses_blank_tab_in_place() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    let tab_id = state.create_tab(&ws_id).unwrap();
     let tabs_before = state.get_workspace(&ws_id).unwrap().tabs.len();
 
-    let (claimed_tab_id, claimed_pane_id) = state.claim_existing_tab(&ws_id, &tab_id).unwrap();
+    let claimed_tab_id = state.claim_existing_tab(&ws_id, &tab_id).unwrap();
     assert_eq!(claimed_tab_id, tab_id, "claim must not mint a new tab id");
-    assert_eq!(
-        claimed_pane_id, pane_id,
-        "claim must not mint a new pane id"
-    );
+    assert_eq!(claimed_tab_id, tab_id, "claim must not mint a new Tab id");
     assert_eq!(
         state.get_workspace(&ws_id).unwrap().tabs.len(),
         tabs_before,
@@ -104,33 +101,49 @@ fn test_claim_existing_tab_reuses_blank_pane_in_place() {
 fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
-    state.get_pane_mut(&pane_id).unwrap().agent_type = Some("claude".into());
+    let tab_id = state.create_tab(&ws_id).unwrap();
+    state.get_tab_mut(&tab_id).unwrap().agent_type = Some("claude".into());
 
     let result = state.claim_existing_tab(&ws_id, &tab_id);
     assert!(
         result.is_err(),
         "an already-spawned tab must not be claimable"
     );
+    assert_eq!(
+        state.get_tab(&tab_id).unwrap().agent_type.as_deref(),
+        Some("claude"),
+        "the rejected attach must preserve the original agent"
+    );
+    assert_eq!(
+        state
+            .get_workspace(&ws_id)
+            .unwrap()
+            .tabs
+            .iter()
+            .filter(|candidate| *candidate == &tab_id)
+            .count(),
+        1,
+        "the rejected attach must leave exactly one Tab record"
+    );
 }
 
 #[test]
 fn test_claim_existing_tab_rejects_unknown_tab() {
-    let (mut state, _) = MultiplexerState::new();
+    let (state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let result = state.claim_existing_tab(&ws_id, "nonexistent-tab");
     assert!(result.is_err());
 }
 
 #[test]
-fn test_claim_existing_tab_rejects_protected_pane() {
+fn test_claim_existing_tab_rejects_protected_tab() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
-    state.get_pane_mut(&pane_id).unwrap().protected = true;
+    let tab_id = state.create_tab(&ws_id).unwrap();
+    state.get_tab_mut(&tab_id).unwrap().protected = true;
 
     let result = state.claim_existing_tab(&ws_id, &tab_id);
-    assert!(result.is_err(), "a protected pane must not be claimable");
+    assert!(result.is_err(), "a protected Tab must not be claimable");
 }
 
 #[test]
@@ -145,22 +158,22 @@ fn test_create_tab_generates_unique_titles() {
     let ws = state.get_workspace(&ws_id).unwrap();
     let mut titles = std::collections::HashSet::new();
     for tab in &ws.tabs {
-        let title = state.get_pane(&tab.pane_id).unwrap().title.as_str();
+        let title = state.get_tab(tab).unwrap().title.as_str();
         assert_ne!(title, "Terminal");
-        assert!(titles.insert(title), "duplicate pane title: {}", title);
+        assert!(titles.insert(title), "duplicate Tab title: {}", title);
     }
 }
 
-// split_pane removed: each tab owns one pane.
+// split_tab removed: each tab owns one tab.
 // Regressions are covered by close_tab-focused tests below.
 
 #[test]
-fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
+fn test_close_tab_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
     // Probe tabs are single-leaf; closing them must keep the current active tab, not switch to ws.tabs.last().
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (tab2_id, _) = state.create_tab(&ws_id).unwrap();
-    let (_tab3_id, tab3_pane_id) = state.create_tab(&ws_id).unwrap();
+    let tab2_id = state.create_tab(&ws_id).unwrap();
+    let tab3_tab_id = state.create_tab(&ws_id).unwrap();
 
     // User parks on tab 2 (the middle one). tab 3 is a hidden probe tab.
     state.set_active_tab(&ws_id, &tab2_id).unwrap();
@@ -171,8 +184,8 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
         Some(tab2_id.clone())
     );
 
-    // Probe finishes → its single-leaf tab gets closed via close_pane.
-    state.close_pane(&tab3_pane_id).unwrap();
+    // Probe finishes → its single-leaf tab gets closed via close_tab.
+    state.close_tab(&tab3_tab_id).unwrap();
 
     assert_eq!(
         state
@@ -184,100 +197,89 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
 }
 
 #[test]
-fn test_close_pane_returns_pty_id() {
-    let (mut state, _initial_pane_id) = MultiplexerState::new();
+fn test_close_tab_returns_pty_id() {
+    let (mut state, _initial_tab_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
-    state.link_pty(&new_pane_id, "pty-123".to_string());
+    let new_tab_id = state.create_tab(&ws_id).unwrap();
+    state.link_pty(&new_tab_id, "pty-123".to_string());
 
-    let result = state.close_pane(&new_pane_id).unwrap();
+    let result = state.close_tab(&new_tab_id).unwrap();
     assert_eq!(result, vec!["pty-123".to_string()]);
 }
 
 #[test]
-fn test_close_pane_clears_focus_when_no_general() {
-    // No general alias -> focus becomes None after closing the pane.
+fn test_close_tab_clears_focus_when_no_general() {
+    // No general alias -> focus becomes None after closing the tab.
     // Preserves behavior for callers that still rely on this fallback.
-    let (mut state, _initial_pane_id) = MultiplexerState::new();
+    let (mut state, _initial_tab_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
+    let new_tab_id = state.create_tab(&ws_id).unwrap();
 
-    state.set_focused_pane(&new_pane_id).unwrap();
-    assert_eq!(state.get_focused_pane_id(), Some(new_pane_id.as_str()));
+    state.set_focused_tab(&new_tab_id).unwrap();
+    assert_eq!(state.get_focused_tab_id(), Some(new_tab_id.as_str()));
 
-    state.close_pane(&new_pane_id).unwrap();
-    assert_eq!(state.get_focused_pane_id(), None);
-}
-
-#[test]
-fn test_close_pane_falls_back_to_general() {
-    // With `general` alias registered, closing the focused pane moves focus to the General orchestrator pane instead of leaving the UI deselected.
-    let (mut state, general_pane_id) = MultiplexerState::new();
-    state.register_alias("general", &general_pane_id);
-
-    let ws_id = state.list_workspaces()[0].id.clone();
-    let (_tab, other_pane_id) = state.create_tab(&ws_id).unwrap();
-    state.set_focused_pane(&other_pane_id).unwrap();
-
-    state.close_pane(&other_pane_id).unwrap();
-    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+    state.close_tab(&new_tab_id).unwrap();
+    assert_eq!(state.get_focused_tab_id(), None);
 }
 
 #[test]
 fn test_close_tab_falls_back_to_general() {
-    let (mut state, general_pane_id) = MultiplexerState::new();
-    state.register_alias("general", &general_pane_id);
+    // With `general` alias registered, closing the focused tab moves focus to the General orchestrator tab instead of leaving the UI deselected.
+    let (mut state, general_tab_id) = MultiplexerState::new();
+    state.register_alias("general", &general_tab_id);
 
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (tab2_id, tab2_pane_id) = state.create_tab(&ws_id).unwrap();
-    state.set_focused_pane(&tab2_pane_id).unwrap();
+    let other_tab_id = state.create_tab(&ws_id).unwrap();
+    state.set_focused_tab(&other_tab_id).unwrap();
 
-    state.close_tab(&ws_id, &tab2_id).unwrap();
-    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+    state.close_tab(&other_tab_id).unwrap();
+    assert_eq!(state.get_focused_tab_id(), Some(general_tab_id.as_str()));
 }
 
 #[test]
 fn test_close_workspace_falls_back_to_general() {
-    let (mut state, general_pane_id) = MultiplexerState::new();
-    state.register_alias("general", &general_pane_id);
+    let (mut state, general_tab_id) = MultiplexerState::new();
+    state.register_alias("general", &general_tab_id);
 
     let other_ws = state.create_workspace("Other".to_string(), None);
-    let (_tab_id, other_pane_id) = state.create_tab(&other_ws.id).unwrap();
-    state.set_focused_pane(&other_pane_id).unwrap();
+    let other_tab_id = state.create_tab(&other_ws.id).unwrap();
+    state.set_focused_tab(&other_tab_id).unwrap();
 
     state.close_workspace(&other_ws.id).unwrap();
-    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+    assert_eq!(state.get_focused_tab_id(), Some(general_tab_id.as_str()));
 }
 
 #[test]
 fn test_fallback_focus_to_general_no_op_without_alias() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    state.set_focused_pane(&pane_id).unwrap();
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.set_focused_tab(&tab_id).unwrap();
 
     let result = state.fallback_focus_to_general();
     assert_eq!(result, None);
     // Focus left untouched (preferable to silent null).
-    assert_eq!(state.get_focused_pane_id(), Some(pane_id.as_str()));
+    assert_eq!(state.get_focused_tab_id(), Some(tab_id.as_str()));
 }
 
 #[test]
 fn test_fallback_focus_to_general_sets_focus() {
-    let (mut state, general_pane_id) = MultiplexerState::new();
-    state.register_alias("general", &general_pane_id);
+    let (mut state, general_tab_id) = MultiplexerState::new();
+    state.register_alias("general", &general_tab_id);
 
     // Clear focus first to make the assignment observable.
-    let other = state.create_pane();
-    state.set_focused_pane(&other).unwrap();
+    let other = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    state.set_focused_tab(&other).unwrap();
 
     let result = state.fallback_focus_to_general();
-    assert_eq!(result.as_deref(), Some(general_pane_id.as_str()));
-    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+    assert_eq!(result.as_deref(), Some(general_tab_id.as_str()));
+    assert_eq!(state.get_focused_tab_id(), Some(general_tab_id.as_str()));
 }
 
 #[test]
 fn test_close_workspace_returns_pty_ids() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-    state.link_pty(&initial_pane_id, "pty-abc".to_string());
+    let (mut state, initial_tab_id) = MultiplexerState::new();
+    state.link_pty(&initial_tab_id, "pty-abc".to_string());
 
     let ws_id = state.list_workspaces()[0].id.clone();
     let pty_ids = state.close_workspace(&ws_id).unwrap();
@@ -310,81 +312,83 @@ fn test_close_workspace_not_found() {
 fn test_close_tab() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (tab2_id, tab2_pane_id) = state.create_tab(&ws_id).unwrap();
+    let tab2_id = state.create_tab(&ws_id).unwrap();
 
-    state.link_pty(&tab2_pane_id, "pty-tab2".to_string());
+    state.link_pty(&tab2_id, "pty-tab2".to_string());
 
-    let pty_ids = state.close_tab(&ws_id, &tab2_id).unwrap();
+    let pty_ids = state.close_tab(&tab2_id).unwrap();
     assert_eq!(pty_ids, vec!["pty-tab2"]);
 
     let ws = state.get_workspace(&ws_id).unwrap();
     assert_eq!(ws.tabs.len(), 1);
-    assert!(state.get_pane(&tab2_pane_id).is_none());
+    assert!(state.get_tab(&tab2_id).is_none());
 }
 
 #[test]
-fn test_set_focused_pane() {
-    let (mut state, _initial_pane_id) = MultiplexerState::new();
-    let new_pane_id = state.create_pane();
+fn test_set_focused_tab() {
+    let (mut state, _initial_tab_id) = MultiplexerState::new();
+    let new_tab_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
 
-    assert!(state.set_focused_pane(&new_pane_id).is_ok());
-    assert_eq!(state.get_focused_pane_id(), Some(new_pane_id.as_str()));
+    assert!(state.set_focused_tab(&new_tab_id).is_ok());
+    assert_eq!(state.get_focused_tab_id(), Some(new_tab_id.as_str()));
 }
 
 #[test]
-fn test_set_focused_pane_not_found() {
+fn test_set_focused_tab_not_found() {
     let (mut state, _) = MultiplexerState::new();
-    let result = state.set_focused_pane("nonexistent");
+    let result = state.set_focused_tab("nonexistent");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_link_pty() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-    state.link_pty(&initial_pane_id, "pty-xyz".to_string());
+    let (mut state, initial_tab_id) = MultiplexerState::new();
+    state.link_pty(&initial_tab_id, "pty-xyz".to_string());
 
-    let pane = state.get_pane(&initial_pane_id).unwrap();
-    assert_eq!(pane.pty_id, Some("pty-xyz".to_string()));
+    let tab = state.get_tab(&initial_tab_id).unwrap();
+    assert_eq!(tab.pty_id, Some("pty-xyz".to_string()));
 }
 
 #[test]
 fn test_snapshot() {
-    let (state, initial_pane_id) = MultiplexerState::new();
+    let (state, initial_tab_id) = MultiplexerState::new();
     let snap = state.snapshot();
     assert_eq!(snap.workspaces.len(), 1);
-    assert!(snap.panes.contains_key(&initial_pane_id));
+    assert!(snap.tabs.contains_key(&initial_tab_id));
     assert!(snap.active_workspace_id.is_some());
-    assert_eq!(snap.focused_pane_id, Some(initial_pane_id));
+    assert_eq!(snap.focused_tab_id, Some(initial_tab_id));
 }
 
 #[test]
-fn test_get_pane_mut() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
+fn test_get_tab_mut() {
+    let (mut state, initial_tab_id) = MultiplexerState::new();
     {
-        let pane = state.get_pane_mut(&initial_pane_id).unwrap();
-        pane.title = "Custom Title".to_string();
+        let tab = state.get_tab_mut(&initial_tab_id).unwrap();
+        tab.title = "Custom Title".to_string();
     }
-    let pane = state.get_pane(&initial_pane_id).unwrap();
-    assert_eq!(pane.title, "Custom Title");
+    let tab = state.get_tab(&initial_tab_id).unwrap();
+    assert_eq!(tab.title, "Custom Title");
 }
 
 #[test]
 fn test_set_orchestrator_role() {
-    let (mut state, pane_id) = MultiplexerState::new();
+    let (mut state, tab_id) = MultiplexerState::new();
     state
-        .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let pane = state.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.role, Some(AgentRole::Orchestrator));
-    assert_eq!(pane.depth, 1);
-    assert!(pane.can_spawn);
-    assert!(pane.parent_pane_id.is_none());
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.depth, 1);
+    assert!(tab.can_spawn);
+    assert!(tab.parent_tab_id.is_none());
 }
 
 #[test]
 fn test_orchestrator_cannot_have_parent() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    let result = state.set_pane_role(&pane_id, AgentRole::Orchestrator, Some("fake"));
+    let (mut state, tab_id) = MultiplexerState::new();
+    let result = state.set_tab_role(&tab_id, AgentRole::Orchestrator, Some("fake"));
     assert!(result.is_err());
 }
 
@@ -392,32 +396,38 @@ fn test_orchestrator_cannot_have_parent() {
 fn test_worker_requires_orchestrator_parent() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state.create_pane();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
 
-    let worker = state.get_pane(&worker_id).unwrap();
+    let worker = state.get_tab(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
     assert_eq!(worker.depth, 2);
     assert!(!worker.can_spawn);
-    assert_eq!(worker.parent_pane_id.as_deref(), Some(orch_id.as_str()));
+    assert_eq!(worker.parent_tab_id.as_deref(), Some(orch_id.as_str()));
 }
 
 #[test]
 fn test_worker_parent_must_not_be_worker() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_parent = state.create_pane();
+    let worker_parent = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
-        .set_pane_role(&worker_parent, AgentRole::Worker, Some(&orch_id))
+        .set_tab_role(&worker_parent, AgentRole::Worker, Some(&orch_id))
         .unwrap();
-    let other_id = state.create_pane();
-    let result = state.set_pane_role(&other_id, AgentRole::Worker, Some(&worker_parent));
+    let other_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    let result = state.set_tab_role(&other_id, AgentRole::Worker, Some(&worker_parent));
     assert!(result.is_err());
 }
 
@@ -425,12 +435,14 @@ fn test_worker_parent_must_not_be_worker() {
 fn test_worker_parent_must_allow_spawn() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
     state.set_can_spawn(&orch_id, false).unwrap();
 
-    let worker_id = state.create_pane();
-    let result = state.set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id));
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    let result = state.set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id));
     assert!(result.is_err());
 }
 
@@ -439,21 +451,25 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
     // 2-level hierarchy: a Worker sits directly under the Orchestrator, and there is no third level — a Worker can't parent another Worker.
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
 
-    let worker_id = state.create_pane();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
 
-    let worker = state.get_pane(&worker_id).unwrap();
+    let worker = state.get_tab(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
     assert_eq!(worker.depth, 2);
     assert!(!worker.can_spawn);
 
-    let sub_id = state.create_pane();
-    let result = state.set_pane_role(&sub_id, AgentRole::Worker, Some(&worker_id));
+    let sub_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    let result = state.set_tab_role(&sub_id, AgentRole::Worker, Some(&worker_id));
     assert!(
         result.is_err(),
         "a Worker must not be allowed to parent another Worker"
@@ -464,15 +480,19 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
 fn test_get_children_ids() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let w1 = state.create_pane();
-    state
-        .set_pane_role(&w1, AgentRole::Worker, Some(&orch_id))
+    let w1 = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
         .unwrap();
-    let w2 = state.create_pane();
     state
-        .set_pane_role(&w2, AgentRole::Worker, Some(&orch_id))
+        .set_tab_role(&w1, AgentRole::Worker, Some(&orch_id))
+        .unwrap();
+    let w2 = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    state
+        .set_tab_role(&w2, AgentRole::Worker, Some(&orch_id))
         .unwrap();
 
     let children = state.get_children_ids(&orch_id);
@@ -485,22 +505,24 @@ fn test_get_children_ids() {
 fn test_clear_role_orphans_children() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state.create_pane();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
 
-    state.clear_pane_role(&orch_id).unwrap();
+    state.clear_tab_role(&orch_id).unwrap();
 
-    let orch = state.get_pane(&orch_id).unwrap();
+    let orch = state.get_tab(&orch_id).unwrap();
     assert!(orch.role.is_none());
     assert_eq!(orch.depth, 0);
 
-    let worker = state.get_pane(&worker_id).unwrap();
+    let worker = state.get_tab(&worker_id).unwrap();
     assert!(worker.role.is_none());
-    assert!(worker.parent_pane_id.is_none());
+    assert!(worker.parent_tab_id.is_none());
     assert_eq!(worker.depth, 0);
 }
 
@@ -509,34 +531,34 @@ fn manager_close_keeps_children_alive() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let (_tab, manager_id) = state.create_tab(&ws_id).unwrap();
+    let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
         .unwrap();
     state.link_pty(&manager_id, "pty-manager".to_string());
 
-    let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
+    let worker_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.link_pty(&worker_id, "pty-worker".to_string());
     state.repoint_parent(&worker_id, &manager_id);
 
-    let (_tab, planner_id) = state.create_tab(&ws_id).unwrap();
+    let planner_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&planner_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&planner_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.link_pty(&planner_id, "pty-planner".to_string());
     state.repoint_parent(&planner_id, &manager_id);
 
-    let pty_ids = state.close_pane(&manager_id).unwrap();
+    let pty_ids = state.close_tab(&manager_id).unwrap();
     assert_eq!(pty_ids, vec!["pty-manager".to_string()]);
-    assert!(state.get_pane(&manager_id).is_none());
+    assert!(state.get_tab(&manager_id).is_none());
     for child_id in [&worker_id, &planner_id] {
-        let child = state.get_pane(child_id).expect("child remains alive");
-        assert!(child.parent_pane_id.is_none());
+        let child = state.get_tab(child_id).expect("child remains alive");
+        assert!(child.parent_tab_id.is_none());
         assert_eq!(child.role, Some(AgentRole::Worker));
     }
 }
@@ -546,31 +568,31 @@ fn manager_close_preserves_team_registry_and_chat_backend_child() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
         .unwrap()
         .team_id;
     let team_before = state.get_team(&team_id).cloned().unwrap();
-    let (_tab, manager_id) = state.create_tab(&ws_id).unwrap();
+    let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
         .unwrap();
-    let (_tab, chat_id) = state.create_tab(&ws_id).unwrap();
+    let chat_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&chat_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&chat_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.repoint_parent(&chat_id, &manager_id);
-    state.get_pane_mut(&chat_id).unwrap().backing = PaneBacking::ChatBackend {
+    state.get_tab_mut(&chat_id).unwrap().backing = TabBacking::ChatBackend {
         plugin_id: "test-backend".into(),
         session_id: "session".into(),
     };
 
-    assert!(state.close_pane(&manager_id).unwrap().is_empty());
-    let child = state.get_pane(&chat_id).expect("chat member survives");
+    assert!(state.close_tab(&manager_id).unwrap().is_empty());
+    let child = state.get_tab(&chat_id).expect("chat member survives");
     assert!(child.is_chat_backend());
-    assert!(child.parent_pane_id.is_none());
+    assert!(child.parent_tab_id.is_none());
     assert_eq!(child.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(state.get_team(&team_id), Some(&team_before));
 }
@@ -580,26 +602,26 @@ fn multi_manager_close_detaches_only_the_closed_managers_children() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let (_tab, first_manager) = state.create_tab(&ws_id).unwrap();
+    let first_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&first_manager, AgentRole::Manager, Some(&root_id))
+        .set_tab_role(&first_manager, AgentRole::Manager, Some(&root_id))
         .unwrap();
-    let (_tab, second_manager) = state.create_tab(&ws_id).unwrap();
+    let second_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&second_manager, AgentRole::Manager, Some(&root_id))
+        .set_tab_role(&second_manager, AgentRole::Manager, Some(&root_id))
         .unwrap();
-    let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
+    let worker_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.repoint_parent(&worker_id, &first_manager);
 
-    state.close_pane(&first_manager).unwrap();
-    assert!(state.get_pane(&second_manager).is_some());
-    assert!(state.get_pane(&worker_id).is_some());
-    assert!(state.get_pane(&worker_id).unwrap().parent_pane_id.is_none());
+    state.close_tab(&first_manager).unwrap();
+    assert!(state.get_tab(&second_manager).is_some());
+    assert!(state.get_tab(&worker_id).is_some());
+    assert!(state.get_tab(&worker_id).unwrap().parent_tab_id.is_none());
 }
 
 #[test]
@@ -607,22 +629,22 @@ fn last_manager_close_keeps_team_and_members() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
         .unwrap()
         .team_id;
-    let (_tab, member_id) = state.create_tab(&ws_id).unwrap();
+    let member_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&member_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&member_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
 
-    state.close_pane(&root_id).unwrap();
+    state.close_tab(&root_id).unwrap();
     assert!(state.get_team(&team_id).is_some());
-    let member = state.get_pane(&member_id).expect("member survives");
+    let member = state.get_tab(&member_id).expect("member survives");
     assert_eq!(member.team_id.as_deref(), Some(team_id.as_str()));
-    assert!(member.parent_pane_id.is_none());
+    assert!(member.parent_tab_id.is_none());
 }
 
 #[test]
@@ -630,76 +652,78 @@ fn explicit_close_team_still_cascades() {
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
     state.link_pty(&root_id, "pty-root".into());
-    let (_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    let worker_id = state.create_tab(&workspace_id).unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.link_pty(&worker_id, "pty-worker".into());
 
-    let pty_ids = state.close_pane_for_team_close(&root_id).unwrap();
+    let pty_ids = state.close_tab_for_team_close(&root_id).unwrap();
     assert_eq!(pty_ids.len(), 2);
-    assert!(state.get_pane(&root_id).is_none());
-    assert!(state.get_pane(&worker_id).is_none());
+    assert!(state.get_tab(&root_id).is_none());
+    assert!(state.get_tab(&worker_id).is_none());
 }
 
 #[test]
 fn test_set_can_spawn_requires_role() {
     let (mut state, _) = MultiplexerState::new();
-    let pane_id = state.create_pane();
-    let result = state.set_can_spawn(&pane_id, true);
+    let tab_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    let result = state.set_can_spawn(&tab_id, true);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_set_can_spawn_on_orchestrator() {
-    let (mut state, pane_id) = MultiplexerState::new();
+    let (mut state, tab_id) = MultiplexerState::new();
     state
-        .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .unwrap();
-    assert!(state.get_pane(&pane_id).unwrap().can_spawn);
+    assert!(state.get_tab(&tab_id).unwrap().can_spawn);
 
-    state.set_can_spawn(&pane_id, false).unwrap();
-    assert!(!state.get_pane(&pane_id).unwrap().can_spawn);
+    state.set_can_spawn(&tab_id, false).unwrap();
+    assert!(!state.get_tab(&tab_id).unwrap().can_spawn);
 
-    state.set_can_spawn(&pane_id, true).unwrap();
-    assert!(state.get_pane(&pane_id).unwrap().can_spawn);
+    state.set_can_spawn(&tab_id, true).unwrap();
+    assert!(state.get_tab(&tab_id).unwrap().can_spawn);
 }
 
 #[test]
-fn test_rename_pane_pins_title() {
-    let (mut state, pane_id) = MultiplexerState::new();
+fn test_rename_tab_pins_title() {
+    let (mut state, tab_id) = MultiplexerState::new();
     assert_eq!(
-        state.get_pane(&pane_id).unwrap().title_level,
+        state.get_tab(&tab_id).unwrap().title_level,
         TitleLevel::Default
     );
 
-    state.rename_pane(&pane_id, "Custom").unwrap();
-    let pane = state.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.title, "Custom");
-    assert_eq!(pane.title_level, TitleLevel::User);
+    state.rename_tab(&tab_id, "Custom").unwrap();
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.title, "Custom");
+    assert_eq!(tab.title_level, TitleLevel::User);
 }
 
 #[test]
-fn test_rename_pane_changes_canonical_title() {
-    let (mut state, pane_id) = MultiplexerState::new();
+fn test_rename_tab_changes_canonical_title() {
+    let (mut state, tab_id) = MultiplexerState::new();
 
-    state.rename_pane(&pane_id, "My Pane").unwrap();
+    state.rename_tab(&tab_id, "My Tab").unwrap();
 
-    assert_eq!(state.display_label_for_pane(&pane_id), "My Pane");
+    assert_eq!(state.display_label_for_tab(&tab_id), "My Tab");
 }
 
 #[test]
-fn test_rename_tab_changes_canonical_pane_title() {
-    let (mut state, pane_id) = MultiplexerState::new();
+fn test_rename_tab_changes_canonical_tab_title() {
+    let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let tab_id = state.get_workspace(&ws_id).unwrap().tabs[0].id.clone();
+    let tab_id = state.get_workspace(&ws_id).unwrap().tabs[0].clone();
 
-    state.rename_tab(&ws_id, &tab_id, "Renamed").unwrap();
+    state.rename_tab(&tab_id, "Renamed").unwrap();
 
-    assert_eq!(state.get_pane(&pane_id).unwrap().title, "Renamed");
+    assert_eq!(state.get_tab(&tab_id).unwrap().title, "Renamed");
 }
 
 #[test]
@@ -708,7 +732,7 @@ fn test_move_tab() {
     let ws1_id = state.list_workspaces()[0].id.clone();
     let ws2 = state.create_workspace("Second".to_string(), None);
 
-    let (tab2_id, _) = state.create_tab(&ws1_id).unwrap();
+    let tab2_id = state.create_tab(&ws1_id).unwrap();
 
     state.move_tab(&tab2_id, &ws1_id, &ws2.id).unwrap();
 
@@ -723,7 +747,7 @@ fn test_move_last_tab_fails() {
     let (mut state, _) = MultiplexerState::new();
     let ws1_id = state.list_workspaces()[0].id.clone();
     let ws2 = state.create_workspace("Second".to_string(), None);
-    let tab_id = state.get_workspace(&ws1_id).unwrap().tabs[0].id.clone();
+    let tab_id = state.get_workspace(&ws1_id).unwrap().tabs[0].clone();
 
     let result = state.move_tab(&tab_id, &ws1_id, &ws2.id);
     assert!(result.is_err());
@@ -731,14 +755,14 @@ fn test_move_last_tab_fails() {
 
 #[test]
 fn test_session_snapshot_roundtrip() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    state.link_pty(&pane_id, "pty-1".to_string());
-    if let Some(pane) = state.get_pane_mut(&pane_id) {
-        pane.cwd = Some("/test/path".to_string());
-        pane.agent_type = Some("claude".to_string());
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.link_pty(&tab_id, "pty-1".to_string());
+    if let Some(tab) = state.get_tab_mut(&tab_id) {
+        tab.cwd = Some("/test/path".to_string());
+        tab.agent_type = Some("claude".to_string());
     }
     state
-        .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .unwrap();
 
     let _ws2 = state.create_workspace("Second".to_string(), None);
@@ -750,15 +774,15 @@ fn test_session_snapshot_roundtrip() {
     let ws_list = restored.list_workspaces();
     assert_eq!(ws_list.len(), 2);
 
-    let pane = restored.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
+    let tab = restored.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.cwd.as_deref(), Some("/test/path"));
     // Restore agent_type even when session_id is missing.
-    // Without it, a previously silent pane can reappear as plain powershell after restart.
-    assert_eq!(pane.agent_type.as_deref(), Some("claude"));
-    assert_eq!(pane.role, Some(AgentRole::Orchestrator));
-    assert_eq!(pane.depth, 1);
-    assert!(pane.can_spawn);
-    assert!(pane.pty_id.is_none());
+    // Without it, a previously silent tab can reappear as plain powershell after restart.
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.depth, 1);
+    assert!(tab.can_spawn);
+    assert!(tab.pty_id.is_none());
 }
 
 #[test]
@@ -766,25 +790,25 @@ fn test_session_snapshot_preserves_agent_type_with_session_id() {
     // Preserve `agent_type` on snapshot restore.
     // Dropping to default claude prevented codex/opencode sessions from resuming.
     for provider in ["claude", "codex", "opencode"] {
-        let (mut state, pane_id) = MultiplexerState::new();
-        if let Some(pane) = state.get_pane_mut(&pane_id) {
-            pane.cwd = Some("/work".to_string());
-            pane.agent_type = Some(provider.to_string());
-            pane.agent_session_id = Some(format!("session-{}", provider));
+        let (mut state, tab_id) = MultiplexerState::new();
+        if let Some(tab) = state.get_tab_mut(&tab_id) {
+            tab.cwd = Some("/work".to_string());
+            tab.agent_type = Some(provider.to_string());
+            tab.agent_session_id = Some(format!("session-{}", provider));
         }
 
         let snap = state.to_session_snapshot();
         let restored = MultiplexerState::from_session_snapshot(&snap);
-        let pane = restored.get_pane(&pane_id).unwrap();
+        let tab = restored.get_tab(&tab_id).unwrap();
 
         assert_eq!(
-            pane.agent_type.as_deref(),
+            tab.agent_type.as_deref(),
             Some(provider),
             "agent_type must survive snapshot roundtrip when session_id is present (provider={})",
             provider,
         );
         assert_eq!(
-            pane.agent_session_id.as_deref(),
+            tab.agent_session_id.as_deref(),
             Some(format!("session-{}", provider).as_str()),
         );
     }
@@ -792,17 +816,17 @@ fn test_session_snapshot_preserves_agent_type_with_session_id() {
 
 #[test]
 fn test_session_snapshot_preserves_chat_view() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    if let Some(pane) = state.get_pane_mut(&pane_id) {
-        pane.agent_type = Some("codex".to_string());
-        pane.agent_session_id = Some("session-codex".to_string());
-        pane.chat_view = true;
+    let (mut state, tab_id) = MultiplexerState::new();
+    if let Some(tab) = state.get_tab_mut(&tab_id) {
+        tab.agent_type = Some("codex".to_string());
+        tab.agent_session_id = Some("session-codex".to_string());
+        tab.chat_view = true;
     }
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.get_pane(&pane_id).unwrap();
-    assert!(pane.chat_view, "chat_view must survive snapshot roundtrip");
+    let tab = restored.get_tab(&tab_id).unwrap();
+    assert!(tab.chat_view, "chat_view must survive snapshot roundtrip");
 }
 
 #[test]
@@ -836,7 +860,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                     description: None,
                     sort_order: 0,
                     split_tree: SplitNodeSnapshot::Leaf {
-                        pane_id: "pane-1".to_string(),
+                        tab_id: "tab-1".to_string(),
                         cwd: None,
                         title: Some(title.to_string()),
                         description: None,
@@ -848,9 +872,9 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         role: None,
                         role_profile: None,
                         team_id: None,
-                        parent_pane_id: None,
-                        spawned_by_pane_id: None,
-                        report_target_pane_id: None,
+                        parent_tab_id: None,
+                        spawned_by_tab_id: None,
+                        report_target_tab_id: None,
                         report_target_mesh_peer: None,
                         can_spawn: false,
                         depth: 0,
@@ -872,9 +896,9 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
         };
 
         let restored = MultiplexerState::from_session_snapshot(&snap);
-        let pane = restored.get_pane("pane-1").unwrap();
+        let tab = restored.get_tab("tab-1").unwrap();
         assert_eq!(
-            pane.agent_type.as_deref(),
+            tab.agent_type.as_deref(),
             Some(expected),
             "title {:?} should derive agent_type {:?}",
             title,
@@ -907,7 +931,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                 description: None,
                 sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
-                    pane_id: "pane-1".to_string(),
+                    tab_id: "tab-1".to_string(),
                     cwd: None,
                     title: Some("~/repo — zsh".to_string()),
                     description: None,
@@ -919,9 +943,9 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     role: None,
                     role_profile: None,
                     team_id: None,
-                    parent_pane_id: None,
-                    spawned_by_pane_id: None,
-                    report_target_pane_id: None,
+                    parent_tab_id: None,
+                    spawned_by_tab_id: None,
+                    report_target_tab_id: None,
                     report_target_mesh_peer: None,
                     can_spawn: false,
                     depth: 0,
@@ -942,21 +966,21 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
         }],
     };
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    assert!(restored.get_pane("pane-1").unwrap().agent_type.is_none());
+    assert!(restored.get_tab("tab-1").unwrap().agent_type.is_none());
 }
 
 #[test]
 fn test_session_snapshot_preserves_agent_type_locked() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    if let Some(pane) = state.get_pane_mut(&pane_id) {
-        pane.agent_type = Some("codex".to_string());
-        pane.agent_type_locked = true;
+    let (mut state, tab_id) = MultiplexerState::new();
+    if let Some(tab) = state.get_tab_mut(&tab_id) {
+        tab.agent_type = Some("codex".to_string());
+        tab.agent_type_locked = true;
     }
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.agent_type.as_deref(), Some("codex"));
-    assert!(pane.agent_type_locked, "locked flag must survive roundtrip");
+    let tab = restored.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_type.as_deref(), Some("codex"));
+    assert!(tab.agent_type_locked, "locked flag must survive roundtrip");
 }
 
 #[test]
@@ -983,7 +1007,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                 description: None,
                 sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
-                    pane_id: "pane-1".to_string(),
+                    tab_id: "tab-1".to_string(),
                     cwd: None,
                     title: None,
                     description: None,
@@ -995,9 +1019,9 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     role: None,
                     role_profile: None,
                     team_id: None,
-                    parent_pane_id: None,
-                    spawned_by_pane_id: None,
-                    report_target_pane_id: None,
+                    parent_tab_id: None,
+                    spawned_by_tab_id: None,
+                    report_target_tab_id: None,
                     report_target_mesh_peer: None,
                     can_spawn: false,
                     depth: 0,
@@ -1018,9 +1042,9 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
         }],
     };
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.get_pane("pane-1").unwrap();
-    assert_eq!(pane.agent_type.as_deref(), Some("claude"));
-    assert!(pane.agent_type_locked, "legacy agent_type implies lock");
+    let tab = restored.get_tab("tab-1").unwrap();
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert!(tab.agent_type_locked, "legacy agent_type implies lock");
 }
 
 #[test]
@@ -1028,22 +1052,22 @@ fn test_session_snapshot_preserves_hierarchy() {
     let (mut state, cond_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&cond_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&cond_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
+    let worker_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&cond_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&cond_id))
         .unwrap();
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
 
-    let cond = restored.get_pane(&cond_id).unwrap();
+    let cond = restored.get_tab(&cond_id).unwrap();
     assert_eq!(cond.role, Some(AgentRole::Orchestrator));
 
-    let worker = restored.get_pane(&worker_id).unwrap();
+    let worker = restored.get_tab(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
-    assert_eq!(worker.parent_pane_id.as_deref(), Some(cond_id.as_str()));
+    assert_eq!(worker.parent_tab_id.as_deref(), Some(cond_id.as_str()));
     assert_eq!(worker.depth, 2);
 }
 
@@ -1052,9 +1076,9 @@ fn test_set_active_tab() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let ws = state.get_workspace(&ws_id).unwrap();
-    let tab1_id = ws.tabs[0].id.clone();
+    let tab1_id = ws.tabs[0].clone();
 
-    let (tab2_id, _) = state.create_tab(&ws_id).unwrap();
+    let tab2_id = state.create_tab(&ws_id).unwrap();
 
     assert!(state.set_active_tab(&ws_id, &tab1_id).is_ok());
     let ws = state.get_workspace(&ws_id).unwrap();
@@ -1078,66 +1102,68 @@ fn test_protected_workspace_cannot_close() {
 }
 
 #[test]
-fn test_protected_pane_cannot_close() {
-    let (mut state, _initial_pane_id) = MultiplexerState::new();
-    let new_pane_id = state.create_pane();
-    state.get_pane_mut(&new_pane_id).unwrap().protected = true;
+fn test_protected_tab_cannot_close() {
+    let (mut state, _initial_tab_id) = MultiplexerState::new();
+    let new_tab_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
+    state.get_tab_mut(&new_tab_id).unwrap().protected = true;
 
-    let result = state.close_pane(&new_pane_id);
+    let result = state.close_tab(&new_tab_id);
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "Cannot close protected pane");
-    assert!(state.get_pane(&new_pane_id).is_some());
+    assert_eq!(result.unwrap_err(), "Cannot close protected Tab");
+    assert!(state.get_tab(&new_tab_id).is_some());
 }
 
 #[test]
 fn test_alias_register_and_resolve() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    state.register_alias("main-terminal", &pane_id);
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.register_alias("main-terminal", &tab_id);
 
-    let resolved = state.resolve_pane_id("main-terminal");
-    assert_eq!(resolved, Some(pane_id.clone()));
+    let resolved = state.resolve_tab_id("main-terminal");
+    assert_eq!(resolved, Some(tab_id.clone()));
 }
 
 #[test]
 fn test_alias_not_found_falls_back_to_id() {
-    let (state, pane_id) = MultiplexerState::new();
-    let resolved = state.resolve_pane_id(&pane_id);
-    assert_eq!(resolved, Some(pane_id));
+    let (state, tab_id) = MultiplexerState::new();
+    let resolved = state.resolve_tab_id(&tab_id);
+    assert_eq!(resolved, Some(tab_id));
 }
 
 #[test]
-fn test_public_tab_id_resolves_to_its_backing_pane() {
-    let (state, pane_id) = MultiplexerState::new();
-    let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
+fn test_public_tab_id_resolves_to_its_backing_tab() {
+    let (state, tab_id) = MultiplexerState::new();
+    let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
 
-    assert_eq!(state.resolve_pane_id(&tab_id), Some(pane_id));
+    assert_eq!(state.resolve_tab_id(&tab_id), Some(tab_id));
 }
 
 #[test]
 fn test_resolve_nonexistent_returns_none() {
     let (state, _) = MultiplexerState::new();
-    let resolved = state.resolve_pane_id("does-not-exist");
+    let resolved = state.resolve_tab_id("does-not-exist");
     assert_eq!(resolved, None);
 }
 
 #[test]
 fn test_alias_unregister() {
-    let (mut state, pane_id) = MultiplexerState::new();
-    state.register_alias("my-pane", &pane_id);
-    assert!(state.resolve_pane_id("my-pane").is_some());
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.register_alias("my-tab", &tab_id);
+    assert!(state.resolve_tab_id("my-tab").is_some());
 
-    state.unregister_alias("my-pane");
-    assert_eq!(state.resolve_pane_id("my-pane"), None);
+    state.unregister_alias("my-tab");
+    assert_eq!(state.resolve_tab_id("my-tab"), None);
 }
 
 #[test]
-fn test_alias_to_deleted_pane_returns_none() {
-    let (mut state, _initial_pane_id) = MultiplexerState::new();
+fn test_alias_to_deleted_tab_returns_none() {
+    let (mut state, _initial_tab_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
-    state.register_alias("ephemeral", &new_pane_id);
+    let new_tab_id = state.create_tab(&ws_id).unwrap();
+    state.register_alias("ephemeral", &new_tab_id);
 
-    state.close_pane(&new_pane_id).unwrap();
+    state.close_tab(&new_tab_id).unwrap();
 
-    assert_eq!(state.resolve_pane_id("ephemeral"), None);
+    assert_eq!(state.resolve_tab_id("ephemeral"), None);
 }

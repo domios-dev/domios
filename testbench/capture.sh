@@ -104,19 +104,19 @@ spawn_agent() {
     local extra=( $CAPTURE_AGENT_ARGS )
     args+=(--args -- "${extra[@]}")
   fi
-  dc_retry "${args[@]}" | json_field pane_id
+  dc_retry "${args[@]}" | json_field tab_id
 }
 
 wait_pty() {
-  local pane="$1" deadline=$((SECONDS + 60))
+  local tab="$1" deadline=$((SECONDS + 60))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local pty
-    pty="$(dc_retry pane list --json | python3 -c 'import json,sys
-pane=sys.argv[1]
+    pty="$(dc_retry tab list --json | python3 -c 'import json,sys
+tab=sys.argv[1]
 for p in json.load(sys.stdin):
-    if p.get("id")==pane:
+    if p.get("id")==tab:
         print(p.get("pty_id") or "")
-        break' "$pane")"
+        break' "$tab")"
     [ -n "$pty" ] && return 0
     sleep 1
   done
@@ -132,17 +132,17 @@ cleanup() { rm -rf "$OUT_TMP"; }
 trap cleanup EXIT
 
 ws="$(workspace_id)"
-pane="$(spawn_agent "$ws")"
-echo "[snapshot-testbench] provider=$PROVIDER situation=$SITUATION pane=$pane"
-wait_pty "$pane" || { echo "pane $pane did not attach a PTY" >&2; exit 1; }
+tab="$(spawn_agent "$ws")"
+echo "[snapshot-testbench] provider=$PROVIDER situation=$SITUATION tab=$tab"
+wait_pty "$tab" || { echo "tab $tab did not attach a PTY" >&2; exit 1; }
 
-dc_retry tab capture start --tab "$pane" --out "$OUT_TMP/raw.cast" >/dev/null
-dc_retry send "$PROMPT" --tab "$pane" >/dev/null
+dc_retry tab capture start --tab "$tab" --out "$OUT_TMP/raw.cast" >/dev/null
+dc_retry send "$PROMPT" --tab "$tab" >/dev/null
 
 matched="false"
 deadline=$((SECONDS + TIMEOUT))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  screen="$(dc_retry tab get-text --tab "$pane" || true)"
+  screen="$(dc_retry tab get-text --tab "$tab" || true)"
   if printf '%s' "$screen" | regex_matches; then
     matched="true"
     break
@@ -150,21 +150,21 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   sleep 1
 done
 
-dc_retry tab capture stop --tab "$pane" >/dev/null
+dc_retry tab capture stop --tab "$tab" >/dev/null
 [ "$matched" = "true" ] || { echo "regex did not match before timeout: $UNTIL" >&2; exit 1; }
 [ -f "$OUT_TMP/raw.cast" ] || { echo "capture did not write $OUT_TMP/raw.cast" >&2; exit 1; }
 [ -f "$OUT_TMP/raw.screen.txt" ] && mv "$OUT_TMP/raw.screen.txt" "$OUT_TMP/screen.txt"
-[ -f "$OUT_TMP/screen.txt" ] || dc_retry tab get-text --tab "$pane" > "$OUT_TMP/screen.txt"
+[ -f "$OUT_TMP/screen.txt" ] || dc_retry tab get-text --tab "$tab" > "$OUT_TMP/screen.txt"
 
 provider_version_text="$(provider_version "$PROVIDER")"
-python3 - "$OUT_TMP/meta.json" "$PROVIDER" "$SITUATION" "$pane" "$UNTIL" "$PROMPT" "$provider_version_text" <<'PY'
+python3 - "$OUT_TMP/meta.json" "$PROVIDER" "$SITUATION" "$tab" "$UNTIL" "$PROMPT" "$provider_version_text" <<'PY'
 import json, sys, time
-path, provider, situation, pane, until, prompt, version = sys.argv[1:]
+path, provider, situation, tab, until, prompt, version = sys.argv[1:]
 doc = {
     "provider": provider,
     "situation": situation,
     "capturedAtMs": int(time.time() * 1000),
-    "paneId": pane,
+    "tabId": tab,
     "source": "dev-7686",
     "until": until,
     "prompt": prompt,

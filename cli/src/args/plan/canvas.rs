@@ -71,6 +71,12 @@ pub enum PlanQaAction {
         task_id: String,
         #[arg(long, allow_hyphen_values = true)]
         note: String,
+        /// This attempt changed executable implementation surfaces
+        #[arg(long)]
+        changed_executable_surfaces: bool,
+        /// This attempt used a materially distinct verification oracle
+        #[arg(long)]
+        distinct_oracle: bool,
     },
     /// Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
     Override {
@@ -271,7 +277,7 @@ pub enum PlanDecisionAction {
         #[arg(long = "block")]
         blocking_task_ids: Vec<String>,
         #[arg(long = "asked-by-tab")]
-        asked_by_pane: Option<String>,
+        asked_by_tab: Option<String>,
     },
     /// Answer an open gate (immutable audit record, resumes paused tasks)
     Answer {
@@ -280,7 +286,7 @@ pub enum PlanDecisionAction {
         #[arg(long, allow_hyphen_values = true)]
         answer: String,
         #[arg(long = "answered-by-tab")]
-        answered_by_pane: Option<String>,
+        answered_by_tab: Option<String>,
     },
     /// Acknowledge one durably delivered Planner request
     #[command(hide = true)]

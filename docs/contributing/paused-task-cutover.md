@@ -55,7 +55,7 @@ The dry run must print exactly three `would convert` lines with distinct audit I
 3. Preserve the `conversion journal` path and the three `converted` output lines as cutover evidence. Each line contains the durable audit ID and timestamp written into that task's milestones.
 4. Start the reviewed new CodeTerm build through the normal application launcher. Do not restart the old parser after apply.
 
-The converter keeps each nonblank `park_reason` as `pause_reason`, records the common cutover reason in a decision milestone, clears pane assignments, and closes open execution attempts. It preserves comments, unknown fields, and nested YAML structures. Apply owns the whole three-file cutover with one lock record containing a transaction UUID, PID, process-start token, host, and journal path, plus an exclusive handle for every source. Windows installation uses `ReplaceFileW` without the unsupported `REPLACEFILE_WRITE_THROUGH` flag and supplies a transaction-owned same-volume backup path. It records hashes for the destination, replacement, and replacement-backup layouts, explicitly including errors 1175, 1176, and 1177, then reacquires a deny-write handle on each installed destination. Unix keeps locks on the staged/new inodes and prefers `renameat2(RENAME_EXCHANGE)` or `renamex_np(RENAME_SWAP)`, with a verified same-directory rename fallback.
+The converter keeps each nonblank `park_reason` as `pause_reason`, records the common cutover reason in a decision milestone, clears Tab assignments, and closes open execution attempts. It preserves comments, unknown fields, and nested YAML structures. Apply owns the whole three-file cutover with one lock record containing a transaction UUID, PID, process-start token, host, and journal path, plus an exclusive handle for every source. Windows installation uses `ReplaceFileW` without the unsupported `REPLACEFILE_WRITE_THROUGH` flag and supplies a transaction-owned same-volume backup path. It records hashes for the destination, replacement, and replacement-backup layouts, explicitly including errors 1175, 1176, and 1177, then reacquires a deny-write handle on each installed destination. Unix keeps locks on the staged/new inodes and prefers `renameat2(RENAME_EXCHANGE)` or `renamex_np(RENAME_SWAP)`, with a verified same-directory rename fallback.
 
 The journal separates `logical_state` from `durability`. Every entry records original, installed, backup, staged, and replacement-backup paths and hashes. Each replacement is preceded by a durable `replace_intent`, followed by `installed` only after file-data and namespace barriers pass. The final full-set hashes are checked while current-inode locks are held. On macOS, file data, journals, and installed files use `F_FULLFSYNC`, followed by directory `fsync`. On Windows, the namespace barrier is `FlushFileBuffers` on the local volume and normally requires an elevated process; ordinary file flush and `ReplaceFileW` alone are not treated as a namespace durability guarantee.
 
@@ -76,7 +76,7 @@ fi
 rg -n '^status: paused([[:space:]]|$)|^pause_reason:' "$@"
 ```
 
-Each CLI result must show `status: paused`, a nonblank pause reason, no active pane assignment, and the conversion milestone. Re-running the converter against the same files must print three `already converted` lines and make no changes.
+Each CLI result must show `status: paused`, a nonblank pause reason, no active Tab assignment, and the conversion milestone. Re-running the converter against the same files must print three `already converted` lines and make no changes.
 
 ## Rollback and recovery
 
@@ -103,4 +103,4 @@ Then rerun the old-parser inventory. If the new parser fails after startup, quit
 
 Keep the backup and captured apply output until the new parser has loaded the plan and all validation commands pass. A partial restore is invalid; the three records are one cutover set.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

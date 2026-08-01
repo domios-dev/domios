@@ -856,13 +856,20 @@ fn collect_spec_sections(
 }
 
 fn task_unit(plan: &Plan, task: &Task, scope: &str, plan_status: &str) -> Unit {
+    let acceptance_criteria = task.acceptance_criteria.join("\n");
+    let external_refs = task
+        .external_refs
+        .iter()
+        .map(|external_ref| external_ref.canonical_url.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     Unit {
         id: stable_id(&plan.id, "task", &task.id),
         kind: "task",
         title: format!("{} task {}", plan.title, task.name),
         body: format!(
-            "Plan \"{}\" · task: {}\n{}",
-            plan.title, task.name, task.body
+            "Plan \"{}\" · task: {}\n{}\n{}\n{}",
+            plan.title, task.name, acceptance_criteria, external_refs, task.body
         ),
         scope: scope.to_string(),
         plan_id: Some(plan.id.clone()),
@@ -1047,5 +1054,7 @@ fn rfc3339_to_timestamp_ms(value: &str) -> Option<u64> {
         .and_then(|dt| u64::try_from(dt.timestamp_millis()).ok())
 }
 
+#[cfg(test)]
+mod external_ref_tests;
 #[cfg(test)]
 mod tests;

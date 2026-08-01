@@ -1,6 +1,6 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { buildTaskPresence } from "../taskPresence";
-import { resolvePlanExclusivePaneTasks, taskBoundToPane } from "../paneCurrentTask";
+import { resolvePlanExclusiveTabTasks, taskBoundToTab } from "../tabCurrentTask";
 import { formatRelativeAge } from "./planListModel";
 import type { PlanSwitcherOption } from "./PlanSwitcher";
 import { TaskStatus, type Plan, type Task, type TaskStatus as TaskStatusType } from "../types";
@@ -16,7 +16,7 @@ export interface ActiveWorkEntry {
   planTitle: string;
   task: Task;
   status: TaskStatusType;
-  executorPaneId: string | null;
+  executorTabId: string | null;
   executorLabel: string | null;
   executorPresent: boolean;
   freshnessTs: number;
@@ -43,15 +43,15 @@ export function displayTaskTitle(task: Task): string {
   return task.id;
 }
 
-function executorPaneId(task: Task): string | null {
-  return task.assigned_pane_id?.trim() || task.lane?.pane_id?.trim() || null;
+function executorTabId(task: Task): string | null {
+  return task.assigned_tab_id?.trim() || task.lane?.tab_id?.trim() || null;
 }
 
-function executorLabel(paneId: string | null, panes: Record<string, Pane>): string | null {
-  if (!paneId) return null;
-  const title = panes[paneId]?.title?.trim();
+function executorLabel(tabId: string | null, tabs: Record<string, Tab>): string | null {
+  if (!tabId) return null;
+  const title = tabs[tabId]?.title?.trim();
   if (title) return title;
-  return paneId.length > 12 ? paneId.slice(0, 8) : paneId;
+  return tabId.length > 12 ? tabId.slice(0, 8) : tabId;
 }
 
 export function taskActivityFreshnessTs(task: Task): number {
@@ -76,17 +76,17 @@ export function isActiveWorkStale(task: Task, now: number): boolean {
   return false;
 }
 
-function buildEntry(plan: Plan, task: Task, panes: Record<string, Pane>, now: number): ActiveWorkEntry {
-  const paneId = executorPaneId(task);
-  const present = paneId != null && paneId in panes;
+function buildEntry(plan: Plan, task: Task, tabs: Record<string, Tab>, now: number): ActiveWorkEntry {
+  const tabId = executorTabId(task);
+  const present = tabId != null && tabId in tabs;
   const freshTs = taskActivityFreshnessTs(task);
   return {
     planId: plan.id,
     planTitle: displayPlanTitle(plan),
     task,
     status: task.status,
-    executorPaneId: paneId,
-    executorLabel: executorLabel(paneId, panes),
+    executorTabId: tabId,
+    executorLabel: executorLabel(tabId, tabs),
     executorPresent: present,
     freshnessTs: freshTs,
     freshnessLabel: formatRelativeAge(freshTs, now),
@@ -109,7 +109,7 @@ function compareEntries(a: ActiveWorkEntry, b: ActiveWorkEntry): number {
 
 export function selectActiveWork(
   plans: readonly Plan[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   now: number = Date.now(),
 ): ActiveWorkSnapshot {
   const entries: ActiveWorkEntry[] = [];
@@ -118,7 +118,7 @@ export function selectActiveWork(
     if (plan.mode === "paused") continue;
     for (const task of plan.tasks) {
       if (!isActiveWorkStatus(task.status)) continue;
-      entries.push(buildEntry(plan, task, panes, now));
+      entries.push(buildEntry(plan, task, tabs, now));
     }
   }
   entries.sort(compareEntries);
@@ -134,13 +134,13 @@ export function selectActiveWork(
   return { entries, byPlanId, countByPlanId };
 }
 
-export function activeWorkForPane(
+export function activeWorkForTab(
   snapshot: ActiveWorkSnapshot,
-  paneId: string | null | undefined,
+  tabId: string | null | undefined,
 ): ActiveWorkEntry | null {
-  if (!paneId) return null;
+  if (!tabId) return null;
   for (const entry of snapshot.entries) {
-    if (taskBoundToPane(entry.task, paneId)) return entry;
+    if (taskBoundToTab(entry.task, tabId)) return entry;
   }
   return null;
 }
@@ -166,10 +166,10 @@ export function inflightTooltip(entries: readonly ActiveWorkEntry[]): string {
 export function activeWorkPresenceLive(
   plan: Plan,
   task: Task,
-  panes: Record<string, Pane>,
-  exclusivePaneTasks: ReadonlyMap<string, string>,
+  tabs: Record<string, Tab>,
+  exclusiveTabTasks: ReadonlyMap<string, string>,
 ): boolean {
-  const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
+  const presence = buildTaskPresence(plan, task, tabs, exclusiveTabTasks);
   return presence != null && task.status === TaskStatus.InProgress;
 }
 
@@ -188,8 +188,8 @@ export function enrichSwitcherOptions(
   });
 }
 
-export function buildExclusivePaneTasksByPlan(plans: readonly Plan[]): Map<string, Map<string, string>> {
+export function buildExclusiveTabTasksByPlan(plans: readonly Plan[]): Map<string, Map<string, string>> {
   const out = new Map<string, Map<string, string>>();
-  for (const plan of plans) out.set(plan.id, resolvePlanExclusivePaneTasks(plan));
+  for (const plan of plans) out.set(plan.id, resolvePlanExclusiveTabTasks(plan));
   return out;
 }

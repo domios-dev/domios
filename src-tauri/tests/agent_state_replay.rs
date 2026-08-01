@@ -1,6 +1,6 @@
 //! RT2 — agent-state replay + score eval. Parses asciicast v2 `.cast` fixtures,
 //! replays them through BOTH the core SignalExtractor (P1a) and the provider
-//! `classify_pane_state` path, builds a state timeline, runs golden + negative
+//! `classify_tab_state` path, builds a state timeline, runs golden + negative
 //! oracles, and prints a per-state baseline scorecard. One Rust runner exercises
 //! both paths (extractor is in-process; classifier loads the bundled JS plugin).
 //!
@@ -10,9 +10,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use codeterm_lib::agent::pane_state::{PaneState, PaneStateClassification, PaneStateSnapshot};
 use codeterm_lib::agent::provider::AgentProvider;
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
+use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use codeterm_lib::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;
 use serde_json::Value;
@@ -105,21 +105,21 @@ fn parse_cast(path: &Path) -> Cast {
 // --- replay ----------------------------------------------------------------
 
 struct StepResult {
-    classify: Option<PaneStateClassification>,
+    classify: Option<TabStateClassification>,
     coarse: Coarse,
     mid_stream: bool, // true while real output still follows this step
     now_ms: u64,      // replay clock at this step (for convergence latency)
 }
 
-fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<PaneStateClassification> {
-    let snap = PaneStateSnapshot {
-        pane_id: "replay".into(),
+fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<TabStateClassification> {
+    let snap = TabStateSnapshot {
+        tab_id: "replay".into(),
         agent_type: provider.id().to_string(),
         session_id: None,
         cwd: None,
         screen_text: sig.tail.clone(),
     };
-    provider.classify_pane_state(&snap)
+    provider.classify_tab_state(&snap)
 }
 
 fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
@@ -213,17 +213,17 @@ struct Expected {
     source: Option<String>,
 }
 
-fn parse_state(s: &str) -> PaneState {
+fn parse_state(s: &str) -> TabState {
     serde_json::from_value(Value::String(s.to_string()))
-        .unwrap_or_else(|_| panic!("unknown PaneState {s:?}"))
+        .unwrap_or_else(|_| panic!("unknown TabState {s:?}"))
 }
 
-fn final_state(steps: &[StepResult]) -> PaneState {
+fn final_state(steps: &[StepResult]) -> TabState {
     steps
         .iter()
         .rev()
         .find_map(|s| s.classify.as_ref().map(|c| c.state))
-        .unwrap_or(PaneState::Unknown)
+        .unwrap_or(TabState::Unknown)
 }
 
 /// Convergence latency (MEASURED diagnostic, never a gate): replay-clock ms,
@@ -232,7 +232,7 @@ fn final_state(steps: &[StepResult]) -> PaneState {
 /// final-state failure the golden oracle already catches). This is the data a
 /// future latency hard-gate would need; surfaced now so the budgets can be set
 /// from real numbers rather than guessed.
-fn convergence_ms(steps: &[StepResult], truth: PaneState) -> Option<u64> {
+fn convergence_ms(steps: &[StepResult], truth: TabState) -> Option<u64> {
     let base = steps.first()?.now_ms;
     let mut converged_at: Option<u64> = None;
     for s in steps {
@@ -261,8 +261,8 @@ fn final_keys(steps: &[StepResult]) -> Option<Vec<String>> {
 
 struct FixtureResult {
     name: String,
-    truth: PaneState,
-    predicted: PaneState,
+    truth: TabState,
+    predicted: TabState,
     false_waiting: usize,
     false_turn_complete: usize,
     failures: Vec<String>,
@@ -298,7 +298,7 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
     }
 
     // NEGATIVE (hard gate): no forbidden state at any mid-stream step.
-    let classify_negs: Vec<PaneState> = expected
+    let classify_negs: Vec<TabState> = expected
         .negatives
         .iter()
         .filter(|n| !matches!(n.as_str(), "waiting" | "turn_complete"))
@@ -459,7 +459,7 @@ fn agent_state_replay_eval() {
     }
 }
 
-fn label(s: PaneState) -> String {
+fn label(s: TabState) -> String {
     serde_json::to_value(s)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))

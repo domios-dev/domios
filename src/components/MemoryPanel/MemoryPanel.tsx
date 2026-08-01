@@ -11,7 +11,8 @@ import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
-import { tabClass, UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
+import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
+import { LiquidTabRail } from "../shared/LiquidTabRail";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
 
@@ -35,7 +36,7 @@ interface Props {
   api: ApiConfig;
   onClose: () => void;
   initialState?: MemoryInitialState;
-  onFocusPane?: (paneId: string) => void;
+  onFocusTab?: (tabId: string) => void;
   config?: AppConfig;
   onConfigUpdate?: (config: AppConfig) => Promise<void>;
 }
@@ -134,10 +135,10 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     >
       {/* Header with tabs */}
       <div
-        className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}
+        className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] whitespace-nowrap`}
         style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
       >
-        <div className="flex items-center gap-3 mr-4 shrink-0">
+        <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
           <span className="text-[11px] opacity-70 max-sm:hidden" data-testid="memory-stats-summary">
             {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
@@ -161,18 +162,15 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           )}
         </div>
 
-        <div className="flex items-center gap-1 border-l border-[var(--ct-border)] pl-3">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              data-testid={`memory-tab-${tab}`}
-              onClick={() => setActiveTab(tab)}
-              className={tabClass(activeTab === tab, touchUi)}
-              aria-pressed={activeTab === tab}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
+          <LiquidTabRail
+            value={activeTab}
+            options={TABS}
+            onChange={setActiveTab}
+            label="Memory sections"
+            touch={touchUi}
+            testIdPrefix="memory-tab"
+          />
         </div>
       </div>
 

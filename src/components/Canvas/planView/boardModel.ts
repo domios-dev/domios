@@ -1,7 +1,7 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { flattenSections } from "../sectionRows";
-import { filterPlansForCanvas, planBelongsToWorkspace, type PlanFilterOpts } from "../planPaneMatch";
-import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
+import { filterPlansForCanvas, planBelongsToWorkspace, type PlanFilterOpts } from "../planTabMatch";
+import { resolvePlanExclusiveTabTasks } from "../tabCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import {
@@ -12,7 +12,8 @@ import {
   type Task,
   type TaskStatus as TaskStatusType,
 } from "../types";
-import { latestTaskNote } from "./taskStatusLabel";
+import { canonicalTaskStatusLabel, latestTaskNote } from "./taskStatusLabel";
+import { qaChipText } from "./taskQa";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { deriveWorkingOnRow } from "./workingOnRow";
@@ -48,9 +49,9 @@ export interface BoardSpecSummary {
 export interface BoardPlanSummary {
   title: string;
   ownerLabel: string;
-  ownerPaneId: string | null;
+  ownerTabId: string | null;
   plannerLabel: string | null;
-  plannerPaneId: string | null;
+  plannerTabId: string | null;
   planningState: PlanningState | null;
   executionUnlocked: boolean;
   done: number;
@@ -71,6 +72,7 @@ export interface TaskLocator {
 
 export interface BoardTaskCardModel {
   task: Task;
+  statusChipText: string;
   presenceLabel: string | null;
   historicalExecutorSummary: string | null;
   roleLabel: string | null;
@@ -104,26 +106,26 @@ function clean(value?: string | null): string | null {
   return text && !EMPTY_LABELS.has(text.toLowerCase()) ? text : null;
 }
 
-function ownerLabel(plan: Plan, panes: Record<string, Pane>): string {
-  const paneId = clean(plan.owner.pane_id);
-  if (paneId && panes[paneId]?.title) return panes[paneId].title!.trim();
-  return clean(plan.owner.title) ?? (paneId ? paneId.slice(0, 8) : "Unassigned");
+function ownerLabel(plan: Plan, tabs: Record<string, Tab>): string {
+  const tabId = clean(plan.owner.tab_id);
+  if (tabId && tabs[tabId]?.title) return tabs[tabId].title!.trim();
+  return clean(plan.owner.title) ?? (tabId ? tabId.slice(0, 8) : "Unassigned");
 }
 
 function plannerBinding(
   plan: Plan,
-  panes: Record<string, Pane>,
-): { label: string | null; paneId: string | null } {
+  tabs: Record<string, Tab>,
+): { label: string | null; tabId: string | null } {
   const ref = plan.planner ?? null;
-  if (!ref) return { label: null, paneId: null };
-  if (ref.kind === "waived") return { label: "Solo (waived)", paneId: null };
-  const paneId = clean(ref.pane_id);
-  const localTitle = paneId ? panes[paneId]?.title?.trim() : undefined;
-  if (localTitle) return { label: localTitle, paneId };
+  if (!ref) return { label: null, tabId: null };
+  if (ref.kind === "waived") return { label: "Solo (waived)", tabId: null };
+  const tabId = clean(ref.tab_id);
+  const localTitle = tabId ? tabs[tabId]?.title?.trim() : undefined;
+  if (localTitle) return { label: localTitle, tabId };
   const refTitle = clean(ref.title);
-  if (refTitle) return { label: refTitle, paneId };
-  if (paneId) return { label: `${paneId.slice(0, 8)} (remote)`, paneId };
-  return { label: null, paneId: null };
+  if (refTitle) return { label: refTitle, tabId };
+  if (tabId) return { label: `${tabId.slice(0, 8)} (remote)`, tabId };
+  return { label: null, tabId: null };
 }
 
 export function resolveDisplayPlanningState(plan: Plan): PlanningState | null {
@@ -161,9 +163,9 @@ export function formatRelativeAge(fromTs: number, now: number = Date.now()): str
   return `${d}d`;
 }
 
-function focusMatches(plan: Plan, task: Task, paneId: string | null): boolean {
+function focusMatches(plan: Plan, task: Task, tabId: string | null): boolean {
   const focus = clean(plan.heartbeat?.current_focus);
-  if (!focus || !paneId) return false;
+  if (!focus || !tabId) return false;
   const needles = [task.id, task.handle, task.name, `task:${task.id}`]
     .flatMap((v) => {
       const text = clean(v);
@@ -194,24 +196,25 @@ function buildTaskLocator(plan: Plan, task: Task): TaskLocator | null {
 function buildTaskCard(
   plan: Plan,
   task: Task,
-  panes: Record<string, Pane>,
-  exclusivePaneTasks: Map<string, string>,
+  tabs: Record<string, Tab>,
+  exclusiveTabTasks: Map<string, string>,
   now: number,
 ): BoardTaskCardModel {
-  const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
-  const historical = historicalExecutorForTask(task, panes, presence != null);
-  const paneId = presence?.paneId ?? clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
+  const presence = buildTaskPresence(plan, task, tabs, exclusiveTabTasks);
+  const historical = historicalExecutorForTask(task, tabs, presence != null);
+  const tabId = presence?.tabId ?? clean(task.assigned_tab_id) ?? clean(task.lane?.tab_id);
   return {
     task,
+    statusChipText: qaChipText(plan, task) ?? canonicalTaskStatusLabel(task),
     presenceLabel: presence?.label ?? null,
     historicalExecutorSummary: historical?.summary ?? null,
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),
     branch: laneBranch(task),
     latestNote: latestTaskNote(task),
-    workingOn: deriveWorkingOnRow(task, panes, now),
+    workingOn: deriveWorkingOnRow(task, tabs, now),
     loopBadge: loopForTask(plan, task.id),
-    competeBadge: competitionForTask(task, panes),
-    focusMatch: focusMatches(plan, task, paneId),
+    competeBadge: competitionForTask(task, tabs),
+    focusMatch: focusMatches(plan, task, tabId),
     locator: buildTaskLocator(plan, task),
   };
 }
@@ -233,7 +236,7 @@ export function deriveBoardSpecSummary(
   };
 }
 
-export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>): BoardPlanSummary {
+export function deriveBoardPlanSummary(plan: Plan, tabs: Record<string, Tab>): BoardPlanSummary {
   let done = 0;
   let total = 0;
   for (const task of plan.tasks) {
@@ -241,13 +244,13 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
     total += 1;
     if (task.status === TaskStatus.Done) done += 1;
   }
-  const planner = plannerBinding(plan, panes);
+  const planner = plannerBinding(plan, tabs);
   return {
     title: plan.title.trim() || "Untitled plan",
-    ownerLabel: ownerLabel(plan, panes),
-    ownerPaneId: clean(plan.owner.pane_id),
+    ownerLabel: ownerLabel(plan, tabs),
+    ownerTabId: clean(plan.owner.tab_id),
     plannerLabel: planner.label,
-    plannerPaneId: planner.paneId,
+    plannerTabId: planner.tabId,
     planningState: resolveDisplayPlanningState(plan),
     executionUnlocked: planExecutionUnlocked(plan),
     done,
@@ -260,10 +263,10 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
 
 export function groupTasksIntoColumns(
   plan: Plan,
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   now: number = Date.now(),
 ): { columns: BoardColumnModel[]; cancelledCount: number } {
-  const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
+  const exclusiveTabTasks = resolvePlanExclusiveTabTasks(plan);
   const planPosition = new Map(plan.tasks.map((task, index) => [task.id, index]));
   let cancelledCount = 0;
   for (const task of plan.tasks) {
@@ -282,7 +285,7 @@ export function groupTasksIntoColumns(
     return {
       key: def.key,
       label: def.label,
-      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks, now)),
+      cards: tasks.map((task) => buildTaskCard(plan, task, tabs, exclusiveTabTasks, now)),
     };
   });
   return { columns, cancelledCount };
@@ -290,15 +293,15 @@ export function groupTasksIntoColumns(
 
 export function buildBoardPlanModel(
   plan: Plan,
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   specSections?: Section[],
   now: number = Date.now(),
 ): BoardPlanModel {
-  const { columns, cancelledCount } = groupTasksIntoColumns(plan, panes, now);
+  const { columns, cancelledCount } = groupTasksIntoColumns(plan, tabs, now);
   return {
     planId: plan.id,
     spec: deriveBoardSpecSummary(plan, specSections),
-    planSummary: deriveBoardPlanSummary(plan, panes),
+    planSummary: deriveBoardPlanSummary(plan, tabs),
     columns,
     cancelledCount,
   };
@@ -335,10 +338,10 @@ export function selectDefaultPlanId(
 ): string | null {
   if (!orderedPlans.length) return null;
   if (opts.planId && orderedPlans.some((p) => p.id === opts.planId)) return opts.planId;
-  if (opts.orchestratorPaneId && opts.panes) {
+  if (opts.orchestratorTabId && opts.tabs) {
     const owned = filterPlansForCanvas([...orderedPlans], "focus", {
-      orchestratorPaneId: opts.orchestratorPaneId,
-      panes: opts.panes,
+      orchestratorTabId: opts.orchestratorTabId,
+      tabs: opts.tabs,
       workspaceId: undefined,
     });
     const ownedIds = new Set(owned.map((p) => p.id));
@@ -361,12 +364,12 @@ export function selectDefaultPlanId(
 
 export function buildBoardModels(
   plans: readonly Plan[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   specSectionsByPlan: ReadonlyMap<string, Section[]> = new Map(),
   now: number = Date.now(),
 ): BoardPlanModel[] {
   return plans.map((plan) =>
-    buildBoardPlanModel(plan, panes, specSectionsByPlan.get(plan.id), now),
+    buildBoardPlanModel(plan, tabs, specSectionsByPlan.get(plan.id), now),
   );
 }
 

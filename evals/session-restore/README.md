@@ -1,8 +1,8 @@
 # Session restore — manual + scripted bench
 
-Verifies that workspace/pane state survives daemon restart, including
-the trickier cases (silent claude pane, claude pane with user input,
-custom-renamed pane, plain shell pane). Runs against a live `dev`
+Verifies that workspace/tab state survives daemon restart, including
+the trickier cases (silent claude tab, claude tab with user input,
+custom-renamed tab, plain shell tab). Runs against a live `dev`
 daemon on port 7686.
 
 ## Why this exists
@@ -17,7 +17,7 @@ causes:
    `_ =>` branch and booted with an empty workspace list.
 2. `from_session_snapshot` dropped `agent_type` whenever
    `claude_session_id` wasn't saved, so a freshly-spawned "silent"
-   claude pane (the user never typed into it before the kill) came
+   claude tab (the user never typed into it before the kill) came
    back as a bare powershell on restart.
 
 Fixes (PR #54):
@@ -30,7 +30,7 @@ Fixes (PR #54):
   `--resume` (session_id present + valid file) or fresh-launch the
   agent. Gated on a new in-memory `restored_from_snapshot` flag so
   the fresh-launch does NOT race the orchestrator's own launch on a
-  freshly spawned pane.
+  freshly spawned tab.
 - `send_text` retries `resolve_pty_id` for up to 15s so scripts can
   chain `agent spawn → send` without hitting a "no PTY" race.
 
@@ -41,7 +41,7 @@ Fixes (PR #54):
 | `SessionStore::save` atomic + `load_last` fallback | `cargo test --lib session::store` (6 unit tests) |
 | `from_session_snapshot` agent_type preservation | `cargo test --lib multiplexer::state::tests::test_session_snapshot_*` |
 | End-to-end restore on dev (kill → restart → state preserved) | `bash evals/session-restore/run.sh` (this directory) |
-| Silent claude pane re-launches as claude on UI mount | **manual** — open dev window, click the restored tab, watch claude UI render |
+| Silent claude tab re-launches as claude on UI mount | **manual** — open dev window, click the restored tab, watch claude UI render |
 | Claude --resume of saved session_id | **manual** — same as above; depends on the JSONL session file still existing on disk |
 
 ## Running the bench
@@ -61,12 +61,12 @@ The script:
 2. Creates 6 workspaces with mixed scenarios (empty, silent shell,
    shell-with-text, silent claude, claude-with-`--task`, claude
    custom-renamed).
-3. Snapshots `pre/` state (workspaces, panes, last.json).
+3. Snapshots `pre/` state (workspaces, tabs, last.json).
 4. `taskkill /F` the dev daemon (Windows shutdown simulator).
 5. `./build.sh dev` to restart.
 6. Snapshots `post/` state.
 7. Seeds a newer worker-looking Claude JSONL in the General Agent cwd,
-   wipes the General pane sid from `last.json`, and asserts restart still
+   wipes the General tab sid from `last.json`, and asserts restart still
    resumes the GA-owned sid.
 8. Diffs and prints a PASS/FAIL table.
 9. In `--check` mode, compares the latest metadata summary against
@@ -77,14 +77,14 @@ Outputs go to `target-check/evals/` (gitignored).
 
 ## Test plan layout
 
-| # | Workspace | Pane sequence | What restore must preserve |
+| # | Workspace | Tab sequence | What restore must preserve |
 |---|-----------|---------------|----------------------------|
 | 1 | `WS-empty` | none | workspace id, name, cwd |
-| 2 | `WS-shell-silent` | `pane new` | bare shell pane stays bare on UI mount |
-| 3 | `WS-shell-with-text` | `pane new` + `pane exec` | same as above; scrollback NOT preserved (PTY restarts) |
+| 2 | `WS-shell-silent` | `tab new` | bare shell tab stays bare on UI mount |
+| 3 | `WS-shell-with-text` | `tab new` + `tab exec` | same as above; scrollback NOT preserved (PTY restarts) |
 | 4 | `WS-claude-silent` | `agent spawn claude` (no input) | **claude relaunches** on UI mount, not powershell |
 | 5 | `WS-claude-with-text` | `agent spawn claude --task '...'` | claude launches and `--resume` picks up the conversation IF JSONL still on disk; fresh launch otherwise |
-| 6 | `WS-claude-renamed` | `agent spawn claude` + `pane rename "MY-CUSTOM"` | custom title preserved + claude relaunches |
+| 6 | `WS-claude-renamed` | `agent spawn claude` + `tab rename "MY-CUSTOM"` | custom title preserved + claude relaunches |
 
 ## Adding scenarios
 

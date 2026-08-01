@@ -5,10 +5,10 @@
 //! bus (`/event`) carrying `question.asked` / `permission.asked`, and accepts
 //! replies on documented endpoints. This module owns:
 //!
-//! - a per-pane endpoint registry (`base_url` + `cwd`), populated at spawn;
-//! - a background subscriber thread per pane that turns SSE prompt events into
-//!   `pane.pending_prompt` (the PTY stays display-only for these classes);
-//! - the active-prompt store the hot path reads ([`pending_for_pane`]);
+//! - a per-tab endpoint registry (`base_url` + `cwd`), populated at spawn;
+//! - a background subscriber thread per tab that turns SSE prompt events into
+//!   `tab.pending_prompt` (the PTY stays display-only for these classes);
+//! - the active-prompt store the hot path reads ([`pending_for_tab`]);
 //! - the HTTP reply round-trip ([`respond`]), wired through the same
 //!   option-index contract the PTY send-back uses.
 //!
@@ -61,73 +61,73 @@ pub fn allocate_server() -> Option<crate::agent::provider::StructuredPromptServe
     })
 }
 
-/// Record the structured-prompt server for a pane (called at spawn, once the
+/// Record the structured-prompt server for a tab (called at spawn, once the
 /// host has allocated the fixed port). `base_url` is e.g. `http://127.0.0.1:PORT`.
-pub fn register_endpoint(pane_id: &str, base_url: String, cwd: String) {
+pub fn register_endpoint(tab_id: &str, base_url: String, cwd: String) {
     ENDPOINTS
         .lock()
-        .insert(pane_id.to_string(), Endpoint { base_url, cwd });
+        .insert(tab_id.to_string(), Endpoint { base_url, cwd });
 }
 
-/// The live structured prompt for a pane, if one is pending. Cheap in-memory
+/// The live structured prompt for a tab, if one is pending. Cheap in-memory
 /// read on the hot path.
-pub fn pending_for_pane(pane_id: &str) -> Option<PendingPrompt> {
-    ACTIVE.lock().get(pane_id).map(|a| a.prompt.clone())
+pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
+    ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone())
 }
 
-fn route_for_pane(pane_id: &str) -> Option<ResponseRoute> {
-    ACTIVE.lock().get(pane_id).map(|a| a.route.clone())
+fn route_for_tab(tab_id: &str) -> Option<ResponseRoute> {
+    ACTIVE.lock().get(tab_id).map(|a| a.route.clone())
 }
 
-/// Drop all structured-prompt state for a pane (pane closed / agent exited).
-pub fn clear_pane(pane_id: &str) {
-    ENDPOINTS.lock().remove(pane_id);
-    ACTIVE.lock().remove(pane_id);
-    SUBSCRIBED.lock().remove(pane_id);
+/// Drop all structured-prompt state for a tab (tab closed / agent exited).
+pub fn clear_tab(tab_id: &str) {
+    ENDPOINTS.lock().remove(tab_id);
+    ACTIVE.lock().remove(tab_id);
+    SUBSCRIBED.lock().remove(tab_id);
 }
 
-/// Start the SSE subscriber for a pane if it has a registered endpoint and none
+/// Start the SSE subscriber for a tab if it has a registered endpoint and none
 /// is running yet. Idempotent — safe to call on every session-bind. The caller
 /// has already gated on `supports_structured_prompts`.
-pub fn maybe_start_subscriber(svc: &ServiceContext, pane_id: &str) {
-    let (base_url, cwd) = match ENDPOINTS.lock().get(pane_id) {
+pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
+    let (base_url, cwd) = match ENDPOINTS.lock().get(tab_id) {
         Some(ep) => (ep.base_url.clone(), ep.cwd.clone()),
         None => return,
     };
     {
         let mut subscribed = SUBSCRIBED.lock();
-        if !subscribed.insert(pane_id.to_string()) {
+        if !subscribed.insert(tab_id.to_string()) {
             return; // already running
         }
     }
     let svc = svc.clone();
-    let pane_id = pane_id.to_string();
+    let tab_id = tab_id.to_string();
     std::thread::Builder::new()
-        .name(format!("oc-sse-{}", &pane_id[..pane_id.len().min(8)]))
-        .spawn(move || run_subscriber(svc, pane_id, base_url, cwd))
+        .name(format!("oc-sse-{}", &tab_id[..tab_id.len().min(8)]))
+        .spawn(move || run_subscriber(svc, tab_id, base_url, cwd))
         .ok();
 }
 
 /// One shared capability-gated chokepoint for EVERY agent spawn path (REST
-/// `spawn_agent`, desktop/CLI `spawn_pane_atomic`, restart). For a provider whose
+/// `spawn_agent`, desktop/CLI `spawn_tab_atomic`, restart). For a provider whose
 /// `needs_structured_prompt_server()` capability is true it, in this exact order:
-/// capability gate → allocate a loopback port → register the pane endpoint →
+/// capability gate → allocate a loopback port → register the tab endpoint →
 /// start the SSE subscriber → return the server to thread into the launch command
 /// (so the agent binds its bus there). The subscriber MUST start here, not just
 /// the endpoint (C2). Returns `None` when the provider doesn't need a server OR
 /// allocation failed — an HONEST degraded result: the caller proceeds PTY-only and
 /// never fakes server mode. No provider-id branch — capability is the only gate.
 ///
-/// Stale/orphan safety (C5/C6): per-pane state is dropped by [`clear_pane`] on
-/// pane close (`service::pane`) and agent exit (`service::output`), so a restart
-/// (same pane_id) re-allocates a FRESH port here rather than reusing a dead one.
+/// Stale/orphan safety (C5/C6): per-tab state is dropped by [`clear_tab`] on
+/// tab close (`service::tab`) and agent exit (`service::output`), so a restart
+/// (same tab_id) re-allocates a FRESH port here rather than reusing a dead one.
 /// If allocation succeeds but no launch follows, the registered endpoint is inert
 /// (the subscriber just retries then gives up) and is reaped by the next
-/// `clear_pane`; no live resource leaks (the port listener is released immediately).
+/// `clear_tab`; no live resource leaks (the port listener is released immediately).
 pub fn ensure_for_spawn(
     svc: &ServiceContext,
     agent_cmd: &str,
-    pane_id: &str,
+    tab_id: &str,
     cwd: &str,
 ) -> Option<crate::agent::provider::StructuredPromptServer> {
     let needs = svc
@@ -139,35 +139,35 @@ pub fn ensure_for_spawn(
     }
     let server = allocate_server()?;
     let base_url = format!("http://{}:{}", server.hostname, server.port);
-    register_endpoint(pane_id, base_url, cwd.to_string());
-    maybe_start_subscriber(svc, pane_id);
+    register_endpoint(tab_id, base_url, cwd.to_string());
+    maybe_start_subscriber(svc, tab_id);
     Some(server)
 }
 
 /// Answer a pending structured prompt over HTTP. Returns `Some(result)` when the
-/// pane has a structured route (the PTY send-back must then be skipped), or
+/// tab has a structured route (the PTY send-back must then be skipped), or
 /// `None` when there is no structured handle (caller falls back to PTY).
-pub fn respond(svc: &ServiceContext, pane_id: &str, value: &str) -> Option<Result<(), String>> {
-    let route = route_for_pane(pane_id)?;
-    let base_url = ENDPOINTS.lock().get(pane_id).map(|e| e.base_url.clone())?;
+pub fn respond(svc: &ServiceContext, tab_id: &str, value: &str) -> Option<Result<(), String>> {
+    let route = route_for_tab(tab_id)?;
+    let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
     let result = send_reply(&base_url, &route, value);
     // stale prompt in the UI is worse; the next SSE event re-surfaces if needed.
-    ACTIVE.lock().remove(pane_id);
-    svc.push_structured_prompt(pane_id, None);
+    ACTIVE.lock().remove(tab_id);
+    svc.push_structured_prompt(tab_id, None);
     Some(result)
 }
 
 pub fn abort_session(
     svc: &ServiceContext,
-    pane_id: &str,
+    tab_id: &str,
     session_id: &str,
 ) -> Option<Result<(), String>> {
-    let base_url = ENDPOINTS.lock().get(pane_id).map(|e| e.base_url.clone())?;
+    let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
     let url = format!("{base_url}/session/{session_id}/abort");
     let result = abort_session_request(&url);
     if result.is_ok() {
-        ACTIVE.lock().remove(pane_id);
-        svc.push_structured_prompt(pane_id, None);
+        ACTIVE.lock().remove(tab_id);
+        svc.push_structured_prompt(tab_id, None);
     }
     Some(result)
 }
@@ -204,22 +204,22 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
     }
 }
 
-fn run_subscriber(svc: ServiceContext, pane_id: String, base_url: String, cwd: String) {
+fn run_subscriber(svc: ServiceContext, tab_id: String, base_url: String, cwd: String) {
     for attempt in 0..30u32 {
-        if pane_gone(&svc, &pane_id) {
+        if tab_gone(&svc, &tab_id) {
             break;
         }
-        if connect_and_stream(&svc, &pane_id, &base_url, &cwd) {
-            break; // pane closed mid-stream
+        if connect_and_stream(&svc, &tab_id, &base_url, &cwd) {
+            break; // tab closed mid-stream
         }
         std::thread::sleep(Duration::from_millis(500 + (attempt.min(10) as u64) * 200));
     }
-    SUBSCRIBED.lock().remove(&pane_id);
+    SUBSCRIBED.lock().remove(&tab_id);
 }
 
-/// Connect once and stream until the connection drops or the pane closes.
-/// Returns true if the pane is gone (stop reconnecting), false to retry.
-fn connect_and_stream(svc: &ServiceContext, pane_id: &str, base_url: &str, cwd: &str) -> bool {
+/// Connect once and stream until the connection drops or the tab closes.
+/// Returns true if the tab is gone (stop reconnecting), false to retry.
+fn connect_and_stream(svc: &ServiceContext, tab_id: &str, base_url: &str, cwd: &str) -> bool {
     let client = match reqwest::blocking::Client::builder().build() {
         Ok(c) => c,
         Err(_) => return false,
@@ -235,7 +235,7 @@ fn connect_and_stream(svc: &ServiceContext, pane_id: &str, base_url: &str, cwd: 
     };
     let reader = BufReader::new(resp);
     for line in reader.lines() {
-        if pane_gone(svc, pane_id) {
+        if tab_gone(svc, tab_id) {
             return true;
         }
         let Ok(line) = line else {
@@ -250,27 +250,27 @@ fn connect_and_stream(svc: &ServiceContext, pane_id: &str, base_url: &str, cwd: 
         match parse_event(&value) {
             ParsedEvent::Prompt { prompt, route } => {
                 ACTIVE.lock().insert(
-                    pane_id.to_string(),
+                    tab_id.to_string(),
                     Active {
                         prompt: prompt.clone(),
                         route,
                     },
                 );
-                svc.push_structured_prompt(pane_id, Some(prompt));
+                svc.push_structured_prompt(tab_id, Some(prompt));
             }
             ParsedEvent::Replied { request_id } => {
                 let cleared = {
                     let mut active = ACTIVE.lock();
-                    match active.get(pane_id) {
+                    match active.get(tab_id) {
                         Some(a) if a.route.request_id == request_id => {
-                            active.remove(pane_id);
+                            active.remove(tab_id);
                             true
                         }
                         _ => false,
                     }
                 };
                 if cleared {
-                    svc.push_structured_prompt(pane_id, None);
+                    svc.push_structured_prompt(tab_id, None);
                 }
             }
             ParsedEvent::Ignored => {}
@@ -279,6 +279,6 @@ fn connect_and_stream(svc: &ServiceContext, pane_id: &str, base_url: &str, cwd: 
     false
 }
 
-fn pane_gone(svc: &ServiceContext, pane_id: &str) -> bool {
-    svc.mux.read().get_pane(pane_id).is_none()
+fn tab_gone(svc: &ServiceContext, tab_id: &str) -> bool {
+    svc.mux.read().get_tab(tab_id).is_none()
 }

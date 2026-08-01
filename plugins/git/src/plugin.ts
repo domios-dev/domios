@@ -2,7 +2,7 @@ import type {
   ExecOpts,
   ExecResult,
   GlanceView,
-  PaneContext,
+  TabContext,
   PluginModule,
   StatusBubble,
   ViewNode,
@@ -65,7 +65,7 @@ function branchOf(cwd: string): string | null {
 
 // --- capabilities ---
 
-function statusBubble(ctx: PaneContext): StatusBubble | null {
+function statusBubble(ctx: TabContext): StatusBubble | null {
   const cwd = ctx && ctx.cwd;
   if (!cwd) return null;
   const branch = branchOf(cwd);
@@ -81,12 +81,12 @@ function statusBubble(ctx: PaneContext): StatusBubble | null {
   };
 }
 
-function renderGlance(ctx: PaneContext): GlanceView {
+function renderGlance(ctx: TabContext): GlanceView {
   const cwd = ctx && ctx.cwd;
   if (!cwd) {
     return {
       title: "Git",
-      nodes: [{ kind: "text", text: "No working directory for this pane.", style: { tone: "muted" } }],
+      nodes: [{ kind: "text", text: "No working directory for this tab.", style: { tone: "muted" } }],
     };
   }
   const branch = branchOf(cwd);

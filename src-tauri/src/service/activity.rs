@@ -40,19 +40,19 @@ pub struct ActivityEvent {
 }
 
 impl ActivityEvent {
-    pub fn push(service_id: &str, pane_id: &str, body_preview: &str) -> Self {
+    pub fn push(service_id: &str, tab_id: &str, body_preview: &str) -> Self {
         Self {
             id: None,
             occurred_at: now_ms(),
             source: ActivitySource::Push,
             source_id: Some(service_id.into()),
-            target: Some(pane_id.into()),
+            target: Some(tab_id.into()),
             source_peer: None,
             level: ActivityLevel::Info,
             message: format!(
-                "{} → pane {}: {}",
+                "{} → Tab {}: {}",
                 service_id,
-                pane_id,
+                tab_id,
                 body_preview.chars().take(80).collect::<String>()
             ),
             meta: serde_json::json!({"body_preview": body_preview}),
@@ -81,7 +81,7 @@ impl ActivityEvent {
     pub fn peer_relay(
         peer_id: &str,
         peer_name: &str,
-        target_pane: &str,
+        target_tab: &str,
         body_preview: &str,
     ) -> Self {
         Self {
@@ -89,10 +89,10 @@ impl ActivityEvent {
             occurred_at: now_ms(),
             source: ActivitySource::Push,
             source_id: Some(peer_id.into()),
-            target: Some(target_pane.into()),
+            target: Some(target_tab.into()),
             source_peer: Some(peer_name.into()),
             level: ActivityLevel::Info,
-            message: format!("{} → pane {}: {}", peer_name, target_pane, body_preview),
+            message: format!("{} → Tab {}: {}", peer_name, target_tab, body_preview),
             meta: serde_json::json!({"kind": "mesh_relay", "body_preview": body_preview}),
         }
     }
@@ -316,7 +316,7 @@ mod tests {
         activity
             .record(ActivityEvent::push(
                 "svc_voice",
-                "pane_a3f1",
+                "tab_a3f1",
                 "transcript: hello",
             ))
             .unwrap();
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source, ActivitySource::Push);
         assert_eq!(events[0].source_id.as_deref(), Some("svc_voice"));
-        assert_eq!(events[0].target.as_deref(), Some("pane_a3f1"));
+        assert_eq!(events[0].target.as_deref(), Some("tab_a3f1"));
     }
 
     #[test]
@@ -346,7 +346,7 @@ mod tests {
         let store = ServicesStore::open_in_memory().unwrap();
         let activity = ActivityWriter::new(store.conn());
         activity
-            .record(ActivityEvent::push("svc1", "pane1", "x"))
+            .record(ActivityEvent::push("svc1", "tab1", "x"))
             .unwrap();
         activity
             .record(ActivityEvent::peer("peer1", "info", "msg"))

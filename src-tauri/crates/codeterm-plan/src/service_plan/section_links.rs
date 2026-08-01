@@ -302,7 +302,7 @@ mod tests {
         let mut plan = Plan::new(
             "Plan".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
         );
         let plan_id = plan.id.clone();
         store.save(&mut plan, 1).unwrap();

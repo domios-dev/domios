@@ -5,7 +5,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::State;
 
-use store::{Notification, NotificationLevel, NotificationStore};
+use store::{Notification, NotificationStore};
 
 /// Shared notification state, thread-safe.
 pub type NotifState = Arc<Mutex<NotificationStore>>;
@@ -13,22 +13,39 @@ pub type NotifState = Arc<Mutex<NotificationStore>>;
 /// Create a notification.
 #[tauri::command]
 pub fn notify(
-    store: State<'_, NotifState>,
+    svc: State<'_, crate::service::ServiceState>,
     title: String,
     body: Option<String>,
     level: Option<String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     workspace_id: Option<String>,
 ) -> Result<String, String> {
-    let level = match level.as_deref() {
-        Some("warning") | Some("Warning") => NotificationLevel::Warning,
-        Some("error") | Some("Error") => NotificationLevel::Error,
-        _ => NotificationLevel::Info,
-    };
+    Ok(svc.create_notification_ext(
+        title,
+        body,
+        level.as_deref(),
+        None,
+        None,
+        tab_id,
+        workspace_id,
+    ))
+}
 
-    let mut s = store.lock();
-    let id = s.add(title, body, level, pane_id, workspace_id);
-    Ok(id)
+#[tauri::command]
+pub fn notify_agent_input_request(
+    svc: State<'_, crate::service::ServiceState>,
+    tab_id: String,
+    session_id: String,
+    prompt_identity: Option<String>,
+    resolved: Option<bool>,
+) -> Result<String, String> {
+    if resolved.unwrap_or(false) {
+        let prompt_identity =
+            prompt_identity.ok_or_else(|| "Resolved prompt identity is required".to_string())?;
+        svc.resolve_agent_input_request_notification(&tab_id, &session_id, &prompt_identity);
+        return Ok(String::new());
+    }
+    svc.create_agent_input_request_notification(tab_id, session_id, prompt_identity)
 }
 
 /// List notifications, optionally filtered to unread only.

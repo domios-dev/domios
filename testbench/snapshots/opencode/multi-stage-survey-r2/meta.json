@@ -2,7 +2,7 @@
   "provider": "opencode",
   "situation": "multi-stage-survey-r2",
   "capturedAtMs": 1781997286765,
-  "paneId": "2e2ed90f",
+  "tabId": "2e2ed90f",
   "source": "dev-7686",
   "until": "Section|Stage|Question|A\\)|B\\)|C\\)|❯|▶|Allow|answer",
   "prompt": "Build a multi-stage A/B/C questionnaire across sections, then wait for my answers.",

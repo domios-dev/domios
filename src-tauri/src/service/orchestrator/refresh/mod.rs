@@ -2,7 +2,7 @@
 //! machine that snapshots (handoff), compacts, waits for settle, re-orients, and
 //! verifies resumption — or raises a loud alert. The one forbidden outcome is
 //! silence. Mirrors `pty_io::wake`: pure transitions in `machine`, an idempotent
-//! per-pane guard, and a wake-confirmer-backed injection path.
+//! per-tab guard, and a wake-confirmer-backed injection path.
 
 mod driver;
 mod machine;

@@ -1,5 +1,4 @@
 // Run: npx tsx src/lib/pluginProviderMeta.test.ts
-// The plugin-snapshot (`plugin_manager_snapshot`) carries per-plugin identity in
 
 import {
   getPluginProviderMeta,
@@ -24,8 +23,6 @@ test("maps snake_case snapshot entries into camelCase meta", () => {
         icon_svg: "<svg/>",
         icon_color: "#ff6600",
         icon_hint: "LM",
-        available_models: [{ id: "qwen-2.5", display_name: "Qwen 2.5" }],
-        default_model: "qwen-2.5",
       },
     ],
   });
@@ -36,8 +33,6 @@ test("maps snake_case snapshot entries into camelCase meta", () => {
   assert(m.iconSvg === "<svg/>", "iconSvg");
   assert(m.iconColor === "#ff6600", "iconColor");
   assert(m.iconHint === "LM", "iconHint");
-  assert(m.availableModels?.[0]?.id === "qwen-2.5", "availableModels");
-  assert(m.defaultModel === "qwen-2.5", "defaultModel");
 });
 
 test("falls back displayName to id when absent", () => {

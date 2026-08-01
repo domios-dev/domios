@@ -127,7 +127,7 @@ async fn run_recluster_inline(
     use crate::mem::dreaming::recluster::{run_recluster_phase_with_lock, AnthropicCaller};
 
     // Recluster always calls Anthropic directly via `AnthropicCaller` (no
-    // pane spawn, no per-provider dispatch) — so unlike every other memory
+    // tab spawn, no per-provider dispatch) — so unlike every other memory
     // worker it has no *agent* ladder, only a *model* one, resolved against
     // the fixed "claude" catalog. "sonnet" is only the last-resort literal
     // if the catalog itself can't resolve anything.

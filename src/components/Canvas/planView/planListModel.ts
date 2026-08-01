@@ -19,7 +19,7 @@ export const PLAN_LIST_STATUS_FILTERS: ReadonlyArray<{ key: PlanListStatusFilter
 ];
 
 function textHaystack(row: PlanListRow): string {
-  return [row.title, row.sectionTitle, row.focus, row.paneLabel, row.statusLabel, row.historicalExecutorSummary]
+  return [row.title, row.sectionTitle, row.focus, row.tabLabel, row.statusLabel, row.historicalExecutorSummary]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

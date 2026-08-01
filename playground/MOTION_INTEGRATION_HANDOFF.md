@@ -47,7 +47,7 @@ the label; `small` (3px + 2px jump) sits correctly on the baseline. Repro harnes
 
 **Fix:** make size context-driven, not constant. Recommended mapping —
 - `inline` / chat status rows / composer → `small`
-- standalone block busy rows (empty states, panels) → `medium`
+- standalone block busy rows (empty states, tabls) → `medium`
 - badges inside 40px-class chrome (workspace cubes, tab rows) → `micro`
 
 Implement as `BusyStateProps.dotSize?: ActivityDotsSize` defaulting to
@@ -162,7 +162,7 @@ numeric/status counters, search/filter results. Instant is a feature there.
    - Fix 1b: single owner for `--activity-dot-*`; add the guard test.
    - Sweep remaining bespoke working indicators onto `ActivityDots`: the
      ~10 unrelated pulse keyframes in `globals.css` (`sidebar-workspace-working-pulse`,
-     `sidebar-hierarchy-*`, `pane-focus-pulse`, `plan-companion-presence-pulse`,
+     `sidebar-hierarchy-*`, `tab-focus-pulse`, `plan-companion-presence-pulse`,
      `mem-pulse*`, `ct-canvas-pulse/live/heartbeat-dot`, `agent-icon-working-spin`,
      `breathing-bar`). Do this in small batches, one surface per commit.
 2. **Token consolidation** — finish adopting the remaining liquid tokens into

@@ -51,7 +51,7 @@ plugins/<id>/
   package.json         # type:module + workspace dep on @codeterm/plugin-sdk
   src/plugin.ts        # SOURCE — logic, typed against @codeterm/plugin-sdk; ends with `export default plugin`
   plugin.js            # BUILD ARTIFACT (esbuild → CJS) — committed; do not hand-edit
-  settings.schema.json # optional — JSON-schema for the settings panel
+  settings.schema.json # optional — JSON-schema for the settings tabl
   ui/                  # optional — the plugin's own UI (for the `view` capability)
     src/main.tsx       # SOURCE — React entry, mounts on #ct-root
     app-<hash>.js      # BUILD ARTIFACT — content-hashed, cacheable bundle; committed
@@ -88,7 +88,7 @@ audited channel to the host, and a separately-sandboxed UI.
   "minCodeterm": "1.0.0",      // compatibility gate (see "Maintenance")
   "hostApi": 2,                // host-API contract version the plugin targets
   "displayName": "Git",
-  "description": "One-line summary shown in the Extensions detail pane.",
+  "description": "One-line summary shown in the Extensions detail tab.",
   "configHelp": "Agent-facing: what this plugin does, how to use it, and which `codeterm plugin config <id> --set key=value` knobs exist. REQUIRED — see \"Self-setup & Configure with AI\".",
   "homepage": "https://…",     // optional project/docs link
   "readme": "README.md",       // optional relative markdown path; loaded into the snapshot (bounded) and rendered safely (no raw HTML, remote images not fetched)
@@ -101,7 +101,7 @@ audited channel to the host, and a separately-sandboxed UI.
     "secretBackend": false,
     "transcriber": false,
     "glanceView": true,        // a popover summary (ViewNode tree)
-    "statusBubble": true,      // a pane-footer pill
+    "statusBubble": true,      // a tab-footer pill
     "view": true               // a full sandboxed-iframe UI
   },
   "permissions": {
@@ -132,8 +132,8 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `chatBackend`  | `openSession(ctx)`, `sendMessage`, `pump?`, `poll`, `closeSession`, `listModels?`, `listPresets?` | an **open agent shell** — see below |
 | `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/src/plugin.ts` |
 
-`ctx` for bubble/glance carries the pane's `cwd`. `action: "openPanel:view:<id>"` opens
-the plugin's own iframe view; `"openPanel:<name>"` opens a built-in panel.
+`ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
+the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 
 ### Host API (`host.*`, synchronous, inside QuickJS)
 
@@ -197,8 +197,8 @@ of truth and must stay so:
 
 ## Open agent shells (the `chatBackend` capability)
 
-A `chatBackend` plugin turns a pane into an **open agent shell**: a non-PTY chat
-pane whose plugin talks directly to a local LLM, runs its own agentic ReAct loop
+A `chatBackend` plugin turns a Tab into an **open agent shell**: a non-PTY chat
+Tab whose plugin talks directly to a local LLM, runs its own agentic ReAct loop
 *inside the QuickJS sandbox*, is parameterised by selectable **presets**, and
 makes its active **system prompt observable**. The core stays a generic relay —
 it asks capabilities, never identities, so any number of shell plugins coexist
@@ -209,7 +209,7 @@ and each owns its own "brain". The shipped reference instance is **lmstudio**
 
 | Export | Role |
 |--------|------|
-| `openSession(ctx)` | start a session; `ctx = { paneId, config, systemPrompt?, preset?, model?, mode?, engine? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. Watcher sessions receive `mode: "watcher"` and a machine `engine` instead of accepting user turns. |
+| `openSession(ctx)` | start a session; `ctx = { tabId, config, systemPrompt?, preset?, model?, mode?, engine? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. Watcher sessions receive `mode: "watcher"` and a machine `engine` instead of accepting user turns. |
 | `sendMessage(sid, text)` | enqueue a user turn; kick the ReAct loop. |
 | `watcherTick(sid, input)` *(optional)* | enqueue one host-driven watcher tick for sessions opened with `mode: "watcher"`. It returns immediately; `pump`/`poll` streams the context card, model reply, and verdict. |
 | `pump(sid)` *(optional)* | drive one loop step: stream the LLM call, append the growing assistant message (stable id), scan the completed message for tool blocks, execute each curated tool, append a `tool_result`, continue (capped — e.g. 8 rounds/turn). |
@@ -228,7 +228,7 @@ confinement class).
 
 Open agent shells support two orthogonal session knobs:
 
-- `mode: "interactive"` (default) accepts user and routed pane messages through
+- `mode: "interactive"` (default) accepts user and routed Tab messages through
   `sendMessage`.
 - `mode: "watcher"` is read-only. The host rejects user sends; only the tick
   scheduler calls `watcherTick`.
@@ -256,7 +256,7 @@ Verdicts use this contract:
 
 ```ts
 type WatcherVerdictStatus = "ok" | "attention" | "stalled";
-type WatcherAction = { kind: "nudge" | "notify" | "report"; pane?: string; message: string };
+type WatcherAction = { kind: "nudge" | "notify" | "report"; tab?: string; message: string };
 type WatcherVerdict = { status: WatcherVerdictStatus; summary: string; state?: unknown; actions?: WatcherAction[] };
 ```
 
@@ -302,7 +302,7 @@ exactly — it is the single source of truth.
 3. Point it at your server / pick a preset via settings, or
    `codeterm plugin config lmstudio --set baseUrl=http://localhost:1234`. Add any
    non-default `host:port` to `permissions.network.allow`.
-4. **Open a shell** from the UI's new-pane/agent picker (installed shells appear
+4. **Open a shell** from the UI's new-tab/agent picker (installed shells appear
    tagged as shells), or from the CLI:
 
    ```bash
@@ -310,7 +310,7 @@ exactly — it is the single source of truth.
    codeterm agent spawn lmstudio                              # uses defaultPreset
    codeterm agent spawn lmstudio --preset rhymes              # pick a preset
    codeterm agent spawn lmstudio --system "You answer only in rhymes."
-   codeterm agent spawn lmstudio --role Watcher --parent <orch-pane> \
+   codeterm agent spawn lmstudio --role Watcher --parent-tab <orch-tab> \
      --charter charter:watcher-orchestration --interval 30s
    ```
 
@@ -328,15 +328,15 @@ documented in the plugin's own `README.md` and `configHelp`.
    ```
 3. Write `src/plugin.ts` — typed against the SDK, ending with `export default plugin`:
    ```ts
-   import type { ExecOpts, ExecResult, PaneContext, PluginModule, StatusBubble } from "@codeterm/plugin-sdk";
+   import type { ExecOpts, ExecResult, TabContext, PluginModule, StatusBubble } from "@codeterm/plugin-sdk";
 
    function git(cwd: string, args: string[]): ExecResult {
      return JSON.parse(host.exec(JSON.stringify({ bin: "git", args: ["-C", cwd].concat(args) })));
    }
-   function statusBubble(ctx: PaneContext): StatusBubble | null {
+   function statusBubble(ctx: TabContext): StatusBubble | null {
      if (!ctx || !ctx.cwd) return null;
      // … shell git, build the pill …
-     return { label: branch, tone: "default", icon: "git", action: "openPanel:view:git" };
+     return { label: branch, tone: "default", icon: "git", action: "openTabl:view:git" };
    }
    const plugin: PluginModule = { statusBubble /*, renderGlance, viewCall, … */ };
    export default plugin;
@@ -361,7 +361,7 @@ documented in the plugin's own `README.md` and `configHelp`.
 ### UI gotchas (the sandbox is strict)
 
 - **No `localStorage`/`sessionStorage`/`document.cookie`.** Touching them throws
-  `SecurityError` in the origin-null iframe and crashes the React render → blank panel.
+  `SecurityError` in the origin-null iframe and crashes the React render → blank tabl.
   Guard every access with `try/catch` and degrade to in-memory.
 - **No app imports.** The iframe bundle can't import from `src/`. Inline the types,
   icons, and CSS it needs (no Tailwind compiler runs in the bundle — ship the CSS).
@@ -405,11 +405,11 @@ config knobs. Core falls back to `description` + a rendering of `settingsSchema`
 A reserved glance/settings action, **`configure-with-ai`**, is appended by core to
 **every** plugin — you get it for free, no wiring needed (you may also place it
 explicitly in `renderGlance` if you want it in a specific spot). Clicking it opens
-a focused General-agent pane preloaded with the plugin's `configHelp`, then asks
+a focused General-agent Tab preloaded with the plugin's `configHelp`, then asks
 the user what they want. For a configurable plugin it is "configure for me"; for a
 knob-less plugin it is "help me use this".
 
-**It never auto-executes.** The button *spawns a pane with a task* — it does not
+**It never auto-executes.** The button *spawns a Tab with a task* — it does not
 run any command. The agent must ask the user, confirm, and then use the existing
 permission-gated `codeterm plugin config <id>` / `codeterm plugin get <id>` path.
 Nothing the user did not approve runs.
@@ -464,7 +464,7 @@ installed, and configured in one conversation:
    ran it: *"… To configure it: run `codeterm plugin get <id>` to see options, ask
    the user what they want, then `codeterm plugin config <id> --set key=value`."*
    (Plus the existing reload note when the plugin sets `requiresReload`.) No
-   cross-pane injection — the running agent is already in context.
+   cross-tab injection — the running agent is already in context.
 
 ### Self-bootstrap pattern (the Transcriber, worked example)
 
@@ -575,7 +575,7 @@ tax (see also `docs/contributing/architecture.md`):
    display string. `if id == "codex"` in core code is a leak.
 2. **Native + JS parity in lockstep.** Every trait method a JS drop-in can implement gains
    a `parity_test.rs` case, or it silently drifts on drop-ins.
-3. **Detection keys off the pane's OWN session.** Read only the record for this pane's
+3. **Detection keys off the Tab's OWN session.** Read only the record for this Tab's
    claimed session id — never "newest for cwd". Unknown → return null (honest) over a
    guess (contaminating).
 4. **Audit the host-API surface when it grows.** Every new `host.*` function is a new
@@ -619,4 +619,4 @@ tax (see also `docs/contributing/architecture.md`):
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 12 -->
+<!-- revision: 14 -->

@@ -13,7 +13,7 @@ export interface PlanContextHeaderProps {
   spec: BoardSpecSummary | null;
   onOpenPlan: () => void;
   onOpenSpec?: () => void;
-  onOpenPane?: (paneId: string) => void;
+  onOpenTab?: (tabId: string) => void;
   planId?: string;
   plan?: Plan;
   api?: ApiConfig;
@@ -174,7 +174,7 @@ function PlanContextBody({
   spec,
   onOpenPlan,
   onOpenSpec,
-  onOpenPane,
+  onOpenTab,
   plan,
 }: PlanContextHeaderProps) {
   const goal = summary.goalVector?.trim() ?? "";
@@ -210,16 +210,16 @@ function PlanContextBody({
             <PeerChip
               role="orchestrator"
               label={summary.ownerLabel}
-              paneId={summary.ownerPaneId}
-              onOpenPane={onOpenPane}
+              tabId={summary.ownerTabId}
+              onOpenTab={onOpenTab}
             />
           }
           planner={
             <PeerChip
               role="planner"
               label={plannerLabel}
-              paneId={summary.plannerPaneId}
-              onOpenPane={onOpenPane}
+              tabId={summary.plannerTabId}
+              onOpenTab={onOpenTab}
             />
           }
         />
@@ -278,13 +278,13 @@ function PlanContextBody({
 interface PeerChipProps {
   role: "planner" | "orchestrator";
   label: string;
-  paneId: string | null;
-  onOpenPane?: (paneId: string) => void;
+  tabId: string | null;
+  onOpenTab?: (tabId: string) => void;
 }
 
-function PeerChip({ role, label, paneId, onOpenPane }: PeerChipProps) {
+function PeerChip({ role, label, tabId, onOpenTab }: PeerChipProps) {
   const roleLabel = role === "planner" ? "Planner" : "Orchestrator";
-  const clickable = Boolean(paneId && onOpenPane);
+  const clickable = Boolean(tabId && onOpenTab);
   const content = (
     <>
       <span className="plan-peer-chip-role">{roleLabel}</span>
@@ -297,7 +297,7 @@ function PeerChip({ role, label, paneId, onOpenPane }: PeerChipProps) {
         type="button"
         data-testid={`plan-peer-chip-${role}`}
         className={`plan-context-chip plan-peer-chip plan-peer-chip-${role}`}
-        onClick={() => onOpenPane!(paneId!)}
+        onClick={() => onOpenTab!(tabId!)}
         title={`Open ${roleLabel} tab`}
       >
         {content}

@@ -52,11 +52,11 @@ pub(super) fn optional_string_field<'a>(
     params.and_then(|x| x.get(key).map(|v| v.as_str()))
 }
 
-pub(super) fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
+pub(super) fn tab_role(svc: &ServiceState, tab_id: &str) -> Option<&'static str> {
     svc.mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.role)
+        .get_tab(tab_id)
+        .and_then(|tab| tab.role)
         .map(|role| match role {
             AgentRole::Orchestrator => "orchestrator",
             AgentRole::Manager => "manager",
@@ -64,20 +64,18 @@ pub(super) fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static st
         })
 }
 
-pub(super) fn pane_and_ancestors(
+pub(super) fn tab_and_ancestors(
     svc: &ServiceState,
-    pane_id: &str,
+    tab_id: &str,
 ) -> std::collections::HashSet<String> {
     let mux = svc.mux.read();
     let mut out = std::collections::HashSet::new();
-    let mut current = Some(pane_id.to_string());
+    let mut current = Some(tab_id.to_string());
     while let Some(id) = current {
         if !out.insert(id.clone()) {
             break;
         }
-        current = mux
-            .get_pane(&id)
-            .and_then(|pane| pane.parent_pane_id.clone());
+        current = mux.get_tab(&id).and_then(|tab| tab.parent_tab_id.clone());
     }
     out
 }

@@ -11,7 +11,7 @@ fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
     let mut p = Plan::new(
         "T".into(),
         root.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     for k in kinds {
         p.milestone_kinds.push(MilestoneKind {
@@ -60,7 +60,7 @@ fn generated_index_regenerates_with_current_titles() {
     let mut plan = Plan::new(
         "Before".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let section_id = store
@@ -135,7 +135,7 @@ fn plan_spec_markdown_assembles_only_sections() {
     let mut plan = Plan::new(
         "Spec Plan".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let section_id = store
@@ -190,7 +190,7 @@ fn plan_file_manifest_lists_index_and_body_paths() {
     let mut plan = Plan::new(
         "Files".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     store
@@ -233,7 +233,7 @@ fn external_section_body_edit_reloads_into_full_plan() {
     let mut plan = Plan::new(
         "External edit".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let _section_id = store
@@ -269,7 +269,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
     let mut plan = Plan::new(
         "Legacy inline".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     plan.sections.push(crate::plan::Section {
         id: "sec_legacy".into(),
@@ -288,7 +288,9 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         model: None,
         model_rationale: None,
         acceptance_criteria: vec![],
+        external_refs: vec![],
         test_plan: None,
+        qa_plan: None,
         correctness: None,
         status: TaskStatus::Pending,
         review_stage: Default::default(),
@@ -313,7 +315,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         intent: None,
         parent_task_id: None,
         depends_on: vec![],
-        assigned_pane_id: None,
+        assigned_tab_id: None,
         lane: Default::default(),
         taken_by_role: None,
         peer: None,
@@ -355,7 +357,7 @@ fn atomic_body_write_leaves_only_final_markdown_file() {
     let mut plan = Plan::new(
         "Atomic".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let section_id = store
@@ -587,15 +589,15 @@ fn update_task_preserves_model_when_patching_parent() {
 #[test]
 fn close_task_sets_done_and_optional_milestone() {
     let (store, id, tid) = store_with_task(&["status_update"]);
-    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     store
-        .close_task(&id, &tid, Some("shipped"), AgentRef::from_pane("w"), 30)
+        .close_task(&id, &tid, Some("shipped"), AgentRef::from_tab("w"), 30)
         .unwrap();
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
     assert_eq!(t.status, TaskStatus::Done);
-    assert!(t.assigned_pane_id.is_none());
-    assert!(t.lane.pane_id.is_none());
+    assert!(t.assigned_tab_id.is_none());
+    assert!(t.lane.tab_id.is_none());
     assert!(t.milestones.iter().any(|m| m.text == "shipped"));
     assert_eq!(p.updated_at, 30);
 }
@@ -603,9 +605,9 @@ fn close_task_sets_done_and_optional_milestone() {
 #[test]
 fn closed_task_assignment_is_not_indexed_or_bound() {
     let (store, id, tid) = store_with_task(&["status_update"]);
-    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     store
-        .close_task(&id, &tid, None, AgentRef::from_pane("w"), 30)
+        .close_task(&id, &tid, None, AgentRef::from_tab("w"), 30)
         .unwrap();
 
     let entry = store
@@ -613,19 +615,19 @@ fn closed_task_assignment_is_not_indexed_or_bound() {
         .into_iter()
         .find(|entry| entry.plan_id == id)
         .unwrap();
-    assert!(entry.assigned_pane_ids.is_empty());
-    assert!(store.task_binding_for_pane("pane-live").is_none());
-    assert!(store.task_bindings_for_pane("pane-live").is_empty());
+    assert!(entry.assigned_tab_ids.is_empty());
+    assert!(store.task_binding_for_tab("tab-live").is_none());
+    assert!(store.task_bindings_for_tab("tab-live").is_empty());
 }
 
 #[test]
-fn reconcile_assignment_cleanup_clears_lane_pane() {
+fn reconcile_assignment_cleanup_clears_lane_tab() {
     let (store, id, tid) = store_with_task(&["status_update"]);
-    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     let drift = [crate::plan::reconcile::DriftItem {
         plan_id: id.clone(),
         task_id: tid.clone(),
-        kind: crate::plan::reconcile::DriftKind::BoundToClosedPane,
+        kind: crate::plan::reconcile::DriftKind::BoundToClosedTab,
         detail: "closed".into(),
         suggested_fix: "clear".into(),
         not_mine: false,
@@ -635,27 +637,27 @@ fn reconcile_assignment_cleanup_clears_lane_pane() {
 
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
-    assert!(t.assigned_pane_id.is_none());
-    assert!(t.lane.pane_id.is_none());
+    assert!(t.assigned_tab_id.is_none());
+    assert!(t.lane.tab_id.is_none());
 }
 
 #[test]
-fn pane_gone_cleanup_clears_lane_pane() {
+fn tab_gone_cleanup_clears_lane_tab() {
     let (store, id, tid) = store_with_task(&["status_update"]);
-    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
 
-    assert!(store.flag_pane_gone(&id, &tid, 30).unwrap());
+    assert!(store.flag_tab_gone(&id, &tid, 30).unwrap());
 
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
-    assert!(t.assigned_pane_id.is_none());
-    assert!(t.lane.pane_id.is_none());
+    assert!(t.assigned_tab_id.is_none());
+    assert!(t.lane.tab_id.is_none());
 }
 
 #[test]
 fn lane_demotion_preserves_in_progress_status_and_marks_needs_reassign() {
     let (store, id, tid) = store_with_task(&["status_update"]);
-    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     store
         .update_task(
             &id,
@@ -686,7 +688,7 @@ fn lane_demotion_preserves_in_progress_status_and_marks_needs_reassign() {
             &[crate::plan::reconcile::LaneDemotion {
                 task_id: tid.clone(),
                 plan_id: id.clone(),
-                reason: "pane missing after restart".into(),
+                reason: "tab missing after restart".into(),
             }],
             30,
         )
@@ -701,19 +703,19 @@ fn lane_demotion_preserves_in_progress_status_and_marks_needs_reassign() {
         t.status_label.as_deref(),
         Some(crate::plan::reconcile::NEEDS_REASSIGN_LABEL)
     );
-    assert!(t.assigned_pane_id.is_none());
-    assert!(t.lane.pane_id.is_none());
+    assert!(t.assigned_tab_id.is_none());
+    assert!(t.lane.tab_id.is_none());
     assert!(t
         .milestones
         .iter()
-        .any(|milestone| milestone.text == "pane missing after restart"));
+        .any(|milestone| milestone.text == "tab missing after restart"));
 }
 
 #[test]
 fn close_task_unknown_task_errors() {
     let (store, id, _) = store_with_task(&["status_update"]);
     let err = store
-        .close_task(&id, "nope", None, AgentRef::from_pane("w"), 30)
+        .close_task(&id, "nope", None, AgentRef::from_tab("w"), 30)
         .unwrap_err();
     assert!(matches!(err, PlanError::TaskNotFound));
 }
@@ -722,11 +724,11 @@ fn close_task_unknown_task_errors() {
 fn add_milestone_rejects_undeclared_kind() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     let err = store
-        .add_milestone(&id, &tid, "deploy", "x", AgentRef::from_pane("w"), false, 1)
+        .add_milestone(&id, &tid, "deploy", "x", AgentRef::from_tab("w"), false, 1)
         .unwrap_err();
     assert!(matches!(err, PlanError::UndeclaredKind { .. }));
     store
-        .add_milestone(&id, &tid, "deploy", "x", AgentRef::from_pane("w"), true, 2)
+        .add_milestone(&id, &tid, "deploy", "x", AgentRef::from_tab("w"), true, 2)
         .unwrap();
     assert!(store
         .get(&id)
@@ -751,10 +753,10 @@ fn archive_and_unarchive_toggle_status() {
 fn transfer_updates_owner_and_history() {
     let (store, id, _) = store_with_task(&["status_update"]);
     store
-        .transfer(&id, OrchestratorRef::from_pane("new"), "handoff", 5)
+        .transfer(&id, OrchestratorRef::from_tab("new"), "handoff", 5)
         .unwrap();
     let p = store.get(&id).unwrap();
-    assert_eq!(p.owner.pane_id.as_deref(), Some("new"));
+    assert_eq!(p.owner.tab_id.as_deref(), Some("new"));
     assert_eq!(p.owner_history.len(), 1);
     assert_eq!(p.owner_history[0].reason, "handoff");
 }
@@ -763,12 +765,12 @@ fn transfer_updates_owner_and_history() {
 fn disown_then_claim_round_trip() {
     let (store, id, _) = store_with_task(&["status_update"]);
     store.disown(&id, 50).unwrap();
-    assert!(store.get(&id).unwrap().owner.pane_id.is_none());
+    assert!(store.get(&id).unwrap().owner.tab_id.is_none());
     store
-        .claim(&id, OrchestratorRef::from_pane("claimer"), 51)
+        .claim(&id, OrchestratorRef::from_tab("claimer"), 51)
         .unwrap();
     let p = store.get(&id).unwrap();
-    assert_eq!(p.owner.pane_id.as_deref(), Some("claimer"));
+    assert_eq!(p.owner.tab_id.as_deref(), Some("claimer"));
     assert_eq!(p.owner_history.len(), 2);
 }
 
@@ -776,7 +778,7 @@ fn disown_then_claim_round_trip() {
 fn owner_of_returns_current_owner() {
     let (store, id, _) = store_with_task(&["status_update"]);
     let owner = store.owner_of(&id).unwrap();
-    assert_eq!(owner.pane_id.as_deref(), Some("owner"));
+    assert_eq!(owner.tab_id.as_deref(), Some("owner"));
     assert!(store.owner_of("missing").is_none());
 }
 
@@ -811,7 +813,7 @@ fn task_creation_requires_plan_approval_unless_forced() {
     let mut plan = crate::plan::Plan::new(
         "Approval".into(),
         root.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     let id = plan.id.clone();
     store.save(&mut plan, 1).unwrap();
@@ -924,7 +926,7 @@ fn list_tasks_is_strictly_project_scoped() {
         .create_plan(
             "A".into(),
             project_a.display().to_string(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
             vec![],
             1,
         )
@@ -933,7 +935,7 @@ fn list_tasks_is_strictly_project_scoped() {
         .create_plan(
             "B".into(),
             project_b.display().to_string(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
             vec![],
             2,
         )
@@ -981,14 +983,14 @@ fn public_inbox_mutation_cannot_create_active_teamless_plan() {
     let first = store
         .ensure_inbox_plan(
             root.path().to_str().unwrap(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
             1,
         )
         .unwrap();
     let second = store
         .ensure_inbox_plan(
             root.path().to_str().unwrap(),
-            OrchestratorRef::from_pane("other"),
+            OrchestratorRef::from_tab("other"),
             2,
         )
         .unwrap();
@@ -1012,7 +1014,7 @@ fn public_task_add_lands_in_archived_inbox_artifact() {
     let (plan_id, task_id) = store
         .add_inbox_task(
             root.path().to_str().unwrap(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
             NewTask {
                 name: "standalone".into(),
                 kind: "fix".into(),
@@ -1030,4 +1032,59 @@ fn public_task_add_lands_in_archived_inbox_artifact() {
     assert_eq!(plan.tasks.len(), 1);
     assert_eq!(plan.tasks[0].id, task_id);
     assert_eq!(plan.tasks[0].name, "standalone");
+}
+#[test]
+fn index_projection_keeps_canonical_ownership_separate_from_central_storage() {
+    let storage = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let database_path = storage.path().join("plans.db");
+    let canonical_project_path = std::fs::canonicalize(project.path())
+        .unwrap()
+        .display()
+        .to_string();
+    let plan = Plan::new(
+        "Central ownership projection".into(),
+        canonical_project_path.clone(),
+        OrchestratorRef::from_tab("owner-tab"),
+    );
+    let database = store_db::PlanDatabase::open(database_path.clone()).unwrap();
+    let stored_path = database.persist_plan(&plan, None).unwrap();
+    let entry = PlanStore::index_entry(&plan, stored_path);
+
+    assert_eq!(entry.file_path, database_path);
+    assert_eq!(entry.canonical_project_path, canonical_project_path);
+    let projection = serde_json::to_value(&entry).unwrap();
+    assert_eq!(
+        projection["canonical_project_path"],
+        entry.canonical_project_path
+    );
+    assert!(!entry.file_path.starts_with(project.path()));
+    assert!(!project.path().join(".codeterm").join("plans").exists());
+}
+
+#[test]
+fn index_projection_derives_legacy_ownership_from_the_record_project_path() {
+    let storage = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let database_path = storage.path().join("plans.db");
+    let project_path = std::fs::canonicalize(project.path())
+        .unwrap()
+        .display()
+        .to_string();
+    let mut plan = Plan::new(
+        "Legacy central ownership projection".into(),
+        project_path.clone(),
+        OrchestratorRef::from_tab("owner-tab"),
+    );
+    plan.canonical_project_path.clear();
+    let database = store_db::PlanDatabase::open(database_path.clone()).unwrap();
+    let stored_path = database.persist_plan(&plan, None).unwrap();
+    let stored = database.load_plan(&plan.id).unwrap().unwrap();
+
+    assert!(stored.canonical_project_path.is_empty());
+    let entry = PlanStore::index_entry(&stored, stored_path);
+    assert_eq!(entry.canonical_project_path, project_path);
+    assert_eq!(entry.file_path, database_path);
+    assert!(!entry.file_path.starts_with(project.path()));
+    assert!(!project.path().join(".codeterm").join("plans").exists());
 }

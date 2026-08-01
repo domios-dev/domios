@@ -1,55 +1,55 @@
 use super::MultiplexerState;
 
 impl MultiplexerState {
-    /// Resolve a PTY ID to its pane ID (O(1) lookup).
-    pub fn pane_id_for_pty(&self, pty_id: &str) -> Option<String> {
-        self.pty_to_pane.get(pty_id).cloned()
+    /// Resolve a PTY ID to its tab ID (O(1) lookup).
+    pub fn tab_id_for_pty(&self, pty_id: &str) -> Option<String> {
+        self.pty_to_tab.get(pty_id).cloned()
     }
 
-    /// Link a pane to a PTY. Returns the displaced pty_id so callers can kill
-    /// the orphan; `None` means no-op (pane absent or same pty_id).
-    pub fn link_pty(&mut self, pane_id: &str, pty_id: String) -> Option<String> {
-        let pane = self.panes.get_mut(pane_id)?;
-        let displaced = match pane.pty_id.as_ref() {
+    /// Link a tab to a PTY. Returns the displaced pty_id so callers can kill
+    /// the orphan; `None` means no-op (tab absent or same pty_id).
+    pub fn link_pty(&mut self, tab_id: &str, pty_id: String) -> Option<String> {
+        let tab = self.tabs.get_mut(tab_id)?;
+        let displaced = match tab.pty_id.as_ref() {
             Some(old) if old == &pty_id => return None,
             Some(old) => Some(old.clone()),
             None => None,
         };
         if let Some(ref old_pty_id) = displaced {
-            self.pty_to_pane.remove(old_pty_id);
+            self.pty_to_tab.remove(old_pty_id);
         }
-        pane.pty_id = Some(pty_id.clone());
-        self.pty_to_pane.insert(pty_id, pane_id.to_string());
+        tab.pty_id = Some(pty_id.clone());
+        self.pty_to_tab.insert(pty_id, tab_id.to_string());
         displaced
     }
 
-    /// Register a human-readable alias for a pane ID.
-    pub fn register_alias(&mut self, alias: &str, pane_id: &str) {
-        self.pane_aliases
-            .insert(alias.to_string(), pane_id.to_string());
+    /// Register a human-readable alias for a tab ID.
+    pub fn register_alias(&mut self, alias: &str, tab_id: &str) {
+        self.tab_aliases
+            .insert(alias.to_string(), tab_id.to_string());
     }
 
-    /// Remove a pane alias.
+    /// Remove a tab alias.
     pub fn unregister_alias(&mut self, alias: &str) {
-        self.pane_aliases.remove(alias);
+        self.tab_aliases.remove(alias);
     }
 
-    /// Resolve a public tab ID, internal pane ID, or alias to the backing pane ID.
-    pub fn resolve_pane_id(&self, id_or_alias: &str) -> Option<String> {
-        if let Some(pane_id) = self.pane_aliases.get(id_or_alias) {
-            if self.panes.contains_key(pane_id) {
-                return Some(pane_id.clone());
+    /// Resolve a public tab ID, internal tab ID, or alias to the backing tab ID.
+    pub fn resolve_tab_id(&self, id_or_alias: &str) -> Option<String> {
+        if let Some(tab_id) = self.tab_aliases.get(id_or_alias) {
+            if self.tabs.contains_key(tab_id) {
+                return Some(tab_id.clone());
             }
         }
-        if self.panes.contains_key(id_or_alias) {
+        if self.tabs.contains_key(id_or_alias) {
             return Some(id_or_alias.to_string());
         }
-        for workspace in &self.workspaces {
-            if let Some(tab) = workspace.tabs.iter().find(|tab| tab.id == id_or_alias) {
-                if self.panes.contains_key(&tab.pane_id) {
-                    return Some(tab.pane_id.clone());
-                }
-            }
+        if self
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.tabs.iter().any(|tab_id| tab_id == id_or_alias))
+        {
+            return Some(id_or_alias.to_string());
         }
         None
     }

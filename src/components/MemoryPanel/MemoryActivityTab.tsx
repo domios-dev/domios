@@ -287,7 +287,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                       )}
                       <div className="text-[9px] text-[var(--ct-muted-fg)] mt-0.5 flex items-center gap-1.5">
                         <span>
-                          src: {ev.source.worker_id || ev.source.pane_id?.slice(0, 8) || ev.source.kind}
+                          src: {ev.source.worker_id || ev.source.tab_id?.slice(0, 8) || ev.source.kind}
                         </span>
                         {ev.source.agent_provider && <span>({ev.source.agent_provider})</span>}
                       </div>

@@ -18,11 +18,11 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
 
-const STABLE_PANES = {};
+const STABLE_TABS = {};
 const SHELL_PROPS = {
   mode: "workspace" as const,
   plans: [FIXTURE_PLAN],
-  panes: STABLE_PANES,
+  tabs: STABLE_TABS,
   viewportPadding: 10000,
 };
 

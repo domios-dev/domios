@@ -60,10 +60,10 @@ installCodeTermTestChatHandle(false);
 assert(!getTestChatHandle(), "disabled test mode does not install chat handle");
 
 resetTestChatClockForCodeTerm();
-const first = testChatReplyPayload({ paneId: "pane-a", content: "deterministic reply" });
-const second = testChatReplyPayload({ paneId: "pane-a", content: "next reply" });
+const first = testChatReplyPayload({ tabId: "tab-a", content: "deterministic reply" });
+const second = testChatReplyPayload({ tabId: "tab-a", content: "next reply" });
 
-assert(first.pane_id === "pane-a", "payload targets pane");
+assert(first.tab_id === "tab-a", "payload targets Tab");
 assert(first.messages[0]?.type === "assistant", "default reply is assistant");
 assert(first.messages[0]?.content === "deterministic reply", "reply content preserved");
 assert(first.messages[0]?.timestamp === "1700000000000", "first timestamp is deterministic");
@@ -74,13 +74,13 @@ window.addEventListener(TEST_CHAT_REPLY_EVENT, (event) => {
   seen = (event as CustomEvent<{ content: string }>).detail.content;
 });
 installCodeTermTestChatHandle(true);
-getTestChatHandle()?.reply("pane-a", "from handle");
+getTestChatHandle()?.reply("tab-a", "from handle");
 
 assert(seen === "from handle", "test chat handle dispatches reply event");
 
 let structured: NormalizedChatMessage[] | null = null;
 let order = 0;
-getTestChatHandle()?.pushMessages("pane-late", [{
+getTestChatHandle()?.pushMessages("tab-late", [{
   id: "queued-after-reload",
   type: "assistant",
   content: "queued missing ref pl_missingplan",
@@ -88,7 +88,7 @@ getTestChatHandle()?.pushMessages("pane-late", [{
   provider: "test",
 } as any]);
 const unlistenLate = listenForTestChatReplies(
-  "pane-late",
+  "tab-late",
   (updater) => {
     structured = typeof updater === "function" ? updater(structured) : updater;
   },
@@ -98,7 +98,7 @@ const unlistenLate = listenForTestChatReplies(
 const drainedStructured = structured as NormalizedChatMessage[] | null;
 assert(
   drainedStructured?.some((message) => message.id === "queued-after-reload" && message.clientOrder === 0),
-  "queued test chat message drains when pane listener mounts after reload",
+  "queued test chat message drains when Tab listener mounts after reload",
 );
 unlistenLate?.();
 
@@ -159,6 +159,8 @@ class FakeTimers {
 }
 
 type SessionView = {
+  attachmentState: string;
+  error: string | null;
   loading: boolean;
   recovering: boolean;
   messages: NormalizedChatMessage[];
@@ -184,7 +186,7 @@ function chatStartResult<T extends { text: string; offset: number }>(sourceSessi
 }
 
 function chatEvent(sourceSessionId: string | null, messages: NormalizedChatMessage[], sessionBindingNonce: string | null = null) {
-  return { pane_id: "pane", source_session_id: sourceSessionId, session_binding_nonce: sessionBindingNonce, messages };
+  return { tab_id: "tab", source_session_id: sourceSessionId, session_binding_nonce: sessionBindingNonce, messages };
 }
 
 function setupHookDom(): void {
@@ -211,10 +213,22 @@ async function mountSession(
   sessionBindingNonce: string | null = null,
   diagnosticSink?: ChatSessionDiagnosticSink,
 ): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean, nextSessionBindingNonce?: string | null) => Promise<void>; latest: () => SessionView }> {
-  let view: SessionView = { loading: true, recovering: false, messages: [] };
+  let view: SessionView = {
+    attachmentState: "idle",
+    error: null,
+    loading: true,
+    recovering: false,
+    messages: [],
+  };
   function Harness({ currentSessionId, currentActive, currentSessionBindingNonce }: { currentSessionId: string | null; currentActive: boolean; currentSessionBindingNonce: string | null }) {
-    const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, sessionBindingNonce: currentSessionBindingNonce, active: currentActive, diagnosticSink });
-    view = { loading: session.loading, recovering: session.recovering, messages: session.allMessages };
+    const session = useChatSession({ tabId: "tab", agentSessionId: currentSessionId, sessionBindingNonce: currentSessionBindingNonce, active: currentActive, diagnosticSink });
+    view = {
+      attachmentState: session.attachmentState,
+      error: session.error,
+      loading: session.loading,
+      recovering: session.recovering,
+      messages: session.allMessages,
+    };
     return null;
   }
   const host = document.createElement("div");
@@ -265,7 +279,7 @@ async function runChatSessionHookTests(): Promise<void> {
   }
 
   {
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    let handler: ((event: { payload: { tab_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
       return () => {};
@@ -281,7 +295,7 @@ async function runChatSessionHookTests(): Promise<void> {
     const session = await mountSession("resumed-from", true, "old-launch-nonce");
     assert(
       session.latest().messages.length === 0,
-      "chat_start cannot replace the pane's current session authority",
+      "chat_start cannot replace the Tab's current session authority",
     );
     await session.render("resumed-rollout", true, "new-launch-nonce");
     await act(async () => handler?.({ payload: chatEvent("resumed-rollout", [{
@@ -292,10 +306,10 @@ async function runChatSessionHookTests(): Promise<void> {
     }], "rotated-launch-nonce") }));
     assert(
       session.latest().messages.map((message) => message.content).join(",") === "resumed snapshot",
-      "only the pane-confirmed session and binding nonce can update the transcript",
+      "only the tab-confirmed session and binding nonce can update the transcript",
     );
     await act(async () => session.root.unmount());
-    console.log("PASS pane authority gates snapshot handoff and nonce rotation");
+    console.log("PASS Tab authority gates snapshot handoff and nonce rotation");
   }
 
   {
@@ -322,17 +336,23 @@ async function runChatSessionHookTests(): Promise<void> {
     assert(listens === 1, "T1 owns one persistent listener while pending");
     assert(unlistens === 0 && stops === 0, "T1 pending does not tear down the listener or chat");
     assert(starts === 1, "T1 pending never polls chat_start after the initial attach");
-    assert(session.latest().recovering && !session.latest().loading, "T1 pending settles as recovering without loading");
+    assert(
+      session.latest().attachmentState === "failed"
+        && !session.latest().recovering
+        && !session.latest().loading
+        && session.latest().error?.includes("timed out"),
+      "T1 pending fails with a retryable error after the bounded deadline",
+    );
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T1 pending waits with one listener and one attach");
+    console.log("PASS T1 pending has one listener and fails on its bounded deadline");
   }
 
   {
     const timers = new FakeTimers();
     const restoreTimers = timers.install();
     let starts = 0;
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    let handler: ((event: { payload: { tab_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
       return () => {};
@@ -347,15 +367,15 @@ async function runChatSessionHookTests(): Promise<void> {
     const session = await mountSession("sid-1");
     await act(async () => handler?.({ payload: chatEvent("sid-1", [{ id: "event", type: "assistant", content: "attached", timestamp: "1" }]) }));
     await timers.advance(30_000);
-    assert(starts === 1, "T2 first pane-chat message attaches without polling");
+    assert(starts === 1, "T2 first tab-chat message attaches without polling");
     assert(session.latest().messages[0]?.content === "attached" && !session.latest().recovering, "T2 event attaches and renders messages");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T2 pane event completes an awaiting-store attach");
+    console.log("PASS T2 Tab event completes an awaiting-store attach");
   }
 
   {
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[]; source_session_id: string | null } }) => void) | null = null;
+    let handler: ((event: { payload: { tab_id: string; messages: NormalizedChatMessage[]; source_session_id: string | null } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
       return () => {};
@@ -371,9 +391,9 @@ async function runChatSessionHookTests(): Promise<void> {
       content: "materialized without remount",
       timestamp: "1",
     }]) }));
-    assert(session.latest().messages.length === 0, "an unbound pane rejects a global live delta");
+    assert(session.latest().messages.length === 0, "an unbound Tab rejects a global live delta");
     await act(async () => session.root.unmount());
-    console.log("PASS unbound pane has no global transcript authority");
+    console.log("PASS unbound Tab has no global transcript authority");
   }
 
   {
@@ -439,7 +459,7 @@ async function runChatSessionHookTests(): Promise<void> {
     const resynced = new Promise<void>((resolve) => {
       resolveResync = resolve;
     });
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    let handler: ((event: { payload: { tab_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
       return () => {};
@@ -546,7 +566,7 @@ async function runChatSessionHookTests(): Promise<void> {
       return {};
     }) as never);
     const session = await mountSession("sid-1");
-    await act(async () => window.dispatchEvent(new CustomEvent("codeterm:chat-reattached", { detail: { paneId: "pane" } })));
+    await act(async () => window.dispatchEvent(new CustomEvent("codeterm:chat-reattached", { detail: { tabId: "tab" } })));
     await flush();
     await session.render("sid-2");
     await session.render("sid-3");
@@ -603,7 +623,7 @@ async function runChatSessionHookTests(): Promise<void> {
   {
     const timers = new FakeTimers();
     const restoreTimers = timers.install();
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    let handler: ((event: { payload: { tab_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
       return () => {};
@@ -640,7 +660,7 @@ async function runChatSessionHookTests(): Promise<void> {
   }
 
   {
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    let handler: ((event: { payload: { tab_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
       return () => {};

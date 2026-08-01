@@ -146,7 +146,7 @@ _add(kind="fact", title="Aurora audio presets",
     area="aurora", importance=3, tags=["content"])
 
 _add(kind="fact", title="Aurora analytics provider",
-    body="Aurora uses Mixpanel for product analytics and Sentry for crash reporting. No PII sent — user id is a hashed device identifier.",
+    body="Aurora uses Mixtabl for product analytics and Sentry for crash reporting. No PII sent — user id is a hashed device identifier.",
     area="aurora", importance=3, tags=["analytics"])
 
 _add(kind="skill", title="Debug Aurora crash from Sentry",

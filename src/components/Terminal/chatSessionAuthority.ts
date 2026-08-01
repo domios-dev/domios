@@ -16,36 +16,36 @@ export type ChatAttachmentState =
 
 export function canAdoptTranscriptAuthority(
   incoming: TranscriptAuthority,
-  paneSessionId: string | null,
-  paneSessionBindingNonce: string | null,
+  tabSessionId: string | null,
+  tabSessionBindingNonce: string | null,
   allowUnboundAuthority = false,
 ): boolean {
-  if (paneSessionId == null && !allowUnboundAuthority) return false;
-  return incoming.source_session_id === paneSessionId
-    && (incoming.session_binding_nonce ?? null) === paneSessionBindingNonce;
+  if (tabSessionId == null && !allowUnboundAuthority) return false;
+  return incoming.source_session_id === tabSessionId
+    && (incoming.session_binding_nonce ?? null) === tabSessionBindingNonce;
 }
 
 let subscriptionSequence = 0;
 
-export function newChatSubscriptionId(paneId: string): string {
+export function newChatSubscriptionId(tabId: string): string {
   const randomId = globalThis.crypto?.randomUUID?.();
   if (randomId) return randomId;
   subscriptionSequence += 1;
-  return `${paneId}-${subscriptionSequence}`;
+  return `${tabId}-${subscriptionSequence}`;
 }
 
 type SubscriptionEdge = "owned" | "released";
 
 export function useChatSubscription(
-  paneId: string,
+  tabId: string,
   onEdge: (edge: SubscriptionEdge, subscriptionId: string) => void,
 ) {
   const currentIdRef = useRef<string | null>(null);
 
   const stop = useCallback((subscriptionId: string) => {
     onEdge("released", subscriptionId);
-    void invoke("chat_stop", { paneId, subscriptionId }).catch(() => {});
-  }, [onEdge, paneId]);
+    void invoke("chat_stop", { tabId, subscriptionId }).catch(() => {});
+  }, [onEdge, tabId]);
 
   const replace = useCallback((subscriptionId: string | null) => {
     const previousSubscriptionId = currentIdRef.current;
