@@ -442,6 +442,7 @@ impl crate::service::ServiceContext {
         tab_id: &str,
         text: String,
     ) -> Result<ChatSendStatus, String> {
+        let submit_claim = self.claim_chat_submit_cycle(tab_id);
         let evidence = self.chat_send_anchor(tab_id);
         let pending = self.chat_send_ledger.try_start_scoped(
             tab_id,
@@ -454,7 +455,7 @@ impl crate::service::ServiceContext {
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                svc.send_text_delivery(&tab_id, text)
+                svc.send_text_delivery_claimed(&tab_id, text, submit_claim)
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {

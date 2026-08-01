@@ -20,6 +20,15 @@ fn xterm_paste_writes_single_line_chat_input_as_plain_text() {
     assert_eq!(xterm_paste("payload", true), "payload");
 }
 
+#[test]
+fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
+    let first = claim_submit_cycle("rapid-ingress-claim");
+    let second = claim_submit_cycle("rapid-ingress-claim");
+
+    assert!(!first.is_current());
+    assert!(second.is_current());
+}
+
 // A CR before the post-paste frame reproduces bf1278870; the turn never starts.
 // Only causal paste evidence may release the CR, and deadlines only fail.
 struct TuiModel {
