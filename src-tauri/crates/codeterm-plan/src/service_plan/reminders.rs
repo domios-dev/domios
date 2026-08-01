@@ -1,4 +1,3 @@
-use codeterm_types::agent::AgentRole;
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -7,32 +6,6 @@ use std::collections::{HashMap, HashSet};
 pub enum NudgeKind {
     Worker,
     Orchestrator,
-    Escalated,
-}
-
-#[derive(Debug, Clone)]
-pub struct NudgeConfig {
-    pub plan_reminders: bool,
-    pub nudge_after_turns: u32,
-    pub role: Option<AgentRole>,
-}
-
-pub fn should_nudge(turns: u32, last_nudge: u32, cfg: &NudgeConfig) -> Option<NudgeKind> {
-    if !cfg.plan_reminders || cfg.nudge_after_turns == 0 || turns < cfg.nudge_after_turns {
-        return None;
-    }
-    let interval = next_interval(cfg.nudge_after_turns, last_nudge);
-    if last_nudge > 0 && turns < last_nudge.saturating_add(interval) {
-        return None;
-    }
-    if last_nudge >= cfg.nudge_after_turns.saturating_mul(3) {
-        return Some(NudgeKind::Escalated);
-    }
-    match cfg.role {
-        Some(AgentRole::Manager) => Some(NudgeKind::Worker),
-        Some(AgentRole::Worker) => Some(NudgeKind::Worker),
-        _ => Some(NudgeKind::Orchestrator),
-    }
 }
 
 pub fn nudge_text(kind: NudgeKind) -> String {
@@ -44,76 +17,16 @@ pub fn nudge_text(kind: NudgeKind) -> String {
         NudgeKind::Orchestrator => format!(
             "Plan reminder: this tab owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
         ),
-        NudgeKind::Escalated => format!(
-            "ESCALATED plan reminder: open tasks are aging unattended. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Workers: an UNREPORTED task leaves your parent blind until you report."
-        ),
     }
 }
 
-pub const IDLE_POKE_QUESTION_TEMPLATES: [&str; 3] = [
-    "You are idle with {pending_tasks} unblocked pending task(s) and {active_lanes} live lane(s). Want to dispatch the next one now?",
-    "Nice and quiet. There are {pending_tasks} frontier task(s) and {active_lanes} active lane(s). Want to poke a task and move it forward?",
-    "Idle checkpoint: {pending_tasks} unblocked pending task(s) against {active_lanes} live lane(s). Want to send one onward?",
-];
-
-const IDLE_POKE_BACKOFF_MAX_STEPS: u32 = 8;
-const SECONDS_PER_DAY: u64 = 86_400;
-
-// Consecutive coordinator polls of a worker tab before one anti-polling nudge fires.
-pub const POLL_NUDGE_THRESHOLD: u32 = 3;
 pub const UNCHANGED_REMINDER_COOLDOWN_SECS: u64 = 300;
-
-pub fn polling_nudge_text() -> String {
-    "Polling smell: worker reports auto-inject into this tab the moment they land — repeatedly reading a worker tab's output/text/chat just burns your turn. Wait for the report; don't poll.".to_string()
-}
 
 // Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
 pub const CONTRACT: &str = "repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option.";
 
 // The five sanctioned exits for an open task.
 pub const EXITS: &str = "(1) dispatch it to a worker, (2) pause with a reason (`codeterm plan task pause <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
-
-fn next_interval(base: u32, last_nudge: u32) -> u32 {
-    if last_nudge == 0 {
-        return base;
-    }
-    (((last_nudge.max(base) as f64) * 1.5).ceil() as u32).clamp(base, base.saturating_mul(8))
-}
-
-#[derive(Debug, Default)]
-struct IdlePokeState {
-    last_nudge_at_secs: u64,
-    day_bucket: u64,
-    sent_today: u32,
-}
-
-fn day_bucket(timestamp_secs: u64) -> u64 {
-    timestamp_secs / SECONDS_PER_DAY
-}
-
-fn idle_backoff_interval(base: u64, sent_today: u32) -> u64 {
-    if sent_today == 0 {
-        return 0;
-    }
-    let step = sent_today
-        .saturating_sub(1)
-        .min(IDLE_POKE_BACKOFF_MAX_STEPS);
-    base.saturating_mul(1u64 << step)
-}
-
-pub fn idle_poke_text(pending_tasks: usize, active_lanes: usize, phrase_index: u32) -> String {
-    let template =
-        IDLE_POKE_QUESTION_TEMPLATES[(phrase_index as usize) % IDLE_POKE_QUESTION_TEMPLATES.len()];
-    template
-        .replace("{pending_tasks}", &pending_tasks.to_string())
-        .replace("{active_lanes}", &active_lanes.to_string())
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct PollState {
-    consecutive: u32,
-    nudged: bool,
-}
 
 /// Scheduler telemetry is deliberately independent from turn/activity state.
 /// A tab can be continuously active and still retain its time deadline.
@@ -127,33 +40,16 @@ pub struct TimeReminderTelemetry {
 
 #[derive(Debug, Default)]
 pub struct TurnCounter {
-    tabs: Mutex<HashMap<String, (u32, u32)>>,
     timed: Mutex<HashMap<String, u64>>,
     time_telemetry: Mutex<HashMap<String, TimeReminderTelemetry>>,
     digest_rules: Mutex<HashMap<String, u64>>,
-    idle: Mutex<HashMap<String, IdlePokeState>>,
     complete_wrapup: Mutex<HashSet<String>>,
-    polls: Mutex<HashMap<String, PollState>>,
     reminder_content: Mutex<HashMap<String, (String, u64)>>,
 }
 
 impl TurnCounter {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn increment(&self, tab_id: &str) -> (u32, u32) {
-        let mut tabs = self.tabs.lock();
-        let entry = tabs.entry(tab_id.to_string()).or_insert((0, 0));
-        entry.0 = entry.0.saturating_add(1);
-        *entry
-    }
-
-    pub fn mark_nudged(&self, tab_id: &str, turns: u32) {
-        let mut tabs = self.tabs.lock();
-        let entry = tabs.entry(tab_id.to_string()).or_insert((turns, 0));
-        entry.0 = turns;
-        entry.1 = turns;
     }
 
     pub fn time_nudge_due(&self, tab_id: &str, now_secs: u64, interval_secs: u64) -> bool {
@@ -188,20 +84,15 @@ impl TurnCounter {
             .insert(tab_id.to_string(), (state_key, now_secs));
     }
 
-    /// Reset counters coupled to normal tab activity, without touching the
-    /// independent time-reminder deadline. Use this for Idle->Working and
-    /// ordinary reports.
+    /// Report activity may refresh digest/content state, but never the
+    /// independent scheduler deadline.
     pub fn reset_activity(&self, tab_id: &str) {
-        self.tabs.lock().insert(tab_id.to_string(), (0, 0));
         self.digest_rules
             .lock()
             .retain(|key, _| !key.starts_with(tab_id));
-        self.idle.lock().remove(tab_id);
-        self.polls.lock().remove(tab_id);
         self.reminder_content.lock().remove(tab_id);
     }
 
-    /// Clear all reminder state when a tab is no longer reminder-eligible.
     pub fn reset(&self, tab_id: &str) {
         self.reset_activity(tab_id);
         self.timed.lock().remove(tab_id);
@@ -261,28 +152,6 @@ impl TurnCounter {
             .unwrap_or_default()
     }
 
-    // Count one poll by `tab_id`; return true exactly once when it crosses the
-    // threshold, then stay silent until `reset_polls` clears the streak.
-    pub fn record_poll(&self, tab_id: &str) -> bool {
-        let mut polls = self.polls.lock();
-        let state = polls.entry(tab_id.to_string()).or_default();
-        state.consecutive = state.consecutive.saturating_add(1);
-        if state.consecutive >= POLL_NUDGE_THRESHOLD && !state.nudged {
-            state.nudged = true;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn reset_polls(&self, tab_id: &str) {
-        self.polls.lock().remove(tab_id);
-    }
-
-    pub fn poll_streak(&self, tab_id: &str) -> u32 {
-        self.polls.lock().get(tab_id).map_or(0, |s| s.consecutive)
-    }
-
     pub fn digest_rule_due(
         &self,
         tab_id: &str,
@@ -313,111 +182,11 @@ impl TurnCounter {
     pub fn mark_complete_wrapup_sent(&self, plan_id: &str) {
         self.complete_wrapup.lock().insert(plan_id.to_string());
     }
-
-    pub fn idle_poke_due(
-        &self,
-        tab_id: &str,
-        now_secs: u64,
-        max_per_day: u32,
-        backoff_base_secs: u64,
-    ) -> bool {
-        if max_per_day == 0 {
-            return false;
-        }
-        let mut idle = self.idle.lock();
-        let day = day_bucket(now_secs);
-        if let std::collections::hash_map::Entry::Vacant(vacant) = idle.entry(tab_id.to_string()) {
-            let _ = vacant.insert(IdlePokeState {
-                last_nudge_at_secs: now_secs,
-                day_bucket: day,
-                sent_today: 0,
-            });
-            return false;
-        }
-        let state = idle.get_mut(tab_id).unwrap_or_else(|| unreachable!());
-        if state.day_bucket != day {
-            state.day_bucket = day;
-            state.sent_today = 0;
-        }
-        if state.sent_today >= max_per_day {
-            return false;
-        }
-        let required_interval = idle_backoff_interval(backoff_base_secs, state.sent_today);
-        now_secs.saturating_sub(state.last_nudge_at_secs) >= required_interval
-    }
-
-    pub fn mark_idle_nudged(&self, tab_id: &str, now_secs: u64) {
-        let mut idle = self.idle.lock();
-        let day = day_bucket(now_secs);
-        let state = idle.entry(tab_id.to_string()).or_insert(IdlePokeState {
-            last_nudge_at_secs: now_secs,
-            day_bucket: day,
-            sent_today: 0,
-        });
-        if state.day_bucket != day {
-            state.day_bucket = day;
-            state.sent_today = 0;
-        }
-        state.last_nudge_at_secs = now_secs;
-        state.sent_today = state.sent_today.saturating_add(1);
-    }
-
-    pub fn idle_phrase_index(&self, tab_id: &str) -> u32 {
-        self.idle
-            .lock()
-            .get(tab_id)
-            .map(|state| state.sent_today)
-            .unwrap_or(0)
-    }
-
-    pub fn get(&self, tab_id: &str) -> (u32, u32) {
-        self.tabs.lock().get(tab_id).copied().unwrap_or((0, 0))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn cfg(role: AgentRole) -> NudgeConfig {
-        NudgeConfig {
-            plan_reminders: true,
-            nudge_after_turns: 12,
-            role: Some(role),
-        }
-    }
-
-    #[test]
-    fn should_nudge_respects_threshold_and_disabled_config() {
-        assert_eq!(should_nudge(11, 0, &cfg(AgentRole::Worker)), None);
-        let disabled = NudgeConfig {
-            plan_reminders: false,
-            nudge_after_turns: 12,
-            role: Some(AgentRole::Worker),
-        };
-        assert_eq!(should_nudge(12, 0, &disabled), None);
-        assert_eq!(
-            should_nudge(12, 0, &cfg(AgentRole::Worker)),
-            Some(NudgeKind::Worker)
-        );
-    }
-
-    #[test]
-    fn should_nudge_grows_interval_and_selects_role_copy() {
-        assert_eq!(should_nudge(20, 12, &cfg(AgentRole::Worker)), None);
-        assert_eq!(
-            should_nudge(30, 12, &cfg(AgentRole::Worker)),
-            Some(NudgeKind::Worker)
-        );
-        assert_eq!(
-            should_nudge(12, 0, &cfg(AgentRole::Orchestrator)),
-            Some(NudgeKind::Orchestrator)
-        );
-        assert_eq!(
-            should_nudge(12, 0, &cfg(AgentRole::Manager)),
-            Some(NudgeKind::Worker)
-        );
-    }
 
     #[test]
     fn orchestrator_nudge_body_defers_state_reconciliation_to_plan_prepend() {
@@ -432,23 +201,13 @@ mod tests {
 
     #[test]
     fn open_work_nudges_carry_contract_and_five_exits() {
-        for kind in [NudgeKind::Orchestrator, NudgeKind::Escalated] {
-            let text = nudge_text(kind);
-            assert!(text.contains("repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option."));
-            assert!(text.contains("dispatch"));
-            assert!(text.contains("pause with a reason"));
-            assert!(text.contains("judge"));
-            assert!(text.contains("replanning"));
-            assert!(text.contains("escalate to a smarter model"));
-        }
-    }
-
-    #[test]
-    fn should_nudge_escalates_after_repeated_ignored_nudges() {
-        assert_eq!(
-            should_nudge(90, 36, &cfg(AgentRole::Worker)),
-            Some(NudgeKind::Escalated)
-        );
+        let text = nudge_text(NudgeKind::Orchestrator);
+        assert!(text.contains("repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option."));
+        assert!(text.contains("dispatch"));
+        assert!(text.contains("pause with a reason"));
+        assert!(text.contains("judge"));
+        assert!(text.contains("replanning"));
+        assert!(text.contains("escalate to a smarter model"));
     }
 
     #[test]
@@ -461,31 +220,14 @@ mod tests {
     }
 
     #[test]
-    fn turn_counter_increments_and_resets() {
-        let counter = TurnCounter::new();
-        assert_eq!(counter.increment("p1"), (1, 0));
-        assert_eq!(counter.increment("p1"), (2, 0));
-        counter.mark_nudged("p1", 2);
-        assert_eq!(counter.get("p1"), (2, 2));
-        assert!(!counter.time_nudge_due("p1", 100, 30));
-        assert!(counter.time_nudge_due("p1", 130, 30));
-        counter.mark_time_nudged("p1", 130);
-        assert!(!counter.time_nudge_due("p1", 150, 30));
-        counter.reset("p1");
-        assert_eq!(counter.get("p1"), (0, 0));
-        assert!(!counter.time_nudge_due("p1", 200, 30));
-    }
-
-    #[test]
-    fn activity_resets_do_not_restart_a_live_time_deadline() {
+    fn report_activity_does_not_restart_scheduler_deadline() {
         let counter = TurnCounter::new();
         let interval = 30 * 60;
         assert!(!counter.time_nudge_due("orch", 0, interval));
 
-        // Simulate 30 minutes of ordinary reports and Idle->Working transitions.
+        // Simulate 30 minutes of ordinary reports.
         for now in (60..=interval).step_by(60) {
             counter.reset_activity("orch");
-            assert_eq!(counter.get("orch"), (0, 0));
             assert_eq!(
                 counter.time_nudge_due("orch", now, interval),
                 now == interval
@@ -546,104 +288,5 @@ mod tests {
                 .delivery_failure_retry_reason,
             None
         );
-    }
-
-    #[test]
-    fn idle_poke_phrase_text_is_driven_by_shared_templates() {
-        for (idx, template) in IDLE_POKE_QUESTION_TEMPLATES.iter().enumerate() {
-            let rendered = idle_poke_text(3, 2, idx as u32);
-            let expected = template
-                .replace("{pending_tasks}", "3")
-                .replace("{active_lanes}", "2");
-            assert_eq!(rendered, expected);
-        }
-    }
-
-    #[test]
-    fn idle_poke_due_uses_exponential_backoff() {
-        let counter = TurnCounter::new();
-        assert!(!counter.idle_poke_due("idle-owner", 0, 3, 10));
-        assert!(counter.idle_poke_due("idle-owner", 1, 3, 10));
-        counter.mark_idle_nudged("idle-owner", 1);
-
-        assert!(!counter.idle_poke_due("idle-owner", 10, 3, 10));
-        assert!(counter.idle_poke_due("idle-owner", 11, 3, 10));
-        counter.mark_idle_nudged("idle-owner", 11);
-
-        assert!(!counter.idle_poke_due("idle-owner", 30, 3, 10));
-        assert!(counter.idle_poke_due("idle-owner", 31, 3, 10));
-    }
-
-    #[test]
-    fn idle_poke_respects_daily_cap() {
-        let counter = TurnCounter::new();
-        assert!(!counter.idle_poke_due("daily", 0, 2, 10));
-        assert!(counter.idle_poke_due("daily", 1, 2, 10));
-        counter.mark_idle_nudged("daily", 1);
-
-        assert!(counter.idle_poke_due("daily", 11, 2, 10));
-        counter.mark_idle_nudged("daily", 11);
-
-        assert!(!counter.idle_poke_due("daily", 200, 2, 10));
-    }
-
-    #[test]
-    fn poll_nudge_fires_once_at_threshold_then_stays_silent() {
-        let counter = TurnCounter::new();
-        // First two polls below the threshold: silent.
-        assert!(!counter.record_poll("orch"));
-        assert!(!counter.record_poll("orch"));
-        // Third poll crosses POLL_NUDGE_THRESHOLD == 3: exactly one nudge.
-        assert!(counter.record_poll("orch"));
-        // Fourth and later polls do not re-nudge until a reset.
-        assert!(!counter.record_poll("orch"));
-        assert!(!counter.record_poll("orch"));
-        assert_eq!(counter.poll_streak("orch"), 5);
-    }
-
-    #[test]
-    fn poll_streak_is_per_tab() {
-        let counter = TurnCounter::new();
-        assert!(!counter.record_poll("a"));
-        assert!(!counter.record_poll("a"));
-        // A different caller tab keeps its own independent streak.
-        assert!(!counter.record_poll("b"));
-        assert!(counter.record_poll("a"));
-        assert_eq!(counter.poll_streak("b"), 1);
-    }
-
-    #[test]
-    fn reset_polls_rearms_the_nudge() {
-        let counter = TurnCounter::new();
-        assert!(!counter.record_poll("orch"));
-        assert!(!counter.record_poll("orch"));
-        assert!(counter.record_poll("orch"));
-        counter.reset_polls("orch");
-        assert_eq!(counter.poll_streak("orch"), 0);
-        // After reset the streak re-arms: three more polls fire one fresh nudge.
-        assert!(!counter.record_poll("orch"));
-        assert!(!counter.record_poll("orch"));
-        assert!(counter.record_poll("orch"));
-    }
-
-    #[test]
-    fn common_reset_clears_poll_streak() {
-        let counter = TurnCounter::new();
-        assert!(!counter.record_poll("orch"));
-        assert!(!counter.record_poll("orch"));
-        counter.reset("orch");
-        assert_eq!(counter.poll_streak("orch"), 0);
-        assert!(!counter.record_poll("orch"));
-    }
-
-    #[test]
-    fn idle_poke_state_resets_with_common_counter_reset() {
-        let counter = TurnCounter::new();
-        assert!(!counter.idle_poke_due("reset", 0, 5, 10));
-        assert!(counter.idle_poke_due("reset", 1, 5, 10));
-        counter.mark_idle_nudged("reset", 1);
-        counter.reset("reset");
-        assert!(!counter.idle_poke_due("reset", 1, 5, 10));
-        assert!(counter.idle_poke_due("reset", 2, 5, 10));
     }
 }

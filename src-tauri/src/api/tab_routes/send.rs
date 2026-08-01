@@ -423,9 +423,6 @@ pub async fn send_text(
             format!("{} <actions:{}>", raw_text, action_preview(&actions))
         };
         record_push_activity(&state, &svc_token_match, &tab_id, &preview);
-        if !raw_text.trim().is_empty() {
-            state.svc.maybe_send_owned_plan_reminder(&tab_id);
-        }
         return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
     }
 
@@ -454,9 +451,6 @@ pub async fn send_text(
             })?
             .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &preview);
-        if !preview.trim().is_empty() {
-            state.svc.maybe_send_owned_plan_reminder(&tab_id);
-        }
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
@@ -490,22 +484,15 @@ pub async fn send_text(
             .await
             .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        if !raw_text.trim().is_empty() {
-            state.svc.maybe_send_owned_plan_reminder(&tab_id);
-        }
         return Ok(Json(serde_json::json!({"ok": true, "mesh": true})));
     }
     if let Some(envelope) = source_envelope {
         crate::service::messenger::Messenger::deliver(&state.svc, &tab_id, envelope, &raw_text)
             .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        if !raw_text.trim().is_empty() {
-            state.svc.maybe_send_owned_plan_reminder(&tab_id);
-        }
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
-    let has_text = !raw_text.trim().is_empty();
     let text = prepend(&stage(raw_text));
     // A plain text send always submits — no-Enter/keystroke cases go through
     // `actions` or `raw`.
@@ -515,9 +502,6 @@ pub async fn send_text(
         .await
         .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
     record_push_activity(&state, &svc_token_match, &tab_id, &text);
-    if has_text {
-        state.svc.maybe_send_owned_plan_reminder(&tab_id);
-    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

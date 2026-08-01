@@ -399,7 +399,7 @@ impl ServiceContext {
             resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices)?;
         let mut persisted_task = None;
 
-        let (from_title, default_target_opt, model_identity, from_ref, role) = {
+        let (from_title, default_target_opt, model_identity, from_ref) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, tab_id) {
                 Ok(resolved) => resolved,
@@ -423,8 +423,7 @@ impl ServiceContext {
                     title: Some(p.title.clone()),
                 },
             );
-            let role = tab.and_then(|p| p.role);
-            (from_title, target_opt, model_identity, from_ref, role)
+            (from_title, target_opt, model_identity, from_ref)
         };
         let model = model_identity
             .as_ref()
@@ -593,10 +592,6 @@ impl ServiceContext {
                     }
                 }
             }
-        }
-
-        if eff_plan_id.is_none() {
-            self.maybe_send_plan_reminder(tab_id, role);
         }
 
         self.record_kpi_report(
