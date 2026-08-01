@@ -8,46 +8,46 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence, ChatSendLedger, ChatSendStatus, EvidenceWindow, SendEvidenceAnchor,
-    SendLiveBinding,
+    normalize_turn_evidence, ChatSendLedger, ChatSendStatus, EvidenceCandidate, EvidenceWindow,
+    SendEvidenceAnchor, SendLiveBinding,
 };
 use crate::service::ServiceContext;
 
-fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> Vec<String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BoundEvidenceSource {
+    provider_id: String,
+    cwd: String,
+    session_id: String,
+    binding_nonce: Option<String>,
+}
+
+fn window_user_turns(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    session_id: &str,
+) -> Vec<String> {
     match &anchor.window {
         EvidenceWindow::Jsonl { transcript_offset } => {
-            let Some(path) = registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
-                })
-                .flatten()
-            else {
-                return Vec::new();
-            };
-            if !path.exists() {
-                return Vec::new();
-            }
-            registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.parse_session_delta(&path, *transcript_offset)
-                })
-                .map(|delta| {
-                    delta
-                        .messages
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(index, rich)| {
-                            crate::service::tab_chat::rich_to_chat_msgs(rich, index)
-                        })
-                        .filter(|msg| msg.kind == "user")
-                        .map(|msg| msg.content)
-                        .collect()
-                })
-                .unwrap_or_default()
+            jsonl_window_user_turns(registry, anchor, session_id, *transcript_offset)
+        }
+        EvidenceWindow::JsonlMaterialization => {
+            jsonl_window_user_turns(registry, anchor, session_id, 0)
         }
         EvidenceWindow::Structured { cursor } => registry
             .with_provider(&anchor.provider_id, |provider| {
-                provider.read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
+                provider.read_structured_chat(&anchor.cwd, session_id, cursor.as_deref())
+            })
+            .map(|chat| {
+                chat.messages
+                    .into_iter()
+                    .filter(|msg| msg.kind == "user")
+                    .map(|msg| msg.content)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        EvidenceWindow::StructuredMaterialization { .. } => registry
+            .with_provider(&anchor.provider_id, |provider| {
+                provider.read_structured_chat(&anchor.cwd, session_id, None)
             })
             .map(|chat| {
                 chat.messages
@@ -87,19 +87,37 @@ pub(crate) struct CapturedSendEvidence {
 /// One turn instance confirms at most one send: a scan may only confirm when
 /// the append window holds MORE matching user turns than sends already
 /// confirmed for the same tab+session+payload.
-pub(crate) fn scan_transcript_evidence(
+fn scan_transcript_evidence(
     registry: &AgentRegistry,
     ledger: &ChatSendLedger,
     tab_id: &str,
+    source: &BoundEvidenceSource,
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
-    for candidate in ledger.evidence_candidates(tab_id) {
+    for mut candidate in ledger.evidence_candidates(tab_id) {
+        if !candidate_matches_source(&candidate, source) {
+            continue;
+        }
+        let session_id = match candidate.anchor.session_id.clone() {
+            Some(session_id) => session_id,
+            None if structured_session_materialized_after_boundary(
+                registry, &candidate, source,
+            ) =>
+            {
+                if !ledger.bind_evidence_session(&candidate.send_id, &source.session_id) {
+                    continue;
+                }
+                candidate.anchor.session_id = Some(source.session_id.clone());
+                source.session_id.clone()
+            }
+            None => continue,
+        };
         let anchor = &candidate.anchor;
-        let matching_turns = window_user_turns(registry, anchor)
+        let matching_turns = window_user_turns(registry, anchor, &session_id)
             .iter()
             .filter(|content| normalize_turn_evidence(content) == candidate.payload)
             .count();
-        let claimed = ledger.claimed_turn_count(tab_id, &anchor.session_id, &candidate.payload);
+        let claimed = ledger.claimed_turn_count(tab_id, &session_id, &candidate.payload);
         if matching_turns > claimed {
             if let Some(status) = ledger.confirm_send(&candidate.send_id) {
                 on_confirmed(status);
@@ -108,10 +126,86 @@ pub(crate) fn scan_transcript_evidence(
     }
 }
 
+fn jsonl_window_user_turns(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    session_id: &str,
+    transcript_offset: u64,
+) -> Vec<String> {
+    let Some(path) = registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.session_jsonl_path(&anchor.cwd, session_id)
+        })
+        .flatten()
+    else {
+        return Vec::new();
+    };
+    if !path.exists() {
+        return Vec::new();
+    }
+    registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.parse_session_delta(&path, transcript_offset)
+        })
+        .map(|delta| {
+            delta
+                .messages
+                .iter()
+                .enumerate()
+                .flat_map(|(index, rich)| crate::service::tab_chat::rich_to_chat_msgs(rich, index))
+                .filter(|msg| msg.kind == "user")
+                .map(|msg| msg.content)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn candidate_matches_source(candidate: &EvidenceCandidate, source: &BoundEvidenceSource) -> bool {
+    let anchor = &candidate.anchor;
+    if anchor.provider_id != source.provider_id
+        || anchor.cwd != source.cwd
+        || anchor
+            .session_id
+            .as_deref()
+            .is_some_and(|session_id| session_id != source.session_id)
+    {
+        return false;
+    }
+    candidate.live_binding.as_ref().is_none_or(|binding| {
+        binding
+            .session_id
+            .as_deref()
+            .is_none_or(|session_id| session_id == source.session_id)
+            && binding.binding_nonce.as_deref() == source.binding_nonce.as_deref()
+    })
+}
+
+fn structured_session_materialized_after_boundary(
+    registry: &AgentRegistry,
+    candidate: &EvidenceCandidate,
+    source: &BoundEvidenceSource,
+) -> bool {
+    let EvidenceWindow::StructuredMaterialization { not_before_ms } = &candidate.anchor.window
+    else {
+        return false;
+    };
+    registry
+        .with_provider(&candidate.anchor.provider_id, |provider| {
+            provider.session_created_at(&candidate.anchor.cwd, &source.session_id)
+        })
+        .flatten()
+        .and_then(|created_at| created_at.duration_since(std::time::UNIX_EPOCH).ok())
+        .is_some_and(|created_at| created_at.as_millis() >= u128::from(*not_before_ms))
+}
+
 impl ServiceContext {
-    /// Capture the bound session plus its safe append-window anchor, if one
-    /// exists. An unbounded or not-yet-materialized store stays live-sink-only.
+    /// Capture the current launch's session plus its safe append-window anchor.
+    /// Stores without an attributable boundary stay live-sink-only.
     pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> CapturedSendEvidence {
+        let captured_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as u64)
+            .unwrap_or(0);
         let captured = {
             let mux = self.mux.read();
             mux.get_tab(tab_id).map(|tab| {
@@ -120,50 +214,108 @@ impl ServiceContext {
                     tab.cwd.clone().unwrap_or_default(),
                     tab.agent_session_id.clone(),
                     tab.session_binding_nonce.clone(),
+                    tab.reported_session_binding_nonce.clone(),
+                    tab.agent_set_at.map(|set_at| set_at.elapsed()),
+                    mux.other_session_ids(tab_id),
                 )
             })
         };
-        let Some((provider_id, cwd, session_id, binding_nonce)) = captured else {
+        let Some((
+            provider_id,
+            cwd,
+            session_id,
+            binding_nonce,
+            reported_binding_nonce,
+            set_at_elapsed,
+            excluded,
+        )) = captured
+        else {
             return CapturedSendEvidence::default();
         };
+        let session_was_bound = session_id.is_some();
         let live_binding =
             (session_id.is_some() || binding_nonce.is_some()).then(|| SendLiveBinding {
                 session_id: session_id.clone(),
                 binding_nonce: binding_nonce.clone(),
             });
-        let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
+        let Some(provider_id) = provider_id else {
             return CapturedSendEvidence {
                 anchor: None,
                 live_binding,
             };
         };
-        let structured = self
+        let (structured, can_detect_unbound) = self
             .agent_registry
-            .with_provider(&provider_id, |provider| provider.uses_structured_chat())
-            .unwrap_or(false);
-        let window = if structured {
-            let chat = self
-                .agent_registry
+            .with_provider(&provider_id, |provider| {
+                (
+                    provider.uses_structured_chat(),
+                    matches!(
+                        provider.session_id_injection(),
+                        crate::agent::provider::SessionIdInjection::None
+                    ),
+                )
+            })
+            .unwrap_or((false, false));
+        let session_id = session_id.or_else(|| {
+            let max_age = set_at_elapsed? + std::time::Duration::from_secs(30);
+            binding_nonce.as_ref()?;
+            if !can_detect_unbound {
+                return None;
+            }
+            self.agent_registry
                 .with_provider(&provider_id, |provider| {
-                    provider.read_structured_chat(&cwd, &session_id, None)
+                    provider.detect_session_id(&cwd, &excluded, Some(max_age))
                 })
-                .unwrap_or_default();
-            structured_boundary(&chat)
-        } else {
-            let path = self
-                .agent_registry
-                .with_provider(&provider_id, |provider| {
-                    provider.session_jsonl_path(&cwd, &session_id)
-                })
-                .flatten();
-            jsonl_boundary(path)
-        };
-        let anchor = window.map(|window| SendEvidenceAnchor {
-            provider_id,
-            cwd,
-            session_id: session_id.clone(),
-            window,
+                .flatten()
         });
+        let anchor = match session_id {
+            Some(session_id) => {
+                let window = if structured {
+                    let chat = self
+                        .agent_registry
+                        .with_provider(&provider_id, |provider| {
+                            provider.read_structured_chat(&cwd, &session_id, None)
+                        })
+                        .unwrap_or_default();
+                    structured_boundary(&chat)
+                } else {
+                    let path = self
+                        .agent_registry
+                        .with_provider(&provider_id, |provider| {
+                            provider.session_jsonl_path(&cwd, &session_id)
+                        })
+                        .flatten();
+                    jsonl_boundary(path.clone()).or_else(|| {
+                        (session_was_bound
+                            && binding_nonce.is_some()
+                            && binding_nonce == reported_binding_nonce
+                            && path.is_some_and(|path| !path.exists()))
+                        .then_some(EvidenceWindow::JsonlMaterialization)
+                    })
+                };
+                window.map(|window| SendEvidenceAnchor {
+                    provider_id,
+                    cwd,
+                    session_id: Some(session_id),
+                    window,
+                })
+            }
+            None if structured
+                && can_detect_unbound
+                && binding_nonce.is_some()
+                && set_at_elapsed.is_some() =>
+            {
+                Some(SendEvidenceAnchor {
+                    provider_id,
+                    cwd,
+                    session_id: None,
+                    window: EvidenceWindow::StructuredMaterialization {
+                        not_before_ms: captured_at_ms,
+                    },
+                })
+            }
+            None => None,
+        };
         CapturedSendEvidence {
             anchor,
             live_binding,
@@ -173,10 +325,25 @@ impl ServiceContext {
     /// Reconcile unconfirmed sends against their recorded session append
     /// windows, emitting a `chat-send-status` update for each confirmation.
     pub(crate) fn reconcile_chat_send_evidence(&self, tab_id: &str) {
+        let source = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| {
+                Some(BoundEvidenceSource {
+                    provider_id: tab.agent_type.clone()?,
+                    cwd: tab.cwd.clone().unwrap_or_default(),
+                    session_id: tab.agent_session_id.clone()?,
+                    binding_nonce: tab.session_binding_nonce.clone(),
+                })
+            })
+        };
+        let Some(source) = source else {
+            return;
+        };
         scan_transcript_evidence(
             &self.agent_registry,
             &self.chat_send_ledger,
             tab_id,
+            &source,
             |status| {
                 log::info!(
                     "[chat-send] send_id={} tab={} confirmed by persisted session turn evidence",
@@ -234,10 +401,20 @@ mod tests {
         fn detect_session_id(
             &self,
             _: &str,
-            _: &[String],
+            exclude: &[String],
             _: Option<std::time::Duration>,
         ) -> Option<String> {
-            None
+            std::fs::read_dir(&self.root)
+                .ok()?
+                .filter_map(Result::ok)
+                .filter_map(|entry| {
+                    entry
+                        .path()
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .map(str::to_string)
+                })
+                .find(|session_id| !exclude.contains(session_id))
         }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
@@ -317,14 +494,25 @@ mod tests {
             SendEvidenceAnchor {
                 provider_id: "windowed".into(),
                 cwd: "/proj".into(),
-                session_id: session_id.into(),
+                session_id: Some(session_id.into()),
                 window: EvidenceWindow::Jsonl { transcript_offset },
             }
         }
 
         fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
             let mut confirmed = Vec::new();
-            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
+            let Some(candidate) = self.ledger.evidence_candidates(tab_id).into_iter().next() else {
+                return confirmed;
+            };
+            let source = BoundEvidenceSource {
+                provider_id: candidate.anchor.provider_id.clone(),
+                cwd: candidate.anchor.cwd.clone(),
+                session_id: candidate.anchor.session_id.clone().unwrap(),
+                binding_nonce: candidate
+                    .live_binding
+                    .and_then(|binding| binding.binding_nonce),
+            };
+            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, &source, |status| {
                 confirmed.push(status)
             });
             confirmed
@@ -548,13 +736,34 @@ mod tests {
                 std::collections::HashMap<String, Vec<crate::agent::chat_types::ChatMsg>>,
             >,
         >,
+        created_at: std::sync::Arc<
+            parking_lot::Mutex<std::collections::HashMap<String, std::time::SystemTime>>,
+        >,
     }
 
     impl StructuredStoreProvider {
         fn new() -> Self {
             Self {
                 rows: std::sync::Arc::default(),
+                created_at: std::sync::Arc::default(),
             }
+        }
+
+        fn append_user_row(&self, session_id: &str, content: &str) {
+            self.created_at
+                .lock()
+                .entry(session_id.to_string())
+                .or_insert_with(std::time::SystemTime::now);
+            self.rows
+                .lock()
+                .entry(session_id.to_string())
+                .or_default()
+                .push(crate::agent::chat_types::ChatMsg {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: "user".into(),
+                    content: content.into(),
+                    ..Default::default()
+                });
         }
     }
 
@@ -588,16 +797,27 @@ mod tests {
         fn detect_session_id(
             &self,
             _: &str,
-            _: &[String],
+            exclude: &[String],
             _: Option<std::time::Duration>,
         ) -> Option<String> {
-            None
+            self.rows
+                .lock()
+                .keys()
+                .find(|session_id| !exclude.contains(session_id))
+                .cloned()
         }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
         }
         fn uses_structured_chat(&self) -> bool {
             true
+        }
+        fn session_created_at(
+            &self,
+            _cwd: &str,
+            session_id: &str,
+        ) -> Option<std::time::SystemTime> {
+            self.created_at.lock().get(session_id).copied()
         }
         fn read_structured_chat(
             &self,
@@ -635,17 +855,7 @@ mod tests {
         }
 
         fn append_user_row(&self, session_id: &str, content: &str) {
-            self.provider
-                .rows
-                .lock()
-                .entry(session_id.to_string())
-                .or_default()
-                .push(crate::agent::chat_types::ChatMsg {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind: "user".into(),
-                    content: content.into(),
-                    ..Default::default()
-                });
+            self.provider.append_user_row(session_id, content);
         }
 
         fn anchor_now(&self, session_id: &str) -> SendEvidenceAnchor {
@@ -655,14 +865,25 @@ mod tests {
             SendEvidenceAnchor {
                 provider_id: "structured-store".into(),
                 cwd: "/proj".into(),
-                session_id: session_id.into(),
+                session_id: Some(session_id.into()),
                 window: structured_boundary(&chat).expect("cursor-bearing store"),
             }
         }
 
         fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
             let mut confirmed = Vec::new();
-            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
+            let Some(candidate) = self.ledger.evidence_candidates(tab_id).into_iter().next() else {
+                return confirmed;
+            };
+            let source = BoundEvidenceSource {
+                provider_id: candidate.anchor.provider_id.clone(),
+                cwd: candidate.anchor.cwd.clone(),
+                session_id: candidate.anchor.session_id.clone().unwrap(),
+                binding_nonce: candidate
+                    .live_binding
+                    .and_then(|binding| binding.binding_nonce),
+            };
+            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, &source, |status| {
                 confirmed.push(status)
             });
             confirmed
@@ -753,4 +974,6 @@ mod tests {
             "an empty store is a valid boundary: every future row is post-send"
         );
     }
+
+    mod status_tests;
 }

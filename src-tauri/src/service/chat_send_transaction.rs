@@ -33,20 +33,25 @@ pub struct ChatSendStatus {
 pub(crate) enum EvidenceWindow {
     /// Append-only transcript file: the window is bytes at/after this offset.
     Jsonl { transcript_offset: u64 },
+    /// The exact bound session's append-only transcript path did not exist at
+    /// send start. Its first materialization is the bounded append region.
+    JsonlMaterialization,
     /// Structured store (`uses_structured_chat` capability): the window is
     /// rows after this opaque provider cursor. `None` = the store was empty at
     /// send start, so every row is post-send.
     Structured { cursor: Option<String> },
+    /// The structured session did not exist at send start. The provider must
+    /// prove the later bound session was created after this boundary.
+    StructuredMaterialization { not_before_ms: u64 },
 }
 
-/// Authoritative transcript identity captured at send start. Evidence for the
-/// send may only come from THIS session, inside its append window — never from
-/// another/latest session and never from pre-send history.
+/// Transcript scope captured at send start. A missing session id is valid only
+/// for a structured materialization resolved by the current binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
     pub(crate) cwd: String,
-    pub(crate) session_id: String,
+    pub(crate) session_id: Option<String>,
     pub(crate) window: EvidenceWindow,
 }
 
@@ -60,6 +65,7 @@ pub(crate) struct EvidenceCandidate {
     pub(crate) send_id: String,
     pub(crate) payload: String,
     pub(crate) anchor: SendEvidenceAnchor,
+    pub(crate) live_binding: Option<SendLiveBinding>,
 }
 
 struct ChatSendLedgerState {
@@ -114,7 +120,7 @@ impl ChatSendLedger {
         anchor: Option<SendEvidenceAnchor>,
     ) -> Result<ChatSendStatus, String> {
         let live_binding = anchor.as_ref().map(|anchor| SendLiveBinding {
-            session_id: Some(anchor.session_id.clone()),
+            session_id: anchor.session_id.clone(),
             binding_nonce: None,
         });
         self.try_start_scoped(tab_id, text, anchor, live_binding)
@@ -302,6 +308,20 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
+    pub(crate) fn bind_evidence_session(&self, send_id: &str, session_id: &str) -> bool {
+        let mut state = self.state.lock();
+        let Some(anchor) = state.anchor_by_id.get_mut(send_id) else {
+            return false;
+        };
+        match anchor.session_id.as_deref() {
+            Some(bound) => bound == session_id,
+            None => {
+                anchor.session_id = Some(session_id.to_string());
+                true
+            }
+        }
+    }
+
     /// Unconfirmed sends (oldest first) that carry an evidence anchor and a
     /// non-empty normalized payload — the only sends a transcript scan may touch.
     pub(crate) fn evidence_candidates(&self, tab_id: &str) -> Vec<EvidenceCandidate> {
@@ -323,6 +343,7 @@ impl ChatSendLedger {
                     send_id: send_id.clone(),
                     payload,
                     anchor,
+                    live_binding: state.live_binding_by_id.get(send_id).cloned(),
                 })
             })
             .collect()
@@ -349,7 +370,7 @@ impl ChatSendLedger {
                 state
                     .anchor_by_id
                     .get(&status.send_id)
-                    .is_some_and(|anchor| anchor.session_id == session_id)
+                    .is_some_and(|anchor| anchor.session_id.as_deref() == Some(session_id))
             })
             .count()
     }
