@@ -312,6 +312,26 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     )?;
+    let (current_nonce, reported_nonce) = {
+        let mux = state.svc.mux.read();
+        let tab = mux.get_tab(&tab_id);
+        (
+            tab.and_then(|tab| tab.session_binding_nonce.clone()),
+            tab.and_then(|tab| tab.reported_session_binding_nonce.clone()),
+        )
+    };
+    log::info!(
+        "[delivery-timeline] event=session-binding tab={} provider={} session={} \
+         report_nonce={} current_nonce={} reported_nonce={} nonce_verified={} changed={}",
+        tab_id,
+        provider_id,
+        sid,
+        report_nonce.as_deref().unwrap_or("-"),
+        current_nonce.as_deref().unwrap_or("-"),
+        reported_nonce.as_deref().unwrap_or("-"),
+        claim.nonce_verified,
+        claim.changed,
+    );
     crate::service::general_agent::binding_wait::notify_session_bound();
     acknowledge_authenticated_launch(&state.svc.mux, &tab_id, &claim, report_nonce.as_deref());
     if claim.nonce_verified {

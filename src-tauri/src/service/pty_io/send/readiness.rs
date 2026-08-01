@@ -128,6 +128,77 @@ impl ServiceContext {
             },
         )
     }
+
+    pub(super) fn log_prewrite_delivery_timeline(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_id: &str,
+        text: &str,
+    ) {
+        let (boot_stage, agent_booting, session_id, current_nonce, reported_nonce) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id);
+            (
+                tab.and_then(|tab| tab.boot_stage),
+                tab.is_some_and(|tab| tab.agent_booting),
+                tab.and_then(|tab| tab.agent_session_id.clone()),
+                tab.and_then(|tab| tab.session_binding_nonce.clone()),
+                tab.and_then(|tab| tab.reported_session_binding_nonce.clone()),
+            )
+        };
+        let require_composer = self
+            .agent_registry
+            .with_provider(agent_id, |provider| {
+                provider.provider_readiness_strategy().requires_composer()
+            })
+            .unwrap_or(false);
+        let (screen, input) = {
+            let screen_state = self.screen_state.lock();
+            (
+                screen_state.get_screen_text(pty_id).unwrap_or_default(),
+                screen_state.composer_input_state(pty_id),
+            )
+        };
+        let tui_ready = provider_or_generic_tui(
+            self.agent_registry
+                .with_provider(agent_id, |provider| provider.screen_has_tui(&screen)),
+            codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
+        );
+        let prompt_ready = self
+            .agent_registry
+            .parse_prompt(agent_id, &screen)
+            .is_some();
+        let alternate_screen = input.is_some_and(|input| input.alternate_screen);
+        let composer_ready = input.is_some_and(composer_input_ready);
+        let input_authority = provider_frame_ready(
+            tui_ready,
+            prompt_ready,
+            require_composer,
+            alternate_screen,
+            composer_ready,
+        );
+        log::info!(
+            "[delivery-timeline] event=prewrite tab={} pty={} payload_sha256={} \
+             boot_stage={:?} agent_booting={} session={} current_nonce={} \
+             reported_nonce={} require_composer={} tui_ready={} prompt_ready={} \
+             alternate_screen={} composer_ready={} input_authority={}",
+            tab_id,
+            pty_id,
+            crate::service::launch_diagnostics::digest(text),
+            boot_stage,
+            agent_booting,
+            session_id.as_deref().unwrap_or("-"),
+            current_nonce.as_deref().unwrap_or("-"),
+            reported_nonce.as_deref().unwrap_or("-"),
+            require_composer,
+            tui_ready,
+            prompt_ready,
+            alternate_screen,
+            composer_ready,
+            input_authority,
+        );
+    }
 }
 
 pub(super) fn composer_input_ready(
