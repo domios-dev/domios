@@ -5,6 +5,7 @@ import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
+import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 
 export interface RecentPush {
   source_id: string;
@@ -45,6 +46,8 @@ interface Props {
   meshEnabled?: boolean;
   onGoOnline?: () => void;
   onOpenPeerWebUi?: (url: string) => void;
+  webUiBaseUrl?: string | null;
+  webUiToken?: string | null;
 }
 
 const VOLUME_WINDOW_MS = 60 * 1000;
@@ -70,6 +73,8 @@ export function MeshCanvas({
   meshEnabled = true,
   onGoOnline,
   onOpenPeerWebUi,
+  webUiBaseUrl = null,
+  webUiToken = null,
 }: Props) {
   const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
@@ -88,6 +93,9 @@ export function MeshCanvas({
         x: cx,
         y: cy,
         isThisMachine: true,
+        webUrl: webUiBaseUrl
+          ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, null)
+          : null,
       },
     ];
     peers.forEach((p, i) => {
@@ -104,7 +112,12 @@ export function MeshCanvas({
         servicesStale: p.services_stale,
         servicesError: p.services_error,
         servicesLoaded: p.services_loaded,
-        webUrl: p.https_url,
+        webUrl: p.online && webUiBaseUrl
+          ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, {
+              id: p.instance_id,
+              name: p.name,
+            })
+          : null,
       });
     });
     if (showGhost) {
@@ -118,7 +131,7 @@ export function MeshCanvas({
       });
     }
     return items;
-  }, [thisMachine, peers, width, height, showGhost]);
+  }, [thisMachine, peers, width, height, showGhost, webUiBaseUrl, webUiToken]);
   const layoutFitKey = useMemo(
     () =>
       [
@@ -334,7 +347,7 @@ export function MeshCanvas({
                 servicesStale={p.servicesStale}
                 servicesError={p.servicesError}
                 servicesLoaded={p.servicesLoaded}
-                webUrl={p.isThisMachine ? null : p.webUrl}
+                webUrl={p.webUrl}
                 onOpenWebUi={onOpenPeerWebUi}
               />
             )}

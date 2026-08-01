@@ -610,15 +610,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
             <BusySpinner icon={RefreshCw} size={touchUi ? 16 : 13} spinning={data.loading} />
           </button>
         </div>
-        <div className="flex items-center border-l border-[var(--ct-border)] pl-3 pr-1 shrink-0">
-          <MeshWebUiControl
-            snapshot={serve?.snapshot ?? null}
-            loading={serveLoading}
-            onOpenSurface={() => setWebUiOpen(true)}
-            onAction={runWebUiAction}
-            touchUi={touchUi}
-          />
-        </div>
         <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
           <LiquidTabRail
             value={activeTab}
@@ -634,6 +625,16 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         {activeTab === "map" && (
           <>
             <div ref={mapRef} className="absolute inset-0">
+              <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_92%,transparent)] px-2 py-1.5 shadow-lg backdrop-blur-md">
+                <MeshWebUiControl
+                  snapshot={serve?.snapshot ?? null}
+                  loading={serveLoading}
+                  onOpenSurface={() => setWebUiOpen(true)}
+                  onAction={runWebUiAction}
+                  touchUi={touchUi}
+                  menuAlign="left"
+                />
+              </div>
               <MeshCanvas
                 thisMachine={data.thisMachine}
                 peers={data.peers}
@@ -646,6 +647,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                 meshEnabled={config.mesh.enabled}
                 onGoOnline={goOnline}
                 onOpenPeerWebUi={(url) => void invoke("open_url", { url })}
+                webUiBaseUrl={serve?.snapshot?.url ?? null}
+                webUiToken={config.api.token}
               />
             </div>
             <CollapsibleTablesDrawer

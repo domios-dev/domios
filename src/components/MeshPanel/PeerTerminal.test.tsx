@@ -43,17 +43,57 @@ const base = {
   services: [],
 };
 
-test("peer action appears only for a verified URL", async () => {
+test("peer action is enabled for a verified URL", async () => {
   const { host, root } = await render({ ...base, webUrl: "https://bot.tail.ts.net/" });
-  const btn = host.querySelector('[data-testid="peer-web-ui-open"]');
+  const btn = host.querySelector('[data-testid="peer-web-ui-open"]') as HTMLButtonElement;
   assert(btn, "peer-web-ui-open present with verified url");
+  assert(!btn.disabled, "peer-web-ui-open enabled with verified url");
   assert(btn?.getAttribute("data-peer-web-url") === "https://bot.tail.ts.net/", "carries url");
   await act(async () => root.unmount());
 });
 
-test("peer action hidden when no verified URL", async () => {
+test("peer action remains visible but disabled without a verified URL", async () => {
   const { host, root } = await render({ ...base, webUrl: null });
-  assert(!host.querySelector('[data-testid="peer-web-ui-open"]'), "no action without url");
+  const btn = host.querySelector('[data-testid="peer-web-ui-open"]') as HTMLButtonElement;
+  assert(btn, "peer-web-ui-open remains present without url");
+  assert(btn.disabled, "peer-web-ui-open disabled without url");
+  await act(async () => root.unmount());
+});
+
+test("card hides cron entries and stale service banners", async () => {
+  const { host, root } = await render({
+    ...base,
+    servicesStale: true,
+    services: [
+      {
+        id: "daemon-1",
+        name: "api",
+        kind: "daemon",
+        health_mode: "http",
+        health_interval: 30,
+        health: { status: "healthy" },
+        push_enabled: false,
+        registered_at: 1,
+        updated_at: 1,
+        enabled: true,
+      },
+      {
+        id: "cron-1",
+        name: "cleanup",
+        kind: "cron",
+        health_mode: "process",
+        health_interval: 30,
+        health: { status: "unknown" },
+        push_enabled: false,
+        registered_at: 1,
+        updated_at: 1,
+        enabled: true,
+      },
+    ],
+  });
+  assert(host.textContent?.includes("api"), "daemon service shown");
+  assert(!host.textContent?.includes("cleanup"), "cron hidden");
+  assert(!host.textContent?.includes("cached / stale"), "stale banner hidden");
   await act(async () => root.unmount());
 });
 

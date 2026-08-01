@@ -1,6 +1,7 @@
 import {
   buildWebAccessUrls,
   webLinkWithToken,
+  webLinkWithTokenAndRelay,
   serveHint,
   planServeSetup,
   type ServeStatus,
@@ -82,6 +83,16 @@ assert(
   "http://127.0.0.1:7685/#token=a%20b%2Fc",
 );
 assert("no token → unchanged", webLinkWithToken("http://127.0.0.1:7685/", null), "http://127.0.0.1:7685/");
+assert(
+  "builds authenticated self link",
+  webLinkWithTokenAndRelay("https://host.ts.net/", "abc123", null),
+  "https://host.ts.net/#token=abc123&relay=self",
+);
+assert(
+  "builds authenticated relay link",
+  webLinkWithTokenAndRelay("https://host.ts.net/", "abc123", { id: "peer/a", name: "Mac Air" }),
+  "https://host.ts.net/#token=abc123&relay=peer%2Fa&relay_name=Mac+Air",
+);
 
 console.log("\nserveHint:");
 assert("hint includes port", serveHint(7685).includes("127.0.0.1:7685"), true);

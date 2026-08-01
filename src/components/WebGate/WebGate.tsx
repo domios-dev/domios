@@ -6,6 +6,7 @@ import {
   IS_WEB,
   relayTarget,
   selfHost,
+  setRelayTarget,
   setTokenFor,
   webJson,
 } from "../../lib/webApi";
@@ -57,6 +58,12 @@ export function WebGate({ children }: { children: ReactNode }) {
         "",
         window.location.pathname + (qs ? `?${qs}` : ""),
       );
+    }
+    const relayPeerId = hash.get("relay")?.trim();
+    if (relayPeerId === "self") {
+      clearRelayTarget();
+    } else if (relayPeerId) {
+      setRelayTarget(relayPeerId, hash.get("relay_name")?.trim() || relayPeerId);
     }
     const removeHistoryGuard = installWebHistoryGuard();
     void validate();

@@ -54,6 +54,23 @@ export function webLinkWithToken(url: string, token?: string | null): string {
   return token ? `${url}#token=${encodeURIComponent(token)}` : url;
 }
 
+export interface WebRelayTarget {
+  id: string;
+  name: string;
+}
+
+export function webLinkWithTokenAndRelay(
+  url: string,
+  token: string | null | undefined,
+  target: WebRelayTarget | null,
+): string {
+  const fragment = new URLSearchParams();
+  if (token) fragment.set("token", token);
+  fragment.set("relay", target?.id ?? "self");
+  if (target) fragment.set("relay_name", target.name);
+  return `${url.replace(/#.*$/, "")}#${fragment.toString()}`;
+}
+
 /** Curriculum hint shown when falling back to an IP+port URL: the one command
  * that turns a raw IP link into a clean, phone-friendly HTTPS URL. */
 export function serveHint(port: number): string {

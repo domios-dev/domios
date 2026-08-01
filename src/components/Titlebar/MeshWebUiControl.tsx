@@ -24,6 +24,7 @@ interface Props {
   /** Run a mutating action; resolve with an inline message, or throw to show an error. */
   onAction: (action: WebUiAction) => Promise<string | void>;
   touchUi?: boolean;
+  menuAlign?: "left" | "right";
 }
 
 const TONE_COLOR: Record<WebUiTone, string> = {
@@ -34,7 +35,7 @@ const TONE_COLOR: Record<WebUiTone, string> = {
   neutral: "var(--ct-muted, #8b949e)",
 };
 
-export function MeshWebUiControl({ snapshot, loading, onOpenSurface, onAction, touchUi }: Props) {
+export function MeshWebUiControl({ snapshot, loading, onOpenSurface, onAction, touchUi, menuAlign = "right" }: Props) {
   const view = deriveWebUiView(snapshot, loading);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<WebUiAction | "copy" | null>(null);
@@ -102,7 +103,9 @@ export function MeshWebUiControl({ snapshot, loading, onOpenSurface, onAction, t
   const pos = (() => {
     if (!open || !triggerRef.current) return null;
     const rect = triggerRef.current.getBoundingClientRect();
-    return { top: rect.bottom + 4, right: Math.max(4, window.innerWidth - rect.right) };
+    return menuAlign === "left"
+      ? { top: rect.bottom + 4, left: Math.max(4, rect.left) }
+      : { top: rect.bottom + 4, right: Math.max(4, window.innerWidth - rect.right) };
   })();
 
   const btnH = touchUi ? "h-8" : "h-6";
@@ -175,7 +178,7 @@ export function MeshWebUiControl({ snapshot, loading, onOpenSurface, onAction, t
           data-testid="mesh-web-ui-menu"
           role="menu"
           className="ct-portal-menu fixed w-[248px] overflow-hidden rounded-lg border border-[var(--ct-border)] shadow-2xl backdrop-blur-xl"
-          style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
+          style={{ ...pos, background: "var(--ct-surface, #1e1e2e)" }}
         >
           <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">
             Web UI · {view.label}
