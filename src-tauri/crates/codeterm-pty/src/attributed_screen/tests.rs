@@ -206,6 +206,17 @@ fn title_search_panel_marker_wins_uniform_background() {
     assert_eq!(detected.selected_index, 2);
 }
 
+#[test]
+fn captured_title_search_panel_ignores_side_band_backgrounds() {
+    let screen = screen_from_cast(include_str!(
+        "../../../../../testbench/snapshots/opencode/connect-picker/raw.cast"
+    ));
+
+    let detected = detect_picker(&screen).expect("picker");
+
+    assert_eq!(detected.selected_index, 0);
+}
+
 fn screen_from_capture(encoded: &str) -> AttributedScreen {
     use base64::Engine;
 
@@ -214,5 +225,21 @@ fn screen_from_capture(encoded: &str) -> AttributedScreen {
         .expect("valid captured frame");
     let mut parser = vt100::Parser::new(40, 240, 0);
     parser.process(&bytes);
+    AttributedScreen::from_vt100(parser.screen())
+}
+
+fn screen_from_cast(cast: &str) -> AttributedScreen {
+    let mut lines = cast.lines();
+    let header: serde_json::Value = serde_json::from_str(lines.next().expect("cast header"))
+        .expect("valid cast header");
+    let rows = header["height"].as_u64().expect("cast height") as u16;
+    let cols = header["width"].as_u64().expect("cast width") as u16;
+    let mut parser = vt100::Parser::new(rows, cols, 0);
+    for line in lines {
+        let event: serde_json::Value = serde_json::from_str(line).expect("valid cast event");
+        if event[1] == "o" {
+            parser.process(event[2].as_str().expect("cast output").as_bytes());
+        }
+    }
     AttributedScreen::from_vt100(parser.screen())
 }
