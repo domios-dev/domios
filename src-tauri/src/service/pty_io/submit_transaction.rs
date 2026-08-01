@@ -480,10 +480,10 @@ fn run_with_submit_key<T: SubmitTransport>(
     let mut submit_observed = !two_phase;
     let mut submit_key_writes = 0usize;
     for _ in 0..MAX_SUBMIT_KEY_WRITES {
-        if !transport.retry_active() {
-            break;
-        }
         if submit_key_writes > 0 {
+            if !transport.retry_active() {
+                break;
+            }
             let retry_deadline = started + Duration::from_secs(submit_key_writes as u64);
             transport.wait_retry_deadline(retry_deadline.min(turn_deadline));
             if !transport.retry_active() || Instant::now() >= turn_deadline {

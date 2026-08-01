@@ -369,7 +369,10 @@ impl ServiceContext {
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
-        let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
+        let pty_id = match self.resolve_pty_id(tab_id) {
+            Ok(pty_id) => pty_id,
+            Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
+        };
         self.send_text_to_pty_smart_delivery(&pty_id, text, submit)
     }
 
@@ -442,13 +445,6 @@ impl ServiceContext {
         submit: bool,
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
-        if let Some(ref pid) = tab_id {
-            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
-                .map_err(|detail| DeliveryError::TabBusyRefused {
-                    tab: pid.clone(),
-                    detail,
-                })?;
-        }
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
             return self.send_text_to_pty_delivery(pty_id, delivery_target, text, submit);
