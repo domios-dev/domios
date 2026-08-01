@@ -262,8 +262,9 @@ Create a cron job
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
 - `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
-- `--tab` — Tab ID to receive reports from cron agent (default: $CODETERM_TAB_ID)
+- `--tab` — Tab ID to receive reports. Omit to keep runs private to the cron
 - `--task` — Task prompt for the agent
+- `--team` — Attach this job to a Team. The calling Tab must belong to it
 - `--timeout-secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
 - `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
 - `--workspace` — Workspace ID (default: active)
@@ -2696,6 +2697,7 @@ Plain shell tab. For an AI tab use `codeterm agent spawn` instead
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
+- `--team` — Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id (default: current focused)
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ClipboardList, Clock3, LogOut, Terminal, UsersRound } from "lucide-react";
+import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { Tab, ProviderDescriptor, Team } from "../../lib/types";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { TaskStatus, type Plan } from "../Canvas/types";
@@ -648,15 +648,11 @@ export function TeamUnit({
                 expanded={terminalsExpanded}
                 className="sidebar-team-workers-toggle"
                 onClick={toggleTerminalsExpanded}
-              >TERMINALS {terminalCount}</SidebarDisclosure>
-              {terminalsExpanded ? (
+              >{terminalsExpanded
+                ? "UTILITY SHELLS"
+                : `${terminalCount} ${terminalCount === 1 ? "utility shell" : "utility shells"}`}</SidebarDisclosure>
+              {terminalsExpanded && (
                 <div className="sidebar-team-member-list">{terminals}</div>
-              ) : (
-                <div data-testid="terminals-collapse-summary" className="sidebar-team-workers-summary">
-                  <Terminal size={11} aria-hidden="true" />
-                  {terminalCount} {terminalCount === 1 ? "utility shell" : "utility shells"}
-                  <span className="sidebar-team-summary-kebab">⋮</span>
-                </div>
               )}
             </div>
           )}
@@ -667,15 +663,11 @@ export function TeamUnit({
                 expanded={cronsExpanded}
                 className="sidebar-team-workers-toggle"
                 onClick={toggleCronsExpanded}
-              >CRONS {cronCount}</SidebarDisclosure>
-              {cronsExpanded ? (
+              >{cronsExpanded
+                ? "SCHEDULED JOBS"
+                : `${cronCount} scheduled ${cronCount === 1 ? "job" : "jobs"}`}</SidebarDisclosure>
+              {cronsExpanded && (
                 <div className="sidebar-team-member-list">{crons}</div>
-              ) : (
-                <div data-testid="crons-collapse-summary" className="sidebar-team-workers-summary">
-                  <Clock3 size={11} aria-hidden="true" />
-                  {cronCount} scheduled {cronCount === 1 ? "job" : "jobs"}
-                  <span className="sidebar-team-summary-kebab">⋮</span>
-                </div>
               )}
             </div>
           )}

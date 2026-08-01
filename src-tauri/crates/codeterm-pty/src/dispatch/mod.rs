@@ -441,7 +441,9 @@ pub(crate) fn build_tab_summary_json(
                 "description": tab.description,
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,
+                "team_id": tab.team_id,
                 "parent_tab_id": tab.parent_tab_id,
+                "spawned_by_tab_id": tab.spawned_by_tab_id,
                 "agent_type": tab.agent_type,
                 "agent_session_id": tab.agent_session_id,
                 "agent_session_model": tab.agent_session_model,
@@ -639,7 +641,6 @@ mod tests {
         }
     }
 
-    #[test]
     #[test]
     fn test_command_deserialize_get_output() {
         let json = r#"{"cmd": "get_output", "tab_id": "abc", "strip_ansi": true}"#;
@@ -952,6 +953,24 @@ mod tests {
         assert!(tab.get("session_binding_nonce").is_none());
         assert!(tab.get("agent_state").is_none());
         assert!(tab.get("model_fallback").is_none());
+    }
+
+    #[test]
+    fn tab_summary_keeps_team_terminal_provenance() {
+        use crate::multiplexer::state::MultiplexerState;
+
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).expect("default Tab");
+        tab.team_id = Some("team_probe".into());
+        tab.spawned_by_tab_id = Some("creator_probe".into());
+
+        let snapshot = state.snapshot();
+        let workspace = snapshot.workspaces.first().expect("default workspace");
+        let summaries = build_tab_summary_json(&snapshot, Some(&workspace.id), None, false, false);
+        let summary = summaries.first().expect("summary Tab");
+
+        assert_eq!(summary["team_id"], "team_probe");
+        assert_eq!(summary["spawned_by_tab_id"], "creator_probe");
     }
 
     #[test]

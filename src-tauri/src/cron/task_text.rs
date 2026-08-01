@@ -7,14 +7,14 @@
 pub fn build_cron_task_text(
     task: &str,
     skill_block: Option<&str>,
-    creator_tab_id: Option<&str>,
+    report_target_tab_id: Option<&str>,
     run_id: &str,
 ) -> String {
     let mut task_text = task.to_string();
     if let Some(block) = skill_block {
         task_text.push_str(block);
     }
-    if creator_tab_id.is_some() {
+    if report_target_tab_id.is_some() {
         task_text.push_str(crate::prompts::CRON_REPORT_HINT);
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", run_id));
@@ -59,10 +59,10 @@ mod tests {
     }
 
     #[test]
-    fn report_hint_only_appended_when_creator_tab_id_present() {
-        let with_creator = build_cron_task_text("t", None, Some("tab-1"), "r1");
-        let without_creator = build_cron_task_text("t", None, None, "r1");
-        assert!(with_creator.contains("report progress"));
-        assert!(!without_creator.contains("report progress"));
+    fn report_hint_only_appended_when_report_target_is_present() {
+        let with_target = build_cron_task_text("t", None, Some("tab-1"), "r1");
+        let without_target = build_cron_task_text("t", None, None, "r1");
+        assert!(with_target.contains("report progress"));
+        assert!(!without_target.contains("report progress"));
     }
 }
