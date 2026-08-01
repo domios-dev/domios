@@ -400,7 +400,7 @@ impl Default for OrchestrationConfig {
     fn default() -> Self {
         Self {
             plan_reminders: true,
-            nudge_after_turns: 12,
+            nudge_after_turns: 0,
             nudge_interval_secs: 1800,
             idle_poke: IdlePokeConfig::default(),
             reflect: ReflectConfig::default(),
