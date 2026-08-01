@@ -108,6 +108,12 @@ pub struct DependencyWait {
     pub missing: bool,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TaskProjection {
+    pub presentation: TaskPresentation,
+    pub dependency_waits: Vec<DependencyWait>,
+}
+
 pub(crate) fn task_presentation(
     status: &TaskStatus,
     dependency_waits: &[DependencyWait],
@@ -127,6 +133,20 @@ pub(crate) fn task_presentation(
         TaskStatus::Blocked => TaskPresentation::Blocked,
         TaskStatus::Paused => TaskPresentation::Paused,
         TaskStatus::Done | TaskStatus::Cancelled => TaskPresentation::Terminal,
+    }
+}
+
+pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection {
+    let dependency_waits = dependency_waits(plan, task);
+    let presentation = task_presentation(
+        &task.status,
+        &dependency_waits,
+        &task.review_stage,
+        &task.qa_state,
+    );
+    TaskProjection {
+        presentation,
+        dependency_waits,
     }
 }
 
@@ -430,7 +450,8 @@ pub fn build_plan_state_snapshot(
             )
         })
         .map(|t| {
-            let dependency_waits = dependency_waits(plan, t);
+            let projection = task_projection(plan, t);
+            let waiting_on_dependencies = !projection.dependency_waits.is_empty();
             OpenLane {
                 task_id: t.id.clone(),
                 name: t.name.clone(),
@@ -442,14 +463,9 @@ pub fn build_plan_state_snapshot(
                 qa_state: t.qa_state.clone(),
                 status_label: t.status_label.clone(),
                 clears_review_capacity: super::review_gate::clears_review_capacity(plan, t),
-                presentation: task_presentation(
-                    &t.status,
-                    &dependency_waits,
-                    &t.review_stage,
-                    &t.qa_state,
-                ),
-                waiting_on_dependencies: !dependency_waits.is_empty(),
-                dependency_waits,
+                presentation: projection.presentation,
+                waiting_on_dependencies,
+                dependency_waits: projection.dependency_waits,
             }
         })
         .collect();
@@ -459,7 +475,8 @@ pub fn build_plan_state_snapshot(
         .iter()
         .filter(|t| t.status == TaskStatus::Blocked)
         .map(|t| {
-            let dependency_waits = dependency_waits(plan, t);
+            let projection = task_projection(plan, t);
+            let waiting_on_dependencies = !projection.dependency_waits.is_empty();
             OpenLane {
                 task_id: t.id.clone(),
                 name: t.name.clone(),
@@ -471,14 +488,9 @@ pub fn build_plan_state_snapshot(
                 qa_state: t.qa_state.clone(),
                 status_label: t.status_label.clone(),
                 clears_review_capacity: super::review_gate::clears_review_capacity(plan, t),
-                presentation: task_presentation(
-                    &t.status,
-                    &dependency_waits,
-                    &t.review_stage,
-                    &t.qa_state,
-                ),
-                waiting_on_dependencies: !dependency_waits.is_empty(),
-                dependency_waits,
+                presentation: projection.presentation,
+                waiting_on_dependencies,
+                dependency_waits: projection.dependency_waits,
             }
         })
         .collect();
