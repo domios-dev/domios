@@ -396,6 +396,10 @@ pub fn create_router(state: AppState) -> Router {
             delete(web_routes::peer_service_delete),
         )
         .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}",
+            get(web_routes::peer_cron_get),
+        )
+        .route(
             "/api/mesh/peers/{id}/crons/{cron_id}/{action}",
             post(web_routes::peer_cron_action),
         )

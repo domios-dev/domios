@@ -457,12 +457,13 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
             schedule: "0 3 * * *".into(),
             task: "do x".into(),
             workspace: Some("ws_1".into()),
+            team: None,
             agent: "claude".into(),
             model: None,
             cwd: None,
             skill: None,
             description: None,
-            creator_tab: Some("tab_9".into()),
+            report_tab: Some("tab_9".into()),
             once: true,
             jitter_max_ms: Some(5000),
             tz: Some("Europe/Riga".into()),
@@ -478,7 +479,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
     assert_eq!(body["jitter_max_ms"], 5000);
     assert_eq!(body["tz"], "Europe/Riga");
     assert_eq!(body["timeout_seconds"], 1800);
-    assert_eq!(body["creator_tab_id"], "tab_9");
+    assert_eq!(body["report_target_tab_id"], "tab_9");
 }
 
 #[test]
@@ -489,6 +490,7 @@ fn tab_new_relays_cmd_field() {
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),
             title: Some("runner".into()),
+            team: None,
             cmd: Some("pnpm test".into()),
             eager: true,
             chat_backend: None,

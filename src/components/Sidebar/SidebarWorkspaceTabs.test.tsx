@@ -11,7 +11,7 @@ import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
-import { __setInvokeForTest } from "../../lib/bridge";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import {
   plan,
   planIndexEntry,
@@ -1176,6 +1176,7 @@ test("team manager close control calls onCloseTab", async () => {
 });
 
 async function main() {
+  __setListenForTest(async () => () => {});
   ({ act, useState } = await import("react"));
   ({ createRoot } = await import("react-dom/client"));
 
@@ -1192,6 +1193,7 @@ async function main() {
     }
   }
   if (failed > 0) process.exit(1);
+  __setListenForTest(null);
   console.log(`\n✓ ${tests.length}/${tests.length} SidebarWorkspaceTabs tests passed`);
 }
 

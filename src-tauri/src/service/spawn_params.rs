@@ -84,6 +84,8 @@ impl SpawnTabSpec {
         Self {
             workspace_id: params.workspace_id.clone(),
             parent_tab_id: params.parent_tab_id.clone(),
+            team_id: None,
+            creator_tab_id: None,
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             description: params.description.clone(),

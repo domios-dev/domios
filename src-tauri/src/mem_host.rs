@@ -79,6 +79,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
             .create(CronCreateParams {
                 name: params.name,
                 workspace_id: params.workspace_id,
+                team_id: None,
                 schedule: params.schedule,
                 task: params.task,
                 description: params.description,
@@ -88,6 +89,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 role: params.role,
                 skill: None,
                 creator_tab_id: params.creator_tab_id,
+                report_target_tab_id: None,
                 enabled: params.enabled,
                 max_history: params.max_history,
                 oneshot: params.oneshot,

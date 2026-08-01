@@ -12,6 +12,7 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
     CronCreateParams {
         name: name.to_string(),
         workspace_id: ws.to_string(),
+        team_id: None,
         schedule: schedule.to_string(),
         task: "test task".to_string(),
         description: None,
@@ -21,6 +22,7 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
         role: None,
         skill: None,
         creator_tab_id: None,
+        report_target_tab_id: None,
         enabled: None,
         max_history: None,
         oneshot: None,
@@ -60,6 +62,23 @@ fn set_run_session_persists_on_history_and_last_run() {
             .as_deref(),
         Some("sid-9")
     );
+}
+
+#[test]
+fn team_jobs_keep_ownership_and_report_destination_separate() {
+    let mut store = temp_store();
+    let mut params = make_params("team-job", "workspace", "0 * * * *");
+    params.team_id = Some("team".into());
+    params.creator_tab_id = Some("creator".into());
+    params.report_target_tab_id = Some("target".into());
+
+    let job = store.create(params).unwrap();
+
+    assert_eq!(job.team_id.as_deref(), Some("team"));
+    assert_eq!(job.creator_tab_id.as_deref(), Some("creator"));
+    assert_eq!(job.report_target_tab_id.as_deref(), Some("target"));
+    assert_eq!(store.list_for_team("team").len(), 1);
+    assert!(store.list_for_team("other").is_empty());
 }
 
 #[test]

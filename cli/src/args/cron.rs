@@ -21,6 +21,9 @@ pub enum CronAction {
         /// Workspace ID (default: active)
         #[arg(long)]
         workspace: Option<String>,
+        /// Attach this job to a Team. The calling Tab must belong to it.
+        #[arg(long, value_name = "TEAM_ID")]
+        team: Option<String>,
         /// Agent to spawn (default: claude)
         #[arg(long, default_value = "claude")]
         agent: String,
@@ -38,9 +41,9 @@ pub enum CronAction {
         /// Description
         #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
-        /// Tab ID to receive reports from cron agent (default: $CODETERM_TAB_ID)
-        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_TAB_ID")]
-        creator_tab: Option<String>,
+        /// Tab ID to receive reports. Omit to keep runs private to the cron.
+        #[arg(long = "tab", value_name = "TAB")]
+        report_tab: Option<String>,
         /// Oneshot: fire once at scheduled time, then auto-delete
         #[arg(long)]
         once: bool,
@@ -146,11 +149,13 @@ pub fn cron_create_body(
     schedule: &str,
     task: &str,
     workspace_id: &str,
+    team_id: Option<&str>,
     agent: &str,
     model: Option<&str>,
     cwd: Option<&str>,
     description: Option<&str>,
     creator_tab: Option<&str>,
+    report_tab: Option<&str>,
     once: bool,
     jitter_max_ms: Option<u64>,
     tz: Option<&str>,
@@ -178,6 +183,12 @@ pub fn cron_create_body(
     }
     if let Some(cp) = creator_tab {
         body["creator_tab_id"] = serde_json::json!(cp);
+    }
+    if let Some(team) = team_id {
+        body["team_id"] = serde_json::json!(team);
+    }
+    if let Some(target) = report_tab {
+        body["report_target_tab_id"] = serde_json::json!(target);
     }
     if once {
         body["oneshot"] = serde_json::json!(true);

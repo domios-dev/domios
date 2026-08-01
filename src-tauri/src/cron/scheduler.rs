@@ -41,7 +41,7 @@ struct FireSpec {
     cwd: Option<String>,
     role: Option<String>,
     workspace_id: String,
-    creator_tab_id: Option<String>,
+    report_target_tab_id: Option<String>,
     timeout_seconds: Option<u64>,
     skill: Option<String>,
 }
@@ -74,7 +74,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         cwd: job.cwd.clone(),
                         role: job.role.clone(),
                         workspace_id: job.workspace_id.clone(),
-                        creator_tab_id: job.creator_tab_id.clone(),
+                        report_target_tab_id: job.report_target_tab_id.clone(),
                         timeout_seconds: job.timeout_seconds,
                         skill: job.skill.clone(),
                     });
@@ -127,7 +127,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let cwd = spec.cwd.as_deref();
     let role = spec.role.as_deref();
     let workspace_id = spec.workspace_id.as_str();
-    let creator_tab_id = spec.creator_tab_id.as_deref();
+    let report_target_tab_id = spec.report_target_tab_id.as_deref();
     let job_timeout = spec.timeout_seconds;
 
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -156,7 +156,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let task_text = crate::cron::task_text::build_cron_task_text(
         task,
         skill_block.as_deref(),
-        creator_tab_id,
+        report_target_tab_id,
         &run_id,
     );
 
@@ -188,6 +188,8 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             Some(workspace_id.to_string())
         },
         parent_tab_id: None,
+        team_id: None,
+        creator_tab_id: None,
         cwd: cwd.map(|s| s.to_string()),
         title: Some(tab_title),
         description: None,
@@ -202,7 +204,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             task: Some(task_text),
             role: role.map(|s| s.to_string()),
             auto_approve: true,
-            report_target_tab_id: creator_tab_id.map(|s| s.to_string()),
+            report_target_tab_id: report_target_tab_id.map(str::to_string),
             spawned_by: Some(format!("cron:{}", job_id)),
             ..Default::default()
         }),
@@ -320,6 +322,7 @@ mod tests {
             .create(CronCreateParams {
                 name: "Enabled".into(),
                 workspace_id: "ws".into(),
+                team_id: None,
                 schedule: "0 * * * *".into(),
                 task: "test".into(),
                 description: None,
@@ -329,6 +332,7 @@ mod tests {
                 role: None,
                 skill: None,
                 creator_tab_id: None,
+                report_target_tab_id: None,
                 enabled: Some(true),
                 max_history: None,
                 oneshot: None,
@@ -342,6 +346,7 @@ mod tests {
             .create(CronCreateParams {
                 name: "Disabled".into(),
                 workspace_id: "ws".into(),
+                team_id: None,
                 schedule: "0 * * * *".into(),
                 task: "test".into(),
                 description: None,
@@ -351,6 +356,7 @@ mod tests {
                 role: None,
                 skill: None,
                 creator_tab_id: None,
+                report_target_tab_id: None,
                 enabled: Some(false),
                 max_history: None,
                 oneshot: None,

@@ -1,4 +1,5 @@
 use codeterm_types::team::Team;
+use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, TabBacking};
@@ -215,8 +216,29 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        self.delete_team_crons(team_id);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
+    }
+
+    fn delete_team_crons(&self, team_id: &str) {
+        let Some(cron) = self.app_handle.try_state::<crate::CronState>() else {
+            return;
+        };
+        let Some(wake) = self.app_handle.try_state::<crate::CronWake>() else {
+            return;
+        };
+        let job_ids: Vec<String> = cron
+            .lock()
+            .list_for_team(team_id)
+            .into_iter()
+            .map(|job| job.id.clone())
+            .collect();
+        for job_id in job_ids {
+            if let Err(error) = self.cron_delete(cron.inner(), wake.inner(), &job_id) {
+                log::error!("Failed to delete Team cron {job_id}: {error}");
+            }
+        }
     }
 
     pub(crate) fn adopt_plan_for_team(

@@ -23,6 +23,8 @@ import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
+import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
+import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
@@ -354,8 +356,10 @@ function AppInner() {
     !pluginViewId &&
     activeWs != null;
   const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
+  const cronSelection = useCronSelection();
   const handleNavigateToTab = useCallback(() => {
     canvasFocusStore.closeWorkspace();
+    cronSelectionStore.close();
     setMainView("workspace");
     closeSidebarOnMobile();
   }, [closeSidebarOnMobile]);
@@ -547,7 +551,7 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
-                workspaceCanvasActive={workspaceCanvasVisible}
+                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection}
                 teamActions={teamActions}
               />
             </div>
@@ -656,6 +660,11 @@ function AppInner() {
                 api={stableApiConfig}
                 onClose={() => canvasFocusStore.close()}
               />
+            </div>
+          )}
+          {cronSelection && mainView === "workspace" && (
+            <div className="absolute inset-0" style={{ zIndex: 24 }}>
+              <CronWorkspaceView cronId={cronSelection.cronId} />
             </div>
           )}
           {state.workspaces.length > 0 ? (

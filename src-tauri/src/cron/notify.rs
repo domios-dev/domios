@@ -130,6 +130,7 @@ mod tests {
             .create(CronCreateParams {
                 name: "flaky".into(),
                 workspace_id: "ws".into(),
+                team_id: None,
                 schedule: "0 * * * *".into(),
                 task: "do the thing".into(),
                 description: None,
@@ -139,6 +140,7 @@ mod tests {
                 role: None,
                 skill: None,
                 creator_tab_id: None,
+                report_target_tab_id: None,
                 enabled: Some(true),
                 max_history: None,
                 oneshot: None,

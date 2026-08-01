@@ -170,6 +170,8 @@ export interface Tab {
   agent_session_model?: string | null;
   role?: AgentRole | null;
   role_profile?: string | null;
+  team_id?: string | null;
+  spawned_by_tab_id?: string | null;
   parent_tab_id?: string | null;
   can_spawn?: boolean;
   depth?: number;
@@ -375,6 +377,7 @@ export interface CronJob {
   name: string;
   description: string | null;
   workspace_id: string;
+  team_id?: string | null;
   schedule: string;
   enabled: boolean;
   agent: string;
@@ -383,6 +386,8 @@ export interface CronJob {
   task: string;
   cwd: string | null;
   role: string | null;
+  creator_tab_id?: string | null;
+  report_target_tab_id?: string | null;
   oneshot: boolean;
   max_history: number;
   created_at: number;

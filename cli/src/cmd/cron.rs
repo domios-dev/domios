@@ -27,12 +27,20 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                                 (false, false) => "disabled",
                             };
                             println!(
-                                "{} {} [{}] schedule={} agent={}",
+                                "{} {} [{}] schedule={} agent={}{}{}",
                                 j.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
                                 j.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
                                 status,
                                 j.get("schedule").and_then(|v| v.as_str()).unwrap_or("?"),
                                 j.get("agent").and_then(|v| v.as_str()).unwrap_or("?"),
+                                j.get("team_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|id| format!(" team={id}"))
+                                    .unwrap_or_default(),
+                                j.get("report_target_tab_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|id| format!(" reports_to={id}"))
+                                    .unwrap_or_else(|| " private_worker".into()),
                             );
                         }
                     }
@@ -48,12 +56,13 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             schedule,
             task,
             workspace,
+            team,
             agent,
             model,
             cwd,
             skill,
             description,
-            creator_tab,
+            report_tab,
             once,
             jitter_max_ms,
             tz,
@@ -78,11 +87,13 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 &schedule,
                 &task,
                 &ws_id,
+                team.as_deref(),
                 &agent,
                 model.as_deref(),
                 cwd.as_deref(),
                 description.as_deref(),
-                creator_tab.as_deref(),
+                std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                report_tab.as_deref(),
                 once,
                 jitter_max_ms,
                 tz.as_deref(),

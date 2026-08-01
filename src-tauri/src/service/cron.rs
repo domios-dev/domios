@@ -10,10 +10,45 @@ impl ServiceContext {
         wake: &CronWake,
         params: CronCreateParams,
     ) -> Result<CronJob, String> {
+        self.validate_cron_ownership(&params)?;
         let job = cron.lock().create(params)?;
         wake.notify_all();
         self.emit_cron_changed();
         Ok(job)
+    }
+
+    fn validate_cron_ownership(&self, params: &CronCreateParams) -> Result<(), String> {
+        let mux = self.mux.read();
+        if let Some(target_tab_id) = params.report_target_tab_id.as_deref() {
+            mux.get_tab(target_tab_id)
+                .ok_or_else(|| format!("Cron report target Tab {target_tab_id} not found"))?;
+        }
+        match (params.team_id.as_deref(), params.creator_tab_id.as_deref()) {
+            (None, _) => Ok(()),
+            (Some(team_id), Some(creator_tab_id)) => {
+                let creator = mux
+                    .get_tab(creator_tab_id)
+                    .ok_or_else(|| format!("Cron creator Tab {creator_tab_id} not found"))?;
+                if creator.team_id.as_deref() != Some(team_id) {
+                    return Err(format!(
+                        "Cron creator Tab {creator_tab_id} does not belong to Team {team_id}"
+                    ));
+                }
+                let team = mux
+                    .get_team(team_id)
+                    .ok_or_else(|| format!("Team {team_id} not found"))?;
+                if team.workspace_id != params.workspace_id {
+                    return Err(format!(
+                        "Team {team_id} belongs to workspace {}, not {}",
+                        team.workspace_id, params.workspace_id
+                    ));
+                }
+                Ok(())
+            }
+            (Some(team_id), None) => Err(format!(
+                "Team cron {team_id} requires creator_tab_id from a live Team member"
+            )),
+        }
     }
 
     pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
@@ -203,6 +238,8 @@ impl ServiceContext {
                 Some(workspace_id)
             },
             parent_tab_id: None,
+            team_id: None,
+            creator_tab_id: None,
             cwd,
             title: Some(format!("cron:{}", job_name)),
             description: None,

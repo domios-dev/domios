@@ -233,6 +233,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 workspace,
                 cwd,
                 title,
+                team,
                 cmd,
                 eager,
                 chat_backend,
@@ -247,6 +248,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(t) = title {
                     body["title"] = serde_json::Value::String(t.clone());
+                }
+                if let Some(team_id) = team {
+                    body["team_id"] = serde_json::Value::String(team_id.clone());
+                    if let Ok(creator_tab_id) = std::env::var("CODETERM_TAB_ID") {
+                        body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
+                    }
                 }
                 if let Some(c) = cmd {
                     body["cmd"] = serde_json::Value::String(c.clone());
@@ -581,12 +588,13 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 schedule,
                 task,
                 workspace,
+                team,
                 agent,
                 model,
                 cwd,
                 skill,
                 description,
-                creator_tab,
+                report_tab,
                 once,
                 jitter_max_ms,
                 tz,
@@ -597,11 +605,13 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     schedule,
                     task,
                     workspace.as_deref().unwrap_or(""),
+                    team.as_deref(),
                     agent,
                     model.as_deref(),
                     cwd.as_deref(),
                     description.as_deref(),
-                    creator_tab.as_deref(),
+                    None,
+                    report_tab.as_deref(),
                     *once,
                     *jitter_max_ms,
                     tz.as_deref(),

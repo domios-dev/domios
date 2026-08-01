@@ -352,7 +352,7 @@ function SvcDrawer({
   return (
     <>
       <DrawerBackdrop onClose={onClose} />
-      <div className={PANEL_BASE} style={{ width: 400 }}>
+      <div className={PANEL_BASE} style={{ width: isCron ? "min(860px, calc(100vw - 32px))" : 400 }}>
         <div className="flex items-center justify-between">
           <strong className="text-[var(--ct-fg)] truncate">{service.name}</strong>
           <button
