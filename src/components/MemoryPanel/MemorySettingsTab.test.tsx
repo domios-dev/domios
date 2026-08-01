@@ -58,6 +58,7 @@ async function main() {
   document.body.appendChild(host);
   const root = createRoot(host);
   const config = defaultConfig();
+  config.general_agent.agent_provider = "provider-a";
   config.api = undefined as never;
 
   await act(async () => {
