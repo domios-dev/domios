@@ -2604,14 +2604,6 @@ button,
   width: 72px;
 }
 
-.chat-empty-orbit {
-  animation: ct-chat-liquid-orbit 5.2s var(--ct-ease-liquid-breathe) infinite alternate;
-  border: 1px solid color-mix(in srgb, var(--chat-provider-color) 12%, transparent);
-  border-radius: 48% 52% 46% 54% / 55% 47% 53% 45%;
-  inset: -8px;
-  position: absolute;
-}
-
 .chat-empty-glyph {
   opacity: 0.24;
   position: relative;
@@ -2629,8 +2621,7 @@ button,
 
 @media (prefers-reduced-motion: reduce) {
   .chat-launch-ring::after,
-  .chat-empty-state,
-  .chat-empty-orbit {
+  .chat-empty-state {
     animation: none;
   }
 
