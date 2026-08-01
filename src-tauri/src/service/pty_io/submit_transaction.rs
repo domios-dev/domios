@@ -133,6 +133,32 @@ pub(crate) fn composer_region_text(lines: &[String], cursor_row: usize) -> Strin
         .join("\n")
 }
 
+fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
+    LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn transaction_lock(pty_id: &str) -> Arc<Mutex<()>> {
+    let mut locks = transaction_locks().lock();
+    if let Some(lock) = locks.get(pty_id).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(pty_id.to_string(), Arc::downgrade(&lock));
+    lock
+}
+
+fn retire_transaction_lock(pty_id: &str, lock: &Arc<Mutex<()>>) {
+    let mut locks = transaction_locks().lock();
+    let current_is_lock = locks
+        .get(pty_id)
+        .and_then(Weak::upgrade)
+        .is_some_and(|current| Arc::ptr_eq(&current, lock));
+    if current_is_lock && Arc::strong_count(lock) == 1 {
+        locks.remove(pty_id);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PtySubmitEntry {
     Messenger,
@@ -531,6 +557,8 @@ pub(crate) fn submit_text_with_key(
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 ) -> Result<InjectionResult, InjectionError> {
     let (submit_cycle, submit_generation) = reset_submit_cycle(pty_id);
+    let lock = transaction_lock(pty_id);
+    let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
@@ -573,6 +601,8 @@ pub(crate) fn submit_text_with_key(
             error
         );
     }
+    drop(transaction);
+    retire_transaction_lock(pty_id, &lock);
     retire_submit_cycle(pty_id, &submit_cycle);
     result
 }
@@ -582,7 +612,12 @@ pub(crate) fn write_terminal_reply(
     pty_id: &str,
     reply: &[u8],
 ) -> Result<(), String> {
-    svc.pty.lock().write(pty_id, reply)
+    let lock = transaction_lock(pty_id);
+    let transaction = lock.lock();
+    let result = svc.pty.lock().write(pty_id, reply);
+    drop(transaction);
+    retire_transaction_lock(pty_id, &lock);
+    result
 }
 
 #[cfg(test)]
