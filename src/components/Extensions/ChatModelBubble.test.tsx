@@ -181,7 +181,7 @@ test("opens a dropdown listing the available models", async () => {
 
   const opts = options(host);
   assert(opts.length === MODELS.length, `dropdown should list ${MODELS.length} models, got ${opts.length}`);
-  assert(opts.some((o) => o.textContent?.includes("Llama 3")), "dropdown should include Llama 3");
+  assert(opts.some((o) => o.textContent?.includes("Model A")), "dropdown should include Model A");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -222,7 +222,7 @@ test("picking a model that needsConfirm shows the plugin confirm and only switch
   const { api, switchCalls } = fakeApi({
     describeModelSwitch: async (_p, _s, model) => {
       describeCalls.push(model);
-      return { needsConfirm: true, message: "Loading Llama 3 will unload Qwen 2.5 (VRAM-tight)." };
+      return { needsConfirm: true, message: "Loading Model B will unload Model A (VRAM-tight)." };
     },
   });
   __setChatModelBubbleApiForTest(api);
@@ -237,7 +237,7 @@ test("picking a model that needsConfirm shows the plugin confirm and only switch
   const dialog = confirmDialog();
   assert(dialog, "confirm dialog should appear when needsConfirm");
   assert(
-    dialog.textContent?.includes("Loading Llama 3 will unload Qwen 2.5"),
+    dialog.textContent?.includes("Loading Model B will unload Model A"),
     `dialog should show the PLUGIN message, got: ${dialog.textContent}`,
   );
 
@@ -274,7 +274,7 @@ test("cancelling the confirm leaves the model unchanged", async () => {
 
   assert(switchCalls.length === 0, "switch must NOT fire on cancel");
   assert(!confirmDialog(), "confirm dialog should close after cancel");
-  assert(bubble(host)?.textContent?.includes("Qwen 2.5"), "bubble should keep the original model");
+  assert(bubble(host)?.textContent?.includes("Model A"), "bubble should keep the original model");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
