@@ -1,0 +1,391 @@
+{
+  "summary": {
+    "turns": 21,
+    "turns_with_preview": 16,
+    "avg_lead_ms": 3521.3333333333335,
+    "min_lead_ms": 92,
+    "median_lead_ms": 1138,
+    "max_lead_ms": 17316,
+    "turns_with_leftovers": 14,
+    "total_jank_frames": 66,
+    "total_dupe_frames": 3847,
+    "total_height_shrink_frames": 7
+  },
+  "turns": [
+    {
+      "seq": 1,
+      "started_ms": 150,
+      "first_preview_ms": 225,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 2,
+      "started_ms": 1200,
+      "first_preview_ms": 1800,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 6,
+      "leftover_rows": 2,
+      "leftover_sample": [
+        "     + Thought: 304ms",
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 4,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     + Thought: 304ms",
+        "",
+        "     A PTY (pseudo-terminal) is a kernel-emulated virtual terminal pairing a \"master\" process (like a terminal app)",
+        "     with a \"slave\" that programs (like shells or T",
+        "",
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 4
+    },
+    {
+      "seq": 3,
+      "started_ms": 2175,
+      "first_preview_ms": 2325,
+      "first_canonical_ms": 2417,
+      "peak_preview_rows": 2,
+      "leftover_rows": 2,
+      "leftover_sample": [
+        "   /private/tmp/claude-502/-Users-dev-Developer-codeterm-worktrees-lane-streaming-         21.3K (11 ctrl+p",
+        "   consilium/501ecdcd-ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode                              commands"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "   /private/tmp/claude-502/-Users-dev-Developer-codeterm-worktrees-lane-streaming-         21.3K (11 ctrl+p",
+        "   consilium/501ecdcd-ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode                              commands"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 4,
+      "started_ms": 316650,
+      "first_preview_ms": 316725,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 5,
+      "started_ms": 317700,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 6,
+      "started_ms": 318675,
+      "first_preview_ms": 318975,
+      "first_canonical_ms": 336291,
+      "peak_preview_rows": 8,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 19.6s"
+      ],
+      "jank_frames": 34,
+      "dupe_frames": 3820,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "     output is painted as a few frames rather than one frame per line. When you scroll up, the emulator simply",
+        "     changes the offset and repaints the newly exposed region, which is why scrolling through thousands of lines",
+        "     feels instant. Many modern terminals cap the number of preserved lines, while dedicated applications such as",
+        "     iTerm2 keep very large buffers at the cost of memory. In principle, scrollback is thus an illusion sustained by",
+        "     a growing in-memory history that the emulator re-renders on demand, distinct from the physical continuous paper",
+        "     that older terminals literally scrolled."
+      ],
+      "handover_rows": 7
+    },
+    {
+      "seq": 7,
+      "started_ms": 620175,
+      "first_preview_ms": 620250,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 8,
+      "started_ms": 621150,
+      "first_preview_ms": 622050,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 3,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     - 200 OK — The",
+        "",
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 2
+    },
+    {
+      "seq": 9,
+      "started_ms": 622200,
+      "first_preview_ms": 622275,
+      "first_canonical_ms": 623413,
+      "peak_preview_rows": 8,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 3.1s"
+      ],
+      "jank_frames": 10,
+      "dupe_frames": 0,
+      "height_shrink_frames": 3,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 3.1s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 10,
+      "started_ms": 934725,
+      "first_preview_ms": 934800,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 11,
+      "started_ms": 935700,
+      "first_preview_ms": 936675,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 4,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "         return [",
+        "             \"FizzBuzz\" if i",
+        "",
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 3
+    },
+    {
+      "seq": 12,
+      "started_ms": 936750,
+      "first_preview_ms": 936825,
+      "first_canonical_ms": 937051,
+      "peak_preview_rows": 7,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 2.3s"
+      ],
+      "jank_frames": 1,
+      "dupe_frames": 0,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 2.3s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 13,
+      "started_ms": 1246200,
+      "first_preview_ms": 1246275,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 14,
+      "started_ms": 1247175,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 15,
+      "started_ms": 1248150,
+      "first_preview_ms": 1248525,
+      "first_canonical_ms": 1249394,
+      "peak_preview_rows": 4,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 3.0s"
+      ],
+      "jank_frames": 3,
+      "dupe_frames": 0,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 3.0s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 16,
+      "started_ms": 1548675,
+      "first_preview_ms": 1548825,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 17,
+      "started_ms": 1549725,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 18,
+      "started_ms": 1550700,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 19,
+      "started_ms": 1550925,
+      "first_preview_ms": 1551600,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 20,
+      "started_ms": 1551975,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 21,
+      "started_ms": 1552950,
+      "first_preview_ms": 1557300,
+      "first_canonical_ms": 1558787,
+      "peak_preview_rows": 8,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 13,
+      "dupe_frames": 27,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "     Session summary: I verified the CodeTerm probe environment (identity, workspace, tab, agent providers), found no",
+        "     assigned plan or task, and flagged an RPC \"Method not found\" anomaly for tab list/send. I answered what a PTY is,",
+        "      then explained terminal scrollback in prose. I listed eight common HTTP status codes with meanings. I wrote",
+        "     fizzbuzz(n) and then shortened it to two lines. Finally, I created streaming-probe.txt containing the line hello",
+        "     streaming.",
+        ""
+      ],
+      "handover_rows": 8
+    }
+  ]
+}

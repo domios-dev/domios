@@ -1,0 +1,33 @@
+{
+  "description": "Diversity corpus for streaming-preview quality runs — distinct streaming shapes beyond the fixed questions.json baseline: heavy tool output, long fast prose, slow short answers, wide tables/separators, mixed code+prose. questions.json stays the unchanged cross-provider baseline; this set exercises the display-filter edge cases (chrome/status flap, tool-junk pane swap, wrapping).",
+  "questions": [
+    {
+      "id": "tool-heavy-help",
+      "prompt": "Run `ls -la /usr/bin | head -40` and then `python3 --help` and summarize each output in one sentence."
+    },
+    {
+      "id": "wide-table",
+      "prompt": "Print a markdown table with 6 columns (name, type, size, mode, owner, description) and 10 rows of plausible fake file entries. Table only, no prose."
+    },
+    {
+      "id": "long-fast-prose",
+      "prompt": "Write a 25-sentence continuous explanation of how a shell pipeline works internally. No lists, no code, no headings — one long flowing text."
+    },
+    {
+      "id": "separators-and-chrome",
+      "prompt": "Print exactly five lines each consisting of 60 dash characters, with a one-word label line between them."
+    },
+    {
+      "id": "code-mixed",
+      "prompt": "Show a bash script (one code block, ~15 lines) that backs up a directory, then explain it in exactly 3 sentences, then show a 2-line usage example code block."
+    },
+    {
+      "id": "rapid-one-word",
+      "prompt": "Reply with exactly one word: pong."
+    },
+    {
+      "id": "tool-then-long",
+      "prompt": "Create a file probe-notes.txt with 20 numbered lines using a shell loop, show its full contents, then describe in 8 sentences what you did."
+    }
+  ]
+}
