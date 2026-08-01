@@ -547,7 +547,7 @@ pub fn build_agent_launch_command(
     let params = crate::agent::provider::AgentLaunchParams {
         agent_name: None,
         task: launch_task,
-        starter_prompt: Default::default(),
+        starter_prompt: crate::service::starter_prompt_for_role(None),
         args: if model_args.is_empty() {
             None
         } else {

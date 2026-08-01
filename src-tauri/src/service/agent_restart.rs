@@ -520,6 +520,7 @@ fn build_relaunch_command(
         session_present,
         structured_prompt_server,
         launch_task,
+        snap.role.as_deref(),
     )
 }
 
@@ -531,14 +532,16 @@ fn build_relaunch_command_with_registry(
     session_present: bool,
     structured_prompt_server: Option<StructuredPromptServer>,
     launch_task: Option<&str>,
+    role: Option<&str>,
 ) -> Option<String> {
+    let starter_prompt = crate::service::starter_prompt_for_role(role);
     if session_present && structured_prompt_server.is_some() {
         if let Some(sid) = session_id {
             return registry.with_provider(provider, |p| {
                 p.build_launch_command(&AgentLaunchParams {
                     agent_name: None,
                     task: None,
-                    starter_prompt: Default::default(),
+                    starter_prompt,
                     args: None,
                     skip_permissions: auto_approve,
                     session_id: Some(sid.to_string()),
@@ -561,7 +564,7 @@ fn build_relaunch_command_with_registry(
         p.build_launch_command(&AgentLaunchParams {
             agent_name: None,
             task: launch_task.map(str::to_string),
-            starter_prompt: Default::default(),
+            starter_prompt,
             args: None,
             skip_permissions: auto_approve,
             session_id: None,

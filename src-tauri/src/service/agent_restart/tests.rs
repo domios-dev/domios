@@ -72,6 +72,7 @@ fn build_relaunch_falls_back_to_fresh_when_session_stale() {
         false,
         None,
         None,
+        None,
     )
     .expect("fallback launch command");
     assert!(!command.contains("--resume"));
@@ -87,6 +88,7 @@ fn build_relaunch_uses_resume_when_session_present() {
         Some("abc-123"),
         true,
         true,
+        None,
         None,
         None,
     )
@@ -105,7 +107,8 @@ fn build_relaunch_unknown_provider_returns_none() {
         true,
         false,
         None,
-        None
+        None,
+        None,
     )
     .is_none());
 }
@@ -181,6 +184,7 @@ fn build_relaunch_preserves_permission_profile() {
         true,
         None,
         None,
+        None,
     )
     .expect("resume command");
     assert!(resume.contains("--dangerously-skip-permissions"));
@@ -191,6 +195,7 @@ fn build_relaunch_preserves_permission_profile() {
         Some("sid"),
         true,
         false,
+        None,
         None,
         None,
     )
@@ -205,6 +210,7 @@ fn build_relaunch_preserves_permission_profile() {
         true,
         None,
         None,
+        None,
     )
     .expect("sandboxed resume command");
     assert!(!sandboxed.contains("--dangerously-skip-permissions"));
@@ -214,9 +220,28 @@ fn build_relaunch_preserves_permission_profile() {
 fn build_relaunch_drops_resume_without_session_id() {
     let registry = registry_with_claude();
     let command =
-        build_relaunch_command_with_registry(&registry, "claude", None, true, true, None, None)
+        build_relaunch_command_with_registry(&registry, "claude", None, true, true, None, None, None)
             .expect("fresh launch without session id");
     assert!(!command.contains("--resume"));
+}
+
+#[test]
+fn fresh_roleless_relaunch_keeps_system_context_without_a_user_turn() {
+    let registry = registry_with_claude();
+    let command = build_relaunch_command_with_registry(
+        &registry,
+        "claude",
+        None,
+        true,
+        false,
+        None,
+        Some("system context"),
+        None,
+    )
+    .expect("fresh roleless launch");
+
+    assert!(command.contains("--append-system-prompt-file"));
+    assert!(!command.contains("Execute the CodeTerm task"));
 }
 
 #[test]

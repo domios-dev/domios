@@ -233,6 +233,7 @@ pub async fn spawn_agent(
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
         },
     )?;
+    let starter_prompt = crate::service::starter_prompt_for_role(role_probe.role.as_deref());
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,
@@ -248,7 +249,7 @@ pub async fn spawn_agent(
         plan_id: body.plan_id,
         can_spawn: body.can_spawn,
         task: body.task,
-        starter_prompt: Default::default(),
+        starter_prompt,
         task_id: body.task_id,
         task_launch_authority: None,
         plan_task: body.plan_task,
