@@ -48,7 +48,7 @@ run_canonical_capture() {
 run_powershell_capture() {
   local failures="$1" expected_status="$2" expected_summary="$3"
   local log="$PS_LOG_DIR/verdict-$failures.log" status
-  local powershell
+  local powershell git_dir no_bash_path
   if command -v pwsh >/dev/null; then
     powershell="$(command -v pwsh)"
   elif command -v pwsh.exe >/dev/null; then
@@ -59,11 +59,21 @@ run_powershell_capture() {
     echo "SKIP PowerShell caller oracle: PowerShell is unavailable"
     return
   fi
-  "$powershell" -NoProfile -NonInteractive -File "$CHECKED_RUN" \
+  git_dir="$(dirname "$(command -v git)")"
+  no_bash_path="$git_dir:/c/Windows/System32"
+  if ! PATH="$no_bash_path" command -v git >/dev/null; then
+    echo "FAIL PowerShell caller oracle: git is missing from the stripped PATH" >&2
+    exit 1
+  fi
+  if PATH="$no_bash_path" command -v bash >/dev/null; then
+    echo "FAIL PowerShell caller oracle: bash remains on the stripped PATH" >&2
+    exit 1
+  fi
+  env PATH="$no_bash_path" "$powershell" -NoProfile -NonInteractive -File "$CHECKED_RUN" \
     -LogPath "$log" -VerdictOnly "$failures"
   status=$?
-  assert_status "PowerShell failures=$failures" "$status" "$expected_status"
-  assert_summary "PowerShell failures=$failures" "$ROOT/$log" "$expected_summary"
+  assert_status "PowerShell no-PATH-bash failures=$failures" "$status" "$expected_status"
+  assert_summary "PowerShell no-PATH-bash failures=$failures" "$ROOT/$log" "$expected_summary"
 }
 
 run_direct 1 1 "[messaging-core] 1 assertion(s) FAILED"
