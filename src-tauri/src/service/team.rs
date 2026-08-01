@@ -532,6 +532,11 @@ fn prepare_team_member_spawn(
 ) -> Result<PreparedTeamMemberSpawn, String> {
     authorize_team_manager(mux, team_id, Some(caller_tab_id))?;
     let (role, role_profile) = team_member_role(&params.role)?;
+    let task = params.task.filter(|task| !task.trim().is_empty());
+    let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
+        Some(role.as_str()),
+        task.as_deref(),
+    );
     Ok(PreparedTeamMemberSpawn {
         expected_role: role.clone(),
         expected_profile: role_profile.clone(),
@@ -541,7 +546,8 @@ fn prepare_team_member_spawn(
             role: Some(role),
             role_profile,
             parent_tab_id: Some(caller_tab_id.into()),
-            task: params.task,
+            task,
+            starter_prompt,
             model: params.model,
             spawned_by_tab_id: Some(caller_tab_id.into()),
             ..Default::default()

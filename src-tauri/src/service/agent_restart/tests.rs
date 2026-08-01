@@ -219,9 +219,10 @@ fn build_relaunch_preserves_permission_profile() {
 #[test]
 fn build_relaunch_drops_resume_without_session_id() {
     let registry = registry_with_claude();
-    let command =
-        build_relaunch_command_with_registry(&registry, "claude", None, true, true, None, None, None)
-            .expect("fresh launch without session id");
+    let command = build_relaunch_command_with_registry(
+        &registry, "claude", None, true, true, None, None, None,
+    )
+    .expect("fresh launch without session id");
     assert!(!command.contains("--resume"));
 }
 
@@ -241,6 +242,26 @@ fn fresh_roleless_relaunch_keeps_system_context_without_a_user_turn() {
     .expect("fresh roleless launch");
 
     assert!(command.contains("--append-system-prompt-file"));
+    assert!(!command.contains("Execute the CodeTerm task"));
+}
+
+#[test]
+fn restored_worker_never_replays_historical_task_or_wakes() {
+    let registry = registry_with_claude();
+    let command = build_relaunch_command_with_registry(
+        &registry,
+        "claude",
+        Some("existing-session"),
+        true,
+        false,
+        None,
+        Some("restored worker system context"),
+        Some("Worker"),
+    )
+    .expect("restored worker relaunch");
+
+    assert!(command.contains("--append-system-prompt-file"));
+    assert!(!command.contains("historical task metadata"));
     assert!(!command.contains("Execute the CodeTerm task"));
 }
 
