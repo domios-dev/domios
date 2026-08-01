@@ -108,8 +108,8 @@ for (const [css, before, after] of substitutedDeclarations) {
 
 assert.match(
   globalsCss,
-  /\.chat-launch-overlay\[data-transition-state="present"\]\s*\{[^}]*animation:\s*ct-chat-loader-reveal var\(--ct-duration-fast\) var\(--ct-ease-liquid-settle\) var\(--ct-duration-normal\) both;/s,
-  "chat loader reveal must remain delayed, theme-tokenized, and cancellable by state",
+  /\.ct-deferred-loader\[data-transition-state="present"\]\s*\{[^}]*animation:\s*ct-deferred-loader-reveal var\(--ct-duration-fast\) var\(--ct-ease-liquid-settle\) var\(--ct-duration-normal\) both;/s,
+  "shared loader reveal must remain delayed, theme-tokenized, and cancellable by state",
 );
 
 console.log("liquid motion token tests: passed");
