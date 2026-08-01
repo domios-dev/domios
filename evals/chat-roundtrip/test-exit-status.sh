@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# WHAT: Pins chat-roundtrip's terminal machine verdict with and without log capture.
 # WHY: A logger pipeline previously turned printed assertion failures into exit zero.
-# ORACLE: One forced failure exits 1 and zero failures exit 0 through both paths.
-# The verdict-only seam returns before provider, daemon, or filesystem setup.
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
