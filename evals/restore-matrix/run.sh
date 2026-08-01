@@ -55,15 +55,14 @@ for line in pathlib.Path(tsv).read_text(encoding='utf-8').splitlines():
     if not line.strip():
         continue
     parts = line.split('\t')
-    while len(parts) < 11:
+    while len(parts) < 10:
         parts.append('')
-    provider, idx, model, tab_id, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = parts[:11]
+    provider, idx, model, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = parts[:10]
     slots.append({
         'provider': provider,
         'index': int(idx),
         'requested_model': model,
         'booted_model_evidence': booted_model or None,
-        'tab_id': tab_id or None,
         'tab_id': tab_id or None,
         'marker': marker,
         'sid_before': sid_before or None,
@@ -86,7 +85,7 @@ replace_slot_field() {
   PYTHONIOENCODING=utf-8 python - "$SLOTS_DIR/$provider-$idx.tsv" "$field" "$value" <<'PY'
 import os, pathlib, sys
 path, field, value = sys.argv[1:4]
-fields = ['provider','idx','model','tab_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
+fields = ['provider','idx','model','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
 col = fields.index(field)
 path = pathlib.Path(path)
 parts = path.read_text(encoding='utf-8').rstrip('\n').split('\t')
@@ -101,7 +100,7 @@ PY
 
 append_slot() {
   local provider="$1" idx="$2" model="$3" marker="$4"
-  printf '%s\t%s\t%s\t\t\t%s\t\t\t0\t\t\n' "$provider" "$idx" "$model" "$marker" > "$SLOTS_DIR/$provider-$idx.tsv"
+  printf '%s\t%s\t%s\t\t%s\t\t\t0\t\t\n' "$provider" "$idx" "$model" "$marker" > "$SLOTS_DIR/$provider-$idx.tsv"
 }
 
 merge_slots() {
@@ -313,15 +312,13 @@ PY
 
 refresh_slot_pre() {
   local provider="$1" idx="$2"
-  local tab_id tab_id sid tab_json
+  local tab_id sid tab_json
   tab_id=$(awk -F '\t' -v p="$provider" -v i="$idx" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
   [ -n "$tab_id" ] || return 1
   tab_json=$(tab_json_by_id "$tab_id" 2>/dev/null || true)
-  tab_id=$(echo "$tab_json" | json_field "data.get('tab_id')")
   sid=$(echo "$tab_json" | json_field "data.get('agent_session_id')")
-  [ -n "$tab_id" ] && replace_slot_field "$provider" "$idx" tab_id "$tab_id"
   [ -n "$sid" ] && replace_slot_field "$provider" "$idx" sid_before "$sid"
-  [ -n "$tab_id" ]
+  [ -n "$tab_json" ]
 }
 
 refresh_all_slots_pre() {
@@ -331,25 +328,23 @@ import json, pathlib, sys
 slots_path, tabs_path = sys.argv[1:3]
 rows = [line.split('\t') for line in pathlib.Path(slots_path).read_text(encoding='utf-8').splitlines() if line.strip()]
 for r in rows:
-    while len(r) < 11:
+    while len(r) < 10:
         r.append('')
 tabs = {p.get('id'): p for p in json.load(open(tabs_path, encoding='utf-8'))}
 for r in rows:
     tab = tabs.get(r[3])
     if not tab:
         continue
-    if tab.get('tab_id'):
-        r[4] = tab.get('tab_id') or ''
     if tab.get('agent_session_id'):
-        r[6] = tab.get('agent_session_id') or ''
+        r[5] = tab.get('agent_session_id') or ''
 pathlib.Path(slots_path).write_text('\n'.join('\t'.join(r) for r in rows) + '\n', encoding='utf-8')
 PY
   split_slots
-  local line line_usv provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model
+  local line line_usv provider idx model tab_id marker sid_before sid_after skipped reason booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     line_usv=${line//$'\t'/$'\034'}
-    IFS=$'\034' read -r provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
+    IFS=$'\034' read -r provider idx model tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
     if [ -n "${tab_id:-}" ]; then
       replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$tab_id")"
     fi
@@ -362,7 +357,7 @@ spawn_slot() {
   local title="rm-${provider}-${idx}"
   local cwd="$WORKSPACE_CWD/$title"
   mkdir -p "$cwd"
-  local out tab_id tab_id sid
+  local out tab_id sid
   out=$(dc agent spawn "$provider" --workspace "$WORKSPACE_ID" --cwd "$cwd" --title "$title" --model "$model" --json 2>&1)
   tab_id=$(echo "$out" | json_field "data.get('tab_id')")
   if [ -z "$tab_id" ]; then
@@ -374,10 +369,8 @@ spawn_slot() {
   replace_slot_field "$provider" "$idx" tab_id "$tab_id"
   local tab_json
   tab_json=$(tab_json_by_id "$tab_id" 2>/dev/null || true)
-  tab_id=$(echo "$tab_json" | json_field "data.get('tab_id')")
   sid=$(echo "$tab_json" | json_field "data.get('agent_session_id')")
-  replace_slot_field "$provider" "$idx" tab_id "$tab_id"
-  replace_slot_field "$provider" "$idx" sid_before "$sid"
+  [ -n "$sid" ] && replace_slot_field "$provider" "$idx" sid_before "$sid"
   replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$tab_id")"
   echo "SPAWN provider=$provider slot=$idx tab=$tab_id sid=${sid:-none} marker=$marker"
   return 0
@@ -539,11 +532,11 @@ prepare_slots() {
 }
 
 spawn_all_slots() {
-  local pids=() line line_usv provider idx model marker _tab _tab _sid_before _sid_after _skipped _reason _booted_model
+  local pids=() line line_usv provider idx model marker _tab _sid_before _sid_after _skipped _reason _booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     line_usv=${line//$'\t'/$'\034'}
-    IFS=$'\034' read -r provider idx model _tab _tab marker _sid_before _sid_after _skipped _reason _booted_model <<< "$line_usv"
+    IFS=$'\034' read -r provider idx model _tab marker _sid_before _sid_after _skipped _reason _booted_model <<< "$line_usv"
     (
       spawn_slot "$provider" "$idx" "$model" "$marker"
     ) &
@@ -556,11 +549,11 @@ spawn_all_slots() {
 }
 
 send_all_markers() {
-  local pids=() line line_usv provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model
+  local pids=() line line_usv provider idx model tab_id marker sid_before sid_after skipped reason booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     line_usv=${line//$'\t'/$'\034'}
-    IFS=$'\034' read -r provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
+    IFS=$'\034' read -r provider idx model tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
     if [ -n "${tab_id:-}" ] && [ "${skipped:-0}" != "1" ]; then
       (
         send_marker_and_wait "$provider" "$idx" "$tab_id" "$marker"
@@ -579,7 +572,7 @@ assert_post_chat_isolation() {
 import json, os, pathlib, re, sys, urllib.error, urllib.request
 slots_path = pathlib.Path(sys.argv[1])
 token = os.environ.get("CODETERM_API_TOKEN", "")
-fields = ['provider','idx','model','tab_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
+fields = ['provider','idx','model','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
 rows = []
 for line in slots_path.read_text(encoding="utf-8").splitlines():
     if not line.strip():
@@ -635,21 +628,20 @@ import pathlib, sys, json
 slots_path, tabs_path = sys.argv[1:3]
 rows = [line.split('\t') for line in pathlib.Path(slots_path).read_text(encoding='utf-8').splitlines() if line.strip()]
 tabs = {p.get('id'): p for p in json.load(open(tabs_path, encoding='utf-8'))}
-pre_sid_owner = {r[6]: r[3] for r in rows if r[6] and r[8] != '1'}
+pre_sid_owner = {r[5]: r[3] for r in rows if r[5] and r[7] != '1'}
 post_sid_owner = {}
 def assertable(r):
-    marker, skipped, reason = r[5], r[8], r[9]
+    marker, skipped, reason = r[4], r[7], r[8]
     if skipped != '1':
         return True
-    # If we successfully created a tab and sent a unique marker but timed out
-    # waiting for it, that tab is still an oracle target. The UI must not be
-    # allowed to hide a fresh/wrong restore behind a provider-level skip.
+    # A created tab with a sent marker remains an oracle target after a timeout.
+    # A provider-level skip must not hide a fresh or cross-wired restore.
     return bool(r[3]) and marker.startswith('RESTORE-MARKER-') and not marker.startswith('RESTORE-MARKER-skipped-') and reason == 'marker did not appear before timeout'
 
 for r in rows:
-    while len(r) < 11:
+    while len(r) < 10:
         r.append('')
-    provider, idx, model, tab_id, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = r
+    provider, idx, model, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = r
     if not tab_id:
         continue
     tab = tabs.get(tab_id)
@@ -657,10 +649,8 @@ for r in rows:
         if assertable(r):
             raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: tab missing after restart")
         continue
-    if tab.get('tab_id') and not tab_id:
-        r[4] = tab.get('tab_id') or ''
     sid_after = tab.get('agent_session_id') or ''
-    r[7] = sid_after
+    r[6] = sid_after
     if not assertable(r):
         print(f"SKIP api provider={provider} slot={idx} tab={tab_id} reason={reason or 'provider skipped'} sid_before={sid_before or 'none'} sid_after={sid_after or 'none'}")
         continue
@@ -689,13 +679,16 @@ print_slot_table() {
       printf "provider\tslot\ttab\trequested_model\tbooted_model\tsid_before\tsid_after\tstatus\treason\tmarker\n"
     }
     {
-      status=($9=="1" ? "SKIP" : "PASS");
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $1,$2,($4?$4:"-"),$3,($11?$11:"unknown"),($7?$7:"none"),($8?$8:"none"),status,($10?$10:"-"),$6
+      status=($8=="1" ? "SKIP" : "PASS");
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $1,$2,($4?$4:"-"),$3,($10?$10:"unknown"),($6?$6:"none"),($7?$7:"none"),status,($9?$9:"-"),$5
     }' "$SLOTS_TSV"
 }
 
-echo "== reset dev to clean restore-matrix baseline"
-reset_dev_state_hard || exit 1
+echo "== restart validated dev baseline"
+(
+  cd "$REPO_ROOT" || exit 1
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
+) || exit 1
 
 echo "== create matrix workspace $WORKSPACE_NAME"
 WORKSPACE_ID=$(new_workspace "$WORKSPACE_NAME" "$WORKSPACE_CWD")
@@ -714,7 +707,7 @@ send_all_markers
 echo "== refresh pre-restart tab/session/model evidence"
 refresh_all_slots_pre || exit 1
 
-active_count=$(awk -F '\t' '$9 != "1" {count++} END {print count+0}' "$SLOTS_TSV")
+active_count=$(awk -F '\t' '$8 != "1" {count++} END {print count+0}' "$SLOTS_TSV")
 if [ "$active_count" -eq 0 ]; then
   write_manifest all-skipped
   echo "FAIL all providers skipped or failed pre-kill materialization; nothing restore-tested"
@@ -754,6 +747,6 @@ fi
 
 echo "== restore matrix PASS manifest=$MANIFEST"
 print_slot_table
-awk -F '\t' '$9 != "1" {printf "PASS provider=%s slot=%s tab=%s requested_model=%s booted_model=%s marker=%s sid_before=%s sid_after=%s\n", $1,$2,$4,$3,($11?$11:"unknown"),$6,($7?$7:"none"),($8?$8:"none")}' "$SLOTS_TSV"
-awk -F '\t' '$9 == "1" {printf "SKIP provider=%s slot=%s requested_model=%s booted_model=%s reason=%s\n", $1,$2,$3,($11?$11:"unknown"),$10}' "$SLOTS_TSV"
+awk -F '\t' '$8 != "1" {printf "PASS provider=%s slot=%s tab=%s requested_model=%s booted_model=%s marker=%s sid_before=%s sid_after=%s\n", $1,$2,$4,$3,($10?$10:"unknown"),$5,($6?$6:"none"),($7?$7:"none")}' "$SLOTS_TSV"
+awk -F '\t' '$8 == "1" {printf "SKIP provider=%s slot=%s requested_model=%s booted_model=%s reason=%s\n", $1,$2,$3,($10?$10:"unknown"),$9}' "$SLOTS_TSV"
 SUCCESS=1
