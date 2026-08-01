@@ -162,19 +162,26 @@ async fn port_release_while_listening_keeps_the_real_listener_running() {
 
 #[tokio::test]
 async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
     let control = Arc::new(RestApiControl::new());
     let exit = control.install_server_exit();
     let mut lifecycle = control.subscribe_lifecycle();
     let mut recovery_events = control.take_recovery_events().unwrap();
-    let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
+    let task = tokio::spawn(start(
+        control.clone(),
+        "127.0.0.1:0".to_string(),
+        health_router(),
+    ));
     let initial = wait_for_lifecycle(&control, &mut lifecycle, |s| {
         s.phase == RestApiPhase::Listening
     })
     .await;
+    let initial_address = control
+        .bound_addr()
+        .expect("health-proven generation must own its listener");
+    eprintln!(
+        "REST generation={} address={} bind_succeeded=true diagnostic={:?}",
+        initial.generation, initial_address, initial.diagnostic
+    );
 
     exit.send(()).unwrap();
     let failed = wait_for_lifecycle(&control, &mut lifecycle, |s| {
@@ -185,17 +192,29 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
     assert_eq!(failed.diagnostic, Some(RestApiDiagnostic::ListenerExited));
     assert_recoverable_failure(&failed, "exited unexpectedly");
     let recovered = wait_for_lifecycle(&control, &mut lifecycle, |s| {
-        s.phase == RestApiPhase::Listening && s.generation > failed.generation
+        s.generation > failed.generation && s.phase != RestApiPhase::Starting
     })
     .await;
+    let recovered_address = control.bound_addr();
+    eprintln!(
+        "REST generation={} address={:?} bind_succeeded={} diagnostic={:?}",
+        recovered.generation,
+        recovered_address,
+        recovered_address.is_some(),
+        recovered.diagnostic
+    );
+    assert_eq!(recovered.phase, RestApiPhase::Listening);
     assert_eq!(recovered.generation, failed.generation + 1);
+    assert_eq!(recovered.diagnostic, None);
+    let recovered_address =
+        recovered_address.expect("replacement generation must own its listener");
     let recovery = tokio::time::timeout(std::time::Duration::from_secs(5), recovery_events.recv())
         .await
         .expect("recovery signal deadline elapsed")
         .expect("recovery signal owner stopped");
     assert_eq!(recovery.status.generation, recovered.generation);
     assert_eq!(recovery.transition_id, 1);
-    let response = reqwest::get(format!("http://{address}/api/health"))
+    let response = reqwest::get(format!("http://{recovered_address}/api/health"))
         .await
         .unwrap();
     assert_eq!(response.text().await.unwrap(), "ok");
