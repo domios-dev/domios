@@ -71,6 +71,28 @@ pub async fn snapshot(
     }
 
     let since = query.since;
+    let (provider_id, session_id) = {
+        let mux = state.svc.mux.read();
+        mux.get_tab(&tab_id)
+            .map(|tab| match &tab.backing {
+                TabBacking::ChatBackend {
+                    plugin_id,
+                    session_id,
+                } => (plugin_id.clone(), session_id.clone()),
+                TabBacking::Pty => (
+                    tab.agent_type.clone().unwrap_or_default(),
+                    tab.agent_session_id.clone().unwrap_or_default(),
+                ),
+            })
+            .unwrap_or_else(|| ("-".to_string(), "-".to_string()))
+    };
+    log::info!(
+        "[delivery-timeline] event=transcript-query tab={} provider={} session={} since={}",
+        tab_id,
+        provider_id,
+        session_id,
+        since,
+    );
     let svc = state.svc.clone();
     let target = tab_id.clone();
     let (messages, count) = tokio::task::spawn_blocking(move || {
