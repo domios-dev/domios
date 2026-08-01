@@ -217,18 +217,10 @@ export function AgentProviderScreen({
   );
 }
 
-// Mirrors OrchestrationConfig::default() in src-tauri/src/config/schema/mod.rs.
+// Mirrors OrchestrationConfig::default() in codeterm-types config schema.
 const ORCHESTRATION_DEFAULTS: OrchestrationConfig = {
   plan_reminders: true,
-  nudge_after_turns: 12,
   nudge_interval_secs: 1800,
-  idle_poke: {
-    enabled: true,
-    idle_threshold_secs: 150,
-    live_lane_cap: 3,
-    max_per_day: 4,
-    backoff_base_secs: 90,
-  },
 };
 
 function NumberRow({
@@ -271,32 +263,21 @@ function OrchestrationGroup({
   return (
     <SettingsCard
       icon={<Timer size={16} />}
-      title="Orchestration nudges"
-      description="Plan-driven reminders for agent tabs with open plan work. The silence nudge fires only after a tab has been completely inactive for the whole interval — any activity (turns, reports, plan updates) resets its timer."
+      title="Plan reminders"
+      description="Scheduler-owned reminders for agent tabs with active plan work. Reports, sends, polling reads, and idle transitions do not trigger or reset periodic delivery."
     >
       <Toggle
-        label="Plan reminders & nudges"
+        label="Periodic plan reminders"
         checked={orch.plan_reminders}
         onChange={(v) => onUpdate("orchestration", { plan_reminders: v })}
       />
       {orch.plan_reminders && (
         <>
           <NumberRow
-            label="Silence nudge after (minutes)"
+            label="Reminder interval (minutes)"
             value={Math.round(orch.nudge_interval_secs / 60)}
             min={1}
             onChange={(mins) => onUpdate("orchestration", { nudge_interval_secs: mins * 60 })}
-          />
-          <NumberRow
-            label="Turn-based nudge after (agent turns)"
-            value={orch.nudge_after_turns}
-            min={1}
-            onChange={(turns) => onUpdate("orchestration", { nudge_after_turns: turns })}
-          />
-          <Toggle
-            label="Idle pokes (suggest the next frontier task)"
-            checked={orch.idle_poke.enabled}
-            onChange={(v) => onUpdate("orchestration", { idle_poke: { ...orch.idle_poke, enabled: v } })}
           />
         </>
       )}

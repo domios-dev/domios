@@ -41,7 +41,7 @@
 - Modify `src-tauri/src/api/routes.rs` — register `/api/plans/*`.
 - Create `src-tauri/src/socket/server/plan.rs` — JSON-RPC `plan.*` socket dispatch (CLI bridge; copy `agent.rs`).
 - Modify `src-tauri/src/socket/server/mod.rs` — register `"plan"` prefix + add `plan.*` to `system.capabilities`.
-- Modify config schema (`grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders, nudge_after_turns }`.
+- Modify config schema (`grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders, nudge_interval_secs }`.
 - Modify `src-tauri/prompts/codeterm_cli.md` — minimal `codeterm plan ...` lines so `prompt_cli_commands_exist` passes (full prose in Phase 4).
 - Modify `src-tauri/src/api/agent_routes.rs` — `ReportBody` gains `plan_id`, `task_id`.
 - Modify `src-tauri/src/service/hierarchy.rs` — `submit_report` appends milestone + plan→current-owner routing.
@@ -445,21 +445,21 @@ fn transfer_updates_owner_and_history() {
 
 ### Task 11: Plan-adherence reminders
 
-**VERIFIED GAP:** there is NO per-tab turn counter in the codebase today (`agent_tracker` tracks status, not turns). This task **creates** the counter, not just the decision logic.
+**VERIFIED GAP:** periodic reminders need a scheduler-owned wall-clock deadline independent of tab activity.
 
 **Files:**
-- Create: `src-tauri/src/service/plan/reminders.rs` (pure decision + the counter state struct)
-- Modify: `src-tauri/src/service/hierarchy.rs` — increment the counter where agent activity is observed; reset on plan-touch
-- Modify: `src-tauri/src/service/plan/mod.rs` — every `PlanStore` mutation + `submit_report --plan` resets that Tab's counter
-- Modify: `src-tauri/src/config/schema/mod.rs` (or wherever the config schema structs live — verify with `grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders: bool, nudge_after_turns: u32 }` with serde defaults `true`/`12`, wired into the root config like the existing `memory`/`mesh` sections
+- Create: `src-tauri/src/service/plan/reminders.rs` (scheduler deadline and delivery state)
+- Modify: `src-tauri/src/service/hierarchy.rs` — start one scheduler-owned due-time path
+- Modify: `src-tauri/src/service/plan/mod.rs` — retain deadlines only for reminder-eligible active work
+- Modify: `src-tauri/src/config/schema/mod.rs` (or wherever the config schema structs live — verify with `grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders: bool, nudge_interval_secs: u64 }` with defaults `true`/`1800`, wired into the root config like the existing `memory`/`mesh` sections
 - Modify: reuse `crate::service::messenger::Messenger::deliver` with `MessageKind::Reminder` (VERIFIED reusable — `messenger.rs:198`, already supports the Reminder kind) to inject the nudge
 - Test: `reminders.rs` inline
 
-- [ ] **Step 1: Failing test** — pure `should_nudge(turns, last_nudge, cfg) -> Option<NudgeKind>`: returns None below threshold and when `plan_reminders=false`; fires at `nudge_after_turns`; interval grows ×1.5 after each nudge; selects Worker vs Orchestrator copy by role. Plus a `TurnCounter` test: increment advances, `reset` zeroes.
+- [ ] **Step 1: Failing test** — scheduler delivery is not due before 1800 seconds, is due at 1800 seconds, marks one delivery, and event paths have no reminder injection.
 - [ ] **Step 2: Run → FAIL.** `cargo test plan::reminders`.
-- [ ] **Step 3: Implement** — a `TurnCounter` state (`Mutex<HashMap<String, (u32 turns, u32 last_nudge)>>` on `ServiceContext`); increment it in `submit_report` (after the report is stored, `hierarchy.rs:~63`) and reset it from every `PlanStore` mutation + from `submit_report` when `--plan` is present. The pure `should_nudge` decides; on a hit, build the role-specific copy (spec §4.2 drafts) and inject via `Messenger::deliver(..., MessageKind::Reminder, ...)`. Add `OrchestrationConfig` to the config schema with defaults.
+- [ ] **Step 3: Implement** — a scheduler deadline ledger on `ServiceContext`; only the scheduler due-time scan can inject through `Messenger::deliver(..., MessageKind::Reminder, ...)`. Add the two-field `OrchestrationConfig` with the 1800-second default.
 - [ ] **Step 4: Run → PASS.** `cargo fmt && ./build.sh check`.
-- [ ] **Step 5: Commit** — `git commit -am "feat(plan): plan-adherence reminders + turn counter"`.
+- [ ] **Step 5: Commit** — `git commit -am "feat(plan): add scheduler-owned plan reminders"`.
 
 ---
 
@@ -530,7 +530,9 @@ Confirmed against real code: `uuid`/`tempfile`/`notify`(+debouncer) present; mod
 
 Gaps found and patched into this plan:
 1. **Socket dispatch submodule** (`socket/server/plan.rs` + `"plan"` prefix + capabilities) — was vague in T8, now explicit (CLI is JSON-RPC-over-socket, not HTTP).
-2. **Turn counter does not exist** — T11 now *creates* it, not just the decision logic.
+2. **Periodic deadline ledger does not exist** — T11 now creates it and keeps event activity out of delivery.
 3. **`[orchestration]` config section + `prompt_cli_commands_exist` manifest gate** — added to T8/T11 (minimal `codeterm plan` lines into `codeterm_cli.md` to keep the test green).
 4. **`git project_root` helper is new** — already created in T4 `paths.rs` (fallback to cwd).
 ```
+
+<!-- revision: 1 -->
