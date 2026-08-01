@@ -93,21 +93,16 @@ ledger_send() {
         "http://127.0.0.1:7686/api/tabs/$tab/chat-send"
 }
 
-# Raw-keystroke seam (docs/API.md `raw` + key actions): byte-for-byte PTY write,
-# then a real Enter key. TUIs open interactive frames only for keystrokes — a
-# bracketed paste never renders a picker.
+# Raw-keystroke seam (docs/API.md `raw`): byte-for-byte PTY write including the
+# carriage return. TUIs open interactive frames only for raw input.
 send_raw_keys() {
   local tab="$1" text="$2" base="http://127.0.0.1:${CODETERM_API_PORT:-7686}"
   # MSYS vars: Git Bash on Windows rewrites argv "/model" into a C:/... path.
   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" \
-    $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'raw':True}))" "$text" \
+    $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1]+'\\r','raw':True}))" "$text" \
     | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
         -H "Content-Type: application/json" --data @- \
         "$base/api/tabs/$tab/send" >/dev/null
-  curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
-      -H "Content-Type: application/json" \
-      --data '{"actions":[{"type":"key","key":"enter"}]}' \
-      "$base/api/tabs/$tab/send" >/dev/null
 }
 
 # GET /chat-send = authoritative ledger reconcile; each read also runs the
