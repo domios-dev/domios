@@ -3,6 +3,14 @@ use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
+pub(crate) fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
+    if role.is_none() {
+        crate::agent::provider::StarterPrompt::NoStarter
+    } else {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    }
+}
+
 impl SpawnTabSpec {
     pub fn from_agent_params(params: SpawnAgentParams) -> Self {
         Self::from_agent_params_command(params, None)
@@ -112,7 +120,7 @@ impl SpawnTabSpec {
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
-            starter_prompt: Default::default(),
+            starter_prompt: starter_prompt_for_role(agent.role.as_deref()),
             task_id: None,
             task_launch_authority: None,
             plan_task: None,
@@ -408,5 +416,27 @@ mod tests {
         };
 
         assert!(agent.extra_env.is_empty());
+    }
+
+    #[test]
+    fn visible_spawn_uses_role_based_starter_policy() {
+        let roleless = SpawnTabSpec::from_agent_params(SpawnAgentParams::default())
+            .to_agent_params()
+            .unwrap();
+        assert_eq!(
+            roleless.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+
+        let worker = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            role: Some("Worker".into()),
+            ..Default::default()
+        })
+        .to_agent_params()
+        .unwrap();
+        assert_eq!(
+            worker.starter_prompt,
+            crate::agent::provider::StarterPrompt::AssignedTask
+        );
     }
 }
