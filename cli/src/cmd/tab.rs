@@ -234,11 +234,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
             };
             let url = format!(
-                "{}/api/tabs/{}/text?formatted={}{}",
-                api_url,
-                tab_id,
-                formatted,
-                caller_query_suffix()
+                "{}/api/tabs/{}/text?formatted={}",
+                api_url, tab_id, formatted
             );
             match http.get(url).send() {
                 Ok(resp) => {
@@ -410,13 +407,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     std::process::exit(1);
                 }
             };
-            let url = format!(
-                "{}/api/tabs/{}/chat?since={}{}",
-                api_url,
-                tab_id,
-                since,
-                caller_query_suffix()
-            );
+            let url = format!("{}/api/tabs/{}/chat?since={}", api_url, tab_id, since);
             match http.get(url).send() {
                 // Non-JSON / empty body (e.g. tab not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
@@ -593,16 +584,6 @@ fn strip_origin_marker(s: &str) -> (Option<String>, String) {
         }
     }
     (None, s.to_string())
-}
-
-/// `&caller=<tab>` from CODETERM_TAB_ID so the server can detect a coordinator
-/// polling a worker tab; empty when not running inside a tab.
-fn caller_query_suffix() -> String {
-    std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(|p| format!("&caller={}", p))
-        .unwrap_or_default()
 }
 
 /// One-line, length-capped view of a message body so a single huge blob

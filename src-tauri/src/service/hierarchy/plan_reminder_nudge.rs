@@ -1,4 +1,3 @@
-use crate::multiplexer::types::AgentRole;
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
@@ -6,12 +5,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PlanReminderScope {
-    AnyEligible,
-    OwnerOnly,
-}
 
 #[derive(Debug, PartialEq, Eq)]
 enum PlanReminderTarget {
@@ -46,30 +39,6 @@ fn plan_reminder_poll_secs() -> u64 {
     let cfg = crate::config::load_config().orchestration;
     cfg.nudge_interval_secs
         .clamp(1, MAX_PLAN_REMINDER_POLL_SECS)
-}
-
-fn plan_reminder_target(
-    task_binding: Option<(String, String)>,
-    owner_plan_id: Option<String>,
-    role: Option<AgentRole>,
-    scope: PlanReminderScope,
-) -> Option<PlanReminderTarget> {
-    match scope {
-        PlanReminderScope::OwnerOnly => {
-            owner_plan_id.map(|plan_id| PlanReminderTarget::Owner { plan_id })
-        }
-        PlanReminderScope::AnyEligible
-            if matches!(role, Some(AgentRole::Orchestrator)) && owner_plan_id.is_some() =>
-        {
-            owner_plan_id.map(|plan_id| PlanReminderTarget::Owner { plan_id })
-        }
-        PlanReminderScope::AnyEligible if task_binding.is_some() => {
-            Some(PlanReminderTarget::Worker)
-        }
-        PlanReminderScope::AnyEligible => {
-            owner_plan_id.map(|plan_id| PlanReminderTarget::Owner { plan_id })
-        }
-    }
 }
 
 fn send_due_plan_time_reminders_with(
@@ -122,151 +91,6 @@ fn send_due_plan_time_reminders_with(
 }
 
 impl ServiceContext {
-    pub(super) fn maybe_send_plan_reminder(&self, tab_id: &str, role: Option<AgentRole>) {
-        self.maybe_send_plan_reminder_for(tab_id, role, PlanReminderScope::AnyEligible);
-    }
-
-    pub(crate) fn maybe_send_owned_plan_reminder(&self, tab_id: &str) {
-        self.maybe_send_plan_reminder_for(
-            tab_id,
-            Some(AgentRole::Orchestrator),
-            PlanReminderScope::OwnerOnly,
-        );
-    }
-
-    // A coordinator repeatedly reading a worker/lane tab's output/text/chat is a
-    // polling smell — reports auto-inject, so it should wait, not poll.
-    pub(crate) fn maybe_send_polling_nudge(&self, caller_tab: &str, target_tab: &str) {
-        let caller = caller_tab.trim();
-        let target = target_tab.trim();
-        if caller.is_empty() || target.is_empty() || caller == target {
-            return;
-        }
-        if !crate::config::load_config().orchestration.plan_reminders {
-            return;
-        }
-        // Gate to coordinator callers polling worker/lane tabs.
-        if self
-            .plan_store
-            .active_owned_plan_with_open_work_for_tab(caller)
-            .is_none()
-        {
-            return;
-        }
-        if self.plan_store.task_binding_for_tab(target).is_none() {
-            return;
-        }
-        if !self.plan_turn_counter.record_poll(caller) {
-            return;
-        }
-        if let Err(reason) = self.ensure_plan_reminder_routable(caller) {
-            log::warn!("[plan-reminder] polling nudge not delivered to {caller}: {reason}");
-            return;
-        }
-        let text = crate::service::plan::reminders::polling_nudge_text();
-        let _ = self.deliver_automated_plan_reminder(caller, &text);
-    }
-
-    pub(crate) fn maybe_send_idle_plan_poke(&self, tab_id: &str) {
-        let cfg = crate::config::load_config().orchestration;
-        if !cfg.plan_reminders || !cfg.idle_poke.enabled {
-            return;
-        }
-
-        let Some((plan_id, pending_tasks, active_lanes)) = idle_frontier_for_poke(
-            self.plan_store.active_owned_plan_frontier_for_tab(tab_id),
-            cfg.idle_poke.live_lane_cap,
-        ) else {
-            return;
-        };
-
-        let now = current_epoch_secs();
-        if !self
-            .plan_turn_counter
-            .time_nudge_due(tab_id, now, cfg.nudge_interval_secs)
-        {
-            return;
-        }
-        if !self.plan_turn_counter.idle_poke_due(
-            tab_id,
-            now,
-            cfg.idle_poke.max_per_day,
-            cfg.idle_poke.backoff_base_secs,
-        ) {
-            return;
-        }
-        if let Err(reason) = self.ensure_plan_reminder_routable(tab_id) {
-            log::warn!("[plan-reminder] idle poke not delivered to {tab_id}: {reason}");
-            return;
-        }
-
-        let phrase_index = self.plan_turn_counter.idle_phrase_index(tab_id);
-        let text = crate::service::plan::reminders::idle_poke_text(
-            pending_tasks,
-            active_lanes,
-            phrase_index,
-        );
-        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
-            self,
-            &plan_id,
-            Some(tab_id),
-            &text,
-        );
-        let success = self.deliver_automated_plan_reminder(tab_id, &text).is_ok();
-
-        if success {
-            self.plan_turn_counter.mark_time_nudged(tab_id, now);
-            self.plan_turn_counter.mark_idle_nudged(tab_id, now);
-        }
-    }
-
-    fn maybe_send_plan_reminder_for(
-        &self,
-        tab_id: &str,
-        role: Option<AgentRole>,
-        scope: PlanReminderScope,
-    ) {
-        let task_binding = self.plan_store.report_pending_task_binding_for_tab(tab_id);
-        let owner_plan_id = match scope {
-            PlanReminderScope::OwnerOnly => self
-                .plan_store
-                .active_owned_plan_with_open_work_for_tab(tab_id),
-            PlanReminderScope::AnyEligible if matches!(role, Some(AgentRole::Orchestrator)) => self
-                .plan_store
-                .active_owned_plan_with_open_work_for_tab(tab_id),
-            PlanReminderScope::AnyEligible if task_binding.is_none() => self
-                .plan_store
-                .active_owned_plan_with_open_work_for_tab(tab_id),
-            PlanReminderScope::AnyEligible => None,
-        };
-        let Some(target) = plan_reminder_target(task_binding, owner_plan_id, role, scope) else {
-            return;
-        };
-
-        let (turns, last_nudge) = self.plan_turn_counter.increment(tab_id);
-        let cfg = crate::config::load_config().orchestration;
-        let effective_role = target.effective_role(role);
-        let nudge_cfg = crate::service::plan::reminders::NudgeConfig {
-            plan_reminders: cfg.plan_reminders,
-            nudge_after_turns: cfg.nudge_after_turns,
-            role: effective_role,
-        };
-        let Some(kind) =
-            crate::service::plan::reminders::should_nudge(turns, last_nudge, &nudge_cfg)
-        else {
-            return;
-        };
-
-        if self
-            .deliver_plan_reminder_target(tab_id, &target, kind)
-            .is_ok()
-        {
-            self.plan_turn_counter.mark_nudged(tab_id, turns);
-            self.plan_turn_counter
-                .mark_time_nudged(tab_id, current_epoch_secs());
-        }
-    }
-
     fn send_due_plan_time_reminders(&self) {
         let cfg = crate::config::load_config().orchestration;
         if !cfg.plan_reminders || cfg.nudge_interval_secs == 0 {
@@ -462,13 +286,6 @@ fn plan_reminder_state_key(
 }
 
 impl PlanReminderTarget {
-    fn effective_role(&self, _fallback: Option<AgentRole>) -> Option<AgentRole> {
-        match self {
-            Self::Owner { .. } => Some(AgentRole::Orchestrator),
-            Self::Worker => Some(AgentRole::Worker),
-        }
-    }
-
     fn time_nudge_kind(&self) -> crate::service::plan::reminders::NudgeKind {
         match self {
             Self::Owner { .. } => crate::service::plan::reminders::NudgeKind::Orchestrator,
@@ -529,20 +346,6 @@ fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
         .collect()
 }
 
-fn idle_frontier_for_poke(
-    frontier: Option<(String, usize, usize)>,
-    live_lane_cap: u32,
-) -> Option<(String, usize, usize)> {
-    if live_lane_cap == 0 {
-        return None;
-    }
-    let (plan_id, pending, active_lanes) = frontier?;
-    if pending == 0 || active_lanes >= live_lane_cap as usize {
-        return None;
-    }
-    Some((plan_id, pending, active_lanes))
-}
-
 fn non_empty(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     (!value.is_empty()).then_some(value)
@@ -582,6 +385,7 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
 mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
     use crate::plan::{ElementCanvas, OrchestratorRef, Task, TaskLaneMetadata, TaskPriority};
     use codeterm_types::pty::BootStage;
     use std::cell::RefCell;
@@ -713,77 +517,6 @@ mod tests {
         assert_eq!(aged_task_status_text(&item, Some(&t)), "InReview");
     }
 
-    #[test]
-    fn owner_only_trigger_ignores_worker_binding() {
-        assert_eq!(
-            plan_reminder_target(
-                Some(("pl_worker".into(), "task_1".into())),
-                None,
-                Some(AgentRole::Orchestrator),
-                PlanReminderScope::OwnerOnly
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn owner_only_trigger_selects_owned_open_plan() {
-        assert_eq!(
-            plan_reminder_target(
-                None,
-                Some("pl_owner".into()),
-                Some(AgentRole::Orchestrator),
-                PlanReminderScope::OwnerOnly
-            ),
-            Some(PlanReminderTarget::Owner {
-                plan_id: "pl_owner".into()
-            })
-        );
-    }
-
-    #[test]
-    fn owner_only_trigger_prioritizes_owned_plan_over_task_binding() {
-        assert_eq!(
-            plan_reminder_target(
-                Some(("pl_worker".into(), "task_1".into())),
-                Some("pl_owner".into()),
-                Some(AgentRole::Orchestrator),
-                PlanReminderScope::OwnerOnly
-            ),
-            Some(PlanReminderTarget::Owner {
-                plan_id: "pl_owner".into()
-            })
-        );
-    }
-
-    #[test]
-    fn report_path_scope_preserves_worker_reminder_for_worker_tab() {
-        assert_eq!(
-            plan_reminder_target(
-                Some(("pl_worker".into(), "task_1".into())),
-                Some("pl_owner".into()),
-                Some(AgentRole::Worker),
-                PlanReminderScope::AnyEligible
-            ),
-            Some(PlanReminderTarget::Worker)
-        );
-    }
-
-    #[test]
-    fn report_path_scope_prioritizes_owned_plan_for_orchestrator_tab() {
-        assert_eq!(
-            plan_reminder_target(
-                Some(("pl_worker".into(), "task_1".into())),
-                Some("pl_owner".into()),
-                Some(AgentRole::Orchestrator),
-                PlanReminderScope::AnyEligible
-            ),
-            Some(PlanReminderTarget::Owner {
-                plan_id: "pl_owner".into()
-            })
-        );
-    }
-
     fn owner_plan(tab_id: &str) -> Plan {
         plan(
             "plan-reminder-test",
@@ -812,6 +545,59 @@ mod tests {
     }
 
     #[test]
+    fn event_paths_have_no_plan_reminder_injection() {
+        let cases = [
+            (
+                "report completion",
+                include_str!("../hierarchy.rs"),
+                concat!("maybe_send_", "plan_reminder("),
+            ),
+            (
+                "HTTP owned-tab send",
+                include_str!("../../api/tab_routes/send.rs"),
+                concat!("maybe_send_owned_", "plan_reminder("),
+            ),
+            (
+                "socket owned-tab send",
+                include_str!("../../socket/server/tab.rs"),
+                concat!("maybe_send_owned_", "plan_reminder("),
+            ),
+            (
+                "HTTP text polling",
+                include_str!("../../api/tab_routes.rs"),
+                concat!("maybe_send_polling_", "nudge("),
+            ),
+            (
+                "HTTP chat polling",
+                include_str!("../../api/tab_chat_routes.rs"),
+                concat!("maybe_send_polling_", "nudge("),
+            ),
+            (
+                "socket output polling",
+                include_str!("../../socket/server/tab.rs"),
+                concat!("maybe_send_polling_", "nudge("),
+            ),
+            (
+                "idle transition",
+                include_str!("../../startup/background.rs"),
+                concat!("maybe_send_idle_", "plan_poke("),
+            ),
+        ];
+
+        for (event, source, obsolete_call) in cases {
+            assert!(
+                !source.contains(obsolete_call),
+                "{event} must not inject a periodic plan reminder"
+            );
+        }
+
+        let hierarchy = include_str!("../hierarchy.rs");
+        assert!(hierarchy.contains("report.inject_body()"));
+        assert!(hierarchy.contains("pub fn notify_owner_task_in_review"));
+        assert!(hierarchy.contains("pub fn nudge_gate_asker"));
+    }
+
+    #[test]
     fn reminder_role_only_shell_records_failure_without_pty_write_or_nudge() {
         let (mux, tab_id) = reminder_test_tab();
         let counter = crate::service::plan::reminders::TurnCounter::new();
@@ -819,20 +605,17 @@ mod tests {
         let plans = vec![owner_plan(&tab_id)];
         assert!(!counter.time_nudge_due(&tab_id, 90, 10));
 
-        send_due_plan_time_reminders_with(
-            &plans,
-            &counter,
-            100,
-            10,
-            |id, _, _| {
-                if crate::service::plan_reconcile::tab_has_live_agent(mux.get_tab(id).unwrap()) {
-                    writes.borrow_mut().push(id.to_string());
-                    Ok(())
-                } else {
-                    Err("agent_unavailable: plan reminder target has no verified live agent session".into())
-                }
-            },
-        );
+        send_due_plan_time_reminders_with(&plans, &counter, 100, 10, |id, _, _| {
+            if crate::service::plan_reconcile::tab_has_live_agent(mux.get_tab(id).unwrap()) {
+                writes.borrow_mut().push(id.to_string());
+                Ok(())
+            } else {
+                Err(
+                    "agent_unavailable: plan reminder target has no verified live agent session"
+                        .into(),
+                )
+            }
+        });
 
         let telemetry = counter.time_reminder_telemetry(&tab_id);
         assert!(writes.borrow().is_empty());
@@ -846,10 +629,13 @@ mod tests {
     }
 
     #[test]
-    fn reminder_session_verified_agent_delivers_once_and_marks_nudged() {
+    fn scheduler_delivers_at_1800_seconds_once_and_marks_nudged() {
         let (mut mux, tab_id) = reminder_test_tab();
         let counter = crate::service::plan::reminders::TurnCounter::new();
         let plans = vec![owner_plan(&tab_id)];
+        let interval =
+            codeterm_types::config::schema::OrchestrationConfig::default().nudge_interval_secs;
+        assert_eq!(interval, 1800);
         {
             let tab = mux.get_tab_mut(&tab_id).unwrap();
             tab.agent_type = Some("test-provider".into());
@@ -861,22 +647,17 @@ mod tests {
             tab.boot_stage = Some(BootStage::AgentReady);
         }
         let writes = RefCell::new(Vec::new());
-        assert!(!counter.time_nudge_due(&tab_id, 90, 10));
+        assert!(!counter.time_nudge_due(&tab_id, 0, interval));
 
-        for _ in 0..2 {
-            send_due_plan_time_reminders_with(
-                &plans,
-                &counter,
-                100,
-                10,
-                |id, _, _| {
-                    assert!(crate::service::plan_reconcile::tab_has_live_agent(
-                        mux.get_tab(id).unwrap()
-                    ));
-                    writes.borrow_mut().push(id.to_string());
-                    Ok(())
-                },
-            );
+        for (now, expected_deliveries) in [(1799, 0), (1800, 1), (1800, 1)] {
+            send_due_plan_time_reminders_with(&plans, &counter, now, interval, |id, _, _| {
+                assert!(crate::service::plan_reconcile::tab_has_live_agent(
+                    mux.get_tab(id).unwrap()
+                ));
+                writes.borrow_mut().push(id.to_string());
+                Ok(())
+            });
+            assert_eq!(writes.borrow().len(), expected_deliveries);
         }
 
         let telemetry = counter.time_reminder_telemetry(&tab_id);
@@ -1038,22 +819,6 @@ mod tests {
         assert!(targets.iter().any(|target| target.tab_id == "p2"));
         assert!(targets.iter().any(|target| target.tab_id == "p3"));
         assert!(!targets.iter().any(|target| target.tab_id == "p4"));
-    }
-
-    #[test]
-    fn idle_frontier_filters_plan_pokes_by_live_lanes() {
-        assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 1).is_none());
-        assert_eq!(
-            idle_frontier_for_poke(Some(("plan-1".into(), 2, 0)), 1),
-            Some(("plan-1".into(), 2, 0))
-        );
-    }
-
-    #[test]
-    fn idle_frontier_blocks_when_no_pending_or_cap_zero() {
-        assert!(idle_frontier_for_poke(Some(("plan-1".into(), 0, 0)), 3).is_none());
-        assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 0).is_none());
-        assert!(idle_frontier_for_poke(None, 3).is_none());
     }
 
     #[test]

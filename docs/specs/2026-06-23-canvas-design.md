@@ -1,6 +1,6 @@
 # Canvas — Design Spec
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 **Status:** Draft for review
 **Scope:** Full feature — backend data model + storage + CLI + REST/socket + prompts/docs + frontend canvas. Local-per-machine v1; mesh-sync deferred but data model kept mesh-ready.
@@ -210,15 +210,14 @@ New Rust surfaces (each file < 1000 lines, split by responsibility):
 When a task is assigned to a Tab (`plan task assign`, or a worker spawned for a task), the daemon exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into that Tab (alongside the existing `CODETERM_*` vars). Workers then report against their task without being told the ids: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID ...`. Creating a plan exports `CODETERM_PLAN_ID` into the orchestrator's own Tab too.
 
 ### 4.2 Plan-adherence reminders
-Agents forget they are inside a plan and stop reporting. The daemon nudges them — smartly, not on a dumb timer.
+Agents forget they are inside a plan and stop reporting. The daemon provides one scheduler-owned periodic reminder path.
 
-- Per Tab bound to an **active** task/plan, track `turns_since_plan_touch`, incremented on each agent turn.
-- **Reset to 0** whenever that Tab runs any `codeterm plan ...` or `codeterm agent report --plan ...`. A diligent agent is therefore never nagged; only a silent one is.
-- When the counter crosses `nudge_after_turns` (default 12), inject a system reminder into the Tab via the existing report/reminder injection path. After each nudge the interval grows ×1.5 (capped) to avoid spam.
-- Differentiated copy for Worker vs Orchestrator (see §7). Escalation: after several ignored nudges the final one is blunt ("UNREPORTED task; your parent is blind until you report").
-- **Two trigger modes, both config-driven:** (a) **message-count** — the `turns_since_plan_touch` threshold above; (b) **time interval** — an active plan also pings its **owner orchestrator** every `nudge_interval_secs` of wall-clock (default 1800 = 30 min), independent of message activity. Either trigger fires a nudge; both reset on a plan-touch.
-- **This replaces the orchestrator's manual `--delay` self-heartbeats:** once a plan exists, the daemon's plan-adherence pinger IS the heartbeat — the orchestrator no longer hand-schedules delayed self-messages; the active plan periodically pings it (time + count) with the self-recovery pointer baked in.
-- Config: `[orchestration]` in `config.toml` — `plan_reminders = true|false`, `nudge_after_turns = 12`, `nudge_interval_secs = 1800`. CodeTerm-internal config: defaults ship in code, the human tunes their own cadence (per-instance, so dev/prod can differ); agents do not need to edit it.
+- Every eligible active execution-plan owner or worker gets one wall-clock deadline.
+- The scheduler checks deadlines and delivers at most once per `nudge_interval_secs` (default 1800 = 30 minutes).
+- Reports, sends, polling reads, agent turns, and idle transitions neither inject reminders nor reset the deadline.
+- Worker and Orchestrator reminder copy remains differentiated (see §7).
+- **This replaces the orchestrator's manual `--delay` self-heartbeats:** once a plan exists, the daemon's scheduler owns the periodic heartbeat with the self-recovery pointer baked in.
+- Config: `[orchestration]` in `config.toml` exposes only `plan_reminders = true|false` and `nudge_interval_secs = 1800`. Defaults ship in code; agents do not need per-plan configuration.
 
 ### 4.3 Teaching errors (self-correcting CLI)
 The second in-band training channel (the first is §4.2 reminders): every validation failure in `codeterm plan ...` / `codeterm agent report` returns an **actionable, teaching** message on stdout — what was wrong, the valid options, and the exact command to fix — never a bare "invalid argument". The agent reads it inline and self-corrects. Required cases:
@@ -454,4 +453,4 @@ Spec covers everything; the implementation plan sequences it:
 - Isolation: worktree per worker; orchestrator integrates into the warm checkout and runs incremental `./build.sh check`.
 ```
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

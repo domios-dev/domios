@@ -235,16 +235,6 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        // A real inbound message/report landing here means the reader no longer
-        // needs a reminder — clear its reminder-nudge streak (skip system reminders).
-        if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
-            let resolved = svc
-                .mux
-                .write()
-                .resolve_tab_id(to_tab)
-                .unwrap_or_else(|| to_tab.to_string());
-            svc.plan_turn_counter.reset_polls(&resolved);
-        }
         if svc.tab_chat_backing(to_tab).is_some() {
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
