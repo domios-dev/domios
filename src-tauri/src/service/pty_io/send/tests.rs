@@ -32,6 +32,38 @@ fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
 }
 
 #[test]
+fn new_detached_send_cancels_prior_submit_cycle_before_worker_spawn() {
+    let pty_id = "detached-cycle-ingress";
+    let old_claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+    let worker_spawned = std::cell::Cell::new(false);
+
+    super::spawn_with_submit_claim(Some(pty_id.to_string()), |new_claim| {
+        worker_spawned.set(true);
+        let new_claim = new_claim.expect("PTY input must own its ingress claim");
+        assert!(old_claim.same_cycle(&new_claim));
+        assert!(new_claim.generation() > old_claim.generation());
+        assert!(!old_claim.is_current());
+        assert!(new_claim.is_current());
+    });
+
+    assert!(worker_spawned.get());
+}
+
+#[test]
+fn new_raw_input_cancels_prior_submit_cycle_before_first_key() {
+    let pty_id = "raw-cycle-ingress";
+    let old_claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+    let first_key_written = std::cell::Cell::new(false);
+
+    super::after_submit_cycle_cancel(pty_id, || {
+        assert!(!old_claim.is_current());
+        first_key_written.set(true);
+    });
+
+    assert!(first_key_written.get());
+}
+
+#[test]
 fn a_torn_down_readiness_signal_re_arms_instead_of_reporting_a_deadline() {
     let screen_state = handle();
     assert!(screen_state.lock().bind_pty_generation("pty-1", 1));

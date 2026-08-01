@@ -20,6 +20,7 @@ const MAX_SUBMIT_KEY_WRITES: usize = 3;
 struct SubmitCycle {
     generation: AtomicU64,
     waiter: Mutex<Option<Thread>>,
+    write_gate: Mutex<()>,
 }
 
 impl SubmitCycle {
@@ -27,10 +28,12 @@ impl SubmitCycle {
         Self {
             generation: AtomicU64::new(0),
             waiter: Mutex::new(None),
+            write_gate: Mutex::new(()),
         }
     }
 
     fn reset(&self) -> u64 {
+        let _write_gate = self.write_gate.lock();
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         if let Some(waiter) = self.waiter.lock().take() {
             waiter.unpark();
@@ -40,6 +43,15 @@ impl SubmitCycle {
 
     fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::Acquire) == generation
+    }
+
+    fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    fn while_current<T>(&self, generation: u64, write: impl FnOnce() -> T) -> Option<T> {
+        let _write_gate = self.write_gate.lock();
+        self.is_current(generation).then(write)
     }
 
     fn wait_until(&self, generation: u64, deadline: Instant) -> bool {
@@ -63,7 +75,38 @@ fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
     CYCLES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn reset_submit_cycle(pty_id: &str) -> (Arc<SubmitCycle>, u64) {
+#[derive(Clone)]
+pub(crate) struct SubmitCycleClaim {
+    pty_id: String,
+    cycle: Arc<SubmitCycle>,
+    generation: u64,
+}
+
+impl SubmitCycleClaim {
+    pub(crate) fn pty_id(&self) -> &str {
+        &self.pty_id
+    }
+
+    pub(crate) fn is_current(&self) -> bool {
+        self.cycle.is_current(self.generation)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    #[cfg(test)]
+    pub(crate) fn same_cycle(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.cycle, &other.cycle)
+    }
+
+    fn while_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
+        self.cycle.while_current(self.generation, write)
+    }
+}
+
+pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     let cycle = {
         let mut cycles = submit_cycles().lock();
         if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
@@ -75,7 +118,27 @@ fn reset_submit_cycle(pty_id: &str) -> (Arc<SubmitCycle>, u64) {
         }
     };
     let generation = cycle.reset();
-    (cycle, generation)
+    log::info!(
+        "[submit-cycle] claim pty={} cycle={:p} generation={}",
+        pty_id,
+        Arc::as_ptr(&cycle),
+        generation
+    );
+    SubmitCycleClaim {
+        pty_id: pty_id.to_string(),
+        cycle,
+        generation,
+    }
+}
+
+pub(crate) fn cancel_submit_cycle(pty_id: &str) {
+    let claim = claim_submit_cycle(pty_id);
+    log::info!(
+        "[submit-cycle] cancel pty={} cycle={:p} generation={}",
+        pty_id,
+        Arc::as_ptr(&claim.cycle),
+        claim.generation
+    );
 }
 
 fn retire_submit_cycle(pty_id: &str, cycle: &Arc<SubmitCycle>) {
@@ -209,7 +272,21 @@ trait SubmitTransport {
         true
     }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
+    fn write_paste_if_active(
+        &self,
+        text: &str,
+        deadline: Instant,
+    ) -> Result<Option<usize>, InjectionError> {
+        self.write_paste(text, deadline).map(Some)
+    }
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
+    fn write_submit_key_if_active(
+        &self,
+        key: &[u8],
+        deadline: Instant,
+    ) -> Result<bool, InjectionError> {
+        self.write_submit_key(key, deadline).map(|()| true)
+    }
 }
 
 struct PtySubmitTransport<'a> {
@@ -291,7 +368,17 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn retry_active(&self) -> bool {
-        self.submit_cycle.is_current(self.submit_generation)
+        let current_generation = self.submit_cycle.current_generation();
+        let active = current_generation == self.submit_generation;
+        log::info!(
+            "[submit-cycle] retry-check pty={} cycle={:p} generation={} current_generation={} active={}",
+            self.pty_id,
+            Arc::as_ptr(&self.submit_cycle),
+            self.submit_generation,
+            current_generation,
+            active
+        );
+        active
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -342,6 +429,16 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         Ok(paste.len())
     }
 
+    fn write_paste_if_active(
+        &self,
+        text: &str,
+        deadline: Instant,
+    ) -> Result<Option<usize>, InjectionError> {
+        self.submit_cycle
+            .while_current(self.submit_generation, || self.write_paste(text, deadline))
+            .transpose()
+    }
+
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
         let composer_generation = { self.svc.screen_state.lock().pty_generation(self.pty_id) };
         let session = self
@@ -369,8 +466,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 .write_and_flush(self.pty_id, key, timeout),
         };
         log::info!(
-            "[submit-audit] key-write pty={} session_gen={} composer_gen={:?} enqueue_timeout_ms={} zero_timeout={} queue_result={}",
+            "[submit-audit] key-write pty={} cycle={:p} submit_generation={} session_gen={} composer_gen={:?} enqueue_timeout_ms={} zero_timeout={} queue_result={}",
             self.pty_id,
+            Arc::as_ptr(&self.submit_cycle),
+            self.submit_generation,
             session.generation,
             composer_generation,
             timeout.as_millis(),
@@ -385,6 +484,26 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
         }
         Ok(())
+    }
+
+    fn write_submit_key_if_active(
+        &self,
+        key: &[u8],
+        deadline: Instant,
+    ) -> Result<bool, InjectionError> {
+        let Some(result) = self.submit_cycle.while_current(self.submit_generation, || {
+            self.write_submit_key(key, deadline)
+        }) else {
+            log::info!(
+                "[submit-cycle] key-write-skipped pty={} cycle={:p} generation={} current_generation={}",
+                self.pty_id,
+                Arc::as_ptr(&self.submit_cycle),
+                self.submit_generation,
+                self.submit_cycle.current_generation()
+            );
+            return Ok(false);
+        };
+        result.map(|()| true)
     }
 }
 
@@ -461,7 +580,11 @@ fn run_with_submit_key<T: SubmitTransport>(
     let two_phase = enter && opts.verify_submit;
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let bytes_written = transport.write_paste(text, turn_deadline)?;
+    let Some(bytes_written) = transport.write_paste_if_active(text, turn_deadline)? else {
+        return Err(InjectionError::AgentInputUnavailable {
+            pty_id: "superseded submit cycle".to_string(),
+        });
+    };
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -493,21 +616,29 @@ fn run_with_submit_key<T: SubmitTransport>(
         let enter_armed = transport.generation();
         // The paste already reached the PTY: a submit-key write failure can
         // only mean unconfirmed submission, never a zero-write terminal error.
-        if let Err(error) = transport.write_submit_key(submit_key, turn_deadline) {
-            if text.is_empty() {
-                return Err(error);
-            }
-            log::warn!(
+        let submit_key_written = match transport
+            .write_submit_key_if_active(submit_key, turn_deadline)
+        {
+            Ok(written) => written,
+            Err(error) => {
+                if text.is_empty() {
+                    return Err(error);
+                }
+                log::warn!(
                 "[submit-transaction] post-paste submit-key write failed ({error}); classified unconfirmed"
             );
-            let screen_tail = transport
-                .observe()
-                .map(|state| state.tail)
-                .unwrap_or_default();
-            return Err(InjectionError::SubmitNeverConfirmed {
-                waited: started.elapsed(),
-                screen_tail,
-            });
+                let screen_tail = transport
+                    .observe()
+                    .map(|state| state.tail)
+                    .unwrap_or_default();
+                return Err(InjectionError::SubmitNeverConfirmed {
+                    waited: started.elapsed(),
+                    screen_tail,
+                });
+            }
+        };
+        if !submit_key_written {
+            break;
         }
         submit_key_writes += 1;
         if !two_phase {
@@ -556,7 +687,38 @@ pub(crate) fn submit_text_with_key(
     opts: VerifyOpts,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 ) -> Result<InjectionResult, InjectionError> {
-    let (submit_cycle, submit_generation) = reset_submit_cycle(pty_id);
+    let submit_claim = claim_submit_cycle(pty_id);
+    submit_text_with_key_claimed(
+        svc,
+        pty_id,
+        text,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        submit_claim,
+    )
+}
+
+pub(crate) fn submit_text_with_key_claimed(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    submit_claim: SubmitCycleClaim,
+) -> Result<InjectionResult, InjectionError> {
+    if submit_claim.pty_id() != pty_id || !submit_claim.is_current() {
+        return Err(InjectionError::AgentInputUnavailable {
+            pty_id: pty_id.to_string(),
+        });
+    }
+    let submit_cycle = Arc::clone(&submit_claim.cycle);
+    let submit_generation = submit_claim.generation;
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
