@@ -1,6 +1,7 @@
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
+use codeterm_plan::service_plan::state::{task_projection, DependencyWait, TaskPresentation};
 use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -245,26 +246,7 @@ impl ServiceContext {
     fn aged_task_callout(&self, plan_id: &str) -> Option<String> {
         let plan = self.plan_store.get(plan_id)?;
         let now = current_epoch_secs().saturating_mul(1000);
-        let aged = crate::plan::reconcile::aged_open_tasks(&plan, now);
-        if aged.is_empty() {
-            return None;
-        }
-        let listed = aged
-            .iter()
-            .take(5)
-            .map(|t| {
-                let task = plan.tasks.iter().find(|task| task.id == t.task_id);
-                format!(
-                    "- {} \"{}\" ({}, aged {}h)",
-                    t.task_id,
-                    t.name,
-                    aged_task_status_text(t, task),
-                    t.age_ms / 3_600_000
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        Some(format!("Stale tasks recorded as drift:\n{listed}"))
+        aged_task_callout_text(&plan, now)
     }
 }
 
@@ -276,13 +258,32 @@ fn plan_reminder_state_key(
     let tasks = plan
         .tasks
         .iter()
-        .map(|task| format!("{}:{:?}", task.id, task.status))
+        .map(|task| {
+            let projection = task_projection(plan, task);
+            let waits = projection
+                .dependency_waits
+                .iter()
+                .map(dependency_wait_key)
+                .collect::<Vec<_>>()
+                .join("|");
+            format!(
+                "{}:{:?}:{:?}:{waits}",
+                task.id, projection.presentation, task.status_label
+            )
+        })
         .collect::<Vec<_>>()
         .join(",");
     format!(
         "owner:{plan_id}:{kind:?}:{:?}:{:?}:{tasks}",
         plan.status, plan.mode
     )
+}
+
+fn dependency_wait_key(wait: &DependencyWait) -> String {
+    match wait.status.as_ref() {
+        Some(status) => format!("{}:{}", wait.task_id, task_status_text(status)),
+        None => format!("{}:missing", wait.task_id),
+    }
 }
 
 impl PlanReminderTarget {
@@ -351,22 +352,72 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-// Derived from qa_state/review_stage, never from a status Debug print — a task
-// queued for QA must read as queued, not as generically unjudged in_review.
+fn aged_task_callout_text(plan: &Plan, now_ms: u64) -> Option<String> {
+    let aged = crate::plan::reconcile::aged_open_tasks(plan, now_ms);
+    if aged.is_empty() {
+        return None;
+    }
+    let listed = aged
+        .iter()
+        .take(5)
+        .map(|item| {
+            let task = plan.tasks.iter().find(|task| task.id == item.task_id);
+            format!(
+                "- {} \"{}\" ({}, aged {}h)",
+                item.task_id,
+                item.name,
+                aged_task_status_text(item, task),
+                item.age_ms / 3_600_000
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!("Stale tasks recorded as drift:\n{listed}"))
+}
+
 fn aged_task_status_text(
     item: &crate::plan::reconcile::AgedOpenTask,
     task: Option<&crate::plan::Task>,
 ) -> String {
-    let queued_for_qa = task.is_some_and(|t| {
-        t.review_stage == crate::plan::ReviewStage::Qa
-            && t.qa_state == Some(crate::plan::QaState::Queued)
-    });
-    if !queued_for_qa {
-        return format!("{:?}", item.status);
+    match item.presentation {
+        TaskPresentation::ActionablePending => "actionable pending".into(),
+        TaskPresentation::WaitingOnDependencies => {
+            let waits = item
+                .dependency_waits
+                .iter()
+                .map(|wait| match wait.status.as_ref() {
+                    Some(status) => {
+                        format!("{} ({})", wait.task_id, task_status_text(status))
+                    }
+                    None => format!("{} (missing)", wait.task_id),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("waiting on dependencies: {waits}")
+        }
+        TaskPresentation::InProgress => "in progress".into(),
+        TaskPresentation::InReview => "in review".into(),
+        TaskPresentation::QueuedForQa => {
+            match task.and_then(|task| non_empty(task.status_label.as_deref())) {
+                Some(reason) => format!("queued for QA: {reason}"),
+                None => "queued for QA".into(),
+            }
+        }
+        TaskPresentation::Blocked => "blocked".into(),
+        TaskPresentation::Paused => "paused".into(),
+        TaskPresentation::Terminal => "terminal".into(),
     }
-    match task.and_then(|t| non_empty(t.status_label.as_deref())) {
-        Some(reason) => format!("queued for QA: {reason}"),
-        None => "queued for QA".to_string(),
+}
+
+fn task_status_text(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Pending => "pending",
+        TaskStatus::InProgress => "in_progress",
+        TaskStatus::InReview => "in_review",
+        TaskStatus::Blocked => "blocked",
+        TaskStatus::Paused => "paused",
+        TaskStatus::Done => "done",
+        TaskStatus::Cancelled => "cancelled",
     }
 }
 
@@ -460,10 +511,14 @@ mod tests {
     }
 
     fn aged_item(t: &Task, age_ms: u64) -> crate::plan::reconcile::AgedOpenTask {
+        let projection_plan = plan("projection", "orch", PlanMode::Execution, vec![t.clone()]);
+        let projection = task_projection(&projection_plan, &projection_plan.tasks[0]);
         crate::plan::reconcile::AgedOpenTask {
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
+            presentation: projection.presentation,
+            dependency_waits: projection.dependency_waits,
             age_ms,
         }
     }
@@ -503,7 +558,7 @@ mod tests {
         let t = task("t_plain", TaskStatus::InReview, None);
         let item = aged_item(&t, 3 * 3_600_000);
 
-        assert_eq!(aged_task_status_text(&item, Some(&t)), "InReview");
+        assert_eq!(aged_task_status_text(&item, Some(&t)), "in review");
     }
 
     #[test]
@@ -514,7 +569,212 @@ mod tests {
         t.status_label = Some("irrelevant while running".into());
         let item = aged_item(&t, 3 * 3_600_000);
 
-        assert_eq!(aged_task_status_text(&item, Some(&t)), "InReview");
+        assert_eq!(aged_task_status_text(&item, Some(&t)), "in review");
+    }
+
+    const AGED_NOW_MS: u64 = crate::plan::reconcile::PENDING_UNSTAFFED_STALE_MS + 10;
+
+    fn dependency_fixture() -> Plan {
+        let mut active = task("dep_active", TaskStatus::InProgress, Some("worker"));
+        active.name = "active dependency".into();
+        let mut waiting = task("pending_waiting", TaskStatus::Pending, None);
+        waiting.depends_on = vec![active.id.clone()];
+        waiting.status_changed_at = 1;
+        let mut missing = task("pending_missing", TaskStatus::Pending, None);
+        missing.depends_on = vec!["dep_missing".into()];
+        missing.status_changed_at = 1;
+        let mut actionable = task("pending_free", TaskStatus::Pending, None);
+        actionable.name = "orphan work".into();
+        actionable.status_changed_at = 1;
+        plan(
+            "dependency-reminder",
+            "orch",
+            PlanMode::Execution,
+            vec![active, waiting, missing, actionable],
+        )
+    }
+
+    fn fixture_task<'a>(plan: &'a Plan, id: &str) -> &'a Task {
+        plan.tasks.iter().find(|task| task.id == id).unwrap()
+    }
+
+    fn is_aged(plan: &Plan, id: &str) -> bool {
+        crate::plan::reconcile::aged_open_tasks(plan, AGED_NOW_MS)
+            .iter()
+            .any(|item| item.task_id == id)
+    }
+
+    fn has_stale_unstaffed_drift(plan: &Plan, id: &str) -> bool {
+        crate::plan::reconcile::detect_plan_drift(
+            plan,
+            &crate::plan::reconcile::ReconcileConfig::new(AGED_NOW_MS),
+            |_| crate::plan::reconcile::TabProbe::default(),
+        )
+        .iter()
+        .any(|item| {
+            item.task_id == id
+                && item.kind == crate::plan::reconcile::DriftKind::StalePendingUnstaffed
+        })
+    }
+
+    fn reminder_key(plan: &Plan) -> String {
+        plan_reminder_state_key(
+            &plan.id,
+            crate::service::plan::reminders::NudgeKind::Orchestrator,
+            plan,
+        )
+    }
+
+    #[test]
+    fn dependency_waiting_pending_is_not_stale_unstaffed_or_aged() {
+        let plan = dependency_fixture();
+        let waiting = fixture_task(&plan, "pending_waiting");
+        let projection = task_projection(&plan, waiting);
+        assert_eq!(
+            projection.presentation,
+            TaskPresentation::WaitingOnDependencies
+        );
+        assert_eq!(projection.dependency_waits.len(), 1);
+        assert_eq!(projection.dependency_waits[0].task_id, "dep_active");
+        assert_eq!(
+            projection.dependency_waits[0].status,
+            Some(TaskStatus::InProgress)
+        );
+        let waiting_item = crate::plan::reconcile::AgedOpenTask {
+            task_id: waiting.id.clone(),
+            name: waiting.name.clone(),
+            status: waiting.status.clone(),
+            presentation: projection.presentation,
+            dependency_waits: projection.dependency_waits,
+            age_ms: AGED_NOW_MS,
+        };
+        assert_eq!(
+            aged_task_status_text(&waiting_item, Some(waiting)),
+            "waiting on dependencies: dep_active (in_progress)"
+        );
+
+        assert!(!is_aged(&plan, &waiting.id));
+        assert!(!has_stale_unstaffed_drift(&plan, &waiting.id));
+        assert!(!aged_task_callout_text(&plan, AGED_NOW_MS)
+            .unwrap()
+            .contains(&waiting.id));
+    }
+
+    #[test]
+    fn missing_dependency_remains_waiting_and_is_not_stale_actionable() {
+        let plan = dependency_fixture();
+        let missing = fixture_task(&plan, "pending_missing");
+        let projection = task_projection(&plan, missing);
+        assert_eq!(
+            projection.presentation,
+            TaskPresentation::WaitingOnDependencies
+        );
+        assert_eq!(projection.dependency_waits.len(), 1);
+        assert_eq!(projection.dependency_waits[0].task_id, "dep_missing");
+        assert!(projection.dependency_waits[0].missing);
+        assert_eq!(projection.dependency_waits[0].status, None);
+
+        let waiting_item = crate::plan::reconcile::AgedOpenTask {
+            task_id: missing.id.clone(),
+            name: missing.name.clone(),
+            status: missing.status.clone(),
+            presentation: projection.presentation,
+            dependency_waits: projection.dependency_waits,
+            age_ms: AGED_NOW_MS,
+        };
+        assert_eq!(
+            aged_task_status_text(&waiting_item, Some(missing)),
+            "waiting on dependencies: dep_missing (missing)"
+        );
+        assert!(!is_aged(&plan, &missing.id));
+        assert!(!has_stale_unstaffed_drift(&plan, &missing.id));
+        let waiting_key = reminder_key(&plan);
+        let mut dependency_free = plan.clone();
+        dependency_free
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == missing.id)
+            .unwrap()
+            .depends_on
+            .clear();
+        assert_ne!(waiting_key, reminder_key(&dependency_free));
+    }
+
+    #[test]
+    fn dependency_waiting_pending_is_not_dispatched() {
+        let plan = dependency_fixture();
+        let live_tabs = std::collections::HashSet::from(["worker".to_string()]);
+        let snapshot = codeterm_plan::service_plan::state::build_plan_state_snapshot(
+            &plan,
+            crate::plan::coverage::CoverageReport {
+                plan_covered_fraction: 0.0,
+                sections: vec![],
+                gaps: vec![],
+                unlinked_count: 0,
+                unlinked_tasks: vec![],
+            },
+            vec![],
+            vec![],
+            vec![],
+            &live_tabs,
+            None,
+            AGED_NOW_MS,
+        );
+
+        assert!(snapshot.next_actions.iter().all(|action| {
+            !matches!(
+                action.kind,
+                codeterm_plan::service_plan::next_actions::NextActionKind::Continue
+            ) && !(action.kind
+                == codeterm_plan::service_plan::next_actions::NextActionKind::Dispatch
+                && matches!(
+                    action.task_id.as_deref(),
+                    Some("pending_waiting" | "pending_missing")
+                ))
+        }));
+    }
+
+    #[test]
+    fn dependency_free_aged_pending_remains_stale_unstaffed() {
+        let plan = dependency_fixture();
+        let actionable = fixture_task(&plan, "pending_free");
+        assert_eq!(
+            task_projection(&plan, actionable).presentation,
+            TaskPresentation::ActionablePending
+        );
+        assert!(is_aged(&plan, &actionable.id));
+        assert!(has_stale_unstaffed_drift(&plan, &actionable.id));
+        let callout = aged_task_callout_text(&plan, AGED_NOW_MS).unwrap();
+        assert_eq!(callout.matches("pending_free").count(), 1);
+        assert!(callout.contains("actionable pending"));
+    }
+
+    #[test]
+    fn dependency_completion_changes_reminder_state_key_without_status_change() {
+        let mut plan = dependency_fixture();
+        let before = reminder_key(&plan);
+        assert_eq!(before, reminder_key(&plan));
+        assert!(!aged_task_callout_text(&plan, AGED_NOW_MS)
+            .unwrap()
+            .contains("pending_waiting"));
+
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == "dep_active")
+            .unwrap()
+            .status = TaskStatus::Done;
+        let waiting = fixture_task(&plan, "pending_waiting");
+        assert_eq!(waiting.status, TaskStatus::Pending);
+        assert_eq!(
+            task_projection(&plan, waiting).presentation,
+            TaskPresentation::ActionablePending
+        );
+        let after = reminder_key(&plan);
+        assert_ne!(before, after);
+        assert_eq!(after, reminder_key(&plan));
+        assert!(aged_task_callout_text(&plan, AGED_NOW_MS)
+            .unwrap()
+            .contains("pending_waiting"));
     }
 
     fn owner_plan(tab_id: &str) -> Plan {
