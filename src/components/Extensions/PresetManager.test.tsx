@@ -10,7 +10,12 @@ import {
   type Preset,
   type PresetState,
 } from "./presetManagerApi";
-import type { ModelInfo } from "../../lib/types";
+import { PluginDetailPanel } from "./PluginDetailPanel";
+import type { CatalogEntry } from "./pluginCatalog";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
+import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 
@@ -21,6 +26,16 @@ function test(name: string, fn: TestFn) {
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 function setupDom() {
@@ -64,6 +79,51 @@ const MODELS: ModelInfo[] = [
   { id: "llama-3", display_name: "Llama 3" },
 ];
 
+function catalogProvider(models: ModelInfo[]): ProviderDescriptor {
+  return {
+    schema_version: 1,
+    id: "catalog-provider",
+    display_name: "Catalog Provider",
+    transport: "chat_backend",
+    behavior_config: { model: "presets_and_system_prompt" },
+    system_prompt_delivery: "external",
+    available_models: models,
+    settings_schema: [],
+    notifications_schema: [],
+    supports_lazy_skills: false,
+    has_hooks: false,
+  };
+}
+
+const CATALOG_ENTRY: CatalogEntry = {
+  id: "catalog-provider",
+  displayName: "Catalog Provider",
+  installed: true,
+  inMarketplace: false,
+  system: false,
+  verified: true,
+  removable: false,
+  dev: true,
+  compatible: true,
+  updateAvailable: false,
+};
+
+function CatalogPluginDetail() {
+  useAgentProviders();
+  return (
+    <PluginDetailPanel
+      entry={CATALOG_ENTRY}
+      config={null}
+      busy={null}
+      onAction={() => {}}
+      onSave={async () => {}}
+      onUpdateFullConfig={() => {}}
+      onGone={() => {}}
+      activityDisplayMap={new Map()}
+    />
+  );
+}
+
 function fakeApi(
   initial: PresetState,
   overrides: Partial<PresetManagerApi> = {},
@@ -92,6 +152,11 @@ function presetRows(host: HTMLElement): HTMLElement[] {
 }
 function byTestId(host: HTMLElement, id: string): HTMLElement | null {
   return host.querySelector(`[data-testid="${id}"]`);
+}
+function presetModelIds(host: HTMLElement): string[] {
+  const select = byTestId(host, "preset-model") as HTMLSelectElement | null;
+  if (!select) return [];
+  return Array.from(select.options).map((option) => option.value).filter(Boolean);
 }
 async function setInputValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const proto =
@@ -297,6 +362,64 @@ test("shows an empty state when there are no presets", async () => {
 
   __setPresetManagerApiForTest(null);
   await act(async () => root.unmount());
+});
+
+test("catalog refresh hides stale preset models through loading and error before publishing new entries", async () => {
+  const catalogA = [{ id: "model-a", display_name: "Model A" }];
+  const catalogB = [{ id: "model-b", display_name: "Model B" }];
+  const failedRefresh = deferred<ProviderDescriptor[]>();
+  let fetches = 0;
+  let modelsUpdated: (() => void) | undefined;
+
+  setAgentDescriptors([]);
+  __setPresetManagerApiForTest(fakeApi({
+    presets: [{ id: "preset", name: "Preset" }],
+    activePreset: "preset",
+  }).api);
+  __setInvokeForTest(<T,>(command: string): Promise<T> => {
+    assert(command === "list_agent_providers", `unexpected command: ${command}`);
+    fetches += 1;
+    if (fetches === 1) return Promise.resolve([catalogProvider(catalogA)]) as unknown as Promise<T>;
+    if (fetches === 2) return failedRefresh.promise as unknown as Promise<T>;
+    if (fetches === 3) return Promise.resolve([catalogProvider(catalogB)]) as unknown as Promise<T>;
+    return Promise.reject(new Error(`unexpected catalog fetch ${fetches}`));
+  });
+  __setListenForTest(async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+    if (event === "models-updated") {
+      modelsUpdated = () => handler({ payload: { provider: "catalog-provider" } as T });
+    }
+    return () => {
+      if (event === "models-updated") modelsUpdated = undefined;
+    };
+  });
+
+  const { host, root } = await render(<CatalogPluginDetail />);
+  await flush();
+  assert(presetModelIds(host).join(",") === "model-a", "preset selector starts with exact catalog A entries");
+  assert(modelsUpdated, "models-updated listener should be active");
+
+  await act(async () => modelsUpdated?.());
+  assert(presetModelIds(host).length === 0, "preset selector exposes no catalog A entries while refreshing");
+
+  await act(async () => {
+    failedRefresh.reject(new Error("catalog unavailable"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await flush();
+  assert(presetModelIds(host).length === 0, "preset selector exposes no retained catalog A entries after error");
+
+  await act(async () => modelsUpdated?.());
+  await flush();
+  assert(presetModelIds(host).join(",") === "model-b", "explicit event publishes exact catalog B entries");
+
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+  __setPresetManagerApiForTest(null);
+  await act(async () => {
+    setAgentDescriptors([]);
+    root.unmount();
+  });
 });
 
 async function main() {
