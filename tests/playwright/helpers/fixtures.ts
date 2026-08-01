@@ -15,19 +15,19 @@ export type ManagedUiSession = UiSession & {
   reconnect: () => Promise<ManagedUiSession>;
 };
 
-export type PaneCleanup = {
-  track: (paneId: string | undefined | null) => void;
-  createPane: <T extends { id?: string } = { id: string }>(body?: Record<string, unknown>) => Promise<T>;
-  closeUnprotectedPanes: () => Promise<void>;
+export type TabCleanup = {
+  track: (tabId: string | undefined | null) => void;
+  createTab: <T extends { id?: string } = { id: string }>(body?: Record<string, unknown>) => Promise<T>;
+  closeUnprotectedTabs: () => Promise<void>;
 };
 
-export type SpawnAgent = <T extends { pane_id: string } = { pane_id: string }>(
+export type SpawnAgent = <T extends { tab_id: string } = { tab_id: string }>(
   body: Record<string, unknown>,
 ) => Promise<T>;
 
 export type PollMarkerInDomOptions = {
   page?: Page;
-  paneId?: string;
+  tabId?: string;
   timeout?: number;
   polling?: number;
   normalize?: boolean;
@@ -46,7 +46,7 @@ export type MediaMocks = {
 type TestFixtures = {
   api: ApiClient;
   ui: ManagedUiSession;
-  paneCleanup: PaneCleanup;
+  tabCleanup: TabCleanup;
   spawnAgent: SpawnAgent;
   pollMarkerInDom: (marker: string, options?: PollMarkerInDomOptions) => Promise<void>;
   mediaMocks: MediaMocks;
@@ -186,20 +186,20 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     { timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
-  paneCleanup: async ({ api }, use) => {
-    const paneIds = new Set<string>();
-    const cleanup: PaneCleanup = {
-      track: (paneId) => {
-        if (paneId) paneIds.add(paneId);
+  tabCleanup: async ({ api }, use) => {
+    const tabIds = new Set<string>();
+    const cleanup: TabCleanup = {
+      track: (tabId) => {
+        if (tabId) tabIds.add(tabId);
       },
-      createPane: async <T extends { id?: string } = { id: string }>(body?: Record<string, unknown>) => {
-        const pane = await api.createPane(body) as T;
-        cleanup.track(pane.id);
-        return pane;
+      createTab: async <T extends { id?: string } = { id: string }>(body?: Record<string, unknown>) => {
+        const tab = await api.createTab(body) as T;
+        cleanup.track(tab.id);
+        return tab;
       },
-      closeUnprotectedPanes: async () => {
-        for (const pane of await api.panes()) {
-          if (!pane.protected) await api.closePane(pane.id).catch(() => {});
+      closeUnprotectedTabs: async () => {
+        for (const tab of await api.tabs()) {
+          if (!tab.protected) await api.closeTab(tab.id).catch(() => {});
         }
       },
     };
@@ -207,16 +207,16 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     try {
       await use(cleanup);
     } finally {
-      for (const paneId of Array.from(paneIds).reverse()) {
-        await api.closePane(paneId).catch(() => {});
+      for (const tabId of Array.from(tabIds).reverse()) {
+        await api.closeTab(tabId).catch(() => {});
       }
     }
   },
 
-  spawnAgent: async ({ api, paneCleanup }, use) => {
-    await use(async <T extends { pane_id: string } = { pane_id: string }>(body: Record<string, unknown>) => {
+  spawnAgent: async ({ api, tabCleanup }, use) => {
+    await use(async <T extends { tab_id: string } = { tab_id: string }>(body: Record<string, unknown>) => {
       const spawned = await api.post<T>("/agents/spawn", body);
-      paneCleanup.track(spawned.pane_id);
+      tabCleanup.track(spawned.tab_id);
       return spawned;
     });
   },
@@ -225,16 +225,16 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(async (marker, options = {}) => {
       const page = options.page ?? ui.page;
       await page.waitForFunction(
-        ({ marker: expected, paneId, normalize, includeChatMessages }) => {
+        ({ marker: expected, tabId, normalize, includeChatMessages }) => {
           const clean = (text: string) =>
             normalize ? text.replace(/[^A-Za-z0-9]/g, "").toLowerCase() : text;
           const needle = clean(expected);
-          const pane = paneId ? document.querySelector(`[data-pane-id="${paneId}"]`) : null;
+          const tab = tabId ? document.querySelector(`[data-tab-id="${tabId}"]`) : null;
           const rootSelectors = ".xterm-accessibility, .xterm-accessibility-tree, .xterm-rows";
-          const roots = pane
-            ? Array.from(pane.querySelectorAll(rootSelectors))
+          const roots = tab
+            ? Array.from(tab.querySelectorAll(rootSelectors))
             : Array.from(document.querySelectorAll(rootSelectors));
-          const chatScope = pane ?? document;
+          const chatScope = tab ?? document;
           const chatMessages = includeChatMessages
             ? Array.from(chatScope.querySelectorAll('[data-testid="chat-message"]'))
             : [];
@@ -245,7 +245,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         },
         {
           marker,
-          paneId: options.paneId,
+          tabId: options.tabId,
           normalize: options.normalize ?? false,
           includeChatMessages: options.includeChatMessages ?? false,
         },

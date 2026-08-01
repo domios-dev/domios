@@ -3,8 +3,8 @@
  *
  * Two tiers:
  * - `apiReset` — fast, between tests: closes every non-protected
- *   workspace/pane through the API, leaving the protected General
- *   workspace + its panes as the known baseline.
+ *   workspace/tab through the API, leaving the protected General
+ *   workspace + its tabs as the known baseline.
  * - `wipeDevState` — heavy, suite-level: stops the daemon and deletes
  *   mutable state dirs under the named Playwright data directory,
  *   keeping config.toml (token!) and bin/. Caller must restart via
@@ -38,19 +38,19 @@ export async function apiReset(api: ApiClient): Promise<void> {
       await api.closeWorkspace(ws.id).catch(() => {});
     }
   }
-  for (const pane of await api.panes()) {
-    if (!pane.protected) {
-      await api.closePane(pane.id).catch(() => {});
+  for (const tab of await api.tabs()) {
+    if (!tab.protected) {
+      await api.closeTab(tab.id).catch(() => {});
     }
   }
 }
 
-export type ResetBaseline = { workspaces: Set<string>; panes: Set<string> };
+export type ResetBaseline = { workspaces: Set<string>; tabs: Set<string> };
 
 export async function snapshotBaseline(api: ApiClient): Promise<ResetBaseline> {
   return {
     workspaces: new Set((await api.workspaces()).map((w) => w.id)),
-    panes: new Set((await api.panes()).map((p) => p.id)),
+    tabs: new Set((await api.tabs()).map((p) => p.id)),
   };
 }
 
@@ -61,9 +61,9 @@ export async function diffReset(api: ApiClient, baseline: ResetBaseline): Promis
       await api.closeWorkspace(ws.id).catch(() => {});
     }
   }
-  for (const pane of await api.panes()) {
-    if (!pane.protected && !baseline.panes.has(pane.id)) {
-      await api.closePane(pane.id).catch(() => {});
+  for (const tab of await api.tabs()) {
+    if (!tab.protected && !baseline.tabs.has(tab.id)) {
+      await api.closeTab(tab.id).catch(() => {});
     }
   }
 }

@@ -69,6 +69,9 @@ test("hovering the anchor shows the tooltip with zero added delay (no timers inv
   });
 
   assert(document.body.querySelector('[data-testid="tip-body"]'), "tooltip visible immediately on hover");
+  const tooltip = document.body.querySelector('[role="tooltip"]');
+  assert(tooltip?.id, "tooltip has a stable accessible id");
+  assert(anchor.parentElement?.getAttribute("aria-describedby") === tooltip.id, "anchor references the visible tooltip");
 
   await act(async () => root.unmount());
 });

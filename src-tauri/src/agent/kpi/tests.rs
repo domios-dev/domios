@@ -13,16 +13,16 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
-fn orchestrator(pane: &str) -> KpiAttribution {
-    KpiAttribution::for_pane(pane)
+fn orchestrator(tab: &str) -> KpiAttribution {
+    KpiAttribution::for_tab(tab)
         .plan(Some("pl_dwojf1".into()), Some("task_xr8mx3".into()))
         .role(Some(AgentRole::Orchestrator))
         .provider(Some("codex".into()))
         .model(Some("gpt-5.6-terra".into()))
 }
 
-fn worker(pane: &str) -> KpiAttribution {
-    KpiAttribution::for_pane(pane)
+fn worker(tab: &str) -> KpiAttribution {
+    KpiAttribution::for_tab(tab)
         .plan(Some("pl_dwojf1".into()), Some("task_xr8mx3".into()))
         .role(Some(AgentRole::Worker))
         .provider(Some("claude".into()))
@@ -30,7 +30,7 @@ fn worker(pane: &str) -> KpiAttribution {
 }
 
 fn summary(row: &KpiEventRecord) -> (KpiEventKind, String, Option<String>, u64) {
-    (row.kind, row.pane_id.clone(), row.role.clone(), row.bytes)
+    (row.kind, row.tab_id.clone(), row.role.clone(), row.bytes)
 }
 
 /// The exchange a real orchestrator/worker pair produces, replayed through the same
@@ -41,8 +41,8 @@ fn scripted_orchestrator_worker_exchange_writes_the_expected_event_sequence() {
     let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
     let recorder = KpiRecorder::with_ledger(ledger.clone());
 
-    let orch = orchestrator("pane-orch");
-    let wrk = worker("pane-worker");
+    let orch = orchestrator("tab-orch");
+    let wrk = worker("tab-worker");
 
     // 1. Orchestrator spawns the worker with a brief.
     let brief = "Implement task_xr8mx3 in this lane";
@@ -92,37 +92,37 @@ fn scripted_orchestrator_worker_exchange_writes_the_expected_event_sequence() {
         vec![
             (
                 KpiEventKind::Spawn,
-                "pane-worker".to_string(),
+                "tab-worker".to_string(),
                 Some("Worker".to_string()),
                 brief.len() as u64
             ),
             (
                 KpiEventKind::Send,
-                "pane-worker".to_string(),
+                "tab-worker".to_string(),
                 Some("Worker".to_string()),
                 message.len() as u64
             ),
             (
                 KpiEventKind::Nudge,
-                "pane-worker".to_string(),
+                "tab-worker".to_string(),
                 Some("Worker".to_string()),
                 nudge.len() as u64
             ),
             (
                 KpiEventKind::Heartbeat,
-                "pane-orch".to_string(),
+                "tab-orch".to_string(),
                 Some("Orchestrator".to_string()),
                 128
             ),
             (
                 KpiEventKind::Report,
-                "pane-worker".to_string(),
+                "tab-worker".to_string(),
                 Some("Worker".to_string()),
                 report.len() as u64
             ),
             (
                 KpiEventKind::TokenUsage,
-                "pane-worker".to_string(),
+                "tab-worker".to_string(),
                 Some("Worker".to_string()),
                 49_970
             ),
@@ -137,7 +137,7 @@ fn scripted_orchestrator_worker_exchange_writes_the_expected_event_sequence() {
     assert_eq!(
         providers,
         vec!["claude", "claude", "claude", "codex", "claude", "claude"],
-        "each event carries the provider of the pane it is charged to"
+        "each event carries the provider of the tab it is charged to"
     );
     assert_eq!(
         rows[5].tokens,
@@ -171,7 +171,7 @@ fn ingested_usage_lands_as_attributed_token_and_compaction_events() {
 
     let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
     let recorder = KpiRecorder::with_ledger(ledger.clone());
-    recorder.request_ingest(UsageSource::new(&session), worker("pane-worker"));
+    recorder.request_ingest(UsageSource::new(&session), worker("tab-worker"));
     recorder.drain();
 
     let rows = ledger.list_all().unwrap();
@@ -195,9 +195,9 @@ fn ingested_usage_lands_as_attributed_token_and_compaction_events() {
     assert_eq!((input, uncached, output), (514_028, 25_600, 1_800));
     assert!(rows
         .iter()
-        .all(|r| r.pane_id == "pane-worker" && r.provider == "claude"));
+        .all(|r| r.tab_id == "tab-worker" && r.provider == "claude"));
 
-    recorder.request_ingest(UsageSource::new(&session), worker("pane-worker"));
+    recorder.request_ingest(UsageSource::new(&session), worker("tab-worker"));
     recorder.drain();
     assert_eq!(
         ledger.list_all().unwrap().len(),
@@ -224,14 +224,14 @@ fn restarted_recorder_resumes_from_the_persisted_cursor_instead_of_reingesting()
 
     let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
     let first_run = KpiRecorder::with_ledger(ledger.clone());
-    first_run.request_ingest(UsageSource::new(&session), worker("pane-worker"));
+    first_run.request_ingest(UsageSource::new(&session), worker("tab-worker"));
     first_run.drain();
     assert_eq!(ledger.list_all().unwrap().len(), 4);
 
     // Simulate a restart: a brand-new recorder (fresh in-memory UsageIngestor, cursor
     // HashMap empty) against the SAME ledger file.
     let second_run = KpiRecorder::with_ledger(ledger.clone());
-    second_run.request_ingest(UsageSource::new(&session), worker("pane-worker"));
+    second_run.request_ingest(UsageSource::new(&session), worker("tab-worker"));
     second_run.drain();
 
     assert_eq!(
@@ -259,9 +259,9 @@ fn disabled_recorder_writes_nothing_and_creates_no_ledger_file() {
     )
     .unwrap();
     for kind in KpiEventKind::ALL {
-        recorder.record(worker("pane-worker").event_at(kind, 100, 1_700_000_000));
+        recorder.record(worker("tab-worker").event_at(kind, 100, 1_700_000_000));
     }
-    recorder.request_ingest(UsageSource::new(&session), worker("pane-worker"));
+    recorder.request_ingest(UsageSource::new(&session), worker("tab-worker"));
     recorder.drain();
 
     assert!(
@@ -317,7 +317,7 @@ fn kpi_hook_cost_on_the_send_path_is_bounded() {
     let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
     let recorder = KpiRecorder::with_ledger(ledger.clone());
     let disabled = KpiRecorder::disabled();
-    let envelope = crate::service::messenger::MessageEnvelope::pane("Dumas", "pane-orch");
+    let envelope = crate::service::messenger::MessageEnvelope::tab("Dumas", "tab-orch");
 
     fn best<F: FnMut(usize)>(rounds: usize, iterations: usize, mut body: F) -> f64 {
         let mut min = Duration::MAX;
@@ -351,12 +351,12 @@ fn kpi_hook_cost_on_the_send_path_is_bounded() {
 
     let hook_off_ns = best(ROUNDS, ITERATIONS, |_| {
         if disabled.is_enabled() {
-            disabled.record(worker("pane-worker").into_event(KpiEventKind::Send, 64));
+            disabled.record(worker("tab-worker").into_event(KpiEventKind::Send, 64));
         }
     });
 
     let hook_on_ns = best(ROUNDS, ITERATIONS, |_| {
-        recorder.record(worker("pane-worker").into_event(KpiEventKind::Send, 64));
+        recorder.record(worker("tab-worker").into_event(KpiEventKind::Send, 64));
     });
     recorder.drain();
 
@@ -425,13 +425,13 @@ fn deliver_kind_mapping_never_double_counts_owned_traffic() {
 }
 
 #[test]
-fn unattributed_pane_still_produces_a_workspace_scoped_event() {
+fn unattributed_tab_still_produces_a_workspace_scoped_event() {
     let dir = scratch("unattributed");
     let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
     let recorder = KpiRecorder::with_ledger(ledger.clone());
 
     recorder.record(
-        KpiAttribution::for_pane("pane-loose")
+        KpiAttribution::for_tab("tab-loose")
             .provider(Some("opencode".into()))
             .event_at(KpiEventKind::Send, 12, 1_700_000_000),
     );

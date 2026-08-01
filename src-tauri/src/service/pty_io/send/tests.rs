@@ -1,7 +1,8 @@
+use super::readiness::composer_input_ready;
 use super::{
-    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed,
+    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
     optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
-    submit_authenticated_pty_input,
+    submit_authenticated_pty_input, wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -22,6 +23,12 @@ const MACOS_BASH_BANNER_PROMPT: &[u8] = b"The default interactive shell is now z
 
 fn handle() -> crate::ScreenStateHandle {
     Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
+}
+
+#[test]
+fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
+    assert!(delivery_is_unknown("submit_unconfirmed: Enter was not observed"));
+    assert!(!delivery_is_unknown("pty_unavailable: recipient PTY missing"));
 }
 
 #[test]
@@ -109,19 +116,19 @@ fn an_expired_deadline_reports_not_ready() {
 
 #[test]
 fn pty_planner_input_spy_never_degrades_to_shell_write() {
-    let (mut mux, pane_id) = MultiplexerState::new();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-    pane.pty_id = Some("pty-planner".into());
-    pane.agent_type = Some("codex".into());
-    pane.agent_session_id = Some("session".into());
-    pane.session_binding_nonce = Some("nonce".into());
-    pane.reported_session_binding_nonce = Some("nonce".into());
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-planner".into());
+    tab.agent_type = Some("codex".into());
+    tab.agent_session_id = Some("session".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.reported_session_binding_nonce = Some("nonce".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
 
     let payload = "- audit `model`\n- <nonexistent>\n$env:X='y'; $(false)";
     let mut agent_input_spy = Vec::new();
-    submit_authenticated_pty_input(pane, "session", "nonce", payload, |pty, provider, text| {
+    submit_authenticated_pty_input(tab, "session", "nonce", payload, |pty, provider, text| {
         agent_input_spy.push((pty.to_string(), provider.to_string(), text.to_string()));
         Ok(())
     })
@@ -132,14 +139,14 @@ fn pty_planner_input_spy_never_degrades_to_shell_write() {
     );
 
     for shell in ["powershell", "bash", "zsh"] {
-        pane.agent_type = None;
-        pane.agent_session_id = None;
-        pane.reported_session_binding_nonce = None;
-        pane.agent_state = None;
-        pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+        tab.agent_type = None;
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        tab.agent_state = None;
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
         let mut shell_write_spy = Vec::new();
         let result =
-            submit_authenticated_pty_input(pane, "session", "nonce", payload, |_, _, text| {
+            submit_authenticated_pty_input(tab, "session", "nonce", payload, |_, _, text| {
                 shell_write_spy.push((shell, text.to_string()));
                 Ok(())
             });
@@ -150,21 +157,21 @@ fn pty_planner_input_spy_never_degrades_to_shell_write() {
 
 #[test]
 fn optimistic_send_accepts_a_live_agent_without_a_reported_nonce() {
-    let (mut mux, pane_id) = MultiplexerState::new();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-    pane.pty_id = Some("pty-agent".into());
-    pane.agent_type = Some("codex".into());
-    pane.agent_session_id = Some("session".into());
-    pane.session_binding_nonce = Some("launch-nonce".into());
-    pane.reported_session_binding_nonce = None;
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-agent".into());
+    tab.agent_type = Some("codex".into());
+    tab.agent_session_id = Some("session".into());
+    tab.session_binding_nonce = Some("launch-nonce".into());
+    tab.reported_session_binding_nonce = None;
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
 
     assert_eq!(
-        optimistic_agent_pty_target(pane).unwrap(),
+        optimistic_agent_pty_target(tab).unwrap(),
         ("pty-agent".into(), "codex".into()),
     );
-    assert!(authenticated_pty_target(pane, "session", "launch-nonce").is_err());
+    assert!(authenticated_pty_target(tab, "session", "launch-nonce").is_err());
 }
 
 #[test]
@@ -182,6 +189,73 @@ fn provider_prompt_proves_launch_without_claiming_composer_readiness() {
 }
 
 #[test]
+fn structural_composer_readiness_requires_observation_and_rejects_elapsed_time() {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+
+    let strategy = crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
+        timeout: Duration::from_secs(30),
+    };
+    assert!(strategy.requires_composer());
+
+    let composer_observed = Cell::new(false);
+    let event_waits = Cell::new(0);
+    assert!(wait_for_observed_readiness(
+        Instant::now() + Duration::from_secs(1),
+        || {
+            provider_frame_ready(
+                false,
+                false,
+                strategy.requires_composer(),
+                true,
+                composer_observed.get(),
+            )
+        },
+        |_| {
+            event_waits.set(event_waits.get() + 1);
+            composer_observed.set(true);
+            true
+        },
+    ));
+    assert_eq!(event_waits.get(), 1);
+
+    let expired_wait_called = Cell::new(false);
+    assert!(!wait_for_observed_readiness(
+        Instant::now(),
+        || false,
+        |_| {
+            expired_wait_called.set(true);
+            true
+        },
+    ));
+    assert!(!expired_wait_called.get());
+}
+
+#[test]
+fn hidden_inverse_caret_is_composer_evidence_only_in_the_bottom_region() {
+    use codeterm_pty::pty::screen_state::ComposerInputState;
+
+    let mut input = ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: false,
+        cursor_row: 22,
+        rows: 40,
+        cols: 120,
+        inverse_caret_row: Some(17),
+        nonblank_inverse_cells: 1,
+        sole_nonblank_inverse_row: Some(17),
+        last_nonblank_row: Some(21),
+    };
+    assert!(composer_input_ready(input));
+
+    input.inverse_caret_row = Some(3);
+    assert!(!composer_input_ready(input));
+
+    input.inverse_caret_row = None;
+    assert!(!composer_input_ready(input));
+}
+
+#[test]
 fn alternate_screen_composer_proves_provider_readiness_without_text_patterns() {
     assert!(provider_frame_ready(false, false, true, true, true));
     assert!(!provider_frame_ready(false, false, true, false, true));
@@ -194,121 +268,121 @@ fn alternate_screen_composer_proves_provider_readiness_without_text_patterns() {
 // The wait and delivery predicates must remain identical.
 // ---------------------------------------------------------------------------
 
-fn fully_routable_pane() -> (MultiplexerState, String) {
-    let (mut mux, pane_id) = MultiplexerState::new();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-    pane.pty_id = Some("pty-test".into());
-    pane.agent_type = Some("codex".into());
-    pane.agent_session_id = Some("session-1".into());
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-    (mux, pane_id)
+fn fully_routable_tab() -> (MultiplexerState, String) {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-test".into());
+    tab.agent_type = Some("codex".into());
+    tab.agent_session_id = Some("session-1".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    (mux, tab_id)
 }
 
-/// Mirrors the exact predicate `await_pane_routable_blocking` evaluates.
-fn is_pane_routable_for_send(pane: &crate::multiplexer::types::Pane) -> bool {
-    optimistic_agent_pty_target(pane).is_ok()
-}
-
-#[test]
-fn routable_pane_passes_all_checks() {
-    let (_mux, pane_id) = fully_routable_pane();
-    let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(is_pane_routable_for_send(pane));
+/// Mirrors the exact predicate `await_tab_routable_blocking` evaluates.
+fn is_tab_routable_for_send(tab: &crate::multiplexer::types::Tab) -> bool {
+    optimistic_agent_pty_target(tab).is_ok()
 }
 
 #[test]
-fn pane_without_agent_type_skips_routability_check() {
-    let (mut mux, pane_id) = MultiplexerState::new();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-    pane.pty_id = Some("pty-shell".into());
-    pane.agent_type = None;
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
-    let pane = mux.get_pane(&pane_id).unwrap();
-    assert!(!pane.agent_type.is_some());
+fn routable_tab_passes_all_checks() {
+    let (_mux, tab_id) = fully_routable_tab();
+    let tab = _mux.get_tab(&tab_id).unwrap();
+    assert!(is_tab_routable_for_send(tab));
+}
+
+#[test]
+fn tab_without_agent_type_skips_routability_check() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-shell".into());
+    tab.agent_type = None;
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert!(!tab.agent_type.is_some());
 }
 
 #[test]
 fn live_agent_tui_is_routable_before_session_binding() {
-    let (mut _mux, pane_id) = fully_routable_pane();
-    let pane = _mux.get_pane_mut(&pane_id).unwrap();
-    pane.agent_session_id = None;
-    let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(is_pane_routable_for_send(pane));
+    let (mut _mux, tab_id) = fully_routable_tab();
+    let tab = _mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_session_id = None;
+    let tab = _mux.get_tab(&tab_id).unwrap();
+    assert!(is_tab_routable_for_send(tab));
 }
 
 #[test]
 fn stale_exit_suspicion_does_not_block_a_live_agent_pty() {
-    let (mut _mux, pane_id) = fully_routable_pane();
-    let pane = _mux.get_pane_mut(&pane_id).unwrap();
-    pane.exit_suspected_at = Some(std::time::Instant::now());
-    let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(is_pane_routable_for_send(pane));
+    let (mut _mux, tab_id) = fully_routable_tab();
+    let tab = _mux.get_tab_mut(&tab_id).unwrap();
+    tab.exit_suspected_at = Some(std::time::Instant::now());
+    let tab = _mux.get_tab(&tab_id).unwrap();
+    assert!(is_tab_routable_for_send(tab));
 }
 
 #[test]
 fn launching_agent_with_a_live_pty_is_optimistically_routable() {
-    let (mut _mux, pane_id) = fully_routable_pane();
-    let pane = _mux.get_pane_mut(&pane_id).unwrap();
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
-    let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(is_pane_routable_for_send(pane));
+    let (mut _mux, tab_id) = fully_routable_tab();
+    let tab = _mux.get_tab_mut(&tab_id).unwrap();
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
+    let tab = _mux.get_tab(&tab_id).unwrap();
+    assert!(is_tab_routable_for_send(tab));
 }
 
 #[test]
 fn agent_with_a_live_pty_is_routable_without_boot_metadata() {
-    let (mut _mux, pane_id) = fully_routable_pane();
-    let pane = _mux.get_pane_mut(&pane_id).unwrap();
-    pane.boot_stage = None;
-    let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(is_pane_routable_for_send(pane));
+    let (mut _mux, tab_id) = fully_routable_tab();
+    let tab = _mux.get_tab_mut(&tab_id).unwrap();
+    tab.boot_stage = None;
+    let tab = _mux.get_tab(&tab_id).unwrap();
+    assert!(is_tab_routable_for_send(tab));
 }
 
 #[test]
 fn stale_timeline_state_does_not_block_a_live_agent_pty() {
-    use crate::agent::offline_state_classifier::{PaneVerdict, TimelineState};
+    use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 
-    let (mut mux, pane_id) = fully_routable_pane();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.agent_state = Some(
-        PaneVerdict {
+    let (mut mux, tab_id) = fully_routable_tab();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_state = Some(
+        TabVerdict {
             state: TimelineState::Question,
             subtype: None,
         }
         .into(),
     );
 
-    assert!(is_pane_routable_for_send(pane));
+    assert!(is_tab_routable_for_send(tab));
 }
 
 #[test]
 fn restored_working_tab_is_routable_after_daemon_restart() {
-    use crate::agent::offline_state_classifier::{AgentLiveState, PaneVerdict, TimelineState};
+    use crate::agent::offline_state_classifier::{AgentLiveState, TabVerdict, TimelineState};
 
-    let (mut mux, pane_id) = fully_routable_pane();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::PtyReattached);
-    pane.agent_state = Some(
-        PaneVerdict {
+    let (mut mux, tab_id) = fully_routable_tab();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::PtyReattached);
+    tab.agent_state = Some(
+        TabVerdict {
             state: TimelineState::Working,
             subtype: None,
         }
         .into(),
     );
-    let _typed: &AgentLiveState = pane.agent_state.as_ref().unwrap();
+    let _typed: &AgentLiveState = tab.agent_state.as_ref().unwrap();
 
-    assert!(is_pane_routable_for_send(pane));
+    assert!(is_tab_routable_for_send(tab));
 }
 
 #[test]
 fn inactive_tab_is_still_routable_after_activation() {
-    let (mut _mux, pane_id) = fully_routable_pane();
-    let pane = _mux.get_pane_mut(&pane_id).unwrap();
-    pane.chat_view = false;
-    let pane = _mux.get_pane(&pane_id).unwrap();
+    let (mut _mux, tab_id) = fully_routable_tab();
+    let tab = _mux.get_tab_mut(&tab_id).unwrap();
+    tab.chat_view = false;
+    let tab = _mux.get_tab(&tab_id).unwrap();
     assert!(
-        is_pane_routable_for_send(pane),
+        is_tab_routable_for_send(tab),
         "chat_view=false is UI state, not a backend routability gate"
     );
 }
@@ -319,32 +393,32 @@ fn inactive_tab_is_still_routable_after_activation() {
 
 #[test]
 fn restored_tab_target_survives_reconnect_and_activation() {
-    let (mut mux, pane_id) = MultiplexerState::new();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-    pane.pty_id = Some("pty-bg".into());
-    pane.agent_type = Some("claude".into());
-    pane.agent_session_id = Some("session-bg".into());
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-bg".into());
+    tab.agent_type = Some("claude".into());
+    tab.agent_session_id = Some("session-bg".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
 
-    let (pty_id, agent_type) = optimistic_agent_pty_target(pane).unwrap();
+    let (pty_id, agent_type) = optimistic_agent_pty_target(tab).unwrap();
     assert_eq!(pty_id, "pty-bg");
     assert_eq!(agent_type, "claude");
 }
 
 #[test]
 fn transport_failure_emits_chat_send_failed_event() {
-    let (mut mux, pane_id) = MultiplexerState::new();
-    let pane = mux.get_pane_mut(&pane_id).unwrap();
-    pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-    pane.pty_id = Some("pty-dead".into());
-    pane.agent_type = Some("codex".into());
-    pane.agent_session_id = Some("session-dead".into());
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-    pane.agent_type = None;
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-dead".into());
+    tab.agent_type = Some("codex".into());
+    tab.agent_session_id = Some("session-dead".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    tab.agent_type = None;
 
-    // A pane without an agent classification must not receive agent input.
-    let err = optimistic_agent_pty_target(pane).unwrap_err();
+    // A tab without an agent classification must not receive agent input.
+    let err = optimistic_agent_pty_target(tab).unwrap_err();
     assert!(
         err.contains("not accepting input"),
         "expected transport failure message, got: {err}"

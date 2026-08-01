@@ -5,7 +5,7 @@ use axum::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::api::routes::{resolve_pane, AppState};
+use crate::api::routes::{resolve_tab, AppState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SessionStartClaim {
@@ -23,16 +23,16 @@ fn epoch_ms() -> u64 {
 
 /// Ensure agent state is set when a hook fires.
 /// Hooks are authoritative — if a hook calls us, an agent IS running.
-/// This fixes detection on restored panes, Windows (PowerShell doesn't reset title), etc.
-fn ensure_agent_state(state: &AppState, pane_id: &str) {
-    log::info!("[ensure_agent_state] called for pane {}", pane_id);
+/// This fixes detection on restored tabs, Windows (PowerShell doesn't reset title), etc.
+fn ensure_agent_state(state: &AppState, tab_id: &str) {
+    log::info!("[ensure_agent_state] called for Tab {}", tab_id);
     let agent_type = {
         let mux = state.svc.mux.write();
-        let pane = match mux.get_pane(pane_id) {
+        let tab = match mux.get_tab(tab_id) {
             Some(p) => p,
             None => return,
         };
-        pane.agent_type.clone()
+        tab.agent_type.clone()
     };
 
     let agent_changed = agent_type.is_none();
@@ -40,8 +40,8 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
         // its own hook endpoints.
         state
             .svc
-            .set_and_lock_pane_agent_type(pane_id, "claude".to_string());
-        log::info!("[hook] set agent_type=claude for pane {}", pane_id);
+            .set_and_lock_tab_agent_type(tab_id, "claude".to_string());
+        log::info!("[hook] set agent_type=claude for Tab {}", tab_id);
     }
 
     if agent_changed {
@@ -58,12 +58,12 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
 /// When body is provided, bypasses ring buffer parsing (useful for testing/external integrations).
 pub async fn hook_permission(
     AxumState(state): AxumState<AppState>,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    // Hook firing = authoritative proof that an agent is running in this pane.
-    ensure_agent_state(&state, &pane_id);
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    // Hook firing = authoritative proof that an agent is running in this tab.
+    ensure_agent_state(&state, &tab_id);
 
     let explicit_prompt = body.and_then(|Json(b)| {
         let question = b.get("question")?.as_str()?.to_string();
@@ -96,19 +96,19 @@ pub async fn hook_permission(
             .svc
             .prompt_detector
             .lock()
-            .hook_detected_explicit(&pane_id, prompt)
+            .hook_detected_explicit(&tab_id, prompt)
     } else {
         let pty_id = state
             .svc
             .mux
             .write()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .and_then(|p| p.pty_id.clone());
         let agent_type = state
             .svc
             .mux
             .write()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .and_then(|p| p.agent_type.clone());
 
         if let Some(pty_id) = pty_id {
@@ -135,7 +135,7 @@ pub async fn hook_permission(
                 None
             };
             let decision = state.svc.prompt_detector.lock().hook_detected_parsed(
-                &pane_id,
+                &tab_id,
                 clean.len(),
                 tail.as_deref(),
                 parsed,
@@ -165,7 +165,7 @@ pub async fn hook_permission(
                         registry.parse_prompt(&at, tail)
                     });
                     state.svc.prompt_detector.lock().hook_detected_parsed(
-                        &pane_id,
+                        &tab_id,
                         tail.len(),
                         Some(crate::agent::prompt::utf8_tail(tail, 300)),
                         parsed,
@@ -185,13 +185,13 @@ pub async fn hook_permission(
             .svc
             .mux
             .write()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .map(|p| p.title.clone());
         if let Some(title) = title {
             state.svc.notify_event(
                 "agent.permission_request",
                 serde_json::json!({
-                    "pane_id": &pane_id,
+                    "tab_id": &tab_id,
                     "title": format!("{} needs approval", title),
                     "body": "Agent is waiting for your permission",
                 }),
@@ -205,21 +205,21 @@ pub async fn hook_permission(
 /// Called by Claude Code hook (Stop matcher).
 pub async fn hook_stop(
     AxumState(state): AxumState<AppState>,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    log::debug!("[hook_stop] fired for pane {}", pane_id);
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    log::debug!("[hook_stop] fired for Tab {}", tab_id);
     let title = state
         .svc
         .mux
         .write()
-        .get_pane(&pane_id)
+        .get_tab(&tab_id)
         .map(|p| p.title.clone());
     if let Some(title) = title {
         state.svc.notify_event(
             "agent.task_complete",
             serde_json::json!({
-                "pane_id": &pane_id,
+                "tab_id": &tab_id,
                 "title": format!("{} finished", title),
                 "body": "Task complete",
             }),
@@ -227,38 +227,39 @@ pub async fn hook_stop(
     }
 
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
-    state.svc.prompt_detector.lock().clear(&pane_id);
+    state.svc.prompt_detector.lock().clear(&tab_id);
     {
         let mut mux = state.svc.mux.write();
-        if let Some(pane) = mux.get_pane_mut(&pane_id) {
-            pane.pending_prompt = None;
+        if let Some(tab) = mux.get_tab_mut(&tab_id) {
+            tab.pending_prompt = None;
         }
     }
     state.svc.emit_state_changed();
 
-    // Hidden worker/cron runs (now ordinary interactive claude) finish on Stop if they didn't explicitly report. No-op for visible panes / already-reported runs.
+    // Hidden worker/cron runs (now ordinary interactive claude) finish on Stop if they didn't explicitly report. No-op for visible tabs / already-reported runs.
     state
         .svc
         .run_watcher
-        .complete_via_stop_hook(&state.svc, &pane_id);
-    state
-        .svc
-        .complete_worker_turn_without_report(&pane_id, "provider-stop");
+        .complete_via_stop_hook(&state.svc, &tab_id);
+    state.svc.complete_worker_turn_without_report(
+        &tab_id,
+        crate::service::WorkerTurnSignal::ProviderStop,
+    );
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 /// Hook endpoint: provider-reported SessionStart event. Body is the JSON the
 /// provider passes to the hook/plugin callback.
-/// We extract `session_id` and persist it on the pane so future restarts
+/// We extract `session_id` and persist it on the tab so future restarts
 /// resume the right conversation — covers /new and /clear inside the TUI.
 pub async fn hook_session_start(
     AxumState(state): AxumState<AppState>,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
     let session_id = session_start_string(&body, &["session_id"])
         .or_else(|| session_start_string(&body, &["payload", "session_id"]))
@@ -282,8 +283,8 @@ pub async fn hook_session_start(
 
     let Some(sid) = session_id else {
         log::warn!(
-            "[hook_session_start] pane={} source={} body had no session_id",
-            pane_id,
+            "[hook_session_start] tab={} source={} body had no session_id",
+            tab_id,
             source
         );
         return Ok(Json(
@@ -296,7 +297,7 @@ pub async fn hook_session_start(
             .svc
             .mux
             .write()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .and_then(|p| p.agent_type.clone());
         provider_id
             .or(existing)
@@ -306,37 +307,57 @@ pub async fn hook_session_start(
     let claim = bind_reported_session(
         &state.svc.mux,
         state.svc.agent_registry.as_ref(),
-        &pane_id,
+        &tab_id,
         &provider_id,
         &sid,
         report_nonce.as_deref(),
     )?;
+    let (current_nonce, reported_nonce) = {
+        let mux = state.svc.mux.read();
+        let tab = mux.get_tab(&tab_id);
+        (
+            tab.and_then(|tab| tab.session_binding_nonce.clone()),
+            tab.and_then(|tab| tab.reported_session_binding_nonce.clone()),
+        )
+    };
+    log::info!(
+        "[delivery-timeline] event=session-binding tab={} provider={} session={} \
+         report_nonce={} current_nonce={} reported_nonce={} nonce_verified={} changed={}",
+        tab_id,
+        provider_id,
+        sid,
+        report_nonce.as_deref().unwrap_or("-"),
+        current_nonce.as_deref().unwrap_or("-"),
+        reported_nonce.as_deref().unwrap_or("-"),
+        claim.nonce_verified,
+        claim.changed,
+    );
     crate::service::general_agent::binding_wait::notify_session_bound();
-    acknowledge_authenticated_launch(&state.svc.mux, &pane_id, &claim, report_nonce.as_deref());
+    acknowledge_authenticated_launch(&state.svc.mux, &tab_id, &claim, report_nonce.as_deref());
     if claim.nonce_verified {
-        state.svc.rearm_authenticated_agent_input(&pane_id);
+        state.svc.rearm_authenticated_agent_input(&tab_id);
     }
 
     // while it runs — not only after completion.
-    propagate_run_session(&state, &pane_id, &sid);
+    propagate_run_session(&state, &tab_id, &sid);
     let transcript_progress =
-        durable_transcript_progress(&state, &pane_id, &provider_id, &sid).await;
+        durable_transcript_progress(&state, &tab_id, &provider_id, &sid).await;
     state
         .svc
         .run_watcher
-        .observe_durable_transcript(&state.svc, &pane_id, transcript_progress);
+        .observe_durable_transcript(&state.svc, &tab_id, transcript_progress);
 
     if !claim.changed {
         if claim.nonce_verified {
-            state.svc.bind_planner_session(&pane_id);
-            state.svc.schedule_planner_replay(&pane_id);
+            state.svc.bind_planner_session(&tab_id);
+            state.svc.schedule_planner_replay(&tab_id);
         }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
     }
 
     log::info!(
-        "[hook_session_start] pane={} provider={} source={} session {:?} -> {}",
-        pane_id,
+        "[hook_session_start] tab={} provider={} source={} session {:?} -> {}",
+        tab_id,
         provider_id,
         source,
         claim.prev.as_deref().unwrap_or("-"),
@@ -346,11 +367,11 @@ pub async fn hook_session_start(
         state
             .svc
             .plan_store
-            .observe_handoff_session_start(&pane_id, &sid, epoch_ms())
+            .observe_handoff_session_start(&tab_id, &sid, epoch_ms())
     {
         state
             .svc
-            .send_text_detached(&resume.pane_id, &resume.text, true);
+            .send_text_detached(&resume.tab_id, &resume.text);
         let _ = state.svc.plan_store.mark_handoff_resume_sent(
             &resume.plan_id,
             &resume.handoff_id,
@@ -367,16 +388,16 @@ pub async fn hook_session_start(
             serde_json::json!({ "plan_id": resume.plan_id }),
         );
     }
-    state.svc.chat_registry.shutdown_pane(&pane_id);
-    state.svc.bind_planner_session(&pane_id);
-    state.svc.schedule_planner_replay(&pane_id);
+    state.svc.chat_registry.shutdown_tab(&tab_id);
+    state.svc.bind_planner_session(&tab_id);
+    state.svc.schedule_planner_replay(&tab_id);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
 
 async fn durable_transcript_progress(
     state: &AppState,
-    pane_id: &str,
+    tab_id: &str,
     provider_id: &str,
     session_id: &str,
 ) -> bool {
@@ -384,8 +405,8 @@ async fn durable_transcript_progress(
         .svc
         .mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.cwd.clone())
+        .get_tab(tab_id)
+        .and_then(|tab| tab.cwd.clone())
         .unwrap_or_default();
     let registry = state.svc.agent_registry.clone();
     let provider_id = provider_id.to_string();
@@ -404,7 +425,7 @@ async fn durable_transcript_progress(
 
 fn acknowledge_authenticated_launch(
     mux: &crate::multiplexer::commands::MuxState,
-    pane_id: &str,
+    tab_id: &str,
     claim: &SessionStartClaim,
     report_nonce: Option<&str>,
 ) -> bool {
@@ -416,9 +437,9 @@ fn acknowledge_authenticated_launch(
     };
     let binding = {
         let mux = mux.read();
-        mux.get_pane(pane_id).and_then(|pane| {
-            (pane.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
-                .then(|| pane.pty_id.clone())
+        mux.get_tab(tab_id).and_then(|tab| {
+            (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
+                .then(|| tab.pty_id.clone())
                 .flatten()
                 .map(|pty_id| crate::service::ProviderSessionBinding {
                     pty_id,
@@ -426,7 +447,7 @@ fn acknowledge_authenticated_launch(
                 })
         })
     };
-    binding.is_some_and(|binding| crate::service::record_provider_session(pane_id, &binding))
+    binding.is_some_and(|binding| crate::service::record_provider_session(tab_id, &binding))
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -444,17 +465,17 @@ fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<Strin
         .map(String::from)
 }
 
-/// Push the just-bound session id (+cwd) onto whatever hidden run owns this pane
+/// Push the just-bound session id (+cwd) onto whatever hidden run owns this tab
 /// (mem worker or cron run), so the read-only chat-ui can render it live.
-fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
+fn propagate_run_session(state: &AppState, tab_id: &str, sid: &str) {
     use tauri::Manager;
 
     let (worker_id, cwd) = {
         let mux = state.svc.mux.write();
-        let pane = mux.get_pane(pane_id);
+        let tab = mux.get_tab(tab_id);
         (
-            pane.and_then(|p| p.worker_id.clone()),
-            pane.and_then(|p| p.cwd.clone()),
+            tab.and_then(|p| p.worker_id.clone()),
+            tab.and_then(|p| p.cwd.clone()),
         )
     };
 
@@ -475,7 +496,7 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
     if let Some(cron_state) = state.svc.app_handle.try_state::<crate::CronState>() {
         let owner = cron_state
             .lock()
-            .get_pane_owner(pane_id)
+            .get_tab_owner(tab_id)
             .map(|(j, r)| (j.to_string(), r.to_string()));
         if let Some((job_id, run_id)) = owner {
             cron_state
@@ -487,7 +508,7 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
 }
 
 /// Materialization probe results captured OUTSIDE the mux lock, keyed on the
-/// pane fields (`cwd`, current `agent_session_id`) snapshotted just before.
+/// tab fields (`cwd`, current `agent_session_id`) snapshotted just before.
 struct MaterializationProbe {
     cwd: String,
     prev_sid: Option<String>,
@@ -498,7 +519,7 @@ struct MaterializationProbe {
 fn bind_reported_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
-    pane_id: &str,
+    tab_id: &str,
     provider_id: &str,
     sid: &str,
     report_nonce: Option<&str>,
@@ -510,18 +531,18 @@ fn bind_reported_session(
         ));
     }
 
-    // `session_exists` scans a QuickJS-backed store; under the mux lock that freezes every pane mutation.
+    // `session_exists` scans a QuickJS-backed store; under the mux lock that freezes every tab mutation.
     // Snapshot probe inputs, probe unlocked, commit only if the snapshot still holds — a moved binding retries, never overwrites.
     const MAX_ATTEMPTS: usize = 4;
     for _ in 0..MAX_ATTEMPTS {
         let (probe_cwd, probe_prev) = {
             let mux = mux.read();
-            let Some(pane) = mux.get_pane(pane_id) else {
-                return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
             };
             (
-                pane.cwd.clone().unwrap_or_default(),
-                pane.agent_session_id.clone(),
+                tab.cwd.clone().unwrap_or_default(),
+                tab.agent_session_id.clone(),
             )
         };
 
@@ -548,7 +569,7 @@ fn bind_reported_session(
         };
 
         let mut mux = mux.write();
-        match commit_reported_session(&mut mux, pane_id, provider_id, sid, report_nonce, &probe)? {
+        match commit_reported_session(&mut mux, tab_id, provider_id, sid, report_nonce, &probe)? {
             Some(claim) => return Ok(claim),
             None => continue, // snapshot went stale under us — reprobe.
         }
@@ -562,34 +583,33 @@ fn bind_reported_session(
 
 /// Reacquire-and-commit half of [`bind_reported_session`]. Runs under the write
 /// lock with the out-of-lock probe results. Returns `Ok(None)` when the probe
-/// snapshot no longer matches live pane state, signalling the caller to reprobe.
+/// snapshot no longer matches live tab state, signalling the caller to reprobe.
 fn commit_reported_session(
     mux: &mut crate::multiplexer::state::MultiplexerState,
-    pane_id: &str,
+    tab_id: &str,
     provider_id: &str,
     sid: &str,
     report_nonce: Option<&str>,
     probe: &MaterializationProbe,
 ) -> Result<Option<SessionStartClaim>, (StatusCode, String)> {
-    let Some(pane) = mux.get_pane(pane_id) else {
-        return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+    let Some(tab) = mux.get_tab(tab_id) else {
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
     };
     // The probe keyed on these; if either moved, the probe is stale — reprobe.
     // This is what stops a stale snapshot from overwriting a changed binding.
-    if pane.cwd.clone().unwrap_or_default() != probe.cwd || pane.agent_session_id != probe.prev_sid
-    {
+    if tab.cwd.clone().unwrap_or_default() != probe.cwd || tab.agent_session_id != probe.prev_sid {
         return Ok(None);
     }
 
-    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A matching nonce is proof we launched this session ourselves — it's authoritative even before the session file lands on disk. A missing report nonce is tolerated only after provider-owned session validation below.
-    let launch_nonce = pane.session_binding_nonce.clone();
-    let acknowledged_nonce = pane.reported_session_binding_nonce.clone();
-    let nonce_verified = if let Some(expected) = pane.session_binding_nonce.clone() {
+    // A report carrying a nonce that disagrees with the tab's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused tab id). A matching nonce is proof we launched this session ourselves — it's authoritative even before the session file lands on disk. A missing report nonce is tolerated only after provider-owned session validation below.
+    let launch_nonce = tab.session_binding_nonce.clone();
+    let acknowledged_nonce = tab.reported_session_binding_nonce.clone();
+    let nonce_verified = if let Some(expected) = tab.session_binding_nonce.clone() {
         match report_nonce {
             Some(got) if got != expected => {
                 log::warn!(
-                    "[hook_session_start] rejecting sid {} for pane {} provider={}: binding nonce mismatch",
-                    sid, pane_id, provider_id,
+                    "[hook_session_start] rejecting sid {} for Tab {} provider={}: binding nonce mismatch",
+                    sid, tab_id, provider_id,
                 );
                 return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
             }
@@ -600,12 +620,12 @@ fn commit_reported_session(
         false
     };
 
-    if let Some(existing_provider) = pane.agent_type.as_deref() {
+    if let Some(existing_provider) = tab.agent_type.as_deref() {
         if existing_provider != provider_id {
             return Err((
                 StatusCode::CONFLICT,
                 format!(
-                    "pane provider '{}' does not match report provider '{}'",
+                    "Tab provider '{}' does not match report provider '{}'",
                     existing_provider, provider_id
                 ),
             ));
@@ -615,9 +635,9 @@ fn commit_reported_session(
     let exists = nonce_verified || probe.new_materialized;
     if !exists {
         log::warn!(
-            "[hook_session_start] rejecting sid {} for pane {} provider={}: session does not belong to provider",
+            "[hook_session_start] rejecting sid {} for Tab {} provider={}: session does not belong to provider",
             sid,
-            pane_id,
+            tab_id,
             provider_id,
         );
         return Err((
@@ -630,20 +650,20 @@ fn commit_reported_session(
     }
 
     let conflict = mux
-        .pane_ids_with_session(sid)
+        .tab_ids_with_session(sid)
         .into_iter()
-        .find(|other| other != pane_id);
+        .find(|other| other != tab_id);
     if let Some(other) = conflict {
         log::warn!(
-            "[hook_session_start] rejecting sid {} for pane {} provider={} already claimed by {}",
+            "[hook_session_start] rejecting sid {} for Tab {} provider={} already claimed by {}",
             sid,
-            pane_id,
+            tab_id,
             provider_id,
             other,
         );
         return Err((
             StatusCode::CONFLICT,
-            format!("session_id already claimed by pane {}", other),
+            format!("session_id already claimed by Tab {}", other),
         ));
     }
 
@@ -655,8 +675,8 @@ fn commit_reported_session(
         let fresh_authenticated_launch = nonce_verified && !nonce_already_acknowledged;
         if !fresh_authenticated_launch {
             log::warn!(
-                "[hook_session_start] rejecting fileless sid {} for pane {} provider={}: would evict materialized session {:?}",
-                sid, pane_id, provider_id, probe.prev_sid,
+                "[hook_session_start] rejecting fileless sid {} for Tab {} provider={}: would evict materialized session {:?}",
+                sid, tab_id, provider_id, probe.prev_sid,
             );
             return Err((
                 StatusCode::CONFLICT,
@@ -668,22 +688,22 @@ fn commit_reported_session(
         }
     }
 
-    let Some(pane) = mux.get_pane_mut(pane_id) else {
-        return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+    let Some(tab) = mux.get_tab_mut(tab_id) else {
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
     };
-    if pane.agent_type.is_none() {
-        pane.agent_type = Some(provider_id.to_string());
-        pane.agent_type_locked = true;
-        pane.agent_set_at = Some(std::time::Instant::now());
+    if tab.agent_type.is_none() {
+        tab.agent_type = Some(provider_id.to_string());
+        tab.agent_type_locked = true;
+        tab.agent_set_at = Some(std::time::Instant::now());
     }
 
-    let prev = pane.agent_session_id.clone();
+    let prev = tab.agent_session_id.clone();
     let changed = prev.as_deref() != Some(sid);
     if changed {
-        pane.agent_session_id = Some(sid.to_string());
-        crate::service::pane::clear_runtime_model_evidence(pane);
+        tab.agent_session_id = Some(sid.to_string());
+        crate::service::tab::clear_runtime_model_evidence(tab);
     }
-    pane.reported_session_binding_nonce =
+    tab.reported_session_binding_nonce =
         nonce_verified.then(|| report_nonce.unwrap_or_default().to_string());
     Ok(Some(SessionStartClaim {
         prev,

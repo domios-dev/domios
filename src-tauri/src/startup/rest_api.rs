@@ -40,11 +40,20 @@ pub(crate) struct RestApiRecovery {
     pub(crate) status: RestApiStatus,
 }
 
+/// A configured bind the live socket does not serve. Exists because the bind is
+/// snapshotted at process start, so a config write cannot move it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct PendingBind {
+    pub(crate) live: String,
+    pub(crate) configured: String,
+}
+
 #[derive(Clone)]
 struct RestApiLifecycle {
     status: RestApiStatus,
     listener_owned: bool,
     recovery_transition: u64,
+    bound_addr: Option<SocketAddr>,
 }
 
 #[derive(Clone)]
@@ -102,6 +111,7 @@ impl RestApiControl {
                 status,
                 listener_owned: false,
                 recovery_transition: 0,
+                bound_addr: None,
             })),
             status_events,
             lifecycle_events,
@@ -158,16 +168,41 @@ impl RestApiControl {
         let mut lifecycle = self.lifecycle.lock();
         lifecycle.status.generation += 1;
         lifecycle.listener_owned = false;
+        lifecycle.bound_addr = None;
         let generation = lifecycle.status.generation;
         self.publish_locked(&mut lifecycle, RestApiPhase::Starting, None, None);
         generation
     }
 
-    fn listener_bound(&self, generation: u64) {
+    fn listener_bound(&self, generation: u64, addr: SocketAddr) {
         let mut lifecycle = self.lifecycle.lock();
         if lifecycle.status.generation == generation {
             lifecycle.listener_owned = true;
+            lifecycle.bound_addr = Some(addr);
         }
+    }
+
+    /// The address the process actually holds a socket on, or None while no
+    /// generation owns a listener.
+    pub(crate) fn bound_addr(&self) -> Option<SocketAddr> {
+        let lifecycle = self.lifecycle.lock();
+        lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
+    }
+
+    /// None only when the live socket is provably serving `configured`; anything
+    /// unproven is reported pending rather than assumed applied.
+    pub(crate) fn pending_bind(&self, configured: &str) -> Option<PendingBind> {
+        let live = self.bound_addr()?;
+        if configured
+            .parse::<SocketAddr>()
+            .is_ok_and(|configured| configured == live)
+        {
+            return None;
+        }
+        Some(PendingBind {
+            live: live.to_string(),
+            configured: configured.to_string(),
+        })
     }
 
     fn mark_listening(&self, generation: u64) -> Option<RestApiStatus> {
@@ -248,6 +283,11 @@ impl RestApiControl {
 
     pub(crate) fn status(&self) -> RestApiStatus {
         self.lifecycle.lock().status.clone()
+    }
+
+    #[cfg(test)]
+    fn listener_owned(&self) -> bool {
+        self.lifecycle.lock().listener_owned
     }
 
     #[cfg(test)]
@@ -615,7 +655,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                 }
             }
         };
-        control.listener_bound(generation);
+        control.listener_bound(generation, local_addr);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let mut server = Box::pin(
             axum::serve(listener, router.clone())

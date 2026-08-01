@@ -27,10 +27,10 @@ The runner auto-discovers `testbench/snapshots/**/expected.json`.
 Current units:
 
 - `provider_screen` — loads the real provider plugin with Rust `load_one` and
-  calls `parsePrompt`, `classifyPaneState`, `hasEventMarkers`, and
+  calls `parsePrompt`, `classifyTabState`, `hasEventMarkers`, and
   `detectEvents` in-process.
 - `agent_state_replay` — replays `raw.cast` through the Rust
-  `SignalExtractor`, provider `classify_pane_state`, semantic marker parser,
+  `SignalExtractor`, provider `classify_tab_state`, semantic marker parser,
   and command detection.
 
 ## Refresh The Claude Demo Snapshots

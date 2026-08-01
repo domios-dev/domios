@@ -23,7 +23,7 @@ pub enum DelayedMessageState {
 #[serde(rename_all = "camelCase")]
 pub struct DelayedMessage {
     pub id: String,
-    pub pane_id: String,
+    pub tab_id: String,
     pub workspace_id: Option<String>,
     pub text: String,
     pub scheduled_at_ms: u64,
@@ -32,7 +32,7 @@ pub struct DelayedMessage {
     pub error: Option<String>,
     pub session_id_at_create: Option<String>,
     #[serde(default)]
-    pub created_by_pane: Option<String>,
+    pub created_by_tab: Option<String>,
     #[serde(default)]
     pub created_by_label: Option<String>,
     #[serde(default)]
@@ -48,10 +48,10 @@ pub struct DelayedMessageView {
     pub session_changed: bool,
 }
 
-/// Who queued a reminder, resolved from the caller pane at enqueue time.
+/// Who queued a reminder, resolved from the caller tab at enqueue time.
 #[derive(Debug, Default, Clone)]
 pub struct ReminderCreator {
-    pub pane: Option<String>,
+    pub tab: Option<String>,
     pub label: Option<String>,
     pub model: Option<String>,
 }
@@ -77,44 +77,43 @@ pub struct DelayedSendQueue {
 }
 
 impl DelayedSendQueue {
+    pub(crate) fn empty(path: PathBuf) -> Self {
+        Self {
+            path,
+            inner: Arc::new(Mutex::new(QueueInner::default())),
+        }
+    }
+
     pub fn open(path: PathBuf) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("create {}: {}", parent.display(), e))?;
         }
-        let mut file = if path.exists() {
+        let mut messages = if path.exists() {
             let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path.display(), e))?;
-            serde_json::from_slice::<QueueFile>(&bytes)
-                .map_err(|e| format!("parse {}: {}", path.display(), e))?
+            load_queue_records(&path, &bytes)
         } else {
-            QueueFile {
-                version: QUEUE_VERSION,
-                messages: Vec::new(),
-            }
+            Vec::new()
         };
-        for msg in &mut file.messages {
+        for msg in &mut messages {
             if msg.state == DelayedMessageState::Sending {
                 msg.state = DelayedMessageState::Queued;
             }
         }
-        sort_messages(&mut file.messages);
-        let queue = Self {
+        sort_messages(&mut messages);
+        Ok(Self {
             path,
-            inner: Arc::new(Mutex::new(QueueInner {
-                messages: file.messages,
-            })),
-        };
-        queue.persist()?;
-        Ok(queue)
+            inner: Arc::new(Mutex::new(QueueInner { messages })),
+        })
     }
 
-    pub fn list(&self, pane_id: Option<&str>) -> Vec<DelayedMessage> {
+    pub fn list(&self, tab_id: Option<&str>) -> Vec<DelayedMessage> {
         let mut messages: Vec<_> = self
             .inner
             .lock()
             .messages
             .iter()
-            .filter(|msg| pane_id.map_or(true, |pane_id| msg.pane_id == pane_id))
+            .filter(|msg| tab_id.map_or(true, |tab_id| msg.tab_id == tab_id))
             .cloned()
             .collect();
         sort_messages(&mut messages);
@@ -124,7 +123,7 @@ impl DelayedSendQueue {
     #[allow(clippy::too_many_arguments)]
     pub fn enqueue(
         &self,
-        pane_id: String,
+        tab_id: String,
         workspace_id: Option<String>,
         session_id_at_create: Option<String>,
         text: String,
@@ -140,7 +139,7 @@ impl DelayedSendQueue {
         };
         let msg = DelayedMessage {
             id: format!("dmsg-{}", uuid::Uuid::new_v4().simple()),
-            pane_id,
+            tab_id,
             workspace_id,
             text,
             scheduled_at_ms,
@@ -148,7 +147,7 @@ impl DelayedSendQueue {
             state,
             error: None,
             session_id_at_create,
-            created_by_pane: creator.pane,
+            created_by_tab: creator.tab,
             created_by_label: creator.label,
             created_by_model: creator.model,
         };
@@ -297,6 +296,102 @@ impl DelayedSendQueue {
     }
 }
 
+fn load_queue_records(path: &Path, bytes: &[u8]) -> Vec<DelayedMessage> {
+    let root: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(root) => root,
+        Err(error) => {
+            log::error!(
+                "[delayed_send] quarantined unreadable queue {} during startup: {}; source left unchanged",
+                path.display(),
+                error
+            );
+            return Vec::new();
+        }
+    };
+    let Some(records) = root.get("messages").and_then(serde_json::Value::as_array) else {
+        log::error!(
+            "[delayed_send] queue {} has no messages array; source left unchanged",
+            path.display()
+        );
+        return Vec::new();
+    };
+    records
+        .iter()
+        .enumerate()
+        .filter_map(|(index, record)| parse_queue_record(path, index, record.clone()))
+        .collect()
+}
+
+fn parse_queue_record(
+    path: &Path,
+    index: usize,
+    mut record: serde_json::Value,
+) -> Option<DelayedMessage> {
+    let record_id = record
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>")
+        .to_string();
+    let normalized = match normalize_queue_record(&mut record) {
+        Ok(normalized) => normalized,
+        Err(error) => {
+            log::error!(
+                "[delayed_send] quarantined record {} at index {} in {}: {}; source left unchanged",
+                record_id,
+                index,
+                path.display(),
+                error
+            );
+            return None;
+        }
+    };
+    match serde_json::from_value(record) {
+        Ok(message) => {
+            if normalized > 0 {
+                log::warn!(
+                    "[delayed_send] normalized {} pane-era fields in record {} from {}; source left unchanged",
+                    normalized,
+                    record_id,
+                    path.display()
+                );
+            }
+            Some(message)
+        }
+        Err(error) => {
+            log::error!(
+                "[delayed_send] quarantined record {} at index {} in {}: {}; source left unchanged",
+                record_id,
+                index,
+                path.display(),
+                error
+            );
+            None
+        }
+    }
+}
+
+fn normalize_queue_record(record: &mut serde_json::Value) -> Result<usize, String> {
+    let Some(object) = record.as_object_mut() else {
+        return Err("record is not an object".into());
+    };
+    let mut normalized = 0;
+    for (legacy, current) in [("paneId", "tabId"), ("createdByPane", "createdByTab")] {
+        let Some(legacy_value) = object.get(legacy).cloned() else {
+            continue;
+        };
+        if let Some(current_value) = object.get(current) {
+            if current_value != &legacy_value {
+                return Err(format!("ambiguous fields {legacy} and {current}"));
+            }
+        } else {
+            object.insert(current.into(), legacy_value);
+        }
+        object.remove(legacy);
+        normalized += 1;
+    }
+    Ok(normalized)
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -306,10 +401,10 @@ pub fn now_ms() -> u64 {
 
 pub fn list_views(
     svc: &ServiceState,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
 ) -> Result<Vec<DelayedMessageView>, String> {
-    let resolved = match pane_id {
-        Some(pane_id) => Some(resolve_pane_id(svc, &pane_id)?),
+    let resolved = match tab_id {
+        Some(tab_id) => Some(resolve_tab_id(svc, &tab_id)?),
         None => None,
     };
     Ok(svc
@@ -322,14 +417,14 @@ pub fn list_views(
 
 pub fn create_message(
     svc: &ServiceState,
-    pane_id: String,
+    tab_id: String,
     text: String,
     scheduled_at_ms: Option<u64>,
-    created_by_pane: Option<String>,
+    created_by_tab: Option<String>,
 ) -> Result<DelayedMessageView, String> {
-    let resolved = resolve_pane_id(svc, &pane_id)?;
-    let (workspace_id, session_id_at_create) = pane_context(svc, &resolved);
-    let creator = resolve_creator(svc, created_by_pane);
+    let resolved = resolve_tab_id(svc, &tab_id)?;
+    let (workspace_id, session_id_at_create) = tab_context(svc, &resolved);
+    let creator = resolve_creator(svc, created_by_tab);
     let msg = svc.delayed_send.enqueue(
         resolved.clone(),
         workspace_id,
@@ -342,18 +437,18 @@ pub fn create_message(
     Ok(to_view(svc, msg))
 }
 
-fn resolve_creator(svc: &ServiceState, created_by_pane: Option<String>) -> ReminderCreator {
-    let Some(raw) = created_by_pane.filter(|p| !p.trim().is_empty()) else {
+fn resolve_creator(svc: &ServiceState, created_by_tab: Option<String>) -> ReminderCreator {
+    let Some(raw) = created_by_tab.filter(|p| !p.trim().is_empty()) else {
         return ReminderCreator::default();
     };
     let mux = svc.mux.write();
-    let pane = mux.resolve_pane_id(&raw).unwrap_or(raw);
-    let label = mux.display_label_for_pane(&pane);
+    let tab = mux.resolve_tab_id(&raw).unwrap_or(raw);
+    let label = mux.display_label_for_tab(&tab);
     let model = mux
-        .get_pane(&pane)
+        .get_tab(&tab)
         .and_then(|p| p.agent_session_model.clone());
     ReminderCreator {
-        pane: Some(pane),
+        tab: Some(tab),
         label: Some(label).filter(|s| !s.trim().is_empty()),
         model,
     }
@@ -367,21 +462,21 @@ pub fn update_message(
     stash: Option<bool>,
 ) -> Result<DelayedMessageView, String> {
     let msg = svc.delayed_send.update(&id, text, scheduled_at_ms, stash)?;
-    emit_changed(svc, &msg.pane_id);
+    emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
 
 pub fn delete_message(svc: &ServiceState, id: String) -> Result<DelayedMessageView, String> {
     let msg = svc.delayed_send.delete(&id)?;
-    emit_changed(svc, &msg.pane_id);
+    emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
 
 pub async fn send_message_now(svc: ServiceState, id: String) -> Result<(), String> {
     let msg = svc.delayed_send.claim_now(&id)?;
-    let pane_id = msg.pane_id.clone();
+    let tab_id = msg.tab_id.clone();
     let result = deliver_claimed(&svc, msg).await;
-    emit_changed(&svc, &pane_id);
+    emit_changed(&svc, &tab_id);
     result
 }
 
@@ -397,11 +492,11 @@ pub fn start_scheduler(svc: ServiceState) {
                 }
             };
             for msg in due {
-                let pane_id = msg.pane_id.clone();
+                let tab_id = msg.tab_id.clone();
                 if let Err(e) = deliver_claimed(&svc, msg).await {
-                    log::warn!("[delayed_send] delivery failed for pane {}: {}", pane_id, e);
+                    log::warn!("[delayed_send] delivery failed for Tab {}: {}", tab_id, e);
                 }
-                emit_changed(&svc, &pane_id);
+                emit_changed(&svc, &tab_id);
             }
         }
     });
@@ -410,16 +505,16 @@ pub fn start_scheduler(svc: ServiceState) {
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
     let envelope = reminder_envelope(&msg);
     let svc_for_deliver = svc.clone();
-    let pane_id = msg.pane_id.clone();
+    let tab_id = msg.tab_id.clone();
     let body = svc
         .plan_store
-        .prepend_heartbeat_for_orchestrator_pane(&pane_id, &msg.text);
+        .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text);
     let body = svc
         .plan_store
-        .prepend_worker_charter_for_pane(&pane_id, &body);
+        .prepend_worker_charter_for_tab(&tab_id, &body);
     let result = tokio::task::spawn_blocking(move || {
         svc_for_deliver.gateway_deliver(
-            &pane_id,
+            &tab_id,
             envelope,
             &body,
             crate::service::message_gateway::DeliveryClass::AgentTraffic,
@@ -443,7 +538,7 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
 fn reminder_envelope(msg: &DelayedMessage) -> crate::service::messenger::MessageEnvelope {
     crate::service::messenger::MessageEnvelope::reminder(
         msg.created_by_label.clone().unwrap_or_default(),
-        msg.created_by_pane.clone().unwrap_or_default(),
+        msg.created_by_tab.clone().unwrap_or_default(),
     )
     .model(msg.created_by_model.clone())
     .set_at(msg.created_at_ms)
@@ -451,19 +546,19 @@ fn reminder_envelope(msg: &DelayedMessage) -> crate::service::messenger::Message
     .id(Some(msg.id.clone()))
 }
 
-fn resolve_pane_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, String> {
+fn resolve_tab_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, String> {
     svc.mux
         .write()
-        .resolve_pane_id(id_or_alias)
-        .ok_or_else(|| "Pane not found".to_string())
+        .resolve_tab_id(id_or_alias)
+        .ok_or_else(|| "Tab not found".to_string())
 }
 
-fn pane_context(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<String>) {
+fn tab_context(svc: &ServiceState, tab_id: &str) -> (Option<String>, Option<String>) {
     let mux = svc.mux.write();
-    let workspace_id = mux.find_workspace_for_pane(pane_id);
+    let workspace_id = mux.find_workspace_for_tab(tab_id);
     let session_id = mux
-        .get_pane(pane_id)
-        .and_then(|pane| pane.agent_session_id.clone());
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone());
     (workspace_id, session_id)
 }
 
@@ -471,8 +566,8 @@ fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
     let current_session_id = svc
         .mux
         .write()
-        .get_pane(&msg.pane_id)
-        .and_then(|pane| pane.agent_session_id.clone());
+        .get_tab(&msg.tab_id)
+        .and_then(|tab| tab.agent_session_id.clone());
     let session_changed = match (&msg.session_id_at_create, &current_session_id) {
         (Some(a), Some(b)) => a != b,
         (Some(_), None) => true,
@@ -485,11 +580,11 @@ fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
     }
 }
 
-fn emit_changed(svc: &ServiceState, pane_id: &str) {
+fn emit_changed(svc: &ServiceState, tab_id: &str) {
     crate::api::events::emit_everywhere(
         &svc.app_handle,
         "delayed-send-changed",
-        serde_json::json!({ "paneId": pane_id }),
+        serde_json::json!({ "tabId": tab_id }),
     );
 }
 
@@ -537,7 +632,7 @@ mod tests {
     fn reminder_envelope_carries_creator_metadata() {
         let msg = DelayedMessage {
             id: "dmsg-7".into(),
-            pane_id: "target-pane".into(),
+            tab_id: "target-tab".into(),
             workspace_id: None,
             text: "hi".into(),
             scheduled_at_ms: 2000,
@@ -545,7 +640,7 @@ mod tests {
             state: DelayedMessageState::Sending,
             error: None,
             session_id_at_create: None,
-            created_by_pane: Some("e8a0ac20-aaaa".into()),
+            created_by_tab: Some("e8a0ac20-aaaa".into()),
             created_by_label: Some("Main".into()),
             created_by_model: Some("opus".into()),
         };
@@ -565,7 +660,7 @@ mod tests {
         let (dir, queue) = queue();
         let msg = queue
             .enqueue(
-                "pane-a".into(),
+                "tab-a".into(),
                 Some("ws".into()),
                 Some("sid-1".into()),
                 "hello".into(),
@@ -576,7 +671,7 @@ mod tests {
         drop(queue);
 
         let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
-        let messages = reopened.list(Some("pane-a"));
+        let messages = reopened.list(Some("tab-a"));
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].id, msg.id);
         assert_eq!(messages[0].text, "hello");
@@ -588,7 +683,7 @@ mod tests {
         let (_dir, queue) = queue();
         let second = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "second".into(),
@@ -598,7 +693,7 @@ mod tests {
             .unwrap();
         let first = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "first".into(),
@@ -612,7 +707,7 @@ mod tests {
             vec![first.id.as_str(), second.id.as_str(),]
         );
         assert!(queue
-            .list(Some("pane"))
+            .list(Some("tab"))
             .iter()
             .all(|msg| msg.state == DelayedMessageState::Sending));
     }
@@ -622,7 +717,7 @@ mod tests {
         let (_dir, queue) = queue();
         let msg = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "old".into(),
@@ -630,7 +725,7 @@ mod tests {
                 ReminderCreator::default(),
             )
             .unwrap();
-        queue.mark_failed(&msg.id, "missing pane".into()).unwrap();
+        queue.mark_failed(&msg.id, "missing Tab".into()).unwrap();
         let updated = queue
             .update(&msg.id, Some("new".into()), Some(200), None)
             .unwrap();
@@ -645,7 +740,7 @@ mod tests {
         let (_dir, queue) = queue();
         let stashed = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "park me".into(),
@@ -657,7 +752,7 @@ mod tests {
         let due = queue.claim_due(now_ms() + 60_000).unwrap();
         assert!(due.is_empty());
         assert_eq!(
-            queue.list(Some("pane"))[0].state,
+            queue.list(Some("tab"))[0].state,
             DelayedMessageState::Stashed
         );
     }
@@ -667,7 +762,7 @@ mod tests {
         let (_dir, queue) = queue();
         let stashed = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "later".into(),
@@ -685,7 +780,7 @@ mod tests {
         let (_dir, queue) = queue();
         let msg = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "hold".into(),
@@ -704,7 +799,7 @@ mod tests {
         let (dir, queue) = queue();
         let msg = queue
             .enqueue(
-                "pane".into(),
+                "tab".into(),
                 None,
                 None,
                 "hello".into(),
@@ -717,8 +812,47 @@ mod tests {
 
         let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
         assert_eq!(
-            reopened.list(Some("pane"))[0].state,
+            reopened.list(Some("tab"))[0].state,
             DelayedMessageState::Queued
         );
+    }
+
+    #[test]
+    fn open_normalizes_pane_era_records_and_isolates_malformed_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delayed_send.json");
+        let fixture = serde_json::json!({
+            "version": 2,
+            "messages": [
+                {
+                    "id": "dmsg-pane-era",
+                    "paneId": "target-tab",
+                    "workspaceId": "workspace",
+                    "text": "resume",
+                    "scheduledAtMs": 200,
+                    "createdAtMs": 100,
+                    "state": "queued",
+                    "error": null,
+                    "sessionIdAtCreate": "session",
+                    "createdByPane": "creator-tab",
+                    "createdByLabel": "Creator",
+                    "createdByModel": "model"
+                },
+                {
+                    "id": "dmsg-malformed",
+                    "paneId": 42,
+                    "text": ["not", "a", "message"]
+                }
+            ]
+        })
+        .to_string();
+        fs::write(&path, &fixture).unwrap();
+
+        let queue = DelayedSendQueue::open(path.clone()).unwrap();
+        let messages = queue.list(None);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].tab_id, "target-tab");
+        assert_eq!(messages[0].created_by_tab.as_deref(), Some("creator-tab"));
+        assert_eq!(fs::read_to_string(path).unwrap(), fixture);
     }
 }

@@ -54,7 +54,14 @@ pub async fn serve_enable_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let body = body.map(|Json(b)| b).unwrap_or_default();
-    let result = crate::mesh::enable_web_serve(state.api_port, body.https_port);
+    let result = crate::service::web_access::enable(
+        state.svc.app_handle.clone(),
+        state.mesh.clone(),
+        state.api_port,
+        body.https_port,
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Web Access mutation failed"))?;
     Ok(Json(
         serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
     ))
@@ -66,7 +73,13 @@ pub async fn serve_disable_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::mesh::disable_web_serve(state.api_port);
+    let result = crate::service::web_access::disable(
+        state.svc.app_handle.clone(),
+        state.mesh.clone(),
+        state.api_port,
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Web Access mutation failed"))?;
     Ok(Json(
         serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
     ))

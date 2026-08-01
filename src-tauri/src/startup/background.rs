@@ -1,7 +1,5 @@
 //! Background tasks: auto-save, mesh health, update check, agent idle poll.
 
-use std::collections::{HashMap, HashSet};
-
 use tauri::Manager;
 
 use crate::multiplexer::commands::MuxState;
@@ -294,7 +292,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 use std::time::Duration;
                 // Startup burst runs only while mesh is enabled.
                 if cfg.lock().mesh.enabled {
-                    let _ = mesh::refresh_local_addresses(&mesh);
+                    let _ = mesh::refresh_local_addresses(&mesh).await;
                     let report = mesh::broadcast_announce(&mesh, None).await;
                     log::info!(
                         "[mesh/announce.startup] sent={} ok={} stale={} errors={}",
@@ -317,7 +315,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     if !cfg.lock().mesh.enabled {
                         continue;
                     }
-                    let changed = mesh::refresh_local_addresses(&mesh);
+                    let changed = mesh::refresh_local_addresses(&mesh).await;
                     let heartbeat_due = last_heartbeat.elapsed() >= Duration::from_secs(90);
                     if !changed && !heartbeat_due {
                         continue;
@@ -395,90 +393,31 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             let cfg = states.config.lock();
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
-        let idle_poke_cfg = states.config.clone();
         let app_handle = app_handle.clone();
-        let mut idle_since_by_pty: HashMap<String, u64> = HashMap::new();
-        let mut was_idle_by_pty: HashSet<String> = HashSet::new();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
                 // Hold tracker lock for collect, then unlock before mux updates.
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let (changed, status_snapshots): (
-                    Vec<(
-                        String,
-                        crate::agent::status::PaneStatus,
-                        crate::agent::status::PaneStatus,
-                    )>,
-                    Vec<(String, crate::agent::status::PaneStatus)>,
-                ) = {
+                let changed = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
                     let mut changes = Vec::new();
-                    let mut snapshots = Vec::with_capacity(pty_ids.len());
                     for pty_id in pty_ids {
                         let prev = t.get_status(&pty_id);
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);
                         if now != prev {
-                            changes.push((pty_id.clone(), prev, now));
+                            changes.push((pty_id, prev, now));
                         }
-                        snapshots.push((pty_id, now));
                     }
-                    (changes, snapshots)
+                    changes
                 }; // tracker lock released here
-                let idle_threshold = {
-                    let cfg = idle_poke_cfg.lock();
-                    cfg.orchestration.idle_poke.idle_threshold_secs
-                };
-                let mut seen_pty_ids = HashSet::new();
-
-                for (pty_id, status) in status_snapshots {
-                    seen_pty_ids.insert(pty_id.clone());
-                    let pane_id = mux.write().pane_id_for_pty(&pty_id);
-                    let Some(pane_id) = pane_id else {
-                        continue;
-                    };
-                    match status {
-                        crate::agent::status::PaneStatus::Idle => {
-                            let started_at = idle_since_by_pty.entry(pty_id.clone()).or_insert(now);
-                            if now.saturating_sub(*started_at) >= idle_threshold {
-                                if let Some(service) =
-                                    app_handle.try_state::<crate::service::ServiceState>()
-                                {
-                                    service.maybe_send_idle_plan_poke(&pane_id);
-                                }
-                            }
-                            was_idle_by_pty.insert(pty_id);
-                        }
-                        crate::agent::status::PaneStatus::Working => {
-                            idle_since_by_pty.remove(&pty_id);
-                            if was_idle_by_pty.remove(&pty_id) {
-                                if let Some(service) =
-                                    app_handle.try_state::<crate::service::ServiceState>()
-                                {
-                                    service.plan_turn_counter.reset_activity(&pane_id);
-                                }
-                            }
-                        }
-                        _ => {
-                            idle_since_by_pty.remove(&pty_id);
-                        }
-                    }
-                }
-
-                let seen_pty_ids = seen_pty_ids;
-                idle_since_by_pty.retain(|pty_id, _| seen_pty_ids.contains(pty_id));
-                was_idle_by_pty.retain(|pty_id| seen_pty_ids.contains(pty_id));
 
                 for (pty_id, raw_prev, raw_now) in changed {
-                    let pane_id = mux.write().pane_id_for_pty(&pty_id);
-                    if let Some(pid) = pane_id {
+                    let tab_id = mux.write().tab_id_for_pty(&pty_id);
+                    if let Some(pid) = tab_id {
                         log::info!(
-                            "[idle-poll] {} {:?} (pane={})",
+                            "[idle-poll] {} {:?} (tab={})",
                             &pty_id[..pty_id.len().min(8)],
                             raw_now,
                             pid
@@ -486,9 +425,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         if let Some(service) =
                             app_handle.try_state::<crate::service::ServiceState>()
                         {
-                            let prev = service.reconciled_pane_status_for_id(&pid, raw_prev);
-                            let now = service.reconciled_pane_status_for_id(&pid, raw_now);
-                            service.emit_pane_status_if_changed(&pty_id, prev, now);
+                            let prev = service.reconciled_tab_status_for_id(&pid, raw_prev);
+                            let now = service.reconciled_tab_status_for_id(&pid, raw_now);
+                            service.emit_tab_status_if_changed(&pty_id, prev, now);
                         }
 
                         // Agent exits are handled in output.rs, not idle poll.

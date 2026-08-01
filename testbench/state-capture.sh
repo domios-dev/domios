@@ -115,29 +115,29 @@ provider_version() {
   esac
 }
 
-pane_status() {
-  dev_get_retry "/api/panes/$1/status" \
+tab_status() {
+  dev_get_retry "/api/tabs/$1/status" \
     | "$PY" -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true
 }
 
-pane_text() {
+tab_text() {
   dc_retry tab get-text --tab "$1" 2>/dev/null || true
 }
 
 spawn_agent() {
   local ws="$1" cwd="$2" title="$3"
   dc_retry agent spawn "$PROVIDER" --workspace "$ws" --cwd "$cwd" --title "$title" --json \
-    | json_field pane_id
+    | json_field tab_id
 }
 
 send_text() {
-  local pane="$1" text="$2"
-  dc_retry send --tab "$pane" "$text" --actions enter >/dev/null
+  local tab="$1" text="$2"
+  dc_retry send --tab "$tab" "$text" --actions enter >/dev/null
 }
 
 send_actions() {
-  local pane="$1" actions="$2"
-  dc_retry send --tab "$pane" --actions "$actions" >/dev/null
+  local tab="$1" actions="$2"
+  dc_retry send --tab "$tab" --actions "$actions" >/dev/null
 }
 
 rel_ms() {
@@ -200,30 +200,30 @@ print("yes" if idle and not active else "no")'
 }
 
 screen_is_question() {
-  local pane="$1" subtype="$2"
-  [ "$(pane_text "$pane" | screen_kind)" = "$subtype" ]
+  local tab="$1" subtype="$2"
+  [ "$(tab_text "$tab" | screen_kind)" = "$subtype" ]
 }
 
 screen_is_error() {
-  local pane="$1"
-  [ "$(pane_text "$pane" | screen_kind)" = "error" ]
+  local tab="$1"
+  [ "$(tab_text "$tab" | screen_kind)" = "error" ]
 }
 
 wait_status_seen() {
-  local pane="$1" want="$2" deadline=$((SECONDS + TIMEOUT))
+  local tab="$1" want="$2" deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    [ "$(pane_status "$pane")" = "$want" ] && return 0
+    [ "$(tab_status "$tab")" = "$want" ] && return 0
     sleep 1
   done
   return 1
 }
 
 wait_idle() {
-  local pane="$1" deadline=$((SECONDS + TIMEOUT)) streak=0
+  local tab="$1" deadline=$((SECONDS + TIMEOUT)) streak=0
   while [ "$SECONDS" -lt "$deadline" ]; do
     local st text kind idle
-    st="$(pane_status "$pane")"
-    text="$(pane_text "$pane")"
+    st="$(tab_status "$tab")"
+    text="$(tab_text "$tab")"
     kind="$(printf '%s' "$text" | screen_kind)"
     idle="$(printf '%s' "$text" | screen_idle)"
     if { [ "$st" = "Idle" ] || [ "$st" = "Waiting" ] || [ "$idle" = "yes" ]; } && { [ "$kind" = "none" ] || [ "$idle" = "yes" ]; }; then
@@ -238,24 +238,24 @@ wait_idle() {
 }
 
 settle_idle() {
-  local pane="$1"
-  wait_idle "$pane" || true
+  local tab="$1"
+  wait_idle "$tab" || true
   sleep 1
 }
 
 wait_question() {
-  local pane="$1" subtype="$2" deadline=$((SECONDS + TIMEOUT))
+  local tab="$1" subtype="$2" deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    screen_is_question "$pane" "$subtype" && return 0
+    screen_is_question "$tab" "$subtype" && return 0
     sleep 1
   done
   return 1
 }
 
 wait_error() {
-  local pane="$1" deadline=$((SECONDS + TIMEOUT))
+  local tab="$1" deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    screen_is_error "$pane" && return 0
+    screen_is_error "$tab" && return 0
     sleep 1
   done
   return 1
@@ -402,13 +402,13 @@ EOF
   mkdir -p "$out_dir"
   rm -f "$out_dir/session.cast" "$out_dir/timeline.json" "$out_dir/meta.json" "$out_dir/screen.txt" "$out_dir/session.screen.txt"
 
-  local ws pane started_at steps segments
+  local ws tab started_at steps segments
   ws="$(dc_retry workspace create "state-$PROVIDER-$SCENARIO-$run" --cwd "$ws_cwd" --json | json_field id)"
-  pane="$(spawn_agent "$ws" "$ws_cwd" "state-$SCENARIO-$run")"
+  tab="$(spawn_agent "$ws" "$ws_cwd" "state-$SCENARIO-$run")"
   sleep 5
-  wait_idle "$pane" || true
+  wait_idle "$tab" || true
 
-  dc_retry tab capture start --tab "$pane" --out "$out_dir/session.cast" >/dev/null
+  dc_retry tab capture start --tab "$tab" --out "$out_dir/session.cast" >/dev/null
   started_at="$(now_ms)"
   steps='[]'
   segments='[]'
@@ -432,10 +432,10 @@ EOF
     working-idle)
       prompt="$(prompt_for "$SCENARIO" "$run")"
       t0="$(rel_ms "$started_at")"
-      send_text "$pane" "$prompt"
+      send_text "$tab" "$prompt"
       add_step "$t0" "send coding task" "working"
-      wait_status_seen "$pane" "Working" || true
-      settle_idle "$pane"
+      wait_status_seen "$tab" "Working" || true
+      settle_idle "$tab"
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "quiescence settled" "idle"
       add_segment "$t0" "$t1" "working"
@@ -443,20 +443,20 @@ EOF
     multi-turn)
       t0="$(rel_ms "$started_at")"
       prompt="$(multi_prompt_for "$run" 1)"
-      send_text "$pane" "$prompt"
+      send_text "$tab" "$prompt"
       add_step "$t0" "send multi-turn task 1" "working"
-      wait_status_seen "$pane" "Working" || true
-      settle_idle "$pane"
+      wait_status_seen "$tab" "Working" || true
+      settle_idle "$tab"
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "task 1 quiescence settled" "idle"
       add_segment "$t0" "$t1" "working"
 
       t2="$(rel_ms "$started_at")"
       prompt="$(multi_prompt_for "$run" 2)"
-      send_text "$pane" "$prompt"
+      send_text "$tab" "$prompt"
       add_step "$t2" "send multi-turn task 2" "working"
-      wait_status_seen "$pane" "Working" || true
-      settle_idle "$pane"
+      wait_status_seen "$tab" "Working" || true
+      settle_idle "$tab"
       t3="$(rel_ms "$started_at")"
       add_step "$t3" "task 2 quiescence settled" "idle"
       add_segment "$t1" "$t2" "idle"
@@ -464,10 +464,10 @@ EOF
 
       t4="$(rel_ms "$started_at")"
       prompt="$(multi_prompt_for "$run" 3)"
-      send_text "$pane" "$prompt"
+      send_text "$tab" "$prompt"
       add_step "$t4" "send multi-turn task 3" "working"
-      wait_status_seen "$pane" "Working" || true
-      settle_idle "$pane"
+      wait_status_seen "$tab" "Working" || true
+      settle_idle "$tab"
       local t5
       t5="$(rel_ms "$started_at")"
       add_step "$t5" "task 3 quiescence settled" "idle"
@@ -477,10 +477,10 @@ EOF
     model-choice)
       prompt="$(prompt_for "$SCENARIO" "$run")"
       t0="$(rel_ms "$started_at")"
-      send_text "$pane" "$prompt"
+      send_text "$tab" "$prompt"
       add_step "$t0" "send prompt that asks for choices" "working"
-      wait_status_seen "$pane" "Working" || true
-      wait_question "$pane" "model_choice" || true
+      wait_status_seen "$tab" "Working" || true
+      wait_question "$tab" "model_choice" || true
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "choice block visible" "question:model_choice"
       answer="Use in-memory caching."
@@ -488,11 +488,11 @@ EOF
         1) answer="Choose the first migration option." ;;
         2) answer="Use the REST API style." ;;
       esac
-      send_text "$pane" "$answer"
+      send_text "$tab" "$answer"
       t2="$(rel_ms "$started_at")"
       add_step "$t2" "answer choice" "working"
-      wait_status_seen "$pane" "Working" || true
-      settle_idle "$pane"
+      wait_status_seen "$tab" "Working" || true
+      settle_idle "$tab"
       t3="$(rel_ms "$started_at")"
       add_step "$t3" "quiescence settled after answer" "idle"
       add_segment "$t0" "$t1" "working"
@@ -501,15 +501,15 @@ EOF
       ;;
     model-picker)
       t0="$(rel_ms "$started_at")"
-      send_text "$pane" "/model"
+      send_text "$tab" "/model"
       add_step "$t0" "send /model" "question:model_picker"
-      wait_question "$pane" "model_picker" || true
+      wait_question "$tab" "model_picker" || true
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "model picker visible" "question:model_picker"
-      send_actions "$pane" "enter"
+      send_actions "$tab" "enter"
       t2="$(rel_ms "$started_at")"
       add_step "$t2" "accept model picker default" "idle"
-      settle_idle "$pane"
+      settle_idle "$tab"
       t3="$(rel_ms "$started_at")"
       add_step "$t3" "picker closed and idle" "idle"
       add_segment "$t0" "$t1" "idle"
@@ -519,13 +519,13 @@ EOF
     error)
       prompt="$(prompt_for "$SCENARIO" "$run")"
       t0="$(rel_ms "$started_at")"
-      send_text "$pane" "$prompt"
+      send_text "$tab" "$prompt"
       add_step "$t0" "send failing task" "working"
-      wait_status_seen "$pane" "Working" || true
-      wait_error "$pane" || true
+      wait_status_seen "$tab" "Working" || true
+      wait_error "$tab" || true
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "error visible" "error"
-      settle_idle "$pane"
+      settle_idle "$tab"
       t2="$(rel_ms "$started_at")"
       add_step "$t2" "quiescence settled after error" "idle"
       add_segment "$t0" "$t1" "working"
@@ -534,9 +534,9 @@ EOF
   esac
 
   sleep 2
-  dc_retry tab capture stop --tab "$pane" >/dev/null || true
+  dc_retry tab capture stop --tab "$tab" >/dev/null || true
   [ -f "$out_dir/session.screen.txt" ] && mv "$out_dir/session.screen.txt" "$out_dir/screen.txt"
-  [ -f "$out_dir/screen.txt" ] || pane_text "$pane" > "$out_dir/screen.txt"
+  [ -f "$out_dir/screen.txt" ] || tab_text "$tab" > "$out_dir/screen.txt"
 
   local end_ms last_state last_subtype
   end_ms="$(cast_ms "$out_dir/session.cast")"
@@ -583,12 +583,12 @@ PY
   "cli_version": "$provider_version_value",
   "capturedAtMs": $(now_ms),
   "source": "state-capture.sh dev-7686",
-  "paneId": "$pane",
+  "tabId": "$tab",
   "workspaceId": "$ws"
 }
 JSON
 
-  dc_retry pane close "$pane" >/dev/null 2>&1 || true
+  dc_retry tab close "$tab" >/dev/null 2>&1 || true
   verify_dump "$out_dir" "$SCENARIO"
   echo "wrote $out_dir"
 }

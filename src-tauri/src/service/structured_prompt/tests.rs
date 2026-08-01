@@ -18,13 +18,13 @@ fn dummy_prompt(q: &str) -> PendingPrompt {
 }
 
 #[test]
-fn endpoint_and_active_round_trip_per_pane() {
-    let pane = "test-pane-sp-roundtrip";
-    register_endpoint(pane, "http://127.0.0.1:55555".into(), "/work".into());
-    assert!(pending_for_pane(pane).is_none(), "no prompt yet");
+fn endpoint_and_active_round_trip_per_tab() {
+    let tab = "test-tab-sp-roundtrip";
+    register_endpoint(tab, "http://127.0.0.1:55555".into(), "/work".into());
+    assert!(pending_for_tab(tab).is_none(), "no prompt yet");
 
     ACTIVE.lock().insert(
-        pane.to_string(),
+        tab.to_string(),
         Active {
             prompt: dummy_prompt("Pick one"),
             route: ResponseRoute {
@@ -35,13 +35,13 @@ fn endpoint_and_active_round_trip_per_pane() {
             },
         },
     );
-    assert_eq!(pending_for_pane(pane).unwrap().question, "Pick one");
-    assert_eq!(route_for_pane(pane).unwrap().request_id, "que_1");
+    assert_eq!(pending_for_tab(tab).unwrap().question, "Pick one");
+    assert_eq!(route_for_tab(tab).unwrap().request_id, "que_1");
 
-    clear_pane(pane);
-    assert!(pending_for_pane(pane).is_none());
-    assert!(route_for_pane(pane).is_none());
-    assert!(ENDPOINTS.lock().get(pane).is_none());
+    clear_tab(tab);
+    assert!(pending_for_tab(tab).is_none());
+    assert!(route_for_tab(tab).is_none());
+    assert!(ENDPOINTS.lock().get(tab).is_none());
 }
 
 #[test]
@@ -52,6 +52,6 @@ fn allocate_server_returns_loopback_port() {
 }
 
 #[test]
-fn pending_for_unknown_pane_is_none() {
-    assert!(pending_for_pane("test-pane-sp-never-registered").is_none());
+fn pending_for_unknown_tab_is_none() {
+    assert!(pending_for_tab("test-tab-sp-never-registered").is_none());
 }

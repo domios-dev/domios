@@ -4,7 +4,7 @@
 # DO NOT use as a C9 acceptance gate. Measured 2026-06-21: opencode (deepseek-v4-
 # flash-free, auto-approve) renders polls as PROSE and self-answers, and executes
 # tools WITHOUT a permission prompt — so NO question.asked/permission.asked event is
-# emitted and the pane never reaches state=question. That is the MODEL not asking,
+# emitted and the tab never reaches state=question. That is the MODEL not asking,
 # NOT an SSE-path failure. The deterministic C9 gate is a local SSE fixture that
 # drives the real subscriber -> pending_prompt -> state=Question -> respond roundtrip
 # (Lead-owned). This script remains only as a supplemental LIVE elicitation smoke; a
@@ -29,17 +29,17 @@ TOK=$(python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$H
 ocpost(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data "$2" "http://127.0.0.1:7686$1"; }
 ocget(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "http://127.0.0.1:7686$1"; }
 
-PANE=""; SPAWNED_WS=""
+TAB=""; SPAWNED_WS=""
 PROMPT="Ask me a multiple-choice question with options A, B, C using your real interactive question/poll UI (not prose). Wait for my choice."
-while [ "$#" -gt 0 ]; do case "$1" in --tab) PANE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
+while [ "$#" -gt 0 ]; do case "$1" in --tab) TAB="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
 
-st(){ ocget /api/panes 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$1'),'?'))"; }
+st(){ ocget /api/tabs 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$1'),'?'))"; }
 
-if [ -z "$PANE" ]; then
+if [ -z "$TAB" ]; then
   SPAWNED_WS=$(dc workspace create "VIS-structprompt" --json 2>&1 | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
   trap 'dc workspace close "$SPAWNED_WS" >/dev/null 2>&1 || true' EXIT
-  PANE=$(dc agent spawn opencode --workspace "$SPAWNED_WS" --title "structprompt" --json 2>&1 | python3 -c "import sys,json;print(json.load(sys.stdin).get('pane_id',''))")
-  echo "spawned opencode pane=$PANE (ws=$SPAWNED_WS)"
+  TAB=$(dc agent spawn opencode --workspace "$SPAWNED_WS" --title "structprompt" --json 2>&1 | python3 -c "import sys,json;print(json.load(sys.stdin).get('tab_id',''))")
+  echo "spawned opencode tab=$TAB (ws=$SPAWNED_WS)"
   python3 -c 'import time;time.sleep(9)'
 fi
 
@@ -48,21 +48,21 @@ fi
 # a t=0s 'question' read falsely as success).
 echo "== settling to idle baseline (NO auto-Enter — never press keys during baseline) =="
 for i in $(seq 1 40); do
-  s=$(st "$PANE")
+  s=$(st "$TAB")
   [ "$s" = question ] && { echo "  baseline has a pending question — refusing to auto-answer (would mask product behavior)"; break; }
   [ "$s" = idle ] && break
   python3 -c 'import time;time.sleep(0.5)'
 done
-base=$(st "$PANE"); echo "  baseline state=$base"
+base=$(st "$TAB"); echo "  baseline state=$base"
 [ "$base" = idle ] || { echo "RESULT: INCONCLUSIVE (never settled to idle baseline, state=$base) — cannot attribute a later Question to the prompt"; exit 2; }
 
 echo "== sending question-eliciting prompt =="
-ocpost "/api/panes/$PANE/send" "$(python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1],"enter":True}))' "$PROMPT")" >/dev/null
+ocpost "/api/tabs/$TAB/send" "$(python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1],"enter":True}))' "$PROMPT")" >/dev/null
 
 echo "== watching for idle->Question transition caused by the prompt (up to 40s) =="
 saw_q=0
 for i in $(seq 1 80); do
-  s=$(st "$PANE")
+  s=$(st "$TAB")
   printf '\r  t=%ss state=%s    ' "$((i/2))" "$s" >&2
   [ "$s" = question ] && { saw_q=1; echo; echo "  reached state=question @ ~$((i/2))s after prompt"; break; }
   python3 -c 'import time;time.sleep(0.5)'
@@ -73,6 +73,6 @@ if [ "$saw_q" = 1 ]; then
   echo "RESULT: STRUCTURED PROMPT DELIVERED (state=question via SSE picker — C2 path live)"
   exit 0
 else
-  echo "RESULT: NO STRUCTURED QUESTION (final state=$(st "$PANE")) — SSE path did not deliver (server/subscriber gap or opencode answered in prose)"
+  echo "RESULT: NO STRUCTURED QUESTION (final state=$(st "$TAB")) — SSE path did not deliver (server/subscriber gap or opencode answered in prose)"
   exit 1
 fi

@@ -145,7 +145,7 @@ detector change, run the dense full doctor and inspect the player on the
 affected windows.
 
 `50x120` is the current `ScreenState` oracle geometry. Once `ScreenState` tracks
-the pane's real PTY winsize, switch this to the cast-header geometry instead.
+the tab's real PTY winsize, switch this to the cast-header geometry instead.
 
 ### 6. Open the replay player
 

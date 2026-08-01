@@ -96,8 +96,23 @@ fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
     Some(root.canonicalize().unwrap_or(root))
 }
 
+pub fn plan_state_root() -> PathBuf {
+    global_plan_database_path()
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("plans")
+}
+
+fn plan_state_root_for(_project: &Path) -> PathBuf {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(root) = test_project_root(_project) {
+        return root.join(".codeterm").join("plans");
+    }
+    plan_state_root()
+}
+
 pub fn plans_dir(project: &Path) -> std::io::Result<PathBuf> {
-    let dir = project.join(".codeterm").join("plans");
+    let dir = plan_state_root_for(project);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -106,7 +121,17 @@ pub fn plan_bucket_dir(
     project: &Path,
     status: &crate::plan::PlanStatus,
 ) -> std::io::Result<PathBuf> {
-    let dir = plans_dir(project)?.join(plan_bucket(status));
+    let dir = plan_state_root_for(project).join(plan_bucket(status));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn plan_state_dir(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> std::io::Result<PathBuf> {
+    let dir = plan_state_dir_unchecked(project, status, plan_id);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -116,14 +141,22 @@ pub fn plan_dir(
     status: &crate::plan::PlanStatus,
     plan_id: &str,
 ) -> std::io::Result<PathBuf> {
+    plan_state_dir(project, status, plan_id)
+}
+
+pub fn plan_state_dir_unchecked(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> PathBuf {
     let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
         crate::plan::INBOX_PLAN_FILE_STEM
     } else {
         plan_id
     };
-    let dir = plan_bucket_dir(project, status)?.join(stem);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+    plan_state_root_for(project)
+        .join(plan_bucket(status))
+        .join(stem)
 }
 
 pub fn plan_json_path(
@@ -139,17 +172,7 @@ pub fn plan_json_path_unchecked(
     status: &crate::plan::PlanStatus,
     plan_id: &str,
 ) -> PathBuf {
-    let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
-        crate::plan::INBOX_PLAN_FILE_STEM
-    } else {
-        plan_id
-    };
-    project
-        .join(".codeterm")
-        .join("plans")
-        .join(plan_bucket(status))
-        .join(stem)
-        .join("plan.json")
+    plan_state_dir_unchecked(project, status, plan_id).join("plan.json")
 }
 
 pub fn plan_sidecar_root(plan: &crate::plan::Plan) -> &Path {

@@ -8,7 +8,8 @@ import {
   __setChatModelBubbleApiForTest,
   type ChatModelBubbleApi,
 } from "./chatModelBubbleApi";
-import type { ModelInfo } from "../../lib/types";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 
@@ -34,7 +35,6 @@ function setupDom() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
-  Object.defineProperty(globalThis, "setTimeout", { value: window.setTimeout.bind(window), configurable: true });
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -47,17 +47,37 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
-// Flush mount effects + their chained microtasks.
 async function flush() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }
 
 const MODELS: ModelInfo[] = [
-  { id: "qwen-2.5", display_name: "Qwen 2.5" },
-  { id: "llama-3", display_name: "Llama 3" },
+  { id: "model-a", display_name: "Model A" },
+  { id: "model-b", display_name: "Model B" },
 ];
+
+let catalogModels = MODELS;
+let modelsUpdated: (() => void) | undefined;
+
+function catalogProvider(): ProviderDescriptor {
+  return {
+    schema_version: 1,
+    id: "provider-shell",
+    display_name: "Provider Shell",
+    transport: "chat_backend",
+    system_prompt_delivery: "external",
+    available_models: catalogModels,
+    default_model: catalogModels[0]?.id,
+    settings_schema: [],
+    notifications_schema: [],
+    supports_lazy_skills: false,
+    has_hooks: false,
+  };
+}
 
 function fakeApi(overrides: Partial<ChatModelBubbleApi> = {}): {
   api: ChatModelBubbleApi;
@@ -65,8 +85,7 @@ function fakeApi(overrides: Partial<ChatModelBubbleApi> = {}): {
 } {
   const switchCalls: Array<{ pluginId: string; sessionId: string; model: string }> = [];
   const api: ChatModelBubbleApi = {
-    sessionInfo: async () => ({ model: "qwen-2.5" }),
-    availableModels: async () => MODELS,
+    sessionInfo: async () => ({ model: "model-a" }),
     switchModel: async (pluginId, sessionId, model) => {
       switchCalls.push({ pluginId, sessionId, model });
       return { model };
@@ -102,16 +121,44 @@ async function pick(host: HTMLElement, modelId: string) {
 }
 
 setupDom();
+__setInvokeForTest(async <T,>(command: string): Promise<T> => {
+  if (command === "list_agent_providers") return [catalogProvider()] as unknown as T;
+  throw new Error(`Unexpected command: ${command}`);
+});
+__setListenForTest(async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+  if (event === "models-updated") {
+    modelsUpdated = () => handler({ payload: { provider: "provider-shell" } as T });
+  }
+  return () => {
+    if (event === "models-updated") modelsUpdated = undefined;
+  };
+});
 
 test("renders the current model from session_info", async () => {
   const { api } = fakeApi();
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
   const b = bubble(host);
   assert(b, "bubble should render");
-  assert(b.textContent?.includes("Qwen 2.5"), `bubble should show current model display name, got: ${b.textContent}`);
+  assert(b.textContent?.includes("Model A"), `bubble should show current model display name, got: ${b.textContent}`);
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
+test("renders the session model instead of the provider default", async () => {
+  const { api } = fakeApi({ sessionInfo: async () => ({ model: "model-b" }) });
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
+  await flush();
+
+  const b = bubble(host);
+  assert(b, "bubble should render");
+  assert(catalogProvider().default_model === "model-a", "fixture provider default should differ");
+  assert(b.textContent?.includes("Model B"), `bubble should show the session model, got: ${b.textContent}`);
+  assert(!b.textContent?.includes("Model A"), "bubble must not fall back to the provider default");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -120,7 +167,7 @@ test("renders the current model from session_info", async () => {
 test("renders as an inline composer-row pill", async () => {
   const { api } = fakeApi();
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
   const b = bubble(host);
@@ -130,8 +177,8 @@ test("renders as an inline composer-row pill", async () => {
   const wrap = b.parentElement as HTMLDivElement | null;
   assert(wrap, "bubble should have an inline wrapper");
   assert(wrap.classList.contains("inline-flex"), "bubble should fit in the composer pill row");
-  assert(wrap.style.right === "", `bubble should not use pane right edge, got: ${wrap.style.right}`);
-  assert(wrap.style.left === "", `bubble should not use pane left edge, got: ${wrap.style.left}`);
+  assert(wrap.style.right === "", `bubble should not use Tab right edge, got: ${wrap.style.right}`);
+  assert(wrap.style.left === "", `bubble should not use Tab left edge, got: ${wrap.style.left}`);
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -140,7 +187,7 @@ test("renders as an inline composer-row pill", async () => {
 test("opens a dropdown listing the available models", async () => {
   const { api } = fakeApi();
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
   assert(options(host).length === 0, "dropdown should start closed");
@@ -150,7 +197,7 @@ test("opens a dropdown listing the available models", async () => {
 
   const opts = options(host);
   assert(opts.length === MODELS.length, `dropdown should list ${MODELS.length} models, got ${opts.length}`);
-  assert(opts.some((o) => o.textContent?.includes("Llama 3")), "dropdown should include Llama 3");
+  assert(opts.some((o) => o.textContent?.includes("Model A")), "dropdown should include Model A");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -159,27 +206,27 @@ test("opens a dropdown listing the available models", async () => {
 test("picking a model invokes switch_model and updates the bubble", async () => {
   const { api, switchCalls } = fakeApi();
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
   await act(async () => {
     bubble(host)!.click();
   });
-  const llama = options(host).find((o) => o.getAttribute("data-model-id") === "llama-3");
-  assert(llama, "Llama 3 option should render");
+  const nextModel = options(host).find((o) => o.getAttribute("data-model-id") === "model-b");
+  assert(nextModel, "Model B option should render");
   await act(async () => {
-    llama.click();
+    nextModel.click();
   });
   await flush();
 
   assert(switchCalls.length === 1, `switch_model should be called once, got ${switchCalls.length}`);
   assert(
-    switchCalls[0].pluginId === "lmstudio"
+    switchCalls[0].pluginId === "provider-shell"
       && switchCalls[0].sessionId === "s1"
-      && switchCalls[0].model === "llama-3",
+      && switchCalls[0].model === "model-b",
     `switch_model called with wrong args: ${JSON.stringify(switchCalls[0])}`,
   );
-  assert(bubble(host)?.textContent?.includes("Llama 3"), "bubble should reflect the newly selected model");
+  assert(bubble(host)?.textContent?.includes("Model B"), "bubble should reflect the newly selected model");
   assert(options(host).length === 0, "dropdown should close after picking");
 
   __setChatModelBubbleApiForTest(null);
@@ -191,22 +238,22 @@ test("picking a model that needsConfirm shows the plugin confirm and only switch
   const { api, switchCalls } = fakeApi({
     describeModelSwitch: async (_p, _s, model) => {
       describeCalls.push(model);
-      return { needsConfirm: true, message: "Loading Llama 3 will unload Qwen 2.5 (VRAM-tight)." };
+      return { needsConfirm: true, message: "Loading Model B will unload Model A (VRAM-tight)." };
     },
   });
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
-  await pick(host, "llama-3");
+  await pick(host, "model-b");
 
-  assert(describeCalls.length === 1 && describeCalls[0] === "llama-3", `describeModelSwitch should be asked first, got ${JSON.stringify(describeCalls)}`);
+  assert(describeCalls.length === 1 && describeCalls[0] === "model-b", `describeModelSwitch should be asked first, got ${JSON.stringify(describeCalls)}`);
   const switchesBeforeOk = switchCalls.length;
   assert(switchesBeforeOk === 0, "switch must NOT fire before the user confirms");
   const dialog = confirmDialog();
   assert(dialog, "confirm dialog should appear when needsConfirm");
   assert(
-    dialog.textContent?.includes("Loading Llama 3 will unload Qwen 2.5"),
+    dialog.textContent?.includes("Loading Model B will unload Model A"),
     `dialog should show the PLUGIN message, got: ${dialog.textContent}`,
   );
 
@@ -217,9 +264,9 @@ test("picking a model that needsConfirm shows the plugin confirm and only switch
   });
   await flush();
 
-  assert(switchCalls.length === 1 && switchCalls[0].model === "llama-3", `switch should fire once on OK, got ${JSON.stringify(switchCalls)}`);
+  assert(switchCalls.length === 1 && switchCalls[0].model === "model-b", `switch should fire once on OK, got ${JSON.stringify(switchCalls)}`);
   assert(!confirmDialog(), "confirm dialog should close after OK");
-  assert(bubble(host)?.textContent?.includes("Llama 3"), "bubble should reflect the switched model");
+  assert(bubble(host)?.textContent?.includes("Model B"), "bubble should reflect the switched model");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -230,10 +277,10 @@ test("cancelling the confirm leaves the model unchanged", async () => {
     describeModelSwitch: async () => ({ needsConfirm: true, message: "disruptive" }),
   });
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
-  await pick(host, "llama-3");
+  await pick(host, "model-b");
   const cancel = document.querySelector('[data-testid="chat-model-switch-confirm-cancel"]') as HTMLButtonElement | null;
   assert(cancel, "confirm cancel button should render");
   await act(async () => {
@@ -243,7 +290,7 @@ test("cancelling the confirm leaves the model unchanged", async () => {
 
   assert(switchCalls.length === 0, "switch must NOT fire on cancel");
   assert(!confirmDialog(), "confirm dialog should close after cancel");
-  assert(bubble(host)?.textContent?.includes("Qwen 2.5"), "bubble should keep the original model");
+  assert(bubble(host)?.textContent?.includes("Model A"), "bubble should keep the original model");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -254,14 +301,14 @@ test("needsConfirm=false switches directly with no confirm dialog", async () => 
     describeModelSwitch: async () => ({ needsConfirm: false, message: "" }),
   });
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
-  await pick(host, "llama-3");
+  await pick(host, "model-b");
 
   assert(!confirmDialog(), "no confirm dialog when needsConfirm=false");
-  assert(switchCalls.length === 1 && switchCalls[0].model === "llama-3", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
-  assert(bubble(host)?.textContent?.includes("Llama 3"), "bubble should reflect the switched model");
+  assert(switchCalls.length === 1 && switchCalls[0].model === "model-b", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
+  assert(bubble(host)?.textContent?.includes("Model B"), "bubble should reflect the switched model");
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
@@ -272,26 +319,48 @@ test("a plugin without describeModelSwitch falls back to a direct switch (no cra
   const { api, switchCalls } = fakeApi();
   assert(api.describeModelSwitch === undefined, "this case models the hook being absent");
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="bare" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
-  await pick(host, "llama-3");
+  await pick(host, "model-b");
 
   assert(!confirmDialog(), "no confirm dialog without the hook");
-  assert(switchCalls.length === 1 && switchCalls[0].model === "llama-3", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
+  assert(switchCalls.length === 1 && switchCalls[0].model === "model-b", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
 });
 
-test("renders nothing when the backend exposes no switchable models", async () => {
-  const { api } = fakeApi({ availableModels: async () => [] });
+test("updates selector entries exactly when the live plugin catalog changes", async () => {
+  const { api } = fakeApi();
   __setChatModelBubbleApiForTest(api);
-  const { host, root } = await render(<ChatModelBubble pluginId="bare" sessionId="s1" />);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
-  assert(!bubble(host), "no bubble should render without available models");
+  await act(async () => bubble(host)?.click());
+  assert(options(host).map((option) => option.dataset.modelId).join(",") === "model-a,model-b", "initial entries equal catalog");
 
+  catalogModels = [{ id: "model-next", display_name: "Model Next" }];
+  await act(async () => modelsUpdated?.());
+  await flush();
+  assert(options(host).map((option) => option.dataset.modelId).join(",") === "model-next", "mounted selector follows catalog update");
+
+  catalogModels = MODELS;
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
+test("shows an explicit empty state when the catalog publishes no models", async () => {
+  catalogModels = [];
+  const { api } = fakeApi();
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
+  await flush();
+
+  const status = host.querySelector('[data-testid="chat-model-bubble-status"]');
+  assert(status?.textContent?.includes("No models published"), "empty catalog is explicit");
+
+  catalogModels = MODELS;
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
 });
@@ -311,6 +380,8 @@ async function main() {
   }
   const elapsedMs = performance.now() - started;
   console.log(`ChatModelBubble tests: ${tests.length - failed}/${tests.length} passed in ${elapsedMs.toFixed(1)}ms`);
+  __setInvokeForTest(null);
+  __setListenForTest(null);
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
 }
 

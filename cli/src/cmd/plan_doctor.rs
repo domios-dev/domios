@@ -1,9 +1,14 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::cmd::plan_local::{plan_files, plan_id_from, project_root};
+use crate::client::{RpcClient, SocketCallError};
+#[cfg(test)]
+use crate::cmd::plan_local::plan_files;
+use crate::cmd::plan_local::{plan_id_from, project_root};
 
+#[cfg(test)]
+mod authoritative_tests;
 mod cleanup;
 mod inspect;
 mod quality;
@@ -41,12 +46,13 @@ impl Finding {
 }
 
 pub fn run(
+    client: &mut dyn RpcClient,
     json_mode: bool,
     plan_id: Option<String>,
     project: Option<String>,
     kind: String,
 ) -> Result<Option<Value>, String> {
-    let report = doctor_report(plan_id, project, &kind)?;
+    let report = doctor_report_authoritative(client, plan_id, project, &kind)?;
     let ok = report.get("ok").and_then(Value::as_bool).unwrap_or(false);
     if json_mode {
         if !ok {
@@ -62,8 +68,12 @@ pub fn run(
     Ok(None)
 }
 
-pub(crate) fn assert_quality_ready(plan_id: &str) -> Result<(), String> {
-    let mut report = doctor_report(Some(plan_id.to_string()), None, "quality")?;
+pub(crate) fn assert_quality_ready(
+    client: &mut dyn RpcClient,
+    plan_id: &str,
+) -> Result<(), String> {
+    let mut report =
+        doctor_report_authoritative(client, Some(plan_id.to_string()), None, "quality")?;
     escalate_planner_unpaired_for_approval(&mut report);
     if report.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         return Ok(());
@@ -114,6 +124,7 @@ fn render_quality_approval_error(plan_id: &str, report: &Value) -> String {
     )
 }
 
+#[cfg(test)]
 fn doctor_report(
     plan_id: Option<String>,
     project: Option<String>,
@@ -158,6 +169,148 @@ fn doctor_report(
         "warning_count": findings.iter().filter(|f| f.severity == "warning").count(),
         "findings": findings.iter().map(Finding::json).collect::<Vec<_>>(),
     }))
+}
+
+fn doctor_report_authoritative(
+    client: &mut dyn RpcClient,
+    plan_id: Option<String>,
+    project: Option<String>,
+    kind: &str,
+) -> Result<Value, String> {
+    let project_root = project_root(project)?;
+    let requested_id = plan_id.as_deref();
+    let ids = if let Some(id) = requested_id {
+        vec![id.to_string()]
+    } else {
+        authoritative_plan_ids(client, &project_root)?
+    };
+    let mut findings = Vec::new();
+    let mut checked = 0usize;
+    for id in ids {
+        let params = json!({ "plan_id": id });
+        let plan = match client.call_detailed("plan.get", Some(params)) {
+            Ok(plan) => plan,
+            Err(SocketCallError::Rpc(error))
+                if error
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("not_found") =>
+            {
+                continue;
+            }
+            Err(error) => {
+                findings.push(malformed_plan_finding(
+                    &id,
+                    authoritative_plan_path(client, &id, &project_root),
+                    error.to_string(),
+                ));
+                continue;
+            }
+        };
+        checked += 1;
+        let path = authoritative_plan_path(client, &id, &project_root);
+        if !plan.is_object() {
+            findings.push(malformed_plan_finding(
+                &id,
+                path,
+                "plan.get returned a non-object plan value".into(),
+            ));
+            continue;
+        }
+        findings.extend(inspect_plan(&path, &plan, kind));
+        if matches!(kind, "all" | "storage") {
+            findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
+        }
+    }
+    if checked == 0 {
+        if let Some(id) = requested_id {
+            findings.push(Finding {
+                severity: "error",
+                kind: "plan_not_inspected",
+                plan_id: Some(id.to_string()),
+                path: project_root.join(id).display().to_string(),
+                task_id: None,
+                detail: format!("explicit plan '{id}' was not found in the authoritative store"),
+                fix: "verify the plan id with `codeterm plan list --all`, then rerun plan doctor"
+                    .into(),
+            });
+        }
+    }
+    Ok(report_value(project_root, kind, checked, findings))
+}
+
+fn authoritative_plan_ids(
+    client: &mut dyn RpcClient,
+    project_root: &Path,
+) -> Result<Vec<String>, String> {
+    let response = client
+        .call_detailed(
+            "plan.list",
+            Some(json!({ "project": project_root.display().to_string() })),
+        )
+        .map_err(|error| error.to_string())?;
+    let plans = response
+        .get("plans")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "plan.list returned no plans array".to_string())?;
+    Ok(plans
+        .iter()
+        .filter_map(|plan| plan.get("plan_id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect())
+}
+
+fn authoritative_plan_path(
+    client: &mut dyn RpcClient,
+    plan_id: &str,
+    project_root: &Path,
+) -> PathBuf {
+    client
+        .call_detailed("plan.files", Some(json!({ "plan_id": plan_id })))
+        .ok()
+        .and_then(|manifest| {
+            manifest
+                .get("index_path")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+        })
+        .and_then(|path| path.parent().map(|dir| dir.join("plan.yaml")))
+        .unwrap_or_else(|| project_root.join(format!("{plan_id}.json")))
+}
+
+fn malformed_plan_finding(plan_id: &str, path: PathBuf, detail: String) -> Finding {
+    Finding {
+        severity: "error",
+        kind: "malformed_plan",
+        plan_id: Some(plan_id.to_string()),
+        path: path.display().to_string(),
+        task_id: None,
+        detail,
+        fix: "repair the authoritative plan record, then rerun plan doctor".into(),
+    }
+}
+
+fn report_value(
+    project_root: PathBuf,
+    kind: &str,
+    checked: usize,
+    findings: Vec<Finding>,
+) -> Value {
+    let error_count = findings
+        .iter()
+        .filter(|finding| finding.severity == "error")
+        .count();
+    json!({
+        "ok": error_count == 0,
+        "project": project_root.display().to_string(),
+        "kind": kind,
+        "checked_plans": checked,
+        "error_count": error_count,
+        "warning_count": findings.iter().filter(|finding| finding.severity == "warning").count(),
+        "findings": findings.iter().map(Finding::json).collect::<Vec<_>>(),
+    })
 }
 
 pub(super) fn plan_id(plan: &Value, path: &Path) -> Option<String> {

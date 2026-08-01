@@ -2,7 +2,6 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::paths::{plan_dir, plan_sidecar_root};
 use crate::service_plan::PlanError;
 use crate::service_plan::PlanStore;
 
@@ -90,43 +89,78 @@ fn read_ledger(plan_dir: &Path) -> Vec<PlanSkillLedgerEntry> {
         .collect()
 }
 
-fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String>) {
+const SCAFFOLD_SUMMARY_PLACEHOLDER: &str = "One-paragraph summary that becomes the search snippet.";
+
+struct ParsedSkillDocument {
+    metadata: Option<serde_yaml::Value>,
+    raw_metadata: String,
+    body: String,
+}
+
+fn parse_skill_document(md: &str) -> Option<ParsedSkillDocument> {
     let trimmed = md.trim_start();
     let Some(rest) = trimmed.strip_prefix("---") else {
-        return (None, None, None);
+        return Some(ParsedSkillDocument {
+            metadata: None,
+            raw_metadata: String::new(),
+            body: trimmed.to_string(),
+        });
     };
     let rest = rest.trim_start_matches(['\r', '\n']);
     let mut lines = rest.lines();
     let mut frontmatter = Vec::new();
-    let mut body = String::new();
+    let mut body = None;
     for line in lines.by_ref() {
         if line.trim() == "---" {
-            body = lines.collect::<Vec<_>>().join("\n");
+            body = Some(lines.collect::<Vec<_>>().join("\n"));
             break;
         }
         frontmatter.push(line);
     }
-    if body.is_empty() && !rest.lines().any(|line| line.trim() == "---") {
-        return (None, None, None);
-    }
-    let mut title = None;
-    let mut check = None;
-    for line in frontmatter {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let value = value.trim();
-        match key.trim() {
-            "title" => title = Some(value.to_string()),
-            "check" => check = Some(value.to_string()),
-            _ => {}
-        }
-    }
-    let purpose = first_summary_paragraph(&body);
-    (title, Some(purpose), check.filter(|c| !c.is_empty()))
+    let body = body?;
+    let raw_metadata = frontmatter.join("\n");
+    let metadata = serde_yaml::from_str(&raw_metadata).ok();
+    Some(ParsedSkillDocument {
+        metadata,
+        raw_metadata,
+        body,
+    })
 }
 
-fn first_summary_paragraph(body: &str) -> String {
+fn metadata_string(document: &ParsedSkillDocument, key: &str) -> Option<String> {
+    document
+        .metadata
+        .as_ref()
+        .and_then(|metadata| {
+            metadata
+                .as_mapping()?
+                .get(serde_yaml::Value::String(key.to_string()))?
+                .as_str()
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            document.raw_metadata.lines().find_map(|line| {
+                let (candidate, value) = line.split_once(':')?;
+                (candidate.trim() == key)
+                    .then(|| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            })
+        })
+}
+
+fn normalize_purpose(value: &str) -> Option<String> {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let compact = compact
+        .trim_matches(|ch| matches!(ch, '_' | '*' | '`'))
+        .trim();
+    if compact.is_empty() || compact == SCAFFOLD_SUMMARY_PLACEHOLDER {
+        None
+    } else {
+        Some(compact.to_string())
+    }
+}
+
+fn first_summary_paragraph(body: &str) -> Option<String> {
     for block in body.split("\n\n") {
         let line = block
             .lines()
@@ -135,12 +169,31 @@ fn first_summary_paragraph(body: &str) -> String {
                 !t.is_empty() && !t.starts_with('#')
             })
             .unwrap_or("");
-        let t = line.trim();
-        if !t.is_empty() {
-            return t.trim_matches('_').to_string();
+        if let Some(purpose) = normalize_purpose(line) {
+            return Some(purpose);
         }
     }
-    String::new()
+    None
+}
+
+fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let Some(document) = parse_skill_document(md) else {
+        return (None, None, None);
+    };
+    let title = metadata_string(&document, "title");
+    let check = metadata_string(&document, "check")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let purpose = ["description", "purpose", "summary"]
+        .into_iter()
+        .find_map(|key| metadata_string(&document, key))
+        .and_then(|value| normalize_purpose(&value))
+        .or_else(|| first_summary_paragraph(&document.body));
+    (title, purpose, check)
+}
+
+pub(super) fn persisted_skill_purpose(md: &str) -> Option<String> {
+    parse_frontmatter(md).1
 }
 
 fn titleize(slug: &str) -> String {
@@ -191,8 +244,12 @@ fn scaffold(slug: &str, title: &str, area: &str, check: Option<&str>) -> String 
 
 fn plan_dir_for(store: &PlanStore, plan_id: &str) -> Result<std::path::PathBuf, PlanError> {
     let plan = store.get(plan_id).ok_or(PlanError::NotFound)?;
-    let root = plan_sidecar_root(&plan);
-    plan_dir(root, &plan.status, &plan.id).map_err(|e| PlanError::Io(e.to_string()))
+    super::paths::plan_state_dir(
+        super::paths::plan_sidecar_root(&plan),
+        &plan.status,
+        &plan.id,
+    )
+    .map_err(|e| PlanError::Io(e.to_string()))
 }
 
 fn io_error(context: &str, error: impl std::fmt::Display) -> PlanError {
@@ -405,7 +462,33 @@ pub fn show_plan_skill(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, PlanStatus};
+    use crate::plan::OrchestratorRef;
+    use std::io::Write;
+
+    struct ExternalPlanCleanup(std::path::PathBuf);
+
+    impl Drop for ExternalPlanCleanup {
+        fn drop(&mut self) {
+            if self.0.is_dir() {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
+
+    fn database_fingerprint() -> Option<(u64, std::time::SystemTime)> {
+        let metadata =
+            std::fs::metadata(crate::service_plan::paths::global_plan_database_path()).ok()?;
+        Some((metadata.len(), metadata.modified().ok()?))
+    }
+
+    fn external_plan_dir(plan: &crate::plan::Plan) -> std::path::PathBuf {
+        crate::service_plan::paths::global_plan_database_path()
+            .parent()
+            .unwrap()
+            .join("plans")
+            .join(crate::service_plan::paths::plan_bucket(&plan.status))
+            .join(&plan.id)
+    }
 
     fn write_skill(plan_dir: &Path, slug: &str, md: &str) {
         let dir = plan_dir.join("skills").join(slug);
@@ -424,6 +507,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_frontmatter_prefers_persisted_description_metadata() {
+        let md = "---\ntitle: Deploy\ndescription: >-\n  Deploy staging safely without replacing production.\n---\n\nFallback body.\n";
+        let (_, purpose, _) = parse_frontmatter(md);
+        assert_eq!(
+            purpose.as_deref(),
+            Some("Deploy staging safely without replacing production.")
+        );
+    }
+
+    #[test]
+    fn malformed_or_placeholder_skill_has_no_invented_purpose() {
+        assert_eq!(
+            persisted_skill_purpose("---\ntitle: Broken\nNo closing boundary"),
+            None
+        );
+        assert_eq!(
+            persisted_skill_purpose(
+                "---\ntitle: Scaffold\n---\n\n_One-paragraph summary that becomes the search snippet._\n"
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn list_and_show_skills_from_sidecar() {
         let tmp = tempfile::tempdir().unwrap();
         crate::service_plan::paths::mark_test_project_root(tmp.path());
@@ -432,12 +539,18 @@ mod tests {
             .create_plan(
                 "Skills".into(),
                 tmp.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
             .unwrap();
-        let dir = plan_dir(tmp.path(), &PlanStatus::Active, &plan.id).unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
+        let dir = crate::service_plan::paths::plan_state_dir(
+            crate::service_plan::paths::plan_sidecar_root(&plan),
+            &plan.status,
+            &plan.id,
+        )
+        .unwrap();
         write_skill(
             &dir,
             "deploy",
@@ -454,6 +567,17 @@ mod tests {
         assert_eq!(listed[0].title, "Deploy");
         assert!(listed[0].purpose.contains("Deploy staging"));
         assert_eq!(listed[0].check.as_deref(), Some("echo ok"));
+        let heartbeat_skills =
+            crate::service_plan::skill_registry::list_plan_skill_summaries(&plan);
+        assert_eq!(
+            heartbeat_skills,
+            [
+                crate::service_plan::skill_registry::PlanSkillRegistrySummary {
+                    slug: "deploy".to_string(),
+                    purpose: Some("Deploy staging safely.".to_string()),
+                }
+            ]
+        );
 
         let detail = show_plan_skill(&store, &plan.id, "deploy").unwrap();
         assert!(detail.body.contains("Deploy staging"));
@@ -468,11 +592,12 @@ mod tests {
             .create_plan(
                 "Skills".into(),
                 tmp.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
             .unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
         let created = create_plan_skill(
             &store,
             &plan.id,
@@ -534,12 +659,18 @@ mod tests {
             .create_plan(
                 "Skills".into(),
                 tmp.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
             .unwrap();
-        let dir = plan_dir(tmp.path(), &PlanStatus::Active, &plan.id).unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
+        let dir = crate::service_plan::paths::plan_state_dir(
+            crate::service_plan::paths::plan_sidecar_root(&plan),
+            &plan.status,
+            &plan.id,
+        )
+        .unwrap();
         std::fs::write(dir.join("skills"), "blocked").unwrap();
 
         let error = create_plan_skill(
@@ -558,5 +689,163 @@ mod tests {
         assert!(dir.join("skills").is_file());
         assert!(!dir.join("skills").join("deploy").exists());
         assert!(!dir.join("skills").join("ledger.jsonl").exists());
+    }
+
+    #[test]
+    fn active_plan_coordination_never_creates_repo_local_plans() {
+        let project = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(project.path());
+        let plan = store
+            .create_plan(
+                "External coordination".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let plan_dir = external_plan_dir(&plan);
+        let _cleanup = ExternalPlanCleanup(plan_dir.clone());
+        assert!(plan_dir.join("plan.yaml").is_file());
+
+        let created = create_plan_skill(
+            &store,
+            &plan.id,
+            NewPlanSkill {
+                slug: "coordinate".into(),
+                title: None,
+                area: None,
+                check: None,
+                rationale: Some("captured from live coordination".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(list_plan_skills(&store, &plan.id).unwrap().len(), 1);
+        let detail = show_plan_skill(&store, &plan.id, &created.slug).unwrap();
+        assert_eq!(detail.ledger.len(), 1);
+        assert_eq!(
+            detail.ledger[0].rationale,
+            "captured from live coordination"
+        );
+        assert!(
+            !project.path().join(".codeterm").join("plans").exists(),
+            "live coordination must not create repo-local plan state"
+        );
+    }
+
+    #[test]
+    fn plan_skills_resolve_against_external_root() {
+        let database_before = database_fingerprint();
+        let project = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(project.path());
+        let plan = store
+            .create_plan(
+                "External skills".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let plan_dir = external_plan_dir(&plan);
+        let _cleanup = ExternalPlanCleanup(plan_dir.clone());
+
+        let created = create_plan_skill(
+            &store,
+            &plan.id,
+            NewPlanSkill {
+                slug: "external-state".into(),
+                title: Some("External State".into()),
+                area: Some("planning".into()),
+                check: None,
+                rationale: Some("initial verdict".into()),
+            },
+        )
+        .unwrap();
+        let skill_dir = plan_dir.join("skills").join("external-state");
+        let ledger_path = plan_dir.join("skills").join("ledger.jsonl");
+        assert_eq!(Path::new(&created.skill_md), skill_dir.join("SKILL.md"));
+        assert!(skill_dir.join("SKILL.md").is_file());
+        assert!(ledger_path.is_file());
+
+        let mut ledger = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&ledger_path)
+            .unwrap();
+        writeln!(
+            ledger,
+            "{}",
+            serde_json::json!({
+                "seq": 2,
+                "kind": "skill",
+                "slug": "external-state",
+                "verdict": "revise",
+                "rationale": "history remains external",
+            })
+        )
+        .unwrap();
+        drop(ledger);
+
+        let listed = list_plan_skills(&store, &plan.id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].verdict, "revise");
+        assert_eq!(
+            crate::service_plan::skill_registry::count_plan_skills_for(&plan),
+            1
+        );
+        assert_eq!(
+            crate::service_plan::skill_registry::list_plan_skill_slugs(&plan),
+            ["external-state"]
+        );
+        let detail = show_plan_skill(&store, &plan.id, "external-state").unwrap();
+        assert_eq!(detail.ledger.len(), 2);
+        assert_eq!(detail.ledger[1].rationale, "history remains external");
+        assert_eq!(database_fingerprint(), database_before);
+    }
+
+    #[test]
+    fn no_legacy_repo_local_fallback_remains() {
+        let project = tempfile::tempdir().unwrap();
+        let database = tempfile::tempdir().unwrap();
+        crate::service_plan::search_index::init_search_port(std::sync::Arc::new(
+            crate::service_plan::test_support::TestSearchPort,
+        ));
+        let store = PlanStore::open(database.path().join("plans.db")).unwrap();
+        let plan = store
+            .create_plan(
+                "Ignore legacy state".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
+        let legacy_skill = project
+            .path()
+            .join(".codeterm")
+            .join("plans")
+            .join("active")
+            .join(&plan.id)
+            .join("skills")
+            .join("legacy");
+        std::fs::create_dir_all(&legacy_skill).unwrap();
+        std::fs::write(
+            legacy_skill.join("SKILL.md"),
+            "---\ntitle: Legacy\n---\n\nMust not be adopted.\n",
+        )
+        .unwrap();
+
+        assert!(list_plan_skills(&store, &plan.id).unwrap().is_empty());
+        assert!(crate::service_plan::skill_registry::list_plan_skill_summaries(&plan).is_empty());
+        assert!(matches!(
+            show_plan_skill(&store, &plan.id, "legacy"),
+            Err(PlanError::NotFound)
+        ));
+        let paths_source = include_str!("paths.rs");
+        assert!(
+            !paths_source.contains("project.join(\".codeterm\").join(\"plans\")"),
+            "plan state paths must not join .codeterm/plans beneath a project"
+        );
     }
 }

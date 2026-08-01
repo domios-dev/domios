@@ -9,15 +9,15 @@ import {
 } from "@codeterm/chat-core";
 
 interface ShellCommandEvent {
-  pane_id: string;
+  tab_id: string;
   event: CommandLifecycle;
 }
 
-/** Shell-integration command items for a pane (OSC 133/633/7). Hydrates the
+/** Shell-integration command items for a tab (OSC 133/633/7). Hydrates the
  *  existing command list from the snapshot on mount, then folds live
  *  `shell-command-changed` events — the SAME emit_everywhere channel
- *  pane-status-changed uses — through the shared chat-core reducer. */
-export function useShellCommands(paneId: string): ChatMessage[] {
+ *  tab-status-changed uses — through the shared chat-core reducer. */
+export function useShellCommands(tabId: string): ChatMessage[] {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // every appended bubble gets a stable, unique id.
   const seqRef = useRef(0);
@@ -34,19 +34,19 @@ export function useShellCommands(paneId: string): ChatMessage[] {
 
     (async () => {
       try {
-        const snap = await invoke<ShellCommandSnapshot>("shell_command_snapshot", { paneId });
+        const snap = await invoke<ShellCommandSnapshot>("shell_command_snapshot", { tabId });
         if (cancelled) return;
         const base = Date.now();
-        setMessages(shellSnapshotToMessages(snap ?? { commands: [] }, `shell-${paneId}`, base));
+        setMessages(shellSnapshotToMessages(snap ?? { commands: [] }, `shell-${tabId}`, base));
       } catch {
         /* no PTY / no markers yet — start empty, live events still flow */
       }
       if (cancelled) return;
       unlisten = await listen<ShellCommandEvent>("shell-command-changed", (ev) => {
-        if (cancelled || ev.payload.pane_id !== paneId) return;
+        if (cancelled || ev.payload.tab_id !== tabId) return;
         setMessages((prev) =>
           applyShellLifecycle(prev, ev.payload.event, {
-            id: `shell-${paneId}-live-${nextSeq()}`,
+            id: `shell-${tabId}-live-${nextSeq()}`,
             timestampMs: Date.now(),
           }),
         );
@@ -57,7 +57,7 @@ export function useShellCommands(paneId: string): ChatMessage[] {
       cancelled = true;
       unlisten?.();
     };
-  }, [paneId]);
+  }, [tabId]);
 
   return messages;
 }

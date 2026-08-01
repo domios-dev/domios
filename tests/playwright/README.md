@@ -156,7 +156,7 @@ tests/playwright/
 │   └── global-setup.ts
 └── suites/
     ├── 01-smoke/           harness proof: health, real UI renders, providers, workspace
-    └── 02-multiplexer/     ws/pane lifecycle, #132 focus determinism (50x), kill/restart persistence
+    └── 02-multiplexer/     ws/tab lifecycle, #132 focus determinism (50x), kill/restart persistence
 ```
 
 ## Real pair-launch release gate
@@ -171,8 +171,8 @@ Before release, run this bounded gate on a host with Claude CLI authentication:
 pnpm test:pw:live-pair
 ```
 
-It calls the real `/api/orchestration/new` path, requires pane-local session ids
-for both the Orchestrator and Planner, verifies the Planner's real pane id in
+It calls the real `/api/orchestration/new` path, requires tab-local session ids
+for both the Orchestrator and Planner, verifies the Planner's real tab id in
 the Orchestrator follow-up buffer, and fails if the replay banner appears. The
 command has a 10-minute global cap; the test itself has a 5-minute cap. It does
 not depend on the model obeying an injected plan-creation instruction. The pair
@@ -199,9 +199,9 @@ the real LLM, trading mock determinism for real-system fidelity:
 
 - LLM-touching tests are `@golden`/`@nightly`, never `@smoke`; `@smoke`
   agent coverage is LLM-free (spawn validation, report IPC via plain
-  shell panes wired with `/role`).
+  shell tabs wired with `/role`).
 - Assertions are **structural**, never exact-text: response/report
-  exists, contains a unique marker, pane has `agent_type`, tool/report
+  exists, contains a unique marker, tab has `agent_type`, tool/report
   history shows the action — same rank-tolerance philosophy as 06-mem.
 - Be parsimonious: one LLM call per test, trivial prompts, cheap model
   (`sonnet`), bounded timeouts (240s budget for spawn→report).
@@ -213,7 +213,7 @@ the real LLM, trading mock determinism for real-system fidelity:
   `useXterm.ts` for exactly this + real accessibility) maintains a
   renderer-independent DOM mirror at `.xterm-accessibility`; fully-live
   tests read agent responses from there and cross-check against
-  `/api/panes/{id}/text`.
+  `/api/tabs/{id}/text`.
 
 ## Mesh peer simulator (testplan §4.2)
 
@@ -280,7 +280,7 @@ suites' CDP attach to the Tauri WebView. Key facts:
 
 ### Driving attention state (`pending_prompt`) deterministically
 
-Tests that need a pane in the waiting/prompt state (e.g. the RPL-4/GATE-4
+Tests that need a tab in the waiting/prompt state (e.g. the RPL-4/GATE-4
 prompt-pill test in `suites/19-web-stability/web-stability.spec.ts`) must get
 there with no LLM and no timing luck. Use the real Claude-hook endpoint with
 an explicit body, which builds a genuine `PendingPrompt` through the
@@ -288,12 +288,12 @@ production hook path (`hook_routes.rs::hook_permission`) instead of poking
 client state:
 
 ```ts
-await api.post(`/panes/${paneId}/hook/permission`, {
+await api.post(`/tabs/${tabId}/hook/permission`, {
   question: "Allow this action?",
   options: [{ label: "Yes", value: "1" }, { label: "No", value: "2" }],
 });
-// ... assert on GET /api/mux/state panes[id].pending_prompt or the prompt pill ...
-await api.post(`/panes/${paneId}/prompt/clear`, {});
+// ... assert on GET /api/mux/state tabs[id].pending_prompt or the prompt pill ...
+await api.post(`/tabs/${tabId}/prompt/clear`, {});
 ```
 
 This is the canonical driver for attention state in any future test — do not
@@ -302,14 +302,14 @@ real permission prompt. A hook-driven prompt is immune to the routine
 per-chunk PTY output scan clearing it (see `agent/prompt.rs`'s `explicit`
 flag) — it persists under continued output until `/prompt/clear` or a
 provider's own structured prompt supersedes it, which is what makes it safe
-to use on a plain, still-producing-output shell pane.
+to use on a plain, still-producing-output shell tab.
 
 Known web-mode limitations (honest rejects, sweep-audited via
 `scripts/web-bridge-codemod.mjs`-era inventory): native clipboard image
 paste / temp-file save, `restart_app`, `mesh_exit` / `mesh_set_access`,
-provider install-in-pane, custom-theme delete, service probe/smart-add
-inspect, and `spawn_pty` for panes that have no server-side PTY (all
-server-spawned panes do). Each throws a clear
+provider install-in-tab, custom-theme delete, service probe/smart-add
+inspect, and `spawn_pty` for tabs that have no server-side PTY (all
+server-spawned tabs do). Each throws a clear
 "command not available in browser mode" instead of failing silently.
 
 ## Hard rules

@@ -4,20 +4,20 @@ use crate::{
 };
 pub(crate) fn skip_local_worker_role(
     role: &crate::multiplexer::types::AgentRole,
-    parent_pane_id: Option<&str>,
+    parent_tab_id: Option<&str>,
     report_target_mesh_peer: Option<&str>,
 ) -> bool {
     matches!(role, crate::multiplexer::types::AgentRole::Worker)
-        && parent_pane_id.is_none()
+        && parent_tab_id.is_none()
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
-pub(crate) fn role_onboarding_task(
+fn role_assignment_task(
     task: Option<&str>,
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
-    let role_task = match (role, role_profile) {
+    match (role, role_profile) {
         (Some("Manager"), Some("planner")) => {
             task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
         }
@@ -31,21 +31,92 @@ pub(crate) fn role_onboarding_task(
             })
         }
         _ => task.map(str::to_string),
-    };
-    Some(agent_system_prompt(role_task.as_deref()))
-}
-
-pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
-    match assignment.filter(|text| !text.trim().is_empty()) {
-        Some(assignment) => format!(
-            "{}\n\n## Assignment\n\n{}",
-            crate::prompts::AGENT_CODETERM_PRIMER.trim(),
-            assignment
-        ),
-        None => crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
     }
 }
 
+pub(crate) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {
+    (
+        "Orchestration incident: launch brief undelivered".to_string(),
+        format!(
+            "Impact: Tab {tab_id} was not marked ready, so its assigned work must not proceed. \
+             Cleanup: confirmed-delivery cleanup was skipped and the pending brief was retained. \
+             Fallback: the launch failed after the bounded submit-key attempt; retry the pending assignment explicitly. \
+             Cause: {error}"
+        ),
+    )
+}
+
+pub(crate) fn role_onboarding_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    let assignment = role_assignment_task(task, role, role_profile);
+    if role == Some("Worker") {
+        Some(worker_agent_system_prompt(assignment.as_deref()))
+    } else {
+        Some(agent_system_prompt(assignment.as_deref()))
+    }
+}
+
+pub(crate) fn role_launch_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+    system_prompt_capable: bool,
+) -> Option<String> {
+    if system_prompt_capable || role.is_some() {
+        role_onboarding_task(task, role, role_profile)
+    } else {
+        role_assignment_task(task, role, role_profile)
+    }
+}
+
+pub(crate) fn provider_launch_task(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    assignment: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    let system_prompt_capable = registry
+        .with_provider(provider_id, |provider| {
+            matches!(
+                crate::service::launch_delivery::mode_for_descriptor(
+                    &provider.system_prompt_delivery(),
+                ),
+                crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+            )
+        })
+        .unwrap_or(false);
+    role_launch_task(assignment, role, role_profile, system_prompt_capable)
+}
+
+pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
+    let mut sections = vec![
+        crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+        crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
+    ];
+    if let Some(assignment) = assignment.filter(|text| !text.trim().is_empty()) {
+        sections.push(format!("## Assignment\n\n{assignment}"));
+    }
+    sections.join("\n\n")
+}
+
+fn worker_agent_system_prompt(assignment: Option<&str>) -> String {
+    let (identity, assignment) = assignment
+        .map(crate::service::plan::worker_identity::split_worker_identity)
+        .unwrap_or((None, ""));
+    let mut sections = vec![identity.unwrap_or("You are a CodeTerm Worker.").to_string()];
+    sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
+    sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());
+    if !assignment.trim().is_empty() {
+        sections.push(format!("## Assignment\n\n{}", assignment.trim()));
+    }
+    sections.join("\n\n")
+}
+
+#[cfg(test)]
 pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
     role_onboarding_task(
         params.task.as_deref(),
@@ -54,15 +125,27 @@ pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String>
     )
 }
 
+pub(crate) fn spawn_launch_task(
+    params: &SpawnAgentParams,
+    system_prompt_capable: bool,
+) -> Option<String> {
+    role_launch_task(
+        params.task.as_deref(),
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+        system_prompt_capable,
+    )
+}
+
 pub(crate) use crate::agent::{provider::AgentLaunchParams, registry::AgentRegistry};
 #[derive(Default)]
 pub(crate) struct LaunchRegistry {
     next_generation: u64,
-    panes: std::collections::HashMap<String, RegisteredLaunch>,
+    tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 #[cfg(test)]
 #[path = "launch/tests.rs"]
-mod binding_tests;
+mod tests;
 #[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
@@ -76,10 +159,10 @@ struct ProviderAck {
     changed: parking_lot::Condvar,
 }
 impl LaunchRegistry {
-    pub(crate) fn begin(&mut self, pane_id: &str, pty_id: String) -> LaunchGeneration {
+    pub(crate) fn begin(&mut self, tab_id: &str, pty_id: String) -> LaunchGeneration {
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let launch = LaunchGeneration {
-            pane_id: pane_id.into(),
+            tab_id: tab_id.into(),
             pty_id,
             generation: self.next_generation,
             stage: BootStage::PtySpawned,
@@ -87,8 +170,8 @@ impl LaunchRegistry {
             provider_ack: std::sync::Arc::new(ProviderAck::default()),
             binding_nonce: None,
         };
-        self.panes.insert(
-            launch.pane_id.clone(),
+        self.tabs.insert(
+            launch.tab_id.clone(),
             RegisteredLaunch {
                 pty_id: launch.pty_id.clone(),
                 generation: launch.generation,
@@ -100,7 +183,7 @@ impl LaunchRegistry {
     }
 
     fn owns(&self, launch: &LaunchGeneration) -> bool {
-        self.panes.get(&launch.pane_id).is_some_and(|registered| {
+        self.tabs.get(&launch.tab_id).is_some_and(|registered| {
             registered.pty_id == launch.pty_id && registered.generation == launch.generation
         })
     }
@@ -109,7 +192,7 @@ impl LaunchRegistry {
         if !self.owns(launch) {
             return false;
         }
-        self.panes.remove(&launch.pane_id);
+        self.tabs.remove(&launch.tab_id);
         true
     }
 
@@ -118,7 +201,7 @@ impl LaunchRegistry {
         launch: &LaunchGeneration,
         binding_nonce: String,
     ) -> bool {
-        let Some(registered) = self.panes.get_mut(&launch.pane_id) else {
+        let Some(registered) = self.tabs.get_mut(&launch.tab_id) else {
             return false;
         };
         if registered.pty_id != launch.pty_id || registered.generation != launch.generation {
@@ -128,10 +211,10 @@ impl LaunchRegistry {
         true
     }
 
-    fn record_provider_session(&self, pane_id: &str, binding: &ProviderSessionBinding) -> bool {
+    fn record_provider_session(&self, tab_id: &str, binding: &ProviderSessionBinding) -> bool {
         let Some(ack) = self
-            .panes
-            .get(pane_id)
+            .tabs
+            .get(tab_id)
             .filter(|launch| {
                 launch.pty_id == binding.pty_id
                     && launch.binding_nonce.as_deref() == Some(&binding.binding_nonce)
@@ -146,14 +229,14 @@ impl LaunchRegistry {
     }
 
     fn take_for_pty(&mut self, pty_id: &str) -> Option<LaunchGeneration> {
-        let pane_id = self
-            .panes
+        let tab_id = self
+            .tabs
             .iter()
             .find(|(_, registered)| registered.pty_id == pty_id)
-            .map(|(pane_id, _)| pane_id.clone())?;
-        let registered = self.panes.remove(&pane_id)?;
+            .map(|(tab_id, _)| tab_id.clone())?;
+        let registered = self.tabs.remove(&tab_id)?;
         Some(LaunchGeneration {
-            pane_id,
+            tab_id,
             pty_id: registered.pty_id,
             generation: registered.generation,
             stage: BootStage::PtySpawned,
@@ -174,7 +257,7 @@ enum LaunchFailure {
     ReaderReadyTimeout,
     ShellReadyTimeout,
     PtyEof,
-    PaneClosed,
+    TabClosed,
     LaunchWrite(String),
     ProviderReadyTimeout,
     TaskDelivery(String),
@@ -188,7 +271,7 @@ impl LaunchFailure {
             Self::ReaderReadyTimeout => "ReaderReadyTimeout".into(),
             Self::ShellReadyTimeout => "ShellReadyTimeout".into(),
             Self::PtyEof => "PtyEof".into(),
-            Self::PaneClosed => "PaneClosedBeforePtyLink".into(),
+            Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
             Self::ProviderReadyTimeout => "ProviderReadyTimeout".into(),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
@@ -212,7 +295,7 @@ fn provider_launch_failure(
 
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchGeneration {
-    pane_id: String,
+    tab_id: String,
     pty_id: String,
     generation: u64,
     stage: BootStage,
@@ -227,34 +310,30 @@ pub(crate) struct ProviderSessionBinding {
     pub(crate) binding_nonce: String,
 }
 
-pub(crate) fn record_provider_session(pane_id: &str, binding: &ProviderSessionBinding) -> bool {
+pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
     LAUNCH_REGISTRY
         .lock()
-        .record_provider_session(pane_id, binding)
+        .record_provider_session(tab_id, binding)
 }
 #[cfg(test)]
 pub(crate) fn arm_provider_session_for_test(
-    pane_id: &str,
+    tab_id: &str,
     pty_id: &str,
     nonce: &str,
 ) -> LaunchGeneration {
-    let launch = LaunchGeneration::begin(pane_id, pty_id.to_string());
+    let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
     LAUNCH_REGISTRY
         .lock()
         .bind_provider_session(&launch, nonce.to_string());
     launch
 }
 impl LaunchGeneration {
-    fn begin(pane_id: &str, pty_id: String) -> Self {
-        LAUNCH_REGISTRY.lock().begin(pane_id, pty_id)
-    }
-
-    fn owns(&self) -> bool {
-        LAUNCH_REGISTRY.lock().owns(self)
+    fn begin(tab_id: &str, pty_id: String) -> Self {
+        LAUNCH_REGISTRY.lock().begin(tab_id, pty_id)
     }
 
     fn capture_binding_nonce(&mut self, svc: &ServiceContext) {
-        let nonce = svc.rotate_session_binding_nonce(&self.pane_id);
+        let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
     }
@@ -269,21 +348,21 @@ impl LaunchGeneration {
     }
 
     fn replace(&mut self, pty_id: String) {
-        let pane_id = self.pane_id.clone();
-        *self = Self::begin(&pane_id, pty_id);
+        let tab_id = self.tab_id.clone();
+        *self = Self::begin(&tab_id, pty_id);
     }
 
     fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
         self.transition(stage);
         self.commit_if_current(|| {
-            svc.emit_boot_stage(&self.pane_id, stage, None);
+            svc.emit_boot_stage(&self.tab_id, stage, None);
         })
     }
 
     fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
         let reason = failure.reason();
         self.finish_if_current(|| {
-            svc.emit_boot_stage(&self.pane_id, BootStage::SpawnFailed, Some(&reason));
+            svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
         })
     }
 
@@ -323,7 +402,7 @@ impl LaunchGeneration {
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
         let reason = LaunchFailure::PtyEof.reason();
-        svc.emit_boot_stage(&launch.pane_id, BootStage::SpawnFailed, Some(&reason));
+        svc.emit_boot_stage(&launch.tab_id, BootStage::SpawnFailed, Some(&reason));
     });
 }
 
@@ -383,12 +462,12 @@ struct BackendPty {
     reader: ReaderReadiness,
 }
 
-fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
+fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
     let pty_id = svc
         .mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.pty_id.clone())?;
+        .get_tab(tab_id)
+        .and_then(|tab| tab.pty_id.clone())?;
     svc.pty
         .lock()
         .get_session(&pty_id)
@@ -398,11 +477,11 @@ fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
 
 fn reused_provider_tui_owns_launch(
     reused_live_pty: bool,
-    pane_agent_type: Option<&str>,
+    tab_agent_type: Option<&str>,
     requested_agent: &str,
     provider_tui_visible: bool,
 ) -> bool {
-    reused_live_pty && pane_agent_type == Some(requested_agent) && provider_tui_visible
+    reused_live_pty && tab_agent_type == Some(requested_agent) && provider_tui_visible
 }
 
 fn start_backend_reader(
@@ -448,13 +527,18 @@ fn start_backend_reader(
     })
 }
 
-fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<BackendPty, LaunchFailure> {
+fn spawn_backend_pty(
+    svc: &ServiceContext,
+    tab_id: &str,
+    launch_env: &std::collections::HashMap<String, String>,
+) -> Result<BackendPty, LaunchFailure> {
     let cwd = svc
         .mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.cwd.clone());
-    let env_vars = svc.pane_env(pane_id);
+        .get_tab(tab_id)
+        .and_then(|tab| tab.cwd.clone());
+    let mut env_vars = svc.tab_env(tab_id);
+    env_vars.extend(launch_env.clone());
     let (pty_id, _) = svc
         .pty
         .lock()
@@ -500,24 +584,24 @@ fn replacement_pty_candidate(
 
 fn await_replacement_pty(
     svc: &ServiceContext,
-    pane_id: &str,
+    tab_id: &str,
     closed_pty_id: &str,
     timeout: std::time::Duration,
 ) -> Option<String> {
     #[cfg(not(windows))]
     {
-        let _ = (svc, pane_id, closed_pty_id, timeout);
+        let _ = (svc, tab_id, closed_pty_id, timeout);
         None
     }
     #[cfg(windows)]
     {
         let deadline = std::time::Instant::now() + timeout;
-        super::pane_relink_signal::wait_for_relink(deadline, || {
+        super::tab_relink_signal::wait_for_relink(deadline, || {
             let linked = svc
                 .mux
                 .read()
-                .get_pane(pane_id)
-                .and_then(|pane| pane.pty_id.clone());
+                .get_tab(tab_id)
+                .and_then(|tab| tab.pty_id.clone());
             let session_exists = linked
                 .as_deref()
                 .is_some_and(|pty_id| svc.pty.lock().get_session(pty_id).is_some());
@@ -529,36 +613,90 @@ fn await_replacement_pty(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
-    pane_id: String,
     tab_id: String,
-    ws_id: String,
     launch_cmd: String,
     agent_cmd: String,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
+    launch_agent_in_background_with_env(
+        svc,
+        tab_id,
+        launch_cmd,
+        agent_cmd,
+        origin,
+        task,
+        fallback_spec,
+        Default::default(),
+        ready_tx,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn launch_agent_in_background_with_env(
+    svc: ServiceContext,
+    tab_id: String,
+    launch_cmd: String,
+    agent_cmd: String,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    task: Option<String>,
+    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    launch_env: std::collections::HashMap<String, String>,
+    ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+) {
     let registry = svc.agent_registry.clone();
     let launch_started = std::time::Instant::now();
-    // thread spawns: callers get the pane id immediately and may send right away.
-    if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
+    let (role, role_profile) = svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .map(|tab| {
+            (
+                tab.role.map(agent_role_label).map(str::to_string),
+                tab.role_profile.clone(),
+            )
+        })
+        .unwrap_or_default();
+    let prompt_delivery = registry
+        .with_provider(&agent_cmd, |provider| {
+            match provider.system_prompt_delivery() {
+                crate::agent::provider::SystemPromptDelivery::CliFlag(_) => "cli_flag",
+                crate::agent::provider::SystemPromptDelivery::SessionConfig => "session_config",
+                crate::agent::provider::SystemPromptDelivery::External => "confirmed_fallback",
+            }
+        })
+        .unwrap_or("unknown");
+    crate::service::launch_diagnostics::log_launch(
+        origin,
+        &tab_id,
+        &agent_cmd,
+        &launch_cmd,
+        task.as_deref(),
+        role.as_deref(),
+        role_profile.as_deref(),
+        prompt_delivery,
+    );
+    // thread spawns: callers get the tab id immediately and may send right away.
+    if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
         p.agent_booting = true;
     }
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
-        let mut launch = LaunchGeneration::begin(&pane_id, "pending".into());
+        let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
         let set_booting = |value: bool| {
-            if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
+            if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
                 p.agent_booting = value;
             }
             crate::service::boot_wait::notify_boot_changed();
         };
-        let pty_claim = svc.pty_ownership.acquire(&pane_id);
-        let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {
+        let pty_claim = svc.pty_ownership.acquire(&tab_id);
+        let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &tab_id) {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
                 Ok(reader) => (BackendPty { id: pty_id, reader }, true),
                 Err(failure) => {
@@ -571,17 +709,17 @@ pub(crate) fn launch_agent_in_background(
                     return;
                 }
             },
-            None => match spawn_backend_pty(&svc, &pane_id) {
+            None => match spawn_backend_pty(&svc, &tab_id, &launch_env) {
                 Ok(backend_pty) => (backend_pty, false),
                 Err(failure) => {
                     let error = failure.reason();
                     log::error!(
-                        "launch_agent: backend PTY spawn failed for pane {}: {}",
-                        pane_id,
+                        "launch_agent: backend PTY spawn failed for Tab {}: {}",
+                        tab_id,
                         error
                     );
                     launch.fail(&svc, failure);
-                    let _ = svc.close_tab(&ws_id, &tab_id);
+                    let _ = svc.close_tab(&tab_id);
                     set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
@@ -594,13 +732,13 @@ pub(crate) fn launch_agent_in_background(
             id: candidate_pty_id,
             reader: reader_readiness,
         } = backend_pty;
-        let selection = svc.link_pty_with_claim(&pty_claim, &pane_id, candidate_pty_id, true);
+        let selection = svc.link_pty_with_claim(&pty_claim, &tab_id, candidate_pty_id, true);
         drop(pty_claim);
         if !selection.linked {
-            let error = LaunchFailure::PaneClosed.reason();
-            launch.fail(&svc, LaunchFailure::PaneClosed);
+            let error = LaunchFailure::TabClosed.reason();
+            launch.fail(&svc, LaunchFailure::TabClosed);
             set_booting(false);
-            let _ = svc.close_tab(&ws_id, &tab_id);
+            let _ = svc.close_tab(&tab_id);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
@@ -628,31 +766,31 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        let (pane_agent_type, screen) = {
-            let pane_agent_type = svc
+        let (tab_agent_type, screen) = {
+            let tab_agent_type = svc
                 .mux
                 .read()
-                .get_pane(&pane_id)
-                .and_then(|pane| pane.agent_type.clone());
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_type.clone());
             let screen = svc
                 .screen_state
                 .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default();
-            (pane_agent_type, screen)
+            (tab_agent_type, screen)
         };
         let provider_tui_visible = registry
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
         if reused_provider_tui_owns_launch(
             reused_live_pty,
-            pane_agent_type.as_deref(),
+            tab_agent_type.as_deref(),
             &agent_cmd,
             provider_tui_visible,
         ) {
             log::info!(
-                "launch_agent: pane {} already owns live {} TUI on PTY {}; preserving ready state",
-                pane_id,
+                "launch_agent: Tab {} already owns live {} TUI on PTY {}; preserving ready state",
+                tab_id,
                 agent_cmd,
                 pty_id
             );
@@ -722,14 +860,14 @@ pub(crate) fn launch_agent_in_background(
             Err(error) => {
                 match await_replacement_pty(
                     &svc,
-                    &pane_id,
+                    &tab_id,
                     &pty_id,
                     std::time::Duration::from_secs(10),
                 ) {
                     Some(replacement) => {
                         log::warn!(
-                            "launch_agent: retrying launch for pane {} on replacement pty {} after pty {} closed",
-                            pane_id, replacement, pty_id
+                            "launch_agent: retrying launch for Tab {} on replacement pty {} after pty {} closed",
+                            tab_id, replacement, pty_id
                         );
                         pty_id = replacement;
                         let replacement_reader = match start_backend_reader(&svc, &pty_id) {
@@ -801,8 +939,8 @@ pub(crate) fn launch_agent_in_background(
         };
         if let Err(e) = launch_result {
             log::error!(
-                "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
-                pane_id,
+                "launch_agent: launch_cmd failed for Tab {} (pty {}): {}",
+                tab_id,
                 pty_id,
                 e
             );
@@ -816,19 +954,41 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         if !launch.emit(&svc, BootStage::LaunchWritten) {
+            log::warn!(
+                "[provider-readiness-stage] tab={} pty={} ownership_lost_after_launch_write",
+                tab_id,
+                pty_id,
+            );
             return;
         }
 
+        let provider_readiness = svc
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                provider.provider_readiness_strategy()
+            })
+            .unwrap_or_default();
+        log::info!(
+            "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
+            tab_id,
+            pty_id,
+            provider_readiness,
+            provider_readiness.requires_composer(),
+        );
         let provider_hook_ready = launch.await_provider_ack(std::time::Duration::ZERO);
-        let provider_tui_ready = provider_hook_ready
-            || svc.await_agent_tui_frame_on_screen(
-                &pty_id,
-                &agent_cmd,
-                std::time::Duration::from_secs(30),
-            );
+        log::info!(
+            "[provider-readiness-stage] tab={} pty={} hook_check_complete ready={}",
+            tab_id,
+            pty_id,
+            provider_hook_ready,
+        );
+        let provider_hook_satisfies_readiness =
+            provider_hook_ready && !provider_readiness.requires_composer();
+        let provider_tui_ready = provider_hook_satisfies_readiness
+            || svc.await_provider_readiness_on_screen(&pty_id, &agent_cmd, provider_readiness);
         if let Some(failure) = provider_launch_failure(
             reader_monitor.closed(),
-            provider_hook_ready,
+            provider_hook_satisfies_readiness,
             provider_tui_ready,
         ) {
             let error = failure.reason();
@@ -841,8 +1001,8 @@ pub(crate) fn launch_agent_in_background(
         }
         if !provider_hook_ready {
             log::warn!(
-                "launch_agent: pane {} accepted live {} TUI before session binding",
-                pane_id,
+                "launch_agent: Tab {} accepted live {} TUI before session binding",
+                tab_id,
                 agent_cmd
             );
         }
@@ -861,27 +1021,36 @@ pub(crate) fn launch_agent_in_background(
                 set_booting(false);
                 {
                     let mut mux = svc.mux.write();
-                    let pane = mux.get_pane_mut(&pane_id).expect("launch pane exists");
-                    pane.pending_delivery.get_or_insert_with(|| {
+                    let tab = mux.get_tab_mut(&tab_id).expect("launch Tab exists");
+                    tab.pending_delivery.get_or_insert_with(|| {
                         crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                     });
                 }
-                let consumption = delivery_gate.consume(&svc.mux, &pane_id, &svc, || {
-                    crate::service::pty_io::submit_transaction::submit_entry(
-                        crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                let submit_strategy = registry
+                    .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+                let consumption = delivery_gate.consume_injection(&svc.mux, &tab_id, &svc, || {
+                    crate::service::pty_io::submit_transaction::submit_text_with_key(
+                        &svc,
+                        &pty_id,
                         &task_text,
-                        |text| {
-                            svc.send_text_detached(&pane_id, text, true);
-                            Ok::<(), String>(())
+                        true,
+                        b"\r",
+                        submit_strategy,
+                        crate::service::inject_verify::VerifyOpts {
+                            require_prompt_first: false,
+                            verify_echo: true,
+                            verify_submit: true,
+                            ..Default::default()
                         },
-                    )?;
-                    Ok(true)
+                        None,
+                    )
                 });
                 let cleanup_error = if matches!(
                     &consumption,
                     Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed)
                 ) {
-                    svc.confirm_pending_delivery(&pane_id)
+                    svc.confirm_pending_delivery(&tab_id)
                         .err()
                         .map(|error| error.to_string())
                 } else {
@@ -890,9 +1059,11 @@ pub(crate) fn launch_agent_in_background(
                 let delivery_error =
                     cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
                 if let Some(e) = delivery_error {
+                    let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
+                    svc.create_notification(title, Some(body), Some("error"));
                     log::error!(
-                        "launch_agent: task delivery failed for pane {} (pty {}): {}",
-                        pane_id,
+                        "launch_agent: task delivery failed for Tab {} (pty {}): {}",
+                        tab_id,
                         pty_id,
                         e
                     );
@@ -906,7 +1077,7 @@ pub(crate) fn launch_agent_in_background(
             }
         } else if task.is_some() {
             let _ = crate::service::launch_delivery::dispatch_initial_delivery::<(), fn()>(
-                delivery, &svc, &pane_id, None,
+                delivery, &svc, &tab_id, None,
             );
         }
 
@@ -916,14 +1087,22 @@ pub(crate) fn launch_agent_in_background(
         }
         LAUNCH_REGISTRY.lock().finish(&launch);
         log::info!(
-            "launch_agent: agent ready in pane {} after {}ms",
-            pane_id,
+            "launch_agent: agent ready in Tab {} after {}ms",
+            tab_id,
             launch_started.elapsed().as_millis()
         );
         if let Some(tx) = ready_tx {
             let _ = tx.send(Ok(()));
         }
     });
+}
+
+fn agent_role_label(role: crate::multiplexer::types::AgentRole) -> &'static str {
+    match role {
+        crate::multiplexer::types::AgentRole::Orchestrator => "Orchestrator",
+        crate::multiplexer::types::AgentRole::Manager => "Manager",
+        crate::multiplexer::types::AgentRole::Worker => "Worker",
+    }
 }
 
 /// Build a single shell command that launches the agent.
@@ -971,11 +1150,19 @@ pub(crate) fn build_agent_command(
 
     let launch_task = registry
         .with_provider(agent_cmd, |provider| {
-            crate::service::launch_delivery::content_for_descriptor(
+            let system_prompt = crate::service::launch_delivery::content_for_descriptor(
                 &provider.system_prompt_delivery(),
                 task,
             )
-            .system_prompt
+            .system_prompt;
+            system_prompt.or_else(|| {
+                matches!(
+                    provider.task_delivery(),
+                    crate::agent::provider::TaskDelivery::InlineFlag
+                )
+                .then(|| task.map(str::to_string))
+                .flatten()
+            })
         })
         .unwrap_or_default();
     let launch_params = AgentLaunchParams {
@@ -1000,12 +1187,5 @@ pub(crate) fn build_agent_command(
             parts.extend(args.iter().cloned());
             parts.join(" ")
         });
-    crate::service::launch_diagnostics::log_launch(
-        "visible_agent",
-        "-",
-        agent_cmd,
-        &cmd,
-        launch_task.as_deref(),
-    );
     cmd
 }

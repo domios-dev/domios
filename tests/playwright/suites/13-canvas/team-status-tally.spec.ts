@@ -21,7 +21,7 @@ const COLORS = {
   done: "rgba(82, 180, 145, 0.9)",
 };
 
-interface PaneResponse {
+interface TabResponse {
   id: string;
 }
 
@@ -201,19 +201,19 @@ async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<v
   expect(restSlots.titleWidth, "220px title receives reclaimed control width").toBeGreaterThan(130);
 }
 
-test("@golden @team-status-tally Team status tally keeps every bucket visible across sidebar widths", async ({ api, webBrowser, paneCleanup }, testInfo) => {
+test("@golden @team-status-tally Team status tally keeps every bucket visible across sidebar widths", async ({ api, webBrowser, tabCleanup }, testInfo) => {
   const projectPath = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-team-status-tally-")));
   const workspaceName = "team status tally";
   await api.createWorkspace(workspaceName, projectPath);
   const workspace = (await api.workspaces()).find((entry) => entry.cwd === projectPath);
   if (!workspace) throw new Error("fixture workspace was not created");
 
-  const pane = await paneCleanup.createPane<PaneResponse>({ workspace_id: workspace.id, cwd: projectPath, title: "Team tally owner" });
-  await api.post(`/panes/${pane.id}/role`, { role: "Orchestrator" });
+  const tab = await tabCleanup.createTab<TabResponse>({ workspace_id: workspace.id, cwd: projectPath, title: "Team tally owner" });
+  await api.post(`/tabs/${tab.id}/role`, { role: "Orchestrator" });
   const created = await api.post<PlanResponse>("/plans", {
     title: "Team tally fixture",
     project_path: projectPath,
-    owner: { pane_id: pane.id, session_id: null, title: "Team tally owner" },
+    owner: { tab_id: tab.id, session_id: null, title: "Team tally owner" },
     kinds: "implement:#38bdf8",
   });
   const section = await api.post<{ section_id: string }>(`/plans/${created.plan_id}/sections`, { title: "Tally" });
@@ -227,7 +227,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
       body: "fixture",
       acceptance_criteria: ["Status tally fixture is observable"],
       test_plan: "npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx",
-      ...(status === "in_progress" ? { lane: { pane_id: pane.id } } : {}),
+      ...(status === "in_progress" ? { lane: { tab_id: tab.id } } : {}),
       parent: null,
     });
     if (status) {
@@ -285,7 +285,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await page.mouse.move(500, 500);
     await expect(menuTrigger).toHaveCSS("opacity", "1");
     await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
-    await page.locator(`[data-testid="terminal-pane"][data-pane-id="${pane.id}"]:visible`).click({ position: { x: 10, y: 10 } });
+    await page.locator(`[data-testid="terminal-tab"][data-tab-id="${tab.id}"]:visible`).click({ position: { x: 10, y: 10 } });
     await expect(header).toHaveAttribute("data-menu-dismissed", "true");
     await expect(menuTrigger).toHaveCSS("opacity", "0");
     await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");

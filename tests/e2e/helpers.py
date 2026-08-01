@@ -59,7 +59,7 @@ def tmp_path(filename: str) -> str:
     return str(Path(tempfile.gettempdir()) / filename)
 
 
-def inject_screen_text(api: "CodeTermAPI", pane_id: str, text: str) -> None:
+def inject_screen_text(api: "CodeTermAPI", tab_id: str, text: str) -> None:
     """Output exact text to the terminal screen via a temp file.
 
     Writes *text* to a temp file then runs ``cat`` (Unix) or
@@ -73,9 +73,9 @@ def inject_screen_text(api: "CodeTermAPI", pane_id: str, text: str) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
     if IS_WINDOWS:
-        api.send_text(pane_id, text=f'Get-Content -Raw "{path}"')
+        api.send_text(tab_id, text=f'Get-Content -Raw "{path}"')
     else:
-        api.send_text(pane_id, text=f'cat "{path}"')
+        api.send_text(tab_id, text=f'cat "{path}"')
 
 
 def unique_name(prefix: str = "e2e") -> str:
@@ -121,17 +121,17 @@ class CodeTermAPI:
 
     def exec_cmd(
         self,
-        pane_id: str,
+        tab_id: str,
         command: str,
         timeout_ms: int = 10000,
         strip_ansi_flag: bool = True,
     ) -> dict:
-        """POST /api/panes/{id}/exec — send command, wait for output.
+        """POST /api/tabs/{id}/exec — send command, wait for output.
 
         Returns dict with keys: output, offset, and optionally timeout.
         """
         return self.post(
-            f"/api/panes/{pane_id}/exec",
+            f"/api/tabs/{tab_id}/exec",
             json={
                 "command": command,
                 "timeout_ms": timeout_ms,
@@ -141,12 +141,12 @@ class CodeTermAPI:
 
     def send_text(
         self,
-        pane_id: str,
+        tab_id: str,
         text: str | None = None,
         enter: bool = True,
         batch: list[dict] | None = None,
     ) -> dict:
-        """POST /api/panes/{id}/send — send text / batch to PTY."""
+        """POST /api/tabs/{id}/send — send text / batch to PTY."""
         body: dict = {}
         if batch is not None:
             body["batch"] = batch
@@ -154,36 +154,36 @@ class CodeTermAPI:
             if text is not None:
                 body["text"] = text
             body["enter"] = enter
-        return self.post(f"/api/panes/{pane_id}/send", json=body)
+        return self.post(f"/api/tabs/{tab_id}/send", json=body)
 
     def get_output(
         self,
-        pane_id: str,
+        tab_id: str,
         offset: int = 0,
         strip_ansi_flag: bool = False,
     ) -> dict:
-        """GET /api/panes/{id}/output — raw or stripped output buffer."""
+        """GET /api/tabs/{id}/output — raw or stripped output buffer."""
         params: dict = {}
         if offset:
             params["offset"] = offset
         if strip_ansi_flag:
             params["strip_ansi"] = "true"
-        return self.get(f"/api/panes/{pane_id}/output", params=params)
+        return self.get(f"/api/tabs/{tab_id}/output", params=params)
 
     def wait_for_output(
         self,
-        pane_id: str,
+        tab_id: str,
         pattern: str | None = None,
         timeout: float = 10,
         strip_ansi_flag: bool = True,
     ) -> str:
-        """Poll GET /api/panes/{id}/output until *pattern* appears or timeout.
+        """Poll GET /api/tabs/{id}/output until *pattern* appears or timeout.
 
         Returns the full stripped output text.  Raises TimeoutError on failure.
         """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            data = self.get_output(pane_id, strip_ansi_flag=strip_ansi_flag)
+            data = self.get_output(tab_id, strip_ansi_flag=strip_ansi_flag)
             text = data.get("output", "")
             if pattern is None:
                 return text
@@ -191,15 +191,15 @@ class CodeTermAPI:
                 return text
             time.sleep(0.3)
         raise TimeoutError(
-            f"Pattern {pattern!r} not found in pane {pane_id} output within {timeout}s"
+            f"Pattern {pattern!r} not found in tab {tab_id} output within {timeout}s"
         )
 
-    def get_screen(self, pane_id: str) -> str:
-        """GET /api/panes/{id}/text — visible terminal text."""
-        data = self.get(f"/api/panes/{pane_id}/text")
+    def get_screen(self, tab_id: str) -> str:
+        """GET /api/tabs/{id}/text — visible terminal text."""
+        data = self.get(f"/api/tabs/{tab_id}/text")
         return data.get("text", "")
 
-    # -- Workspace / Pane CRUD shortcuts ------------------------------------
+    # -- Workspace / Tab CRUD shortcuts ------------------------------------
 
     def create_workspace(self, name: str, cwd: str | None = None) -> dict:
         body: dict = {"name": name}
@@ -220,50 +220,50 @@ class CodeTermAPI:
         body = {"eager": True} if eager else {}
         return self.post(f"/api/workspaces/{ws_id}/tabs", json=body)
 
-    def list_panes(self) -> list[dict]:
-        return self.get("/api/panes")
+    def list_tabs(self) -> list[dict]:
+        return self.get("/api/tabs")
 
-    def split_pane(self, pane_id: str, direction: str = "right") -> dict:
+    def split_tab(self, tab_id: str, direction: str = "right") -> dict:
         return self.post(
-            f"/api/panes/{pane_id}/split", json={"direction": direction}
+            f"/api/tabs/{tab_id}/split", json={"direction": direction}
         )
 
-    def close_pane(self, pane_id: str) -> dict:
-        return self.post(f"/api/panes/{pane_id}/close")
+    def close_tab(self, tab_id: str) -> dict:
+        return self.post(f"/api/tabs/{tab_id}/close")
 
-    def rename_pane(self, pane_id: str, title: str) -> dict:
-        return self.post(f"/api/panes/{pane_id}/rename", json={"title": title})
+    def rename_tab(self, tab_id: str, title: str) -> dict:
+        return self.post(f"/api/tabs/{tab_id}/rename", json={"title": title})
 
-    def focus_pane(self, pane_id: str) -> dict:
-        return self.post(f"/api/panes/{pane_id}/focus")
+    def focus_tab(self, tab_id: str) -> dict:
+        return self.post(f"/api/tabs/{tab_id}/focus")
 
-    def wait_for_pty(self, pane_id: str, timeout: float = 20) -> bool:
-        """Wait until a pane has a pty_id (PTY linked by frontend)."""
+    def wait_for_pty(self, tab_id: str, timeout: float = 20) -> bool:
+        """Wait until a tab has a pty_id (PTY linked by frontend)."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            panes = self.list_panes()
-            pane = next((p for p in panes if p["id"] == pane_id), None)
-            if pane and pane.get("pty_id"):
+            tabs = self.list_tabs()
+            tab = next((p for p in tabs if p["id"] == tab_id), None)
+            if tab and tab.get("pty_id"):
                 return True
             time.sleep(0.5)
         return False
 
     def wait_for_screen(
         self,
-        pane_id: str,
+        tab_id: str,
         pattern: str,
         timeout: float = 30,
     ) -> str:
-        """Poll GET /api/panes/{id}/text until pattern appears. Returns pane text."""
+        """Poll GET /api/tabs/{id}/text until pattern appears. Returns tab text."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                text = self.get_screen(pane_id)
+                text = self.get_screen(tab_id)
                 if re.search(pattern, text):
                     return text
             except Exception:
                 pass
             time.sleep(1)
         raise TimeoutError(
-            f"Pattern {pattern!r} not found on screen of pane {pane_id} within {timeout}s"
+            f"Pattern {pattern!r} not found on screen of tab {tab_id} within {timeout}s"
         )

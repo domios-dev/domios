@@ -2,9 +2,15 @@
 // Run: npx tsx src/components/shared/Card.test.tsx
 
 import React, { act } from "react";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { Card } from "./Card";
+
+const componentSource = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8");
+const globalsCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../styles/globals.css"), "utf8");
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -49,6 +55,15 @@ test("Card interactive has role=button and tabIndex=0", async () => {
   const card = host.querySelector("div")!;
   assert(card.getAttribute("role") === "button", "role=button on interactive card");
   assert(card.getAttribute("tabindex") === "0", "tabIndex=0 on interactive card");
+});
+
+test("Card exposes the shared press, hover, and focus contract", () => {
+  assert(componentSource.includes("ct-liquid-interactive"), "interactive Card must use the shared interaction class");
+  assert(/\.ct-liquid-interactive:not\(:disabled\):active\s*\{[^}]*--ct-duration-liquid-press/s.test(globalsCss), "press must use the liquid press token");
+  assert(/\.ct-liquid-interactive:focus-visible,[^}]*\{[^}]*outline:/s.test(globalsCss), "focus-visible ring missing");
+  assert(/\.ct-liquid-interactive:not\(:disabled\):hover\s*\{[^}]*scale\(1\.015\)/s.test(globalsCss), "hover must be a shared swell");
+  assert(!/@keyframes\s+ct-liquid-interactive/.test(globalsCss), "hover must not be keyframe-driven");
+  assert(componentSource.includes("useTouchOptimizedUi"), "Card must use the shared touch-mode path");
 });
 
 test("Card non-interactive has no role/tabIndex", async () => {

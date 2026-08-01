@@ -5,7 +5,7 @@ use super::*;
 #[derive(Default)]
 struct FakeSeam {
     enveloped: RefCell<Vec<(String, String, String)>>,
-    texts: RefCell<Vec<(String, String, bool)>>,
+    texts: RefCell<Vec<(String, String)>>,
     batches: RefCell<Vec<(String, usize)>>,
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
     error: Option<String>,
@@ -30,12 +30,12 @@ impl FakeSeam {
 impl DeliverySeam for FakeSeam {
     fn deliver_enveloped(
         &self,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
         self.enveloped.borrow_mut().push((
-            to_pane.to_string(),
+            to_tab.to_string(),
             Messenger::pty_prefix(&envelope),
             body.to_string(),
         ));
@@ -45,24 +45,24 @@ impl DeliverySeam for FakeSeam {
         })
     }
 
-    fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String> {
+    fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
         self.texts
             .borrow_mut()
-            .push((pane.to_string(), text.to_string(), enter));
+            .push((tab.to_string(), text.to_string()));
         self.guard()
     }
 
-    fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+    fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
         self.batches
             .borrow_mut()
-            .push((pane.to_string(), batch.len()));
+            .push((tab.to_string(), batch.len()));
         self.guard()
     }
 
-    fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
+    fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
         self.keys
             .borrow_mut()
-            .push((pane.to_string(), text.to_string(), strokes.to_vec()));
+            .push((tab.to_string(), text.to_string(), strokes.to_vec()));
         self.guard()
     }
 }
@@ -72,7 +72,6 @@ fn msg_with_class(target: &str, class: DeliveryClass) -> OutboundMessage {
         target: target.to_string(),
         body: MessageBody::Text {
             body: "body".to_string(),
-            enter: true,
         },
         envelope: None,
         class,
@@ -121,7 +120,6 @@ fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
         target: target.to_string(),
         body: MessageBody::Text {
             body: body.to_string(),
-            enter: true,
         },
         envelope: None,
         class: DeliveryClass::UserTurn,
@@ -134,18 +132,17 @@ fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
 fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();
-    let envelope = MessageEnvelope::pane("Edison", "e8a0ac20");
+    let envelope = MessageEnvelope::tab("Edison", "e8a0ac20");
     let expected_prefix = Messenger::pty_prefix(&envelope);
 
     let msg = OutboundMessage {
         target: "p1".to_string(),
         body: MessageBody::Text {
             body: "hello".to_string(),
-            enter: true,
         },
         envelope: Some(envelope.clone()),
         class: DeliveryClass::AgentTraffic,
-        origin: MessageOrigin::LocalPane,
+        origin: MessageOrigin::LocalTab,
         idempotency_key: None,
     };
 
@@ -172,7 +169,7 @@ fn plain_text_submit_matches_direct_send_text() {
 
     let calls = fake.texts.borrow();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0], ("p1".to_string(), "raw body".to_string(), true));
+    assert_eq!(calls[0], ("p1".to_string(), "raw body".to_string()));
     assert!(fake.enveloped.borrow().is_empty(), "not routed to envelope");
 }
 
@@ -185,12 +182,10 @@ fn batch_submit_forwards_to_batch_path() {
         body: MessageBody::Batch(vec![
             SendBatchItem {
                 text: "one".to_string(),
-                enter: false,
                 delay_ms: None,
             },
             SendBatchItem {
                 text: "two".to_string(),
-                enter: true,
                 delay_ms: Some(5),
             },
         ]),
@@ -219,7 +214,7 @@ fn keys_submit_forwards_strokes() {
         },
         envelope: None,
         class: DeliveryClass::RawKeys,
-        origin: MessageOrigin::LocalPane,
+        origin: MessageOrigin::LocalTab,
         idempotency_key: None,
     };
 
@@ -271,7 +266,7 @@ fn distinct_origin_or_key_is_not_deduped() {
 #[test]
 fn cached_error_replays_without_second_delivery() {
     let gateway = MessageGateway::new();
-    let fake = FakeSeam::failing("Pane p9 not found or has no PTY");
+    let fake = FakeSeam::failing("Tab p9 not found or has no PTY");
 
     let first = gateway
         .submit(&fake, text_msg("p9", "hi", Some("k1")))
@@ -285,16 +280,16 @@ fn cached_error_replays_without_second_delivery() {
 }
 
 #[test]
-fn pane_not_found_and_delivered_unverified_are_distinct() {
+fn tab_not_found_and_delivered_unverified_are_distinct() {
     let gateway = MessageGateway::new();
 
     let not_found = gateway
         .submit(
-            &FakeSeam::failing("Pane p9 not found or has no PTY"),
+            &FakeSeam::failing("Tab p9 not found or has no PTY"),
             text_msg("p9", "hi", None),
         )
         .unwrap_err();
-    assert!(matches!(not_found, DeliveryError::PaneNotFound { .. }));
+    assert!(matches!(not_found, DeliveryError::TabNotFound { .. }));
 
     let unverified = gateway
         .submit(
@@ -317,12 +312,12 @@ fn pane_not_found_and_delivered_unverified_are_distinct() {
 #[test]
 fn classify_maps_structural_markers() {
     assert!(matches!(
-        classify("p", "Pane p not found or has no PTY".to_string()),
-        DeliveryError::PaneNotFound { .. }
+        classify("p", "Tab p not found or has no PTY".to_string()),
+        DeliveryError::TabNotFound { .. }
     ));
     assert!(matches!(
-        classify("p", "Pane p closed before PTY link".to_string()),
-        DeliveryError::PaneNotFound { .. }
+        classify("p", "Tab p closed before PTY link".to_string()),
+        DeliveryError::TabNotFound { .. }
     ));
     assert!(matches!(
         classify("p", "submit not confirmed after 5s".to_string()),

@@ -1,4 +1,4 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { formatTime } from "../../../lib/formatters";
 import type { Milestone, Plan, Task } from "../types";
 import { resolveTaskExecutionAttempts } from "../taskExecutorHistory";
@@ -20,12 +20,12 @@ export function sortMilestonesNewestFirst(milestones: readonly Milestone[]): Mil
   return [...milestones].sort((a, b) => b.ts - a.ts);
 }
 
-export function resolveMilestoneAuthor(milestone: Milestone, panes: Record<string, Pane>): string | null {
+export function resolveMilestoneAuthor(milestone: Milestone, tabs: Record<string, Tab>): string | null {
   const fromTitle = milestone.from.title?.trim();
   if (fromTitle) return fromTitle;
-  const paneId = milestone.from.pane_id?.trim();
-  if (!paneId) return null;
-  return panes[paneId]?.title?.trim() || null;
+  const tabId = milestone.from.tab_id?.trim();
+  if (!tabId) return null;
+  return tabs[tabId]?.title?.trim() || null;
 }
 
 export function visibleMilestones(
@@ -54,8 +54,8 @@ export function buildPlanRecentActivity(plan: Plan, limit = 12): PlanActivityIte
   return items.slice(0, limit);
 }
 
-export function taskHasActivity(task: Task, panes: Record<string, Pane> = {}): boolean {
-  return task.milestones.length > 0 || resolveTaskExecutionAttempts(task, panes).length > 0;
+export function taskHasActivity(task: Task, tabs: Record<string, Tab> = {}): boolean {
+  return task.milestones.length > 0 || resolveTaskExecutionAttempts(task, tabs).length > 0;
 }
 
 export function milestoneAgeLabel(ts: number, now: number): string {

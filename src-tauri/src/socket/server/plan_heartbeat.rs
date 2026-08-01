@@ -45,7 +45,7 @@ pub(super) fn dispatch(
                 .plan_store
                 .add_heartbeat_learning(
                     body.get("plan_id").and_then(|v| v.as_str()),
-                    body.get("pane_id").and_then(|v| v.as_str()),
+                    body.get("tab_id").and_then(|v| v.as_str()),
                     body.get("session_id").and_then(|v| v.as_str()),
                     &text,
                     body.get("tag").and_then(|v| v.as_str()),
@@ -53,9 +53,9 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &result.plan_id);
-            if let Some(pane_id) = body.get("pane_id").and_then(|v| v.as_str()) {
+            if let Some(tab_id) = body.get("tab_id").and_then(|v| v.as_str()) {
                 svc.maybe_refresh_after_reflection(
-                    pane_id,
+                    tab_id,
                     &result.plan_id,
                     body.get("tag").and_then(|v| v.as_str()),
                 );
@@ -71,7 +71,7 @@ pub(super) fn dispatch(
                 .plan_store
                 .show_heartbeat(
                     body.get("plan_id").and_then(|v| v.as_str()),
-                    body.get("pane_id").and_then(|v| v.as_str()),
+                    body.get("tab_id").and_then(|v| v.as_str()),
                     body.get("session_id").and_then(|v| v.as_str()),
                 )
                 .map_err(plan_rpc_err)?;

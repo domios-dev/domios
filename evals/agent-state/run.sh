@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # RT2 — agent-state replay + score eval. Offline cargo test: parses .cast
 # fixtures, replays through the core SignalExtractor (P1a) + provider
-# classify_pane_state, runs golden + negative oracles, prints the baseline
+# classify_tab_state, runs golden + negative oracles, prints the baseline
 # scorecard. Does NOT touch the daemon; we still source the dev-locked lib so
 # any future `dc` use can never leak to prod (port 7685).
 set -euo pipefail

@@ -4,7 +4,7 @@
  * `ChatMessage` produced by the JSONL parser, so the bubble just
  * receives it directly.
  *
- * When `events` is empty (fresh pane, before any session content
+ * When `events` is empty (fresh tab, before any session content
  * loads), we fall back to `raw()` so the user still sees terminal
  * output instead of an empty box.
  */

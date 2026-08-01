@@ -37,7 +37,7 @@ pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_
 /// role-identity builder before launch delivery chooses a provider channel.
 pub const MANAGER_BOOTSTRAP_TEMPLATE: &str = include_str!("../prompts/manager_bootstrap.md");
 
-/// Appended to cron tasks when creator_pane_id is set.
+/// Appended to cron tasks when creator_tab_id is set.
 pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
 
 /// Appended to every cron task — completion instruction. `{}` is replaced with run_id.
@@ -68,6 +68,12 @@ pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
 
+/// Compact control context placed after a Worker's task-owned identity.
+pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
+
+/// Shared rich-rendering capability included in every CodeTerm agent contract.
+pub const RICH_RENDERING_GUIDANCE: &str = include_str!("../prompts/rich_rendering_guidance.md");
+
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");
@@ -95,7 +101,7 @@ pub const PEER_ORCH_DEFERENCE_LINE: &str =
     "The Orchestrator is the single owner of the plan and the execution authority: \
      delegate planning work to the Planner, then accept, revise, or reject it.";
 
-/// Planner-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the pane-spawn command.
+/// Planner-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the tab-spawn command.
 pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
 ## Planner attachment
 
@@ -123,7 +129,7 @@ First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm
 }
 
 /// Pair-spawn Planner onboarding before any plan exists. The first
-/// Orchestrator goal/plan create binds this pane to the resulting plan.
+/// Orchestrator goal/plan create binds this tab to the resulting plan.
 pub fn planner_onboarding_task_no_plan(
     orchestrator_label: &str,
     orchestrator_tab_id: &str,
@@ -217,6 +223,10 @@ mod tests {
     #[test]
     fn operational_prompts_keep_clarity_fixes() {
         assert!(WORKER_SUFFIX.contains("STATUS: in_review"));
+        assert!(WORKER_SUFFIX.contains("commit only this task's owned changes"));
+        assert!(WORKER_SUFFIX.contains("--sha YOUR_OWN_COMMIT_SHA"));
+        assert!(!WORKER_SUFFIX.contains("--sha $(git rev-parse HEAD)"));
+        assert!(WORKER_SUFFIX.contains("Read-only tasks need no commit"));
         assert!(WORKER_SUFFIX.contains("TESTS RUN:"));
         assert!(WORKER_SUFFIX.contains("GATES REQUESTED:"));
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
@@ -336,12 +346,34 @@ mod tests {
     fn orchestrator_suffix_is_bounded_and_fully_rendered() {
         let rendered = orchestrator_suffix();
         assert!(rendered.split_whitespace().count() < 650);
-        assert!(rendered.contains("Keep your control loop responsive"));
-        assert!(rendered.contains("blocking tool call"));
+        assert!(rendered.contains("Keep the control loop responsive"));
+        assert!(rendered.contains("explicit completion signal"));
         assert!(rendered.contains("verification proportional to risk"));
         assert!(rendered.contains("OPEN RISK"));
+        assert!(rendered.contains("dispatch_ready"));
+        assert!(rendered.contains("worker_ack_timeout"));
+        assert!(rendered.contains("never poll or resend blindly"));
         assert!(!rendered.contains("{bounce_unwinding_contract}"));
         assert!(!rendered.contains("{plan_skills_principles}"));
+    }
+
+    #[test]
+    fn spawned_agent_primer_exposes_rich_rendering() {
+        assert!(RICH_RENDERING_GUIDANCE.contains("Mermaid"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-image"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-document"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("inline HTML only for light native markup"));
+    }
+
+    #[test]
+    fn worker_context_exposes_rich_rendering() {
+        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("render Mermaid"));
+        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
     }
 
     #[test]
@@ -350,7 +382,7 @@ mod tests {
         let rendered = orchestrator_suffix();
 
         for policy in [
-            "chooses canonical checkout or",
+            "canonical checkout or",
             "isolated lane",
             "Design the smallest deterministic user-layer oracle",
             "final integration or release verification",
@@ -480,6 +512,8 @@ mod tests {
             "bridge_mem.md",
             "general_agent.md",
             "agent_codeterm_primer.md",
+            "worker_codeterm_context.md",
+            "rich_rendering_guidance.md",
             "codeterm_cli.md",
             "bootstrap_instructions.md",
             "worker_task_preamble.md",

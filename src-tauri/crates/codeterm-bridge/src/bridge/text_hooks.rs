@@ -18,7 +18,7 @@ pub struct PreForwardRequest {
     pub user_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub msg_id: Option<String>,
-    pub pane_id: String,
+    pub tab_id: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<HookAttachment>,
 }
@@ -253,7 +253,7 @@ mod tests {
             channel: "telegram".to_string(),
             user_id: "1".to_string(),
             msg_id: Some("42".to_string()),
-            pane_id: "general".to_string(),
+            tab_id: "general".to_string(),
             attachments: Vec::new(),
         }
     }

@@ -37,12 +37,23 @@ export function VoiceRecordingBar({
   }, []);
 
   return (
-    <div className="ct-voice-fade-in flex w-full items-center gap-2">
+    <div
+      className={`ct-voice-fade-in ${
+        mode === "locked" ? "ct-voice-locked" : "ct-voice-recording"
+      } flex w-full items-center gap-2`}
+    >
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {mode === "locked" ? "Recording locked" : "Recording voice note"}
+      </span>
       <span
         className="ct-voice-rec-dot h-2.5 w-2.5 shrink-0 rounded-full"
         style={{ background: "var(--ct-red, #f85149)" }}
+        aria-hidden
       />
-      <span className="shrink-0 font-mono text-[13px] tabular-nums text-[var(--ct-fg)]">
+      <span
+        className="shrink-0 font-mono text-[13px] tabular-nums text-[var(--ct-fg)]"
+        aria-hidden
+      >
         {formatPrecise(ms)}
       </span>
 
@@ -65,7 +76,8 @@ export function VoiceRecordingBar({
                 ? "color-mix(in srgb, var(--ct-red,#f85149) 82%, white 8%)"
                 : "color-mix(in srgb, var(--ct-accent,#58a6ff) 72%, var(--ct-muted-fg,#8b949e) 28%)",
               opacity: 0.42 + Math.min(0.58, peak),
-              transition: "height 80ms linear, opacity 80ms linear, background 120ms linear",
+              transition:
+                "height var(--ct-duration-instant) var(--ct-ease-liquid-settle), opacity var(--ct-duration-instant) var(--ct-ease-liquid-settle), background var(--ct-duration-fast) var(--ct-ease-liquid-settle)",
             }}
           />
         ))}
@@ -87,9 +99,9 @@ export function VoiceRecordingBar({
               onCancel();
             }
           }}
-          className={`flex shrink-0 items-center gap-1 pr-1 text-[12px] font-medium transition-colors ${
+          className={`ct-voice-control flex shrink-0 items-center gap-1 pr-1 text-[12px] font-medium ${
             armed
-              ? "scale-105 text-[var(--ct-red,#f85149)]"
+              ? "ct-voice-cancel-armed text-[var(--ct-red,#f85149)]"
               : "ct-voice-cancel-slide text-[var(--ct-muted-fg)]"
           }`}
         >
@@ -105,7 +117,7 @@ export function VoiceRecordingBar({
             e.preventDefault();
             onCancel();
           }}
-          className="shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--ct-red,#f85149)] transition-colors hover:bg-[color-mix(in_srgb,var(--ct-red,#f85149)_14%,transparent)]"
+          className="ct-voice-control shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--ct-red,#f85149)] hover:bg-[color-mix(in_srgb,var(--ct-red,#f85149)_14%,transparent)]"
         >
           Cancel
         </button>

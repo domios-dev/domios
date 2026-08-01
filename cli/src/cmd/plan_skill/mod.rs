@@ -47,7 +47,7 @@ fn record_stride(
         "plan_id": plan_id,
         "kind": "skill",
         "text": text,
-        "from": { "pane_id": std::env::var("CODETERM_PANE_ID").ok() },
+        "from": { "tab_id": std::env::var("CODETERM_TAB_ID").ok() },
     });
     match client.call("plan.stride.add", Some(params)) {
         Ok(_) => true,
@@ -58,9 +58,31 @@ fn record_stride(
     }
 }
 
-fn resolve_local(plan: Option<String>) -> Result<(String, std::path::PathBuf), String> {
-    let root = crate::cmd::plan_local::project_root(None)?;
-    store::resolve_plan_dir(&root, plan)
+fn resolve_local(
+    client: &mut dyn RpcClient,
+    plan: Option<String>,
+) -> Result<(String, std::path::PathBuf), String> {
+    let response = call(client, "plan.files", plan_rpc_params(plan))?;
+    let index_path = response
+        .get("index_path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "plan.files returned no authoritative index_path".to_string())?;
+    let plan_dir = std::path::PathBuf::from(index_path)
+        .parent()
+        .ok_or_else(|| "authoritative plan index has no parent directory".to_string())?
+        .to_path_buf();
+    let plan_id = plan_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            if name == "_inbox" {
+                "inbox".to_string()
+            } else {
+                name.to_string()
+            }
+        })
+        .ok_or_else(|| "could not determine authoritative plan id".to_string())?;
+    Ok((plan_id, plan_dir))
 }
 
 fn plan_rpc_params(plan: Option<String>) -> Value {
@@ -73,7 +95,7 @@ fn plan_rpc_params(plan: Option<String>) -> Value {
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
     } else {
-        crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+        crate::cmd::plan::maybe_inject_caller_tab(&mut params);
     }
     params
 }
@@ -153,7 +175,7 @@ fn edit_skill(
     rationale: String,
     body_file: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let (plan_id, plan_dir) = resolve_local(plan)?;
+    let (plan_id, plan_dir) = resolve_local(client, plan)?;
     let slug = store::slugify(&slug);
     let skill_md = store::skill_md_path(&plan_dir, &slug);
     if !skill_md.is_file() {

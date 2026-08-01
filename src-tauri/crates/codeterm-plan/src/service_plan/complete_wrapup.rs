@@ -41,7 +41,7 @@ mod tests {
             .create_plan(
                 "P".into(),
                 dir.path().display().to_string(),
-                OrchestratorRef::from_pane("o"),
+                OrchestratorRef::from_tab("o"),
                 vec![],
                 1,
             )
@@ -58,7 +58,7 @@ mod tests {
             )
             .unwrap();
         store
-            .close_task(&plan.id, &task_id, None, AgentRef::from_pane("o"), 3)
+            .close_task(&plan.id, &task_id, None, AgentRef::from_tab("o"), 3)
             .unwrap();
         store.set_mode(&plan.id, PlanMode::Complete, 4).unwrap();
         let plan = store.get(&plan.id).unwrap();
@@ -73,7 +73,7 @@ mod tests {
             .create_plan(
                 "Paused".into(),
                 dir.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
@@ -95,7 +95,7 @@ mod tests {
                 &plan.id,
                 &task_id,
                 "provider quota exhausted",
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 4,
             )
             .unwrap();

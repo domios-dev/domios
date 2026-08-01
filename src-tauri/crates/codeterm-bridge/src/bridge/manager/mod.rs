@@ -16,7 +16,7 @@ use super::traits::{
     ReplyContext,
 };
 use super::voice_transcribe;
-use crate::ports::BridgePanePort;
+use crate::ports::BridgeTabPort;
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 /// Auto-edit window — if a new send arrives within this time, edit the previous message.
@@ -59,12 +59,12 @@ struct ChatState {
 }
 
 pub struct BridgeManager {
-    pane: Arc<dyn BridgePanePort>,
+    tab: Arc<dyn BridgeTabPort>,
 }
 
 impl BridgeManager {
-    pub fn new(pane: Arc<dyn BridgePanePort>) -> Self {
-        Self { pane }
+    pub fn new(tab: Arc<dyn BridgeTabPort>) -> Self {
+        Self { tab }
     }
 
     pub async fn start(
@@ -91,7 +91,7 @@ impl BridgeManager {
             });
         }
 
-        let token = self.pane.telegram_token().unwrap_or_default();
+        let token = self.tab.telegram_token().unwrap_or_default();
         let api_base = super::telegram::telegram_api_base();
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -108,7 +108,7 @@ impl BridgeManager {
         log::info!("[bridge] manager v4 started (CLI + auto-edit + typing)");
 
         let fallback_clone = fallback_chat_id.clone();
-        let pane = self.pane.clone();
+        let tab = self.tab.clone();
 
         loop {
             tokio::select! {
@@ -157,10 +157,10 @@ impl BridgeManager {
                         reply_ctx: first.reply_ctx.clone(),
                     };
 
-                    let voice_cfg = pane.voice_transcribe_config();
-                    let text_hooks_cfg = pane.text_hooks_config();
+                    let voice_cfg = tab.voice_transcribe_config();
+                    let text_hooks_cfg = tab.text_hooks_config();
                     if let Err(e) =
-                        inject_message(&pane, &merged_msg, &voice_cfg, &text_hooks_cfg).await
+                        inject_message(&tab, &merged_msg, &voice_cfg, &text_hooks_cfg).await
                     {
                         log::error!("[bridge] inject failed: {}", e);
                     }
@@ -587,19 +587,19 @@ enum HookOutcome {
 }
 
 async fn run_pre_forward_hook(
-    pane: &Arc<dyn BridgePanePort>,
+    tab: &Arc<dyn BridgeTabPort>,
     msg: &InboundMessage,
-    pane_id: &str,
+    tab_id: &str,
     body: &str,
     cfg: &TextHooksConfig,
 ) -> HookOutcome {
-    apply_hook(&pane.bridge_outbound(), msg, pane_id, body, cfg).await
+    apply_hook(&tab.bridge_outbound(), msg, tab_id, body, cfg).await
 }
 
 async fn apply_hook(
     outbound: &OutboundSender,
     msg: &InboundMessage,
-    pane_id: &str,
+    tab_id: &str,
     body: &str,
     cfg: &TextHooksConfig,
 ) -> HookOutcome {
@@ -611,7 +611,7 @@ async fn apply_hook(
         channel: msg.service.clone(),
         user_id: msg.user_id.to_string(),
         msg_id: msg.message_id.map(|id| id.to_string()),
-        pane_id: pane_id.to_string(),
+        tab_id: tab_id.to_string(),
         attachments: msg
             .attachments
             .iter()
@@ -684,17 +684,17 @@ async fn apply_hook(
 }
 
 async fn inject_message(
-    pane: &Arc<dyn BridgePanePort>,
+    tab: &Arc<dyn BridgeTabPort>,
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
     text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
-    let pane_id = pane.resolve_general_pane()?;
-    let agent_type = pane.pane_agent_type(&pane_id);
+    let tab_id = tab.resolve_general_tab()?;
+    let agent_type = tab.tab_agent_type(&tab_id);
 
-    let body = build_message_body(msg, &pane.transcribe_registry(), &voice_cfg.active).await;
+    let body = build_message_body(msg, &tab.transcribe_registry(), &voice_cfg.active).await;
 
-    let body = match run_pre_forward_hook(pane, msg, &pane_id, &body, text_hooks_cfg).await {
+    let body = match run_pre_forward_hook(tab, msg, &tab_id, &body, text_hooks_cfg).await {
         HookOutcome::Forward => body,
         HookOutcome::Annotated(annotated) => annotated,
         HookOutcome::Replaced => return Ok(()),
@@ -714,7 +714,7 @@ async fn inject_message(
             .build(),
     };
 
-    pane.deliver_inbound(&pane_id, &prefixed, agent_type.as_deref())
+    tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref())
 }
 
 #[cfg(test)]

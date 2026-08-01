@@ -37,7 +37,7 @@ document.body.append(curieHost);
 const curieRoot = createRoot(curieHost);
 await act(async () => curieRoot.render(
   <MessageBubble
-    message={{ id: "report-curie", type: "user", content: CURIE_PARTIAL_REPORT, fromLabel: "Curie", fromPane: "02d1339c", inboundKind: "report" }}
+    message={{ id: "report-curie", type: "user", content: CURIE_PARTIAL_REPORT, fromLabel: "Curie", fromTab: "02d1339c", inboundKind: "report" }}
   />,
 ));
 if (!curieHost.querySelector('[data-testid="chat-inbound-report-body"]')) throw new Error("report card renders no body element");
@@ -78,7 +78,7 @@ await act(async () => root.render(
 ));
 if (!host.querySelector('[data-testid="chat-inbound-report"]')) throw new Error("typed report card missing");
 if (!host.textContent?.includes("report · Hugo") || !host.textContent.includes("task_2iw42e") || !host.textContent.includes("1e096cba6")) throw new Error("report header regression");
-if (host.querySelector('[data-testid="chat-cross-pane-bubble"]')) throw new Error("report must not contain a nested message bubble");
+if (host.querySelector('[data-testid="chat-cross-tab-bubble"]')) throw new Error("report must not contain a nested message bubble");
 const focus = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Show Tab");
 if (!focus) throw new Error("report source navigation missing");
 await act(async () => (focus as HTMLButtonElement).click());
@@ -91,11 +91,11 @@ document.body.append(dispatchHost);
 const dispatchRoot = createRoot(dispatchHost);
 await act(async () => dispatchRoot.render(
   <MessageBubble
-    message={{ id: "report-2", type: "user", content, fromLabel: "Hugo", fromPane: "e7f14bec", inboundKind: "report" }}
+    message={{ id: "report-2", type: "user", content, fromLabel: "Hugo", fromTab: "e7f14bec", inboundKind: "report" }}
   />,
 ));
 if (!dispatchHost.querySelector('[data-testid="chat-inbound-report"]')) throw new Error("MessageBubble report dispatch regression");
-if (dispatchHost.querySelector('[data-testid="chat-cross-pane-bubble"]')) throw new Error("MessageBubble routed report through generic bubble");
+if (dispatchHost.querySelector('[data-testid="chat-cross-tab-bubble"]')) throw new Error("MessageBubble routed report through generic bubble");
 if (!dispatchHost.textContent?.includes("Added provider matrix")) throw new Error("inbound report must be expanded by default");
 await act(async () => dispatchRoot.unmount());
 dispatchHost.remove();

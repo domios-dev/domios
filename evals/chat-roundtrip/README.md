@@ -28,7 +28,7 @@ cd evals/chat-roundtrip
 ./run.sh                        # claude + codex, elementary + rapid-send cases
 CR_PROVIDERS="claude" ./run.sh  # one provider
 CR_TIMEOUT=120 ./run.sh         # per-turn poll budget (seconds), default 90
-CR_KEEP=1 ./run.sh              # leave panes/workspace for inspection
+CR_KEEP=1 ./run.sh              # leave tabs/workspace for inspection
 ```
 
 Dev-locked: `run.sh` sources `evals/_lib/lib.sh`, so every CLI/HTTP call is
@@ -37,7 +37,7 @@ daemon (`./build.sh dev`).
 
 ## What it asserts (case ladder)
 
-1. **session-binding (CE3, the gate)** — a FRESH pane must bind its session and
+1. **session-binding (CE3, the gate)** — a FRESH tab must bind its session and
    deliver the transcript through the UI seam (`POST /chat-raw/start`, the
    `chat_start_core` path the web chat view uses). Send a nonce; poll
    `chat-raw/start` until `pending:false` AND the user echo is present. A perpetual
@@ -49,9 +49,9 @@ daemon (`./build.sh dev`).
 3. **rapid multi-send** — three quick distinct messages; assert all three land
    in the transcript (each as its own turn, or covered within a combined turn).
 
-The send path is `POST /api/panes/{id}/send {text, enter:true}` →
+The send path is `POST /api/tabs/{id}/send {text, enter:true}` →
 `send_text_when_ready`, the identical seam the Tauri `chat_send_text` command
-uses. The read path is `GET /api/panes/{id}/chat?since=0` — the same normalized
+uses. The read path is `GET /api/tabs/{id}/chat?since=0` — the same normalized
 `ChatMsg` shape the chat UI renders.
 
 > Note on PTY agents: the desktop composer types claude/codex sends straight

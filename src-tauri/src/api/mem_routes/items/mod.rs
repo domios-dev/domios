@@ -93,6 +93,8 @@ pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     }
 }
 
+mod delete;
+pub use delete::{mem_delete, mem_forget_area};
 #[cfg(test)]
 mod tests;
 
@@ -167,12 +169,15 @@ pub async fn mem_save(
     let body_clone = item.body.clone();
     let kind_for_extract = item.kind;
     let changed_by = changed_by_from_headers(&headers);
-    let id = crate::mem::store::with_changed_by(&changed_by, || {
-        if body.replace {
-            state.svc.mem.save_replace(item)
-        } else {
-            state.svc.mem.save(item)
-        }
+    let worker_id = super::worker_id_from_headers(&headers);
+    let id = crate::mem::store::with_write_worker(worker_id, || {
+        crate::mem::store::with_changed_by(&changed_by, || {
+            if body.replace {
+                state.svc.mem.save_replace(item)
+            } else {
+                state.svc.mem.save(item)
+            }
+        })
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
@@ -198,34 +203,6 @@ pub async fn mem_save(
     }
 
     Ok(Json(serde_json::json!({ "id": id })))
-}
-
-pub async fn mem_delete(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let changed_by = changed_by_from_headers(&headers);
-    let removed = crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.delete(&id))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    emit_activity(&state, &headers, "delete", vec![id.clone()]);
-    Ok(Json(serde_json::json!({ "deleted": removed })))
-}
-
-pub async fn mem_forget_area(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(area): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let count = state
-        .svc
-        .mem
-        .delete_by_area(&area)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    emit_activity(&state, &headers, "delete", vec![format!("area:{}", area)]);
-    Ok(Json(serde_json::json!({ "deleted": count, "area": area })))
 }
 
 #[derive(Deserialize, Default)]
@@ -316,8 +293,10 @@ pub async fn mem_update(
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
     let updated =
-        crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        crate::mem::store::with_write_worker(super::worker_id_from_headers(&headers), || {
+            crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
+        })
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
     }
@@ -345,8 +324,8 @@ pub async fn mem_wake_up(
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let caller_workspace = crate::api::pane_routes::caller_pane_header(&headers)
-        .and_then(|pane_id| state.svc.mux.read().find_workspace_for_pane(&pane_id));
+    let caller_workspace = crate::api::tab_routes::caller_tab_header(&headers)
+        .and_then(|tab_id| state.svc.mux.read().find_workspace_for_tab(&tab_id));
     let opts = wake_up_options_from_params(&p, caller_workspace);
     let text = state
         .svc
@@ -486,7 +465,7 @@ pub async fn mem_promote(
 
 #[derive(Deserialize)]
 pub struct FlushBody {
-    pub pane: String,
+    pub tab: String,
     #[serde(default)]
     pub title: Option<String>,
 }
@@ -499,8 +478,8 @@ pub async fn mem_flush(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let pty_id = {
         let mux = state.svc.mux.write();
-        mux.resolve_pane_id(&b.pane)
-            .ok_or((StatusCode::NOT_FOUND, format!("pane not found: {}", b.pane)))?
+        mux.resolve_tab_id(&b.tab)
+            .ok_or((StatusCode::NOT_FOUND, format!("Tab not found: {}", b.tab)))?
     };
     let pty_id_for_buffer = state
         .svc
@@ -510,9 +489,9 @@ pub async fn mem_flush(
         let buf = state.svc.output_buf.lock();
         buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
     };
-    let id = learnings::flush_pane(
+    let id = learnings::flush_tab(
         &state.svc.mem,
-        &b.pane,
+        &b.tab,
         b.title.as_deref().unwrap_or(""),
         body,
     )

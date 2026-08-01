@@ -6,7 +6,7 @@ import { Window } from "happy-dom";
 import { OrchestrationGroupSection } from "./OrchestrationGroupSection";
 import { RoleBadge } from "./RoleBadge";
 import { roleBadgeLabel, shouldShowSectionHeader } from "./orchestrationSections";
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -39,15 +39,15 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
-function pane(overrides: Partial<Pane>): Pane {
-  return { id: "p", title: "p", role: null, role_profile: null, ...overrides } as Pane;
+function tab(overrides: Partial<Tab>): Tab {
+  return { id: "p", title: "p", role: null, role_profile: null, ...overrides } as Tab;
 }
 
 /** Renders the leadership badges + sections the way the real sidebar composes
- *  an orchestration group, from a seeded pane set. */
-function Group({ panes }: { panes: Pane[] }) {
-  const orch = panes.find((p) => p.role === "Orchestrator")!;
-  const children = panes.filter((p) => p.id !== orch.id);
+ *  an orchestration group, from a seeded tab set. */
+function Group({ tabs }: { tabs: Tab[] }) {
+  const orch = tabs.find((p) => p.role === "Orchestrator")!;
+  const children = tabs.filter((p) => p.id !== orch.id);
   const managers = children.filter((p) => roleBadgeLabel(p) != null);
   const workers = children.filter((p) => roleBadgeLabel(p) == null);
   const orchBadge = roleBadgeLabel(orch);
@@ -90,11 +90,11 @@ setupDom();
 test("seeded group (orch + planner + 2 workers) renders both section headers, planner-first, role badges, no star", async () => {
   const { host, root } = await render(
     <Group
-      panes={[
-        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Planner", role: "Manager", role_profile: "planner" }),
-        pane({ id: "w1", title: "Worker A", role: "Worker" }),
-        pane({ id: "w2", title: "Worker B", role: "Worker" }),
+      tabs={[
+        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "planner", title: "Planner", role: "Manager", role_profile: "planner" }),
+        tab({ id: "w1", title: "Worker A", role: "Worker" }),
+        tab({ id: "w2", title: "Worker B", role: "Worker" }),
       ]}
     />,
   );
@@ -121,9 +121,9 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
 test("one-planner group keeps the MANAGERS header (non-empty section always labeled)", async () => {
   const { host, root } = await render(
     <Group
-      panes={[
-        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
+      tabs={[
+        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
       ]}
     />,
   );
@@ -137,9 +137,9 @@ test("one-planner group keeps the MANAGERS header (non-empty section always labe
 test("lone worker (no planner) keeps the WORKERS header (non-empty section always labeled)", async () => {
   const { host, root } = await render(
     <Group
-      panes={[
-        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "w1", title: "Worker A", role: "Worker" }),
+      tabs={[
+        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "w1", title: "Worker A", role: "Worker" }),
       ]}
     />,
   );
@@ -153,10 +153,10 @@ test("headers RETURN when a section disambiguates: >1 worker, or both sections p
   // Two workers, no planner → WORKERS header returns (groups a set), still no Managers.
   const many = await render(
     <Group
-      panes={[
-        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "w1", title: "Worker A", role: "Worker" }),
-        pane({ id: "w2", title: "Worker B", role: "Worker" }),
+      tabs={[
+        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "w1", title: "Worker A", role: "Worker" }),
+        tab({ id: "w2", title: "Worker B", role: "Worker" }),
       ]}
     />,
   );
@@ -166,10 +166,10 @@ test("headers RETURN when a section disambiguates: >1 worker, or both sections p
   // Planner + one worker → both sections present → both headers show.
   const both = await render(
     <Group
-      panes={[
-        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
-        pane({ id: "w1", title: "Worker A", role: "Worker" }),
+      tabs={[
+        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
+        tab({ id: "w1", title: "Worker A", role: "Worker" }),
       ]}
     />,
   );

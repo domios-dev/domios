@@ -25,8 +25,8 @@ Options:
   -h, --help        Show this help.
 
 Tolerance policy:
-  WS-* scenario workspace/pane metadata is exact.
-  General workspace tab/pane counts may vary by ±1 because the protected
+  WS-* scenario workspace/tab metadata is exact.
+  General workspace tab/tab counts may vary by ±1 because the protected
   General agent can settle with one or two tabs around the forced restart.
 EOF
 }
@@ -74,19 +74,19 @@ def read(path, name):
 def index_ws(workspaces):
     return {w["name"]: w for w in workspaces}
 
-def panes_by_workspace(panes):
+def tabs_by_workspace(tabs):
     grouped = {}
-    for pane in panes:
-        grouped.setdefault(pane.get("workspace_name"), []).append(pane)
+    for tab in tabs:
+        grouped.setdefault(tab.get("workspace_name"), []).append(tab)
     return grouped
 
-def slim_pane(pane):
+def slim_tab(tab):
     return {
-        "title": pane.get("title"),
-        "agent_type": pane.get("agent_type"),
-        "cwd": pane.get("cwd"),
-        "tab_title": pane.get("tab_title"),
-        "title_level": pane.get("title_level"),
+        "title": tab.get("title"),
+        "agent_type": tab.get("agent_type"),
+        "cwd": tab.get("cwd"),
+        "tab_title": tab.get("tab_title"),
+        "title_level": tab.get("title_level"),
     }
 
 def read_optional(path, name):
@@ -98,20 +98,20 @@ def read_optional(path, name):
 
 pre_ws = read(pre, "ws.json")
 post_ws = read(post, "ws.json")
-pre_panes = read(pre, "panes.json")
-post_panes = read(post, "panes.json")
+pre_tabs = read(pre, "tabs.json")
+post_tabs = read(post, "tabs.json")
 pre_ga_session = read_optional(pre, "ga-session.json")
 post_ga_session = read_optional(post, "ga-session.json")
 pre_ws_by_name = index_ws(pre_ws)
 post_ws_by_name = index_ws(post_ws)
-pre_panes_by_ws = panes_by_workspace(pre_panes)
-post_panes_by_ws = panes_by_workspace(post_panes)
+pre_tabs_by_ws = tabs_by_workspace(pre_tabs)
+post_tabs_by_ws = tabs_by_workspace(post_tabs)
 
 scenario_names = sorted(name for name in pre_ws_by_name if name.startswith("WS-"))
 
 summary = {
     "workspace_count": {"pre": len(pre_ws), "post": len(post_ws)},
-    "pane_count": {"pre": len(pre_panes), "post": len(post_panes)},
+    "tab_count": {"pre": len(pre_tabs), "post": len(post_tabs)},
     "scenarios": {},
     "general": {},
 }
@@ -119,22 +119,22 @@ summary = {
 for name in scenario_names:
     before = pre_ws_by_name[name]
     after = post_ws_by_name.get(name)
-    before_panes = sorted(
-        (slim_pane(p) for p in pre_panes_by_ws.get(name, [])),
+    before_tabs = sorted(
+        (slim_tab(p) for p in pre_tabs_by_ws.get(name, [])),
         key=lambda p: (p.get("title") or "", p.get("cwd") or ""),
     )
-    after_panes = sorted(
-        (slim_pane(p) for p in post_panes_by_ws.get(name, [])),
+    after_tabs = sorted(
+        (slim_tab(p) for p in post_tabs_by_ws.get(name, [])),
         key=lambda p: (p.get("title") or "", p.get("cwd") or ""),
     )
     summary["scenarios"][name] = {
         "cwd": before.get("cwd"),
         "pre_tab_count": before.get("tab_count"),
         "post_tab_count": after.get("tab_count") if after else None,
-        "pre_pane_count": len(before_panes),
-        "post_pane_count": len(after_panes),
-        "pre_panes": before_panes,
-        "post_panes": after_panes,
+        "pre_tab_count": len(before_tabs),
+        "post_tab_count": len(after_tabs),
+        "pre_tabs": before_tabs,
+        "post_tabs": after_tabs,
     }
 
 general_pre = pre_ws_by_name.get("General")
@@ -145,8 +145,8 @@ if general_pre and general_post:
     summary["general"] = {
         "pre_tab_count": general_pre.get("tab_count"),
         "post_tab_count": general_post.get("tab_count"),
-        "pre_pane_count": len(pre_panes_by_ws.get("General", [])),
-        "post_pane_count": len(post_panes_by_ws.get("General", [])),
+        "pre_tab_count": len(pre_tabs_by_ws.get("General", [])),
+        "post_tab_count": len(post_tabs_by_ws.get("General", [])),
         "session_id_present_pre": bool(pre_sid),
         "session_id_matches_after_sid_wipe": bool(pre_sid) and post_sid == pre_sid,
         "decoy_worker_session_seeded": bool(pre_ga_session.get("decoy_session_id")),
@@ -162,7 +162,7 @@ print(
     f"  workspaces: pre={summary['workspace_count']['pre']} "
     f"post={summary['workspace_count']['post']}"
 )
-print(f"  panes:      pre={summary['pane_count']['pre']} post={summary['pane_count']['post']}")
+print(f"  tabs:      pre={summary['tab_count']['pre']} post={summary['tab_count']['post']}")
 
 if check_mode != "1":
     sys.exit(0)
@@ -177,7 +177,7 @@ with open(baseline_path, "r", encoding="utf-8") as f:
 expected = baseline["expected"]
 tolerances = baseline.get("tolerances", {})
 general_tab_tol = int(tolerances.get("general_tab_count_abs", 0))
-general_pane_tol = int(tolerances.get("general_pane_count_abs", 0))
+general_tab_tol = int(tolerances.get("general_tab_count_abs", 0))
 
 failures = []
 
@@ -200,7 +200,7 @@ for name, want in expected["scenarios"].items():
     got = summary["scenarios"].get(name)
     if not got:
         continue
-    for key in ("cwd", "pre_tab_count", "post_tab_count", "pre_pane_count", "post_pane_count", "pre_panes", "post_panes"):
+    for key in ("cwd", "pre_tab_count", "post_tab_count", "pre_tab_count", "post_tab_count", "pre_tabs", "post_tabs"):
         if got.get(key) != want.get(key):
             failures.append(f"{name}.{key}: {got.get(key)!r} != {want.get(key)!r}")
 
@@ -210,11 +210,11 @@ for key in ("pre_tab_count", "post_tab_count"):
     if got is None or abs(got - want) > general_tab_tol:
         failures.append(f"General.{key}: {got} outside {want} ±{general_tab_tol}")
 
-for key in ("pre_pane_count", "post_pane_count"):
+for key in ("pre_tab_count", "post_tab_count"):
     got = summary["general"].get(key)
     want = expected["general"].get(key)
-    if got is None or abs(got - want) > general_pane_tol:
-        failures.append(f"General.{key}: {got} outside {want} ±{general_pane_tol}")
+    if got is None or abs(got - want) > general_tab_tol:
+        failures.append(f"General.{key}: {got} outside {want} ±{general_tab_tol}")
 
 for key in ("session_id_present_pre", "session_id_matches_after_sid_wipe", "decoy_worker_session_seeded"):
     got = summary["general"].get(key)
@@ -225,7 +225,7 @@ for key in ("session_id_present_pre", "session_id_matches_after_sid_wipe", "deco
 print(f"baseline: {baseline_path}")
 print(
     "tolerance: WS-* exact; "
-    f"General tabs ±{general_tab_tol}, General panes ±{general_pane_tol}"
+    f"General tabs ±{general_tab_tol}, General tabs ±{general_tab_tol}"
 )
 
 if failures:
@@ -240,39 +240,39 @@ PY
 
 capture_general_session() {
   local out_path="${1:?usage: capture_general_session <out_json>}"
-  local panes_json
-  panes_json="$(mktemp)"
-  dev_get /api/panes > "$panes_json"
-  PYTHONIOENCODING=utf-8 python - "$panes_json" "$out_path" <<'PY'
+  local tabs_json
+  tabs_json="$(mktemp)"
+  dev_get /api/tabs > "$tabs_json"
+  PYTHONIOENCODING=utf-8 python - "$tabs_json" "$out_path" <<'PY'
 import json
 import sys
 
-panes_path, out_path = sys.argv[1:3]
-with open(panes_path, "r", encoding="utf-8") as f:
-    panes = json.load(f)
-pane = next(
+tabs_path, out_path = sys.argv[1:3]
+with open(tabs_path, "r", encoding="utf-8") as f:
+    tabs = json.load(f)
+tab = next(
     (
-        p for p in panes
+        p for p in tabs
         if p.get("workspace_name") == "General"
         and (p.get("title") == "Main" or p.get("tab_title") == "Main")
     ),
     None,
 )
 payload = {
-    "pane_id": pane.get("id") if pane else None,
-    "cwd": pane.get("cwd") if pane else None,
-    "session_id": pane.get("agent_session_id") if pane else None,
+    "tab_id": tab.get("id") if tab else None,
+    "cwd": tab.get("cwd") if tab else None,
+    "session_id": tab.get("agent_session_id") if tab else None,
 }
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2, sort_keys=True)
     f.write("\n")
 if not payload["session_id"]:
-    print("ERROR: General pane has no agent_session_id", file=sys.stderr)
+    print("ERROR: General tab has no agent_session_id", file=sys.stderr)
     sys.exit(1)
 print(payload["session_id"])
 PY
   local rc=$?
-  rm -f "$panes_json"
+  rm -f "$tabs_json"
   return $rc
 }
 
@@ -369,9 +369,9 @@ WS_CS=$(new_workspace WS-claude-silent C:/temp/restore-WS-claude-silent)
 WS_CT=$(new_workspace WS-claude-with-text C:/temp/restore-WS-claude-with-text)
 WS_CR=$(new_workspace WS-claude-renamed C:/temp/restore-WS-claude-renamed)
 
-P_SS=$(new_shell_pane $WS_SS C:/temp/restore-WS-shell-silent silent-shell)
+P_SS=$(new_shell_tab $WS_SS C:/temp/restore-WS-shell-silent silent-shell)
 
-P_ST=$(new_shell_pane $WS_ST C:/temp/restore-WS-shell-with-text shell-with-text)
+P_ST=$(new_shell_tab $WS_ST C:/temp/restore-WS-shell-with-text shell-with-text)
 # pwsh PTY linked != shell-ready-for-input. await_pty_link returns
 # as soon as the PTY is registered, but the shell process inside
 # (powershell.exe) takes another 5-10s to render its prompt and
@@ -379,20 +379,20 @@ P_ST=$(new_shell_pane $WS_ST C:/temp/restore-WS-shell-with-text shell-with-text)
 # 12s is the empirical safe window on Win11/PS5.
 sleep 12 && dc tab exec --tab $P_ST 'echo MARKER_SHELL_BEFORE_KILL' > /dev/null 2>&1
 
-P_CS=$(new_claude_pane $WS_CS C:/temp/restore-WS-claude-silent silent-claude)
+P_CS=$(new_claude_tab $WS_CS C:/temp/restore-WS-claude-silent silent-claude)
 
-P_CT=$(new_claude_pane $WS_CT C:/temp/restore-WS-claude-with-text claude-with-text 'reply with single word PINEAPPLEMARKER')
+P_CT=$(new_claude_tab $WS_CT C:/temp/restore-WS-claude-with-text claude-with-text 'reply with single word PINEAPPLEMARKER')
 
-P_CR=$(new_claude_pane $WS_CR C:/temp/restore-WS-claude-renamed will-rename)
+P_CR=$(new_claude_tab $WS_CR C:/temp/restore-WS-claude-renamed will-rename)
 dc tab rename 'MY-CUSTOM-TITLE' --tab $P_CR > /dev/null 2>&1
 
 echo "  ws_ids: empty=$WS_E shell-s=$WS_SS shell-t=$WS_ST cl-s=$WS_CS cl-t=$WS_CT cl-r=$WS_CR"
-echo "  pane_ids: $P_SS $P_ST $P_CS $P_CT $P_CR"
+echo "  tab_ids: $P_SS $P_ST $P_CS $P_CT $P_CR"
 
 echo "== wait 25s for claude bootstrap + initial task response"
 sleep 25
 
-echo "== assert text actually arrived in panes BEFORE kill"
+echo "== assert text actually arrived in tabs BEFORE kill"
 shell_out=$(dc tab get-text --tab $P_ST 2>&1)
 if echo "$shell_out" | grep -q "MARKER_SHELL_BEFORE_KILL"; then
   echo "  OK shell-with-text contains MARKER_SHELL_BEFORE_KILL"

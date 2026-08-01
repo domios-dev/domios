@@ -63,9 +63,9 @@ const taskModel: TaskCardModel = {
   parentTaskName: null,
   stepColors: new Map(),
   presence: {
-    paneId: "pane-1",
+    tabId: "tab-1",
     label: "Worker",
-    agents: [{ id: "pane-1", label: "Worker", role: "worker", color: "#4f7df0" }],
+    agents: [{ id: "tab-1", label: "Worker", role: "worker", color: "#4f7df0" }],
     latest: null,
     focus: null,
     branch: "lane/test",

@@ -72,7 +72,7 @@ pub(super) fn dispatch(
             let from = p
                 .and_then(|x| x.get("from"))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_else(|| AgentRef::from_pane("unknown"));
+                .unwrap_or_else(|| AgentRef::from_tab("unknown"));
             let mid = store
                 .add_milestone(&id, &tid, &kind, text, from, add_kind, now)
                 .map_err(plan_rpc_err)?;
@@ -115,7 +115,7 @@ pub(super) fn dispatch(
             let from = p
                 .and_then(|x| x.get("from"))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_else(|| AgentRef::from_pane("unknown"));
+                .unwrap_or_else(|| AgentRef::from_tab("unknown"));
             let mid = store
                 .add_plan_stride(&id, &kind, text, from, now)
                 .map_err(plan_rpc_err)?;

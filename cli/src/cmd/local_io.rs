@@ -40,28 +40,28 @@ pub(crate) fn write_workspace_create_reuse_output<W: Write, E: Write>(
     Ok(true)
 }
 
-pub(crate) fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
+pub(crate) fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
     if let Some(id) = id {
         return id;
     }
-    // 2. $CODETERM_PANE_ID env var (set by CodeTerm PTY for each shell)
-    if let Ok(env_id) = std::env::var("CODETERM_PANE_ID") {
+    // 2. $CODETERM_TAB_ID env var (set by CodeTerm PTY for each shell)
+    if let Ok(env_id) = std::env::var("CODETERM_TAB_ID") {
         if !env_id.is_empty() {
             return env_id;
         }
     }
-    match client.call("pane.list", None) {
+    match client.call("tab.list", None) {
         Ok(value) => {
             if let Some(arr) = value.as_array() {
-                let pane = arr
+                let tab = arr
                     .iter()
                     .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
                     .or_else(|| arr.first());
-                if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
+                if let Some(id) = tab.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
                     return id.to_string();
                 }
             }
-            eprintln!("Error: no panes found");
+            eprintln!("Error: no Tabs found");
             std::process::exit(1);
         }
         Err(e) => {
@@ -132,7 +132,7 @@ pub(crate) fn handle_workspace_action(
         )),
         WorkspaceAction::Close { id } => {
             let mut params = serde_json::json!({ "workspace_id": id });
-            crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+            crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             Some(client.call("workspace.close", Some(params)))
         }
         WorkspaceAction::MoveTab { tab_id, from, to } => Some(client.call(
@@ -153,7 +153,7 @@ pub(crate) fn handle_workspace_action(
 pub(crate) fn handle_send_text(
     client: &mut SocketClient,
     json: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
     stdin: bool,
@@ -162,7 +162,7 @@ pub(crate) fn handle_send_text(
     at: Option<String>,
 ) {
     crate::cmd::send_text::handle_send_text(
-        client, json, pane, text, from_file, stdin, actions, delay, at,
+        client, json, tab, text, from_file, stdin, actions, delay, at,
     );
 }
 

@@ -45,7 +45,7 @@ export function PluginView({
   onClose?: () => void;
   /** Render just the iframe (no fullscreen chrome) to embed in a detail panel. */
   embedded?: boolean;
-  /** Pane cwd stamped into view-call args that omit one (e.g. the Git panel). */
+  /** Tab cwd stamped into view-call args that omit one (e.g. the Git panel). */
   cwd?: string | null;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);

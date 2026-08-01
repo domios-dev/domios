@@ -11,7 +11,7 @@ fn store() -> (tempfile::TempDir, Arc<PlanStore>, String) {
         .create_plan(
             "Initial".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             vec![],
             1,
         )
@@ -124,7 +124,7 @@ fn concurrent_team_plan_writes_all_commit_through_one_queue() {
                 format!("Concurrent {number}"),
                 project_path,
                 OrchestratorRef {
-                    pane_id: Some(format!("orchestrator-{number}")),
+                    tab_id: Some(format!("orchestrator-{number}")),
                     ..Default::default()
                 },
                 format!("team-{number}"),

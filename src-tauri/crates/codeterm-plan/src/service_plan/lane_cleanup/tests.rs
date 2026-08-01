@@ -4,14 +4,14 @@ use std::process::Command;
 use super::*;
 
 fn input<'a>(
-    pane_live: bool,
+    tab_live: bool,
     worktree_exists: bool,
     branch: Option<&'a str>,
     target: Option<&'a str>,
 ) -> LaneCleanupInput<'a> {
     LaneCleanupInput {
-        pane_id: Some("pane-1"),
-        pane_live,
+        tab_id: Some("tab-1"),
+        tab_live,
         worktree_path: Some("/tmp/lane"),
         worktree_exists,
         branch,
@@ -44,14 +44,14 @@ fn unmerged_branch_is_refused() {
 }
 
 #[test]
-fn live_pane_is_refused_before_any_delete() {
+fn live_tab_is_refused_before_any_delete() {
     let mut merge_checked = false;
     let decision = decide_lane_cleanup(&input(true, true, Some("lane/x"), Some("main")), |_, _| {
         merge_checked = true;
         true
     });
     assert!(matches!(decision, LaneCleanupDecision::Refuse(r) if r.contains("still live")));
-    assert!(!merge_checked, "must not merge-check while pane is live");
+    assert!(!merge_checked, "must not merge-check while tab is live");
 }
 
 #[test]

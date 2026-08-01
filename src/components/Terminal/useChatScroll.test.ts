@@ -83,10 +83,24 @@ function setGeometry(el: HTMLElement, geometry: Geometry): void {
   Object.defineProperty(el, "clientHeight", { configurable: true, get: () => geometry.clientHeight });
 }
 
+function countScrollTopWrites(el: HTMLElement): { reset: () => void; value: () => number } {
+  let scrollTop = el.scrollTop;
+  let writes = 0;
+  Object.defineProperty(el, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      writes += 1;
+      scrollTop = value;
+    },
+  });
+  return { reset: () => { writes = 0; }, value: () => writes };
+}
+
 let hookResult: UseChatScrollResult | null = null;
 
 function Fixture({ loading, messageCount }: { loading: boolean; messageCount: number }) {
-  const scroll = useChatScroll({ sessionKey: "pane:sess", active: true, loading, messageCount });
+  const scroll = useChatScroll({ sessionKey: "tab:sess", active: true, loading, messageCount });
   hookResult = scroll;
   const messageIds = useRef(["m-1", "m-2", "m-3"]);
   if (loading) return createElement("div", null, "loading");
@@ -115,10 +129,10 @@ function observerFor(el: Element): FakeResizeObserver | undefined {
 
 async function main(): Promise<void> {
 // --- 1. observer attaches even when the transcript mounts behind a loading gate ---
-// (PaneSessionChat's first render always has loading=true and early-returns, so
+// (TabSessionChat's first render always has loading=true and early-returns, so
 // the scroll/content nodes do not exist when the hook's effects first run.)
 {
-  clearPersistedChatScrollState("pane:sess");
+  clearPersistedChatScrollState("tab:sess");
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -179,7 +193,23 @@ async function main(): Promise<void> {
     `incoming messages preserve a manually detached viewport (got scrollTop=${scroll.scrollTop})`,
   );
 
+  const detachedWrites = countScrollTopWrites(scroll);
+  await renderFixture(root, false, 2);
+  assert(
+    detachedWrites.value() === 0,
+    `an unrelated commit does not interrupt detached native momentum (writes=${detachedWrites.value()})`,
+  );
+
   await act(async () => hookResult!.scrollToBottom());
+
+  setGeometry(scroll, { scrollHeight: 1200, clientHeight: 400 });
+  scroll.scrollTop = 800;
+  const pinnedWrites = countScrollTopWrites(scroll);
+  await renderFixture(root, false, 2);
+  assert(
+    pinnedWrites.value() === 0,
+    `an unrelated commit does not reassign an already pinned viewport (writes=${pinnedWrites.value()})`,
+  );
 
   // --- 3d. every pinned commit re-syncs before paint even without a resize ---
   // (window shift: top row dropped + new row appended, total height unchanged.)
@@ -196,7 +226,7 @@ async function main(): Promise<void> {
 
 // --- 4. detached anchor resolution is synchronous too ---
 {
-  clearPersistedChatScrollState("pane:sess");
+  clearPersistedChatScrollState("tab:sess");
   FakeResizeObserver.instances.length = 0;
   const host = document.createElement("div");
   document.body.appendChild(host);

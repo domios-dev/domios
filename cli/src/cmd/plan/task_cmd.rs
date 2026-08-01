@@ -8,7 +8,7 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, lane_params, maybe_inject_caller_pane, resolve_text};
+use super::{call, lane_params, maybe_inject_caller_tab, resolve_text};
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
@@ -36,8 +36,8 @@ fn render_attempts(value: &Value) -> String {
             .get("attempt_id")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
-        let pane = attempt
-            .get("executor_pane_id")
+        let tab = attempt
+            .get("executor_tab_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let status = attempt
@@ -56,7 +56,7 @@ fn render_attempts(value: &Value) -> String {
             .unwrap_or(0);
         out.push_str(&format!(
             "{:<24} {:<24} {:<10} {:<10} {:<18} at={}\n",
-            id, pane, status, provider, model, when
+            id, tab, status, provider, model, when
         ));
     }
     out
@@ -67,7 +67,7 @@ fn render_attempt(value: &Value) -> String {
     let mut out = String::new();
     for key in [
         "attempt_id",
-        "executor_pane_id",
+        "executor_tab_id",
         "executor_title",
         "status",
         "provider",
@@ -75,8 +75,8 @@ fn render_attempt(value: &Value) -> String {
         "model",
         "session_id",
         "role",
-        "parent_pane_id",
-        "orchestrator_pane_id",
+        "parent_tab_id",
+        "orchestrator_tab_id",
         "mesh_peer",
         "branch",
         "worktree_path",
@@ -125,35 +125,150 @@ fn render_attempt(value: &Value) -> String {
     out
 }
 
+fn render_dispatch_response(value: &Value) -> String {
+    let tab = value.get("tab_id").and_then(Value::as_str).unwrap_or("?");
+    let agent = value
+        .get("agent")
+        .and_then(Value::as_str)
+        .unwrap_or("agent");
+    let state = value.get("state").and_then(Value::as_str).unwrap_or("");
+    let ready = value
+        .get("readiness")
+        .and_then(|readiness| readiness.get("ready"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if state == "awaiting_dispatch_ready" && !ready {
+        let event = value
+            .get("readiness")
+            .and_then(|readiness| readiness.get("awaiting_event"))
+            .and_then(Value::as_str)
+            .unwrap_or("dispatch_ready");
+        return format!("Accepted {agent} worker Tab {tab}; awaiting {event}\n");
+    }
+    format!("Dispatched {agent} worker Tab {tab}\n")
+}
+
+fn task_status(item: &Value) -> &str {
+    item.get("task")
+        .unwrap_or(item)
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn hidden_task_summary(shown: usize, all_tasks: &[Value]) -> Option<String> {
+    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+    for task in all_tasks {
+        let status = task_status(task);
+        if matches!(status, "paused" | "done" | "cancelled") {
+            *counts.entry(status).or_default() += 1;
+        }
+    }
+    let hidden: usize = counts.values().sum();
+    if hidden == 0 {
+        return None;
+    }
+    let breakdown = counts
+        .into_iter()
+        .map(|(status, count)| format!("{status}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "{shown} shown; {hidden} hidden ({breakdown}). Use --all."
+    ))
+}
+
+fn canonical_path_key(path: &str) -> String {
+    std::path::PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(path))
+        .display()
+        .to_string()
+        .trim_start_matches(r"\\?\")
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn empty_task_list_message(plan: &Value, project: Option<&str>) -> Option<String> {
+    let plan_id = plan.get("id").and_then(Value::as_str).unwrap_or("?");
+    if plan.get("status").and_then(Value::as_str) == Some("archived") {
+        return Some(format!(
+            "Plan {plan_id} is archived; archived plans are excluded from task listing."
+        ));
+    }
+    let plan_project = plan
+        .get("canonical_project_path")
+        .or_else(|| plan.get("project_path"))
+        .and_then(Value::as_str)?;
+    let project = project?;
+    if canonical_path_key(plan_project) != canonical_path_key(project) {
+        return Some(format!(
+            "Plan {plan_id} belongs to {plan_project}, outside the current project {project}."
+        ));
+    }
+    None
+}
+
 pub(super) fn run_task(
     client: &mut dyn RpcClient,
     json: bool,
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
     match action {
-        PlanTaskAction::List { plan_id, status } => {
+        PlanTaskAction::List {
+            plan_id,
+            status,
+            all,
+        } => {
             let mut params = json!({
-                "active": status.is_none(),
+                "active": status.is_none() && !all,
                 "mine": false,
                 "unassigned": false,
             });
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             params["require_plan_id"] = json!(true);
-            if let Some(plan_id) = plan_id {
+            if let Some(plan_id) = &plan_id {
                 params["plan_id"] = json!(plan_id);
             }
+            let mut project_path = None;
             if !client.is_remote() {
                 if let Some(project) = std::env::current_dir()
                     .ok()
                     .map(|path| path.display().to_string())
                 {
                     params["project"] = json!(project);
+                    project_path = Some(project);
                 }
             }
-            if let Some(status) = status {
+            if let Some(status) = &status {
                 params["status"] = json!(status);
             }
-            call(client, "task.list", params).map(Some)
+            let mut response = call(client, "task.list", params.clone())?;
+            let shown = response
+                .get("tasks")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            if status.is_none() && !all {
+                let mut all_params = params.clone();
+                all_params["active"] = json!(false);
+                let all_response = call(client, "task.list", all_params)?;
+                if let Some(summary) = all_response
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .and_then(|tasks| hidden_task_summary(shown, tasks))
+                {
+                    response["task_list_summary"] = json!(summary);
+                }
+            }
+            if shown == 0 {
+                if let Some(plan_id) = plan_id {
+                    let plan = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
+                    if let Some(message) = empty_task_list_message(&plan, project_path.as_deref()) {
+                        response["task_list_message"] = json!(message);
+                    }
+                }
+            }
+            Ok(Some(response))
         }
         PlanTaskAction::Add {
             plan_id,
@@ -164,7 +279,10 @@ pub(super) fn run_task(
             why,
             why_file,
             criterion,
+            external_ref,
             test_plan,
+            qa_plan,
+            qa_plan_file,
             correctness,
             body,
             body_file,
@@ -176,7 +294,7 @@ pub(super) fn run_task(
             intent_file,
             parent,
             depends_on,
-            assign_pane,
+            assign_tab,
             workspace_id,
             workspace_name,
             worktree,
@@ -197,6 +315,7 @@ pub(super) fn run_task(
             let body_text = resolve_text(body, body_file)?;
             let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
+            let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let has_sections = sections
                 .as_deref()
                 .map(|s| s.split(',').any(|item| !item.trim().is_empty()))
@@ -226,8 +345,14 @@ pub(super) fn run_task(
             if !criterion.is_empty() {
                 params["acceptance_criteria"] = json!(criterion);
             }
+            if !external_ref.is_empty() {
+                params["external_refs"] = json!(external_ref);
+            }
             if let Some(test_plan) = test_plan {
                 params["test_plan"] = json!(test_plan);
+            }
+            if let Some(qa_plan) = qa_plan_text {
+                params["qa_plan"] = json!(qa_plan);
             }
             if let Some(correctness) = correctness {
                 params["correctness"] = json!(correctness);
@@ -253,12 +378,12 @@ pub(super) fn run_task(
             if !depends_on.is_empty() {
                 params["depends_on"] = json!(depends_on);
             }
-            if let Some(p) = assign_pane {
-                params["assign_pane"] = json!(p);
+            if let Some(p) = assign_tab {
+                params["assign_tab"] = json!(p);
             }
             if let Some(lane) = lane_params(
                 params
-                    .get("assign_pane")
+                    .get("assign_tab")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
                 workspace_id,
@@ -287,7 +412,7 @@ pub(super) fn run_task(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let mut val = call(client, "plan.task.add", params)?;
             if let Some(task_id) = val
                 .get("task_id")
@@ -342,12 +467,15 @@ pub(super) fn run_task(
             intent_file,
             sections,
             criterion,
+            external_ref,
             test_plan,
+            qa_plan,
+            qa_plan_file,
             correctness,
             parent,
             depends_on,
             clear_dependencies,
-            pane,
+            tab,
             workspace_id,
             workspace_name,
             worktree,
@@ -385,11 +513,13 @@ pub(super) fn run_task(
                 sections,
                 criterion,
                 test_plan,
+                qa_plan,
+                qa_plan_file,
                 correctness,
                 parent,
                 depends_on,
                 clear_dependencies,
-                pane,
+                tab,
                 workspace_id,
                 workspace_name,
                 worktree,
@@ -403,6 +533,7 @@ pub(super) fn run_task(
                 tags,
                 primary,
                 handle,
+                external_ref,
             )
             .map(Some)
         }
@@ -460,13 +591,13 @@ pub(super) fn run_task(
         PlanTaskAction::Assign {
             plan_id,
             task_id,
-            pane,
+            tab,
             mesh,
         } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
-                "pane": pane,
+                "tab": tab,
             });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
@@ -501,7 +632,7 @@ pub(super) fn run_task(
                 params["reasoning_effort"] = json!(effort);
             }
             if let Some(parent) = parent {
-                params["parent_pane_id"] = json!(parent);
+                params["parent_tab_id"] = json!(parent);
             }
             if let Some(workspace) = workspace {
                 params["workspace_id"] = json!(workspace);
@@ -509,7 +640,7 @@ pub(super) fn run_task(
             if let Some(cwd) = cwd {
                 params["cwd"] = json!(cwd);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call(client, "plan.task.dispatch", params)?;
             if json {
                 return Ok(Some(val));
@@ -519,9 +650,7 @@ pub(super) fn run_task(
                     eprintln!("warning: {w}");
                 }
             }
-            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-            let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
-            println!("Dispatched {agent} worker pane {pane}");
+            print!("{}", render_dispatch_response(&val));
             Ok(None)
         }
         PlanTaskAction::Attempts { plan_id, task_id } => {
@@ -584,10 +713,10 @@ pub(super) fn run_task(
                 params["model"] = json!(model);
             }
             if let Some(parent) = parent {
-                params["parent_pane_id"] = json!(parent);
-            } else if let Ok(parent) = std::env::var("CODETERM_PANE_ID") {
+                params["parent_tab_id"] = json!(parent);
+            } else if let Ok(parent) = std::env::var("CODETERM_TAB_ID") {
                 if !parent.trim().is_empty() {
-                    params["parent_pane_id"] = json!(parent);
+                    params["parent_tab_id"] = json!(parent);
                 }
             }
             if let Some(workspace) = workspace {
@@ -600,14 +729,14 @@ pub(super) fn run_task(
             if json {
                 return Ok(Some(val));
             }
-            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
             let attempt_id = val
                 .get("attempt")
                 .and_then(|v| v.get("attempt_id"))
                 .or_else(|| val.get("attempt").and_then(|v| v.get("id")))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            println!("Respawned worker pane {pane} (attempt {attempt_id})");
+            println!("Respawned worker Tab {tab} (attempt {attempt_id})");
             Ok(None)
         }
         PlanTaskAction::Link {
@@ -656,5 +785,62 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.rm", params).map(Some)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {
+        let response = json!({
+            "accepted": true,
+            "state": "awaiting_dispatch_ready",
+            "tab_id": "tab-1",
+            "agent": "codex",
+            "readiness": {
+                "ready": false,
+                "awaiting_event": "dispatch_ready"
+            }
+        });
+
+        let rendered = render_dispatch_response(&response);
+
+        assert!(!rendered.contains("Dispatched"), "{rendered}");
+        assert!(rendered.contains("awaiting dispatch_ready"), "{rendered}");
+    }
+
+    #[test]
+    fn hidden_summary_names_each_hidden_status_and_all_flag() {
+        let tasks = vec![
+            json!({ "task": { "status": "pending" } }),
+            json!({ "task": { "status": "paused" } }),
+            json!({ "task": { "status": "done" } }),
+            json!({ "task": { "status": "done" } }),
+            json!({ "task": { "status": "cancelled" } }),
+        ];
+        let summary = hidden_task_summary(1, &tasks).unwrap();
+        assert!(summary.contains("1 shown; 4 hidden"), "{summary}");
+        assert!(summary.contains("paused=1"), "{summary}");
+        assert!(summary.contains("done=2"), "{summary}");
+        assert!(summary.contains("cancelled=1"), "{summary}");
+        assert!(summary.contains("Use --all"), "{summary}");
+    }
+
+    #[test]
+    fn empty_cross_project_and_archived_lists_are_explicit() {
+        let cross_project = json!({
+            "id": "pl_other",
+            "status": "active",
+            "canonical_project_path": "D:/other"
+        });
+        let message = empty_task_list_message(&cross_project, Some("D:/current")).unwrap();
+        assert!(message.contains("outside the current project"), "{message}");
+
+        let archived = json!({ "id": "pl_old", "status": "archived" });
+        let message = empty_task_list_message(&archived, Some("D:/current")).unwrap();
+        assert!(message.contains("archived"), "{message}");
+        assert!(message.contains("excluded"), "{message}");
     }
 }

@@ -1,7 +1,7 @@
 //! JSON-RPC v2 server over named pipe (Windows) / Unix socket.
 //!
 //! Outer dispatch routes by method-prefix to per-domain submodules. Children
-//! own only the state they actually need (workspace + pane carry MuxState +
+//! own only the state they actually need (workspace + tab carry MuxState +
 //! AppHandle, notification gets NotifState, cron/agent/bridge get ServiceState
 //! + AppHandle).
 
@@ -15,7 +15,6 @@ mod mem;
 mod notification;
 mod orchestration;
 mod orchestrator;
-mod pane;
 mod plan;
 mod plan_archive;
 mod plan_attachments;
@@ -42,6 +41,7 @@ mod plan_task_rpc;
 mod plan_time;
 mod services;
 mod spec;
+mod tab;
 mod team;
 mod workspace;
 

@@ -5,7 +5,7 @@ import { X, MessageSquare } from "lucide-react";
 interface FloatingInputProps {
   ptyId: string | null;
   agentType: string | null;
-  paneId: string;
+  tabId: string;
   pendingPrompt: {
     question: string;
     options: { label: string; value: string }[];

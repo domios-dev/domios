@@ -83,6 +83,7 @@ struct RowFeature {
     multi_select: bool,
     side_band: bool,
     content_bg: AttributedColor,
+    background_selected: bool,
     bold: bool,
 }
 
@@ -142,9 +143,10 @@ impl AttributedScreen {
 }
 
 pub fn detect_picker(screen: &AttributedScreen) -> Option<PickerDetection> {
-    let rows: Vec<RowFeature> = (0..screen.rows)
+    let mut rows: Vec<RowFeature> = (0..screen.rows)
         .map(|row| analyze_row(screen, row))
         .collect();
+    suppress_nondistinguishing_backgrounds(&mut rows);
 
     if let Some(detection) = detect_horizontal_button_row(screen, &rows) {
         return Some(detection);
@@ -219,9 +221,15 @@ fn cell_char(cell: &AttributedCell) -> &str {
     }
 }
 
-fn row_content_bg(screen: &AttributedScreen, row: u16) -> AttributedColor {
+fn row_content_bg(screen: &AttributedScreen, row: u16, content_width: usize) -> AttributedColor {
     let mut counts = BTreeMap::<AttributedColor, usize>::new();
-    for cell in screen.cells.get(row as usize).into_iter().flatten() {
+    for cell in screen
+        .cells
+        .get(row as usize)
+        .into_iter()
+        .flatten()
+        .take(content_width)
+    {
         if !cell.ch.trim().is_empty() {
             *counts.entry(cell.bg.clone()).or_default() += 1;
         }
@@ -236,13 +244,15 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
     let side_band = framed.trim_start().starts_with('┃') || framed.trim_start().starts_with('╹');
     let stripped = strip_side_preview(&strip_side_band(&framed));
     let clean = clean_option_label(&stripped);
+    let content_width = primary_content_width(&stripped, &clean);
     let indent = stripped.chars().take_while(|c| c.is_whitespace()).count();
     let class = marker_class(stripped.trim_start());
     let footer = is_footer_hint(&stripped);
     let border = is_box_border(&stripped);
     let multi_select = contains_checkbox(&stripped) || contains_select_all_hint(&stripped);
-    let selected_score = selected_score(screen, row, &framed, class);
-    let content_bg = row_content_bg(screen, row);
+    let (selected_score, background_selected) =
+        selected_score(screen, row, &framed, class, content_width);
+    let content_bg = row_content_bg(screen, row, content_width);
     let bold = row_is_bold(screen, row);
     let option_like = !clean.is_empty()
         && !footer
@@ -262,8 +272,15 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
         multi_select,
         side_band,
         content_bg,
+        background_selected,
         bold,
     }
+}
+
+fn primary_content_width(text: &str, label: &str) -> usize {
+    text.find(label)
+        .map(|start| text[..start + label.len()].chars().count())
+        .unwrap_or_else(|| text.chars().count())
 }
 
 fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
@@ -276,12 +293,8 @@ fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
         .position(|row| row.clean.eq_ignore_ascii_case("search"))
         .map(|idx| idx + title_idx + 1)?;
 
-    let panel_bg = rows
-        .get(search_idx)
-        .map(|row| row.content_bg.clone())
-        .unwrap_or(AttributedColor::Default);
     let mut options = Vec::new();
-    let mut selected_index = None;
+    let mut option_rows = Vec::new();
     let mut top_row = None;
     let mut bottom_row = None;
     for row in &rows[search_idx + 1..] {
@@ -297,19 +310,19 @@ fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
         let Some(label) = panel_option_label(row) else {
             continue;
         };
-        if (is_panel_selection(row) || (!row.side_band && row.content_bg != panel_bg))
-            && selected_index.is_none()
-        {
-            selected_index = Some(options.len());
-        }
         top_row.get_or_insert(row.row);
         bottom_row = Some(row.row);
         options.push(label);
+        option_rows.push(row);
     }
 
     if options.len() < 2 {
         return None;
     }
+
+    let selected_index = explicit_marker_index(&option_rows)
+        .or_else(|| option_rows.iter().position(|row| is_panel_selection(row)))
+        .or_else(|| distinguishing_background_index(&option_rows));
 
     Some(PickerDetection {
         question: clean_question(&rows[title_idx].text),
@@ -323,12 +336,22 @@ fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
 
 fn detect_footer_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
     let footer_idx = rows.iter().position(|row| row.footer)?;
-    let selected_idx = rows[..footer_idx]
+    let marker_idx = rows[..footer_idx]
         .iter()
         .enumerate()
         .rev()
-        .find(|(_, row)| is_strong_selection(row) && option_kind(row).is_some())
-        .map(|(idx, _)| idx)?;
+        .find(|(idx, row)| {
+            has_explicit_marker(row) && marker_heads_footer_group(rows, *idx, footer_idx)
+        })
+        .map(|(idx, _)| idx);
+    let selected_idx = marker_idx.or_else(|| {
+        rows[..footer_idx]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, row)| is_strong_selection(row) && option_kind(row).is_some())
+            .map(|(idx, _)| idx)
+    })?;
     let selected_kind = option_kind(&rows[selected_idx])?;
 
     match selected_kind {
@@ -427,12 +450,21 @@ fn detect_selected_row_block(
     screen: &AttributedScreen,
     rows: &[RowFeature],
 ) -> Option<PickerDetection> {
-    rows.iter()
+    let marked = rows
+        .iter()
         .enumerate()
-        .filter(|(_, row)| row.selected_score > 0)
+        .filter(|(_, row)| has_explicit_marker(row))
         .filter_map(|(idx, row)| selected_row_candidate(screen, rows, idx, row))
         .max_by_key(|candidate| candidate.0)
-        .map(|(_, detection)| detection)
+        .map(|(_, detection)| detection);
+    marked.or_else(|| {
+        rows.iter()
+            .enumerate()
+            .filter(|(_, row)| row.selected_score > 0)
+            .filter_map(|(idx, row)| selected_row_candidate(screen, rows, idx, row))
+            .max_by_key(|candidate| candidate.0)
+            .map(|(_, detection)| detection)
+    })
 }
 
 fn selected_row_candidate(
@@ -565,13 +597,17 @@ fn score_block(
     let footer_near = rows[bottom..rows.len().min(bottom + 5)]
         .iter()
         .any(|row| row.footer);
-    let selected = block.iter().enumerate().fold((0, 0), |best, (idx, row)| {
-        if row.selected_score > best.1 {
-            (idx, row.selected_score)
-        } else {
-            best
-        }
-    });
+    let selected = explicit_marker_index(block)
+        .map(|idx| (idx, block[idx].selected_score))
+        .unwrap_or_else(|| {
+            block.iter().enumerate().fold((0, 0), |best, (idx, row)| {
+                if row.selected_score > best.1 {
+                    (idx, row.selected_score)
+                } else {
+                    best
+                }
+            })
+        });
     let cursor_near = block
         .iter()
         .any(|row| row.row.abs_diff(screen.cursor_row) <= 1);
@@ -620,7 +656,13 @@ fn score_block(
     ))
 }
 
-fn selected_score(screen: &AttributedScreen, row: u16, text: &str, class: MarkerClass) -> usize {
+fn selected_score(
+    screen: &AttributedScreen,
+    row: u16,
+    text: &str,
+    class: MarkerClass,
+    content_width: usize,
+) -> (usize, bool) {
     let mut score = 0;
     let leading = text.trim_start();
     let starts_in_side_band = leading
@@ -637,7 +679,12 @@ fn selected_score(screen: &AttributedScreen, row: u16, text: &str, class: Marker
     let mut inverse = 0usize;
     let mut bg_delta = 0usize;
     let mut fg_delta = 0usize;
-    let row_cells = screen.cells.get(row as usize).into_iter().flatten();
+    let row_cells = screen
+        .cells
+        .get(row as usize)
+        .into_iter()
+        .flatten()
+        .take(content_width);
     let mut bg_counts = BTreeMap::<AttributedColor, usize>::new();
     for cell in row_cells.clone() {
         if !cell.ch.trim().is_empty() {
@@ -670,7 +717,8 @@ fn selected_score(screen: &AttributedScreen, row: u16, text: &str, class: Marker
     if inverse > 0 {
         score += 4;
     }
-    if bg_delta >= 2 {
+    let background_selected = bg_delta >= 2;
+    if background_selected {
         score += 3;
     }
     if local_highlight >= 2 {
@@ -682,7 +730,91 @@ fn selected_score(screen: &AttributedScreen, row: u16, text: &str, class: Marker
     if row == screen.cursor_row {
         score += 1;
     }
-    score
+    (score, background_selected)
+}
+
+fn suppress_nondistinguishing_backgrounds(rows: &mut [RowFeature]) {
+    let mut top = 0;
+    while top < rows.len() {
+        let Some(kind) = option_kind(&rows[top]) else {
+            top += 1;
+            continue;
+        };
+        let mut bottom = top + 1;
+        while bottom < rows.len() && option_kind(&rows[bottom]) == Some(kind) {
+            bottom += 1;
+        }
+        let distinguished = distinguishing_background_index(&rows[top..bottom]);
+        for (idx, row) in rows[top..bottom].iter_mut().enumerate() {
+            if row.background_selected && distinguished != Some(idx) {
+                row.selected_score = row.selected_score.saturating_sub(3);
+            }
+        }
+        top = bottom;
+    }
+}
+
+fn distinguishing_background_index<T>(rows: &[T]) -> Option<usize>
+where
+    T: std::borrow::Borrow<RowFeature>,
+{
+    let rows = rows
+        .iter()
+        .map(std::borrow::Borrow::borrow)
+        .collect::<Vec<_>>();
+    let comparable = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !row.side_band)
+        .collect::<Vec<_>>();
+    if comparable.len() < 2 {
+        return None;
+    }
+    let mut counts = BTreeMap::<AttributedColor, usize>::new();
+    for (_, row) in &comparable {
+        *counts.entry(row.content_bg.clone()).or_default() += 1;
+    }
+    let singleton = comparable
+        .iter()
+        .filter(|(_, row)| counts.get(&row.content_bg) == Some(&1))
+        .map(|(idx, _)| *idx)
+        .collect::<Vec<_>>();
+    if singleton.len() == 1 && counts.values().any(|count| *count > 1) {
+        return singleton.first().copied();
+    }
+    let highlighted = comparable
+        .iter()
+        .filter(|(_, row)| row.background_selected)
+        .map(|(idx, _)| *idx)
+        .collect::<Vec<_>>();
+    (highlighted.len() == 1).then(|| highlighted[0])
+}
+
+fn explicit_marker_index<T>(rows: &[T]) -> Option<usize>
+where
+    T: std::borrow::Borrow<RowFeature>,
+{
+    rows.iter()
+        .position(|row| has_explicit_marker(row.borrow()))
+}
+
+fn has_explicit_marker(row: &RowFeature) -> bool {
+    has_selected_glyph(row.text.trim_start())
+}
+
+fn marker_heads_footer_group(rows: &[RowFeature], selected: usize, footer: usize) -> bool {
+    let Some(kind) = option_kind(&rows[selected]) else {
+        return false;
+    };
+    let mut top = selected;
+    while top > 0 && group_option_label(&rows[top - 1], kind).is_some() {
+        top -= 1;
+    }
+    let mut bottom = selected + 1;
+    while bottom < footer && group_option_label(&rows[bottom], kind).is_some() {
+        bottom += 1;
+    }
+    bottom - top >= 2 && footer.saturating_sub(bottom) < 5
 }
 
 fn find_question(rows: &[RowFeature], top: usize) -> Option<String> {

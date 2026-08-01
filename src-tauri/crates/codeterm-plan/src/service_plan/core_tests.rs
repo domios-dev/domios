@@ -14,7 +14,7 @@ fn store_saves_loads_indexes() {
     let mut p = Plan::new(
         "T".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
     let path = plan_path(dir.path(), &p);
@@ -32,7 +32,7 @@ fn reload_from_disk_replaces_memory_and_index() {
     let mut p = Plan::new(
         "Original".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
 
@@ -61,7 +61,7 @@ fn in_review_status_persists_and_reloads() {
     let mut p = Plan::new(
         "Review".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -117,7 +117,7 @@ fn task_quality_fields_persist_and_reload() {
     let mut p = Plan::new(
         "Quality".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1).unwrap();
     let task_id = store
@@ -134,6 +134,7 @@ fn task_quality_fields_persist_and_reload() {
                     "cargo test service::plan::core_tests::task_quality_fields_persist_and_reload"
                         .into(),
                 ),
+                qa_plan: Some("cargo test independent_acceptance_oracle".into()),
                 correctness: Some("quality fields round-trip unchanged".into()),
                 competition: None,
                 ..Default::default()
@@ -159,9 +160,63 @@ fn task_quality_fields_persist_and_reload() {
         Some("cargo test service::plan::core_tests::task_quality_fields_persist_and_reload")
     );
     assert_eq!(
+        task.qa_plan.as_deref(),
+        Some("cargo test independent_acceptance_oracle")
+    );
+    assert_eq!(
         task.correctness.as_deref(),
         Some("quality fields round-trip unchanged")
     );
+}
+
+#[test]
+fn task_qa_plan_updates_and_clears_independently() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "QA plan".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("abc"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "independent verification".into(),
+                kind: "implement".into(),
+                test_plan: Some("cargo test worker_oracle".into()),
+                competition: None,
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    store
+        .update_task_quality(
+            &plan.id,
+            &task_id,
+            None,
+            None,
+            Some(Some("cargo test qa_oracle")),
+            None,
+            3,
+        )
+        .unwrap();
+    assert_eq!(
+        store.get(&plan.id).unwrap().tasks[0].qa_plan.as_deref(),
+        Some("cargo test qa_oracle")
+    );
+    assert_eq!(
+        store.get(&plan.id).unwrap().tasks[0].test_plan.as_deref(),
+        Some("cargo test worker_oracle")
+    );
+
+    store
+        .update_task_quality(&plan.id, &task_id, None, None, Some(None), None, 4)
+        .unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().tasks[0].qa_plan, None);
 }
 
 #[test]
@@ -171,7 +226,7 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
     let mut p = Plan::new(
         "Original".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
     let held = store.plans.read().get(&p.id).cloned().unwrap();
@@ -196,7 +251,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     let mut p = Plan::new(
         "Original".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
     let held = store.plans.read().get(&p.id).cloned().unwrap();
@@ -241,7 +296,7 @@ fn scan_project_loads_plan_written_directly_to_disk() {
     let mut plan = Plan::new(
         "Persisted".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     plan.created_at = 1000;
     plan.updated_at = 2000;
@@ -269,7 +324,7 @@ fn approved_plan_flips_to_execution_on_first_in_progress_task() {
     let mut p = Plan::new(
         "Modes".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     p.mode = crate::plan::PlanMode::Approved;
     store.save(&mut p, 1).unwrap();
@@ -290,7 +345,7 @@ fn approved_plan_flips_to_execution_on_first_in_progress_task() {
     );
 
     store
-        .set_task_assignment(&task_id, Some("worker-pane"), Some("worker"), 3)
+        .set_task_assignment(&task_id, Some("worker-tab"), Some("worker"), 3)
         .unwrap();
     store
         .update_task(
@@ -324,13 +379,13 @@ fn approved_plan_flips_to_execution_on_first_in_progress_task() {
 }
 
 #[test]
-fn take_binds_pane_and_atomically_starts_task() {
+fn take_binds_tab_and_atomically_starts_task() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut p = Plan::new(
         "Take".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     p.mode = crate::plan::PlanMode::Approved;
     store.save(&mut p, 1).unwrap();
@@ -348,11 +403,11 @@ fn take_binds_pane_and_atomically_starts_task() {
     let fresh = store.get(&p.id).unwrap();
     let task = fresh.tasks.iter().find(|x| x.id == task_id).unwrap();
     assert_eq!(task.status, TaskStatus::Pending);
-    assert!(task.assigned_pane_id.is_none());
+    assert!(task.assigned_tab_id.is_none());
 
-    // Taking a task binds the pane AND starts it in one step — no separate flip.
+    // Taking a task binds the tab AND starts it in one step — no separate flip.
     store
-        .set_task_assignment(&task_id, Some("worker-pane"), Some("worker"), 3)
+        .set_task_assignment(&task_id, Some("worker-tab"), Some("worker"), 3)
         .unwrap();
 
     let taken = store.get(&p.id).unwrap();
@@ -362,7 +417,7 @@ fn take_binds_pane_and_atomically_starts_task() {
         TaskStatus::InProgress,
         "take must flip pending -> in_progress atomically"
     );
-    assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("worker-tab"));
     assert_eq!(
         taken.mode,
         crate::plan::PlanMode::Execution,
@@ -377,7 +432,7 @@ fn archive_moves_plan_folder_between_buckets() {
     let mut plan = Plan::new(
         "Move".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut plan, 1).unwrap();
     let active_path = plan_path(dir.path(), &plan);

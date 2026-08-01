@@ -3,7 +3,7 @@
  * WHY: Provider transcript parsing must remain readable across structured chat UI changes.
  * ORACLE: Seeded transcript records render as the expected message blocks and attachment previews.
  */
-import { expect, test, type PaneCleanup } from "../../helpers/fixtures";
+import { expect, test, type TabCleanup } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
 
 type ChatMessageKind = "user" | "assistant" | "system" | "image" | "tool_call" | "tool_result";
@@ -31,7 +31,7 @@ interface TestChatMessage {
 declare global {
   interface Window {
     __codetermTestChat?: {
-      pushMessages: (paneId: string, messages: TestChatMessage[]) => void;
+      pushMessages: (tabId: string, messages: TestChatMessage[]) => void;
       resetClock: () => void;
     };
   }
@@ -40,41 +40,41 @@ declare global {
 const PNG_1X1_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
-async function openMockChatPane(
+async function openMockChatTab(
   api: ApiClient,
-  paneCleanup: PaneCleanup,
+  tabCleanup: TabCleanup,
   page: import("../../helpers/fixtures").Page,
 ): Promise<string> {
-  const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+  const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
     title: `pw-chat-render-${Date.now()}`,
   });
-  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
-  await api.focusPane(pane.id);
+  await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
+  await api.focusTab(tab.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  if (pane.tab_id) {
-    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
+  if (tab.tab_id) {
+    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
     await expect(tab).toBeVisible({ timeout: 30_000 });
     await tab.click();
   }
 
-  const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`);
+  const chat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tab.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
   await expect(chat.locator('[data-testid="chat-empty-state"], [data-testid="chat-recovering-state"]')).toBeVisible({ timeout: 30_000 });
-  return pane.id;
+  return tab.id;
 }
 
 async function scrollChatAwayFromBottom(
   page: import("../../helpers/fixtures").Page,
-  paneId: string,
+  tabId: string,
   scrollContainer: ReturnType<import("../../helpers/fixtures").Page["locator"]>,
 ) {
   const overflow = await scrollContainer.evaluate((el) => el.scrollHeight - el.clientHeight);
   if (overflow <= 320) {
     await page.evaluate(
-      ({ paneId: targetPaneId }) => {
-        window.__codetermTestChat?.pushMessages(targetPaneId, Array.from({ length: 80 }, (_, i) => ({
+      ({ tabId: targetTabId }) => {
+        window.__codetermTestChat?.pushMessages(targetTabId, Array.from({ length: 80 }, (_, i) => ({
           id: `scroll-overflow-primer-${i + 1}`,
           type: "assistant",
           content: `scroll primer ${i + 1}`,
@@ -82,7 +82,7 @@ async function scrollChatAwayFromBottom(
           provider: "test",
         })));
       },
-      { paneId },
+      { tabId },
     );
     await expect(
       scrollContainer.locator('[data-testid="chat-message"]').filter({ hasText: "scroll primer 80" }),
@@ -105,35 +105,35 @@ async function scrollChatAwayFromBottom(
   ).toBeGreaterThan(240);
 }
 
-test("@smoke ChatView PTY provider pane shows no inline option card without a pending_prompt", async ({
+test("@smoke ChatView PTY provider tab shows no inline option card without a pending_prompt", async ({
   api,
   ui,
 }) => {
   // leave the worker-scoped session in a broken state after a dev-server restart.
   await ui.reconnect();
 
-  // Find an existing terminal pane that is already visible in the web mirror.
-  const panes = await api.panes();
-  const target = panes.find((p) => p.focused) ?? panes[0];
-  expect(target, "no pane found").toBeTruthy();
-  await api.post(`/panes/${target.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${target.id}/chat-view`, { enabled: true });
+  // Find an existing terminal tab that is already visible in the web mirror.
+  const tabs = await api.tabs();
+  const target = tabs.find((p) => p.focused) ?? tabs[0];
+  expect(target, "no tab found").toBeTruthy();
+  await api.post(`/tabs/${target.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${target.id}/chat-view`, { enabled: true });
 
-  // The React app receives the SSE event and renders pane-session-chat.
-  const chat = ui.page.locator(`[data-testid="pane-session-chat"]`).first();
+  // The React app receives the SSE event and renders tab-session-chat.
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"]`).first();
   await expect(chat).toBeVisible({ timeout: 30_000 });
 
   // is explicitly set via hook — card_frames=0 invariant from detection replays.
-  await expect(ui.page.locator('[data-testid="pane-pending-prompt"]')).toHaveCount(0);
+  await expect(ui.page.locator('[data-testid="tab-pending-prompt"]')).toHaveCount(0);
 });
 
 test("@golden ChatView message DOM order matches chronological push order", async ({
   api,
   ui,
-  paneCleanup,
+  tabCleanup,
 }) => {
   await ui.reconnect();
-  const paneId = await openMockChatPane(api, paneCleanup, ui.page);
+  const tabId = await openMockChatTab(api, tabCleanup, ui.page);
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
   const messages: TestChatMessage[] = [
@@ -143,16 +143,16 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   ];
 
   await ui.page.evaluate(
-    ({ paneId: targetPaneId, messages: targetMessages }) => {
+    ({ tabId: targetTabId, messages: targetMessages }) => {
       const testChat = window.__codetermTestChat;
       if (!testChat) throw new Error("window.__codetermTestChat is not installed");
-      testChat.pushMessages(targetPaneId, targetMessages);
+      testChat.pushMessages(targetTabId, targetMessages);
     },
-    { paneId, messages },
+    { tabId, messages },
   );
 
   const chatMessages = ui.page.locator(
-    `[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="pane-session-chat-messages"] [data-testid="chat-message"]`,
+    `[data-testid="tab-session-chat"][data-tab-id="${tabId}"] [data-testid="tab-session-chat-messages"] [data-testid="chat-message"]`,
   );
   await expect(chatMessages).toHaveCount(3, { timeout: 10_000 });
 
@@ -162,20 +162,20 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   expect(texts[0]).toContain("pw-order-first");
   expect(texts[1]).toContain("pw-order-second");
   expect(texts[2]).toContain("pw-order-third");
-  await expect(ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="chat-empty-state"]`)).toHaveCount(0);
+  await expect(ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"] [data-testid="chat-empty-state"]`)).toHaveCount(0);
 });
 
 test("@golden ChatView transcript remains correct across tool results, focus, and scroll state", async ({
   api,
   ui,
-  paneCleanup,
+  tabCleanup,
 }) => {
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
 
   await ui.reconnect();
-  const paneId = await openMockChatPane(api, paneCleanup, ui.page);
-  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  const tabId = await openMockChatTab(api, tabCleanup, ui.page);
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
   const composer = chat.locator('[data-testid="chat-composer"]');
   await composer.focus();
 
@@ -225,18 +225,18 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
   ];
 
   await ui.page.evaluate(
-    ({ paneId: targetPaneId, messages: targetMessages }) => {
+    ({ tabId: targetTabId, messages: targetMessages }) => {
       const testChat = window.__codetermTestChat;
       if (!testChat) throw new Error("window.__codetermTestChat is not installed");
-      testChat.pushMessages(targetPaneId, targetMessages);
+      testChat.pushMessages(targetTabId, targetMessages);
     },
-    { paneId, messages },
+    { tabId, messages },
   );
 
   await expect(composer).toBeFocused();
   await expect(chat.locator('[data-testid="chat-empty-state"]')).toHaveCount(0);
 
-  const chatMessages = chat.locator('[data-testid="pane-session-chat-messages"] [data-testid="chat-message"]');
+  const chatMessages = chat.locator('[data-testid="tab-session-chat-messages"] [data-testid="chat-message"]');
   await expect(chatMessages).toHaveCount(4, { timeout: 10_000 });
   const texts = await chatMessages.evaluateAll((els) => els.map((el) => (el as HTMLElement).innerText));
   expect(texts.join("\n")).toContain("run a command");
@@ -246,11 +246,11 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
   await expect(chat.locator('[data-testid="chat-tool-call"]')).toHaveCount(3);
   await expect(chat.locator('[data-testid="chat-message"][data-message-role="tool_result"]')).toHaveCount(0);
 
-  const scrollContainer = chat.locator('[data-testid="pane-session-chat-messages"]');
-  await scrollChatAwayFromBottom(ui.page, paneId, scrollContainer);
+  const scrollContainer = chat.locator('[data-testid="tab-session-chat-messages"]');
+  await scrollChatAwayFromBottom(ui.page, tabId, scrollContainer);
   await ui.page.evaluate(
-    ({ paneId: targetPaneId }) => {
-      window.__codetermTestChat?.pushMessages(targetPaneId, [{
+    ({ tabId: targetTabId }) => {
+      window.__codetermTestChat?.pushMessages(targetTabId, [{
         id: "scroll-preserve-1",
         type: "assistant",
         content: "new message after manual scroll",
@@ -258,7 +258,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
         provider: "test",
       }]);
     },
-    { paneId },
+    { tabId },
   );
   await expect(chat.locator('[data-testid="chat-scroll-bottom"]')).toBeVisible({ timeout: 10_000 });
   await expect(composer).toBeFocused();
@@ -267,12 +267,12 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
 test("@golden ChatView renders message blocks, code blocks, and image attachments from mock replies", async ({
   api,
   ui,
-  paneCleanup,
+  tabCleanup,
 }) => {
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
 
-  const paneId = await openMockChatPane(api, paneCleanup, ui.page);
+  const tabId = await openMockChatTab(api, tabCleanup, ui.page);
   const messages: TestChatMessage[] = [
     {
       id: "pw-chat-user-block",
@@ -306,15 +306,15 @@ test("@golden ChatView renders message blocks, code blocks, and image attachment
   ];
 
   await ui.page.evaluate(
-    ({ paneId: targetPaneId, messages: targetMessages }) => {
+    ({ tabId: targetTabId, messages: targetMessages }) => {
       const testChat = window.__codetermTestChat;
       if (!testChat) throw new Error("window.__codetermTestChat is not installed");
-      testChat.pushMessages(targetPaneId, targetMessages);
+      testChat.pushMessages(targetTabId, targetMessages);
     },
-    { paneId, messages },
+    { tabId, messages },
   );
 
-  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
   const userBlock = chat
     .locator('[data-testid="chat-message"][data-message-role="user"]')
     .filter({ hasText: "Render this user message block." });

@@ -50,8 +50,8 @@ impl PlanStore {
                     plan_id: plan_id.into(),
                 });
             }
-            mode = p.paused_from_mode.take().unwrap_or(PlanMode::Execution);
             if p.mode == PlanMode::Paused {
+                mode = p.paused_from_mode.take().unwrap_or(PlanMode::Execution);
                 p.mode = mode.clone();
             } else {
                 mode = p.mode.clone();
@@ -99,10 +99,10 @@ impl PlanStore {
             }
             task.status = TaskStatus::Paused;
             task.pause_reason = Some(reason.to_string());
-            let assigned = task.assigned_pane_id.clone();
+            let assigned = task.assigned_tab_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            task.assigned_pane_id = None;
-            task.lane.pane_id = None;
+            task.assigned_tab_id = None;
+            task.lane.tab_id = None;
             task.milestones.push(Milestone {
                 id: mid.clone(),
                 from,

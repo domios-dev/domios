@@ -1,22 +1,22 @@
-//! Generic, provider-agnostic pane-state reactor. A parked pane (`Idle`/`Waiting`)
+//! Generic, provider-agnostic tab-state reactor. A parked tab (`Idle`/`Waiting`)
 //! is classified by its own provider; a verdict that clears [`GLOBAL_THRESHOLD`],
-//! isn't [`PaneState::WaitingOnAuth`], and carries an action is executed via key
+//! isn't [`TabState::WaitingOnAuth`], and carries an action is executed via key
 //! injection / delayed-send / a user-facing surface. Core branches only on the
-//! generic [`PaneState`] / [`PaneStateAction`], never a provider id or screen string.
+//! generic [`TabState`] / [`TabStateAction`], never a provider id or screen string.
 
 use std::collections::HashSet;
 use std::time::Duration;
 
-use super::pane_state::{
-    PaneState, PaneStateAction, PaneStateClassification, PaneStateSnapshot, Surface,
+use super::status::TabStatus;
+use super::tab_state::{
+    Surface, TabState, TabStateAction, TabStateClassification, TabStateSnapshot,
 };
-use super::status::PaneStatus;
 use crate::service::ServiceState;
 
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
 
-/// How often the reactor sweeps tracked panes for the parked edge.
+/// How often the reactor sweeps tracked tabs for the parked edge.
 const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 
 /// Rows of screen tail handed to the classifier.
@@ -30,16 +30,16 @@ pub enum ReactorDecision {
     /// Present to the user only — never press a key (auth guard + surface-only verdicts).
     Surface(Option<Surface>),
     /// High-confidence, non-auth, actionable verdict — execute it.
-    Act(PaneStateAction),
+    Act(TabStateAction),
 }
 
 /// Pure decision: gate on parked status, confidence threshold, and the auth guard. No side effects, no locks.
 pub fn decide(
-    status: PaneStatus,
-    classification: Option<&PaneStateClassification>,
+    status: TabStatus,
+    classification: Option<&TabStateClassification>,
 ) -> ReactorDecision {
-    // Gate: only act on a parked pane, never while it is Working/Dead.
-    if !matches!(status, PaneStatus::Idle | PaneStatus::Waiting) {
+    // Gate: only act on a parked tab, never while it is Working/Dead.
+    if !matches!(status, TabStatus::Idle | TabStatus::Waiting) {
         return ReactorDecision::Ignore;
     }
     let Some(c) = classification else {
@@ -50,7 +50,7 @@ pub fn decide(
         return ReactorDecision::Ignore;
     }
     // Auth guard: a login prompt is never auto-advanced — surface only, even if keys were attached.
-    if c.state == PaneState::WaitingOnAuth {
+    if c.state == TabState::WaitingOnAuth {
         return ReactorDecision::Surface(c.action.as_ref().and_then(|a| a.surface.clone()));
     }
     match &c.action {
@@ -60,7 +60,7 @@ pub fn decide(
 }
 
 /// Translate an action's `keys` into ordered PTY byte writes; unknown keys are skipped (never the wrong byte).
-pub fn action_to_writes(action: &PaneStateAction) -> Vec<Vec<u8>> {
+pub fn action_to_writes(action: &TabStateAction) -> Vec<Vec<u8>> {
     action
         .keys
         .as_ref()
@@ -72,16 +72,16 @@ pub fn action_to_writes(action: &PaneStateAction) -> Vec<Vec<u8>> {
         .unwrap_or_default()
 }
 
-/// Start the background reactor loop on its own thread: sweeps tracked panes,
+/// Start the background reactor loop on its own thread: sweeps tracked tabs,
 /// dedupes per parked episode, and executes verdicts off the async runtime.
 pub fn start(svc: ServiceState) {
     std::thread::spawn(move || {
-        // Panes already reacted-to this parked episode — prevents re-firing every tick at the same prompt.
+        // Tabs already reacted-to this parked episode — prevents re-firing every tick at the same prompt.
         let mut reacted: HashSet<String> = HashSet::new();
         loop {
             std::thread::sleep(POLL_INTERVAL);
             // Snapshot ids + statuses under one lock acquisition per tick (not N+1).
-            let snapshot: Vec<(String, PaneStatus)> = {
+            let snapshot: Vec<(String, TabStatus)> = {
                 let tracker = svc.agent_tracker.lock();
                 tracker
                     .all_ids()
@@ -94,7 +94,7 @@ pub fn start(svc: ServiceState) {
             };
             for (pty_id, status) in &snapshot {
                 match status {
-                    PaneStatus::Idle | PaneStatus::Waiting => {
+                    TabStatus::Idle | TabStatus::Waiting => {
                         if reacted.insert(pty_id.clone()) {
                             react(&svc, pty_id, *status);
                         }
@@ -109,26 +109,26 @@ pub fn start(svc: ServiceState) {
     });
 }
 
-/// Classify one parked pane and execute the verdict. Locks in CLAUDE.md order, each
+/// Classify one parked tab and execute the verdict. Locks in CLAUDE.md order, each
 /// scoped, never held across the provider call or a thread spawn.
-fn react(svc: &ServiceState, pty_id: &str, status: PaneStatus) {
-    // mux (1): resolve the pane's OWN identity + provider + session/cwd.
-    let (pane_id, agent_type, session_id, cwd) = {
+fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
+    // mux (1): resolve the tab's OWN identity + provider + session/cwd.
+    let (tab_id, agent_type, session_id, cwd) = {
         let mux = svc.mux.read();
-        let Some(pane_id) = mux.pane_id_for_pty(pty_id) else {
+        let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
             return;
         };
-        let Some(pane) = mux.get_pane(&pane_id) else {
+        let Some(tab) = mux.get_tab(&tab_id) else {
             return;
         };
-        let Some(agent_type) = pane.agent_type.clone() else {
-            return; // not an agent pane — nothing to classify
+        let Some(agent_type) = tab.agent_type.clone() else {
+            return; // not an agent tab — nothing to classify
         };
         (
-            pane_id,
+            tab_id,
             agent_type,
-            pane.agent_session_id.clone(),
-            pane.cwd.clone(),
+            tab.agent_session_id.clone(),
+            tab.cwd.clone(),
         )
     };
 
@@ -139,91 +139,86 @@ fn react(svc: &ServiceState, pty_id: &str, status: PaneStatus) {
         .tail_text(pty_id, SNAPSHOT_ROWS)
         .unwrap_or_default();
 
-    let snapshot = PaneStateSnapshot {
-        pane_id: pane_id.clone(),
+    let snapshot = TabStateSnapshot {
+        tab_id: tab_id.clone(),
         agent_type: agent_type.clone(),
         session_id,
         cwd,
         screen_text,
     };
 
-    // Ask the pane's OWN provider. No lock held across this call.
-    let classification: Option<PaneStateClassification> = svc
+    // Ask the tab's OWN provider. No lock held across this call.
+    let classification: Option<TabStateClassification> = svc
         .agent_registry
-        .with_provider(&agent_type, |p| p.classify_pane_state(&snapshot))
+        .with_provider(&agent_type, |p| p.classify_tab_state(&snapshot))
         .flatten();
 
     match decide(status, classification.as_ref()) {
         ReactorDecision::Ignore => {}
-        ReactorDecision::Surface(surface) => surface_to_user(svc, &pane_id, surface),
-        ReactorDecision::Act(action) => execute_action(svc, &pane_id, action),
+        ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
+        ReactorDecision::Act(action) => execute_action(svc, &tab_id, action),
     }
 }
 
-fn execute_action(svc: &ServiceState, pane_id: &str, action: PaneStateAction) {
+fn execute_action(svc: &ServiceState, tab_id: &str, action: TabStateAction) {
     let writes = action_to_writes(&action);
     if !writes.is_empty() {
-        inject_keys(svc, pane_id, writes);
+        inject_keys(svc, tab_id, writes);
     }
     if let Some(resume) = &action.delayed_resume {
-        schedule_resume(svc, pane_id, resume);
+        schedule_resume(svc, tab_id, resume);
     }
     if let Some(surface) = action.surface {
-        surface_to_user(svc, pane_id, Some(surface));
+        surface_to_user(svc, tab_id, Some(surface));
     }
 }
 
-/// Inject ordered key bytes into the pane's PTY (the `send --actions` path), off-thread so the poll loop never blocks.
-fn inject_keys(svc: &ServiceState, pane_id: &str, writes: Vec<Vec<u8>>) {
-    if svc.inject_raw_keys_async(pane_id, writes).is_err() {
+/// Inject ordered key bytes into the tab's PTY (the `send --actions` path), off-thread so the poll loop never blocks.
+fn inject_keys(svc: &ServiceState, tab_id: &str, writes: Vec<Vec<u8>>) {
+    if svc.inject_raw_keys_async(tab_id, writes).is_err() {
         return;
     }
-    log::info!("[state-reactor] injected keys into pane {}", pane_id);
+    log::info!("[state-reactor] injected keys into Tab {}", tab_id);
 }
 
 /// Schedule a resume via delayed-send at the parsed ISO time; an unparseable time is dropped, never fired at a guessed moment.
-fn schedule_resume(svc: &ServiceState, pane_id: &str, resume: &super::pane_state::DelayedResume) {
+fn schedule_resume(svc: &ServiceState, tab_id: &str, resume: &super::tab_state::DelayedResume) {
     let Some(at_ms) = parse_iso_to_ms(&resume.at) else {
         log::warn!(
-            "[state-reactor] unparseable resume time {:?} for pane {} — skipping",
+            "[state-reactor] unparseable resume time {:?} for Tab {} — skipping",
             resume.at,
-            pane_id
+            tab_id
         );
         return;
     };
     match crate::delayed_send::create_message(
         svc,
-        pane_id.to_string(),
+        tab_id.to_string(),
         resume.text.clone(),
         Some(at_ms),
         None,
     ) {
         Ok(_) => log::info!(
-            "[state-reactor] scheduled resume for pane {} at {}",
-            pane_id,
+            "[state-reactor] scheduled resume for Tab {} at {}",
+            tab_id,
             resume.at
         ),
         Err(e) => log::warn!("[state-reactor] schedule resume failed: {e}"),
     }
 }
 
-/// Surface a verdict to the user: a notification + a chat-card event (clarifying questions, limit notices, auth guard).
-fn surface_to_user(svc: &ServiceState, pane_id: &str, surface: Option<Surface>) {
+/// Surface a verdict to the user as a chat-card event.
+fn surface_to_user(svc: &ServiceState, tab_id: &str, surface: Option<Surface>) {
     let (kind, payload) = match &surface {
         Some(s) => (s.kind.clone(), s.payload.clone()),
-        None => ("pane_state".to_string(), serde_json::Value::Null),
+        None => ("tab_state".to_string(), serde_json::Value::Null),
     };
-    svc.create_notification(
-        format!("Agent needs attention: {kind}"),
-        Some(format!("Pane {pane_id}")),
-        Some("warning"),
-    );
     crate::api::events::emit_everywhere(
         &svc.app_handle,
-        "pane-state-surface",
-        serde_json::json!({ "pane_id": pane_id, "kind": kind, "payload": payload }),
+        "tab-state-surface",
+        serde_json::json!({ "tab_id": tab_id, "kind": kind, "payload": payload }),
     );
-    log::info!("[state-reactor] surfaced {} for pane {}", kind, pane_id);
+    log::info!("[state-reactor] surfaced {} for Tab {}", kind, tab_id);
 }
 
 fn parse_iso_to_ms(iso: &str) -> Option<u64> {

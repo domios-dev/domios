@@ -18,6 +18,7 @@ import {
   toLocalInputValue,
 } from "./delayedSend";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { queuedMessagePreview } from "./queuedMessagePreview";
 
 const STASH_COLOR = "#a371f7";
 
@@ -303,6 +304,7 @@ function QueueCard({
 }) {
   const meta = statusMeta(msg, nowMs);
   const failed = msg.state === "failed";
+  const preview = useMemo(() => queuedMessagePreview(msg.text), [msg.text]);
 
   return (
     <div
@@ -363,12 +365,22 @@ function QueueCard({
             {meta.icon}
           </span>
           <FloatingTooltip
-            content={msg.text}
+            content={preview}
             touchMode={touchMode}
-            className="min-w-0 flex-1 cursor-default whitespace-normal break-words text-[13px] leading-5 outline-none"
-            style={{ color: "var(--ct-fg)" }}
+            className="line-clamp-2 min-w-0 flex-1 cursor-default break-words text-[13px] leading-5 outline-none"
+            style={{
+              color: "var(--ct-fg)",
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2,
+              overflow: "hidden",
+              overflowWrap: "anywhere",
+              whiteSpace: "pre-wrap",
+            }}
+            tooltipClassName="max-h-none overflow-hidden"
+            tooltipStyle={{ maxHeight: "12rem", overflow: "hidden" }}
           >
-            {msg.text}
+            {preview}
           </FloatingTooltip>
           {msg.sessionChanged && (
             <span style={{ color: "var(--ct-yellow, #d29922)" }} title="Session changed since scheduled">

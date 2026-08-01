@@ -88,15 +88,15 @@ function identityChurnPlan(plan: Plan): Plan {
   };
 }
 
-test("MissionControlLiveView skips expensive builders when plan/panes identity churns but revision is stable", async () => {
+test("MissionControlLiveView skips expensive builders when plan/Tabs identity churns but revision is stable", async () => {
   const plan = FIXTURE_PLAN;
-  const panes = {};
+  const tabs = {};
   const { rerender, unmount } = await render(
-    <MissionControlLiveView plans={[plan]} activePlanId={plan.id} panes={panes} />,
+    <MissionControlLiveView plans={[plan]} activePlanId={plan.id} tabs={tabs} />,
   );
   window.__codetermMissionControlChurn?.reset();
 
-  await rerender(<MissionControlLiveView plans={[identityChurnPlan(plan)]} activePlanId={plan.id} panes={{}} />);
+  await rerender(<MissionControlLiveView plans={[identityChurnPlan(plan)]} activePlanId={plan.id} tabs={{}} />);
   const afterIdentityChurn = churn();
   assert(afterIdentityChurn?.builds === 0, `buildMissionControl rebuilds: ${afterIdentityChurn?.builds}`);
   assert(afterIdentityChurn?.snapshots === 0, `modelToSnapshot rebuilds: ${afterIdentityChurn?.snapshots}`);
@@ -104,7 +104,7 @@ test("MissionControlLiveView skips expensive builders when plan/panes identity c
 
   const semanticPlan = identityChurnPlan(plan);
   semanticPlan.updated_at += 1;
-  await rerender(<MissionControlLiveView plans={[semanticPlan]} activePlanId={semanticPlan.id} panes={{}} />);
+  await rerender(<MissionControlLiveView plans={[semanticPlan]} activePlanId={semanticPlan.id} tabs={{}} />);
   const afterSemanticChange = churn();
   assert(afterSemanticChange?.builds === 1, `expected one rebuild after semantic change, got ${afterSemanticChange?.builds}`);
   assert(afterSemanticChange?.snapshots === 1, `expected one snapshot rebuild, got ${afterSemanticChange?.snapshots}`);

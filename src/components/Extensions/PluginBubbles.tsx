@@ -1,6 +1,6 @@
 /**
- * Pane status pills contributed by `statusBubble` plugins (e.g. Git), rendered
- * inline in the pane top bar. Each pill sizes to `--ct-pane-pill-h` so it shares
+ * Tab status pills contributed by `statusBubble` plugins (e.g. Git), rendered
+ * inline in the tab top bar. Each pill sizes to `--ct-tab-pill-h` so it shares
  * the bar's height rhythm with the mode switch and usage pill.
  *
  * A pill with an `action` (e.g. Git → `openPanel:git`) opens that host view on
@@ -52,7 +52,7 @@ function openPanel(action: string, cwd: string | null) {
   }
 }
 
-export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: string }) {
+export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: string }) {
   const snapshotState = usePluginSnapshotStore();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
@@ -71,7 +71,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
   useEffect(() => {
     if (plugins.length === 0) return;
     let alive = true;
-    const ctx = { cwd, paneId };
+    const ctx = { cwd, tabId };
     const poll = () => {
       for (const p of plugins) {
         invoke<BubbleData | null>("plugin_bubble", { pluginId: p.id, ctx })
@@ -85,7 +85,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
       alive = false;
       clearInterval(t);
     };
-  }, [plugins, cwd, paneId]);
+  }, [plugins, cwd, tabId]);
 
   const visible = plugins.filter((p) => pills[p.id]);
 
@@ -122,7 +122,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
               display: "flex",
               alignItems: "center",
               gap: 5,
-              height: "var(--ct-pane-pill-h, 24px)",
+              height: "var(--ct-tab-pill-h, 24px)",
               fontSize: 11,
               fontWeight: 560,
               padding: "0 10px",
@@ -144,7 +144,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
           displayName={open.name}
           configHelp={open.configHelp}
           anchor={open.anchor}
-          ctx={{ cwd, paneId }}
+          ctx={{ cwd, tabId }}
           onClose={() => setOpen(null)}
           onOpenSettings={(id) => {
             window.dispatchEvent(new CustomEvent(SELECT_EXTENSION_EVENT, { detail: { id } }));

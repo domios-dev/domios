@@ -65,7 +65,7 @@ export interface PlanFrame {
 export interface OwnerGroup {
   ownerKey: string;
   title: string;
-  ownerPaneId: string | null;
+  ownerTabId: string | null;
   box: Box;
   planIds: string[];
 }

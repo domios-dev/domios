@@ -3,20 +3,20 @@ use crate::{delayed_send, service::ServiceState};
 #[tauri::command]
 pub fn delayed_send_list(
     svc: tauri::State<'_, ServiceState>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
 ) -> Result<Vec<delayed_send::DelayedMessageView>, String> {
-    delayed_send::list_views(&svc, pane_id)
+    delayed_send::list_views(&svc, tab_id)
 }
 
 #[tauri::command]
 pub fn delayed_send_create(
     svc: tauri::State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     text: String,
     scheduled_at_ms: Option<u64>,
-    created_by_pane: Option<String>,
+    created_by_tab: Option<String>,
 ) -> Result<delayed_send::DelayedMessageView, String> {
-    delayed_send::create_message(&svc, pane_id, text, scheduled_at_ms, created_by_pane)
+    delayed_send::create_message(&svc, tab_id, text, scheduled_at_ms, created_by_tab)
 }
 
 #[tauri::command]

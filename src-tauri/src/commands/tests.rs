@@ -26,15 +26,15 @@ fn test_extract_revision_invalid_number() {
 
 #[test]
 fn test_hook_commands_preserve_dollar_sign() {
-    // Verify that hook commands contain $CODETERM_PANE_ID (not \\$ escaped)
+    // Verify that hook commands contain $CODETERM_TAB_ID (not \\$ escaped)
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
     let port = 7686u16;
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:{port}/api/tabs/$CODETERM_TAB_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
     assert!(
-        notify_cmd.contains("$CODETERM_PANE_ID"),
-        "Command must contain $CODETERM_PANE_ID"
+        notify_cmd.contains("$CODETERM_TAB_ID"),
+        "Command must contain $CODETERM_TAB_ID"
     );
     assert!(
         !notify_cmd.contains("\\$"),
@@ -44,7 +44,7 @@ fn test_hook_commands_preserve_dollar_sign() {
     let json_val = serde_json::json!({"command": notify_cmd});
     let serialized = serde_json::to_string_pretty(&json_val).unwrap();
     assert!(
-        serialized.contains("$CODETERM_PANE_ID"),
+        serialized.contains("$CODETERM_TAB_ID"),
         "JSON serialization must preserve $"
     );
     assert!(
@@ -68,7 +68,7 @@ fn test_install_hooks_to_temp_file() {
     let port = 7686u16;
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:{port}/api/tabs/$CODETERM_TAB_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
 
     let mut json: serde_json::Value = serde_json::json!({});
@@ -88,8 +88,8 @@ fn test_install_hooks_to_temp_file() {
 
     let content = fs::read_to_string(&settings_path).unwrap();
     assert!(
-        content.contains("$CODETERM_PANE_ID"),
-        "Written file must have $CODETERM_PANE_ID"
+        content.contains("$CODETERM_TAB_ID"),
+        "Written file must have $CODETERM_TAB_ID"
     );
     assert!(
         !content.contains("\\$"),
@@ -100,5 +100,5 @@ fn test_install_hooks_to_temp_file() {
     let cmd = parsed["hooks"]["Notification"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap();
-    assert!(cmd.contains("$CODETERM_PANE_ID"));
+    assert!(cmd.contains("$CODETERM_TAB_ID"));
 }

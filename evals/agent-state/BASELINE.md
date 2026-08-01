@@ -3,7 +3,7 @@
 The first **real** labeled corpus: live `claude` + `codex` agents driven through the
 deterministic on-demand states by `capture-live.sh`, captured byte-exact to `.cast`
 via the RT1 capture tap, replayed through the P1a `SignalExtractor` + each provider's
-`classify_pane_state` by `cargo test --test agent_state_replay`.
+`classify_tab_state` by `cargo test --test agent_state_replay`.
 
 These fixtures are the `*_real` dirs under `tests/fixtures/agent-state/<provider>/`.
 They are **non-gating** (`"gating": false` in `expected.json`): MEASURED into this
@@ -42,10 +42,10 @@ false turn_complete (mid-stream), all:   20   real:   20
 
 ### P2-F1 — no terminal state: a finished turn reads as `working` (can't-tell-done)
 **All 5 real captures** end at the provider's idle prompt (claude `❯`, codex `›`
-composer) — the turn is genuinely DONE — yet `classify_pane_state` returns
+composer) — the turn is genuinely DONE — yet `classify_tab_state` returns
 `working` at the final quiescent frame. Both classifiers default to `working`
 (`provider-claude/plugin.js:399,432`, `provider-codex/plugin.js:444`) and the
-`PaneState` enum has no `turn_complete`/`idle` member, so "done" is inexpressible.
+`TabState` enum has no `turn_complete`/`idle` member, so "done" is inexpressible.
 This is why `working` precision is **0.17** (1 true seed / 6 predictions).
 **Target:** introduce a done/idle distinction; a finished turn must NOT be reported
 as actively working.

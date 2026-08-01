@@ -17,12 +17,14 @@ import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { PeerStatus } from "./useMeshData";
 import { MeshWebUiControl, type WebUiAction } from "../Titlebar/MeshWebUiControl";
-import { tabClass, UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { LiquidTabRail } from "../shared/LiquidTabRail";
 import {
   buildWebAccessUrls,
   planServeSetup,
   serveSetupTask,
   webLinkWithToken,
+  webLinkWithTokenAndRelay,
   type ServeSetupPlan,
   type ServeStatus,
 } from "../../lib/webAccess";
@@ -194,7 +196,7 @@ function WebUiModal({
     }
   }, [config]);
 
-  // Not installed (or native enable failed) → spawn a Claude pane pre-loaded with the setup task and jump into it.
+  // Not installed (or native enable failed) → spawn a Claude tab pre-loaded with the setup task and jump into it.
   const spawnSetupChat = useCallback(async () => {
     const body = {
       agent: "claude",
@@ -590,10 +592,10 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
       <div
-        className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}
+        className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] whitespace-nowrap`}
         style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
       >
-        <div className="flex items-center gap-3 mr-4 shrink-0">
+        <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <span className={`${UI_TEXT.meta} opacity-70`}>
             {data.error
@@ -609,32 +611,35 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
             <BusySpinner icon={RefreshCw} size={touchUi ? 16 : 13} spinning={data.loading} />
           </button>
         </div>
-        <div className="flex items-center border-l border-[var(--ct-border)] pl-3 pr-1 shrink-0">
-          <MeshWebUiControl
-            snapshot={serve?.snapshot ?? null}
-            loading={serveLoading}
-            onOpenSurface={() => setWebUiOpen(true)}
-            onAction={runWebUiAction}
-            touchUi={touchUi}
+        <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
+          <LiquidTabRail
+            value={activeTab}
+            options={TABS}
+            onChange={setActiveTab}
+            label="Mesh sections"
+            touch={touchUi}
+            testIdPrefix="mesh-tab"
           />
-        </div>
-        <div className="flex items-center gap-1 border-l border-[var(--ct-border)] pl-3">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              data-testid={`mesh-tab-${tab}`}
-              onClick={() => setActiveTab(tab)}
-              className={tabClass(activeTab === tab, touchUi)}
-            >
-              {tab}
-            </button>
-          ))}
         </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab === "map" && (
           <>
             <div ref={mapRef} className="absolute inset-0">
+              <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 shadow-sm">
+                <MeshWebUiControl
+                  snapshot={serve?.snapshot ?? null}
+                  loading={serveLoading}
+                  onOpenSurface={() => setWebUiOpen(true)}
+                  accessUrl={serve?.snapshot?.url
+                    ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
+                    : null}
+                  onOpenUrl={(url) => void invoke("open_url", { url })}
+                  onAction={runWebUiAction}
+                  touchUi={touchUi}
+                  menuAlign="left"
+                />
+              </div>
               <MeshCanvas
                 thisMachine={data.thisMachine}
                 peers={data.peers}
@@ -647,6 +652,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                 meshEnabled={config.mesh.enabled}
                 onGoOnline={goOnline}
                 onOpenPeerWebUi={(url) => void invoke("open_url", { url })}
+                webUiBaseUrl={serve?.snapshot?.url ?? null}
+                webUiToken={config.api.token}
               />
             </div>
             <CollapsibleTablesDrawer

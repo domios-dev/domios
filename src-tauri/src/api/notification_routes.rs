@@ -30,6 +30,8 @@ pub(crate) struct CreateNotifBody {
     level: Option<String>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
+    tab_id: Option<String>,
+    workspace_id: Option<String>,
 }
 
 pub async fn create_notification(
@@ -44,7 +46,47 @@ pub async fn create_notification(
         body.level.as_deref(),
         body.actions,
         body.sticky,
+        body.tab_id,
+        body.workspace_id,
     );
+    Ok(Json(serde_json::json!({"id": id})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct InputRequestBody {
+    tab_id: String,
+    session_id: String,
+    prompt_identity: Option<String>,
+    resolved: Option<bool>,
+}
+
+pub async fn create_input_request_notification(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<InputRequestBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let id = if body.resolved.unwrap_or(false) {
+        let prompt_identity = body.prompt_identity.ok_or((
+            StatusCode::BAD_REQUEST,
+            "Resolved prompt identity is required",
+        ))?;
+        state.svc.resolve_agent_input_request_notification(
+            &body.tab_id,
+            &body.session_id,
+            &prompt_identity,
+        );
+        String::new()
+    } else {
+        state
+            .svc
+            .create_agent_input_request_notification(
+                body.tab_id,
+                body.session_id,
+                body.prompt_identity,
+            )
+            .map_err(|_| (StatusCode::CONFLICT, "Tab is not waiting for user input"))?
+    };
     Ok(Json(serde_json::json!({"id": id})))
 }
 

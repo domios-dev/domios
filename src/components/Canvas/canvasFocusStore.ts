@@ -2,16 +2,16 @@ import { useSyncExternalStore } from "react";
 
 export interface CanvasFocusTarget {
   planId?: string;
-  orchestratorPaneId?: string;
-  /** Pane that opened focus — camera lands on its assigned task(s) when present. */
-  focusPaneId?: string;
+  orchestratorTabId?: string;
+  /** Tab that opened focus — camera lands on its assigned task(s) when present. */
+  focusTabId?: string;
 }
 
 export interface CanvasWorkspaceTarget {
   teamId?: string;
-  managerPaneId?: string | null;
+  managerTabId?: string | null;
   planId?: string;
-  focusPaneId?: string;
+  focusTabId?: string;
   nodeIds?: string[];
 }
 

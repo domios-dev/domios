@@ -12,8 +12,8 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 - **Buttons** — `UI_BUTTON.{base,primary,ghost,accent,compact,danger,icon,sm,lg}` → `ct-btn*`; `UI_TRAY_BTN` (titlebar tray).
 - **Inputs** — `UI_INPUT.{base,compact,mono,select,full,fullCompact,fullMono}` → `ct-input*`.
 - **Select/menu** — `shared/DropdownMenu.tsx` (`DropdownMenu`, `DropdownSelect`), `shared/Segmented.tsx` (pill switch).
-- **Pill/badge** — `UI_PANEL.smallPill` → `ct-small-pill`; `ct-kbd`.
-- **Card/panel** — `UI_PANEL.{card,cardSoft}` → `ct-panel-card`; `ct-toolbar`, `ct-panel-tab` (`tabClass`).
+- **Pill/badge** — `UI_TABL.smallPill` → `ct-small-pill`; `ct-kbd`.
+- **Card/tabl** — `UI_TABL.{card,cardSoft}` → `ct-tabl-card`; `ct-toolbar`, `ct-tabl-tab` (`tabClass`).
 
 ## Classification legend
 
@@ -71,7 +71,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | file:line | el | class | className / style | target primitive | risk |
 |---|---|---|---|---|---|
 | CanvasButton.tsx:11 | button | a | {`${UI_TRAY_BTN} ${active ? "text-[var(--ct-accent)]" : "… | ✓ shared | none — already tokenised |
-| CanvasDebugPanel.tsx:101 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
+| CanvasDebugTabl.tsx:101 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | ~:127 | select | **b** | `style={}` | UI_INPUT.select or DropdownSelect | med — native select; DropdownSelect avoids canvas flicker |
 | ~:154 | input | cN | — | native native | low — add styled variant only if visual parity wanted |
 | ~:166 | input | **b** | — | UI_INPUT.* | low — bespoke border/bg, maps to ct-input |
@@ -123,7 +123,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | file:line | el | class | className / style | target primitive | risk |
 |---|---|---|---|---|---|
 | ActiveWorkStrip.tsx:24 | button | **b** | {`active-work-strip-row${entry.stale ? " active-work-stri… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
-| CancelledTasksPanel.tsx:18 | button | **b** | "plan-cancelled-task-row plan-task-selectable" | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
+| CancelledTasksTabl.tsx:18 | button | **b** | "plan-cancelled-task-row plan-task-selectable" | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | PlanBoardView.tsx:108 | button | **b** | "plan-board-done-toggle" | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:118 | button | **b** | "plan-board-done-toggle" | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:182 | button | **b** | "plan-board-cancelled-note plan-board-cancelled-trigger" | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
@@ -215,7 +215,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | InstallGrantDialog.tsx:157 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | ~:172 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | PluginBubbles.tsx:123 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
-| PluginDetailPanel.tsx:121 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
+| PluginDetailTabl.tsx:121 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | ~:133 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | ~:173 | input | cN | — | native native | low — add styled variant only if visual parity wanted |
 | ~:182 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
@@ -249,7 +249,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:125 | textarea | **b** | "w-full bg-transparent text-xs outline-none resize-none l… | UI_INPUT.* | low — bespoke border/bg, maps to ct-input |
 | ~:144 | button | **b** | "flex items-center gap-2 rounded-xl shadow-lg transition-… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 
-### MemoryPanel  — 61 usages (a=14, b=45, cN=2)
+### MemoryTabl  — 61 usages (a=14, b=45, cN=2)
 
 | file:line | el | class | className / style | target primitive | risk |
 |---|---|---|---|---|---|
@@ -295,7 +295,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:453 | button | a | {btnClass} | ✓ shared | none — already tokenised |
 | ~:456 | button | a | {`${btnClass} !text-[#ef4444] !border-[#ef4444]`} | ✓ shared | none — already tokenised |
 | ~:463 | button | a | {btnClass} | ✓ shared | none — already tokenised |
-| MemoryPanel.tsx:166 | button | **b** | {tabClass(activeTab === tab, touchUi)} | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
+| MemoryTabl.tsx:166 | button | **b** | {tabClass(activeTab === tab, touchUi)} | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:232 | button | a | {`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blu… | ✓ shared | none — already tokenised |
 | ~:243 | button | a | {`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blu… | ✓ shared | none — already tokenised |
 | MemorySettingsTab.tsx:197 | select | **b** | {inputClass} | UI_INPUT.select or DropdownSelect | med — native select; DropdownSelect avoids canvas flicker |
@@ -315,11 +315,11 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:129 | button | **b** | {btnClass} | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:132 | button | **b** | {`${btnClass} !bg-[var(--ct-accent)] !border-[var(--ct-ac… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 
-### MeshPanel  — 62 usages (a=33, b=28, cN=1)
+### MeshTabl  — 62 usages (a=33, b=28, cN=1)
 
 | file:line | el | class | className / style | target primitive | risk |
 |---|---|---|---|---|---|
-| AddPeerPanel.tsx:151 | button | a | {`${UI_BUTTON.primary} ${UI_BUTTON.compact} flex-shrink-0`} | ✓ shared | none — already tokenised |
+| AddPeerTabl.tsx:151 | button | a | {`${UI_BUTTON.primary} ${UI_BUTTON.compact} flex-shrink-0`} | ✓ shared | none — already tokenised |
 | ~:182 | button | a | {`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opa… | ✓ shared | none — already tokenised |
 | ~:224 | input | a | {`${UI_INPUT.mono} flex-1 bg-[var(--ct-titlebar-bg)]`} | ✓ shared | none — already tokenised |
 | ~:233 | button | a | {PRIMARY_BTN_CLASS} | ✓ shared | none — already tokenised |
@@ -355,7 +355,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:238 | button | **b** | "bg-[var(--ct-bg)] border border-[var(--ct-border)] round… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:245 | button | **b** | "bg-[var(--ct-bg)] border border-[var(--ct-border)] round… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:324 | button | **b** | "w-[260px] py-6 rounded-xl border-2 border-dashed border-… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
-| MeshPanel.tsx:74 | button | a | {`${DRAWER_BTN} flex-1 justify-start`} | ✓ shared | none — already tokenised |
+| MeshTabl.tsx:74 | button | a | {`${DRAWER_BTN} flex-1 justify-start`} | ✓ shared | none — already tokenised |
 | ~:78 | button | a | {`${DRAWER_BTN} flex-1 justify-start`} | ✓ shared | none — already tokenised |
 | ~:279 | button | a | {`${UI_BUTTON.ghost} ${UI_BUTTON.icon} shrink-0`} | ✓ shared | none — already tokenised |
 | ~:314 | input | a | {`${UI_INPUT.base} ${UI_INPUT.compact} ct-text-mono min-w… | ✓ shared | none — already tokenised |
@@ -392,7 +392,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 
 | file:line | el | class | className / style | target primitive | risk |
 |---|---|---|---|---|---|
-| NotificationPanel.tsx:51 | button | a | {`${headerBtnClass} border-[color-mix(in srgb, var(--ct-a… | ✓ shared | none — already tokenised |
+| NotificationTabl.tsx:51 | button | a | {`${headerBtnClass} border-[color-mix(in srgb, var(--ct-a… | ✓ shared | none — already tokenised |
 | ~:58 | button | a | {headerActionClass} | ✓ shared | none — already tokenised |
 | ~:65 | button | a | "ct-btn ct-btn-ghost w-7 h-7" | ✓ shared | none — already tokenised |
 | NotificationToast.tsx:97 | button | **b** | {                 i === 0                   ? "h-5 rounde… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
@@ -465,7 +465,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:713 | select | a | {inputClass} | ✓ shared | none — already tokenised |
 | ~:731 | button | a | {dangerBtnClass} | ✓ shared | none — already tokenised |
 | ~:745 | button | a | {`${statusBtnClass} gap-1`} | ✓ shared | none — already tokenised |
-| SettingsPanel.tsx:165 | button | **b** | "-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-acce… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
+| SettingsTabl.tsx:165 | button | **b** | "-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-acce… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:179 | button | **b** | "-mr-1 flex h-8 w-8 shrink-0 items-center justify-center … | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:199 | button | **b** | "flex items-start gap-3 p-4 rounded-xl border border-[var… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:227 | select | **b** | "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)… | UI_INPUT.select or DropdownSelect | med — native select; DropdownSelect avoids canvas flicker |
@@ -546,7 +546,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ComposerInputShell.tsx:82 | button | **b** | {`${btnBase} ml-1 h-5 w-5 shrink-0 self-center rounded-fu… | Chip/Toggle or UI_BUTTON pill variant (GAP) | med — pill button, no shared pill-button token |
 | ComposerPlanActivityStrip.tsx:36 | button | **b** | {`ct-composer-activity-chip h-7 max-w-full min-w-0 hover:… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ContextMenu.tsx:85 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
-| DelayedSendPanel.tsx:48 | button | **b** | "inline-flex h-7 w-7 items-center justify-center rounded-… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
+| DelayedSendTabl.tsx:48 | button | **b** | "inline-flex h-7 w-7 items-center justify-center rounded-… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:106 | button | **b** | {`${presetHeight} rounded-lg border text-[13px] font-medi… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:131 | button | **b** | {`${presetHeight} inline-flex items-center justify-center… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:153 | input | **b** | {`mt-2 w-full rounded-lg border bg-transparent px-2.5 tex… | UI_INPUT.* | low — bespoke border/bg, maps to ct-input |
@@ -565,7 +565,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:132 | input | **b** | "flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var… | UI_INPUT.* | low — bespoke border/bg, maps to ct-input |
 | ~:143 | button | **b** | "px-2.5 py-1.5 text-[11px] font-medium text-white bg-[var… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:151 | button | **b** | "px-2 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
-| PaneSessionChat.tsx:325 | button | **b** | "rounded px-2.5 py-1 text-xs font-mono hover:brightness-1… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
+| TabSessionChat.tsx:325 | button | **b** | "rounded px-2.5 py-1 text-xs font-mono hover:brightness-1… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 | ~:395 | button | **b** | "absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center… | Chip/Toggle or UI_BUTTON pill variant (GAP) | med — pill button, no shared pill-button token |
 | PendingPromptCard.tsx:130 | button | **b** | "flex w-full items-center gap-3 rounded-lg border px-3 py… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:171 | button | **b** | "inline-flex items-center gap-1.5 rounded-lg border px-3 … | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
@@ -577,7 +577,7 @@ Defined in `src/components/shared/design.ts` + `src/styles/globals.css`:
 | ~:108 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | ~:116 | button | **b** | `style={}` | UI_BUTTON.icon / .ghost (or Segmented if toggle) | med — inline style{} sets own geometry/radius; visual drift from ct-btn |
 | TerminalKeyBar.tsx:46 | button | **b** | {`inline-flex h-11 ${extra} select-none touch-manipulatio… | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
-| TerminalPane.tsx:583 | button | **b** | "inline-flex h-7 w-7 items-center justify-center rounded-… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
+| TerminalTab.tsx:583 | button | **b** | "inline-flex h-7 w-7 items-center justify-center rounded-… | UI_BUTTON.{ghost/primary/accent} | low — bespoke radius/padding, maps to ct-btn |
 | ~:625 | button | **b** | "mt-1 flex h-8 items-center gap-1 rounded-full px-3 text-… | Chip/Toggle or UI_BUTTON pill variant (GAP) | med — pill button, no shared pill-button token |
 | UIModeToggle.tsx:12 | button | **b** | "absolute top-1 right-1 z-20 text-xs px-2 py-0.5 rounded" | UI_BUTTON.{ghost/primary/accent} | low — plain bespoke button |
 
@@ -702,7 +702,7 @@ Settings → Agents "Provider" is a raw native `<select>` (OS arrow, compositor 
 
 ![07-settings-agents.png](./design-audit-atlas/07-settings-agents.png)
 
-Desktop-notifications / Sound / Enable-General-Agent / Auto-restart are bespoke toggle switches. There is NO toggle token in `design.ts` — every panel rolls its own. Gap #9.
+Desktop-notifications / Sound / Enable-General-Agent / Auto-restart are bespoke toggle switches. There is NO toggle token in `design.ts` — every tabl rolls its own. Gap #9.
 
 ### 5. Canvas toolbar reimplements icon+toggle buttons in inline CSS
 
@@ -714,7 +714,7 @@ _(no screenshot — surface behind first-run gate; code reference only)_
 
 ![08-plugins.png](./design-audit-atlas/08-plugins.png)
 
-Extensions/Plugins All / Installed / Marketplace / Updates / Channels are bespoke filter chips — the active one is a solid blue pill, unlike `ct-panel-tab` (underline) or `Segmented` (sliding thumb) used elsewhere for the same job. Gap #6.
+Extensions/Plugins All / Installed / Marketplace / Updates / Channels are bespoke filter chips — the active one is a solid blue pill, unlike `ct-tabl-tab` (underline) or `Segmented` (sliding thumb) used elsewhere for the same job. Gap #6.
 
 ### 7. Selectable provider cards + "installed" chips are bespoke
 
@@ -728,11 +728,11 @@ Extensions/Plugins All / Installed / Marketplace / Updates / Channels are bespok
 
 Map/Activity/Network tabs + `+ − fit` zoom controls + `mem-dreaming-auto ·cron` service chip + "ADD A PEER" affordance are all bespoke inline-styled. Gap #3/#4.
 
-### 9. Search inputs hand-rolled per panel
+### 9. Search inputs hand-rolled per tabl
 
 ![08-plugins.png](./design-audit-atlas/08-plugins.png)
 
-"Search plugins…" is a bespoke input; CommandPalette, MemoryPanel and MeshPanel each re-implement their own search field + embedded controls. No composed search-input. Gap #10.
+"Search plugins…" is a bespoke input; CommandPalette, MemoryTabl and MeshTabl each re-implement their own search field + embedded controls. No composed search-input. Gap #10.
 
 ### 10. 64 inline-`style={}`-only buttons bypass `ct-btn` entirely
 
@@ -768,13 +768,13 @@ Per directory × tag: raw `grep <tag\b` (excluding `*.test.tsx`) vs rows emitted
 | Extensions | textarea | 3 | 3 | ✓ |
 | FloatingInput | button | 2 | 2 | ✓ |
 | FloatingInput | textarea | 1 | 1 | ✓ |
-| MemoryPanel | button | 34 | 34 | ✓ |
-| MemoryPanel | input | 16 | 16 | ✓ |
-| MemoryPanel | select | 7 | 7 | ✓ |
-| MemoryPanel | textarea | 4 | 4 | ✓ |
-| MeshPanel | button | 46 | 46 | ✓ |
-| MeshPanel | input | 11 | 11 | ✓ |
-| MeshPanel | select | 5 | 5 | ✓ |
+| MemoryTabl | button | 34 | 34 | ✓ |
+| MemoryTabl | input | 16 | 16 | ✓ |
+| MemoryTabl | select | 7 | 7 | ✓ |
+| MemoryTabl | textarea | 4 | 4 | ✓ |
+| MeshTabl | button | 46 | 46 | ✓ |
+| MeshTabl | input | 11 | 11 | ✓ |
+| MeshTabl | select | 5 | 5 | ✓ |
 | Navigation | button | 1 | 1 | ✓ |
 | Notifications | button | 5 | 5 | ✓ |
 | Settings | button | 50 | 50 | ✓ |
@@ -805,19 +805,19 @@ Per directory × tag: raw `grep <tag\b` (excluding `*.test.tsx`) vs rows emitted
 | # | Missing variant / component | Surfaces that need it |
 |---|---|---|
 | 1 | Large primary hero button (`UI_BUTTON.lg`+`primary` combo, high-emphasis) | First-run agent picker (`AgentProviderPicker.tsx:110`) — its CTA uses the small tinted `UI_BUTTON.accent`, not a large solid hero button. **Exhibit A.** Also empty-state CTAs (no-workspace, WebGate). |
-| 2 | Selectable **Card** primitive (border + hover + selected/disabled states) | `AgentPicker/ProviderCard.tsx` (rounded-xl selectable card), `ProviderInstallPanel`, Settings option cards, MemoryPanel node cards. `ct-panel-card` is a static container only — no selected/hover/disabled affordance. |
-| 3 | Semantic **Badge/Chip** with color variants (success / warn / danger / info / neutral) | `ProviderCard` installed/not-installed pill, MeshPanel health/status chips, Sidebar agent-status dots, Titlebar update badge, Terminal status pills. `ct-small-pill` is a single neutral bordered pill — no semantic color set. |
+| 2 | Selectable **Card** primitive (border + hover + selected/disabled states) | `AgentPicker/ProviderCard.tsx` (rounded-xl selectable card), `ProviderInstallTabl`, Settings option cards, MemoryTabl node cards. `ct-tabl-card` is a static container only — no selected/hover/disabled affordance. |
+| 3 | Semantic **Badge/Chip** with color variants (success / warn / danger / info / neutral) | `ProviderCard` installed/not-installed pill, MeshTabl health/status chips, Sidebar agent-status dots, Titlebar update badge, Terminal status pills. `ct-small-pill` is a single neutral bordered pill — no semantic color set. |
 | 4 | **Icon-only / toggle button** used consistently | `UI_BUTTON.icon` exists but Canvas re-implements it as inline `iconBtn()` CSS (`CanvasToolbar.tsx`), and Extensions/Terminal use ad-hoc inline-styled icon buttons (64 inline-style buttons total). Needs enforced adoption, not a new token. |
 | 5 | **Segmented / pill-toggle group** adoption | `shared/Segmented.tsx` exists but Canvas toolbar builds an Overview/Read/minimap toggle group from inline-styled `iconBtn(active)` buttons instead. Any 2-3 way view switch should use Segmented. |
-| 6 | **Pill-shaped button** token (`rounded-full` action button) | 40 `rounded-full` bespoke buttons (UpdateBadge, Sidebar, Terminal, MemoryPanel). No `ct-btn` pill variant exists — they hand-roll radius/padding/color. |
-| 7 | **Form row** primitive (label + control + help/error text) | 79 `<input>` + 26 `<select>` + 13 `<textarea>`, almost all wrapped in bespoke label/spacing markup (Settings, MemoryPanel, MeshPanel, Extensions). No shared field/row component; spacing & label styling drift per panel. |
+| 6 | **Pill-shaped button** token (`rounded-full` action button) | 40 `rounded-full` bespoke buttons (UpdateBadge, Sidebar, Terminal, MemoryTabl). No `ct-btn` pill variant exists — they hand-roll radius/padding/color. |
+| 7 | **Form row** primitive (label + control + help/error text) | 79 `<input>` + 26 `<select>` + 13 `<textarea>`, almost all wrapped in bespoke label/spacing markup (Settings, MemoryTabl, MeshTabl, Extensions). No shared field/row component; spacing & label styling drift per tabl. |
 | 8 | Styled **select** — `DropdownSelect` adoption or `UI_INPUT.select` for native | 25 `<select>`; most are native/bespoke. `DropdownSelect` (canvas-flicker-safe) exists but is used in only a few places. `DropdownSelect`'s OWN trigger is also bespoke (inline border/bg, not `ct-input`). |
-| 9 | Styled **checkbox / radio / range** controls | 14 native `type=checkbox/radio/...` left unstyled (Settings, MemoryPanel, Extensions). Intentional today (class c-native) but visually inconsistent — a styled variant would unify them. |
-| 10 | **Icon-button-in-input / clear-affordance** (search field trailing button) | CommandPalette, MemoryPanel search, MeshPanel filters each hand-roll input+embedded button. No composed search-input primitive. |
+| 9 | Styled **checkbox / radio / range** controls | 14 native `type=checkbox/radio/...` left unstyled (Settings, MemoryTabl, Extensions). Intentional today (class c-native) but visually inconsistent — a styled variant would unify them. |
+| 10 | **Icon-button-in-input / clear-affordance** (search field trailing button) | CommandPalette, MemoryTabl search, MeshTabl filters each hand-roll input+embedded button. No composed search-input primitive. |
 
 ## Supplementary: chip / badge / card sweep (div/span-based)
 
-These are not `<tag>` elements so they fall outside the exact grep reconciliation above; listed here for completeness. Shared = `ct-small-pill`/`ct-panel-card`; bespoke = ad-hoc `rounded-full` pill or `rounded-*+border+bg` card.
+These are not `<tag>` elements so they fall outside the exact grep reconciliation above; listed here for completeness. Shared = `ct-small-pill`/`ct-tabl-card`; bespoke = ad-hoc `rounded-full` pill or `rounded-*+border+bg` card.
 
 Chip/card usages found: **42** (shared a=4, bespoke b=38).
 
@@ -836,9 +836,9 @@ Chip/card usages found: **42** (shared a=4, bespoke b=38).
 | MemoryDreamsTab.tsx:277 | chip/pill | **b** | "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-f… |
 | MemoryDreamsTab.tsx:296 | chip/pill | **b** | "flex items-center gap-2 px-3 py-1.5 rounded-full text-[v… |
 | MemoryListTab.tsx:163 | chip/pill | **b** | {`px-2 py-0.5 rounded-full text-[10px] flex items-center … |
-| AddPeerPanel.tsx:147 | card | a | {`${UI_PANEL.card} bg-[var(--ct-titlebar-bg)] p-2.5 flex … |
-| AddPeerPanel.tsx:343 | chip/pill | a | {`${UI_PANEL.smallPill} bg-[var(--ct-yellow)]/20 text-[va… |
-| AddPeerPanel.tsx:347 | chip/pill | a | {`ct-small-pill flex-shrink-0 ${               hasVoucher… |
+| AddPeerTabl.tsx:147 | card | a | {`${UI_TABL.card} bg-[var(--ct-titlebar-bg)] p-2.5 flex … |
+| AddPeerTabl.tsx:343 | chip/pill | a | {`${UI_TABL.smallPill} bg-[var(--ct-yellow)]/20 text-[va… |
+| AddPeerTabl.tsx:347 | chip/pill | a | {`ct-small-pill flex-shrink-0 ${               hasVoucher… |
 | PeerTerminal.tsx:83 | chip/pill | **b** | "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-… |
 | NavigationBackBar.tsx:31 | chip/pill | **b** | "fixed top-11 left-1/2 -translate-x-1/2 z-[1100] flex ite… |
 | NotificationBadge.tsx:24 | chip/pill | **b** | {`         inline-flex items-center justify-center min-w-… |
@@ -850,7 +850,7 @@ Chip/card usages found: **42** (shared a=4, bespoke b=38).
 | SchemaRenderer.tsx:672 | chip/pill | **b** | {`text-[9px] px-1.5 py-0.5 rounded-full inline-block ${BA… |
 | UpdateSection.tsx:96 | chip/pill | **b** | "mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--ct-bor… |
 | UpdateSection.tsx:98 | chip/pill | **b** | "h-full rounded-full bg-[var(--ct-accent)] transition-[wi… |
-| shared.tsx:93 | chip/pill | a | {`${UI_PANEL.smallPill} ${PILL_TONES[tone]}`} |
+| shared.tsx:93 | chip/pill | a | {`${UI_TABL.smallPill} ${PILL_TONES[tone]}`} |
 | HierarchyTree.tsx:174 | chip/pill | **b** | "inline-flex shrink-0 items-center justify-center min-w-[… |
 | WorkspaceItem.tsx:179 | chip/pill | **b** | "inline-flex items-center justify-center min-w-[14px] h-3… |
 | ChatComposer.tsx:120 | chip/pill | **b** | "inline-flex h-7 items-center gap-1 rounded-full border p… |

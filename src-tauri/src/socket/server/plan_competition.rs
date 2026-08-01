@@ -1,11 +1,12 @@
 use serde_json::{json, Value};
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 use crate::plan::TaskCompetitionMetadata;
 use crate::service::{ServiceState, SpawnIdentityProvenance};
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
-use super::plan_fields::pane_role;
+use super::plan_fields::tab_role;
 use super::plan_refs;
 use super::plan_role_helpers::record_spawned_attempt;
 use super::{get_string_param, JsonRpcError};
@@ -91,8 +92,8 @@ pub(super) fn compete(
             .get("models")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
-        parent_pane_id: body
-            .get("parent_pane_id")
+        parent_tab_id: body
+            .get("parent_tab_id")
             .and_then(|v| v.as_str())
             .map(str::to_string),
         workspace_id: body
@@ -103,55 +104,142 @@ pub(super) fn compete(
     let drafts = store
         .build_task_compete_drafts(&id, &tid, request)
         .map_err(plan_rpc_err)?;
+    let plan = store
+        .get(&id)
+        .ok_or_else(|| plan_rpc_err(crate::service::plan::PlanError::NotFound))?;
     let mut attempts = Vec::new();
     let mut spawns = Vec::new();
     for draft in drafts {
+        let parent_tab_id = draft
+            .parent_tab_id
+            .clone()
+            .or_else(|| plan.owner.tab_id.clone())
+            .ok_or(JsonRpcError {
+                code: -32602,
+                message: "competition requires a parent Orchestrator tab".into(),
+                data: None,
+            })?;
         let spawn_params = crate::service::SpawnAgentParams {
             agent: Some(draft.provider.clone()),
             cwd: Some(draft.cwd.clone()),
             title: draft.title.clone(),
             title_provenance: Some(SpawnIdentityProvenance::Suggested),
             role: Some("Worker".into()),
-            parent_pane_id: draft.parent_pane_id.clone(),
+            parent_tab_id: Some(parent_tab_id.clone()),
             task: Some(draft.task_prompt.clone()),
             workspace_id: draft.workspace_id.clone(),
             model: draft.model.clone(),
             planned_model: draft.planned_model.clone(),
-            spawned_by_pane_id: draft.parent_pane_id.clone(),
+            spawned_by_tab_id: Some(parent_tab_id.clone()),
             ..Default::default()
         };
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let spawn = svc
-            .spawn_agent_sync(spawn_params)
+            .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
                 data: None,
             })?;
-        let created = record_spawned_attempt(svc, &spawn.pane_id, || {
+        let created = record_spawned_attempt(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,
                 &tid,
-                &spawn.pane_id,
+                &spawn.tab_id,
                 &draft,
-                pane_role(svc, &spawn.pane_id),
+                tab_role(svc, &spawn.tab_id),
                 now,
             )
         })?;
-        let session_id = svc
-            .mux
-            .read()
-            .get_pane(&spawn.pane_id)
-            .and_then(|pane| pane.agent_session_id.clone());
-        store
-            .update_attempt_executor_identity(
-                &id,
-                &tid,
-                &spawn.pane_id,
-                Some(&spawn.title),
-                session_id.as_deref(),
-                now,
-            )
-            .map_err(plan_rpc_err)?;
+        let svc_for_ready = svc.clone();
+        let app_for_ready = app.clone();
+        let plan_id = id.clone();
+        let task_id = tid.clone();
+        let tab_id = spawn.tab_id.clone();
+        let attempt_id = created.attempt.id.clone();
+        let worker_title = spawn.title.clone();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let runtime_ready = super::plan_task_dispatch::await_agent_ready(ready_rx, deadline)
+                .and_then(|_| {
+                    super::plan_task_dispatch::wait_for_tab_session(
+                        &svc_for_ready,
+                        &tab_id,
+                        deadline,
+                    )
+                });
+            match runtime_ready {
+                Ok(session_id) => {
+                    if let Err(error) = svc_for_ready.plan_store.mark_task_attempt_runtime_ready(
+                        &plan_id,
+                        &task_id,
+                        &tab_id,
+                        &attempt_id,
+                        &session_id,
+                        epoch_ms(),
+                    ) {
+                        super::plan_task_dispatch::publish_startup_report(
+                            &svc_for_ready,
+                            &parent_tab_id,
+                            &tab_id,
+                            &worker_title,
+                            &plan_id,
+                            &task_id,
+                            json!({
+                                "kind": "dispatch_startup_failed",
+                                "stage": "task_commit",
+                                "error": error.to_string(),
+                            }),
+                        );
+                        return;
+                    }
+                    super::plan_task_dispatch::arm_worker_ack_deadline(
+                        &svc_for_ready,
+                        &parent_tab_id,
+                        &tab_id,
+                        &worker_title,
+                        &plan_id,
+                        &task_id,
+                        &attempt_id,
+                        format!("codeterm plan task compete {plan_id} {task_id}"),
+                    );
+                    emit_plan_changed(&app_for_ready, &plan_id);
+                    super::plan_task_dispatch::publish_startup_report(
+                        &svc_for_ready,
+                        &parent_tab_id,
+                        &tab_id,
+                        &worker_title,
+                        &plan_id,
+                        &task_id,
+                        json!({
+                            "kind": "dispatch_ready",
+                            "plan_id": plan_id,
+                            "task_id": task_id,
+                            "tab_id": tab_id,
+                            "attempt_id": attempt_id,
+                            "session_id": session_id,
+                        }),
+                    );
+                }
+                Err(error) => {
+                    let _ = svc_for_ready.close_tab(&tab_id);
+                    emit_plan_changed(&app_for_ready, &plan_id);
+                    super::plan_task_dispatch::publish_startup_report(
+                        &svc_for_ready,
+                        &parent_tab_id,
+                        &tab_id,
+                        &worker_title,
+                        &plan_id,
+                        &task_id,
+                        json!({
+                            "kind": "dispatch_startup_failed",
+                            "stage": "agent_ready",
+                            "error": error,
+                        }),
+                    );
+                }
+            }
+        });
         attempts.push(created.attempt);
         spawns.push(spawn);
     }
@@ -162,12 +250,25 @@ pub(super) fn compete(
         .unwrap_or_default();
     Ok(json!({
         "ok": true,
+        "accepted": true,
+        "state": "awaiting_dispatch_ready",
+        "readiness": {
+            "ready": false,
+            "awaiting_event": "dispatch_ready",
+        },
         "plan_id": id,
         "task_id": tid,
         "competition_group_id": group,
         "attempts": attempts,
         "spawns": spawns
     }))
+}
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 #[cfg(test)]
@@ -183,7 +284,7 @@ mod tests {
         let mut plan = Plan::new(
             "competition".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         store.save(&mut plan, 1).unwrap();
         let task_id = store
@@ -211,7 +312,7 @@ mod tests {
                 &plan.id,
                 &task_id,
                 ReviewCapacityClass::Review,
-                AgentRef::from_pane("orch"),
+                AgentRef::from_tab("orch"),
                 4,
             )
             .unwrap();

@@ -48,7 +48,7 @@ function milestone(id: string, kind: string, ts: number, text: string): Mileston
     kind,
     ts,
     text,
-    from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+    from: { tab_id: "tab-a", session_id: null, title: "Puccini" },
   };
 }
 
@@ -64,7 +64,7 @@ test("renders milestone timeline with kind, age, and author", async () => {
     milestones: [milestone("ms-1", "status_update", 1_700_000_000_000, "Shipped first pass")],
   };
   const { host } = await render(
-    <TaskActivityTimeline task={task} plan={FIXTURE_PLAN} now={now} panes={{ "pane-a": { id: "pane-a", title: "Puccini" } as never }} />,
+    <TaskActivityTimeline task={task} plan={FIXTURE_PLAN} now={now} tabs={{ "tab-a": { id: "tab-a", title: "Puccini" } as never }} />,
   );
   const entry = host.querySelector('[data-testid="plan-task-activity-entry"]');
   assert(entry, "timeline entry rendered");
@@ -120,8 +120,8 @@ test("renders only this task milestones", async () => {
 
 test("renders grouped execution attempts", async () => {
   const attempts: TaskExecutionAttempt[] = [
-    { id: "a1", pane_id: "pane-a", pane_title: "Worker A", role: "frontend-dev", model: "gpt", branch: "lane/a", report_status: "in_review" },
-    { id: "a2", pane_id: "pane-b", pane_title: "Worker B", role: "backend-dev", model: "claude", branch: "lane/b", report_status: "blocked" },
+    { id: "a1", tab_id: "tab-a", tab_title: "Worker A", role: "frontend-dev", model: "gpt", branch: "lane/a", report_status: "in_review" },
+    { id: "a2", tab_id: "tab-b", tab_title: "Worker B", role: "backend-dev", model: "claude", branch: "lane/b", report_status: "blocked" },
   ];
   const task: Task = { ...FIXTURE_TASK, execution_attempts: attempts, milestones: [] };
   const { host } = await render(<TaskActivityTimeline task={task} plan={FIXTURE_PLAN} />);

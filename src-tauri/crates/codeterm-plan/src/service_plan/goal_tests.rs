@@ -8,7 +8,7 @@ fn goal_persists_and_reloads_from_sidecar() {
     let mut plan = Plan::new(
         "Goal Plan".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     store

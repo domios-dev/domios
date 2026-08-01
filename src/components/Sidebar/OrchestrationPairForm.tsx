@@ -55,7 +55,7 @@ export function OrchestrationRoleRow({
   });
   const modelOptions: DropdownSelectOption[] =
     models.length === 0
-      ? [{ value: "", label: "default" }]
+      ? [{ value: "", label: "No models published", disabled: true }]
       : models.map((m) => ({ value: m.id, label: m.display_name }));
   return (
     <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>

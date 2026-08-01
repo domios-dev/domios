@@ -1,18 +1,16 @@
 import { createContext, useContext } from "react";
-import { TitleLevel } from "../../lib/types";
 import type {
   Notification,
-  PaneStatus,
+  TabStatus,
   OrchestrationPairInput,
   OrchestrationPairResult,
 } from "../../lib/types";
 import type { MuxStateStore } from "./selectorStore";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
-export interface SpawnedPane {
+export interface SpawnedTab {
   workspaceId: string;
-  paneId: string;
-  tabId?: string;
+  tabId: string;
 }
 
 export interface MultiplexerActionsContextType {
@@ -21,28 +19,27 @@ export interface MultiplexerActionsContextType {
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
   moveTab: (tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => void;
-  /** Reorder a tab group within its hierarchy level. `parentPaneId` set →
+  /** Reorder a tab group within its hierarchy level. `parentTabId` set →
    *  reorder children of that parent; otherwise reorder a workspace's top-level
    *  tabs. Within-group only — the order list never crosses groups. */
-  reorderTabs: (args: { workspaceId?: string; parentPaneId?: string; orderedTabIds: string[] }) => void;
+  reorderTabs: (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => void;
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
-  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string; pane_id: string } | void>;
+  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string } | void>;
   closeTab: (workspaceId: string, tabId: string) => void;
-  /** Reopen a recently-closed pane (index 0 = most recent). */
+  /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
   /** Reopen a whole closed group (cascade subtree or workspace) by id. */
   reopenGroup: (groupId: string) => void;
-  /** Reopen a pane from the orphaned ring (workspace was deleted). */
-  restoreOrphaned: (paneId: string) => void;
+  /** Reopen a tab from the orphaned ring (workspace was deleted). */
+  restoreOrphaned: (tabId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
-  /** Select + focus the tab that owns `paneId` (resolves via a fresh snapshot
-   *  when the pane isn't in local state yet). Used to jump to a just-spawned
+  /** Select + focus the tab that owns `tabId` (resolves via a fresh snapshot
+   *  when the tab isn't in local state yet). Used to jump to a just-spawned
    *  agent or orchestration pair. */
-  selectTabByPane: (workspaceId: string, paneId: string) => Promise<void>;
-  closePane: (paneId: string) => void;
-  setFocusedPane: (paneId: string) => void;
-  setPanePty: (paneId: string, ptyId: string) => void;
+  selectTabByTab: (workspaceId: string, tabId: string) => Promise<void>;
+  setFocusedTab: (tabId: string) => void;
+  setTabPty: (tabId: string, ptyId: string) => void;
   addNotification: (notif: Omit<Notification, "id" | "timestamp" | "read">) => void;
   upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void;
   markRead: (id: string) => void;
@@ -50,10 +47,9 @@ export interface MultiplexerActionsContextType {
   deleteNotification: (id: string) => void;
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
-  setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;
   setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
-  setAgentType: (paneId: string, agentType: string | null) => void;
-  updatePaneStatus: (paneId: string, status: PaneStatus) => void;
+  setAgentType: (tabId: string, agentType: string | null) => void;
+  updateTabStatus: (tabId: string, status: TabStatus) => void;
   spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
   spawnAgentTab: (
     workspaceId: string,
@@ -61,9 +57,9 @@ export interface MultiplexerActionsContextType {
     skipPermissions: boolean,
     cwd?: string,
     model?: string,
-  ) => Promise<SpawnedPane | null>;
+  ) => Promise<SpawnedTab | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
-   *  Planner pane bound to it, in one call. */
+   *  Planner tab bound to it, in one call. */
   createOrchestrationPair: (input: OrchestrationPairInput) => Promise<OrchestrationPairResult>;
 }
 

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import type { LaidOutNode, WorkspaceLayout } from "../layout";
 import { milestoneColorMap } from "../milestoneColors";
 import { zoneColor } from "../layout/sectionZones";
-import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
+import { resolvePlanExclusiveTabTasks } from "../tabCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
@@ -14,9 +14,9 @@ export function useCanvasLookups(
   layout: WorkspaceLayout,
   filteredPlans: Plan[],
   driftByPlan: Map<string, DriftItem[]>,
-  panes: Record<string, Pane>,
-  // panes). Used as the rebuild trigger so a non-presence heartbeat is a no-op.
-  panesContentKey: string,
+  tabs: Record<string, Tab>,
+  // tabs). Used as the rebuild trigger so a non-presence heartbeat is a no-op.
+  tabsContentKey: string,
 ): CanvasLookups {
   return useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -53,11 +53,11 @@ export function useCanvasLookups(
         const existing = driftByTask.get(item.task_id);
         if (!existing || (existing.not_mine && !item.not_mine)) driftByTask.set(item.task_id, item);
       }
-      const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
+      const exclusiveTabTasks = resolvePlanExclusiveTabTasks(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
         const parentTaskName = task.parent_task_id ? taskNameById.get(task.parent_task_id) ?? null : null;
-        const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
+        const presence = buildTaskPresence(plan, task, tabs, exclusiveTabTasks);
         taskModelById.set(task.id, {
           task,
           tagFacets: plan.tag_facets,
@@ -67,7 +67,7 @@ export function useCanvasLookups(
           stepColors: colors,
           drift: driftByTask.get(task.id),
           presence,
-          historicalExecutor: historicalExecutorForTask(task, panes, presence != null),
+          historicalExecutor: historicalExecutorForTask(task, tabs, presence != null),
           regionColor: (() => { const sid = regionSectionOf(task); return sid ? zoneColor(sid) : undefined; })(),
         });
         for (const m of task.milestones) milestoneTaskById.set(m.id, task.id);
@@ -75,8 +75,8 @@ export function useCanvasLookups(
       for (const el of plan.elements) elementById.set(el.id, el);
     }
     return { nodeById, taskById, taskModelById, sectionById, milestoneTaskById, elementById };
-    // `panes` is read inside but intentionally NOT a dep — panesContentKey is its
+    // `tabs` is read inside but intentionally NOT a dep — tabsContentKey is its
     // presence-relevant projection, so heartbeats that don't change it are skipped.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, filteredPlans, driftByPlan, panesContentKey]);
+  }, [layout, filteredPlans, driftByPlan, tabsContentKey]);
 }

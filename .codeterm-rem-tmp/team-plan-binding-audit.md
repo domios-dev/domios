@@ -2,7 +2,7 @@
 
 ## User invariant
 
-A plan belongs to exactly one Team. It is not owned by a tab, pane, or workspace.
+A plan belongs to exactly one Team. It is not owned by a tab, tab, or workspace.
 Every Team member inherits that Team plan. A workspace may only display Teams and
 their bound plans; it must not offer a standalone workspace-plan surface.
 
@@ -67,7 +67,7 @@ unbounded silent CLI wait rather than an actionable result.
 1. Remove standalone workspace-plan entry/navigation and the non-Team empty
    canvas creation path. No active plan can be created without a Team binding.
 2. Keep Team cards as the only plan entry. A Team manager and every descendant
-   Team member resolve the same Team plan; a pane never stores its own plan
+   Team member resolve the same Team plan; a tab never stores its own plan
    binding.
 3. Make adoption return promptly and deterministically:
    - binding a teamless plan to an empty Team succeeds and emits `plan-changed`;

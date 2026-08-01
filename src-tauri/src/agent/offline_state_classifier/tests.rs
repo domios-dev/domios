@@ -1,7 +1,23 @@
-use super::{classify_terminal_menu_question, QuestionSubtype};
+use super::{classify_terminal_menu_question, extract_question_message, QuestionSubtype};
 
 fn lines(rows: &[&str]) -> Vec<String> {
     rows.iter().map(|row| (*row).to_string()).collect()
+}
+
+#[test]
+fn extracts_complete_authoritative_auth_message() {
+    let screen = lines(&[
+        "unrelated output",
+        "",
+        "Authentication required.",
+        "Sign in to continue with this session.",
+        "",
+        "footer",
+    ]);
+    assert_eq!(
+        extract_question_message(&screen, Some(QuestionSubtype::Auth)).as_deref(),
+        Some("Authentication required.\nSign in to continue with this session.")
+    );
 }
 
 #[test]
@@ -110,13 +126,13 @@ fn numbered_prose_without_confirm_footer_is_not_question_visible_cursor() {
 
 use super::{
     classify_state, composer_cursor_ready, offline_picker_is_coherent, ClassifyInput, Motion,
-    PaneVerdict, TimelineState,
+    TabVerdict, TimelineState,
 };
 use crate::agent::attributed_screen::PickerDetection;
 use crate::agent::signal_extractor::StreamSignals;
 
-fn working() -> PaneVerdict {
-    PaneVerdict {
+fn working() -> TabVerdict {
+    TabVerdict {
         state: TimelineState::Working,
         subtype: None,
     }
@@ -504,7 +520,7 @@ fn claude_answered_question_with_stale_picker_below_composer_is_idle() {
     let mut input = quiescent_input(&screen);
     input.byte_idle_ms = 6000;
     input.semantic_idle_ms = 6000;
-    let previous = PaneVerdict {
+    let previous = TabVerdict {
         state: TimelineState::Question,
         subtype: Some(QuestionSubtype::Unknown),
     };
@@ -532,7 +548,7 @@ fn claude_active_question_picker_still_classifies_question() {
     input.semantic_idle_ms = 6000;
     let verdict = classify_state(
         &input,
-        PaneVerdict {
+        TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         },
@@ -565,6 +581,43 @@ fn claude_current_gen_long_think_stays_working_while_status_band_animates() {
         verdict.state,
         TimelineState::Working,
         "a live thinking widget must not be demoted to Idle by semantic idle alone"
+    );
+}
+
+#[test]
+fn status_repaint_after_adjacent_completion_is_idle_but_pure_think_is_working() {
+    let live_screen = lines(&[
+        "  Tool output",
+        "✽ Inferring… (58s · ↓ 797 tokens · thinking)",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+    ]);
+    let mut live_input = quiescent_input(&live_screen);
+    live_input.semantic_idle_ms = 2000;
+    live_input.byte_idle_ms = 250;
+
+    let completed_screen = lines(&[
+        "  Final answer text.",
+        "✻ Crunched for 7s",
+        "✻ Evaporating… (7s · ↓ 165 tokens)",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+    ]);
+    let mut completed_input = quiescent_input(&completed_screen);
+    completed_input.semantic_idle_ms = 2000;
+    completed_input.byte_idle_ms = 250;
+
+    assert_eq!(
+        classify_state(&live_input, working()).state,
+        TimelineState::Working,
+        "an animating status without an adjacent completion summary is live"
+    );
+    assert_eq!(
+        classify_state(&completed_input, working()).state,
+        TimelineState::Idle,
+        "an animating status immediately below a completion summary is a repaint"
     );
 }
 
@@ -650,4 +703,45 @@ fn claude_settled_turn_with_summary_resolves_idle() {
     input.byte_idle_ms = 6000; // nothing animating anymore
     let verdict = classify_state(&input, working());
     assert_eq!(verdict.state, TimelineState::Idle);
+}
+
+// Live P0 oracle (prod notification 4ae14e7f): a structurally-minted picker
+// question carrying a codex skills-lint warning line must classify Unknown.
+#[test]
+fn skills_lint_warning_picker_question_classifies_unknown_subtype() {
+    let screen = lines(&[
+        r"⚠ D:\Developer\codeterm\.agents\skills\gap-analysis\SKILL.md: missing field description",
+        "",
+        "› ",
+        r"  gpt-5.6-sol high · D:\Developer\codeterm",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some(
+        r"⚠ D:\Developer\codeterm\.agents\skills\gap-analysis\SKILL.md: missing field description",
+    );
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Question);
+    assert_eq!(verdict.subtype, Some(QuestionSubtype::Unknown));
+}
+
+// Envelope questions are not reliably Unknown ("model=…" hits ModelPicker), so
+// notification admission cannot discriminate on subtype alone.
+#[test]
+fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
+    let envelope =
+        "-=-codeterm:tab label=Reviewer tab=166df18d model=gpt-5.6-sol-=-Coordination note only.";
+    let screen = lines(&[envelope]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some(envelope);
+    let with_model = classify_state(&input, working());
+    assert_eq!(with_model.state, TimelineState::Question);
+    assert_eq!(with_model.subtype, Some(QuestionSubtype::ModelPicker));
+
+    let plain_envelope = "-=-codeterm:report from=Worker tab=abc123-=-Task finished, see summary.";
+    let screen = lines(&[plain_envelope]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some(plain_envelope);
+    let without_model = classify_state(&input, working());
+    assert_eq!(without_model.state, TimelineState::Question);
+    assert_eq!(without_model.subtype, Some(QuestionSubtype::Unknown));
 }

@@ -1,14 +1,11 @@
-import type { Pane, Workspace } from "../../lib/types";
-import { childPaneIdsInWorkspace, paneIdsInWorkspace } from "../Sidebar/workspaceTabs";
+import type { Tab, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "./plansApi";
-import { assignedTaskIdsForPane } from "./planOpenFocus";
+import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { canvasFocusStore, type CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
-export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pane>): Set<string> {
-  const ids = paneIdsInWorkspace(workspace.tabs, panes);
-  for (const pid of childPaneIdsInWorkspace(workspace.tabs, panes)) ids.add(pid);
-  return ids;
+export function workspaceTabIds(workspace: Workspace, tabs: Record<string, Tab>): Set<string> {
+  return new Set(workspace.tabs.filter((tabId) => tabs[tabId]?.hidden !== true));
 }
 
 // Cumulative workspace view: the root's own plans plus nested project roots.
@@ -16,7 +13,7 @@ export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pan
 export function deriveWorkspacePlanEntries(
   index: PlanIndexEntry[],
   workspace: Workspace,
-  _panes: Record<string, Pane>,
+  _tabs: Record<string, Tab>,
 ): PlanIndexEntry[] {
   const canonical = new Map<string, PlanIndexEntry>();
   for (const entry of index) {
@@ -40,14 +37,41 @@ function compareWorkspacePlanEntries(a: PlanIndexEntry, b: PlanIndexEntry): numb
 
 function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace): boolean {
   if (!workspace.cwd) return false;
-  const root = normalizePath(workspace.cwd);
-  const file = normalizePath(entry.file_path);
-  const underRoot = file === root || file.startsWith(`${root}/`);
-  return underRoot && file.includes("/.codeterm/plans/");
+  const canonicalProjectPath = entry.canonical_project_path?.trim();
+  if (canonicalProjectPath) {
+    return projectPathBelongsToWorkspace(canonicalProjectPath, workspace.cwd);
+  }
+  const legacyProjectPath = legacyPlanProjectPath(entry);
+  return legacyProjectPath != null
+    && projectPathBelongsToWorkspace(legacyProjectPath, workspace.cwd);
 }
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\/\/\?\//, "").replace(/\/+$/, "");
+}
+
+function comparablePath(path: string): string {
+  const normalized = normalizePath(path);
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function projectPathBelongsToWorkspace(projectPath: string, workspacePath: string): boolean {
+  const project = comparablePath(projectPath);
+  const root = comparablePath(workspacePath);
+  return project === root || project.startsWith(`${root}/`);
+}
+
+function legacyPlanProjectPath(entry: PlanIndexEntry): string | null {
+  const file = normalizePath(entry.file_path);
+  const marker = "/.codeterm/plans/";
+  const markerIndex = file.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+  const parts = file.slice(markerIndex + marker.length).split("/");
+  if (parts.length !== 3) return null;
+  const [bucket, planId, fileName] = parts;
+  if ((bucket !== "active" && bucket !== "archive") || planId !== entry.plan_id) return null;
+  if (fileName !== "plan.json" && fileName !== "plan.yaml") return null;
+  return file.slice(0, markerIndex);
 }
 
 function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
@@ -56,7 +80,7 @@ function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
     || (entry.element_count ?? 0) > 0
     || (entry.loop_count ?? 0) > 0
     || entry.has_goal === true
-    || entry.assigned_pane_ids.length > 0;
+    || entry.assigned_tab_ids.length > 0;
 }
 
 export function workspacePlanEntryKind(_entries: PlanIndexEntry[]): string {
@@ -98,13 +122,13 @@ export function workspacePlanEntryExtraCount(entries: PlanIndexEntry[]): number 
   return Math.max(0, entries.length - 1);
 }
 
-export function resolvePanePlanFocusTarget(
+export function resolveTabPlanFocusTarget(
   entries: PlanIndexEntry[],
-  paneId: string,
+  tabId: string,
 ): CanvasWorkspaceTarget | null {
   if (entries.length === 0) return null;
   return {
-    focusPaneId: paneId,
+    focusTabId: tabId,
     planId: entries.length === 1 ? entries[0].plan_id : undefined,
   };
 }
@@ -117,15 +141,15 @@ export function openWorkspacePlanCanvas(target?: CanvasWorkspaceTarget): void {
 
 export interface TeamPlanCanvasTarget {
   teamId: string;
-  managerPaneId: string | null;
+  managerTabId: string | null;
   planId?: string;
 }
 
 export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
   openWorkspacePlanCanvas({
     teamId: target.teamId,
-    managerPaneId: target.managerPaneId,
-    focusPaneId: target.managerPaneId ?? undefined,
+    managerTabId: target.managerTabId,
+    focusTabId: target.managerTabId ?? undefined,
     planId: target.planId,
   });
 }
@@ -136,18 +160,23 @@ export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]):
   });
 }
 
-/** Workspace whose cwd owns this plan's file path, or null when unknown. */
+/** Workspace whose cwd owns this plan's canonical project, or null when unknown. */
 export function findPlanOwnerWorkspace(
   planId: string,
   index: readonly PlanIndexEntry[],
   workspaces: readonly Workspace[],
-): { workspace: Workspace; entry: PlanIndexEntry } | null {
+  canonicalProjectPath?: string,
+): { workspace: Workspace; entry?: PlanIndexEntry } | null {
   const entry = index.find((e) => e.plan_id === planId);
-  if (!entry) return null;
-  let best: { workspace: Workspace; entry: PlanIndexEntry } | null = null;
+  const authoritativePath = canonicalProjectPath?.trim();
+  if (!entry && !authoritativePath) return null;
+  let best: { workspace: Workspace; entry?: PlanIndexEntry } | null = null;
   let bestLen = -1;
   for (const workspace of workspaces) {
-    if (!planBelongsToWorkspacePath(entry, workspace)) continue;
+    const belongs = authoritativePath
+      ? workspace.cwd != null && projectPathBelongsToWorkspace(authoritativePath, workspace.cwd)
+      : entry != null && planBelongsToWorkspacePath(entry, workspace);
+    if (!belongs) continue;
     const len = workspace.cwd ? normalizePath(workspace.cwd).length : 0;
     if (len > bestLen) {
       best = { workspace, entry };
@@ -161,13 +190,19 @@ export interface OpenPlanDeepLinkCtx {
   index: readonly PlanIndexEntry[];
   workspaces: readonly Workspace[];
   activeWorkspaceId: string | null;
+  canonicalProjectPath?: string;
   setActiveWorkspace: (id: string) => void;
   onMissing?: (planId: string) => void;
 }
 
 /** Deep-link from chat: switch to the owning workspace and open the plan focused on a task. */
 export function openPlanDeepLink(planId: string, taskId: string | undefined, ctx: OpenPlanDeepLinkCtx): boolean {
-  const owner = findPlanOwnerWorkspace(planId, ctx.index, ctx.workspaces);
+  const owner = findPlanOwnerWorkspace(
+    planId,
+    ctx.index,
+    ctx.workspaces,
+    ctx.canonicalProjectPath,
+  );
   if (!owner) {
     ctx.onMissing?.(planId);
     return false;
@@ -184,8 +219,8 @@ export function resolveWorkspaceFocusNodeIds(
 ): string[] {
   if (mode !== "workspace" || !target) return [];
   if (target.nodeIds?.length) return target.nodeIds;
-  if (target.focusPaneId) {
-    const taskIds = assignedTaskIdsForPane(plans, target.focusPaneId);
+  if (target.focusTabId) {
+    const taskIds = assignedTaskIdsForTab(plans, target.focusTabId);
     if (taskIds.length) return taskIds;
   }
   if (target.planId) return [target.planId];
@@ -194,19 +229,19 @@ export function resolveWorkspaceFocusNodeIds(
 
 export function canvasFitContextKey(
   mode: string,
-  focusPaneId: string | null | undefined,
+  focusTabId: string | null | undefined,
   workspaceTarget: CanvasWorkspaceTarget | null | undefined,
 ): string {
   const ws = workspaceTarget;
-  return `${mode}:${focusPaneId ?? ""}:${ws?.focusPaneId ?? ""}:${ws?.planId ?? ""}:${ws?.nodeIds?.join(",") ?? ""}`;
+  return `${mode}:${focusTabId ?? ""}:${ws?.focusTabId ?? ""}:${ws?.planId ?? ""}:${ws?.nodeIds?.join(",") ?? ""}`;
 }
 
-export function openPanePlanFocus(
+export function openTabPlanFocus(
   entries: PlanIndexEntry[],
-  paneId: string,
+  tabId: string,
   nodeIds?: string[],
 ): void {
-  const base = resolvePanePlanFocusTarget(entries, paneId);
+  const base = resolveTabPlanFocusTarget(entries, tabId);
   if (!base) return;
   openWorkspacePlanCanvas({
     ...base,

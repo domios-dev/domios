@@ -22,11 +22,11 @@ internal_prefixes = (
     "/web",
 )
 internal_exact = {
-    "/api/panes/{id}/resize-owner",
-    "/api/panes/{id}/chat-view",
-    "/api/panes/{id}/chat-raw/start",
-    "/api/panes/{id}/chat-raw/stop",
-    "/api/panes/{id}/chat-raw/backfill",
+    "/api/tabs/{id}/resize-owner",
+    "/api/tabs/{id}/chat-view",
+    "/api/tabs/{id}/chat-raw/start",
+    "/api/tabs/{id}/chat-raw/stop",
+    "/api/tabs/{id}/chat-raw/backfill",
     "/api/workspaces/{id}/tabs/{tab_id}/focus",
     "/api/workspaces/{id}/tabs/{tab_id}/close",
     "/api/mesh/peers/{id}/services",

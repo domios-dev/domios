@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Sidebar/orchestrationSections.test.ts
 
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import {
   countBySection,
   partitionBySection,
@@ -18,8 +18,8 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function pane(overrides: Partial<Pane> = {}): Pane {
-  return { id: "p", title: "p", role: null, role_profile: null, ...overrides } as Pane;
+function tab(overrides: Partial<Tab> = {}): Tab {
+  return { id: "p", title: "p", role: null, role_profile: null, ...overrides } as Tab;
 }
 
 const debugCalls: string[] = [];
@@ -49,39 +49,39 @@ try {
   console.debug = origDebug;
 }
 
-assert(roleBadgeLabel(pane({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator badge");
+assert(roleBadgeLabel(tab({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator badge");
 assert(
-  roleBadgeLabel(pane({ role: "Manager", role_profile: "planner" })) === "PLANNER",
+  roleBadgeLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER",
   "planner badge",
 );
 assert(
-  roleBadgeLabel(pane({ role: "Manager", role_profile: "watcher" })) === "WATCHER",
+  roleBadgeLabel(tab({ role: "Manager", role_profile: "watcher" })) === "WATCHER",
   "watcher badge (future)",
 );
-assert(roleBadgeLabel(pane({ role: "Worker" })) === null, "plain worker has no leadership badge label");
-assert(roleShieldLabel(pane({ role: "Worker" })) === null, "workers have no role shield");
-assert(roleShieldLabel(pane({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
-assert(roleShieldLabel(pane({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
-assert(roleShieldLabel(null) === null, "null pane → no shield");
+assert(roleBadgeLabel(tab({ role: "Worker" })) === null, "plain worker has no leadership badge label");
+assert(roleShieldLabel(tab({ role: "Worker" })) === null, "workers have no role shield");
+assert(roleShieldLabel(tab({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
+assert(roleShieldLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
+assert(roleShieldLabel(null) === null, "null Tab → no shield");
 assert(roleBadgeTestId("ORCHESTRATOR") === "role-badge-orchestrator", "orchestrator testid");
 assert(roleBadgeTestId("PLANNER") === "role-badge-planner", "planner testid");
 
 const nodes = [
-  { pane: pane({ id: "w1", role: "Worker", role_profile: null }) },
-  { pane: pane({ id: "planner", role: "Manager", role_profile: "planner" }) },
-  { pane: pane({ id: "w2", role: "Worker", role_profile: "worker" }) },
+  { tab: tab({ id: "w1", role: "Worker", role_profile: null }) },
+  { tab: tab({ id: "planner", role: "Manager", role_profile: "planner" }) },
+  { tab: tab({ id: "w2", role: "Worker", role_profile: "worker" }) },
 ];
 const part = partitionBySection(nodes);
-assert(part.managers.map((n) => n.pane.id).join(",") === "planner", "managers = planner only");
-assert(part.workers.map((n) => n.pane.id).join(",") === "w1,w2", "workers keep spawn order");
+assert(part.managers.map((n) => n.tab.id).join(",") === "planner", "managers = planner only");
+assert(part.workers.map((n) => n.tab.id).join(",") === "w1,w2", "workers keep spawn order");
 const sortedManagers = sortTeamManagers([
-  { pane: pane({ id: "planner-1", role: "Manager", role_profile: "planner" }) },
-  { pane: pane({ id: "orch-1", role: "Orchestrator" }) },
-  { pane: pane({ id: "planner-2", role: "Manager", role_profile: "planner" }) },
-  { pane: pane({ id: "orch-2", role: "Orchestrator" }) },
+  { tab: tab({ id: "planner-1", role: "Manager", role_profile: "planner" }) },
+  { tab: tab({ id: "orch-1", role: "Orchestrator" }) },
+  { tab: tab({ id: "planner-2", role: "Manager", role_profile: "planner" }) },
+  { tab: tab({ id: "orch-2", role: "Orchestrator" }) },
 ]);
 assert(
-  sortedManagers.map((node) => node.pane.id).join(",") === "orch-1,orch-2,planner-1,planner-2",
+  sortedManagers.map((node) => node.tab.id).join(",") === "orch-1,orch-2,planner-1,planner-2",
   "team managers sort orchestrators first and preserve manual order within role",
 );
 

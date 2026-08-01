@@ -21,7 +21,11 @@ export function FormRow({
   ...rest
 }: FormRowProps) {
   return (
-    <div {...rest} className={`flex flex-col gap-1 ${className ?? ""}`} data-testid={testId}>
+    <div
+      {...rest}
+      className={`flex flex-col gap-1 ${className ?? ""}`}
+      data-testid={testId}
+    >
       <label
         htmlFor={htmlFor}
         className="text-[11px] font-medium text-[var(--ct-muted-fg)] uppercase tracking-wide select-none"

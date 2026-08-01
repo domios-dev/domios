@@ -32,16 +32,16 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
 
 fn provider_command_for_reseed(
     svc: &ServiceState,
-    pane_id: &str,
+    tab_id: &str,
     mode: &str,
 ) -> Result<String, JsonRpcError> {
     let provider_id = {
         let mux = svc.mux.read();
-        mux.get_pane(pane_id)
-            .and_then(|pane| pane.agent_type.clone())
+        mux.get_tab(tab_id)
+            .and_then(|tab| tab.agent_type.clone())
             .ok_or_else(|| JsonRpcError {
                 code: -32602,
-                message: format!("pane {pane_id} has no agent provider"),
+                message: format!("tab {tab_id} has no agent provider"),
                 data: None,
             })?
     };
@@ -128,7 +128,7 @@ pub(super) fn dispatch(
                     message: format!("invalid handoff reseed params: {e}"),
                     data: None,
                 })?;
-            let command = provider_command_for_reseed(svc, &request.pane_id, &request.mode)?;
+            let command = provider_command_for_reseed(svc, &request.tab_id, &request.mode)?;
             let detail = store
                 .show_handoff(&id, request.selector.as_deref())
                 .map_err(plan_rpc_err)?;
@@ -146,8 +146,11 @@ pub(super) fn dispatch(
                 for send in result.sends.iter().filter(|send| {
                     (result.mode == "new" && send.order == 1) || result.mode == "compact"
                 }) {
-                    svc.as_ref()
-                        .send_text_detached(&result.pane_id, &send.text, send.enter);
+                    if send.enter {
+                        svc.send_text_detached(&result.tab_id, &send.text);
+                    } else {
+                        svc.insert_text_detached(&result.tab_id, &send.text);
+                    }
                 }
                 emit_plan_changed(app, &id);
             }

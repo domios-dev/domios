@@ -41,12 +41,12 @@ async function main() {
     const unlisten = onMismatch((m) => { mismatchFired = !!m; });
 
     __setInvokeForTest(async () => {
-      throw new Error("Command mux_spawn_pane not found");
+      throw new Error("Command mux_spawn_tab not found");
     });
 
     let threw = false;
     try {
-      await invoke("mux_spawn_pane", {});
+      await invoke("mux_spawn_tab", {});
     } catch {
       threw = true;
     }
@@ -70,12 +70,12 @@ async function main() {
     const unlisten = onMismatch(() => { mismatchFired = true; });
 
     __setInvokeForTest(async () => {
-      throw new Error("Command mux_spawn_pane not found");
+      throw new Error("Command mux_spawn_tab not found");
     });
 
     let threw = false;
     try {
-      await invoke("mux_spawn_pane", {});
+      await invoke("mux_spawn_tab", {});
     } catch {
       threw = true;
     }
@@ -123,7 +123,7 @@ async function main() {
       return { ok: true, status: 200, json: async () => ({ status: "ok", build: "112233" }) };
     };
 
-    __setInvokeForTest(async <T,>() => ({ panes: {}, workspaces: [] } as T));
+    __setInvokeForTest(async <T,>() => ({ tabs: {}, workspaces: [] } as T));
 
     await invoke("mux_get_state", {});
     await new Promise((r) => setTimeout(r, 0));

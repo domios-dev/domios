@@ -59,7 +59,7 @@ smaller than the smallest big node" hard invariant. Shrink it, then lock it with
 
 **Spatial math (composition origin).** Plan placed first; spec and cloud are vertically
 centered on the plan's mid-line so it reads as a balanced triptych with the plan as the
-massive center panel:
+massive center tabl:
 
 ```
 planBox   = { x: 0, y: 0, w: planW, h: planH }
@@ -248,16 +248,16 @@ Same appW contract, indexed `s0–s3` (§32.5), progressive reveal tags → text
 | **s0** | dot | colored dot, no text (mass only) |
 | **s1** | small | kind word, 1 line, centered in circle |
 | **s2** | medium | title + 2-line excerpt, inscribed; near bead sprouts a callout |
-| **s3** | **fills screen** | bead **blooms** into a full reading panel anchored at the bead's world position: heading / body / links / author·pane·session·timestamp, internal scroll if needed |
+| **s3** | **fills screen** | bead **blooms** into a full reading tabl anchored at the bead's world position: heading / body / links / author·Tab·session·timestamp, internal scroll if needed |
 
 **The deepest-band stop (limit the infinite-deepen).** When the work-point's appW ≥ ~0.8 ×
-viewport width, clamp the micro-LOD at s3 — the panel IS the terminal. No reveal deeper than a
+viewport width, clamp the micro-LOD at s3 — the tabl IS the terminal. No reveal deeper than a
 comfortable full-screen read. This bounds the micro-world to 4 bands (mirrors the
 "bounded-to-two-levels" invariant §20.1, extended to leaves).
 
 **No flying.** The bead keeps its slot on the snake at every zoom; the camera moves, the bead
 stays put in world space. Bloom space is RESERVED in the task footprint (§32.5) so s3 never
-reflows neighbors. The s3 panel is anchored at the bead's world coords — it does not detach
+reflows neighbors. The s3 tabl is anchored at the bead's world coords — it does not detach
 or float.
 
 **LOD band.** Work-points live in the task's WORK slot, active across W1–W3 of the parent and

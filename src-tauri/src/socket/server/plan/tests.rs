@@ -19,10 +19,10 @@ fn optional_string_field_preserves_missing_vs_null() {
 #[test]
 fn transfer_caller_requires_agent_param() {
     assert_eq!(
-        transfer_caller(&Some(json!({ "caller_pane_id": "source-manager" }))).unwrap(),
+        transfer_caller(&Some(json!({ "caller_tab_id": "source-manager" }))).unwrap(),
         "source-manager"
     );
     let missing = transfer_caller(&None).unwrap_err();
     assert_eq!(missing.code, -32602);
-    assert!(missing.message.contains("caller_pane_id is required"));
+    assert!(missing.message.contains("caller_tab_id is required"));
 }

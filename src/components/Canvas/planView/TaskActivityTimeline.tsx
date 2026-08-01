@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import type { ApiConfig, Pane } from "../../../lib/types";
+import type { ApiConfig, Tab } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
-import { resolveTaskExecutionAttempts, attemptPaneId, attemptPaneTitle } from "../taskExecutorHistory";
+import { resolveTaskExecutionAttempts, attemptTabId, attemptTabTitle } from "../taskExecutorHistory";
 import type { Plan, Task } from "../types";
 import { AttachmentGallery } from "./attachments";
 import {
@@ -20,7 +20,7 @@ export interface TaskActivityTimelineProps {
   plan?: Plan;
   planId?: string;
   api?: ApiConfig;
-  panes?: Record<string, Pane>;
+  tabs?: Record<string, Tab>;
   now?: number;
 }
 
@@ -36,14 +36,14 @@ function KindChip({ label, color }: { label: string; color?: string }) {
 function AttemptRow({
   attempt,
   index,
-  panes,
+  tabs,
 }: {
   attempt: ReturnType<typeof resolveTaskExecutionAttempts>[number];
   index: number;
-  panes: Record<string, Pane>;
+  tabs: Record<string, Tab>;
 }) {
-  const paneId = attemptPaneId(attempt);
-  const label = attemptPaneTitle(attempt) ?? (paneId ? panes[paneId]?.title?.trim() : null);
+  const tabId = attemptTabId(attempt);
+  const label = attemptTabTitle(attempt) ?? (tabId ? tabs[tabId]?.title?.trim() : null);
   const bits = [label, attempt.role, attempt.model, attempt.branch, attempt.report_status?.replace(/_/g, " ")]
     .map((v) => v?.trim())
     .filter(Boolean);
@@ -63,11 +63,11 @@ function TaskActivityTimelineBody({
   plan,
   planId,
   api,
-  panes = {},
+  tabs = {},
   now = Date.now(),
 }: TaskActivityTimelineProps) {
   const [expanded, setExpanded] = useState(false);
-  const attempts = useMemo(() => resolveTaskExecutionAttempts(task, panes), [task, panes]);
+  const attempts = useMemo(() => resolveTaskExecutionAttempts(task, tabs), [task, tabs]);
   const colors = useMemo(() => (plan ? milestoneColorMap(plan) : new Map<string, string>()), [plan]);
   const { visible, hiddenCount } = useMemo(
     () => visibleMilestones(task.milestones, expanded),
@@ -85,7 +85,7 @@ function TaskActivityTimelineBody({
         <div className="plan-task-activity-attempts" data-testid="plan-task-activity-attempts">
           <div className="plan-task-activity-subhead">Execution attempts</div>
           {attempts.map((attempt, index) => (
-            <AttemptRow key={attempt.id ?? `${attempt.pane_id ?? "attempt"}-${index}`} attempt={attempt} index={index} panes={panes} />
+            <AttemptRow key={attempt.id ?? `${attempt.tab_id ?? "attempt"}-${index}`} attempt={attempt} index={index} tabs={tabs} />
           ))}
         </div>
       )}
@@ -97,7 +97,7 @@ function TaskActivityTimelineBody({
         >
           <div className="plan-task-activity-subhead">Strides</div>
           {visible.map((milestone) => {
-            const author = resolveMilestoneAuthor(milestone, panes);
+            const author = resolveMilestoneAuthor(milestone, tabs);
             const kind = milestoneKindLabel(milestone.kind);
             const color = colors.get(milestone.kind);
             return (
@@ -160,7 +160,7 @@ function TaskActivityTimelineBody({
 }
 
 export function TaskActivityTimeline(props: TaskActivityTimelineProps) {
-  const panes = props.panes ?? {};
-  if (!taskHasActivity(props.task, panes)) return null;
+  const tabs = props.tabs ?? {};
+  if (!taskHasActivity(props.task, tabs)) return null;
   return <TaskActivityTimelineBody {...props} />;
 }

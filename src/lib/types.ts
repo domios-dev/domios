@@ -9,7 +9,7 @@ export enum TitleLevel {
 export interface Workspace {
   id: string;
   name: string;
-  tabs: Tab[];
+  tabs: string[];
   active_tab_id: string | null;
   cwd: string | null;
   protected?: boolean;
@@ -17,44 +17,35 @@ export interface Workspace {
   sort_order?: number;
 }
 
-/** A pane that was closed and can be reopened. Mirrors Rust `ClosedPane`
+/** A tab that was closed and can be reopened. Mirrors Rust `ClosedTab`
  *  (serde snake_case). `closed_at` is a UNIX-millisecond timestamp. Now backed
  *  by the sqlite closed-history store rather than the session snapshot. */
-export interface ClosedPane {
-  pane_id: string;
-  /** Original parent pane id — preserves the orchestration hierarchy for a
+export interface ClosedTab {
+  tab_id: string;
+  /** Original parent tab id — preserves the orchestration hierarchy for a
    *  cascade-group reopen. */
-  parent_pane_id?: string | null;
+  parent_tab_id?: string | null;
   title: string;
   description?: string | null;
-  backing?: PaneBacking;
+  backing?: TabBacking;
   cwd?: string | null;
   agent_type?: string | null;
   agent_session_id?: string | null;
   model?: string | null;
   closed_at: number;
-  /** Workspace the pane belonged to. Empty string on old records. */
+  /** Workspace the tab belonged to. Empty string on old records. */
   workspace_id?: string;
   workspace_name?: string;
 }
 
-/** A closed pane enriched for the sidebar: the per-workspace reopen `index`, an
+/** A closed tab enriched for the sidebar: the per-workspace reopen `index`, an
  *  `orphaned` flag (its workspace no longer exists), and the group it belongs
- *  to. Mirrors Rust `ClosedPaneView` (ClosedPane flattened + these fields). */
-export interface ClosedPaneView extends ClosedPane {
+ *  to. Mirrors Rust `ClosedTabView` (ClosedTab flattened + these fields). */
+export interface ClosedTabView extends ClosedTab {
   index: number;
   orphaned: boolean;
   group_id: string;
   group_kind: "single" | "cascade" | "workspace";
-}
-
-export interface Tab {
-  id: string;
-  description?: string | null;
-  /** One pane per tab. Split layouts were removed. */
-  pane_id: string;
-  /** Per-group sibling ordinal (top-level tabs, or children of one parent). */
-  sort_order?: number;
 }
 
 export type AgentRole = "Orchestrator" | "Manager" | "Worker";
@@ -79,9 +70,9 @@ export interface PendingPrompt {
   selected_values?: string[] | null;
 }
 
-/** What backs a pane's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
- *  the Rust `PaneBacking` (serde `tag = "kind"`, snake_case). */
-export type PaneBacking =
+/** What backs a tab's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
+ *  the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
+export type TabBacking =
   | { kind: "pty" }
   | { kind: "chat_backend"; plugin_id: string; session_id: string };
 
@@ -92,7 +83,7 @@ export interface WatcherPolicy {
   max_actions_per_tick: number;
 }
 
-/** Persisted watcher session state on a chatBackend pane. Mirrors Rust `WatcherSpec`. */
+/** Persisted watcher session state on a chatBackend tab. Mirrors Rust `WatcherSpec`. */
 export interface WatcherSpec {
   charter: string;
   policy: WatcherPolicy;
@@ -106,12 +97,14 @@ export interface WatcherSpec {
 
 /** Backend-computed live agent state. Mirrors the Rust `AgentLiveState` serde
  *  shape; `subtype` only carries meaning when `state === "question"`. */
-export interface PaneAgentState {
+export interface TabAgentState {
   state: "working" | "idle" | "question";
   /** Provider-rendered live status line, e.g. Claude's token/progress row. */
   status_line?: string | null;
   /** Provider-rendered completed-turn summary shown while idle. */
   last_turn_summary?: string | null;
+  /** Complete authoritative input request shown while questioning. */
+  question?: string | null;
   /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
   phase?: string | null;
   /** Parsed elapsed time for the provider status line, in milliseconds. */
@@ -127,7 +120,7 @@ export interface PaneAgentState {
     | "unknown";
 }
 
-/** Truthful pane-boot progress, emitted by the daemon at real launch
+/** Truthful tab-boot progress, emitted by the daemon at real launch
  *  transitions (never timer-driven). Mirrors Rust `service::boot_stage::BootStage`. */
 export type BootStage =
   | "pty_starting"
@@ -143,19 +136,21 @@ export type BootStage =
   | "pty_reattached"
   | "spawn_failed";
 
-/** Payload of the `pane-boot-stage` event. */
-export interface PaneBootStageEvent {
-  pane_id: string;
+/** Payload of the `tab-boot-stage` event. */
+export interface TabBootStageEvent {
+  tab_id: string;
   stage: BootStage;
   reason?: string | null;
 }
 
-export interface Pane {
+export interface Tab {
   id: string;
+  /** Per-group sibling ordinal within the owning workspace or hierarchy. */
+  sort_order?: number;
   pty_id: string | null;
   /** Defaults to `{ kind: "pty" }` when absent (pre-field snapshots). */
-  backing?: PaneBacking;
-  pane_type: "Terminal";
+  backing?: TabBacking;
+  tab_type: "Terminal" | "Choice";
   title: string;
   description?: string | null;
   cwd: string | null;
@@ -169,20 +164,22 @@ export interface Pane {
   title_pending_local?: boolean;
   agent_type?: string | null;
   agent_session_id?: string | null;
-  /** Launch-scoped proof used to reject chat events emitted by a prior pane binding. */
+  /** Launch-scoped proof used to reject chat events emitted by a prior tab binding. */
   session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   role?: AgentRole | null;
   role_profile?: string | null;
-  parent_pane_id?: string | null;
+  team_id?: string | null;
+  spawned_by_tab_id?: string | null;
+  parent_tab_id?: string | null;
   can_spawn?: boolean;
   depth?: number;
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
   /** Live 3-state agent classification from the backend state engine. Drives
    *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
-  agent_state?: PaneAgentState | null;
+  agent_state?: TabAgentState | null;
   protected?: boolean;
   connected_services?: string[];
   hidden?: boolean;
@@ -193,16 +190,16 @@ export interface Pane {
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
   boot_failure_reason?: string | null;
-  /** Machine+watcher chatBackend session — read-only pane with tick-driven inputs. */
+  /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
 }
 
 export interface MultiplexerState {
   workspaces: Workspace[];
-  panes: Record<string, Pane>;
+  tabs: Record<string, Tab>;
   teams?: Team[];
   active_workspace_id: string | null;
-  focused_pane_id: string | null;
+  focused_tab_id: string | null;
   /** Monotonic snapshot generation stamped by the backend. The reducer ignores
    *  any incoming snapshot whose generation is `<=` the one already applied. */
   generation?: number;
@@ -210,11 +207,11 @@ export interface MultiplexerState {
    *  workspaces (sourced from the sqlite store, not the session snapshot).
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
-  recently_closed?: ClosedPaneView[];
-  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from the
+  recently_closed?: ClosedTabView[];
+  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from the
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
-  pane_statuses?: Record<string, PaneStatus>;
+  tab_statuses?: Record<string, TabStatus>;
 }
 
 export type TeamLifecycle = "forming" | "active" | "paused" | "complete" | "archived";
@@ -227,10 +224,9 @@ export interface Team {
   workspace_id: string;
 }
 
-/** Result of the one atomic spawn command (`mux_spawn_pane`). */
+/** Result of the one atomic spawn command (`mux_spawn_tab`). */
 export interface AtomicSpawn {
   snapshot: MultiplexerState;
-  pane_id: string;
   tab_id: string;
   workspace_id: string;
   launch_command?: string;
@@ -249,7 +245,7 @@ export interface WorkspaceInfo {
 export interface TabInfo {
   id: string;
   title: string;
-  pane_id: string;
+  tab_id: string;
 }
 
 export interface PtyInfo {
@@ -270,7 +266,7 @@ export interface NotificationAction {
 export interface Notification {
   id: string;
   key?: string;
-  pane_id: string | null;
+  tab_id: string | null;
   workspace_id: string | null;
   title: string;
   body: string | null;
@@ -286,16 +282,16 @@ export interface Notification {
   sticky?: boolean;
 }
 
-export type PaneStatus = "Working" | "Waiting" | "Idle" | "Dead";
+export type TabStatus = "Working" | "Waiting" | "Idle" | "Dead";
 
 /** A worker running on another mesh peer that reports to a local orchestrator.
- *  It has no local PTY — the UI renders it as a read-only "remote pane" ghost
+ *  It has no local PTY — the UI renders it as a read-only "remote Tab" ghost
  *  node under its orchestrator. Mirrors the Rust `RemoteWorker`. */
 export interface RemoteWorker {
   /** Paired peer (instance name) the worker runs on. */
   peer: string;
-  /** The worker's pane id on that peer. */
-  remote_pane: string;
+  /** The worker's tab id on that peer. */
+  remote_tab: string;
   title: string;
   model: string | null;
   /** Last reported lifecycle: working | done | blocked | partial. */
@@ -304,7 +300,7 @@ export interface RemoteWorker {
   last_seen_ms: number;
 }
 
-/** Map of local orchestrator pane id → its remote workers. */
+/** Map of local orchestrator tab id → its remote workers. */
 export type RemoteWorkersByOrchestrator = Record<string, RemoteWorker[]>;
 
 // Graph worker (Phase E memory visualization)
@@ -326,7 +322,7 @@ export type GraphWorkerStatus =
 
 export interface GraphWorkerInfo {
   worker_id: string;
-  pane_id: string | null;
+  tab_id: string | null;
   intent: string;
   spawned_by: string;
   spawned_at: number;
@@ -371,7 +367,6 @@ export interface CronRunInfo {
   started_at: number;
   finished_at: number | null;
   status: CronRunStatus;
-  pane_id: string | null;
   tab_id: string | null;
   session_id?: string | null;
   cwd?: string | null;
@@ -382,6 +377,7 @@ export interface CronJob {
   name: string;
   description: string | null;
   workspace_id: string;
+  team_id?: string | null;
   schedule: string;
   enabled: boolean;
   agent: string;
@@ -390,6 +386,8 @@ export interface CronJob {
   task: string;
   cwd: string | null;
   role: string | null;
+  creator_tab_id?: string | null;
+  report_target_tab_id?: string | null;
   oneshot: boolean;
   max_history: number;
   created_at: number;
@@ -510,20 +508,9 @@ export interface MeshConfig {
   broadcast_duration_secs: number;
 }
 
-// Mirrors `src-tauri/src/config/schema/mod.rs` OrchestrationConfig / IdlePokeConfig.
-export interface IdlePokeConfig {
-  enabled: boolean;
-  idle_threshold_secs: number;
-  live_lane_cap: number;
-  max_per_day: number;
-  backoff_base_secs: number;
-}
-
 export interface OrchestrationConfig {
   plan_reminders: boolean;
-  nudge_after_turns: number;
   nudge_interval_secs: number;
-  idle_poke: IdlePokeConfig;
 }
 
 export interface MeshStatus {
@@ -557,9 +544,20 @@ export interface PairedPeer {
   is_primary: boolean;
   access_level: string;
   version: string | null;
-  /** Verified HTTPS web UI URL — announced only while the peer's own web
-   * access is Ready, so its presence is proof the link resolves. */
-  https_url?: string | null;
+  web_ui?: WebUiAnnouncement | null;
+  relay_protocol_version: number;
+}
+
+export const RELAY_PROTOCOL_VERSION = 1;
+
+export type WebUiEndpoint =
+  | { transport: "tailscale_https"; host: string; port: number }
+  | { transport: "tailscale_http"; ip: string; port: number }
+  | { transport: "lan_http"; ip: string; port: number };
+
+export interface WebUiAnnouncement {
+  protocol_version: number;
+  endpoints: WebUiEndpoint[];
 }
 
 export interface DiscoveredPeer {
@@ -589,6 +587,7 @@ export interface MeshPeersResponse {
   paired: PairedPeer[];
   discovered: DiscoveredPeer[];
   incoming_requests: MeshPairingRequest[];
+  local_instance_name: string;
 }
 
 /// Per-provider settings stored under `agents.<id>` in the TOML config.
@@ -771,7 +770,7 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
-  /// Provider can render a pane as chat (JSONL sessions or structured/DB-backed
+  /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
   supports_chat_ui?: boolean;
   /// Provider exposes a structured prompt source (claude AskUserQuestion in the
@@ -813,9 +812,9 @@ export interface OrchestrationPairInput {
  *  instead of resolving to a half-populated result. */
 export interface OrchestrationPairResult {
   plan_id: string;
-  orchestrator_pane_id: string;
+  orchestrator_tab_id: string;
   orchestrator_model?: string;
-  planner_pane_id: string;
+  planner_tab_id: string;
   planner_model?: string;
   warning?: string;
 }

@@ -1,0 +1,9 @@
+● The provider discussion covered sign in, login, OAuth authentication,
+  API key setup, and pasting an authorization code.
+
+● I am still producing the answer and checking the final details.
+
+✶ Working… (3s · esc to interrupt)
+
+────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt

@@ -27,9 +27,12 @@ pub enum UpdateAction {
         /// is up — lets a session continue work post-restart.
         #[arg(long, value_name = "TEXT")]
         continue_prompt: Option<String>,
-        /// Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`.
+        /// Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`.
         #[arg(long = "continue-tab", value_name = "ID")]
         continue_tab: Option<String>,
+        /// Disable the default continuation sent back to the calling tab.
+        #[arg(long, conflicts_with_all = ["continue_prompt", "continue_tab"])]
+        no_continue: bool,
         /// Message to inject into the General Agent tab after the new
         /// daemon boots. Lets the GA continue work post-update — e.g.
         /// "verify the new build and report version via Telegram".

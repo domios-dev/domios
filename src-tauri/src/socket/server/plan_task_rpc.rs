@@ -1,7 +1,5 @@
 use super::plan::{emit_plan_changed, plan_rpc_err};
-use super::plan_fields::{
-    optional_string_field, pane_and_ancestors, pane_role, string_array_field,
-};
+use super::plan_fields::{optional_string_field, string_array_field, tab_and_ancestors, tab_role};
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
@@ -12,7 +10,9 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
+use crate::service::{
+    persist_attempt_executor_identity, respawn_title_provenance, verify_worker_lane, ServiceState,
+};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -27,6 +27,68 @@ fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRp
     serde_json::from_value(value.clone())
         .map(Some)
         .map_err(|_| plan_rpc_err(PlanError::BadStatus))
+}
+
+fn external_ref_values(p: Option<&Value>) -> Result<Vec<String>, JsonRpcError> {
+    let Some(value) = p.and_then(|params| params.get("external_refs")) else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_value(value.clone()).map_err(|error| JsonRpcError {
+        code: -32602,
+        message: format!("invalid external_refs: expected an array of reference strings: {error}"),
+        data: Some(json!({ "type": "invalid_external_ref_input" })),
+    })
+}
+
+fn validate_task_update_params(p: Option<&Value>) -> Result<(), JsonRpcError> {
+    let Some(params) = p else {
+        return Ok(());
+    };
+    crate::plan::task_update_fields::validate_task_update_fields(
+        params,
+        crate::plan::task_update_fields::TaskUpdateSeam::Socket,
+    )
+    .map_err(|error| {
+        let error_type = if error.unknown_key.is_some() {
+            "unknown_task_update_key"
+        } else {
+            "invalid_task_update_params"
+        };
+        JsonRpcError {
+            code: -32602,
+            message: error.to_string(),
+            data: Some(json!({
+                "type": error_type,
+                "key": error.unknown_key,
+            })),
+        }
+    })
+}
+
+fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<(), JsonRpcError> {
+    let Some(model) = p
+        .and_then(|value| value.get("model"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    else {
+        return Ok(());
+    };
+    if !provider_ids
+        .iter()
+        .any(|provider| provider.eq_ignore_ascii_case(model))
+    {
+        return Ok(());
+    }
+    Err(JsonRpcError {
+        code: -32602,
+        message: format!("'{model}' is a provider id, not a model; use --model <provider>:<model>"),
+        data: Some(json!({
+            "type": "provider_id_in_model_field",
+            "provider": model,
+            "suggestion": "use --model <provider>:<model>",
+        })),
+    })
 }
 
 pub(super) fn handles(method: &str) -> bool {
@@ -64,7 +126,7 @@ pub(super) fn dispatch(
     match method {
         "task.list" => {
             let caller = p
-                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let mine = p.and_then(|x| x.get("mine")).and_then(|v| v.as_bool()) == Some(true);
             let require_plan_id = p
@@ -93,9 +155,9 @@ pub(super) fn dispatch(
                     .map(str::to_string),
                 active_only: status.is_none()
                     && p.and_then(|x| x.get("active")).and_then(|v| v.as_bool()) != Some(false),
-                mine_panes: if mine {
+                mine_tabs: if mine {
                     caller
-                        .map(|id| pane_and_ancestors(svc, id))
+                        .map(|id| tab_and_ancestors(svc, id))
                         .unwrap_or_default()
                 } else {
                     Default::default()
@@ -120,10 +182,10 @@ pub(super) fn dispatch(
 
         "task.take" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
-            let pane_id = get_string_param(params, "caller_pane_id")?;
-            let role = pane_role(svc, &pane_id);
+            let tab_id = get_string_param(params, "caller_tab_id")?;
+            let role = tab_role(svc, &tab_id);
             let plan_id = store
-                .set_task_assignment(&task_id, Some(&pane_id), role, now)
+                .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
@@ -139,6 +201,7 @@ pub(super) fn dispatch(
         }
 
         "task.add" => {
+            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -154,11 +217,11 @@ pub(super) fn dispatch(
                         .unwrap_or_default()
                 });
             let owner = owner_from_params(body);
-            let assign_pane = body
-                .get("assign_pane")
+            let assign_tab = body
+                .get("assign_tab")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            let assign_role = assign_pane.as_deref().and_then(|pane| pane_role(svc, pane));
+            let assign_role = assign_tab.as_deref().and_then(|tab| tab_role(svc, tab));
             let has_model = body
                 .get("model")
                 .and_then(|v| v.as_str())
@@ -171,6 +234,10 @@ pub(super) fn dispatch(
             let has_criteria = acceptance_criteria.iter().any(|s| !s.trim().is_empty());
             let test_plan = body
                 .get("test_plan")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let qa_plan = body
+                .get("qa_plan")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -200,6 +267,7 @@ pub(super) fn dispatch(
                             .map(str::to_string),
                         acceptance_criteria,
                         test_plan,
+                        qa_plan,
                         correctness,
                         body: body
                             .get("body")
@@ -212,15 +280,15 @@ pub(super) fn dispatch(
                             .map(str::to_string),
                         competition: super::plan_competition::metadata_field(p)?,
                         depends_on: dependency_vec_field(p)?.unwrap_or_default(),
-                        assigned_pane_id: assign_pane.clone(),
+                        assigned_tab_id: assign_tab.clone(),
                         ..Default::default()
                     },
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            if let Some(pane) = assign_pane.as_deref() {
+            if let Some(tab) = assign_tab.as_deref() {
                 store
-                    .set_task_assignment(&task_id, Some(pane), assign_role, now)
+                    .set_task_assignment(&task_id, Some(tab), assign_role, now)
                     .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &plan_id);
@@ -244,6 +312,7 @@ pub(super) fn dispatch(
             }))
         }
         "plan.task.add" => {
+            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let id = plan_refs::resolve_plan(store, params)?;
             let name = get_string_param(params, "name")?;
             let kind = p
@@ -275,14 +344,19 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("test_plan"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            let qa_plan = p
+                .and_then(|x| x.get("qa_plan"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let correctness = p
                 .and_then(|x| x.get("correctness"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let external_refs = external_ref_values(p)?;
             let tid = store
-                .add_task(
+                .add_task_with_external_refs(
                     &id,
                     NewTask {
                         name,
@@ -312,6 +386,7 @@ pub(super) fn dispatch(
                             })?,
                         acceptance_criteria,
                         test_plan,
+                        qa_plan,
                         correctness,
                         body: p
                             .and_then(|x| x.get("body"))
@@ -336,8 +411,8 @@ pub(super) fn dispatch(
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
                         depends_on: dependency_vec_field(p)?.unwrap_or_default(),
-                        assigned_pane_id: p
-                            .and_then(|x| x.get("assign_pane"))
+                        assigned_tab_id: p
+                            .and_then(|x| x.get("assign_tab"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
                         lane: lane_metadata_field(p)?,
@@ -357,6 +432,7 @@ pub(super) fn dispatch(
                             .map(str::to_string),
                         tags: tags_field(p),
                     },
+                    &external_refs,
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -384,8 +460,8 @@ pub(super) fn dispatch(
             if let Some(hint) = hints::maybe_orchestration_reminder() {
                 response_hints.push(hint);
             }
-            let caller_pane = p
-                .and_then(|x| x.get("caller_pane_id"))
+            let caller_tab = p
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let mut resp = json!({
                 "task_id": tid.clone(),
@@ -395,7 +471,7 @@ pub(super) fn dispatch(
             if let Some(nudge) = store
                 .get(&id)
                 .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane))
+                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -403,6 +479,8 @@ pub(super) fn dispatch(
         }
 
         "plan.task.update" => {
+            validate_task_update_params(p)?;
+            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
@@ -417,8 +495,12 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("acceptance_criteria"))
                 .map(|_| string_array_field(p, "acceptance_criteria"));
             let test_plan = optional_string_field(p, "test_plan");
+            let qa_plan = optional_string_field(p, "qa_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
+            let external_refs = external_ref_values(p)?;
+            crate::service::plan::external_refs::canonicalize_external_refs(&external_refs)
+                .map_err(plan_rpc_err)?;
             if let Some(depends_on) = dependency_vec_field(p)? {
                 store
                     .update_task_dependencies(&id, &tid, depends_on, now)
@@ -458,27 +540,37 @@ pub(super) fn dispatch(
                     .update_task_competition(&id, &tid, competition, now)
                     .map_err(plan_rpc_err)?;
             }
-            if acceptance_criteria.is_some() || test_plan.is_some() || correctness.is_some() {
+            if acceptance_criteria.is_some()
+                || test_plan.is_some()
+                || qa_plan.is_some()
+                || correctness.is_some()
+            {
                 store
                     .update_task_quality(
                         &id,
                         &tid,
                         acceptance_criteria,
                         test_plan,
+                        qa_plan,
                         correctness,
                         now,
                     )
                     .map_err(plan_rpc_err)?;
             }
+            if !external_refs.is_empty() {
+                store
+                    .add_task_external_refs(&id, &tid, &external_refs, now)
+                    .map_err(plan_rpc_err)?;
+            }
             emit_plan_changed(app, &id);
-            let caller_pane = p
-                .and_then(|x| x.get("caller_pane_id"))
+            let caller_tab = p
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let mut resp = json!({ "ok": true });
             if let Some(nudge) = store
                 .get(&id)
                 .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane))
+                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -556,8 +648,8 @@ pub(super) fn dispatch(
                     .get("model")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
-                parent_pane_id: body
-                    .get("parent_pane_id")
+                parent_tab_id: body
+                    .get("parent_tab_id")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
                 workspace_id: body
@@ -572,32 +664,60 @@ pub(super) fn dispatch(
             let draft = store
                 .build_task_respawn_draft(&id, &tid, request)
                 .map_err(plan_rpc_err)?;
+            let original_task = task.clone();
+            let original_plan_mode = plan.mode.clone();
+            let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
+                plan.project_path.clone()
+            } else {
+                plan.canonical_project_path.clone()
+            };
+            let provenance = verify_worker_lane(
+                &canonical_cwd,
+                &draft.cwd,
+                task.lane.branch.as_deref(),
+                task.lane.base.as_deref(),
+            )
+            .map_err(|error| JsonRpcError {
+                code: -32603,
+                message: format!("respawn lane verification failed: {error}"),
+                data: None,
+            })?;
+            let parent_tab_id = draft
+                .parent_tab_id
+                .clone()
+                .or_else(|| plan.owner.tab_id.clone())
+                .ok_or(JsonRpcError {
+                    code: -32602,
+                    message: "respawn requires a parent Orchestrator tab".into(),
+                    data: None,
+                })?;
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
                 title: draft.title.clone(),
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
-                parent_pane_id: draft.parent_pane_id.clone(),
+                parent_tab_id: Some(parent_tab_id.clone()),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
-                spawned_by_pane_id: draft.parent_pane_id.clone(),
+                spawned_by_tab_id: Some(parent_tab_id.clone()),
                 ..Default::default()
             };
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let spawn = svc
-                .spawn_agent_sync(spawn_params)
+                .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
                     data: None,
                 })?;
-            let created = record_spawned_attempt(svc, &spawn.pane_id, || {
+            let created = record_spawned_attempt(svc, &spawn.tab_id, || {
                 store.record_task_respawn_attempt_with_profile(
                     &id,
                     &tid,
-                    &spawn.pane_id,
+                    &spawn.tab_id,
                     &draft,
                     svc,
                     now,
@@ -608,17 +728,43 @@ pub(super) fn dispatch(
                 svc,
                 &id,
                 &tid,
-                &spawn.pane_id,
+                &spawn.tab_id,
                 &spawn.title,
                 now,
             )
             .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
+            let startup = super::plan_task_dispatch::DispatchStartup {
+                app: app.clone(),
+                svc: svc.clone(),
+                plan_id: id.clone(),
+                task_id: tid.clone(),
+                tab_id: spawn.tab_id.clone(),
+                attempt_id: created.attempt.id.clone(),
+                parent_tab_id,
+                worker_title: spawn.title.clone(),
+                original_task,
+                original_plan_mode,
+                lane_for_commit: task.lane.clone(),
+                provenance,
+                provisioned_lane: None,
+                spawn_command: format!(
+                    "codeterm plan task respawn {id} {tid} --attempt {}",
+                    draft.source_attempt.id
+                ),
+            };
+            std::thread::spawn(move || startup.run(ready_rx));
             Ok(json!({
                 "ok": true,
+                "accepted": true,
+                "state": "awaiting_dispatch_ready",
+                "readiness": {
+                    "ready": false,
+                    "awaiting_event": "dispatch_ready",
+                },
                 "plan_id": id,
                 "task_id": tid,
-                "pane_id": spawn.pane_id,
+                "tab_id": spawn.tab_id,
                 "spawn": spawn,
                 "attempt": created.attempt,
                 "draft": draft
@@ -654,8 +800,177 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::dependency_vec_field;
+    use super::{dependency_vec_field, dispatch, external_ref_values, validate_model_field};
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
+    use crate::plan::{OrchestratorRef, Plan};
+    use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
     use serde_json::json;
+    use std::sync::Arc;
+
+    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let mut plan = Plan::new(
+            "Update validation".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let parent_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Parent".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let dependency_task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Dependency".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Original".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap();
+        (
+            fixture,
+            plan.id,
+            task_id,
+            parent_task_id,
+            dependency_task_id,
+        )
+    }
+
+    fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
+        let plan = fixture.service.plan_store.get(plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        serde_json::to_string_pretty(task).unwrap()
+    }
+
+    #[test]
+    fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
+        for key in ["nonsense_field", "external_ref", "externalRefs"] {
+            let (fixture, plan_id, task_id, _, _) = update_fixture();
+            let service = Arc::new(fixture.service.clone());
+            let before = full_task_record(&fixture, &plan_id, &task_id);
+            let mut params = json!({
+                "plan_id": plan_id.clone(),
+                "task_id": task_id.clone()
+            });
+            params[key] = json!("ignored");
+            let params = Some(params);
+
+            let result = dispatch(
+                "plan.task.update",
+                &params,
+                &fixture.service.app_handle,
+                &service,
+                99,
+            );
+            let after = full_task_record(&fixture, &plan_id, &task_id);
+            assert!(
+                result.is_err(),
+                "key {key} unexpectedly succeeded\nbefore:\n{before}\nafter:\n{after}"
+            );
+            let error = result.unwrap_err();
+
+            assert_eq!(error.code, -32602, "key: {key}");
+            assert!(error.message.contains(key), "{}", error.message);
+            assert!(error.message.contains("accepted"), "{}", error.message);
+            assert!(error.message.contains("external_refs"), "{}", error.message);
+            assert_eq!(error.data.as_ref().unwrap()["key"], key);
+            assert_eq!(
+                after,
+                before,
+                "rejected key {key} changed the full task record"
+            );
+        }
+    }
+
+    #[test]
+    fn socket_every_supported_update_key_reaches_the_real_handler() {
+        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+        let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
+        assert_eq!(
+            payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            TASK_UPDATE_KEYS
+        );
+
+        for (index, (key, mut params)) in payloads.into_iter().enumerate() {
+            params["plan_id"] = json!(plan_id.clone());
+            params["task_id"] = json!(task_id.clone());
+            let result = dispatch(
+                "plan.task.update",
+                &Some(params),
+                &fixture.service.app_handle,
+                &service,
+                100 + index as u64,
+            );
+            let failure = result
+                .as_ref()
+                .err()
+                .map(|error| error.message.as_str())
+                .unwrap_or("");
+            assert!(
+                result.is_ok(),
+                "Socket failed supported key {key}: {failure}"
+            );
+        }
+    }
+
+    #[test]
+    fn socket_update_external_refs_round_trips_non_null() {
+        let (fixture, plan_id, task_id, _, _) = update_fixture();
+        let service = Arc::new(fixture.service.clone());
+        let params = Some(json!({
+            "plan_id": plan_id.clone(),
+            "task_id": task_id.clone(),
+            "external_refs": ["rollacode/codeterm-releases#17"]
+        }));
+
+        dispatch(
+            "plan.task.update",
+            &params,
+            &fixture.service.app_handle,
+            &service,
+            99,
+        )
+        .unwrap();
+
+        let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+        assert_eq!(task.external_refs.len(), 1);
+        assert_eq!(
+            task.external_refs[0].canonical_url,
+            "https://github.com/rollacode/codeterm-releases/issues/17"
+        );
+    }
 
     #[test]
     fn rpc_dependency_field_omitted_is_none() {
@@ -680,5 +995,29 @@ mod tests {
             dependency_vec_field(Some(&json!({ "depends_on": [] }))),
             Ok(Some(ids)) if ids.is_empty()
         ));
+    }
+
+    #[test]
+    fn rpc_external_ref_values_require_an_array_of_strings() {
+        assert_eq!(
+            external_ref_values(Some(&json!({
+                "external_refs": ["rollacode/codeterm-releases#17"]
+            })))
+            .unwrap(),
+            vec!["rollacode/codeterm-releases#17".to_string()]
+        );
+        let error = external_ref_values(Some(&json!({ "external_refs": "#17" }))).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert!(error.message.contains("array of reference strings"));
+    }
+
+    #[test]
+    fn provider_id_is_rejected_in_model_field_with_canonical_syntax() {
+        let providers = vec!["claude".into(), "codex".into()];
+        let error =
+            validate_model_field(Some(&json!({ "model": "claude" })), &providers).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.unwrap()["type"], "provider_id_in_model_field");
+        assert!(error.message.contains("<provider>:<model>"));
     }
 }

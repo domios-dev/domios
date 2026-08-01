@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/AgentPicker/constants.test.ts
 
-import { FIRST_RUN_GA_PANE_MARKER, isFirstRunGeneralPane } from "./constants";
+import { FIRST_RUN_GA_TAB_MARKER, isFirstRunGeneralTab } from "./constants";
 
 const tests: Array<[string, () => void]> = [];
 function test(name: string, fn: () => void) {
@@ -11,10 +11,10 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-test("isFirstRunGeneralPane matches marker", () => {
-  assert(isFirstRunGeneralPane({ description: FIRST_RUN_GA_PANE_MARKER }), "marker hit");
-  assert(!isFirstRunGeneralPane({ description: "other" }), "other miss");
-  assert(!isFirstRunGeneralPane(undefined), "undefined miss");
+test("isFirstRunGeneralTab matches marker", () => {
+  assert(isFirstRunGeneralTab({ description: FIRST_RUN_GA_TAB_MARKER }), "marker hit");
+  assert(!isFirstRunGeneralTab({ description: "other" }), "other miss");
+  assert(!isFirstRunGeneralTab(undefined), "undefined miss");
 });
 
 let failed = 0;

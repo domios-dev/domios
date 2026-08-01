@@ -1,6 +1,6 @@
 use super::launch::{
-    agent_system_prompt, build_agent_command, launch_agent_in_background, skip_local_worker_role,
-    spawn_onboarding_task,
+    agent_system_prompt, build_agent_command, launch_agent_in_background, role_onboarding_task,
+    skip_local_worker_role, spawn_launch_task,
 };
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -36,12 +36,40 @@ fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
     Some(bootstrap)
 }
 
+fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
+    params.starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
+        params.role.as_deref(),
+        params.task.as_deref(),
+    );
+}
+
+fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
+    let assignment = params.system_prompt.take().or_else(|| params.task.take());
+    let assignment = match params.manager_bootstrap.as_ref() {
+        Some(manager) => {
+            let bootstrap = manager.compose();
+            Some(match assignment {
+                Some(assignment) if !assignment.trim().is_empty() => {
+                    format!("{bootstrap}\n\n{assignment}")
+                }
+                _ => bootstrap,
+            })
+        }
+        None => assignment,
+    };
+    role_onboarding_task(
+        assignment.as_deref(),
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    )
+}
+
 impl ServiceContext {
     /// Resolve agent cwd against workspace cwd:
     /// - If no cwd specified → inherit from workspace
     /// - If cwd differs from workspace → return warning
     /// - If nothing is specified → pin the daemon's own cwd, the dir the PTY
-    ///   would inherit anyway. Leaving it `None` desyncs the pane record from
+    ///   would inherit anyway. Leaving it `None` desyncs the tab record from
     ///   where the agent actually runs, so provider session-file resolution
     ///   (`~/.claude/projects/<encoded-cwd>/<sid>.jsonl`) looks in the wrong
     ///   dir and the chat pipeline reads empty.
@@ -104,7 +132,8 @@ impl ServiceContext {
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
-        let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        self.prepare_worker_plan_task_spawn(&mut params)?;
+        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
         let plan_id = params.plan_id.clone();
@@ -121,22 +150,24 @@ impl ServiceContext {
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
-        let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
+        let spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
         );
-        let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
-        self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
-        let model_identity = self.pane_model_identity(&handle.pane_id);
-        self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
-        self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.pane_id);
+        let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
+        self.persist_unresolved_plugin_model_request(&handle.tab_id, &bind_params);
+        let model_identity = self.tab_model_identity(&handle.tab_id);
+        self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
+        self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.tab_id);
+        if let Some(reservation) = worker_persona_reservation {
+            reservation.commit_to_tab(&handle.tab_id);
+        }
         self.record_kpi_spawn(
-            &handle.pane_id,
+            &handle.tab_id,
             model_identity.2.as_deref(),
             bind_params.task.as_deref().unwrap_or_default().len(),
         );
         Ok(SpawnResult {
-            pane_id: handle.pane_id,
             tab_id: handle.tab_id,
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
@@ -176,12 +207,13 @@ impl ServiceContext {
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
-        let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        self.prepare_worker_plan_task_spawn(&mut params)?;
+        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.role.as_deref() == Some("Orchestrator")
             && params.workspace_id.is_none()
-            && params.parent_pane_id.is_none()
+            && params.parent_tab_id.is_none()
         {
             return Err("--workspace is required when spawning --role Orchestrator \
                  (orchestrators must be pinned to a workspace)"
@@ -214,26 +246,28 @@ impl ServiceContext {
                 .or_else(|| params.agent_name.clone())
                 .unwrap_or_else(|| agent_cmd.clone());
             let bind_params = params.clone();
-            let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
+            let spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
                 self.chatbackend_registry.as_ref(),
                 params,
             );
             let handle =
-                self.spawn_pane_with_ready_and_state_change(spec, ready_tx, emit_state_change)?;
-            self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
+                self.spawn_tab_with_ready_and_state_change(spec, ready_tx, emit_state_change)?;
+            self.persist_unresolved_plugin_model_request(&handle.tab_id, &bind_params);
             let requested_model = model
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
+            self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
+            if let Some(reservation) = worker_persona_reservation {
+                reservation.commit_to_tab(&handle.tab_id);
+            }
             self.record_kpi_spawn(
-                &handle.pane_id,
+                &handle.tab_id,
                 requested_model.as_deref(),
                 bind_params.task.as_deref().unwrap_or_default().len(),
             );
             return Ok(SpawnResult {
-                pane_id: handle.pane_id,
                 tab_id: handle.tab_id,
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
@@ -285,8 +319,8 @@ impl ServiceContext {
             let mux = self.mux.write();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
-                params.parent_pane_id.as_deref(),
-                |pid| mux.find_workspace_for_pane(pid),
+                params.parent_tab_id.as_deref(),
+                |pid| mux.find_workspace_for_tab(pid),
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?;
@@ -303,14 +337,14 @@ impl ServiceContext {
         };
         params.cwd = resolved_cwd;
 
-        let default_chat_view = crate::service::spawn::should_default_agent_pane_to_chat(
-            crate::service::spawn::PaneVisibility::Visible,
+        let default_chat_view = crate::service::spawn::should_default_agent_tab_to_chat(
+            crate::service::spawn::TabVisibility::Visible,
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.supports_chat_ui())
                 .unwrap_or(false),
         );
 
-        let (tab_id, pane_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = match params.existing_tab_id.as_deref() {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
@@ -318,52 +352,46 @@ impl ServiceContext {
             };
             if let Some(ref t) = params.title {
                 if !t.trim().is_empty() {
-                    let _ = mux.rename_pane_at_level(
-                        &result.1,
+                    let _ = mux.rename_tab_at_level(
+                        &result,
                         t,
                         crate::multiplexer::types::TitleLevel::User,
                     );
                 }
             }
             if let Some(ref dir) = params.cwd {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.cwd = Some(dir.clone());
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.cwd = Some(dir.clone());
                 }
             }
-            if let Some(pane) = mux.get_pane_mut(&result.1) {
-                pane.role_profile = params.role_profile.clone();
-                pane.agent_booting = true;
-                crate::service::boot_stage::apply_boot_stage(
-                    pane,
-                    crate::service::boot_stage::BootStage::PtyStarting,
-                    None,
-                );
+            if let Some(tab) = mux.get_tab_mut(&result) {
+                initialize_ordinary_pty_agent_tab(tab, &params);
             }
             if params.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result.0);
+                let _ = mux.set_active_tab(&ws_id, &result);
             }
             if default_chat_view {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.chat_view = true;
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.chat_view = true;
                 }
             }
-            if let Some(ref rtid) = params.report_target_pane_id {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.report_target_pane_id = Some(rtid.clone());
+            if let Some(ref rtid) = params.report_target_tab_id {
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.report_target_tab_id = Some(rtid.clone());
                 }
             }
             if let Some(ref peer) = params.report_target_mesh_peer {
                 if !peer.is_empty() {
-                    if let Some(pane) = mux.get_pane_mut(&result.1) {
-                        pane.report_target_mesh_peer = Some(peer.clone());
+                    if let Some(tab) = mux.get_tab_mut(&result) {
+                        tab.report_target_mesh_peer = Some(peer.clone());
                     }
                 }
             }
             // Record the spawning agent for report routing fallback, independent of explicit --parent / role hierarchy.
-            if let Some(ref sb) = params.spawned_by_pane_id {
+            if let Some(ref sb) = params.spawned_by_tab_id {
                 if !sb.is_empty() {
-                    if let Some(pane) = mux.get_pane_mut(&result.1) {
-                        pane.spawned_by_pane_id = Some(sb.clone());
+                    if let Some(tab) = mux.get_tab_mut(&result) {
+                        tab.spawned_by_tab_id = Some(sb.clone());
                     }
                 }
             }
@@ -378,34 +406,35 @@ impl ServiceContext {
             let role = Self::parse_role(role_str)?;
             if skip_local_worker_role(
                 &role,
-                params.parent_pane_id.as_deref(),
+                params.parent_tab_id.as_deref(),
                 params.report_target_mesh_peer.as_deref(),
             ) {
                 log::info!(
                     "[spawn] cross-mesh worker {} → {}@{}: skipping local Worker hierarchy (no local parent)",
-                    pane_id,
-                    params.report_target_pane_id.as_deref().unwrap_or("?"),
+                    tab_id,
+                    params.report_target_tab_id.as_deref().unwrap_or("?"),
                     params.report_target_mesh_peer.as_deref().unwrap_or("?"),
                 );
             } else {
                 if emit_state_change {
-                    self.set_pane_role(
-                        &pane_id,
+                    self.set_tab_role_with_profile(
+                        &tab_id,
                         role_str,
-                        params.parent_pane_id.as_deref(),
+                        params.role_profile.as_deref(),
+                        params.parent_tab_id.as_deref(),
                         params.can_spawn,
                     )?;
                 } else {
                     let role = Self::parse_role(role_str)?;
                     let mut mux = self.mux.write();
-                    mux.set_pane_role(&pane_id, role, params.parent_pane_id.as_deref())?;
+                    mux.set_tab_role(&tab_id, role, params.parent_tab_id.as_deref())?;
                     if let Some(can_spawn) = params.can_spawn {
-                        mux.set_can_spawn(&pane_id, can_spawn)?;
+                        mux.set_can_spawn(&tab_id, can_spawn)?;
                     }
                 }
                 if role_str == "Worker" || role_str == "Manager" {
-                    if let Some(ref parent) = params.parent_pane_id {
-                        self.expect_spawn_parent_link(&pane_id, parent)?;
+                    if let Some(ref parent) = params.parent_tab_id {
+                        self.expect_spawn_parent_link(&tab_id, parent)?;
                     }
                 }
             }
@@ -413,8 +442,8 @@ impl ServiceContext {
 
         if params.skip_permissions.unwrap_or(true) {
             let mut mux = self.mux.write();
-            if let Some(pane) = mux.get_pane_mut(&pane_id) {
-                pane.auto_approve = true;
+            if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                tab.auto_approve = true;
             }
         }
 
@@ -423,16 +452,14 @@ impl ServiceContext {
             params.agent_name.as_deref(),
         ) {
             match level {
-                crate::multiplexer::types::TitleLevel::User => {
-                    self.rename_pane(&pane_id, &title)?
-                }
-                _ => self.set_pane_title(&pane_id, &title)?,
+                crate::multiplexer::types::TitleLevel::User => self.rename_tab(&tab_id, &title)?,
+                _ => self.set_tab_title(&tab_id, &title)?,
             }
         }
 
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
-        self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.to_string());
+        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.to_string());
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
@@ -444,13 +471,13 @@ impl ServiceContext {
             None
         };
         if let Some(ref sid) = params.resume_session_id {
-            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+            self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
-            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+            self.set_agent_session_id(&tab_id, Some(sid.clone()));
         }
-        if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             crate::service::spawn::persist_model_launch_identity(
-                pane,
+                tab,
                 params.planned_model.as_deref(),
                 &model_resolution,
             );
@@ -459,25 +486,41 @@ impl ServiceContext {
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
             self,
             &agent_cmd,
-            &pane_id,
+            &tab_id,
             &params.cwd.clone().unwrap_or_default(),
         );
 
         let fallback_bootstrap = if params.manager_bootstrap.is_some() {
             self.emit_boot_stage(
-                &pane_id,
+                &tab_id,
                 crate::service::boot_stage::BootStage::PreparingRoleInstructions,
                 None,
             );
             prepare_manager_bootstrap(&mut params)
         } else {
+            prepare_standard_starter_prompt(&mut params);
             None
         };
 
+        let system_prompt_capable = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                matches!(
+                    crate::service::launch_delivery::mode_for_descriptor(
+                        &provider.system_prompt_delivery(),
+                    ),
+                    crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+                )
+            })
+            .unwrap_or(false);
         let bg_task = if params.manager_bootstrap.is_some() {
-            params.task.clone()
+            if system_prompt_capable {
+                Some(agent_system_prompt(params.task.as_deref()))
+            } else {
+                params.task.clone()
+            }
         } else {
-            spawn_onboarding_task(&params)
+            spawn_launch_task(&params, system_prompt_capable)
         };
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
@@ -492,19 +535,21 @@ impl ServiceContext {
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
-                    self.bind_planner_spawn(Some(plan_id), Some("planner"), &pane_id);
-                    let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
-                    let orch_label = orch_pane
+                    self.bind_planner_spawn(Some(plan_id), Some("planner"), &tab_id);
+                    let orch_tab = self.plan_store.owner_of(plan_id).and_then(|o| o.tab_id);
+                    let orch_label = orch_tab
                         .as_deref()
-                        .map(|p| self.mux.read().display_label_for_pane(p))
+                        .map(|p| self.mux.read().display_label_for_tab(p))
                         .unwrap_or_else(|| "your Orchestrator".to_string());
-                    let orch_tab = orch_pane.as_deref().unwrap_or("unknown");
+                    let orch_tab = orch_tab.as_deref().unwrap_or("unknown");
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
-                    Some(format!(
-                        "{codeterm_pfx}{}",
+                    let onboarding = if system_prompt_capable {
                         agent_system_prompt(Some(&onboard))
-                    ))
+                    } else {
+                        onboard
+                    };
+                    Some(format!("{codeterm_pfx}{onboarding}"))
                 }
                 None => bg_task,
             }
@@ -518,21 +563,26 @@ impl ServiceContext {
         let bg_task = if is_planner || is_orch_onboarding {
             bg_task
         } else {
-            bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+            bg_task.map(|t| match self.spawn_task_prefix(&tab_id) {
                 Some(pfx) => format!("{}{}", pfx, t),
                 None => t,
             })
         };
-        self.bind_worker_plan_task_or_rollback_pane(&params, &pane_id)?;
+        self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)?;
         let fallback_delivery = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
-                matches!(
+                let external = matches!(
                     crate::service::launch_delivery::mode_for_descriptor(
                         &provider.system_prompt_delivery(),
                     ),
                     crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                )
+                );
+                external
+                    && matches!(
+                        provider.task_delivery(),
+                        crate::agent::provider::TaskDelivery::PtyInput
+                    )
             })
             .unwrap_or(true);
         let fallback_spec = fallback_delivery
@@ -551,9 +601,9 @@ impl ServiceContext {
             .flatten();
         if let Some(spec) = fallback_spec.as_ref() {
             if let Err(error) =
-                self.create_pending_delivery(&pane_id, spec.channel.clone(), &spec.payload)
+                self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.close_pane(&pane_id);
+                let _ = self.close_tab(&tab_id);
                 return Err(error.to_string());
             }
         }
@@ -566,11 +616,10 @@ impl ServiceContext {
         );
         launch_agent_in_background(
             self.clone(),
-            pane_id.clone(),
             tab_id.clone(),
-            ws_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
+            crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
             bg_task,
             fallback_spec,
             ready_tx,
@@ -581,19 +630,21 @@ impl ServiceContext {
         let title = self
             .mux
             .read()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .map(|p| p.title.clone())
             .unwrap_or_default();
 
-        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
+        if let Some(reservation) = worker_persona_reservation {
+            reservation.commit_to_tab(&tab_id);
+        }
+        let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         let reasoning_effort = params.reasoning_effort.clone();
         self.record_kpi_spawn(
-            &pane_id,
+            &tab_id,
             model_resolution.model.as_deref(),
             params.task.as_deref().unwrap_or_default().len(),
         );
         Ok(SpawnResult {
-            pane_id,
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
@@ -614,9 +665,9 @@ impl ServiceContext {
         })
     }
 
-    fn pane_model_identity(
+    fn tab_model_identity(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> (
         Option<String>,
         Option<String>,
@@ -625,33 +676,33 @@ impl ServiceContext {
     ) {
         self.mux
             .read()
-            .get_pane(pane_id)
-            .map(|pane| {
+            .get_tab(tab_id)
+            .map(|tab| {
                 (
-                    pane.agent_planned_model.clone(),
-                    pane.agent_requested_model.clone(),
-                    pane.agent_provider_resolved_model.clone(),
-                    pane.agent_session_model.clone(),
+                    tab.agent_planned_model.clone(),
+                    tab.agent_requested_model.clone(),
+                    tab.agent_provider_resolved_model.clone(),
+                    tab.agent_session_model.clone(),
                 )
             })
             .unwrap_or_default()
     }
 
-    fn persist_unresolved_plugin_model_request(&self, pane_id: &str, params: &SpawnAgentParams) {
+    fn persist_unresolved_plugin_model_request(&self, tab_id: &str, params: &SpawnAgentParams) {
         let mut mux = self.mux.write();
-        let Some(pane) = mux.get_pane_mut(pane_id) else {
+        let Some(tab) = mux.get_tab_mut(tab_id) else {
             return;
         };
-        if pane.agent_requested_model.is_some() {
+        if tab.agent_requested_model.is_some() {
             return;
         }
-        pane.agent_planned_model = params
+        tab.agent_planned_model = params
             .planned_model
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        pane.agent_requested_model = params
+        tab.agent_requested_model = params
             .model
             .as_deref()
             .map(str::trim)
@@ -659,7 +710,7 @@ impl ServiceContext {
             .map(str::to_string);
     }
 
-    fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, pane_id: &str) {
+    fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, tab_id: &str) {
         if role_profile != Some("planner") {
             return;
         }
@@ -672,8 +723,8 @@ impl ServiceContext {
             .unwrap_or(0);
         match self.plan_store.set_planner_ref(
             plan_id,
-            Some(crate::plan::PlannerRef::Pane {
-                pane_id: pane_id.to_string(),
+            Some(crate::plan::PlannerRef::Tab {
+                tab_id: tab_id.to_string(),
                 session_id: None,
                 title: None,
             }),
@@ -688,25 +739,25 @@ impl ServiceContext {
         }
     }
 
-    /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns (no spawner).
-    pub(crate) fn spawn_task_prefix(&self, target_pane: &str) -> Option<String> {
+    /// Origin prefix for a spawned agent's first task, derived from the target tab's recorded spawner (spawned_by/parent) — same canonical attribution as cross-tab sends. None for raw spawns (no spawner).
+    pub(crate) fn spawn_task_prefix(&self, target_tab: &str) -> Option<String> {
         let mux = self.mux.write();
-        let src = mux.get_pane(target_pane).and_then(|p| {
-            p.spawned_by_pane_id
+        let src = mux.get_tab(target_tab).and_then(|p| {
+            p.spawned_by_tab_id
                 .clone()
-                .or_else(|| p.parent_pane_id.clone())
+                .or_else(|| p.parent_tab_id.clone())
         })?;
         if src.is_empty() {
             return None;
         }
-        let label = mux.display_label_for_pane(&src);
+        let label = mux.display_label_for_tab(&src);
         let model = mux
-            .get_pane(&src)
+            .get_tab(&src)
             .and_then(|p| p.agent_session_model.clone());
         crate::service::messenger::delivery_prefix(
             true,
             &src,
-            target_pane,
+            target_tab,
             &label,
             model.as_deref(),
             None,
@@ -723,10 +774,25 @@ impl ServiceContext {
         if !self.provider_registry.is_spawnable_chat_backend(agent) {
             return Ok(());
         }
-        let assignment = params.system_prompt.take().or_else(|| params.task.take());
-        params.system_prompt = Some(agent_system_prompt(assignment.as_deref()));
+        params.system_prompt = compose_chatbackend_system_prompt(params);
         Ok(())
     }
+}
+
+/// Every params-owned field on a fresh ordinary-PTY agent tab is applied here;
+/// a second init site is how a declared field (`audience`) once got dropped.
+pub(crate) fn initialize_ordinary_pty_agent_tab(
+    tab: &mut crate::multiplexer::types::Tab,
+    params: &SpawnAgentParams,
+) {
+    tab.role_profile = params.role_profile.clone();
+    tab.audience = params.audience;
+    tab.agent_booting = true;
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        crate::service::boot_stage::BootStage::PtyStarting,
+        None,
+    );
 }
 
 /// Deterministic hierarchy defaults: a local Worker with no explicit --parent
@@ -736,14 +802,11 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
     if params.role.as_deref() != Some("Worker") || params.report_target_mesh_peer.is_some() {
         return;
     }
-    if params.parent_pane_id.is_none() {
-        params.parent_pane_id = params
-            .spawned_by_pane_id
-            .clone()
-            .filter(|sb| !sb.is_empty());
+    if params.parent_tab_id.is_none() {
+        params.parent_tab_id = params.spawned_by_tab_id.clone().filter(|sb| !sb.is_empty());
     }
-    if params.report_target_pane_id.is_none() {
-        params.report_target_pane_id = params.parent_pane_id.clone();
+    if params.report_target_tab_id.is_none() {
+        params.report_target_tab_id = params.parent_tab_id.clone();
     }
 }
 
@@ -754,27 +817,71 @@ mod hierarchy_defaults_tests {
     fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {
             role: Some("Worker".into()),
-            spawned_by_pane_id: spawned_by.map(str::to_string),
+            spawned_by_tab_id: spawned_by.map(str::to_string),
             ..Default::default()
         }
     }
 
+    // Live bounce oracle (dev aa793130a, notification 958a78b0): POST
+    // /api/agents/spawn with audience=automation still minted a user bell.
+    #[test]
+    fn ordinary_pty_tab_creation_carries_automation_audience_from_params() {
+        use crate::multiplexer::types::TabAudience;
+        let mut state = crate::multiplexer::state::MultiplexerState::empty();
+        let ws_id = state.create_workspace("ws".to_string(), None).id;
+        let tab_id = state.create_tab(&ws_id).expect("tab created");
+        let params = SpawnAgentParams {
+            agent: Some("claude".into()),
+            audience: TabAudience::Automation,
+            ..Default::default()
+        };
+
+        initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
+
+        assert_eq!(
+            state.get_tab(&tab_id).expect("tab").audience,
+            TabAudience::Automation,
+            "audience declared on SpawnAgentParams must survive into the ordinary PTY tab record"
+        );
+    }
+
+    // Negative control: an undeclared spawn stays user-facing on the same path.
+    #[test]
+    fn ordinary_pty_tab_creation_defaults_to_user_audience() {
+        use crate::multiplexer::types::TabAudience;
+        let mut state = crate::multiplexer::state::MultiplexerState::empty();
+        let ws_id = state.create_workspace("ws".to_string(), None).id;
+        let tab_id = state.create_tab(&ws_id).expect("tab created");
+        let params = SpawnAgentParams {
+            agent: Some("claude".into()),
+            ..Default::default()
+        };
+
+        initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
+
+        assert_eq!(
+            state.get_tab(&tab_id).expect("tab").audience,
+            TabAudience::User,
+            "an undeclared spawn keeps the user audience and still bells"
+        );
+    }
+
     #[test]
     fn worker_without_parent_defaults_to_caller_and_reports_to_parent() {
-        let mut p = worker_params(Some("caller-pane"));
+        let mut p = worker_params(Some("caller-tab"));
         apply_worker_hierarchy_defaults(&mut p);
-        assert_eq!(p.parent_pane_id.as_deref(), Some("caller-pane"));
-        assert_eq!(p.report_target_pane_id.as_deref(), Some("caller-pane"));
+        assert_eq!(p.parent_tab_id.as_deref(), Some("caller-tab"));
+        assert_eq!(p.report_target_tab_id.as_deref(), Some("caller-tab"));
     }
 
     #[test]
     fn explicit_parent_and_report_target_are_untouched() {
-        let mut p = worker_params(Some("caller-pane"));
-        p.parent_pane_id = Some("boss".into());
-        p.report_target_pane_id = Some("boss".into());
+        let mut p = worker_params(Some("caller-tab"));
+        p.parent_tab_id = Some("boss".into());
+        p.report_target_tab_id = Some("boss".into());
         apply_worker_hierarchy_defaults(&mut p);
-        assert_eq!(p.parent_pane_id.as_deref(), Some("boss"));
-        assert_eq!(p.report_target_pane_id.as_deref(), Some("boss"));
+        assert_eq!(p.parent_tab_id.as_deref(), Some("boss"));
+        assert_eq!(p.report_target_tab_id.as_deref(), Some("boss"));
     }
 
     #[test]
@@ -782,15 +889,41 @@ mod hierarchy_defaults_tests {
         let mut mesh = worker_params(Some("caller"));
         mesh.report_target_mesh_peer = Some("peer".into());
         apply_worker_hierarchy_defaults(&mut mesh);
-        assert_eq!(mesh.parent_pane_id, None);
+        assert_eq!(mesh.parent_tab_id, None);
 
         let mut orch = SpawnAgentParams {
             role: Some("Orchestrator".into()),
-            spawned_by_pane_id: Some("caller".into()),
+            spawned_by_tab_id: Some("caller".into()),
             ..Default::default()
         };
         apply_worker_hierarchy_defaults(&mut orch);
-        assert_eq!(orch.parent_pane_id, None);
+        assert_eq!(orch.parent_tab_id, None);
+    }
+
+    #[test]
+    fn chatbackend_worker_receives_identity_context_contract_and_assignment_once() {
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            task: Some("repair transport".into()),
+            ..Default::default()
+        };
+
+        let prompt = compose_chatbackend_system_prompt(&mut params).unwrap();
+
+        assert!(prompt.starts_with("You are a CodeTerm Worker."));
+        assert_eq!(
+            prompt
+                .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
+                .count(),
+            1
+        );
+        assert!(!prompt.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+        assert_eq!(
+            prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
+            1
+        );
+        assert_eq!(prompt.matches("repair transport").count(), 1);
+        assert_eq!(params.task, None);
     }
 
     #[test]
@@ -841,9 +974,52 @@ mod hierarchy_defaults_tests {
         assert_eq!(params.task.as_deref(), Some(expected.as_str()));
     }
 
+    #[test]
+    fn roleless_agent_starts_without_a_visible_turn() {
+        let mut params = SpawnAgentParams::default();
+
+        prepare_standard_starter_prompt(&mut params);
+
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn roleless_task_is_system_context_without_a_visible_turn() {
+        let mut params = SpawnAgentParams {
+            task: Some("Inspect the launch path.".into()),
+            ..Default::default()
+        };
+
+        prepare_standard_starter_prompt(&mut params);
+
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn role_assignment_keeps_the_assigned_task_turn() {
+        let mut params = SpawnAgentParams {
+            task: Some("Inspect the launch path.".into()),
+            role: Some("Worker".into()),
+            ..Default::default()
+        };
+
+        prepare_standard_starter_prompt(&mut params);
+
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::AssignedTask
+        );
+    }
+
     // No agent cwd and no workspace cwd must still pin a concrete dir (the
     // daemon's own cwd, what the PTY inherits). Leaving it `None` desyncs the
-    // pane record from where the agent writes its session store, so the chat
+    // tab record from where the agent writes its session store, so the chat
     // pipeline resolves the wrong `~/.claude/projects/<encoded>` dir.
     #[test]
     fn no_cwd_and_no_workspace_pins_the_daemon_cwd() {

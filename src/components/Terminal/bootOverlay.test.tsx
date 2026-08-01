@@ -3,8 +3,8 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { PaneBootOverlay, paneBootOverlayView } from "./bootOverlay";
-import type { Pane } from "../../lib/types";
+import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
+import type { Tab } from "../../lib/types";
 
 let failures = 0;
 async function test(name: string, fn: () => void | Promise<void>) {
@@ -21,7 +21,7 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-function pane(stage: Pane["boot_stage"], reason?: string | null, canRetry = true): Pane {
+function tab(stage: Tab["boot_stage"], reason?: string | null, canRetry = true): Tab {
   return {
     id: "p-1",
     pty_id: null,
@@ -29,7 +29,7 @@ function pane(stage: Pane["boot_stage"], reason?: string | null, canRetry = true
     protected: canRetry,
     boot_stage: stage,
     boot_failure_reason: reason ?? null,
-  } as unknown as Pane;
+  } as unknown as Tab;
 }
 
 async function render(element: React.ReactElement): Promise<HTMLElement> {
@@ -53,19 +53,19 @@ async function main() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
 
   await test("view maps launch stages to Starting", () => {
-    assert(paneBootOverlayView(pane("pty_starting")).kind === "starting", "pty_starting starts");
-    assert(paneBootOverlayView(pane("agent_launching")).kind === "starting", "agent_launching starts");
+    assert(tabBootOverlayView(tab("pty_starting")).kind === "starting", "pty_starting starts");
+    assert(tabBootOverlayView(tab("agent_launching")).kind === "starting", "agent_launching starts");
   });
 
   await test("view maps ready to no overlay", () => {
-    assert(paneBootOverlayView(pane("agent_ready")).kind === "none", "ready dismisses overlay");
+    assert(tabBootOverlayView(tab("agent_ready")).kind === "none", "ready dismisses overlay");
   });
 
   await test("failure renders details and keyboard-accessible Retry", async () => {
     let clicked = false;
     const host = await render(
-      <PaneBootOverlay
-        view={paneBootOverlayView(pane("spawn_failed", "provider missing"))}
+      <TabBootOverlay
+        view={tabBootOverlayView(tab("spawn_failed", "provider missing"))}
         shellReady={false}
         overlayVisible={false}
         onRetry={() => {
@@ -88,14 +88,14 @@ async function main() {
 
   await test("non-protected failure has no retry button", async () => {
     const host = await render(
-      <PaneBootOverlay
-        view={paneBootOverlayView(pane("spawn_failed", "no binary", false))}
+      <TabBootOverlay
+        view={tabBootOverlayView(tab("spawn_failed", "no binary", false))}
         shellReady={false}
         overlayVisible={false}
         onRetry={() => {}}
       />,
     );
-    assert(host.querySelector("button") === null, "retry hidden for unprotected pane");
+    assert(host.querySelector("button") === null, "retry hidden for unprotected Tab");
   });
 
   console.log(`bootOverlay tests: ${failures === 0 ? "all passed" : `${failures} failed`}`);

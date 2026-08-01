@@ -134,6 +134,21 @@ function parseMenuOptions(screen) {
   }
   return options;
 }
+function parseActiveTerminalChoice(screen) {
+  const lines = normalizeLines(screen);
+  const options = activeMenuOptions(screen);
+  if (options.length < 2 || !options.some((option) => option.highlighted)) return null;
+  const lastOptionLine = options[options.length - 1].line;
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
+  return { question: questionForMenu(lines, options[0].line), options };
+}
 function parseCodexPromptShape(screen) {
   return parseCodexNumberedMenu(screen) || parseCodexLetteredPrompt(screen) || parseCodexNumberedQuestion(screen);
 }
@@ -252,6 +267,14 @@ function groupOptions(lines, starts, kind) {
 function normalizeLines(text) {
   return String(text || "").replace(/\r\n?/g, "\n").split("\n");
 }
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
+    return i;
+  }
+  return -1;
+}
 function prosePromptLines(text) {
   const lines = normalizeLines(text);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -339,9 +362,58 @@ function readSessionMeta(path) {
 }
 
 // plugins/provider-codex/src/usage.ts
+var CODEX_USAGE_KIND = "codeterm_usage_v1";
+function fetchCodexUsage(host2) {
+  const authPath = host2.expandHome("~/.codex/auth.json");
+  if (!authPath) return null;
+  const auth = safeJson(host2.fs.readFile(authPath));
+  const tokens = objectAt(auth, "tokens");
+  const accessToken = stringAt(tokens, "access_token");
+  const accountId = stringAt(tokens, "account_id");
+  if (!accessToken || !accountId) return null;
+  const response = safeJson(host2.fetch(JSON.stringify({
+    url: "https://chatgpt.com/backend-api/wham/usage",
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "ChatGPT-Account-Id": accountId,
+      "User-Agent": "codeterm-usage/1.7.8"
+    }
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const rateLimit = objectAt(body, "rate_limit");
+  if (!rateLimit) return null;
+  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean);
+  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window) < 86400) ?? null;
+  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window) >= 86400) ?? null;
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CODEX_USAGE_KIND,
+    account_id: accountId,
+    session_pct: numberAt(session, "used_percent"),
+    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
+    weekly_pct: numberAt(weekly, "used_percent"),
+    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at"))
+  });
+}
 function parseCodexUsage(rawText, nowMs) {
   const raw = String(rawText || "");
   if (!raw.trim()) return null;
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
+    return {
+      provider: "codex",
+      account_id: stringAt(fetched, "account_id"),
+      captured_at_ms: nowMs,
+      session_pct: numberAt(fetched, "session_pct"),
+      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+      weekly_pct: numberAt(fetched, "weekly_pct"),
+      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+      raw_text: raw
+    };
+  }
   const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
   const lines = text.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
@@ -358,6 +430,36 @@ function parseCodexUsage(rawText, nowMs) {
     weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
     raw_text: raw
   };
+}
+function safeJson(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function objectAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return nested && typeof nested === "object" ? nested : null;
+}
+function stringAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+function numberAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+function secondsToMs(value) {
+  return value === null ? null : value * 1e3;
+}
+function windowDuration(window) {
+  return numberAt(window, "limit_window_seconds");
 }
 function parseCodexLimits(lines, nowMs) {
   const out = [];
@@ -614,6 +716,7 @@ var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
+  if (params.starterPrompt === "no_starter") return void 0;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -710,15 +813,18 @@ var plugin = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `Add-Type -AssemblyName System.Web.Extensions; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); $ctProfileSuffix = if ($env:CODETERM_PANE_ID) { $env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+        prefix = `Add-Type -AssemblyName System.Web.Extensions; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); $ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
         parts.push("-c");
         parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
       }
-      parts.push("--");
-      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
+      const prompt = starterPrompt(p);
+      if (prompt) {
+        parts.push("--");
+        parts.push(host.shell.quoteFor(prompt, host.platform()));
+      }
       if (host.platform() === "windows") {
         return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
       }
@@ -921,13 +1027,14 @@ var plugin = {
     const winScript = codexWindowsHookScriptPath();
     const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
     const windowsReady = host.platform() !== "windows" || !!winScript && winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
-    const nonceOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 : Array.isArray(arr) && arr.some((entry) => {
+    const contractOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && winScriptText.indexOf("CODETERM_TAB_ID") !== -1 && winScriptText.indexOf("/api/tabs/") !== -1 : Array.isArray(arr) && arr.some((entry) => {
       const hk = entry && entry.hooks;
       return Array.isArray(hk) && hk.some((h) => {
-        return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+        const command = String(h?.command || "");
+        return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("/api/tabs/") !== -1;
       });
     });
-    const current = installed && windowsReady && nonceOk;
+    const current = installed && windowsReady && contractOk;
     const trustState = codexHookTrustState(path);
     const trustOk = trustState !== "disabled";
     return {
@@ -950,7 +1057,7 @@ var plugin = {
     const portExpr = "${CODETERM_API_PORT:-" + port + "}";
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const cmd = "curl -s -X POST http://localhost:" + portExpr + "/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true";
+    const cmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true";
     const scriptPath = codexWindowsHookScriptPath();
     const commandWindows = scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"' : cmd;
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
@@ -995,6 +1102,9 @@ var plugin = {
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
     return parseCodexUsage(rawText, nowMs);
+  },
+  fetchUsage() {
+    return fetchCodexUsage(host);
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
@@ -1102,10 +1212,12 @@ var plugin = {
     }
     return out;
   },
-  classifyPaneState(snapshot) {
+  classifyTabState(snapshot) {
     const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
-    const authConfidence = scoreAuthPrompt(screen);
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+    const activeChoice = parseActiveTerminalChoice(screen);
+    const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
     if (authConfidence >= CLASSIFY_THRESHOLD) {
       return {
         state: "waiting_on_auth",
@@ -1113,7 +1225,6 @@ var plugin = {
         action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
       };
     }
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
     if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
     const upd = scoreUpdatePrompt(screen);
     if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
@@ -1142,6 +1253,19 @@ var plugin = {
         confidence: rl.confidence,
         data: rl.resetAtMs !== null ? data : void 0,
         action
+      };
+    }
+    if (activeChoice) {
+      return {
+        state: "clarifying_question",
+        confidence: 1,
+        data: { questions: [activeChoice.question] },
+        action: {
+          surface: {
+            kind: "clarifying_question",
+            payload: { questions: [activeChoice.question] }
+          }
+        }
       };
     }
     const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
@@ -1333,8 +1457,8 @@ function codexWindowsHookScript(apiPort) {
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
-    "$pane = $env:CODETERM_PANE_ID",
-    "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
+    "$tab = $env:CODETERM_TAB_ID",
+    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
     '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
     '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
     "$headers = @{",
@@ -1348,8 +1472,8 @@ function codexWindowsHookScript(apiPort) {
     '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "}",
     "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
-    "$profileSuffix = $pane -replace '[^A-Za-z0-9_-]', '-'",
+    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
     '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
     "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
     "exit 0",

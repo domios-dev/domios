@@ -20,24 +20,56 @@ export interface PairSessionChoice {
 
 export type NewSessionChoice = SingleSessionChoice | PairSessionChoice;
 
-function pickModel(provider: ProviderDescriptor | undefined, preferred: string): string | undefined {
-  if (!provider) return undefined;
-  const models = provider.available_models ?? [];
-  const exact = models.find((m) => m.id === preferred);
-  if (exact) return exact.id;
-  const fuzzy = models.find((m) => m.id.includes(preferred) || m.display_name.toLowerCase().includes(preferred));
-  return fuzzy?.id ?? provider.default_model;
+function resolveProvider(
+  providers: ProviderDescriptor[],
+  selectedProviderId?: string,
+): ProviderDescriptor | undefined {
+  return providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
+}
+
+function resolveModel(
+  provider: ProviderDescriptor | undefined,
+  selectedModelId?: string,
+): string | undefined {
+  const models = provider?.available_models ?? [];
+  if (models.some((model) => model.id === selectedModelId)) return selectedModelId;
+  if (models.some((model) => model.id === provider?.default_model)) return provider?.default_model;
+  return models[0]?.id;
 }
 
 export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSessionChoice {
-  const claude = providers.find((p) => p.id === "claude") ?? providers[0];
-  const providerId = claude?.id ?? "";
+  const provider = providers[0];
+  const providerId = provider?.id ?? "";
+  const modelId = resolveModel(provider);
   return {
     mode: "pair",
     orchestratorProviderId: providerId,
-    orchestratorModelId: pickModel(claude, "opus"),
+    orchestratorModelId: modelId,
     plannerProviderId: providerId,
-    plannerModelId: pickModel(claude, "fable"),
+    plannerModelId: modelId,
+  };
+}
+
+function resolvePersistedChoice(
+  providers: ProviderDescriptor[],
+  choice: NewSessionChoice,
+): NewSessionChoice {
+  if (choice.mode === "single") {
+    const provider = resolveProvider(providers, choice.providerId);
+    return {
+      mode: "single",
+      providerId: provider?.id ?? "",
+      modelId: resolveModel(provider, choice.modelId),
+    };
+  }
+  const orchestrator = resolveProvider(providers, choice.orchestratorProviderId);
+  const planner = resolveProvider(providers, choice.plannerProviderId);
+  return {
+    mode: "pair",
+    orchestratorProviderId: orchestrator?.id ?? "",
+    orchestratorModelId: resolveModel(orchestrator, choice.orchestratorModelId),
+    plannerProviderId: planner?.id ?? "",
+    plannerModelId: resolveModel(planner, choice.plannerModelId),
   };
 }
 
@@ -48,13 +80,15 @@ export function readPersistedNewSessionChoice(
     const raw = window.localStorage.getItem(NEW_SESSION_CHOICE_STORAGE_KEY);
     if (!raw) return defaultNewSessionChoice(providers);
     const parsed = JSON.parse(raw) as NewSessionChoice;
-    if (parsed.mode === "single" && parsed.providerId) return parsed;
+    if (parsed.mode === "single" && parsed.providerId) {
+      return resolvePersistedChoice(providers, parsed);
+    }
     if (
       parsed.mode === "pair"
       && parsed.orchestratorProviderId
       && parsed.plannerProviderId
     ) {
-      return parsed;
+      return resolvePersistedChoice(providers, parsed);
     }
   } catch {
     // Quota/private-mode or corrupt payload — fall back to defaults.

@@ -40,13 +40,13 @@ export interface ParsedMarker {
   payload: string;
 }
 
-export function isPaneMarkerPlaceholderLabel(label: string | null | undefined): boolean {
+export function isTabMarkerPlaceholderLabel(label: string | null | undefined): boolean {
   const normalized = label?.trim().toLowerCase();
-  return !normalized || normalized === "current pane";
+  return !normalized || normalized === "current tab";
 }
 
-export function shortPaneRef(paneRef: string | null | undefined): string {
-  return (paneRef ?? "").trim().slice(0, 8);
+export function shortTabRef(tabRef: string | null | undefined): string {
+  return (tabRef ?? "").trim().slice(0, 8);
 }
 
 export function buildMarker(

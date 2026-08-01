@@ -12,6 +12,16 @@ pub fn pending_prompt_from_input(input: &NativePromptInput) -> Option<PendingPro
     Some(pending_prompt_from_detection(detection))
 }
 
+/// Live-path resolution for a tab's pending-prompt card.
+/// A structured handle (push/API) wins; otherwise the structurally gated
+/// attributed-grid detector extracts the picker from the tab's own screen.
+pub fn resolve_pending_prompt(
+    structured: Option<PendingPrompt>,
+    input: Option<&NativePromptInput>,
+) -> Option<PendingPrompt> {
+    structured.or_else(|| input.and_then(pending_prompt_from_input))
+}
+
 pub fn pending_prompt_from_signals(
     screen: AttributedScreen,
     signals: &StreamSignals,
@@ -50,10 +60,8 @@ fn option_value(index: usize) -> String {
 }
 
 fn has_structural_picker_signal(input: &NativePromptInput, options: &[String]) -> bool {
-    input.cursor_hidden
-        || input.alt_screen
-        || has_picker_footer(&input.screen)
-        || has_selection_attribute(&input.screen, options)
+    options.len() >= 2
+        && (has_picker_footer(&input.screen) || has_selection_attribute(&input.screen, options))
 }
 
 fn has_picker_footer(screen: &AttributedScreen) -> bool {
@@ -62,6 +70,9 @@ fn has_picker_footer(screen: &AttributedScreen) -> bool {
 
 fn is_picker_footer(text: &str) -> bool {
     let lower = text.to_lowercase();
+    if lower.contains("interrupt") {
+        return false;
+    }
     lower.contains("enter to select")
         || lower.contains("space select")
         || lower.contains("tab toggle")
@@ -141,11 +152,7 @@ mod tests {
                     .collect::<Vec<_>>(),
                 "{case}"
             );
-            assert_eq!(
-                prompt.multi_select,
-                expected["multiSelect"].as_bool(),
-                "{case}"
-            );
+            assert_eq!(prompt.multi_select, expected["multiSelect"].as_bool(), "{case}");
             assert_eq!(
                 prompt.selected_values,
                 Some(vec![
@@ -165,6 +172,151 @@ mod tests {
             alt_screen: false,
         };
         assert!(pending_prompt_from_input(&input).is_none());
+    }
+
+    #[test]
+    fn captured_model_picker_frames_pass_native_fingerprint() {
+        // Stage probe: were the structural fingerprint the dropping stage,
+        // this would fail instead of the live-resolution oracle below.
+        for case in ["claude/model-picker-r3", "codex/model-picker-r3"] {
+            let dir = snapshots_root().join(case);
+            let prompt = prompt_from_cast(&dir).unwrap_or_else(|| {
+                panic!("{case}: native detector must accept the captured /model frame")
+            });
+            let expected = expected(&dir);
+            assert_eq!(prompt.question, expected["question"], "{case}");
+            assert_eq!(
+                prompt
+                    .options
+                    .iter()
+                    .map(|option| option.label.as_str())
+                    .collect::<Vec<_>>(),
+                expected["options"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                "{case}"
+            );
+            assert_eq!(
+                prompt.multi_select,
+                expected["multiSelect"].as_bool(),
+                "{case}"
+            );
+            assert_eq!(
+                prompt.selected_values,
+                Some(vec![
+                    (expected["selectedIndex"].as_u64().unwrap() + 1).to_string()
+                ]),
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_resolution_surfaces_native_picker_for_captured_model_frames() {
+        // Stage oracle: the live path (output.rs → resolve_pending_prompt) must
+        // surface a picker the native detector already accepts when no
+        // structured handle produced one.
+        for case in ["claude/model-picker-r3", "codex/model-picker-r3"] {
+            let dir = snapshots_root().join(case);
+            let input = input_from_cast(&dir);
+            let native = pending_prompt_from_input(&input).unwrap_or_else(|| {
+                panic!("{case}: precondition — the fingerprint accepts this frame")
+            });
+            assert_eq!(
+                resolve_pending_prompt(None, Some(&input)),
+                Some(native),
+                "{case}: live resolution dropped a detector-accepted picker"
+            );
+        }
+    }
+
+    #[test]
+    fn structured_prompt_wins_over_native_detection() {
+        let input = input_from_cast(&snapshots_root().join("claude/model-picker-r3"));
+        let structured = PendingPrompt {
+            question: "structured handle".to_string(),
+            options: Vec::new(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        };
+        assert_eq!(
+            resolve_pending_prompt(Some(structured.clone()), Some(&input)),
+            Some(structured)
+        );
+    }
+
+    #[test]
+    fn chrome_and_prose_frames_yield_no_native_pending_prompt() {
+        for case in [
+            "claude/prose-questionnaire-negative-r1",
+            "claude/prose_negative_r2",
+            "claude/agent-state-turn_complete_real",
+            "codex/prose-negative-r1",
+            "codex/prose-negative-r2",
+            "codex/prose-questionnaire-negative",
+            "codex/agent-state-turn_complete_real",
+        ] {
+            let dir = snapshots_root().join(case);
+            let input = input_from_cast(&dir);
+            assert!(
+                pending_prompt_from_input(&input).is_none(),
+                "{case}: chrome/prose frame must not become a pending-prompt card"
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_cursor_chrome_is_not_structural_picker_evidence() {
+        for (case, false_question) in [
+            (
+                "codex/cli-help-chrome-negative-r1",
+                "For more information, try '--help'.",
+            ),
+            ("codex/tool-result-card-negative-r1", "Viewed Image"),
+        ] {
+            let dir = snapshots_root().join(case);
+            let input = input_from_cast(&dir);
+            let detection = detect_picker(&input.screen)
+                .unwrap_or_else(|| panic!("{case}: fixture must reach the native structural gate"));
+            assert_eq!(detection.question, false_question, "{case}");
+            assert!(input.cursor_hidden, "{case}");
+            assert!(!has_picker_footer(&input.screen), "{case}");
+            assert!(
+                !has_selection_attribute(&input.screen, &detection.options),
+                "{case}"
+            );
+            assert!(
+                pending_prompt_from_input(&input).is_none(),
+                "{case}: screen mode alone must not become picker evidence"
+            );
+        }
+    }
+
+    #[test]
+    fn one_option_with_unrelated_footer_is_not_a_picker() {
+        let dir = snapshots_root().join("codex/tool-result-card-negative-r1");
+        let mut input = input_from_cast(&dir);
+        let detection = detect_picker(&input.screen).expect("fixture reaches structural gate");
+        let one_option = vec![detection.options[0].clone()];
+        for (cell, ch) in input.screen.cells[0]
+            .iter_mut()
+            .zip("Esc to cancel".chars())
+        {
+            cell.ch = ch.to_string();
+        }
+        assert!(has_picker_footer(&input.screen));
+        assert!(!has_structural_picker_signal(&input, &one_option));
+    }
+
+    #[test]
+    fn running_control_hint_is_not_a_picker_footer() {
+        assert!(!is_picker_footer("esc to interrupt"));
+        assert!(is_picker_footer("Esc to cancel"));
     }
 
     #[test]
@@ -200,6 +352,10 @@ mod tests {
     }
 
     fn prompt_from_cast(dir: &Path) -> Option<PendingPrompt> {
+        pending_prompt_from_input(&input_from_cast(dir))
+    }
+
+    fn input_from_cast(dir: &Path) -> NativePromptInput {
         let mut extractor = extractor_for_cast(dir);
         for event in cast_events(dir) {
             match event {
@@ -210,7 +366,11 @@ mod tests {
             }
         }
         let signals = extractor.step(b"", 60_000);
-        pending_prompt_from_signals(extractor.attributed_screen(), &signals)
+        NativePromptInput {
+            screen: extractor.attributed_screen(),
+            cursor_hidden: signals.input_mode.cursor_hidden,
+            alt_screen: signals.input_mode.alt_screen,
+        }
     }
 
     fn extractor_for_cast(dir: &Path) -> SignalExtractor {

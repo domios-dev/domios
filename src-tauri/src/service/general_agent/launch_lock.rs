@@ -1,6 +1,6 @@
 //! Ownership handle proving a General Agent launch is actually running.
 //!
-//! A pane latched at a launch stage (`shell_ready`, `agent_launching`, …) with
+//! A tab latched at a launch stage (`shell_ready`, `agent_launching`, …) with
 //! no live owner is stale state, not progress — retries must not be refused as
 //! "already in progress" forever. Held for the whole synchronous launch, so the
 //! answer is an ownership fact rather than an elapsed-time guess.

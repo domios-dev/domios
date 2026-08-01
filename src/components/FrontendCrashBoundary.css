@@ -1,0 +1,105 @@
+.frontend-crash__shell {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  background: var(--ct-bg, #0d1117);
+}
+
+.frontend-crash__chrome {
+  display: flex;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 12px;
+  border-bottom: 1px solid var(--ct-border, #334155);
+  background: var(--ct-titlebar-bg, #111827);
+  color: var(--ct-muted-fg, #94a3b8);
+  font: 12px/1 system-ui, sans-serif;
+  user-select: none;
+}
+
+.frontend-crash__chrome nav {
+  display: flex;
+  height: 100%;
+}
+
+.frontend-crash__chrome button {
+  width: 46px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.frontend-crash__chrome button:hover {
+  background: rgb(255 255 255 / 9%);
+  color: var(--ct-fg, white);
+}
+
+.frontend-crash__chrome button:last-child:hover {
+  background: #c42b1c;
+  color: white;
+}
+
+.frontend-crash {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  padding: 32px;
+  place-items: center;
+  background: var(--ct-bg, #0d1117);
+  color: var(--ct-text, #d8dee9);
+}
+
+.frontend-crash__panel {
+  width: min(760px, 100%);
+  padding: 28px;
+  border: 1px solid var(--ct-border, #334155);
+  border-radius: 14px;
+  background: var(--ct-panel, #111827);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 35%);
+}
+
+.frontend-crash__panel h1 {
+  margin: 4px 0 12px;
+  font-size: 24px;
+}
+
+.frontend-crash__eyebrow {
+  margin: 0;
+  color: #fb7185;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.frontend-crash__panel pre {
+  max-height: 40vh;
+  margin: 20px 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 28%);
+  color: #fecdd3;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frontend-crash__panel button {
+  padding: 9px 14px;
+  border: 1px solid #60a5fa;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+}
+
+.frontend-crash__panel button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 3px;
+}

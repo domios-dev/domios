@@ -2,7 +2,7 @@
   "provider": "claude",
   "situation": "ask-user-question-wizard",
   "capturedAtMs": 1781983799342,
-  "paneId": "ea63a7df",
+  "tabId": "ea63a7df",
   "source": "dev-7686",
   "until": "(Blue/Green|Canary|Rolling).*(Enter|select|esc|❯|›)",
   "prompt": "Use the native AskUserQuestion UI if available. Ask me which deployment strategy to use with exactly three options: Blue/Green, Canary, Rolling. Do not answer yourself; ask the question.",

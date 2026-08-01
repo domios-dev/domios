@@ -1,4 +1,4 @@
-# Planner audit — 2026-07-18 (Curie, pane 02d1339c)
+# Planner audit — 2026-07-18 (Curie, tab 02d1339c)
 
 ## 0. P0 DATA-INTEGRITY FLAG — read this first
 
@@ -21,10 +21,10 @@ every `task show` for its 39 tasks errors. The store was migrated to a new layou
 
 ## 1. The 201-report ledger — cannot audit from here
 
-`codeterm agent reports --tab 166df18d` returns empty from my pane; no 201-entry store
+`codeterm agent reports --tab 166df18d` returns empty from my tab; no 201-entry store
 is reachable, and the plan that held report milestones is gone (see §0). To run the
 duplicate/stale vs implemented+ungated vs truly-open triage I need either the ledger's
-location/dump or read access from this pane. Agreed regardless: **nothing closes from
+location/dump or read access from this tab. Agreed regardless: **nothing closes from
 report count** — closure stays evidence-only, per the original closure-gate contract
 (red-green regression or before/after transcript, Orchestrator closes).
 
@@ -32,7 +32,7 @@ report count** — closure stays evidence-only, per the original closure-gate co
 
 Invariant as stated: once `chat_start` attaches (or a chat event arrives), the Chat
 surface is authoritative — no late boot/loading/failure overlay may cover it or
-interrupt the composer; retry is pane-generic (`restart_agent_pane`), never the
+interrupt the composer; retry is tab-generic (`restart_agent_tab`), never the
 GA-only route; real pre-attach launch failures still surface; Retry hidden when
 `canRetry=false`.
 
@@ -51,18 +51,18 @@ arrives anyway. Complementary, not duplicate. Three planner notes:
    epochs — another reason to settle §0 recovery.
 3. **The invariant is one-directional and should stay so:** pre-attach real launch
    failures keep their overlay (task text already preserves this). Do not let the fix
-   suppress SpawnFailed for panes that never attached chat.
+   suppress SpawnFailed for tabs that never attached chat.
 
 Criteria/test-plan quality: good — role/name selectors, no sleeps, real PTY Codex
-pane, caps present, GA-route exclusion asserted. Dispatch-ready as written with note 1
+tab, caps present, GA-route exclusion asserted. Dispatch-ready as written with note 1
 added to the matrix.
 
 ## 3. Remaining-gates table (from session knowledge + worker ledger + git)
 
 | Item (orig. task) | Lane / SHA | State | Exact remaining gate → merge action |
 |---|---|---|---|
-| #240 core taxonomy (task_7fei9d) | lane/fix-mesh-fail-closed @ c2b73fb10 (fix 04498de10), pushed | in_review | (1) `cargo clippy --all-targets` warm checkout (new SendRejection/axum surface, await_holding_lock DENY); (2) two-instance live drill: busy pane → `pane_busy_refused` + far-end PTY untouched; nonexistent → `pane_not_reachable_on_peer`; valid → parity with `--tab main`, assert target bytes; (3) warm full capped Rust + PW golden; then real merge + `merge-base --is-ancestor c2b73fb10` |
-| Crash classify (task_4lpla2) | lane/fix-crash-recovery-state (pane debf4708) | in_review | (1) confirm red-run capture exists; (2) live drill: `kill -9` dev with 2-role team, restart, no session warning after ready AND after UI refresh; (3) warm full suite; real merge + ancestor check |
+| #240 core taxonomy (task_7fei9d) | lane/fix-mesh-fail-closed @ c2b73fb10 (fix 04498de10), pushed | in_review | (1) `cargo clippy --all-targets` warm checkout (new SendRejection/axum surface, await_holding_lock DENY); (2) two-instance live drill: busy tab → `tab_busy_refused` + far-end PTY untouched; nonexistent → `tab_not_reachable_on_peer`; valid → parity with `--tab main`, assert target bytes; (3) warm full capped Rust + PW golden; then real merge + `merge-base --is-ancestor c2b73fb10` |
+| Crash classify (task_4lpla2) | lane/fix-crash-recovery-state (tab debf4708) | in_review | (1) confirm red-run capture exists; (2) live drill: `kill -9` dev with 2-role team, restart, no session warning after ready AND after UI refresh; (3) warm full suite; real merge + ancestor check |
 | Report cards (task_qfcx4i) | lane @ b03065045, pushed green | blocked (gate only) | merge lane into integration, then from canonical: `npx playwright test <spec> -g "report card body" --timeout=30000 --global-timeout=600000` ALONE — this is the sole remaining gate |
 | #239 mem transport (task_s5ja8t) | lane/fix-mem-cli-transport | blocked (decision) | Orchestrator/owner decision: re-scope to diagnostics-only (criterion 2 already landed) + separate daemon socket-mem design task, or park |
 | Codex submit repro (task_8e3uyw) | ledger lane ba3c1ac5 "Fable: Codex submit repro", active | in flight | mechanism verdict (does optimistic 9dbcda652 disarm the Enter retry at MAX_ENTER_ATTEMPTS loop) → bounded enter-retry w/o veto revert → red-green + 3x codex drill |

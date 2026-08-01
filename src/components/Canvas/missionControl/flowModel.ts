@@ -1,4 +1,4 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { TaskStatus, type DecisionGate, type Plan, type Task } from "../types";
 import { displayTaskTitle } from "../planView/activeWork";
 import type { MissionControlModel, TaskStation } from "./missionControl";
@@ -82,8 +82,8 @@ function isInFlight(task: Task): boolean {
   return task.status === TaskStatus.InProgress || task.status === TaskStatus.InReview;
 }
 
-function inferProvider(pane?: Pane): AgentProvider {
-  const t = (pane?.agent_type ?? "").toLowerCase();
+function inferProvider(tab?: Tab): AgentProvider {
+  const t = (tab?.agent_type ?? "").toLowerCase();
   if (t.includes("claude")) return "claude";
   if (t.includes("opencode")) return "opencode";
   return "codex";
@@ -104,7 +104,7 @@ interface AgentResolver {
 function makeAgentResolver(
   snapshot: MissionControlSnapshot,
   model: MissionControlModel,
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
 ): AgentResolver {
   const laneAgent = new Map<string, MissionAgent>();
   for (const lane of snapshot.lanes) {
@@ -126,9 +126,9 @@ function makeAgentResolver(
     const presence = station?.presence;
     if (!station || !presence) return undefined;
     return {
-      id: presence.paneId,
+      id: presence.tabId,
       name: presence.label,
-      provider: inferProvider(panes[presence.paneId]),
+      provider: inferProvider(tabs[presence.tabId]),
       state: stationState(station),
     };
   };
@@ -239,30 +239,30 @@ function lastStride(plan: Plan): string | null {
   return best ? best.text : null;
 }
 
-function paneLabel(paneId: string | null | undefined, panes: Record<string, Pane>): string {
-  const id = paneId?.trim();
+function tabLabel(tabId: string | null | undefined, tabs: Record<string, Tab>): string {
+  const id = tabId?.trim();
   if (!id) return "planner";
-  return panes[id]?.title?.trim() || id.slice(0, 8);
+  return tabs[id]?.title?.trim() || id.slice(0, 8);
 }
 
 /** Open decision gates → question + who it's waiting on. */
-function buildGates(plan: Plan, panes: Record<string, Pane>): GateView[] {
+function buildGates(plan: Plan, tabs: Record<string, Tab>): GateView[] {
   return (plan.gates ?? [])
     .filter((g: DecisionGate) => g.status === "open" || g.status === "escalated")
     .map((g) => ({
       id: g.id,
       question: g.question.trim(),
-      waitsOn: paneLabel(g.routed_to_pane_id, panes),
+      waitsOn: tabLabel(g.routed_to_tab_id, tabs),
       escalated: g.status === "escalated",
     }));
 }
 
-function buildVerify(plan: Plan, snapshot: MissionControlSnapshot, panes: Record<string, Pane>, agentFor: AgentResolver): VerifyStation {
+function buildVerify(plan: Plan, snapshot: MissionControlSnapshot, tabs: Record<string, Tab>, agentFor: AgentResolver): VerifyStation {
   const inReview = plan.tasks
     .filter((t) => t.status === TaskStatus.InReview)
     .slice(0, MAX_STATION_CHIPS)
     .map((t) => chipForTask(agentFor, t, true));
-  const gates = buildGates(plan, panes);
+  const gates = buildGates(plan, tabs);
   const qaCount = snapshot.qaQueue.length + (snapshot.qaRunning ? 1 : 0);
   return {
     inReview,
@@ -295,10 +295,10 @@ export function buildFlowRiver(
   plan: Plan,
   model: MissionControlModel,
   snapshot: MissionControlSnapshot,
-  panes: Record<string, Pane> = {},
+  tabs: Record<string, Tab> = {},
   now: number = Date.now(),
 ): FlowRiverModel {
-  const agentFor = makeAgentResolver(snapshot, model, panes);
+  const agentFor = makeAgentResolver(snapshot, model, tabs);
   const { station: milestone, activeIndex } = buildMilestone(plan, agentFor);
   const crew = buildCrew(snapshot);
 
@@ -306,7 +306,7 @@ export function buildFlowRiver(
     .slice(0, MAX_STATION_CHIPS)
     .map((t) => ({ taskId: t.id, title: t.title, hot: false }) satisfies FlowChip);
 
-  const verify = buildVerify(plan, snapshot, panes, agentFor);
+  const verify = buildVerify(plan, snapshot, tabs, agentFor);
   const carrier = buildCarrier(plan, agentFor);
   const done = { count: snapshot.doneCount, todayDelta: doneToday(plan, now), lastStride: lastStride(plan) };
 

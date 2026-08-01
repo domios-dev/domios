@@ -2,7 +2,7 @@
  * WHAT: stub agent replayer drives the REAL spawn/detection/parse pipeline.
  * WHY: golden agent-flow tests convert to this transport; it must behave like
  *      a live provider (banner, turns, tool round-trip, session id) per provider.
- * ORACLE: pane output + pane status read back over the API, not the replayer.
+ * ORACLE: tab output + tab status read back over the API, not the replayer.
  *
  * Runs only against a dev daemon started with CODETERM_STUB_AGENT_CMD; the
  * first test probes for the stub banner and skips the file when absent.
@@ -14,16 +14,16 @@ import path from "node:path";
 
 const PROVIDERS = ["claude", "codex", "opencode"] as const;
 
-async function paneOutput(api: ApiClient, paneId: string): Promise<string> {
+async function tabOutput(api: ApiClient, tabId: string): Promise<string> {
   // 404 while the PTY materializes after spawn is a normal warmup state.
   const res = await api
-    .get<{ output?: string } | string>(`/panes/${paneId}/output`)
+    .get<{ output?: string } | string>(`/tabs/${tabId}/output`)
     .catch(() => "");
   return typeof res === "string" ? res : (res.output ?? JSON.stringify(res));
 }
 
 async function spawnStub(api: ApiClient, provider: string) {
-  return api.post<{ pane_id: string }>("/agents/spawn", {
+  return api.post<{ tab_id: string }>("/agents/spawn", {
     agent: provider,
     title: `pw-stub-${provider}`,
   });
@@ -38,13 +38,13 @@ test.beforeEach(async ({ api }) => {
       stubActive = false;
     } else {
       const seen = await pollUntil(
-        async () => (await paneOutput(api, spawned.pane_id)).includes("stub replay"),
+        async () => (await tabOutput(api, spawned.tab_id)).includes("stub replay"),
         30_000,
         500,
         "stub gate probe",
       ).catch(() => false);
       stubActive = Boolean(seen);
-      await api.closePane(spawned.pane_id).catch(() => {});
+      await api.closeTab(spawned.tab_id).catch(() => {});
     }
   }
   test.skip(!stubActive, "dev daemon is not running with CODETERM_STUB_AGENT_CMD");
@@ -53,14 +53,14 @@ test.beforeEach(async ({ api }) => {
 for (const provider of PROVIDERS) {
   test(`@stub ${provider}: spawn boots the replayer and a marker turn round-trips`, async ({
     api,
-    paneCleanup,
+    tabCleanup,
   }) => {
     test.setTimeout(90_000);
     const spawned = await spawnStub(api, provider);
-    paneCleanup.track(spawned.pane_id);
+    tabCleanup.track(spawned.tab_id);
 
     await pollUntil(
-      async () => (await paneOutput(api, spawned.pane_id)).includes("stub replay"),
+      async () => (await tabOutput(api, spawned.tab_id)).includes("stub replay"),
       30_000,
       250,
       `${provider} stub banner`,
@@ -68,24 +68,24 @@ for (const provider of PROVIDERS) {
 
     const marker = `PWSTUB${Date.now()}`;
     const capture = path.join(process.cwd(), "scratchpad", `${provider}-${marker}.cast`);
-    await api.post(`/panes/${spawned.pane_id}/capture/start`, { out: capture });
+    await api.post(`/tabs/${spawned.tab_id}/capture/start`, { out: capture });
     try {
-      await api.post(`/panes/${spawned.pane_id}/send`, { text: `STUB_ECHO ${marker}`, enter: true });
+      await api.post(`/tabs/${spawned.tab_id}/send`, { text: `STUB_ECHO ${marker}`, enter: true });
       await pollUntil(
-        async () => (await paneOutput(api, spawned.pane_id)).includes(`ack ${marker}`),
+        async () => (await tabOutput(api, spawned.tab_id)).includes(`ack ${marker}`),
         30_000,
         250,
         `${provider} marker ack`,
       );
     } finally {
-      await api.post(`/panes/${spawned.pane_id}/capture/stop`).catch(() => {});
+      await api.post(`/tabs/${spawned.tab_id}/capture/stop`).catch(() => {});
     }
 
     const tool = `PWTOOL${Date.now()}`;
-    await api.post(`/panes/${spawned.pane_id}/send`, { text: `STUB_TOOL ${tool}`, enter: true });
+    await api.post(`/tabs/${spawned.tab_id}/send`, { text: `STUB_TOOL ${tool}`, enter: true });
     const buffer = await pollUntil(
       async () => {
-        const out = await paneOutput(api, spawned.pane_id);
+        const out = await tabOutput(api, spawned.tab_id);
         return out.includes(`tool round-trip done ${tool}`) ? out : null;
       },
       30_000,
@@ -99,29 +99,29 @@ for (const provider of PROVIDERS) {
 for (const provider of PROVIDERS) {
   test(`@stub ${provider}: detection binds provider identity and session id`, async ({
     api,
-    paneCleanup,
+    tabCleanup,
   }) => {
     test.setTimeout(90_000);
     const spawned = await spawnStub(api, provider);
-    paneCleanup.track(spawned.pane_id);
+    tabCleanup.track(spawned.tab_id);
 
     // Same trusted-binding path a real CLI uses before its session file lands:
     // the replayer reports through the nonce-verified session_start hook.
-    const pane = await pollUntil(
+    const tab = await pollUntil(
       async () => {
-        const panes = await api
+        const tabs = await api
           .get<Array<{ id: string; agent_type?: string | null; agent_session_id?: string | null }>>(
-            "/panes",
+            "/tabs",
           )
           .catch(() => []);
-        const p = panes.find((x) => x.id === spawned.pane_id);
+        const p = tabs.find((x) => x.id === spawned.tab_id);
         return p?.agent_session_id ? p : null;
       },
       30_000,
       250,
       `${provider} stub session id`,
     );
-    expect(pane?.agent_type, "pane keeps the real provider identity").toBe(provider);
-    expect(pane?.agent_session_id, "session id bound via session_start hook").toBeTruthy();
+    expect(tab?.agent_type, "tab keeps the real provider identity").toBe(provider);
+    expect(tab?.agent_session_id, "session id bound via session_start hook").toBeTruthy();
   });
 }

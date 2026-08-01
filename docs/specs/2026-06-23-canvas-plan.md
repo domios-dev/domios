@@ -15,7 +15,7 @@
 ## Phasing & how to use this plan
 
 - **Phase 1 — Backend core** is written below in full TDD detail. It ships a working, testable subsystem with NO UI: create/edit/read plans, tasks, milestones, loops via `codeterm plan`, report→milestone linkage, events. **Build this first.**
-- **Phases 2–4** are task-mapped (files, responsibility, gates, dependencies, model allocation). At the start of each, re-invoke `superpowers:writing-plans` to expand its map into bite-sized TDD tasks against the then-current code. Do NOT pre-pseudocode the React layout engine here — it is tuned empirically (§6.2 debug panel).
+- **Phases 2–4** are task-mapped (files, responsibility, gates, dependencies, model allocation). At the start of each, re-invoke `superpowers:writing-plans` to expand its map into bite-sized TDD tasks against the then-current code. Do NOT pre-pseudocode the React layout engine here — it is tuned empirically (§6.2 debug tabl).
 
 ## Repo gates (every task)
 
@@ -41,7 +41,7 @@
 - Modify `src-tauri/src/api/routes.rs` — register `/api/plans/*`.
 - Create `src-tauri/src/socket/server/plan.rs` — JSON-RPC `plan.*` socket dispatch (CLI bridge; copy `agent.rs`).
 - Modify `src-tauri/src/socket/server/mod.rs` — register `"plan"` prefix + add `plan.*` to `system.capabilities`.
-- Modify config schema (`grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders, nudge_after_turns }`.
+- Modify config schema (`grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders, nudge_interval_secs }`.
 - Modify `src-tauri/prompts/codeterm_cli.md` — minimal `codeterm plan ...` lines so `prompt_cli_commands_exist` passes (full prose in Phase 4).
 - Modify `src-tauri/src/api/agent_routes.rs` — `ReportBody` gains `plan_id`, `task_id`.
 - Modify `src-tauri/src/service/hierarchy.rs` — `submit_report` appends milestone + plan→current-owner routing.
@@ -52,11 +52,11 @@
 
 **Phase 2 — read-only canvas**
 - Create `src/components/Canvas/useCanvasViewport.ts`, `CanvasView.tsx`, `cards/*`, `layout/*`, `usePlans.ts`, `settings.ts`.
-- Modify `src/components/MeshPanel/MeshCanvas.tsx` — retrofit onto `useCanvasViewport`.
+- Modify `src/components/MeshTabl/MeshCanvas.tsx` — retrofit onto `useCanvasViewport`.
 - Modify `src/App.tsx` — mount `<CanvasView mode="workspace">` in workspace empty-state.
-- Modify `src/components/Terminal/PaneTopBar.tsx` — mount `<PlanButton>`.
+- Modify `src/components/Terminal/TabTopBar.tsx` — mount `<PlanButton>`.
 
-**Phase 3 — interactivity** — `CanvasComposer.tsx`, drag/layout-persist, focus-detection wiring, spawn-from-canvas, debug panel.
+**Phase 3 — interactivity** — `CanvasComposer.tsx`, drag/layout-persist, focus-detection wiring, spawn-from-canvas, debug tabl.
 
 **Phase 4 — prompts/docs** — `src-tauri/prompts/orchestration_toolset.md`, edits to `codeterm_cli.md` / `orchestrator_suffix.md` / `worker_suffix.md`, `docs/CANVAS.md`, mem-skill pointer.
 
@@ -78,7 +78,7 @@
 // in src-tauri/src/plan/types.rs, #[cfg(test)] mod tests
 #[test]
 fn plan_roundtrips_and_defaults() {
-    let p = Plan::new("Voice UX".into(), "/repo".into(), OrchestratorRef::from_pane("abc123"));
+    let p = Plan::new("Voice UX".into(), "/repo".into(), OrchestratorRef::from_tab("abc123"));
     assert_eq!(p.status, PlanStatus::Active);
     assert!(p.sections.is_empty() && p.tasks.is_empty() && p.loops.is_empty());
     let json = serde_json::to_string(&p).unwrap();
@@ -117,8 +117,8 @@ pub enum TaskStatus { Pending, InProgress, Blocked, Done, Cancelled }
 pub struct ElementCanvas { pub x: Option<f64>, pub y: Option<f64>, #[serde(default)] pub collapsed: bool }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct OrchestratorRef { pub pane_id: Option<String>, pub session_id: Option<String>, pub title: Option<String> }
-impl OrchestratorRef { pub fn from_pane(p: &str) -> Self { Self { pane_id: Some(p.into()), ..Default::default() } } }
+pub struct OrchestratorRef { pub tab_id: Option<String>, pub session_id: Option<String>, pub title: Option<String> }
+impl OrchestratorRef { pub fn from_tab(p: &str) -> Self { Self { tab_id: Some(p.into()), ..Default::default() } } }
 pub type AgentRef = OrchestratorRef;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -140,7 +140,7 @@ pub struct Milestone { pub id: String, pub from: AgentRef, pub kind: String, #[s
 pub struct Task { pub id: String, pub name: String, #[serde(rename = "type")] pub kind: String,
     pub model: Option<String>, pub model_rationale: Option<String>, pub status: TaskStatus,
     pub status_label: Option<String>, #[serde(default)] pub section_ids: Vec<String>, #[serde(default)] pub body: String,
-    pub intent: Option<String>, pub assigned_pane_id: Option<String>, pub peer: Option<String>,
+    pub intent: Option<String>, pub assigned_tab_id: Option<String>, pub peer: Option<String>,
     #[serde(default)] pub canvas: ElementCanvas, #[serde(default)] pub milestones: Vec<Milestone> }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -304,7 +304,7 @@ fn loop_stops_on_signal() {
 fn store_saves_loads_indexes() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new("T".into(), dir.path().display().to_string(), OrchestratorRef::from_pane("abc"));
+    let mut p = Plan::new("T".into(), dir.path().display().to_string(), OrchestratorRef::from_tab("abc"));
     store.save(&mut p, 1000).unwrap();                       // 1000 = injected now-ms
     let path = dir.path().join(".codeterm/plans").join(format!("{}.json", p.id));
     assert!(path.exists());
@@ -340,17 +340,17 @@ fn store_saves_loads_indexes() {
 #[test]
 fn add_milestone_rejects_undeclared_kind() {
     let (store, id, tid) = store_with_task(&["status_update"]);
-    let err = store.add_milestone(&id, &tid, "deploy", "x", AgentRef::from_pane("w"), false, 1).unwrap_err();
+    let err = store.add_milestone(&id, &tid, "deploy", "x", AgentRef::from_tab("w"), false, 1).unwrap_err();
     assert!(matches!(err, PlanError::UndeclaredKind { .. }));
-    store.add_milestone(&id, &tid, "deploy", "x", AgentRef::from_pane("w"), true, 2).unwrap(); // --add-kind
+    store.add_milestone(&id, &tid, "deploy", "x", AgentRef::from_tab("w"), true, 2).unwrap(); // --add-kind
     assert!(store.get(&id).unwrap().milestone_kinds.iter().any(|k| k.key == "deploy"));
 }
 #[test]
 fn transfer_updates_owner_and_history() {
     let (store, id, _) = store_with_task(&["s"]);
-    store.transfer(&id, OrchestratorRef::from_pane("new"), "handoff", 5).unwrap();
+    store.transfer(&id, OrchestratorRef::from_tab("new"), "handoff", 5).unwrap();
     let p = store.get(&id).unwrap();
-    assert_eq!(p.owner.pane_id.as_deref(), Some("new"));
+    assert_eq!(p.owner.tab_id.as_deref(), Some("new"));
     assert_eq!(p.owner_history.len(), 1);
 }
 ```
@@ -386,7 +386,7 @@ fn transfer_updates_owner_and_history() {
 
 - [ ] **Step 1: Failing test** — POST create returns 200 + plan_id; GET list includes it. Follow the existing axum handler test pattern in `src-tauri/src/api/` (`grep -rl "AxumState<AppState>" src-tauri/src/api | head`).
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** handlers for the §4 REST set (create/list/get/update/archive/delete/transfer/disown/claim; task add/update/close/assign/rm; milestone add/update/rm; loop create/set/status/stop; section add/update/rm; note/element add; layout set). Each: parse body → call `PlanStore` (passing `epoch_ms()` computed HERE, at the IO edge) → on success emit `plan-changed`. **Verified:** use the existing `crate::api::events::emit_everywhere(&state.svc.app_handle, "plan-changed", json!({"plan_id": id}))` — it already fans out to BOTH the Tauri event bus AND the SSE/websocket feed (`src-tauri/src/api/events.rs:315`). One call, both transports; no new helper. Register routes in `routes.rs` next to `/api/panes/...` (pattern at `routes.rs:102`).
+- [ ] **Step 3: Implement** handlers for the §4 REST set (create/list/get/update/archive/delete/transfer/disown/claim; task add/update/close/assign/rm; milestone add/update/rm; loop create/set/status/stop; section add/update/rm; note/element add; layout set). Each: parse body → call `PlanStore` (passing `epoch_ms()` computed HERE, at the IO edge) → on success emit `plan-changed`. **Verified:** use the existing `crate::api::events::emit_everywhere(&state.svc.app_handle, "plan-changed", json!({"plan_id": id}))` — it already fans out to BOTH the Tauri event bus AND the SSE/websocket feed (`src-tauri/src/api/events.rs:315`). One call, both transports; no new helper. Register routes in `routes.rs` next to `/api/tabs/...` (pattern at `routes.rs:102`).
 - [ ] **Step 4: Run → PASS.** `cargo fmt && ./build.sh check`. Keep `plan_routes.rs` < 1000 lines; split by noun (`plan_routes/tasks.rs`, etc.) if needed.
 - [ ] **Step 5: Commit** — `git commit -am "feat(plan): REST routes + plan-changed event"`.
 
@@ -431,13 +431,13 @@ fn transfer_updates_owner_and_history() {
 **Files:**
 - Modify: `src-tauri/src/api/agent_routes.rs` (`ReportBody` gains `plan_id`, `task_id`)
 - Modify: `src-tauri/src/service/hierarchy.rs` (`submit_report`: if `plan_id` set → append milestone; resolve report target via plan→current-owner lookup)
-- Modify: `src-tauri/src/service/pty_io/lifecycle.rs` (export `CODETERM_PLAN_ID`/`CODETERM_TASK_ID` when a pane is task-bound)
+- Modify: `src-tauri/src/service/pty_io/lifecycle.rs` (export `CODETERM_PLAN_ID`/`CODETERM_TASK_ID` when a Tab is task-bound)
 - Modify: `cli/src/args/agent.rs` + `cli/src/cmd/agent.rs` (`--plan`, `--task` on `agent report`)
 - Test: service test + eval
 
-- [ ] **Step 1: Failing test** — `submit_report` with `plan_id`/`task_id` appends a `Milestone` to that task (kind defaults to `status_update`), `from` auto-resolved from the caller pane; and a transferred plan routes the report to the NEW owner.
+- [ ] **Step 1: Failing test** — `submit_report` with `plan_id`/`task_id` appends a `Milestone` to that task (kind defaults to `status_update`), `from` auto-resolved from the caller Tab; and a transferred plan routes the report to the NEW owner.
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement (VERIFIED anchors).** Extend `ReportBody` (`agent_routes.rs:191`) with `plan_id: Option<String>, task_id: Option<String>`. In `submit_report` (`hierarchy.rs:45`), when `plan_id` is set, call `PlanStore::add_milestone` with `from` resolved from the reporting pane; map report status (done/partial/blocked) to a milestone text prefix. Override `resolve_report_target` (`hierarchy.rs:225`, the verified `parent → report_target → spawned_by → system_inbox` chain) with `PlanStore::owner_of(plan_id)` when `plan_id` is present. Export env in `pane_env` (`pty_io/lifecycle.rs:11–54`, right after the `worker_id` block) — only when the pane is task-bound. Reports WITHOUT `plan_id` keep today's exact behavior (regression-guard test).
+- [ ] **Step 3: Implement (VERIFIED anchors).** Extend `ReportBody` (`agent_routes.rs:191`) with `plan_id: Option<String>, task_id: Option<String>`. In `submit_report` (`hierarchy.rs:45`), when `plan_id` is set, call `PlanStore::add_milestone` with `from` resolved from the reporting Tab; map report status (done/partial/blocked) to a milestone text prefix. Override `resolve_report_target` (`hierarchy.rs:225`, the verified `parent → report_target → spawned_by → system_inbox` chain) with `PlanStore::owner_of(plan_id)` when `plan_id` is present. Export env in `tab_env` (`pty_io/lifecycle.rs:11–54`, right after the `worker_id` block) — only when the Tab is task-bound. Reports WITHOUT `plan_id` keep today's exact behavior (regression-guard test).
 - [ ] **Step 4: Run → PASS.** `cargo fmt && ./build.sh check`.
 - [ ] **Step 5: Commit** — `git commit -am "feat(plan): report→milestone linkage + owner routing + env binding"`.
 
@@ -445,21 +445,21 @@ fn transfer_updates_owner_and_history() {
 
 ### Task 11: Plan-adherence reminders
 
-**VERIFIED GAP:** there is NO per-pane turn counter in the codebase today (`agent_tracker` tracks status, not turns). This task **creates** the counter, not just the decision logic.
+**VERIFIED GAP:** periodic reminders need a scheduler-owned wall-clock deadline independent of tab activity.
 
 **Files:**
-- Create: `src-tauri/src/service/plan/reminders.rs` (pure decision + the counter state struct)
-- Modify: `src-tauri/src/service/hierarchy.rs` — increment the counter where agent activity is observed; reset on plan-touch
-- Modify: `src-tauri/src/service/plan/mod.rs` — every `PlanStore` mutation + `submit_report --plan` resets that pane's counter
-- Modify: `src-tauri/src/config/schema/mod.rs` (or wherever the config schema structs live — verify with `grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders: bool, nudge_after_turns: u32 }` with serde defaults `true`/`12`, wired into the root config like the existing `memory`/`mesh` sections
+- Create: `src-tauri/src/service/plan/reminders.rs` (scheduler deadline and delivery state)
+- Modify: `src-tauri/src/service/hierarchy.rs` — start one scheduler-owned due-time path
+- Modify: `src-tauri/src/service/plan/mod.rs` — retain deadlines only for reminder-eligible active work
+- Modify: `src-tauri/src/config/schema/mod.rs` (or wherever the config schema structs live — verify with `grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders: bool, nudge_interval_secs: u64 }` with defaults `true`/`1800`, wired into the root config like the existing `memory`/`mesh` sections
 - Modify: reuse `crate::service::messenger::Messenger::deliver` with `MessageKind::Reminder` (VERIFIED reusable — `messenger.rs:198`, already supports the Reminder kind) to inject the nudge
 - Test: `reminders.rs` inline
 
-- [ ] **Step 1: Failing test** — pure `should_nudge(turns, last_nudge, cfg) -> Option<NudgeKind>`: returns None below threshold and when `plan_reminders=false`; fires at `nudge_after_turns`; interval grows ×1.5 after each nudge; selects Worker vs Orchestrator copy by role. Plus a `TurnCounter` test: increment advances, `reset` zeroes.
+- [ ] **Step 1: Failing test** — scheduler delivery is not due before 1800 seconds, is due at 1800 seconds, marks one delivery, and event paths have no reminder injection.
 - [ ] **Step 2: Run → FAIL.** `cargo test plan::reminders`.
-- [ ] **Step 3: Implement** — a `TurnCounter` state (`Mutex<HashMap<String, (u32 turns, u32 last_nudge)>>` on `ServiceContext`); increment it in `submit_report` (after the report is stored, `hierarchy.rs:~63`) and reset it from every `PlanStore` mutation + from `submit_report` when `--plan` is present. The pure `should_nudge` decides; on a hit, build the role-specific copy (spec §4.2 drafts) and inject via `Messenger::deliver(..., MessageKind::Reminder, ...)`. Add `OrchestrationConfig` to the config schema with defaults.
+- [ ] **Step 3: Implement** — a scheduler deadline ledger on `ServiceContext`; only the scheduler due-time scan can inject through `Messenger::deliver(..., MessageKind::Reminder, ...)`. Add the two-field `OrchestrationConfig` with the 1800-second default.
 - [ ] **Step 4: Run → PASS.** `cargo fmt && ./build.sh check`.
-- [ ] **Step 5: Commit** — `git commit -am "feat(plan): plan-adherence reminders + turn counter"`.
+- [ ] **Step 5: Commit** — `git commit -am "feat(plan): add scheduler-owned plan reminders"`.
 
 ---
 
@@ -483,21 +483,21 @@ Dependency: Phase 1 shipped. Frontend-only (no Rust build).
 | Task | Files | Responsibility | Gate |
 |------|-------|----------------|------|
 | 2.1 Viewport hook | `Canvas/useCanvasViewport.ts` | Extract Mesh pan/zoom (middle-drag, wheel, fit-to-view, transform). | Unit (transform math); Mesh still works after retrofit. |
-| 2.2 Mesh retrofit | `MeshPanel/MeshCanvas.tsx` | Replace inline transform with the hook. | Playwright mesh smoke unchanged. |
+| 2.2 Mesh retrofit | `MeshTabl/MeshCanvas.tsx` | Replace inline transform with the hook. | Playwright mesh smoke unchanged. |
 | 2.3 Data hook | `Canvas/usePlans.ts` | REST fetch + subscribe `plan-changed` via `listen()` from `src/lib/bridge.ts` (VERIFIED: transparently routes Tauri-event native / SSE `/api/events/stream` web — no branching). | Mock-fetch unit; realtime test (emit → re-render). |
 | 2.4 Settings | `Canvas/settings.ts` | `CanvasLayoutSettings` typed defaults (§6.2). NO magic numbers downstream. | Type test. |
 | 2.5 Layout engine | `Canvas/layout/*` | Two-phase deterministic layout: intra-plan frame (sections portyanka → tasks → milestone lanes, chains width-bounded + wrap/cluster, loops folded) → region packing (bin-pack, AABB no-overlap). Reads only settings. | Determinism + no-overlap unit (`opus`). |
 | 2.6 Focus detection | `Canvas/layout/focus.ts` | viewport center → focused plan + in-view docs. | Unit: center → correct plan/docs. |
-| 2.7 Cards | `Canvas/cards/*` | `SectionCard`/`TaskCard`(marker+name+model chip+`why`+status badge+coverage)/`MilestoneNode`/`PlanFrame`; markdown via `RichMarkdown` from `@codeterm/chat-ui` (VERIFIED export); LOD by zoom (name-only < 0.5, full ≥ 0.5); virtualized mount via `getVisibleNodeIds(cards, viewport, size)` from `MemoryPanel/lib/viewport.ts` (VERIFIED reusable). | Playwright web-mode render. |
+| 2.7 Cards | `Canvas/cards/*` | `SectionCard`/`TaskCard`(marker+name+model chip+`why`+status badge+coverage)/`MilestoneNode`/`PlanFrame`; markdown via `RichMarkdown` from `@codeterm/chat-ui` (VERIFIED export); LOD by zoom (name-only < 0.5, full ≥ 0.5); virtualized mount via `getVisibleNodeIds(cards, viewport, size)` from `MemoryTabl/lib/viewport.ts` (VERIFIED reusable). | Playwright web-mode render. |
 | 2.8 CanvasView | `Canvas/CanvasView.tsx` | `mode="workspace"`/`"focus"`; compose hook+layout+cards; edges as plain lines. | Playwright. |
 | 2.9 Workspace mount | `App.tsx` (~641–646) | Replace the current "Loading..." div in the `mainView === "workspace"` empty-state branch with `<CanvasView mode="workspace">` (VERIFIED: that div at 641–646 is the exact empty-state slot). | Playwright: select workspace → canvas shows. |
-| 2.10 Plan button | `Terminal/PaneTopBar.tsx` (~52–54) | `<PlanButton>` (orchestrator + worker panes), opens focus view, **pulses** on `plan-changed`. | Playwright: button shows + pulses + opens. |
+| 2.10 Plan button | `Terminal/TabTopBar.tsx` (~52–54) | `<PlanButton>` (orchestrator + worker Tabs), opens focus view, **pulses** on `plan-changed`. | Playwright: button shows + pulses + opens. |
 
 Models: `cursor:composer-2.5` for cards/CSS (2.7) and mounts (2.9/2.10); `opus`/`sonnet` for hook (2.1), layout engine (2.5), focus (2.6). Each lane = own worktree; orchestrator integrates into warm checkout, runs `npm run typecheck` + Playwright web-mode.
 
 ## PHASE 3 — Interactivity (task map)
 
-Dependency: Phase 2. `CanvasComposer.tsx` (floating, context-addressed → owning orchestrator via existing send path, target chip, auto-attach in-view docs); manual drag → `plan layout set` persistence; spawn-orchestrator / assign-task from empty canvas (calls `workspace create` + `agent spawn` + `plan task assign`, incl. `--mesh`); archive UX + unowned tray + claim; **Canvas debug panel** (live-tune `CanvasLayoutSettings`, save to `config.toml [canvas]`). Models: `opus` for composer routing + focus wiring; `composer-2.5` for panel/drag UI.
+Dependency: Phase 2. `CanvasComposer.tsx` (floating, context-addressed → owning orchestrator via existing send path, target chip, auto-attach in-view docs); manual drag → `plan layout set` persistence; spawn-orchestrator / assign-task from empty canvas (calls `workspace create` + `agent spawn` + `plan task assign`, incl. `--mesh`); archive UX + unowned tray + claim; **Canvas debug tabl** (live-tune `CanvasLayoutSettings`, save to `config.toml [canvas]`). Models: `opus` for composer routing + focus wiring; `composer-2.5` for tabl/drag UI.
 
 ## PHASE 4 — Prompts/docs (task map)
 
@@ -526,11 +526,13 @@ Phase 1 has a serial spine (types → store → mutations) then a fan-out:
 
 ## Verification pass (2026-06-23, 5 read-only agents vs live code)
 
-Confirmed against real code: `uuid`/`tempfile`/`notify`(+debouncer) present; module-decl points (`lib.rs`, `service/mod.rs`); `submit_report`/`ReportBody`/`resolve_report_target`/`pane_env` exact anchors; `emit_everywhere` dual-emit helper (`api/events.rs:315`); axum + route patterns; CLI `Commands`/`main.rs`/`manifest.rs`/mem-write `allow_hyphen_values` pattern; JSON-RPC-over-socket transport; frontend `App.tsx` "Loading..." empty-state slot, `PaneTopBar` insertion, `MeshCanvas` extractable transform, `RichMarkdown`@chat-ui, `getVisibleNodeIds`, `listen()` bridge (native + SSE web).
+Confirmed against real code: `uuid`/`tempfile`/`notify`(+debouncer) present; module-decl points (`lib.rs`, `service/mod.rs`); `submit_report`/`ReportBody`/`resolve_report_target`/`tab_env` exact anchors; `emit_everywhere` dual-emit helper (`api/events.rs:315`); axum + route patterns; CLI `Commands`/`main.rs`/`manifest.rs`/mem-write `allow_hyphen_values` pattern; JSON-RPC-over-socket transport; frontend `App.tsx` "Loading..." empty-state slot, `TabTopBar` insertion, `MeshCanvas` extractable transform, `RichMarkdown`@chat-ui, `getVisibleNodeIds`, `listen()` bridge (native + SSE web).
 
 Gaps found and patched into this plan:
 1. **Socket dispatch submodule** (`socket/server/plan.rs` + `"plan"` prefix + capabilities) — was vague in T8, now explicit (CLI is JSON-RPC-over-socket, not HTTP).
-2. **Turn counter does not exist** — T11 now *creates* it, not just the decision logic.
+2. **Periodic deadline ledger does not exist** — T11 now creates it and keeps event activity out of delivery.
 3. **`[orchestration]` config section + `prompt_cli_commands_exist` manifest gate** — added to T8/T11 (minimal `codeterm plan` lines into `codeterm_cli.md` to keep the test green).
 4. **`git project_root` helper is new** — already created in T4 `paths.rs` (fallback to cwd).
 ```
+
+<!-- revision: 1 -->

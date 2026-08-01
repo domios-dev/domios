@@ -1,8 +1,14 @@
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
-import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
+import {
+  parseActiveTerminalChoice,
+  parseCodexPrompt,
+  parseMenuOptions,
+  responseKeysForIndex,
+  type MenuOption,
+} from "./prompt";
 import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
-import { parseCodexUsage } from "./usage";
+import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 
@@ -23,7 +29,8 @@ const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(params: LaunchParams): string {
+function starterPrompt(params: LaunchParams): string | undefined {
+  if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -42,7 +49,7 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title: string): boolean {
@@ -156,7 +163,7 @@ const plugin: PluginModule = {
         prefix = "Add-Type -AssemblyName System.Web.Extensions; "
           + `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
           + "$ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); "
-          + "$ctProfileSuffix = if ($env:CODETERM_PANE_ID) { $env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
+          + "$ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
           + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
           + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); "
@@ -167,8 +174,11 @@ const plugin: PluginModule = {
         parts.push("-c");
         parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
       }
-      parts.push("--");
-      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
+      const prompt = starterPrompt(p);
+      if (prompt) {
+        parts.push("--");
+        parts.push(host.shell.quoteFor(prompt, host.platform()));
+      }
       if (host.platform() === "windows") {
         return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
       }
@@ -377,16 +387,20 @@ const plugin: PluginModule = {
       Array.isArray(arr) &&
       arr.some(hasCodetermCodexWindowsCommand)
     );
-    // A hook lacking the binding-nonce header is pre-nonce → not current, so startup reinstalls it.
-    const nonceOk = host.platform() === "windows"
-      ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
+    const contractOk = host.platform() === "windows"
+      ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+        winScriptText.indexOf("CODETERM_TAB_ID") !== -1 &&
+        winScriptText.indexOf("/api/tabs/") !== -1
       : (Array.isArray(arr) && arr.some((entry) => {
           const hk = entry && entry.hooks;
           return Array.isArray(hk) && hk.some((h) => {
-            return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+            const command = String(h?.command || "");
+            return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+              command.indexOf("CODETERM_TAB_ID") !== -1 &&
+              command.indexOf("/api/tabs/") !== -1;
           });
         }));
-    const current = installed && windowsReady && nonceOk;
+    const current = installed && windowsReady && contractOk;
     const trustState = codexHookTrustState(path);
     const trustOk = trustState !== "disabled";
     return {
@@ -413,7 +427,7 @@ const plugin: PluginModule = {
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const cmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
+      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start "
       + "-H 'Content-Type: application/json' "
       + "-H 'X-CodeTerm-Agent-Provider: codex' "
       + nonceH + " "
@@ -471,6 +485,10 @@ const plugin: PluginModule = {
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText: string, nowMs: number): unknown {
     return parseCodexUsage(rawText, nowMs);
+  },
+
+  fetchUsage(): unknown {
+    return fetchCodexUsage(host);
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {
@@ -583,13 +601,18 @@ const plugin: PluginModule = {
     return out;
   },
 
-  classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
+  classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
     // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
     const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
 
-    // Auth first — sacred, takes precedence over any update-looking menu.
-    const authConfidence = scoreAuthPrompt(screen);
+    // Busy veto: a streaming tab is never parked at an input request.
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+
+    const activeChoice = parseActiveTerminalChoice(screen);
+    const authConfidence = activeChoice
+      ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n"))
+      : 0;
     if (authConfidence >= CLASSIFY_THRESHOLD) {
       return {
         state: "waiting_on_auth",
@@ -597,9 +620,6 @@ const plugin: PluginModule = {
         action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } },
       };
     }
-
-    // Busy veto: a streaming pane is never parked at a limit screen.
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
 
     // Model/effort picker veto: numbered menus without a limit notice must not schedule a resume.
     if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
@@ -617,7 +637,7 @@ const plugin: PluginModule = {
     // Usage-limit notice → schedule resume at the parsed reset (no menu to confirm).
     const rl = scoreRateLimit(screen, host.unixNowMs());
     if (rl.confidence >= CLASSIFY_THRESHOLD) {
-      const action: PaneStateAction = {};
+      const action: TabStateAction = {};
       const data: { resetAt?: string } = {};
       if (rl.resetAtMs !== null) {
         data.resetAt = new Date(rl.resetAtMs).toISOString();
@@ -637,6 +657,20 @@ const plugin: PluginModule = {
       };
     }
 
+    if (activeChoice) {
+      return {
+        state: "clarifying_question",
+        confidence: 1,
+        data: { questions: [activeChoice.question] },
+        action: {
+          surface: {
+            kind: "clarifying_question",
+            payload: { questions: [activeChoice.question] },
+          },
+        },
+      };
+    }
+
     // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
     const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
     if (partial > 0) return { state: "unknown", confidence: partial };
@@ -645,18 +679,18 @@ const plugin: PluginModule = {
   },
 };
 
-// Pane-state classification (codex self-update prompt). Wire shapes mirror
-// src-tauri/src/agent/pane_state.rs, declared locally because the SDK exposes
+// Tab-state classification (codex self-update prompt). Wire shapes mirror
+// src-tauri/src/agent/tab_state.rs, declared locally because the SDK exposes
 
-interface PaneStateSnapshot {
-  paneId: string;
+interface TabStateSnapshot {
+  tabId: string;
   agentType: string;
   sessionId?: string | null;
   cwd?: string | null;
   screenText: string;
 }
 
-type PaneState =
+type TabState =
   | "working"
   | "waiting_on_auth"
   | "update_prompt"
@@ -665,17 +699,17 @@ type PaneState =
   | "idle_stuck"
   | "unknown";
 
-interface PaneStateAction {
+interface TabStateAction {
   keys?: string[];
   delayedResume?: { at: string; text: string; thenKeys?: string[] };
   surface?: { kind: string; payload: unknown };
 }
 
-interface PaneStateClassification {
-  state: PaneState;
+interface TabStateClassification {
+  state: TabState;
   confidence: number;
   data?: { resetAt?: string; questions?: string[] };
-  action?: PaneStateAction;
+  action?: TabStateAction;
 }
 
 // Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
@@ -810,7 +844,7 @@ function codexParseTodayClock(s: string, nowMs: number): number | null {
   return cand.getTime();
 }
 
-// Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
+// Auth prose is scored only inside the structurally active choice labels.
 function scoreAuthPrompt(screen: string): number {
   const s = String(screen || "");
   let score = 0;
@@ -919,8 +953,8 @@ function codexWindowsHookScript(apiPort: number): string {
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
-    "$pane = $env:CODETERM_PANE_ID",
-    "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
+    "$tab = $env:CODETERM_TAB_ID",
+    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
     '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
     '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
     "$headers = @{",
@@ -934,8 +968,8 @@ function codexWindowsHookScript(apiPort: number): string {
     '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "}",
     "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
-    "$profileSuffix = $pane -replace '[^A-Za-z0-9_-]', '-'",
+    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
     '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
     "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
     "exit 0",

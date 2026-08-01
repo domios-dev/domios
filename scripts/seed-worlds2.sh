@@ -5,7 +5,7 @@
 # and handoffs (timeline lane). Scoped to the dev's active workspace so the board
 # shows it. Targets 7696 only — never the canonical dev.
 set -uo pipefail
-PORT=7696 # force the isolated instance (parent panes leak CODETERM_API_PORT=7685)
+PORT=7696 # force the isolated instance (parent tabs leak CODETERM_API_PORT=7685)
 TOKEN=$(grep -E '^token = ' ~/.codeterm-dev-worlds2/config.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 B="http://127.0.0.1:$PORT"; A=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
 jpost(){ curl -s "${A[@]}" -X POST "$B$1" -d "$2"; }
@@ -26,7 +26,7 @@ S1=$(addsec "Spine & channels" "Four ORTHOGONAL channels, never overloaded: SPAT
 S2=$(addsec "Birds-eye W0" "W0 is COMPRESSED content, not less content. A plan shows title, owner, coverage bar, top section rows + status counts. A task shows name, a solid status chip, a 2-line digest, body/stride/subtask counters, a progress mini-bar, and a stride-snake preview. Because size tracks content, a node is never a big hollow box.")
 S3=$(addsec "Stride snake" "Strides render as ONE continuous 2px path threading kind-colored circular beads (Thread & Coil), wrapping as a boustrophedon snake. Freshest bead pulses at the head; done strides coil to the tail. Zoom blooms beads into full stride cards while the path stays as a provenance spine. Each stride is a leaf micro-world.")
 S4=$(addsec "Task cloud" "Tasks pack as a 2D CLOUD to the right of the plan, not a tall column. The vertical axis encodes status/priority: high-priority in_progress at the top, done sinking to the bottom. Overflow flows rightward into more columns, never an infinite vertical strip. A status change animates the task to its new slot (~300ms), no global reshuffle.")
-S5=$(addsec "Selectable text & nav" "Canvas text islands opt into user-select:text so a left-drag selects and copies. Section rows are interactive: single-click highlights connected task edges + nodes (no camera move); double-click frames them. Rows + cards expose go-to-tasks, copy-id, open-pane, focus-stride affordances at W2/W3.")
+S5=$(addsec "Selectable text & nav" "Canvas text islands opt into user-select:text so a left-drag selects and copies. Section rows are interactive: single-click highlights connected task edges + nodes (no camera move); double-click frames them. Rows + cards expose go-to-tasks, copy-id, open-tab, focus-stride affordances at W2/W3.")
 S6=$(addsec "Handoff lane" "Orchestrator handoffs render as reset coins on a chronological timeline lane above the plan, linked [n-1]->[n]. W0 coin -> W1 goal+timestamp -> W2 next_actions + in-flight agents + session chips -> W3 expanded body + ack state. Latest/pending pulses; acked recedes spatially, never content-faded.")
 S7=$(addsec "Camera discipline" "Live changes NEVER move the user's camera. A new task, stride, or handoff updates the node IN PLACE; the camera transform stays byte-identical. Off-screen changes surface a directional edge marker — clicking it is a user-initiated fly-there.")
 S8=$(addsec "Uncovered work" "This section is intentionally left without tasks to verify the uncovered glyph + count surfaces in the compressed W0 view and the plan coverage bar.")
@@ -48,7 +48,7 @@ mktask(){
 stride(){ jpost /api/plans/$PID/tasks/$1/milestones "$(jq -n --arg k "$2" --arg t "$3" '{kind:$k,text:$t}')" >/dev/null; }
 setstatus(){ jpatch /api/plans/$PID/tasks/$1 "$(jq -n --arg s "$2" '{status:$s}')"; }
 
-T1=$(mktask "U1: auto-refresh on timer expiry" implement claude-opus-4-8 "deep change needs the strongest model" "Reset the usage panel proactively when a reset timer expires — no manual click. Hook the poller to fire a refresh at the boundary and re-render the cycle." "$S1,$S2" in_progress p0)
+T1=$(mktask "U1: auto-refresh on timer expiry" implement claude-opus-4-8 "deep change needs the strongest model" "Reset the usage tabl proactively when a reset timer expires — no manual click. Hook the poller to fire a refresh at the boundary and re-render the cycle." "$S1,$S2" in_progress p0)
 stride "$T1" status_update "wired the poller boundary trigger"
 stride "$T1" decision "reset at boundary, not on focus — avoids stale windows"
 stride "$T1" testing "added a fake-clock test crossing the boundary"
@@ -101,10 +101,10 @@ setstatus "$T11" cancelled
 jpost /api/plans/$PID/handoffs "$(jq -n '{goal:"Ship §32 WORLDS v2: orthogonal channels, cloud, snake, handoff lane", next_actions:["finish section nav","render handoff coins","run the §32.9 matrix"], narrative:"Handoff #1 — first reset after the channel rework landed. Cloud + snake in place; nav + handoff render remain.", mode:"new", foundational_rules:["live changes never move the camera","status by position, not opacity"]}')" >/dev/null
 jpost /api/plans/$PID/handoffs "$(jq -n '{goal:"Polish to Figma-grade and dogfood the ergonomics", next_actions:["verify done sinks","check selectable text","screenshot the board"], narrative:"Handoff #2 — second reset; verification phase.", mode:"new"}')" >/dev/null
 
-# Claim the plan to the active workspace's pane so the per-pane Plan mode surfaces
-# the board (PlanButton only shows for a pane that owns / works the plan).
-PANE=$(curl -s "${A[@]}" "$B/api/workspaces" | jq -r 'if type=="array" then . else .workspaces end | map(select(.is_active==true))[0].pane_ids[0] // empty')
-[ -n "$PANE" ] && jpost /api/plans/$PID/claim "$(jq -n --arg p "$PANE" '{owner:{pane_id:$p,session_id:null,title:"worlds2"}}')" >/dev/null && echo "claimed plan to pane $PANE"
+# Claim the plan to the active workspace's tab so the per-tab Plan mode surfaces
+# the board (PlanButton only shows for a tab that owns / works the plan).
+TAB=$(curl -s "${A[@]}" "$B/api/workspaces" | jq -r 'if type=="array" then . else .workspaces end | map(select(.is_active==true))[0].tab_ids[0] // empty')
+[ -n "$TAB" ] && jpost /api/plans/$PID/claim "$(jq -n --arg p "$TAB" '{owner:{tab_id:$p,session_id:null,title:"worlds2"}}')" >/dev/null && echo "claimed plan to tab $TAB"
 
 echo "done:"
 curl -s "${A[@]}" "$B/api/plans?project=$PROJ&full=1" | jq -r --arg p "$PID" '.plans[]|select(.id==$p)|"sections=\(.sections|length) tasks=\(.tasks|length) strides=\([.tasks[].milestones[]]|length) handoffs=\([.elements[]|select(.kind=="handoff")]|length)"'

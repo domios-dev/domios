@@ -74,7 +74,7 @@ function PromptCard({
     : "Your turn";
 
   return (
-    <div className="mt-2" data-testid="pane-pending-prompt">
+    <div className="mt-2" data-testid="tab-pending-prompt">
       <div
         className="rounded-xl px-4 py-3.5"
         style={{
@@ -98,7 +98,7 @@ function PromptCard({
         <p
           className="text-sm font-medium leading-snug"
           style={{ color: "var(--ct-fg)" }}
-          data-testid="pane-pending-prompt-question"
+          data-testid="tab-pending-prompt-question"
         >
           {pendingPrompt.question}
         </p>
@@ -130,7 +130,7 @@ function PromptCard({
               <button
                 key={opt.value}
                 type="button"
-                data-testid="pane-pending-prompt-option"
+                data-testid="tab-pending-prompt-option"
                 data-prompt-value={opt.value}
                 aria-pressed={multiSelect ? checked : undefined}
                 aria-expanded={freeText ? false : undefined}
@@ -170,7 +170,7 @@ function PromptCard({
             {multiSelect && (
               <button
                 type="button"
-                data-testid="pane-pending-prompt-confirm"
+                data-testid="tab-pending-prompt-confirm"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={confirmMulti}
                 className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[filter] hover:brightness-125"
@@ -187,7 +187,7 @@ function PromptCard({
             {submitAvailable && (
               <button
                 type="button"
-                data-testid="pane-pending-prompt-submit"
+                data-testid="tab-pending-prompt-submit"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onRespond(WIZARD_SUBMIT_VALUE)}
                 className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-[filter] hover:brightness-110"
@@ -281,7 +281,7 @@ function FreeTextEditor({
 
   return (
     <div
-      data-testid="pane-pending-prompt-freetext"
+      data-testid="tab-pending-prompt-freetext"
       className="flex w-full items-center gap-2 rounded-lg border px-2 py-1.5"
       style={{
         background: "var(--ct-surface)",
@@ -291,7 +291,7 @@ function FreeTextEditor({
       <PencilCap />
       <input
         ref={inputRef}
-        data-testid="pane-pending-prompt-freetext-input"
+        data-testid="tab-pending-prompt-freetext-input"
         type="text"
         value={text}
         placeholder={placeholder}
@@ -310,7 +310,7 @@ function FreeTextEditor({
       />
       <button
         type="button"
-        data-testid="pane-pending-prompt-freetext-accept"
+        data-testid="tab-pending-prompt-freetext-accept"
         aria-label="Accept typed answer"
         disabled={!canAccept}
         onMouseDown={(e) => e.preventDefault()}
@@ -353,7 +353,7 @@ function Stepper({ sections }: { sections: PromptSection[] }) {
   return (
     <div
       className="mb-2.5 flex flex-wrap items-center gap-1.5"
-      data-testid="pane-pending-prompt-sections"
+      data-testid="tab-pending-prompt-sections"
     >
       {sections.map((section, i) => {
         const state = section.completed ? "done" : section.active ? "active" : "todo";

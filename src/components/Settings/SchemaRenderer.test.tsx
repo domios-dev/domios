@@ -89,6 +89,36 @@ const schema: SettingField[] = [
 
 setupDom();
 
+test("schema toggles use the canonical liquid switch", async () => {
+  const patches: Partial<ProviderConfig>[] = [];
+  const { host, root } = await render(
+    <SchemaRenderer
+      schema={[{
+        kind: "toggle",
+        key: "enabled",
+        label: "Enable feature",
+        default: false,
+      }]}
+      providerId="test-provider"
+      config={config}
+      values={{ enabled: false }}
+      onChange={(_providerId, patch) => patches.push(patch)}
+    />,
+  );
+
+  const toggle = host.querySelector('[data-testid="settings-schema-toggle"]');
+  assert(toggle instanceof HTMLButtonElement, "schema toggle should render as a button");
+  assert(toggle.classList.contains("ct-liquid-toggle"), "schema toggle should use LiquidToggle");
+  assert(toggle.getAttribute("role") === "switch", "schema toggle should retain switch semantics");
+  assert(toggle.getAttribute("aria-checked") === "false", "schema toggle should expose its state");
+
+  await act(async () => toggle.click());
+  assert(patches.length === 1 && patches[0].enabled === true, "schema toggle should emit the next value");
+  assert(host.querySelector(".ct-liquid-toggle__knob--travel"), "schema toggle should start liquid travel");
+
+  await act(async () => root.unmount());
+});
+
 test("presets array-of-objects renders and serializes expected config shape", async () => {
   let values: ProviderConfig = {
     defaultPreset: "codeterm",

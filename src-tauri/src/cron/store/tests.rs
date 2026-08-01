@@ -12,6 +12,7 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
     CronCreateParams {
         name: name.to_string(),
         workspace_id: ws.to_string(),
+        team_id: None,
         schedule: schedule.to_string(),
         task: "test task".to_string(),
         description: None,
@@ -20,7 +21,8 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
         cwd: None,
         role: None,
         skill: None,
-        creator_pane_id: None,
+        creator_tab_id: None,
+        report_target_tab_id: None,
         enabled: None,
         max_history: None,
         oneshot: None,
@@ -39,8 +41,7 @@ fn set_run_session_persists_on_history_and_last_run() {
         started_at: 1,
         finished_at: None,
         status: CronRunStatus::Running,
-        pane_id: Some("p1".into()),
-        tab_id: None,
+        tab_id: Some("p1".into()),
         session_id: None,
         cwd: None,
     };
@@ -64,6 +65,35 @@ fn set_run_session_persists_on_history_and_last_run() {
 }
 
 #[test]
+fn team_jobs_keep_ownership_and_report_destination_separate() {
+    let mut store = temp_store();
+    let mut params = make_params("team-job", "workspace", "0 * * * *");
+    params.team_id = Some("team".into());
+    params.creator_tab_id = Some("creator".into());
+    params.report_target_tab_id = Some("target".into());
+
+    let job = store.create(params).unwrap();
+
+    assert_eq!(job.team_id.as_deref(), Some("team"));
+    assert_eq!(job.creator_tab_id.as_deref(), Some("creator"));
+    assert_eq!(job.report_target_tab_id.as_deref(), Some("target"));
+    assert_eq!(store.list_for_team("team").len(), 1);
+    assert!(store.list_for_team("other").is_empty());
+}
+
+#[test]
+fn protected_jobs_cannot_be_deleted() {
+    let mut store = temp_store();
+    let job = store.create(make_params("system job", "workspace", "0 * * * *")).unwrap();
+    store.get_mut(&job.id).unwrap().protected = true;
+
+    let error = store.delete(&job.id).unwrap_err();
+
+    assert!(error.contains("protected"));
+    assert!(store.get(&job.id).is_some());
+}
+
+#[test]
 fn record_failure_increments_counter_and_backs_off() {
     let mut store = temp_store();
     let job = store
@@ -79,7 +109,6 @@ fn record_failure_increments_counter_and_backs_off() {
                 started_at: 0,
                 finished_at: Some(0),
                 status: CronRunStatus::Failed,
-                pane_id: None,
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -107,7 +136,6 @@ fn record_5_failures_auto_disables_job() {
                     started_at: 0,
                     finished_at: Some(0),
                     status: CronRunStatus::Failed,
-                    pane_id: None,
                     tab_id: None,
                     session_id: None,
                     cwd: None,
@@ -139,7 +167,6 @@ fn success_resets_failure_counter() {
                     started_at: 0,
                     finished_at: Some(0),
                     status: CronRunStatus::Failed,
-                    pane_id: None,
                     tab_id: None,
                     session_id: None,
                     cwd: None,
@@ -155,7 +182,6 @@ fn success_resets_failure_counter() {
                 started_at: 0,
                 finished_at: Some(0),
                 status: CronRunStatus::Success,
-                pane_id: None,
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -210,23 +236,23 @@ fn test_cron_crud() {
 }
 
 #[test]
-fn is_job_running_tracks_registered_panes() {
+fn is_job_running_tracks_registered_tabs() {
     let mut store = temp_store();
     let job = store
         .create(make_params("Runner", "ws-1", "0 * * * *"))
         .unwrap();
     assert!(!store.is_job_running(&job.id));
 
-    store.register_pane("pane-A", &job.id, "run-1");
+    store.register_tab("tab-A", &job.id, "run-1");
     assert!(store.is_job_running(&job.id));
 
-    store.register_pane("pane-B", &job.id, "run-2");
+    store.register_tab("tab-B", &job.id, "run-2");
     assert!(store.is_job_running(&job.id));
 
-    store.unregister_pane("pane-A");
+    store.unregister_tab("tab-A");
     assert!(store.is_job_running(&job.id));
 
-    store.unregister_pane("pane-B");
+    store.unregister_tab("tab-B");
     assert!(!store.is_job_running(&job.id));
 }
 
@@ -267,7 +293,6 @@ fn test_record_run_history() {
                     started_at: 1000 + i,
                     finished_at: Some(2000 + i),
                     status: CronRunStatus::Success,
-                    pane_id: None,
                     tab_id: None,
                     session_id: None,
                     cwd: None,
@@ -327,7 +352,6 @@ fn test_oneshot_create_and_record_run() {
                 started_at: 1000,
                 finished_at: Some(2000),
                 status: CronRunStatus::Success,
-                pane_id: None,
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -557,7 +581,6 @@ fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
         started_at,
         finished_at: None,
         status,
-        pane_id: None,
         tab_id: None,
         session_id: None,
         cwd: None,

@@ -180,7 +180,7 @@ impl PlanStore {
             let task_ref = &mut p.tasks[task_idx];
             task_ref.milestones.push(Milestone {
                 id: milestone_id.clone(),
-                from: AgentRef::from_pane("loop-recorder"),
+                from: AgentRef::from_tab("loop-recorder"),
                 kind: milestone_kind,
                 text: note.trim().to_string(),
                 ts: now_ms,

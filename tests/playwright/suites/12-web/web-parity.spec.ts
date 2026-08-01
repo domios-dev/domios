@@ -38,16 +38,16 @@ type MuxState = {
   workspaces: {
     id: string;
     name: string;
-    tabs: { id: string; pane_id?: string | null }[];
+    tabs: { id: string; tab_id?: string | null }[];
   }[];
-  panes: Record<
+  tabs: Record<
     string,
     { id: string; title?: string | null; agent_type?: string | null }
   >;
 };
 
 type SpawnResult = {
-  pane_id: string;
+  tab_id: string;
   tab_id?: string;
   title?: string;
 };
@@ -192,47 +192,47 @@ async function currentMux(api: {
   return api.get<MuxState>("/mux/state");
 }
 
-function allPaneIds(mux: MuxState): Set<string> {
-  return new Set(Object.keys(mux.panes));
+function allTabIds(mux: MuxState): Set<string> {
+  return new Set(Object.keys(mux.tabs));
 }
 
 function activeWorkspaceId(mux: MuxState): string {
   const active =
     mux.active_workspace_id ??
-    mux.workspaces.find((w) => w.tabs.some((t) => t.pane_id))?.id;
+    mux.workspaces.find((w) => w.tabs.some((t) => t.tab_id))?.id;
   if (!active) throw new Error("no active workspace found for web parity test");
   return active;
 }
 
-function paneTabId(mux: MuxState, paneId: string): string | null {
+function tabTabId(mux: MuxState, tabId: string): string | null {
   for (const workspace of mux.workspaces) {
     for (const tab of workspace.tabs) {
-      if (tab.pane_id === paneId) return tab.id;
+      if (tab.tab_id === tabId) return tab.id;
     }
   }
   return null;
 }
 
-async function waitForSpawnedPane(
+async function waitForSpawnedTab(
   api: { get<T>(path: string): Promise<T> },
-  beforePaneIds: Set<string>,
+  beforeTabIds: Set<string>,
   providerId: string,
-): Promise<{ paneId: string; tabId: string; title: string }> {
+): Promise<{ tabId: string; tabId: string; title: string }> {
   return pollUntil(
     async () => {
       const mux = await currentMux(api);
-      for (const [paneId, pane] of Object.entries(mux.panes)) {
-        if (beforePaneIds.has(paneId) || pane.agent_type !== providerId)
+      for (const [tabId, tab] of Object.entries(mux.tabs)) {
+        if (beforeTabIds.has(tabId) || tab.agent_type !== providerId)
           continue;
-        const tabId = paneTabId(mux, paneId);
-        const title = pane.title?.trim();
-        if (tabId && title) return { paneId, tabId, title };
+        const tabId = tabTabId(mux, tabId);
+        const title = tab.title?.trim();
+        if (tabId && title) return { tabId, tabId, title };
       }
       return undefined;
     },
     30_000,
     500,
-    `spawned ${providerId} pane`,
+    `spawned ${providerId} tab`,
   );
 }
 
@@ -410,7 +410,7 @@ test.describe("@golden web-native parity", () => {
   test("@golden T1 naming gate: web + New session and REST no-title spawns keep generated names", async ({
     api,
     webBrowser,
-    paneCleanup,
+    tabCleanup,
   }) => {
     test.setTimeout(300_000);
     const pty = ptyProviders((await api.providers()) as ProviderDescriptor[]);
@@ -429,10 +429,10 @@ test.describe("@golden web-native parity", () => {
       const workspaceId = activeWorkspaceId(await currentMux(api));
 
       for (const provider of providers) {
-        const before = allPaneIds(await currentMux(api));
+        const before = allTabIds(await currentMux(api));
         await clickNewSession(page, provider);
-        const spawned = await waitForSpawnedPane(api, before, provider.id);
-        paneCleanup.track(spawned.paneId);
+        const spawned = await waitForSpawnedTab(api, before, provider.id);
+        tabCleanup.track(spawned.tabId);
         await expect(
           page.locator(
             `[data-testid="tab-item"][data-tab-id="${spawned.tabId}"]`,
@@ -448,14 +448,14 @@ test.describe("@golden web-native parity", () => {
         skip_permissions: true,
         activate: true,
       });
-      paneCleanup.track(restSpawn.pane_id);
-      const restPane = await pollUntil(
+      tabCleanup.track(restSpawn.tab_id);
+      const restTab = await pollUntil(
         async () => {
           const mux = await currentMux(api);
-          const pane = mux.panes[restSpawn.pane_id];
-          const tabId = paneTabId(mux, restSpawn.pane_id);
-          return pane?.title && tabId
-            ? { title: pane.title, tabId }
+          const tab = mux.tabs[restSpawn.tab_id];
+          const tabId = tabTabId(mux, restSpawn.tab_id);
+          return tab?.title && tabId
+            ? { title: tab.title, tabId }
             : undefined;
         },
         30_000,
@@ -464,10 +464,10 @@ test.describe("@golden web-native parity", () => {
       );
       await expect(
         page.locator(
-          `[data-testid="tab-item"][data-tab-id="${restPane.tabId}"]`,
+          `[data-testid="tab-item"][data-tab-id="${restTab.tabId}"]`,
         ),
-      ).toContainText(restPane.title, { timeout: 20_000 });
-      assertGeneratedSessionTitle(restPane.title, restProvider, seenTitles);
+      ).toContainText(restTab.title, { timeout: 20_000 });
+      assertGeneratedSessionTitle(restTab.title, restProvider, seenTitles);
     } finally {
       await page.context().close();
     }

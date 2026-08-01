@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.7.7"
+version = "1.7.8"
 edition = "2021"
 
 [[bin]]
@@ -27,7 +27,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1.9"
 chrono = "0.4"
 sha2 = "0.10"
-# Transliteration for `pane find` — lets users search "далтон" → "Dalton"
+# Transliteration for `tab find` — lets users search "далтон" → "Dalton"
 # without minding the input language.
 deunicode = "1"
 codeterm-mem-store = { path = "../crates/mem-store" }

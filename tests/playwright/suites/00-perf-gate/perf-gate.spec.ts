@@ -22,7 +22,7 @@ const SAMPLE_WAIT_SLACK_MS = 1_500;
 
 interface FocusViewState {
   rootMounted: boolean;
-  paneVisible: boolean;
+  tabVisible: boolean;
   tabActive: boolean;
   terminalMode: boolean;
 }
@@ -46,49 +46,49 @@ test.beforeEach(({ perfSeed }) => {
   test.skip(!perfSeed.active, STUB_ENV_ABSENT_SKIP);
 });
 
-async function markerVisible(page: Page, paneId: string, marker: string): Promise<boolean> {
+async function markerVisible(page: Page, tabId: string, marker: string): Promise<boolean> {
   return page.evaluate(
     ({ id, needle }) => {
-      const pane = document.querySelector(`[data-pane-id="${id}"]`);
-      return Array.from(pane?.querySelectorAll(".xterm-accessibility, .xterm-accessibility-tree, .xterm-rows") ?? [])
+      const tab = document.querySelector(`[data-tab-id="${id}"]`);
+      return Array.from(tab?.querySelectorAll(".xterm-accessibility, .xterm-accessibility-tree, .xterm-rows") ?? [])
         .some((root) => ((root as HTMLElement).innerText || root.textContent || "").includes(needle));
     },
-    { id: paneId, needle: marker },
+    { id: tabId, needle: marker },
   );
 }
 
-async function focusTerminal(page: Page, api: ApiClient, paneId: string): Promise<void> {
-  const pane = (await api.panes()).find((entry) => entry.id === paneId) as
+async function focusTerminal(page: Page, api: ApiClient, tabId: string): Promise<void> {
+  const tab = (await api.tabs()).find((entry) => entry.id === tabId) as
     | { tab_id?: string; workspace_id?: string; title?: string }
     | undefined;
-  if (pane?.workspace_id) await api.focusWorkspace(pane.workspace_id);
-  if (pane?.tab_id) {
-    const tabItem = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
-    const tab = pane.title
-      ? tabItem.getByRole("button", { name: `Open tab ${pane.title}`, exact: true })
+  if (tab?.workspace_id) await api.focusWorkspace(tab.workspace_id);
+  if (tab?.tab_id) {
+    const tabItem = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
+    const tab = tab.title
+      ? tabItem.getByRole("button", { name: `Open tab ${tab.title}`, exact: true })
       : tabItem.getByRole("button");
     await tab.scrollIntoViewIfNeeded().catch(() => {});
     if (await tab.isVisible().catch(() => false)) {
       await tab.click();
       await expect(tab).toHaveAttribute("aria-current", "page", { timeout: READY_CAP_MS });
-      await api.focusPane(paneId);
+      await api.focusTab(tabId);
     }
     else {
-      await api.focusPane(paneId);
+      await api.focusTab(tabId);
       await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
     }
   } else {
-    await api.focusPane(paneId);
+    await api.focusTab(tabId);
     await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
   }
-  await expect(page.locator(`[data-pane-id="${paneId}"]`).first()).toBeVisible({ timeout: READY_CAP_MS });
-  await showTerminalView(page, paneId);
-  await expect(page.locator(`[data-pane-id="${paneId}"] [data-testid="terminal-frame"]`).first())
+  await expect(page.locator(`[data-tab-id="${tabId}"]`).first()).toBeVisible({ timeout: READY_CAP_MS });
+  await showTerminalView(page, tabId);
+  await expect(page.locator(`[data-tab-id="${tabId}"] [data-testid="terminal-frame"]`).first())
     .toHaveAttribute("aria-busy", "false", { timeout: READY_CAP_MS });
 }
 
-async function paneText(api: ApiClient, paneId: string): Promise<string> {
-  const res = await api.get<{ text?: string } | string>(`/panes/${paneId}/text`);
+async function tabText(api: ApiClient, tabId: string): Promise<string> {
+  const res = await api.get<{ text?: string } | string>(`/tabs/${tabId}/text`);
   return typeof res === "string" ? res : (res.text ?? "");
 }
 
@@ -96,50 +96,50 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function readFocusView(page: Page, api: ApiClient, paneId: string): Promise<FocusViewState> {
-  const focused = (await api.panes()).find((p) => (p as { id?: string }).id === paneId) as { focused?: boolean; tab_id?: string } | undefined;
+async function readFocusView(page: Page, api: ApiClient, tabId: string): Promise<FocusViewState> {
+  const focused = (await api.tabs()).find((p) => (p as { id?: string }).id === tabId) as { focused?: boolean; tab_id?: string } | undefined;
   const dom = await page.evaluate((id) => {
     const root = document.querySelector("#root");
-    const pane = document.querySelector(`[data-pane-id="${id}"]`) as HTMLElement | null;
-    const term = pane?.querySelector('[data-testid="pane-mode-switch"] [role="tab"][aria-selected="true"]');
+    const tab = document.querySelector(`[data-tab-id="${id}"]`) as HTMLElement | null;
+    const term = tab?.querySelector('[data-testid="tab-mode-switch"] [role="tab"][aria-selected="true"]');
     return {
       rootMounted: Boolean(root && root.childElementCount > 0),
-      paneVisible: Boolean(pane && pane.offsetParent !== null),
+      tabVisible: Boolean(tab && tab.offsetParent !== null),
       terminalMode: (term?.textContent ?? "").includes("Terminal"),
     };
-  }, paneId);
+  }, tabId);
   return { ...dom, tabActive: Boolean(focused?.focused) };
 }
 
-async function readViewport(page: Page, paneId: string): Promise<ViewportGeometry | null> {
+async function readViewport(page: Page, tabId: string): Promise<ViewportGeometry | null> {
   const raw = await page.evaluate((id) => {
-    const vp = document.querySelector(`[data-pane-id="${id}"] .xterm-viewport`) as HTMLElement | null;
+    const vp = document.querySelector(`[data-tab-id="${id}"] .xterm-viewport`) as HTMLElement | null;
     if (!vp) return null;
     return { scrollTop: vp.scrollTop, scrollHeight: vp.scrollHeight, clientHeight: vp.clientHeight };
-  }, paneId);
+  }, tabId);
   if (!raw) return null;
   const { bottomDelta, anchored } = computeAnchored(raw.scrollTop, raw.scrollHeight, raw.clientHeight);
   return { ...raw, bottomDelta, anchored };
 }
 
-// Polls pane text and DOM in the SAME pollUntil budget/cadence as before; the
+// Polls tab text and DOM in the SAME pollUntil budget/cadence as before; the
 // render oracle stays the exit condition, output timing is a side-channel probe.
-async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, marker: string, name: string, index: number): Promise<number> {
+async function sendAndMeasureRender(page: Page, api: ApiClient, tabId: string, marker: string, name: string, index: number): Promise<number> {
   const budgetMs = WRITE_RENDER_MAX_BUDGET_MS + SAMPLE_WAIT_SLACK_MS;
   const startedAt = performance.now();
   const bounce = new PerfEventBounce(
     { run: process.env.PERF_DIAG_RUN ?? `perf-${process.pid}-${test.info().workerIndex}`, test: name, index, startedAt },
     recordPerfEvent,
   );
-  await api.post(`/panes/${paneId}/send`, { text: `STUB_ECHO ${marker}\r`, raw: true });
-  bounce.record("sent", { marker, paneId, loadavg: os.loadavg() });
+  await api.post(`/tabs/${tabId}/send`, { text: `STUB_ECHO ${marker}\r`, raw: true });
+  bounce.record("sent", { marker, tabId, loadavg: os.loadavg() });
   let tOutputMs: number | null = null;
   let tRenderMs: number | null = null;
   await pollUntil(
     async () => {
       if (tOutputMs === null) {
         try {
-          if ((await paneText(api, paneId)).includes(marker)) {
+          if ((await tabText(api, tabId)).includes(marker)) {
             tOutputMs = performance.now() - startedAt;
             bounce.record("output", { marker, loadavg: os.loadavg() });
           }
@@ -147,9 +147,9 @@ async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, 
           bounce.record("output-error", { error: errorText(error), loadavg: os.loadavg() });
         }
       }
-      if (await markerVisible(page, paneId, marker)) {
+      if (await markerVisible(page, tabId, marker)) {
         tRenderMs = performance.now() - startedAt;
-        const [focus, viewport] = await Promise.all([readFocusView(page, api, paneId), readViewport(page, paneId)]);
+        const [focus, viewport] = await Promise.all([readFocusView(page, api, tabId), readViewport(page, tabId)]);
         bounce.record("render", { marker, loadavg: os.loadavg(), focus, viewport }, tRenderMs);
         return true;
       }
@@ -159,17 +159,17 @@ async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, 
     50,
     `visible marker ${marker}`,
   ).catch(() => undefined);
-  if (tRenderMs === null) await captureFailureDiagnostics(page, api, paneId, marker, name, index, budgetMs, bounce);
+  if (tRenderMs === null) await captureFailureDiagnostics(page, api, tabId, marker, name, index, budgetMs, bounce);
   return tRenderMs ?? performance.now() - startedAt;
 }
 
 // Bounded single diagnostic pass on render timeout: one text fetch, status, DOM
 // re-poll, screenshot; throws a phase-named message. No loops/sleeps/retries.
-async function captureFailureDiagnostics(page: Page, api: ApiClient, paneId: string, marker: string, name: string, index: number, budgetMs: number, bounce: PerfEventBounce): Promise<never> {
+async function captureFailureDiagnostics(page: Page, api: ApiClient, tabId: string, marker: string, name: string, index: number, budgetMs: number, bounce: PerfEventBounce): Promise<never> {
   let finalText = "";
   let outputError: string | null = null;
   try {
-    finalText = await paneText(api, paneId);
+    finalText = await tabText(api, tabId);
     if (finalText.includes(marker) && !bounce.recorded("output")) {
       const tOutputMs = bounce.elapsedMs();
       bounce.record("output", { marker, late: true, loadavg: os.loadavg() }, tOutputMs);
@@ -178,10 +178,10 @@ async function captureFailureDiagnostics(page: Page, api: ApiClient, paneId: str
     outputError = errorText(error);
     bounce.record("output-error", { error: outputError, late: true, loadavg: os.loadavg() });
   }
-  const status = await api.get(`/panes/${paneId}/status`).catch(() => null);
-  const finalFocus = await readFocusView(page, api, paneId);
-  const finalViewport = await readViewport(page, paneId);
-  const rerender = await markerVisible(page, paneId, marker).catch(() => false);
+  const status = await api.get(`/tabs/${tabId}/status`).catch(() => null);
+  const finalFocus = await readFocusView(page, api, tabId);
+  const finalViewport = await readViewport(page, tabId);
+  const rerender = await markerVisible(page, tabId, marker).catch(() => false);
   if (rerender && !bounce.recorded("render")) {
     const tRenderMs = bounce.elapsedMs();
     bounce.record("render", { marker, late: true, loadavg: os.loadavg(), focus: finalFocus, viewport: finalViewport }, tRenderMs);
@@ -209,12 +209,12 @@ async function longtaskMs(page: Page): Promise<number> {
   return page.evaluate(() => (window as typeof window & { perfGateLongtasks?: number }).perfGateLongtasks ?? 0);
 }
 
-async function bottomAnchored(page: Page, paneId: string): Promise<boolean> {
+async function bottomAnchored(page: Page, tabId: string): Promise<boolean> {
   return page.evaluate((id) => {
-    const viewport = document.querySelector(`[data-pane-id="${id}"] .xterm-viewport`) as HTMLElement | null;
+    const viewport = document.querySelector(`[data-tab-id="${id}"] .xterm-viewport`) as HTMLElement | null;
     if (!viewport) return false;
     return viewport.scrollHeight <= viewport.clientHeight || viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 2;
-  }, paneId);
+  }, tabId);
 }
 
 test("@perf stub PTY write reaches rendered terminal within budget", async ({ ui, perfSeed }) => {
@@ -275,7 +275,7 @@ test("@perf stub cold reload reaches an interactive terminal within budget", asy
 
   const startedAt = performance.now();
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator(`[data-pane-id="${front}"] .xterm`).first()).toBeVisible({
+  await expect(page.locator(`[data-tab-id="${front}"] .xterm`).first()).toBeVisible({
     timeout: COLD_INTERACTIVE_BUDGET_MS + SAMPLE_WAIT_SLACK_MS,
   });
   await pollUntil(

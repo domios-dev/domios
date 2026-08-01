@@ -754,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn gemma_premature_close_with_dangling_pane_repairs() {
+    fn gemma_premature_close_with_dangling_tab_repairs() {
         let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" --tab 70d3bacd}}";
         let out = out_value(raw);
         // silent null and never a guessed/wrong command.

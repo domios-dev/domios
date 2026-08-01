@@ -37,7 +37,7 @@ PROVIDER=claude ./evals/orchestrator-refresh/drill.sh
 
 # Ordered drill — Codex orchestrator. NOTE: codex session usage may be
 # exhausted (resets on its own cadence); the orchestrator schedules this run
-# when headroom returns. The drill logic is identical — only the pane provider
+# when headroom returns. The drill logic is identical — only the tab provider
 # differs, and compaction is capability-keyed (no provider-id literals).
 PROVIDER=codex ./evals/orchestrator-refresh/drill.sh
 
@@ -58,7 +58,7 @@ provider-id literal:
 
 - **Mode A** — provider declares a compact command (`/compact` for Claude,
   codex per its CLI): sent via `Messenger::deliver`.
-- **Mode B** — no compact capability but a resume mechanism exists: clean pane
+- **Mode B** — no compact capability but a resume mechanism exists: clean tab
   restart + session resume.
 - **Neither** — skip-with-log. Never pretends.
 

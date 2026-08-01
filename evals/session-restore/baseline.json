@@ -3,9 +3,9 @@
   "expected": {
     "general": {
       "decoy_worker_session_seeded": true,
-      "post_pane_count": 1,
       "post_tab_count": 1,
-      "pre_pane_count": 2,
+      "post_tab_count": 1,
+      "pre_tab_count": 2,
       "pre_tab_count": 2,
       "session_id_matches_after_sid_wipe": true,
       "session_id_present_pre": true
@@ -13,8 +13,8 @@
     "scenarios": {
       "WS-claude-renamed": {
         "cwd": "C:/temp/restore-WS-claude-renamed",
-        "post_pane_count": 1,
-        "post_panes": [
+        "post_tab_count": 1,
+        "post_tabs": [
           {
             "agent_type": "claude",
             "cwd": "C:/temp/restore-WS-claude-renamed",
@@ -24,8 +24,8 @@
           }
         ],
         "post_tab_count": 1,
-        "pre_pane_count": 1,
-        "pre_panes": [
+        "pre_tab_count": 1,
+        "pre_tabs": [
           {
             "agent_type": "claude",
             "cwd": "C:/temp/restore-WS-claude-renamed",
@@ -38,8 +38,8 @@
       },
       "WS-claude-silent": {
         "cwd": "C:/temp/restore-WS-claude-silent",
-        "post_pane_count": 1,
-        "post_panes": [
+        "post_tab_count": 1,
+        "post_tabs": [
           {
             "agent_type": "claude",
             "cwd": "C:/temp/restore-WS-claude-silent",
@@ -49,8 +49,8 @@
           }
         ],
         "post_tab_count": 1,
-        "pre_pane_count": 1,
-        "pre_panes": [
+        "pre_tab_count": 1,
+        "pre_tabs": [
           {
             "agent_type": "claude",
             "cwd": "C:/temp/restore-WS-claude-silent",
@@ -63,8 +63,8 @@
       },
       "WS-claude-with-text": {
         "cwd": "C:/temp/restore-WS-claude-with-text",
-        "post_pane_count": 1,
-        "post_panes": [
+        "post_tab_count": 1,
+        "post_tabs": [
           {
             "agent_type": "claude",
             "cwd": "C:/temp/restore-WS-claude-with-text",
@@ -74,8 +74,8 @@
           }
         ],
         "post_tab_count": 1,
-        "pre_pane_count": 1,
-        "pre_panes": [
+        "pre_tab_count": 1,
+        "pre_tabs": [
           {
             "agent_type": "claude",
             "cwd": "C:/temp/restore-WS-claude-with-text",
@@ -88,17 +88,17 @@
       },
       "WS-empty": {
         "cwd": "C:/temp/restore-WS-empty",
-        "post_pane_count": 0,
-        "post_panes": [],
         "post_tab_count": 0,
-        "pre_pane_count": 0,
-        "pre_panes": [],
+        "post_tabs": [],
+        "post_tab_count": 0,
+        "pre_tab_count": 0,
+        "pre_tabs": [],
         "pre_tab_count": 0
       },
       "WS-shell-silent": {
         "cwd": "C:/temp/restore-WS-shell-silent",
-        "post_pane_count": 1,
-        "post_panes": [
+        "post_tab_count": 1,
+        "post_tabs": [
           {
             "agent_type": null,
             "cwd": "C:/temp/restore-WS-shell-silent",
@@ -108,8 +108,8 @@
           }
         ],
         "post_tab_count": 1,
-        "pre_pane_count": 1,
-        "pre_panes": [
+        "pre_tab_count": 1,
+        "pre_tabs": [
           {
             "agent_type": null,
             "cwd": "C:/temp/restore-WS-shell-silent",
@@ -122,8 +122,8 @@
       },
       "WS-shell-with-text": {
         "cwd": "C:/temp/restore-WS-shell-with-text",
-        "post_pane_count": 1,
-        "post_panes": [
+        "post_tab_count": 1,
+        "post_tabs": [
           {
             "agent_type": null,
             "cwd": "C:/temp/restore-WS-shell-with-text",
@@ -133,8 +133,8 @@
           }
         ],
         "post_tab_count": 1,
-        "pre_pane_count": 1,
-        "pre_panes": [
+        "pre_tab_count": 1,
+        "pre_tabs": [
           {
             "agent_type": null,
             "cwd": "C:/temp/restore-WS-shell-with-text",
@@ -152,7 +152,7 @@
     }
   },
   "tolerances": {
-    "general_pane_count_abs": 1,
+    "general_tab_count_abs": 1,
     "general_tab_count_abs": 1
   },
   "version": 1

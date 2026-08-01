@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::routes::{check_auth, resolve_pane, AppState};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::multiplexer::types::AgentRole;
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
@@ -61,7 +61,7 @@ pub(crate) struct SpawnAgentBody {
     description: Option<String>,
     role: Option<String>,
     role_profile: Option<String>,
-    parent_pane_id: Option<String>,
+    parent_tab_id: Option<String>,
     #[serde(alias = "plan")]
     plan_id: Option<String>,
     can_spawn: Option<bool>,
@@ -71,18 +71,18 @@ pub(crate) struct SpawnAgentBody {
     plan_task: Option<String>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
-    report_target_pane_id: Option<String>,
-    /// User-facing report target (pane id or `main`/`general` alias). Collapses
-    /// into `report_target_pane_id`; with `origin_peer` it's a pane on that peer.
+    report_target_tab_id: Option<String>,
+    /// User-facing report target (tab id or `main`/`general` alias). Collapses
+    /// into `report_target_tab_id`; with `origin_peer` it's a tab on that peer.
     report_to: Option<String>,
     /// Originating peer, injected by the mesh relay from the authenticated signed
     /// token (never client-supplied). Present ⇒ this spawn was relayed across the
     /// mesh and the worker should report back to `report_to` on that peer.
     origin_peer: Option<String>,
     skip_permissions: Option<bool>,
-    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
-    /// Recorded on the spawned pane for report routing fallback.
-    spawned_by_pane_id: Option<String>,
+    /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID).
+    /// Recorded on the spawned tab for report routing fallback.
+    spawned_by_tab_id: Option<String>,
     /// Model selector — provider decides flag syntax via
     /// AgentProvider::model_launch_args.
     model: Option<String>,
@@ -98,10 +98,14 @@ pub(crate) struct SpawnAgentBody {
     nudge_cooldown_secs: Option<u64>,
     max_actions_per_tick: Option<u32>,
     activate: Option<bool>,
+    /// Audience for input-request notifications. `automation` declares a tab
+    /// (bench/probe) whose prompts have no human owner and must never bell.
+    #[serde(default)]
+    audience: crate::multiplexer::types::TabAudience,
 }
 
-/// Orchestrator-side remote (cross-mesh) workers. `?pane=<id>` filters to one
-/// orchestrator's workers; otherwise returns the full `{ pane_id: [...] }` map.
+/// Orchestrator-side remote (cross-mesh) workers. `?tab=<id>` filters to one
+/// orchestrator's workers; otherwise returns the full `{ tab_id: [...] }` map.
 pub async fn remote_workers(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -109,8 +113,8 @@ pub async fn remote_workers(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let reg = &state.svc.remote_workers;
-    let value = match params.get("pane").filter(|s| !s.is_empty()) {
-        Some(pane) => serde_json::json!(reg.for_orchestrator(pane)),
+    let value = match params.get("tab").filter(|s| !s.is_empty()) {
+        Some(tab) => serde_json::json!(reg.for_orchestrator(tab)),
         None => serde_json::json!(reg.snapshot()),
     };
     Ok(Json(value))
@@ -118,14 +122,14 @@ pub async fn remote_workers(
 
 #[derive(Deserialize)]
 pub(crate) struct RecordRemoteWorkerBody {
-    /// Local report-target / orchestrator pane the remote worker reports to
-    /// (pane id or `main`/`general` alias). Resolved the same way as the
+    /// Local report-target / orchestrator tab the remote worker reports to
+    /// (tab id or `main`/`general` alias). Resolved the same way as the
     /// inbound report path so spawn-time and report-time entries share a key.
-    orchestrator_pane: String,
+    orchestrator_tab: String,
     /// Paired peer (instance name) the worker runs on.
     peer: String,
-    /// The worker's pane id on that peer.
-    remote_pane: String,
+    /// The worker's tab id on that peer.
+    remote_tab: String,
     title: Option<String>,
     model: Option<String>,
 }
@@ -139,20 +143,20 @@ pub async fn record_remote_worker(
     Json(body): Json<RecordRemoteWorkerBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    if body.peer.trim().is_empty() || body.remote_pane.trim().is_empty() {
+    if body.peer.trim().is_empty() || body.remote_tab.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "peer and remote_pane required".into(),
+            "peer and remote_tab required".into(),
         ));
     }
     let orchestrator =
-        resolve_pane(&state, &body.orchestrator_pane).map_err(|(s, m)| (s, m.to_string()))?;
+        resolve_tab(&state, &body.orchestrator_tab).map_err(|(s, m)| (s, m.to_string()))?;
     let title = body
         .title
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or(&body.remote_pane);
+        .unwrap_or(&body.remote_tab);
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -160,7 +164,7 @@ pub async fn record_remote_worker(
     state.svc.remote_workers.record_spawn(
         &orchestrator,
         &body.peer,
-        &body.remote_pane,
+        &body.remote_tab,
         title,
         body.model.clone(),
         now_ms,
@@ -171,39 +175,39 @@ pub async fn record_remote_worker(
 
 #[derive(Deserialize)]
 pub(crate) struct ForgetRemoteWorkerBody {
-    /// Foreign pane id on the remote peer.
-    remote_pane: String,
+    /// Foreign tab id on the remote peer.
+    remote_tab: String,
     peer: Option<String>,
-    orchestrator_pane: Option<String>,
+    orchestrator_tab: Option<String>,
 }
 
 /// Dismiss a remote-worker ghost from the origin sidebar (e.g. after the remote
-/// pane was closed). Also reached implicitly via `DELETE /api/panes/{id}/role`
-/// when `{id}` is not a local pane.
+/// tab was closed). Also reached implicitly via `DELETE /api/tabs/{id}/role`
+/// when `{id}` is not a local tab.
 pub async fn forget_remote_worker(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<ForgetRemoteWorkerBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    if body.remote_pane.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "remote_pane required".into()));
+    if body.remote_tab.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "remote_tab required".into()));
     }
     let orchestrator = body
-        .orchestrator_pane
+        .orchestrator_tab
         .as_deref()
         .filter(|s| !s.is_empty())
-        .map(|p| resolve_pane(&state, p).map_err(|(s, m)| (s, m.to_string())))
+        .map(|p| resolve_tab(&state, p).map_err(|(s, m)| (s, m.to_string())))
         .transpose()?;
-    let touched = state.svc.remote_workers.forget_by_remote_pane(
-        body.remote_pane.trim(),
+    let touched = state.svc.remote_workers.forget_by_remote_tab(
+        body.remote_tab.trim(),
         body.peer.as_deref().filter(|s| !s.is_empty()),
         orchestrator.as_deref(),
     );
     if touched.is_empty() {
         return Err((
             StatusCode::NOT_FOUND,
-            format!("no remote worker matching {}", body.remote_pane.trim()),
+            format!("no remote worker matching {}", body.remote_tab.trim()),
         ));
     }
     for orch in &touched {
@@ -229,6 +233,7 @@ pub async fn spawn_agent(
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
         },
     )?;
+    let starter_prompt = crate::service::starter_prompt_for_role(role_probe.role.as_deref());
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,
@@ -240,21 +245,22 @@ pub async fn spawn_agent(
         description: body.description,
         role: role_probe.role,
         role_profile: role_probe.role_profile,
-        parent_pane_id: body.parent_pane_id,
+        parent_tab_id: body.parent_tab_id,
         plan_id: body.plan_id,
         can_spawn: body.can_spawn,
         task: body.task,
-        starter_prompt: Default::default(),
+        starter_prompt,
         task_id: body.task_id,
+        task_launch_authority: None,
         plan_task: body.plan_task,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         existing_tab_id: None,
         skip_orchestrator_onboarding: None,
-        report_target_pane_id: body.report_to.or(body.report_target_pane_id),
+        report_target_tab_id: body.report_to.or(body.report_target_tab_id),
         report_target_mesh_peer: body.origin_peer,
         skip_permissions: body.skip_permissions,
-        spawned_by_pane_id: body.spawned_by_pane_id,
+        spawned_by_tab_id: body.spawned_by_tab_id,
         model: body.model,
         planned_model: None,
         reasoning_effort: body.reasoning_effort,
@@ -266,18 +272,37 @@ pub async fn spawn_agent(
         nudge_cooldown_secs: body.nudge_cooldown_secs,
         max_actions_per_tick: body.max_actions_per_tick,
         activate: body.activate,
+        audience: body.audience,
         manager_bootstrap: None,
         structured_prompt_server: None,
     };
+    let plan_task = params.plan_task.clone();
     let result = state
         .svc
         .spawn_agent(params, None)
         .await
         .map_err(SpawnRejection::from)?;
+    let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
+        match state.svc.arm_bound_worker_ack_deadline_for_tab(
+            &result.tab_id,
+            format!("codeterm agent spawn --plan-task {task_ref}"),
+        ) {
+            Ok(true) => None,
+            Ok(false) => Some(format!(
+                "worker ACK tracking was not armed for task-bound tab {}",
+                result.tab_id
+            )),
+            Err(error) => Some(format!(
+                "worker ACK tracking failed for tab {}: {error}",
+                result.tab_id
+            )),
+        }
+    } else {
+        None
+    };
 
     let mut resp = serde_json::json!({
-        "id": result.pane_id,
-        "pane_id": result.pane_id,
+        "id": result.tab_id,
         "tab_id": result.tab_id,
         "pty_id": result.pty_id,
         "agent": result.agent,
@@ -293,6 +318,13 @@ pub async fn spawn_agent(
     });
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
+    }
+    if let Some(warning) = ack_warning {
+        resp["orchestration_incident"] = serde_json::json!({
+            "kind": "worker_ack_tracking_failed",
+            "impact": warning,
+            "fallback": "Inspect the existing tab once. Do not blind-resend.",
+        });
     }
     if let Some(ref fallback) = result.model_fallback {
         resp["model_fallback"] = serde_json::json!(fallback);
@@ -379,11 +411,13 @@ pub(crate) struct SetRoleBody {
     role: String,
     #[serde(default)]
     role_profile: Option<String>,
-    parent_pane_id: Option<String>,
+    #[serde(default)]
+    plan_id: Option<String>,
+    parent_tab_id: Option<String>,
     can_spawn: Option<bool>,
 }
 
-pub async fn set_pane_role(
+pub async fn set_tab_role(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -403,20 +437,52 @@ pub async fn set_pane_role(
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let was_orchestrator = {
         let mux = state.svc.mux.read();
-        mux.get_pane(&id)
+        mux.get_tab(&id)
             .map(|p| p.role == Some(AgentRole::Orchestrator))
             .unwrap_or(false)
     };
+    let destination = match parsed_role {
+        AgentRole::Orchestrator => crate::service::AgentPlacement::Orchestrator {
+            can_spawn: body.can_spawn.unwrap_or(true),
+        },
+        AgentRole::Worker => crate::service::AgentPlacement::Worker {
+            parent_tab_id: body.parent_tab_id.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Worker requires a parent_tab_id".to_string(),
+                )
+            })?,
+        },
+        AgentRole::Manager if role_probe.role_profile.as_deref() == Some("planner") => {
+            crate::service::AgentPlacement::Planner {
+                plan_id: body.plan_id.ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "Planner requires a plan_id".to_string(),
+                    )
+                })?,
+            }
+        }
+        AgentRole::Manager => crate::service::AgentPlacement::Manager {
+            parent_tab_id: body.parent_tab_id.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Manager requires a parent_tab_id".to_string(),
+                )
+            })?,
+            role_profile: role_probe.role_profile,
+        },
+    };
     state
         .svc
-        .set_pane_role(&id, &role, body.parent_pane_id.as_deref(), body.can_spawn)
+        .transition_agent(crate::service::AgentTransitionRequest {
+            tab_id: id.clone(),
+            destination,
+            require_verified_session: true,
+            planner_replacement: None,
+            plan_rebind: None,
+        })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if let Some(profile) = role_probe.role_profile {
-        if let Some(pane) = state.svc.mux.write().get_pane_mut(&id) {
-            pane.role_profile = Some(profile);
-        }
-        state.svc.emit_state_changed();
-    }
     if parsed_role == AgentRole::Orchestrator {
         state
             .svc
@@ -425,7 +491,7 @@ pub async fn set_pane_role(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-pub async fn clear_pane_role(
+pub async fn clear_tab_role(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -433,7 +499,7 @@ pub async fn clear_pane_role(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state
         .svc
-        .clear_pane_role(&id)
+        .clear_tab_role(&id)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -451,16 +517,42 @@ pub async fn make_orchestrator(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-pub async fn get_pane_status(
+#[derive(Deserialize)]
+pub(crate) struct MakePlannerBody {
+    plan_id: String,
+}
+
+pub async fn make_planner(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<MakePlannerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .transition_plan_planner(
+            &body.plan_id,
+            Some(crate::plan::PlannerRef::Tab {
+                tab_id: id,
+                session_id: None,
+                title: None,
+            }),
+        )
+        .map_err(|error| (StatusCode::CONFLICT, error))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn get_tab_status(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let pane_id = resolve_pane(&state, &id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &id).map_err(|(s, m)| (s, m.to_string()))?;
     let info = state
         .svc
-        .get_pane_status(&pane_id)
+        .get_tab_status(&tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::to_value(info).unwrap()))
 }
@@ -498,7 +590,7 @@ pub async fn submit_report(
         "accepted": true,
         "state": "recorded",
         "report_id": result.report_id,
-        "target_tab_id": result.orchestrator_pane_id,
+        "target_tab_id": result.orchestrator_tab_id,
     })))
 }
 
@@ -550,17 +642,46 @@ fn default_grace_secs() -> u64 {
     crate::service::agent_restart::DEFAULT_GRACE_SECS
 }
 
+fn agent_restart_response(
+    outcome: &crate::service::agent_restart::RestartOutcome,
+) -> serde_json::Value {
+    serde_json::json!({
+        "restart_accepted": outcome.restart_accepted,
+        "old_pty_torn_down": outcome.old_pty_torn_down,
+        "agent_ready": outcome.agent_ready,
+        "old_pty_id": outcome.old_pty_id,
+        "new_pty_id": outcome.new_pty_id,
+        "tab_id": outcome.tab_id,
+        "provider": outcome.provider,
+        "session_id": outcome.session_id,
+        "session_was_stale": outcome.session_was_stale,
+        "session_action": outcome.session_action(),
+        "auto_approve": outcome.auto_approve,
+        "permission_profile": outcome.permission_profile(),
+        "force": outcome.force,
+    })
+}
+
+fn agent_restart_failure_response(
+    outcome: &crate::service::agent_restart::RestartOutcome,
+    reason: &str,
+) -> serde_json::Value {
+    let mut response = agent_restart_response(outcome);
+    response["error"] = serde_json::Value::String(reason.to_string());
+    response
+}
+
 pub async fn agent_restart_handler(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
     body: Option<Json<AgentRestartBody>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     if let Err((status, msg)) = check_auth(&state, &headers) {
         return (status, msg.to_string()).into_response();
     }
-    let pane_id = match resolve_pane(&state, &raw_pane_id) {
+    let tab_id = match resolve_tab(&state, &raw_tab_id) {
         Ok(p) => p,
         Err((status, msg)) => return (status, msg.to_string()).into_response(),
     };
@@ -569,34 +690,58 @@ pub async fn agent_restart_handler(
         grace_secs: default_grace_secs(),
     });
 
-    match state
-        .svc
-        .agent_restart(&pane_id, body.force, body.grace_secs)
-    {
-        Ok(outcome) => (
-            StatusCode::ACCEPTED,
-            Json(serde_json::json!({
-                "restarting": true,
-                "pane_id": outcome.pane_id,
-                "provider": outcome.provider,
-                "session_id": outcome.session_id,
-                "session_was_stale": outcome.session_was_stale,
-                "session_action": outcome.session_action(),
-                "auto_approve": outcome.auto_approve,
-                "permission_profile": outcome.permission_profile(),
-                "force": outcome.force,
-            })),
+    let svc = state.svc.clone();
+    let force = body.force;
+    let grace_secs = body.grace_secs;
+    let attempt =
+        tokio::task::spawn_blocking(move || svc.agent_restart_observed(&tab_id, force, grace_secs))
+            .await;
+    let attempt = match attempt {
+        Ok(attempt) => attempt,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("restart worker failed: {error}"),
+                    "restart_accepted": false,
+                    "old_pty_torn_down": false,
+                    "agent_ready": false,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    match attempt {
+        Ok(outcome) => {
+            (StatusCode::ACCEPTED, Json(agent_restart_response(&outcome))).into_response()
+        }
+        Err(crate::service::agent_restart::RestartAttemptError::Failed {
+            outcome,
+            reason,
+            timed_out,
+        }) => (
+            if timed_out {
+                StatusCode::GATEWAY_TIMEOUT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+            Json(agent_restart_failure_response(&outcome, &reason)),
         )
             .into_response(),
-        Err(crate::service::agent_restart::AgentRestartError::NotFound(m)) => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response()
-        }
-        Err(crate::service::agent_restart::AgentRestartError::BadRequest(m)) => (
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::NotFound(m),
+        )) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response(),
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::BadRequest(m),
+        )) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": m})),
         )
             .into_response(),
-        Err(crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs }) => {
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs },
+        )) => {
             let mut h = HeaderMap::new();
             h.insert("Retry-After", retry_after_secs.to_string().parse().unwrap());
             (
@@ -609,7 +754,9 @@ pub async fn agent_restart_handler(
             )
                 .into_response()
         }
-        Err(crate::service::agent_restart::AgentRestartError::Internal(m)) => (
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::Internal(m),
+        )) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": m})),
         )
@@ -620,18 +767,18 @@ pub async fn agent_restart_handler(
 pub async fn respond_prompt(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     let value = body
         .get("value")
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
         .to_string();
     let svc = state.svc.clone();
-    let pid = pane_id.clone();
+    let pid = tab_id.clone();
     tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))
         .await
         .map_err(|_| {
@@ -647,27 +794,27 @@ pub async fn respond_prompt(
 /// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
 pub async fn clear_prompt(
     AxumState(state): AxumState<AppState>,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     state
         .svc
-        .clear_prompt(&pane_id)
+        .clear_prompt(&tab_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// Set agent type on a pane (enables chat view for that agent's provider).
+/// Set agent type on a tab (enables chat view for that agent's provider).
 pub async fn set_agent_type(
     AxumState(state): AxumState<AppState>,
-    Path(pane_id): Path<String>,
+    Path(tab_id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let agent_type = body
         .get("agent_type")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    state.svc.set_pane_agent_type(&pane_id, agent_type);
+    state.svc.set_tab_agent_type(&tab_id, agent_type);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -678,9 +825,7 @@ pub async fn list_agent_providers(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    Ok(Json(serde_json::Value::Array(list_agent_provider_values(
-        &state.svc.provider_registry,
-    ))))
+    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
 }
 
 /// Public provider list for local plugin verification/UI smoke checks.
@@ -689,13 +834,28 @@ pub async fn list_agent_providers(
 pub async fn list_agent_providers_public(
     AxumState(state): AxumState<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    Ok(Json(serde_json::Value::Array(list_agent_provider_values(
-        &state.svc.provider_registry,
-    ))))
+    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
+}
+
+async fn list_agent_providers_blocking(
+    registry: std::sync::Arc<crate::provider::ProviderRegistry>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
+        Json(serde_json::Value::Array(list_agent_provider_values(
+            &registry,
+        )))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("provider catalog worker failed: {error}"),
+        )
+    })
 }
 
 /// Web-mirror twin of the `restart_general_agent` Tauri command — kills the
-/// protected General Agent pane's PTY and relaunches it. Fire-and-forget,
+/// protected General Agent tab's PTY and relaunches it. Fire-and-forget,
 /// same as the desktop command.
 pub async fn restart_general_agent(
     AxumState(state): AxumState<AppState>,
@@ -721,16 +881,16 @@ pub async fn restart_general_agent(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-pub async fn restart_general_agent_pane(
+pub async fn restart_general_agent_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    axum::extract::Path(pane_id): axum::extract::Path<String>,
+    axum::extract::Path(tab_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
     let mux = svc.mux.clone();
     let should_restart =
-        crate::service::general_agent::claim_general_agent_pane_retry(&pane_id, &mux)
+        crate::service::general_agent::claim_general_agent_tab_retry(&tab_id, &mux)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     if !should_restart {
         return Ok(Json(serde_json::json!({"ok": true, "restarted": false})));
@@ -775,17 +935,20 @@ pub async fn complete_general_agent_first_run(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// Web-mirror twin of `install_provider_in_pane`.
-pub async fn install_provider_in_pane(
+/// Web-mirror twin of `install_provider_in_tab`.
+pub async fn install_provider_in_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
-) -> Result<Json<crate::commands::InstallPaneResult>, (StatusCode, String)> {
+) -> Result<Json<crate::commands::InstallTabResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    crate::commands::install_provider_in_pane_core(&state.svc, provider_id)
+    crate::commands::install_provider_in_tab_core(&state.svc, provider_id)
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
+
+#[cfg(test)]
+mod restart_tests;
 
 #[cfg(test)]
 mod tests {
@@ -980,8 +1143,7 @@ mod tests {
         );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
-        // list_models() getter, so this stays empty by design.
-        assert_eq!(shell["available_models"].as_array().unwrap().len(), 0);
+        assert_eq!(shell["available_models"][0]["id"], "qwen");
     }
 
     #[test]

@@ -6,7 +6,7 @@ import { consumePendingCommand } from "../../lib/pendingCommands";
 export interface UseShellIntegrationOptions {
   termRef: React.MutableRefObject<Terminal | null>;
   connectedPtyRef: React.MutableRefObject<string | null>;
-  paneId: string;
+  tabId: string;
   ptyId?: string | null;
   termReady: boolean;
 }
@@ -21,14 +21,14 @@ export interface UseShellIntegrationReturn {
 export function useShellIntegration({
   termRef,
   connectedPtyRef,
-  paneId,
+  tabId,
   ptyId,
   termReady,
 }: UseShellIntegrationOptions): UseShellIntegrationReturn {
   const [shellReady, setShellReady] = useState(!!ptyId);
   const [overlayVisible, setOverlayVisible] = useState(!ptyId);
 
-  // protected panes mount before backend reports ptyId; useState initialiser fires only once.
+  // protected tabs mount before backend reports ptyId; useState initialiser fires only once.
   useEffect(() => {
     if (ptyId) setShellReady(true);
   }, [ptyId]);
@@ -49,10 +49,10 @@ export function useShellIntegration({
       if (!shellReady) return false;
       const ptyIdNow = connectedPtyRef.current;
       if (!ptyIdNow) return false;
-      const cmd = consumePendingCommand(paneId);
+      const cmd = consumePendingCommand(tabId);
       if (!cmd) return true;
       pendingCommandFired.current = true;
-      console.log(`[spawn] Firing pending command in pane ${paneId}: ${cmd}`);
+      console.log(`[spawn] Firing pending command in tab ${tabId}: ${cmd}`);
       // No-verify launch writer (no agent TUI exists pre-boot).
       invoke("write_pty_launch_command", { ptyId: ptyIdNow, command: cmd });
       return true;
@@ -66,12 +66,12 @@ export function useShellIntegration({
       if (tryFire() || attempts > 75) {
         clearInterval(interval);
         if (attempts > 75 && !pendingCommandFired.current) {
-          console.warn(`[spawn] Pending command timeout for pane ${paneId}`);
+          console.warn(`[spawn] Pending command timeout for tab ${tabId}`);
         }
       }
     }, 200);
     return () => clearInterval(interval);
-  }, [shellReady, paneId, connectedPtyRef]);
+  }, [shellReady, tabId, connectedPtyRef]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -83,18 +83,18 @@ export function useShellIntegration({
         let dir = decodeURIComponent(url.pathname);
         if (/^\/[A-Z]:/i.test(dir)) dir = dir.slice(1);
         if (dir && dir.length > 2) {
-          invoke("mux_update_pane_cwd", { paneId, cwd: dir }).catch(() => {});
+          invoke("mux_update_tab_cwd", { tabId, cwd: dir }).catch(() => {});
         }
       } catch {
         if (data && data.length > 2) {
-          invoke("mux_update_pane_cwd", { paneId, cwd: data }).catch(() => {});
+          invoke("mux_update_tab_cwd", { tabId, cwd: data }).catch(() => {});
         }
       }
       return true;
     });
 
     return () => disposable.dispose();
-  }, [termReady, termRef, paneId]);
+  }, [termReady, termRef, tabId]);
 
   // Feed output for shell readiness detection (Unix prompt patterns)
   const feedOutput = useCallback((text: string) => {

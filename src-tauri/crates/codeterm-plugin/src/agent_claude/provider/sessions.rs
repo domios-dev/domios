@@ -756,7 +756,7 @@ mod tests {
         let p = super::super::ClaudeProvider::new();
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
-        let my_sid = "mine-0000-0000-0000-000000000000"; // pane's own id (no file yet)
+        let my_sid = "mine-0000-0000-0000-000000000000"; // tab's own id (no file yet)
         let sibling_sid = "sibl-1111-1111-1111-111111111111";
         let Some(sib_path) = p.session_file_path(&cwd, sibling_sid) else {
             return;
@@ -774,7 +774,7 @@ mod tests {
         assert_eq!(
             p.detect_active_session(&cwd, my_sid),
             None,
-            "must never roll a pane onto a sibling's session (no newest-for-cwd)",
+            "must never roll a tab onto a sibling's session (no newest-for-cwd)",
         );
         let _ = std::fs::remove_file(&sib_path);
     }

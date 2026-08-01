@@ -5,16 +5,15 @@ import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Chip } from "../shared/Chip";
 
-interface InstallPaneResult {
+interface InstallTabResult {
   tab_id: string;
-  pane_id: string;
 }
 
 type Status = "checking" | "installed" | "missing";
 
 /// Per-provider Install card on the Agent settings screen. Probes
 /// `which <cli_binary>` and renders an Install button that spawns a
-/// terminal pane running the provider's install_command. Hidden when
+/// terminal tab running the provider's install_command. Hidden when
 /// the provider declares no CLI binary (nothing to install).
 export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor }) {
   const cliBinary = provider.cli_binary ?? null;
@@ -42,7 +41,7 @@ export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor
     setBusy(true);
     setError(null);
     try {
-      await invoke<InstallPaneResult>("install_provider_in_pane", { providerId: provider.id });
+      await invoke<InstallTabResult>("install_provider_in_tab", { providerId: provider.id });
     } catch (e) {
       setError(typeof e === "string" ? e : "Install failed");
     } finally {

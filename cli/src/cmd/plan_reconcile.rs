@@ -67,7 +67,7 @@ fn reconcile_command(plan_id: &str, task_id: &str, kind: &str) -> String {
         "stale_in_review" | "accepted_but_not_done" => {
             format!("codeterm task show {task_id} && codeterm plan task close {plan_id} {task_id}")
         }
-        "in_progress_pane_gone" | "bound_to_closed_pane" => {
+        "in_progress_tab_gone" | "bound_to_closed_tab" => {
             format!("codeterm task show {task_id} && codeterm plan task update {plan_id} {task_id} --status blocked --status-label needs-reassign")
         }
         _ => format!("codeterm task show {task_id} && codeterm plan reconcile {plan_id} --fix"),
@@ -94,7 +94,7 @@ mod tests {
                 {
                     "plan_id": "pl_1",
                     "task_id": "task_b",
-                    "kind": "bound_to_closed_pane",
+                    "kind": "bound_to_closed_tab",
                     "detail": "closed",
                     "suggested_fix": "clear"
                 }

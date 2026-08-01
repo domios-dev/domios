@@ -503,7 +503,7 @@ fn batch_set_task_sections_is_atomic_when_later_op_fails() {
 
 #[test]
 fn batch_set_goal_persists_goal_sidecar() {
-    let (root, store, plan_id) = store_with_plan_root();
+    let (_root, store, plan_id) = store_with_plan_root();
     store
         .apply_batch(
             &plan_id,

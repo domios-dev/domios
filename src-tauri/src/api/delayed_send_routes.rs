@@ -5,14 +5,14 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::routes::{check_auth, resolve_pane, AppState};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDelayedMessageBody {
     text: String,
     scheduled_at_ms: Option<u64>,
-    created_by_pane: Option<String>,
+    created_by_tab: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -26,11 +26,11 @@ pub struct UpdateDelayedMessageBody {
 pub async fn list(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
 ) -> Result<Json<Vec<crate::delayed_send::DelayedMessageView>>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let messages = crate::delayed_send::list_views(&state.svc, Some(pane_id))
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let messages = crate::delayed_send::list_views(&state.svc, Some(tab_id))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(messages))
 }
@@ -38,17 +38,17 @@ pub async fn list(
 pub async fn create(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(raw_pane_id): Path<String>,
+    Path(raw_tab_id): Path<String>,
     Json(body): Json<CreateDelayedMessageBody>,
 ) -> Result<Json<crate::delayed_send::DelayedMessageView>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     let msg = crate::delayed_send::create_message(
         &state.svc,
-        pane_id,
+        tab_id,
         body.text,
         body.scheduled_at_ms,
-        body.created_by_pane,
+        body.created_by_tab,
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(msg))

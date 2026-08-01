@@ -44,10 +44,10 @@ pub(super) fn cleanup_debt_findings(path: &Path, plan: &Value, task: &Value) -> 
             .and_then(|lane| lane.get("cleanup_status"))
             .and_then(Value::as_str),
         cleanup_hints: &cleanup_hints,
-        pane_id: lane
-            .and_then(|lane| lane.get("pane_id"))
+        tab_id: lane
+            .and_then(|lane| lane.get("tab_id"))
             .and_then(Value::as_str),
-        pane_live: false,
+        tab_live: false,
         worktree_path,
         worktree_exists,
         branch: lane

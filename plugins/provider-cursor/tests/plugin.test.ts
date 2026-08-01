@@ -158,8 +158,18 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
   assert(withModel.endsWith("cursor-agent --force --model auto"), "force + model args applied");
   assert(withModel.indexOf("pwd -P") !== -1, "POSIX trust prefix resolves symlinks via pwd -P");
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
-  const withTask = p.buildLaunchCommand({ skipPermissions: true, task: hostileTask });
-  assert(!withTask.includes("<location>") && !withTask.includes("whoami") && !withTask.includes("юникод"), "PTY-delivered Cursor task never enters the shell command");
+  const taskProvider = loadCursorWithHost(baseHost({
+    shell: {
+      quoteFor: (value: unknown) => JSON.stringify(String(value)),
+      quote: (value: unknown) => JSON.stringify(String(value)),
+      envPrefix: (name: unknown, value: unknown) => `${name}='${value}' `,
+    },
+  }));
+  const withTask = taskProvider.buildLaunchCommand({ skipPermissions: true, task: hostileTask });
+  assert(
+    withTask.endsWith(`cursor-agent --force ${JSON.stringify(hostileTask)}`),
+    "Cursor initial task is one shell-quoted positional prompt",
+  );
 }
 
 console.log("\n--- POSIX trustPrefix: JSON-escaped workspacePath ---\n");

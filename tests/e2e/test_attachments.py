@@ -25,7 +25,7 @@ def _identity_command(path: str, proof: str) -> str:
 class TestFileAttachment:
     """Test file attachment flow (simulates chat view sending files)."""
 
-    def test_send_text_file(self, api, shared_eager_pane):
+    def test_send_text_file(self, api, shared_eager_tab):
         """[attached: /path/to/file.txt] should be sent to PTY."""
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w") as f:
             content = "test content from e2e"
@@ -35,13 +35,13 @@ class TestFileAttachment:
         proof = unique_name("ATTACH_TXT")
         try:
             expected = f"{proof}_{len(content.encode())}_{digest}"
-            api.send_text(shared_eager_pane, text=f'{_identity_command(path, proof)} ; : "[attached: {path}]"')
-            output = api.wait_for_output(shared_eager_pane, pattern=expected, timeout=10)
+            api.send_text(shared_eager_tab, text=f'{_identity_command(path, proof)} ; : "[attached: {path}]"')
+            output = api.wait_for_output(shared_eager_tab, pattern=expected, timeout=10)
             assert expected in output
         finally:
             os.unlink(path)
 
-    def test_send_pdf(self, api, shared_eager_pane):
+    def test_send_pdf(self, api, shared_eager_tab):
         """PDF attachment path should arrive in PTY output."""
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, mode="wb") as f:
             content = b"%PDF-1.4 fake pdf"
@@ -51,13 +51,13 @@ class TestFileAttachment:
         proof = unique_name("ATTACH_PDF")
         try:
             expected = f"{proof}_{len(content)}_{digest}"
-            api.send_text(shared_eager_pane, text=f'{_identity_command(path, proof)} ; : "[attached: {path}]"')
-            output = api.wait_for_output(shared_eager_pane, pattern=expected, timeout=10)
+            api.send_text(shared_eager_tab, text=f'{_identity_command(path, proof)} ; : "[attached: {path}]"')
+            output = api.wait_for_output(shared_eager_tab, pattern=expected, timeout=10)
             assert expected in output
         finally:
             os.unlink(path)
 
-    def test_send_multiple_files(self, api, shared_eager_pane):
+    def test_send_multiple_files(self, api, shared_eager_tab):
         """Multiple [attached:] markers in one message."""
         paths = []
         expected = []
@@ -73,9 +73,9 @@ class TestFileAttachment:
                 _identity_command(path, proof)
                 for path, proof, _, _ in expected
             ]
-            api.send_text(shared_eager_pane, text="; ".join(commands))
+            api.send_text(shared_eager_tab, text="; ".join(commands))
             last = f"{expected[-1][1]}_{expected[-1][2]}_{expected[-1][3]}"
-            output = api.wait_for_output(shared_eager_pane, pattern=last, timeout=15)
+            output = api.wait_for_output(shared_eager_tab, pattern=last, timeout=15)
             for _, proof, size, digest in expected:
                 assert f"{proof}_{size}_{digest}" in output
         finally:

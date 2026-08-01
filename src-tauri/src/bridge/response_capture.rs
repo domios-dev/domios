@@ -1,6 +1,6 @@
 //! Response capture — polls agent output after sending a message (app-only).
 
-use crate::agent::status::PaneStatus;
+use crate::agent::status::TabStatus;
 use crate::{AgentTrackerState, OutputBufferState};
 use std::time::{Duration, Instant};
 
@@ -30,14 +30,14 @@ pub fn capture_response(
         }
         let status = tracker.lock().get_status(pty_id);
         match status {
-            PaneStatus::Working => {
+            TabStatus::Working => {
                 saw_working = true;
             }
-            PaneStatus::Idle if saw_working => {
+            TabStatus::Idle if saw_working => {
                 std::thread::sleep(Duration::from_millis(300));
                 break;
             }
-            PaneStatus::Dead => return Err("Agent died".to_string()),
+            TabStatus::Dead => return Err("Agent died".to_string()),
             _ => {}
         }
         std::thread::sleep(POLL_INTERVAL);

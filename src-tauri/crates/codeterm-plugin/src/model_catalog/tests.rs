@@ -35,6 +35,23 @@ fn unregistered_provider_returns_empty() {
 }
 
 #[test]
+fn override_parser_rejects_unknown_top_level_sections() {
+    let error = toml::from_str::<CatalogFile>(
+        r#"[[models]]
+id = "fixture"
+display_name = "Fixture"
+
+[[effrots]]
+id = "xhigh"
+display_name = "Extra high"
+"#,
+    )
+    .expect_err("unknown override sections must not be silently discarded");
+
+    assert!(error.to_string().contains("unknown field"));
+}
+
+#[test]
 fn merge_replaces_same_id_keeps_position_and_appends_new() {
     // Built-ins: opus, sonnet, haiku in that order. User override: re-titles sonnet, adds custom finetune. Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
     let builtin = vec![
@@ -104,6 +121,37 @@ fn merge_with_empty_builtin_is_override_verbatim() {
     let merged = merge_models(&[], &overrides);
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].id, "x");
+}
+
+#[test]
+fn reregistering_unchanged_seed_keeps_live_overlay_changed_seed_replaces_it() {
+    let id = "test-reregister-live-overlay";
+    cleanup(id);
+    let seed = RegisteredDefaults {
+        models: vec![model("m1", "Seed")],
+        default: Some("m1".into()),
+    };
+    register(id, seed.clone());
+    put_live(id, vec![model("m1", "Live")], Some("m1".into()));
+
+    register(id, seed); // rescan/hot-reload with the identical seed
+    assert_eq!(
+        resolve_models(id)[0].display_name, "Live",
+        "unchanged seed re-registration must not drop a genuine live overlay"
+    );
+
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("m1", "Newer Seed")],
+            default: Some("m1".into()),
+        },
+    );
+    assert_eq!(
+        resolve_models(id)[0].display_name, "Newer Seed",
+        "a changed seed invalidates the prior live overlay"
+    );
+    cleanup(id);
 }
 
 #[test]
@@ -374,6 +422,7 @@ impl AgentProvider for DiscoverStub {
 
 fn cleanup(id: &str) {
     registry().write().remove(id);
+    seed_registry().write().remove(id);
     let _ = std::fs::remove_file(cache_path(id));
 }
 
@@ -408,6 +457,7 @@ fn prime_does_not_clobber_a_live_snapshot() {
         fetched_at_unix: 1,
         default: Some("old".into()),
         models: vec![model("old", "Old")],
+        seed_fingerprint: None,
     };
     std::fs::write(cache_path(id), serde_json::to_string(&payload).unwrap()).unwrap();
     put_live(id, vec![model("new", "New")], Some("new".into()));
@@ -488,6 +538,134 @@ async fn refresh_live_empty_after_sanitize_keeps_seed() {
     });
     assert!(refresh_live(stub, Duration::from_secs(1)).await.is_none());
     assert_eq!(resolve_models(id)[0].id, "seed");
+    cleanup(id);
+}
+
+#[test]
+fn legacy_live_cache_without_seed_fingerprint_is_rejected() {
+    let id = "test-legacy-cache-no-fingerprint";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("seed", "Seed")],
+            default: Some("seed".into()),
+        },
+    );
+    let legacy = serde_json::json!({
+        "fetched_at_unix": 1_700_000_000u64,
+        "default": "stale",
+        "models": [{ "id": "stale", "display_name": "Stale Live" }],
+    });
+    std::fs::write(cache_path(id), legacy.to_string()).unwrap();
+
+    prime_from_cache(id);
+
+    let models = resolve_models(id);
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        models[0].id, "seed",
+        "cache without a seed fingerprint must never replace the registered seed"
+    );
+    cleanup(id);
+}
+
+#[test]
+fn live_cache_from_prior_seed_fingerprint_is_rejected() {
+    let id = "test-mismatched-seed-fingerprint";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("opus", "Old Label 4.8")],
+            default: Some("opus".into()),
+        },
+    );
+    // The old build persisted a live snapshot fingerprinted against its seed.
+    put_live(id, vec![model("opus", "Live From Old Seed")], Some("opus".into()));
+    // A new build ships an updated seed and restarts.
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("opus", "New Label 5")],
+            default: Some("opus".into()),
+        },
+    );
+
+    prime_from_cache(id);
+
+    assert_eq!(
+        resolve_models(id)[0].display_name, "New Label 5",
+        "cache captured against a prior seed must be rejected before priming"
+    );
+    assert!(
+        is_stale(id, DEFAULT_TTL, SystemTime::now()),
+        "a rejected cache must not carry its TTL forward"
+    );
+    cleanup(id);
+}
+
+#[test]
+fn matching_seed_fingerprint_primes_genuine_live_cache() {
+    let id = "test-matching-fingerprint-primes";
+    cleanup(id);
+    let seed = RegisteredDefaults {
+        models: vec![model("opus", "Seed")],
+        default: Some("opus".into()),
+    };
+    register(id, seed.clone());
+    put_live(
+        id,
+        vec![ModelInfo {
+            id: "opus".into(),
+            display_name: "Live".into(),
+            description: None,
+            available: Some(true),
+        }],
+        Some("opus".into()),
+    );
+    // Restart against the SAME seed: startup registers, then warm-starts.
+    registry().write().remove(id);
+    seed_registry().write().remove(id);
+    register(id, seed);
+    prime_from_cache(id);
+
+    let models = resolve_models(id);
+    assert_eq!(models[0].display_name, "Live");
+    assert_eq!(models[0].available, Some(true));
+    let fetched_at = test_live_fetched_at(id);
+    assert!(!is_stale(id, DEFAULT_TTL, fetched_at + Duration::from_secs(1)));
+    cleanup(id);
+}
+
+#[tokio::test]
+async fn null_discovery_keeps_seed_and_writes_no_live_cache() {
+    let id = "test-null-discovery-no-cache";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("seed", "Seed")],
+            default: Some("seed".into()),
+        },
+    );
+    let stub = Arc::new(DiscoverStub {
+        id: id.into(),
+        default: None,
+        discovery: None,
+    });
+
+    assert!(refresh_live(stub, Duration::from_secs(5)).await.is_none());
+
+    assert!(
+        !cache_path(id).exists(),
+        "null discovery must not write a live cache file"
+    );
+    assert_eq!(resolve_models(id)[0].id, "seed");
+    assert!(
+        is_stale(id, DEFAULT_TTL, SystemTime::now()),
+        "null discovery must not start the live TTL"
+    );
     cleanup(id);
 }
 

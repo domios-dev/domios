@@ -7,15 +7,15 @@ use super::ServiceContext;
 pub(super) fn deliver_hidden_pty_task(
     svc: &ServiceContext,
     pty_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     provider: &str,
     task_text: &str,
 ) -> Result<(), String> {
     if !svc.await_agent_tui_on_screen(pty_id, provider, std::time::Duration::from_secs(15)) {
         log::warn!(
-            "[spawn.hidden] timed out waiting for agent TUI before task delivery in pane {}",
-            pane_id
+            "[spawn.hidden] timed out waiting for agent TUI before task delivery in Tab {}",
+            tab_id
         );
     }
-    svc.send_text_to_pty_smart(pty_id, task_text, true)
+    svc.send_text_to_pty(pty_id, task_text)
 }

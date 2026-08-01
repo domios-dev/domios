@@ -41,7 +41,9 @@ struct FireSpec {
     cwd: Option<String>,
     role: Option<String>,
     workspace_id: String,
-    creator_pane_id: Option<String>,
+    team_id: Option<String>,
+    creator_tab_id: Option<String>,
+    report_target_tab_id: Option<String>,
     timeout_seconds: Option<u64>,
     skill: Option<String>,
 }
@@ -74,7 +76,9 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         cwd: job.cwd.clone(),
                         role: job.role.clone(),
                         workspace_id: job.workspace_id.clone(),
-                        creator_pane_id: job.creator_pane_id.clone(),
+                        team_id: job.team_id.clone(),
+                        creator_tab_id: job.creator_tab_id.clone(),
+                        report_target_tab_id: job.report_target_tab_id.clone(),
                         timeout_seconds: job.timeout_seconds,
                         skill: job.skill.clone(),
                     });
@@ -127,7 +131,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let cwd = spec.cwd.as_deref();
     let role = spec.role.as_deref();
     let workspace_id = spec.workspace_id.as_str();
-    let creator_pane_id = spec.creator_pane_id.as_deref();
+    let report_target_tab_id = spec.report_target_tab_id.as_deref();
     let job_timeout = spec.timeout_seconds;
 
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -138,7 +142,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         started_at: cron_state.lock().now_ms(),
         finished_at: None,
         status: CronRunStatus::Running,
-        pane_id: None,
         tab_id: None,
         session_id: None,
         cwd: None,
@@ -150,14 +153,14 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         }
     }
 
-    // Spawn agent via the unified spawn_pane surface.
-    use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+    // Spawn agent via the unified spawn_tab surface.
+    use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 
     let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
     let task_text = crate::cron::task_text::build_cron_task_text(
         task,
         skill_block.as_deref(),
-        creator_pane_id,
+        report_target_tab_id,
         &run_id,
     );
 
@@ -174,62 +177,65 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         (!resolved.is_empty()).then_some(resolved)
     });
 
-    // Include cron job name in the pane title so reports show `cron:<job>` instead of plain `Terminal`.
+    // Include cron job name in the tab title so reports show `cron:<job>` instead of plain `Terminal`.
     let job_name = cron_state
         .lock()
         .get(job_id)
         .map(|j| j.name.clone())
         .unwrap_or_else(|| job_id.to_string());
-    let pane_title = format!("cron:{}", job_name);
+    let tab_title = format!("cron:{}", job_name);
 
-    let spec = SpawnPaneSpec {
+    let spec = SpawnTabSpec {
         workspace_id: if workspace_id.is_empty() {
             None
         } else {
             Some(workspace_id.to_string())
         },
-        parent_pane_id: None,
+        parent_tab_id: None,
+        team_id: spec.team_id.clone(),
+        creator_tab_id: spec.creator_tab_id.clone(),
         cwd: cwd.map(|s| s.to_string()),
-        title: Some(pane_title),
+        title: Some(tab_title),
         description: None,
         // Hidden — user observes cron runs via the cron history log viewer, not as a live tab. Mirrors the mem worker pattern.
-        visibility: PaneVisibility::Hidden,
+        visibility: TabVisibility::Hidden,
+        audience: Default::default(),
         eager: false,
-        command: PaneCommand::Agent(AgentSpawnSpec {
+        command: TabCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),
             planned_model: None,
             model,
             task: Some(task_text),
             role: role.map(|s| s.to_string()),
             auto_approve: true,
-            report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
+            report_target_tab_id: report_target_tab_id.map(str::to_string),
             spawned_by: Some(format!("cron:{}", job_id)),
             ..Default::default()
         }),
     };
 
-    match service.spawn_pane(spec) {
+    match service.spawn_tab(spec) {
         Ok(handle) => {
             log::info!(
-                "Cron agent spawned: job={}, pane={}, tab={}",
+                "Cron agent spawned: job={}, tab={}, tab={}",
                 job_id,
-                handle.pane_id,
+                handle.tab_id,
                 handle.tab_id
             );
 
             {
                 let mut store = cron_state.lock();
-                store.register_pane(&handle.pane_id, job_id, &run_id);
+                store.register_tab(&handle.tab_id, job_id, &run_id);
                 if let Some(history) = store.get_history_mut(job_id) {
                     if let Some(run) = history.iter_mut().find(|r| r.run_id == run_id) {
-                        run.pane_id = Some(handle.pane_id.clone());
+                        run.tab_id = Some(handle.tab_id.clone());
                         run.tab_id = Some(handle.tab_id.clone());
                     }
                 }
                 if let Some(job) = store.get_mut(job_id) {
                     if let Some(ref mut lr) = job.last_run {
                         if lr.run_id == run_id {
-                            lr.pane_id = Some(handle.pane_id.clone());
+                            lr.tab_id = Some(handle.tab_id.clone());
                             lr.tab_id = Some(handle.tab_id.clone());
                         }
                     }
@@ -241,7 +247,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             if let Some(pty_id) = service
                 .agent_run_pty_map
                 .lock()
-                .get(&handle.pane_id)
+                .get(&handle.tab_id)
                 .cloned()
             {
                 let global_timeout = crate::config::memory_config().worker_timeout_seconds;
@@ -257,7 +263,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                 service.run_watcher.register(
                     (**service).clone(),
                     pty_id,
-                    handle.pane_id.clone(),
+                    handle.tab_id.clone(),
                     crate::agent::run_watcher::AgentRunKind::Cron {
                         job_id: job_id.to_string(),
                         run_id: run_id.clone(),
@@ -271,7 +277,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                 serde_json::json!({
                     "cron_id": job_id,
                     "run_id": run_id,
-                    "pane_id": handle.pane_id,
+                    "tab_id": handle.tab_id,
                     "tab_id": handle.tab_id,
                 }),
             );
@@ -320,6 +326,7 @@ mod tests {
             .create(CronCreateParams {
                 name: "Enabled".into(),
                 workspace_id: "ws".into(),
+                team_id: None,
                 schedule: "0 * * * *".into(),
                 task: "test".into(),
                 description: None,
@@ -328,7 +335,8 @@ mod tests {
                 cwd: None,
                 role: None,
                 skill: None,
-                creator_pane_id: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
                 enabled: Some(true),
                 max_history: None,
                 oneshot: None,
@@ -342,6 +350,7 @@ mod tests {
             .create(CronCreateParams {
                 name: "Disabled".into(),
                 workspace_id: "ws".into(),
+                team_id: None,
                 schedule: "0 * * * *".into(),
                 task: "test".into(),
                 description: None,
@@ -350,7 +359,8 @@ mod tests {
                 cwd: None,
                 role: None,
                 skill: None,
-                creator_pane_id: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
                 enabled: Some(false),
                 max_history: None,
                 oneshot: None,

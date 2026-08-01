@@ -157,7 +157,7 @@ interface ProviderPlugin {
 
   detect(sample: { bytes: string; title?: string }): boolean;
   parseLine(line: string): ProviderEvent[];
-  statusOf(event: ProviderEvent): PaneStatus | null;
+  statusOf(event: ProviderEvent): TabStatus | null;
   Renderer: (props: RendererProps) => ReactNode;
   actions: ProviderAction[];
 
@@ -170,18 +170,18 @@ interface ProviderPlugin {
 ### Per-method contract
 
 - `detect(sample)` — cheap structural fingerprint. Called on every fresh
-  pane during warm-up. **No I/O, no allocations beyond regex matching.**
+  tab during warm-up. **No I/O, no allocations beyond regex matching.**
 - `parseLine(line)` — one JSONL line in, zero or many `ProviderEvent`s
   out. Stateless — receives raw text, returns structured events. Carry
   enough context in `payload` so `statusOf` and `Renderer` don't need
   external state.
-- `statusOf(event)` — map ONE event to a coarse pane status, or `null`
+- `statusOf(event)` — map ONE event to a coarse tab status, or `null`
   to leave the previous status untouched. Used for tab badges + push
   notifications.
 - `Renderer(props)` — React component. Receives the event list, the
-  pane status, a `send()` to write back to the PTY, and a `raw()`
+  tab status, a `send()` to write back to the PTY, and a `raw()`
   helper that mounts xterm.js if you want a "raw view" toggle.
-- `actions[]` — slash commands / buttons in pane chrome. `run()` is
+- `actions[]` — slash commands / buttons in tab chrome. `run()` is
   pure: returns the text to send, host calls `send()` for you.
 
 ## The agent-provider runtime contract (`plugin.js`)
@@ -279,7 +279,7 @@ Declarative config the host reads without running JS. Key fields:
   "spawn": {
     "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
     "taskDelivery": "pty_input",            // or "shell_arg"
-    "taskInputWarmupMs": 3000,
+    "providerReadiness": { "kind": "structural_composer", "timeoutSecs": 30 },
     "verifySubmit": { "kind": "tui_input_drained", "timeoutSecs": 15, "idleAfterDrainMs": 800 },
     "sessionIdInjection": "none",           // none | fresh | fresh_and_fork
     "hasHooks": false,
@@ -306,7 +306,7 @@ Each plugin ships per-module tests in `tests/`:
 plugins/provider-claude/tests/
 ├── parser.test.ts    ← JSONL → ChatMessage conversion
 ├── detect.test.ts    ← title regex + PTY fingerprint + noise patterns
-├── status.test.ts    ← event → PaneStatus mapping
+├── status.test.ts    ← event → TabStatus mapping
 └── plugin.test.ts    ← ProviderPlugin contract surface (meta/parseLine/
                         actions/imageSend/titlePattern/noisePatterns)
 ```
@@ -337,7 +337,7 @@ React Testing Library coverage for renderers.
 The cheapest way to get a snapshot to test against:
 
 ```bash
-# Run the provider in a CodeTerm dev pane, capture the JSONL it produces
+# Run the provider in a CodeTerm dev tab, capture the JSONL it produces
 cat ~/.<provider-config-dir>/sessions/<session-id>.jsonl > plugins/provider-<id>/tests/snapshots/<scenario>.jsonl
 ```
 
@@ -361,7 +361,7 @@ with the main `src/`. On edit:
 3. `register()` overwrites the old plugin reference.
 4. Components subscribed via `useRegistryVersion()` re-render with the
    new functions.
-5. **Pane state (events, status) is preserved** because it lives in the
+5. **Tab state (events, status) is preserved** because it lives in the
    host, not the plugin.
 
 If you don't see hot reload working: open browser devtools, look for
@@ -396,7 +396,7 @@ plugins/
     │   ├── index.ts                    ← ProviderPlugin default export
     │   ├── detect.ts                   ← title regex + PTY fingerprint
     │   ├── parser.ts                   ← JSONL → ChatMessage parser
-    │   ├── status.ts                   ← event → PaneStatus mapping
+    │   ├── status.ts                   ← event → TabStatus mapping
     │   ├── renderer.tsx                ← React renderer
     │   └── MessageBubble.tsx           ← per-message component
     └── tests/

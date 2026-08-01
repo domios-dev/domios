@@ -49,12 +49,12 @@ eq(
 
 eq(
   parseWatcherVerdictContent(
-    '{"status":"exploded","summary":"weird","actions":[{"kind":"nudge","pane":"p1","message":"hi"}]}',
+    '{"status":"exploded","summary":"weird","actions":[{"kind":"nudge","tab":"p1","message":"hi"}]}',
   ),
   {
     status: "attention",
     summary: "weird",
-    actions: [{ kind: "nudge", pane: "p1", message: "hi" }],
+    actions: [{ kind: "nudge", tab: "p1", message: "hi" }],
   },
   "unknown_status_degrades_to_attention",
 );

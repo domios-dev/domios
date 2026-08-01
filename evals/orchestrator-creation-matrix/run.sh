@@ -23,10 +23,15 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+PYTHON_BIN="$(command -v python3 || command -v python)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "ABORT: neither python3 nor python is available on PATH" >&2
+  exit 7
+fi
 
 # --- result accounting ----------------------------------------------
 declare -a ROWS           # "SCENARIO|VERDICT|detail"
-CREATED_PANES=()
+CREATED_TABS=()
 CREATED_PLANS=()
 CREATED_WS=()
 FAILS=0
@@ -45,7 +50,7 @@ gated()   { echo "  [GATED]   $1: $2"; record "$1" GATED "$2"; }
 # --- json helpers (python; portable) --------------------------------
 # js <json-string> <python-expr-on-d>
 js() {
-  python - "$2" <<PY 2>/dev/null
+  "$PYTHON_BIN" - "$2" <<PY 2>/dev/null
 import json,sys
 try:
     d=json.loads('''$1''')
@@ -60,7 +65,7 @@ PY
 cleanup() {
   echo
   echo "=== cleanup ==="
-  for p in "${CREATED_PANES[@]:-}"; do
+  for p in "${CREATED_TABS[@]:-}"; do
     [ -n "$p" ] || continue
     dc tab close "$p" >/dev/null 2>&1 && note "closed tab $p" || note "tab $p already gone"
   done
@@ -82,7 +87,7 @@ if ! curl -s --max-time 3 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
   echo "ABORT: dev daemon not healthy on 7686. Start it (orchestrator owns dev): ./build.sh dev" >&2
   exit 7
 fi
-BUILD=$(dev_get /api/health | python -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
+BUILD=$(dev_get /api/health | "$PYTHON_BIN" -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
 echo "  dev build: $BUILD"
 
 # Baseline plan-id set — cleanup sweeps everything created past this, and
@@ -113,16 +118,16 @@ mk_plan() {
   echo ""
 }
 
-pane_count() { dev_get /api/panes | python -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null; }
-plan_count() { dc plan list --json 2>/dev/null | python -c "import json,sys;d=json.load(sys.stdin);print(len(d if isinstance(d,list) else d.get('plans',[])))" 2>/dev/null; }
-pane_exists() { dev_get /api/panes | python -c "import json,sys;print(any(p.get('id')=='$1' for p in json.load(sys.stdin)))" 2>/dev/null; }
-pane_session() { dev_get "/api/panes" | python -c "import json,sys;print(next((p.get('session_id') or p.get('session') or '' for p in json.load(sys.stdin) if p.get('id')=='$1'),''))" 2>/dev/null; }
+tab_count() { dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null; }
+plan_count() { dc plan list --json 2>/dev/null | "$PYTHON_BIN" -c "import json,sys;d=json.load(sys.stdin);print(len(d if isinstance(d,list) else d.get('plans',[])))" 2>/dev/null; }
+tab_exists() { dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(any(p.get('id')=='$1' for p in json.load(sys.stdin)))" 2>/dev/null; }
+tab_session() { dev_get "/api/tabs" | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('session_id') or p.get('session') or '' for p in json.load(sys.stdin) if p.get('id')=='$1'),''))" 2>/dev/null; }
 
-# grep a pane's parsed chat transcript for a fixed string. Returns 0 if found.
-pane_chat_has() {
-  local pane="$1" needle="$2"
-  dc tab chat --tab "$pane" --json 2>/dev/null \
-    | python -c '
+# grep a tab's parsed chat transcript for a fixed string. Returns 0 if found.
+tab_chat_has() {
+  local tab="$1" needle="$2"
+  dc tab chat --tab "$tab" --json 2>/dev/null \
+    | "$PYTHON_BIN" -c '
 import json,sys
 needle=sys.argv[1]
 try:
@@ -135,11 +140,11 @@ sys.exit(0 if needle in blob else 1)
 }
 
 # grep the UI chat-start snapshot for a fixed string. This is the deterministic
-# oracle for pending_greeting; `pane chat` only reads the durable transcript.
-pane_chat_start_has() {
-  local pane="$1" needle="$2"
-  dev_post "/api/panes/$pane/chat-raw/start" '{}' \
-    | python -c '
+# oracle for pending_greeting; `tab chat` only reads the durable transcript.
+tab_chat_start_has() {
+  local tab="$1" needle="$2"
+  dev_post "/api/tabs/$tab/chat-raw/start" '{}' \
+    | "$PYTHON_BIN" -c '
 import json,sys
 needle=sys.argv[1]
 try:
@@ -151,10 +156,10 @@ sys.exit(0 if needle in blob else 1)
 ' "$needle"
 }
 
-pane_chat_tool_stats() {
-  local pane="$1"
-  dev_post "/api/panes/$pane/chat-raw/start" '{}' \
-    | python - <<'PY' 2>/dev/null
+tab_chat_tool_stats() {
+  local tab="$1"
+  dev_post "/api/tabs/$tab/chat-raw/start" '{}' \
+    | "$PYTHON_BIN" - <<'PY' 2>/dev/null
 import json,sys
 try:
     d=json.load(sys.stdin)
@@ -192,41 +197,41 @@ scenario_B() {
   out=$(dc orchestration new --orchestrator claude:opus --planner claude:fable --workspace "$WS" --json 2>&1)
   note "raw: $(echo "$out" | head -c 300)"
   plan=$(js "$out" "d.get('plan_id','')")
-  orch=$(js "$out" "d.get('orchestrator_pane_id','')")
-  planner=$(js "$out" "d.get('planner_pane_id','')")
+  orch=$(js "$out" "d.get('orchestrator_tab_id','')")
+  planner=$(js "$out" "d.get('planner_tab_id','')")
 
   if [ -z "$plan" ] || [ -z "$orch" ] || [ -z "$planner" ]; then
-    fail B "orchestration new did not return plan_id+orchestrator_pane_id+planner_pane_id (got plan='$plan' orch='$orch' planner='$planner')"
+    fail B "orchestration new did not return plan_id+orchestrator_tab_id+planner_tab_id (got plan='$plan' orch='$orch' planner='$planner')"
     return
   fi
-  CREATED_PLANS+=("$plan"); CREATED_PANES+=("$orch" "$planner")
+  CREATED_PLANS+=("$plan"); CREATED_TABS+=("$orch" "$planner")
   SCENARIO_B_PLAN="$plan"
   SCENARIO_B_ORCH="$orch"
   SCENARIO_B_PLANNER="$planner"
   pass B "returned plan=$plan orch=$orch planner=$planner"
 
-  # both panes present in registry
-  if [ "$(pane_exists "$orch")" = "True" ] && [ "$(pane_exists "$planner")" = "True" ]; then
-    pass B.panes "pane list shows both orchestrator + planner panes"
+  # both tabs present in registry
+  if [ "$(tab_exists "$orch")" = "True" ] && [ "$(tab_exists "$planner")" = "True" ]; then
+    pass B.tabs "tab list shows both orchestrator + planner tabs"
   else
-    fail B.panes "one/both panes missing from pane list (orch=$(pane_exists "$orch") planner=$(pane_exists "$planner"))"
+    fail B.tabs "one/both tabs missing from tab list (orch=$(tab_exists "$orch") planner=$(tab_exists "$planner"))"
   fi
 
   # plan binds both refs
-  local pj owner_pane pref_kind pref_pane
+  local pj owner_tab pref_kind pref_tab
   pj=$(dc plan get "$plan" --json 2>/dev/null)
-  owner_pane=$(js "$pj" "d.get('owner',{}).get('pane_id','')")
+  owner_tab=$(js "$pj" "d.get('owner',{}).get('tab_id','')")
   pref_kind=$(js "$pj" "(d.get('planner') or {}).get('kind','')")
-  pref_pane=$(js "$pj" "(d.get('planner') or {}).get('pane_id','')")
-  if [ "$owner_pane" = "$orch" ] && [ "$pref_kind" = "pane" ] && [ "$pref_pane" = "$planner" ]; then
-    pass B.refs "plan owner=$owner_pane + planner ref (kind=pane pane=$pref_pane) both bound to spawned panes"
+  pref_tab=$(js "$pj" "(d.get('planner') or {}).get('tab_id','')")
+  if [ "$owner_tab" = "$orch" ] && [ "$pref_kind" = "tab" ] && [ "$pref_tab" = "$planner" ]; then
+    pass B.refs "plan owner=$owner_tab + planner ref (kind=tab tab=$pref_tab) both bound to spawned tabs"
   else
-    fail B.refs "plan refs mismatch: owner=$owner_pane (want $orch) planner.kind=$pref_kind planner.pane=$pref_pane (want $planner)"
+    fail B.refs "plan refs mismatch: owner=$owner_tab (want $orch) planner.kind=$pref_kind planner.tab=$pref_tab (want $planner)"
   fi
 
   # orchestrator chat carries the peer greeting / mandate first message
   sleep 3
-  if pane_chat_has "$orch" "Planner specialist" || pane_chat_has "$orch" "attached as my Planner specialist" || pane_chat_has "$orch" "Orchestrator for plan"; then
+  if tab_chat_has "$orch" "Planner specialist" || tab_chat_has "$orch" "attached as my Planner specialist" || tab_chat_has "$orch" "Orchestrator for plan"; then
     pass B.greeting "orchestrator chat carries the peer greeting/mandate first message"
   else
     finding B.greeting "peer greeting not yet visible in orchestrator chat transcript (may be delivery-timing; asserted refs bound synchronously above)"
@@ -236,13 +241,13 @@ scenario_B() {
 scenario_B_idle() {
   echo; echo "=== B.IDLE — fresh pair waits for goal ==="
   if [ -z "$SCENARIO_B_PLANNER" ]; then
-    fail B.idle "route B did not produce a planner pane; cannot assert idle behavior"
+    fail B.idle "route B did not produce a planner tab; cannot assert idle behavior"
     return
   fi
   note "waiting 60s with no goal message after pair spawn (planner=$SCENARIO_B_PLANNER)"
   sleep 60
   local stats tool_count file_read_count
-  stats=$(pane_chat_tool_stats "$SCENARIO_B_PLANNER")
+  stats=$(tab_chat_tool_stats "$SCENARIO_B_PLANNER")
   tool_count=$(echo "$stats" | awk '{print $1}')
   file_read_count=$(echo "$stats" | awk '{print $2}')
   if [ "${tool_count:-0}" = "0" ] && [ "${file_read_count:-0}" = "0" ]; then
@@ -259,33 +264,33 @@ scenario_C_orch=""
 scenario_C_plan=""
 scenario_C() {
   echo; echo "=== C. ROLE SPAWN — agent spawn --role Orchestrator ==="
-  local out pane
+  local out tab
   out=$(dc agent spawn claude --role Orchestrator --workspace "$WS" \
         --task "You are the Orchestrator for a real objective: add a CLI flag. Read codeterm docs ORCHESTRATION." --json 2>&1)
   note "raw: $(echo "$out" | head -c 240)"
-  pane=$(js "$out" "d.get('pane_id','')")
-  [ -z "$pane" ] && pane=$(echo "$out" | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1)
-  if [ -z "$pane" ]; then fail C "spawn --role Orchestrator returned no pane id"; return; fi
-  CREATED_PANES+=("$pane"); scenario_C_orch="$pane"
-  pass C "orchestrator pane spawned: $pane"
+  tab=$(js "$out" "d.get('tab_id','')")
+  [ -z "$tab" ] && tab=$(echo "$out" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
+  if [ -z "$tab" ]; then fail C "spawn --role Orchestrator returned no tab id"; return; fi
+  CREATED_TABS+=("$tab"); scenario_C_orch="$tab"
+  pass C "orchestrator tab spawned: $tab"
 
   sleep 3
   # mandate block present
-  if pane_chat_start_has "$pane" "Planner specialist" || pane_chat_start_has "$pane" "attached Planner specialist"; then
+  if tab_chat_start_has "$tab" "Planner specialist" || tab_chat_start_has "$tab" "attached Planner specialist"; then
     pass C.mandate "onboarding carries the peer-pairing mandate block"
   else
     fail C.mandate "onboarding does NOT carry the peer-pairing mandate block"
   fi
-  # pre-filled planner spawn command — real parent pane, but plan id?
-  if pane_chat_has "$pane" "--role Planner --plan $pane"; then
+  # pre-filled planner spawn command — real parent tab, but plan id?
+  if tab_chat_has "$tab" "--role Planner --plan $tab"; then
     : # unlikely
   fi
-  if pane_chat_start_has "$pane" "--parent $pane"; then
-    pass C.prefill_parent "planner spawn command is pre-filled with the real orchestrator pane id (--parent $pane)"
+  if tab_chat_start_has "$tab" "--parent $tab"; then
+    pass C.prefill_parent "planner spawn command is pre-filled with the real orchestrator tab id (--parent $tab)"
   else
-    finding C.prefill_parent "planner spawn command not pre-filled with real parent pane id"
+    finding C.prefill_parent "planner spawn command not pre-filled with real parent tab id"
   fi
-  if pane_chat_start_has "$pane" "--plan PLAN_ID"; then
+  if tab_chat_start_has "$tab" "--plan PLAN_ID"; then
     finding C.prefill_plan "pinned expects a REAL plan id pre-filled; onboarding ships literal placeholder '--plan PLAN_ID' (role-spawn claims no plan yet — bounce to make-orchestrator/pair lane)"
   else
     note "no literal PLAN_ID placeholder found — a real plan id may be pre-filled (re-check pass condition)"
@@ -295,50 +300,50 @@ scenario_C() {
 }
 
 # =====================================================================
-# D. PROMOTION — POST /api/panes/{id}/make-orchestrator
+# D. PROMOTION — POST /api/tabs/{id}/make-orchestrator
 # =====================================================================
 scenario_D() {
   echo; echo "=== D. PROMOTION — make-orchestrator RPC ==="
-  note "no 'codeterm orchestrator promote' CLI exists; Make-Orchestrator is POST /api/panes/{id}/make-orchestrator (dev-locked via dev_post)"
-  # plain agent pane, no parent (promotable)
-  local pane sess_before sess_after resp
-  pane=$(new_claude_pane "$WS" "$WS_CWD" "promote-me")
-  if [ -z "$pane" ]; then fail D "could not spawn a plain claude pane to promote"; return; fi
-  CREATED_PANES+=("$pane")
-  sess_before=$(pane_session "$pane")
-  note "spawned plain pane $pane (session=$sess_before)"
+  note "no 'codeterm orchestrator promote' CLI exists; Make-Orchestrator is POST /api/tabs/{id}/make-orchestrator (dev-locked via dev_post)"
+  # plain agent tab, no parent (promotable)
+  local tab sess_before sess_after resp
+  tab=$(new_claude_tab "$WS" "$WS_CWD" "promote-me")
+  if [ -z "$tab" ]; then fail D "could not spawn a plain claude tab to promote"; return; fi
+  CREATED_TABS+=("$tab")
+  sess_before=$(tab_session "$tab")
+  note "spawned plain tab $tab (session=$sess_before)"
 
-  resp=$(dev_post "/api/panes/$pane/make-orchestrator" '{}')
+  resp=$(dev_post "/api/tabs/$tab/make-orchestrator" '{}')
   note "make-orchestrator resp: $(echo "$resp" | head -c 200)"
 
   # role actually flipped
   local role_after
-  role_after=$(dev_get /api/panes | python -c "import json,sys;print(next((p.get('role','') for p in json.load(sys.stdin) if p.get('id')=='$pane'),''))" 2>/dev/null)
+  role_after=$(dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('role','') for p in json.load(sys.stdin) if p.get('id')=='$tab'),''))" 2>/dev/null)
   if echo "$role_after" | grep -qi "orchestrator"; then
-    pass D.role "pane promoted to Orchestrator (role=$role_after)"
+    pass D.role "tab promoted to Orchestrator (role=$role_after)"
   else
-    fail D.role "pane role did not become Orchestrator after make-orchestrator (role='$role_after')"
+    fail D.role "tab role did not become Orchestrator after make-orchestrator (role='$role_after')"
   fi
 
   # session survives promotion
-  sess_after=$(pane_session "$pane")
+  sess_after=$(tab_session "$tab")
   if [ "$sess_before" = "$sess_after" ]; then
-    pass D.session "pane session survived promotion (same id before/after: '$sess_after')"
+    pass D.session "tab session survived promotion (same id before/after: '$sess_after')"
   else
-    fail D.session "pane session changed across promotion ('$sess_before' -> '$sess_after')"
+    fail D.session "tab session changed across promotion ('$sess_before' -> '$sess_after')"
   fi
 
-  # mandate delivered (task says 'response carries mandate'; actual = delivered to pane chat)
+  # mandate delivered (task says 'response carries mandate'; actual = delivered to tab chat)
   sleep 3
-  if pane_chat_start_has "$pane" "Planner specialist" || pane_chat_start_has "$pane" "now the Orchestrator"; then
-    pass D.mandate "promotion onboarding (with mandate block) delivered to the pane"
+  if tab_chat_start_has "$tab" "Planner specialist" || tab_chat_start_has "$tab" "now the Orchestrator"; then
+    pass D.mandate "promotion onboarding (with mandate block) delivered to the tab"
   else
-    fail D.mandate "promotion onboarding/mandate not found in pane chat"
+    fail D.mandate "promotion onboarding/mandate not found in tab chat"
   fi
   if echo "$resp" | grep -qi "Planner specialist\\|mandate"; then
     note "RPC response body also carries mandate text"
   else
-    finding D.mandate_resp "pinned says 'command response carries the mandate block'; actual dev delivers it as a pane message, RPC body does not echo it"
+    finding D.mandate_resp "pinned says 'command response carries the mandate block'; actual dev delivers it as a tab message, RPC body does not echo it"
   fi
   gated D.nudge "unpaired nudge is heartbeat-gated (1800s); driving state Unbound => should fire"
 }
@@ -354,10 +359,10 @@ scenario_E() {
   plan=$(mk_plan "orchmatrix-E")
   if [ -z "$plan" ]; then fail E "could not create plan for planner-bind test (db lock/contention)"; return; fi
   CREATED_PLANS+=("$plan")
-  orch=$(new_claude_pane "$WS" "$WS_CWD" "orch-E")
-  if [ -z "$orch" ]; then fail E "could not spawn orchestrator pane"; return; fi
-  CREATED_PANES+=("$orch")
-  note "plan $plan, orch pane $orch (planner-bind is owner-independent; claim-for-caller not usable via dc)"
+  orch=$(new_claude_tab "$WS" "$WS_CWD" "orch-E")
+  if [ -z "$orch" ]; then fail E "could not spawn orchestrator tab"; return; fi
+  CREATED_TABS+=("$orch")
+  note "plan $plan, orch tab $orch (planner-bind is owner-independent; claim-for-caller not usable via dc)"
 
   # driving state BEFORE bind: unbound => nudge should fire
   local pref_before
@@ -368,32 +373,32 @@ scenario_E() {
   local pout planner
   pout=$(dc agent spawn claude --role Planner --plan "$plan" --parent "$orch" --title "planner-E" --json 2>&1)
   note "raw: $(echo "$pout" | head -c 200)"
-  planner=$(js "$pout" "d.get('pane_id','')")
-  [ -z "$planner" ] && planner=$(echo "$pout" | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1)
-  if [ -z "$planner" ]; then fail E "planner spawn returned no pane id"; return; fi
-  CREATED_PANES+=("$planner")
+  planner=$(js "$pout" "d.get('tab_id','')")
+  [ -z "$planner" ] && planner=$(echo "$pout" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
+  if [ -z "$planner" ]; then fail E "planner spawn returned no tab id"; return; fi
+  CREATED_TABS+=("$planner")
 
-  # plan planner ref now bound to the new pane
+  # plan planner ref now bound to the new tab
   local pj pk pp
   pj=$(dc plan get "$plan" --json 2>/dev/null)
   pk=$(js "$pj" "(d.get('planner') or {}).get('kind','')")
-  pp=$(js "$pj" "(d.get('planner') or {}).get('pane_id','')")
-  if [ "$pk" = "pane" ] && [ "$pp" = "$planner" ]; then
-    pass E.bind "plan planner ref bound to the new planner pane (kind=pane pane=$pp)"
+  pp=$(js "$pj" "(d.get('planner') or {}).get('tab_id','')")
+  if [ "$pk" = "tab" ] && [ "$pp" = "$planner" ]; then
+    pass E.bind "plan planner ref bound to the new planner tab (kind=tab tab=$pp)"
   else
-    fail E.bind "planner ref not bound to new pane (kind=$pk pane=$pp want $planner)"
+    fail E.bind "planner ref not bound to new tab (kind=$pk tab=$pp want $planner)"
   fi
 
-  # planner onboarding names the orchestrator pane id
+  # planner onboarding names the orchestrator tab id
   sleep 3
-  if pane_chat_has "$planner" "$orch"; then
-    pass E.intro "planner onboarding names the orchestrator peer pane id ($orch)"
+  if tab_chat_has "$planner" "$orch"; then
+    pass E.intro "planner onboarding names the orchestrator peer tab id ($orch)"
   else
-    finding E.intro "planner onboarding did not visibly name orch pane $orch in transcript (delivery timing)"
+    finding E.intro "planner onboarding did not visibly name orch tab $orch in transcript (delivery timing)"
   fi
 
   # nudge STOPS: deterministic driving state = planner now bound => resolution Planner => nudge None
-  if [ "$pk" = "pane" ]; then
+  if [ "$pk" = "tab" ]; then
     pass E.nudge_state "driving state now Planner-bound => planner_pairing_nudge_prefix returns None (nudge stops); heartbeat text itself is timer-gated"
   else
     fail E.nudge_state "planner not bound => nudge would keep firing"
@@ -456,7 +461,7 @@ scenario_F() {
 doctor_planner_rule() {
   # echoes "<severity>" of the planner_unpaired finding, or "" if absent
   local plan="$1"
-  dc plan doctor "$plan" --kind quality --json 2>/dev/null | python - <<'PY' 2>/dev/null
+  dc plan doctor "$plan" --kind quality --json 2>/dev/null | "$PYTHON_BIN" - <<'PY' 2>/dev/null
 import json,sys
 try:
     d=json.load(sys.stdin)
@@ -537,51 +542,51 @@ scenario_H() {
 
   # H1: spawn --role Orchestrator with NO --workspace
   local p_before p_after out rc
-  p_before=$(pane_count)
+  p_before=$(tab_count)
   out=$(dc agent spawn claude --role Orchestrator --task "no workspace given" --json 2>&1); rc=$?
-  p_after=$(pane_count)
-  note "H1 rc=$rc panes ${p_before}->${p_after} out=$(echo "$out" | head -c 160)"
-  local leaked_pane
-  leaked_pane=$(js "$out" "d.get('pane_id','')")
+  p_after=$(tab_count)
+  note "H1 rc=$rc tabs ${p_before}->${p_after} out=$(echo "$out" | head -c 160)"
+  local leaked_tab
+  leaked_tab=$(js "$out" "d.get('tab_id','')")
   if [ $rc -ne 0 ] && [ "$p_before" = "$p_after" ]; then
-    pass H1 "spawn --role Orchestrator w/o --workspace failed cleanly, zero panes created"
-  elif [ -n "$leaked_pane" ] || [ "$p_before" != "$p_after" ]; then
-    # spawn fell back to active workspace and CREATED a pane
-    [ -n "$leaked_pane" ] && CREATED_PANES+=("$leaked_pane")
-    finding H1 "spawn --role Orchestrator w/o --workspace did NOT fail — fell back to active workspace and created pane '$leaked_pane' (panes ${p_before}->${p_after}); pinned expects an actionable error + zero panes (bounce to spawn-validation lane)"
+    pass H1 "spawn --role Orchestrator w/o --workspace failed cleanly, zero tabs created"
+  elif [ -n "$leaked_tab" ] || [ "$p_before" != "$p_after" ]; then
+    # spawn fell back to active workspace and CREATED a tab
+    [ -n "$leaked_tab" ] && CREATED_TABS+=("$leaked_tab")
+    finding H1 "spawn --role Orchestrator w/o --workspace did NOT fail — fell back to active workspace and created tab '$leaked_tab' (tabs ${p_before}->${p_after}); pinned expects an actionable error + zero tabs (bounce to spawn-validation lane)"
   else
-    fail H1 "spawn --role Orchestrator w/o --workspace: rc=$rc but pane count changed ${p_before}->${p_after}"
+    fail H1 "spawn --role Orchestrator w/o --workspace: rc=$rc but tab count changed ${p_before}->${p_after}"
   fi
 
   # H2: a Worker attempting orchestration/spawn --role Orchestrator is refused
   # Backend guard check: spawn a real worker, then drive orchestration new with
   # that worker as the caller/spawner and expect refusal.
   local worker host_orch
-  host_orch=$(new_claude_pane "$WS" "$WS_CWD" "orch-H2")
-  [ -n "$host_orch" ] && CREATED_PANES+=("$host_orch")
+  host_orch=$(new_claude_tab "$WS" "$WS_CWD" "orch-H2")
+  [ -n "$host_orch" ] && CREATED_TABS+=("$host_orch")
   local wout
   wout=$(dc agent spawn claude --role Worker --parent "$host_orch" --title "worker-H2" --json 2>&1)
-  worker=$(js "$wout" "d.get('pane_id','')")
-  [ -z "$worker" ] && worker=$(echo "$wout" | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1)
-  [ -n "$worker" ] && CREATED_PANES+=("$worker")
-  note "H2 worker pane: ${worker:-<none>} (parent $host_orch)"
+  worker=$(js "$wout" "d.get('tab_id','')")
+  [ -z "$worker" ] && worker=$(echo "$wout" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
+  [ -n "$worker" ] && CREATED_TABS+=("$worker")
+  note "H2 worker tab: ${worker:-<none>} (parent $host_orch)"
   # Attempt orchestration new attributed to the worker as spawner via REST.
   local h2_p_before h2_resp h2_p_after
-  h2_p_before=$(pane_count)
-h2_body=$(python3 - "$WS" "$worker" <<'PY'
+  h2_p_before=$(tab_count)
+h2_body=$("$PYTHON_BIN" - "$WS" "$worker" <<'PY'
 import json, sys
 sys.stdout.write(json.dumps({
     "orchestrator_agent": "claude",
     "planner_agent": "claude",
     "workspace_id": sys.argv[1],
-    "spawned_by_pane_id": sys.argv[2],
+    "spawned_by_tab_id": sys.argv[2],
 }, separators=(",", ":")))
 PY
 )
   h2_resp=$(curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
     -H "Content-Type: application/json" --data-binary "$h2_body" \
     "http://127.0.0.1:7686/api/orchestration/new")
-  h2_p_after=$(pane_count)
+  h2_p_after=$(tab_count)
   note "H2 orchestration-new-as-worker resp: $(echo "$h2_resp" | head -c 200)"
   if echo "$h2_resp" | grep -qiE "worker|refus|forbid|not allowed|hierarchy|cannot"; then
     pass H2 "worker-attributed orchestration new refused by hierarchy guard"
@@ -589,28 +594,28 @@ PY
     local wp=$(js "$h2_resp" "d.get('plan_id','')"); [ -n "$wp" ] && CREATED_PLANS+=("$wp")
   else
     local wp wo wpl
-    wp=$(js "$h2_resp" "d.get('plan_id','')"); wo=$(js "$h2_resp" "d.get('orchestrator_pane_id','')"); wpl=$(js "$h2_resp" "d.get('planner_pane_id','')")
-    [ -n "$wp" ] && CREATED_PLANS+=("$wp"); [ -n "$wo" ] && CREATED_PANES+=("$wo"); [ -n "$wpl" ] && CREATED_PANES+=("$wpl")
+    wp=$(js "$h2_resp" "d.get('plan_id','')"); wo=$(js "$h2_resp" "d.get('orchestrator_tab_id','')"); wpl=$(js "$h2_resp" "d.get('planner_tab_id','')")
+    [ -n "$wp" ] && CREATED_PLANS+=("$wp"); [ -n "$wo" ] && CREATED_TABS+=("$wo"); [ -n "$wpl" ] && CREATED_TABS+=("$wpl")
     finding H2 "no backend hierarchy guard: orchestration new attributed to a Worker (spawned_by=$worker) was NOT refused (created plan=$wp). Worker 'never spawn' is prompt-only, not enforced (bounce to hierarchy-guard lane)"
   fi
 
   # H3: orchestration new with unknown provider => clean fail, no half-pair
   local h3_before h3_resp h3_plan_leak
-  h3_before=$(pane_count)
+  h3_before=$(tab_count)
   h3_resp=$(dc orchestration new --orchestrator nonesuchprovider --planner claude --workspace "$WS" --json 2>&1)
-  local h3_after=$(pane_count)
-  note "H3 rc/out: $(echo "$h3_resp" | head -c 220) (panes ${h3_before}->${h3_after})"
+  local h3_after=$(tab_count)
+  note "H3 rc/out: $(echo "$h3_resp" | head -c 220) (tabs ${h3_before}->${h3_after})"
   # collect any leaked plan for cleanup
   h3_plan_leak=$(js "$h3_resp" "d.get('plan_id','')")
   [ -n "$h3_plan_leak" ] && CREATED_PLANS+=("$h3_plan_leak")
   if echo "$h3_resp" | grep -qiE "unknown|not found|no such|unregistered|invalid provider|recover|complete the pair|retry"; then
     if [ "$h3_before" = "$h3_after" ]; then
-      pass H3 "unknown-provider orchestration new failed cleanly with actionable/recovery text, no pane leak"
+      pass H3 "unknown-provider orchestration new failed cleanly with actionable/recovery text, no tab leak"
     else
-      finding H3 "unknown-provider failed with a message but left ${h3_after} panes (was ${h3_before}) — half-pair; acceptable only if plan marked degraded + recovery printed"
+      finding H3 "unknown-provider failed with a message but left ${h3_after} tabs (was ${h3_before}) — half-pair; acceptable only if plan marked degraded + recovery printed"
     fi
   else
-    fail H3 "unknown-provider orchestration new did not fail cleanly (no actionable error; panes ${h3_before}->${h3_after})"
+    fail H3 "unknown-provider orchestration new did not fail cleanly (no actionable error; tabs ${h3_before}->${h3_after})"
   fi
 }
 

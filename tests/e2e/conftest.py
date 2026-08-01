@@ -137,7 +137,7 @@ def api(codeterm_instance):
 
 @pytest.fixture(scope="session")
 def api_only(api: CodeTermAPI):
-    """REST-only client for tests that do not need a terminal pane."""
+    """REST-only client for tests that do not need a terminal tab."""
     return api
 
 
@@ -174,14 +174,14 @@ def _cleanup_e2e_workspaces(api: CodeTermAPI):
 
 
 @pytest.fixture()
-def api_pane(api_only: CodeTermAPI):
-    """Create a lazy pane for API metadata tests; no PTY is requested."""
+def api_tab(api_only: CodeTermAPI):
+    """Create a lazy tab for API metadata tests; no PTY is requested."""
     ws_id = None
     try:
         ws = api_only.create_workspace(unique_name("e2e-ws-api"))
         ws_id = ws["id"]
         tab = api_only.create_tab(ws_id, eager=False)
-        yield tab["pane_id"]
+        yield tab["tab_id"]
     finally:
         if ws_id is not None:
             try:
@@ -193,20 +193,20 @@ def api_pane(api_only: CodeTermAPI):
 
 
 @pytest.fixture(scope="module")
-def shared_eager_pane(api: CodeTermAPI):
-    """Module-scoped PTY pane for read-only shell probes with unique markers."""
+def shared_eager_tab(api: CodeTermAPI):
+    """Module-scoped PTY tab for read-only shell probes with unique markers."""
     ws_id = None
     try:
         ws = api.create_workspace(unique_name("e2e-ws-shared"))
         ws_id = ws["id"]
         tab = api.create_tab(ws_id, eager=True)
-        pane_id = tab["pane_id"]
-        api.wait_for_pty(pane_id, timeout=15)
+        tab_id = tab["tab_id"]
+        api.wait_for_pty(tab_id, timeout=15)
         try:
-            api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=8)
+            api.wait_for_output(tab_id, pattern=r"[\$#%>]", timeout=8)
         except (TimeoutError, Exception):
             time.sleep(2)
-        yield pane_id
+        yield tab_id
     finally:
         if ws_id is not None:
             try:
@@ -218,10 +218,10 @@ def shared_eager_pane(api: CodeTermAPI):
 
 
 @pytest.fixture()
-def fresh_pane(api: CodeTermAPI):
-    """Create a disposable workspace + pane, yield pane_id, clean up after.
+def fresh_tab(api: CodeTermAPI):
+    """Create a disposable workspace + tab, yield tab_id, clean up after.
 
-    The initial pane from workspace creation is an Orchestrator by default.
+    The initial tab from workspace creation is an Orchestrator by default.
     """
     ws_id = None
     try:
@@ -229,20 +229,20 @@ def fresh_pane(api: CodeTermAPI):
         ws = api.create_workspace(ws_name)
         ws_id = ws["id"]
 
-        # Create a new tab to get a guaranteed fresh pane
+        # Create a new tab to get a guaranteed fresh tab
         tab = api.create_tab(ws_id, eager=True)
-        pane_id = tab["pane_id"]
+        tab_id = tab["tab_id"]
 
-        api.wait_for_pty(pane_id, timeout=15)
+        api.wait_for_pty(tab_id, timeout=15)
 
         # Wait for shell prompt (look for $ or > or % in output)
         try:
-            api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=8)
+            api.wait_for_output(tab_id, pattern=r"[\$#%>]", timeout=8)
         except (TimeoutError, Exception):
             # Shell might not emit a standard prompt or output not yet available
             time.sleep(2)
 
-        yield pane_id
+        yield tab_id
     finally:
         if ws_id is not None:
             try:

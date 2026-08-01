@@ -1,6 +1,6 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { CSSProperties, ReactNode } from "react";
-import type { ApiConfig, Pane } from "../../../lib/types";
+import type { ApiConfig, Tab } from "../../../lib/types";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task, TaskLaneMetadata } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
@@ -22,8 +22,8 @@ export interface DetailContentProps {
   plan?: Plan;
   spec?: Plan;
   specSections?: Section[];
-  panes?: Record<string, Pane>;
-  onOpenPane?: (paneId: string) => void;
+  tabs?: Record<string, Tab>;
+  onOpenTab?: (tabId: string) => void;
   onOpenTask?: (taskId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
@@ -151,23 +151,23 @@ function TaskSectionLinks({
 }
 
 interface TabIdentity {
-  paneId: string;
+  tabId: string;
   title: string | null;
   provider: string | null;
   model: string | null;
   alive: boolean;
 }
 
-function resolveTab(paneId: string | null | undefined, panes: Record<string, Pane>): TabIdentity | null {
-  const id = paneId?.trim();
+function resolveTab(tabId: string | null | undefined, tabs: Record<string, Tab>): TabIdentity | null {
+  const id = tabId?.trim();
   if (!id) return null;
-  const pane = panes[id];
+  const tab = tabs[id];
   return {
-    paneId: id,
-    title: pane?.title?.trim() || pane?.agent_session_name?.trim() || null,
-    provider: pane?.agent_type?.trim() || null,
-    model: pane?.agent_session_model?.trim() || null,
-    alive: Boolean(pane),
+    tabId: id,
+    title: tab?.title?.trim() || tab?.agent_session_name?.trim() || null,
+    provider: tab?.agent_type?.trim() || null,
+    model: tab?.agent_session_model?.trim() || null,
+    alive: Boolean(tab),
   };
 }
 
@@ -182,35 +182,35 @@ function laneRows(lane: TaskLaneMetadata): { label: string; value: string }[] {
   return rows;
 }
 
-function LanePanel({ lane, panes, onOpenPane }: { lane?: TaskLaneMetadata; panes: Record<string, Pane>; onOpenPane?: (paneId: string) => void }) {
+function LanePanel({ lane, tabs, onOpenTab }: { lane?: TaskLaneMetadata; tabs: Record<string, Tab>; onOpenTab?: (tabId: string) => void }) {
   if (!lane) return null;
-  const paneId = lane.pane_id?.trim() || null;
+  const tabId = lane.tab_id?.trim() || null;
   const rows = laneRows(lane);
-  if (!paneId && rows.length === 0) return null;
-  const tab = resolveTab(paneId, panes);
-  const canFocus = Boolean(tab?.alive && onOpenPane && paneId);
+  if (!tabId && rows.length === 0) return null;
+  const tab = resolveTab(tabId, tabs);
+  const canFocus = Boolean(tab?.alive && onOpenTab && tabId);
   const monoValue: CSSProperties = { fontFamily: "var(--ct-font-mono)", fontSize: 12, wordBreak: "break-all", color: "var(--ct-fg)" };
-  const tabLabel = tab?.title ?? tab?.paneId ?? "";
+  const tabLabel = tab?.title ?? tab?.tabId ?? "";
   return (
     <Block label="Lane" testId="task-lane-panel">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {tab && paneId && (
+        {tab && tabId && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ ...labelStyle, fontSize: 10 }}>tab</span>
             <button
               type="button"
-              data-testid="task-lane-pane"
-              data-pane-id={tab.paneId}
+              data-testid="task-lane-tab"
+              data-tab-id={tab.tabId}
               disabled={!canFocus}
-              title={tab.alive ? `Focus tab (${tab.paneId})` : `Tab ${tab.paneId} is closed`}
-              onClick={() => canFocus && onOpenPane!(paneId)}
+              title={tab.alive ? `Focus tab (${tab.tabId})` : `Tab ${tab.tabId} is closed`}
+              onClick={() => canFocus && onOpenTab!(tabId)}
               style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", background: canFocus ? "color-mix(in srgb, var(--ct-accent) 9%, transparent)" : "color-mix(in srgb, var(--ct-fg) 5%, transparent)", color: canFocus ? "var(--ct-accent)" : "var(--ct-fg)", fontSize: 12, fontWeight: 600, cursor: canFocus ? "pointer" : "default" }}
             >
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: tab.alive ? GLYPH_ACCENT.progress : "color-mix(in srgb, var(--ct-fg) 35%, transparent)" }} />
               <span data-testid="task-lane-tab-title">{tabLabel}</span>
             </button>
-            {tab.title && <span data-testid="task-lane-pane-id" title="Tab id" style={{ ...monoValue, fontSize: 11, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{tab.paneId}</span>}
-            {!tab.alive && <span data-testid="task-lane-pane-dead" style={{ fontSize: 11, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" }}>closed</span>}
+            {tab.title && <span data-testid="task-lane-tab-id" title="Tab id" style={{ ...monoValue, fontSize: 11, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{tab.tabId}</span>}
+            {!tab.alive && <span data-testid="task-lane-tab-dead" style={{ fontSize: 11, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" }}>closed</span>}
           </div>
         )}
         {rows.map((row) => (
@@ -237,7 +237,7 @@ function PersonaChip({ persona }: { persona: string }) {
 }
 
 function AgentIdentity({ tab, persona }: { tab: TabIdentity | null; persona: string | null }) {
-  const name = persona ?? tab?.title ?? (tab && !tab.alive ? `${tab.paneId} (closed)` : null);
+  const name = persona ?? tab?.title ?? (tab && !tab.alive ? `${tab.tabId} (closed)` : null);
   if (!name && !tab?.provider && !tab?.model) return null;
   return (
     <Block label="Agent" testId="task-agent-identity">
@@ -255,8 +255,8 @@ function TaskDetail({
   task,
   plan,
   planId,
-  panes = {},
-  onOpenPane,
+  tabs = {},
+  onOpenTab,
   onSection,
   renderTaskAttachmentThumbnails,
 }: {
@@ -264,14 +264,14 @@ function TaskDetail({
   task: Task;
   plan?: Plan;
   planId?: string;
-  panes?: Record<string, Pane>;
-  onOpenPane?: (paneId: string) => void;
+  tabs?: Record<string, Tab>;
+  onOpenTab?: (tabId: string) => void;
   onSection?: (a: SectionNavArgs) => void;
   renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }) {
   const body = task.body?.trim();
-  const paneId = task.assigned_pane_id?.trim() || null;
-  const agentTab = resolveTab(paneId, panes);
+  const tabId = task.assigned_tab_id?.trim() || null;
+  const agentTab = resolveTab(tabId, tabs);
   const persona = task.personality?.trim() || agentTab?.title || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
   const statusLabel = canonicalTaskStatusLabel(task);
@@ -283,11 +283,11 @@ function TaskDetail({
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
         {task.executor_role?.trim() && <Chip label="role" value={task.executor_role} testId="task-executor-role" />}
-        {onOpenPane && paneId && (
+        {onOpenTab && tabId && (
           <button
             type="button"
-            data-testid="plan-detail-open-pane"
-            onClick={() => onOpenPane(paneId)}
+            data-testid="plan-detail-open-tab"
+            onClick={() => onOpenTab(tabId)}
             style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
           >
             Open tab
@@ -295,8 +295,26 @@ function TaskDetail({
         )}
       </div>
       <AgentIdentity tab={agentTab} persona={persona} />
-      <LanePanel lane={task.lane} panes={panes} onOpenPane={onOpenPane} />
+      <LanePanel lane={task.lane} tabs={tabs} onOpenTab={onOpenTab} />
       <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
+      {task.external_refs?.length ? (
+        <Block label="External references" testId="task-external-references">
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+            {task.external_refs.map((reference) => (
+              <a
+                key={`${reference.kind}:${reference.repository}#${reference.number}`}
+                href={reference.canonical_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--ct-accent)", wordBreak: "break-all" }}
+              >
+                {reference.repository}#{reference.number}
+                {reference.relationship ? ` · ${reference.relationship.replace("_", " ")}` : ""}
+              </a>
+            ))}
+          </div>
+        </Block>
+      ) : null}
       {attachmentThumbnails && (
         <Block label="Attachments">
           <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
@@ -327,7 +345,7 @@ function TaskDetail({
           </div>
         </Block>
       ) : null}
-      <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} panes={panes} />
+      <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} tabs={tabs} />
     </div>
   );
 }
@@ -511,7 +529,7 @@ function PlanDetail({
   variant,
   planSections,
   specSections = [],
-  panes = {},
+  tabs = {},
   planId,
   api,
   onSection,
@@ -521,7 +539,7 @@ function PlanDetail({
   variant: "plan" | "spec";
   planSections: Section[];
   specSections?: Section[];
-  panes?: Record<string, Pane>;
+  tabs?: Record<string, Tab>;
   planId?: string;
   api?: ApiConfig;
   onSection?: (sectionId: string, variant: "plan" | "spec") => void;
@@ -534,7 +552,7 @@ function PlanDetail({
   const pct = total ? Math.round((done / total) * 100) : 0;
   const metaBits = [
     plan.mode === "paused" ? "Parked" : plan.status === "active" ? "Active" : plan.status,
-    plan.owner.title || plan.owner.pane_id ? `owner ${plan.owner.title ?? plan.owner.pane_id}` : null,
+    plan.owner.title || plan.owner.tab_id ? `owner ${plan.owner.title ?? plan.owner.tab_id}` : null,
     plan.primary_spec_id ? "linked spec" : null,
     plan.loops?.length ? `${plan.loops.length} loop${plan.loops.length > 1 ? "s" : ""}` : null,
   ].filter(Boolean) as string[];
@@ -569,7 +587,7 @@ function PlanDetail({
         </div>
       )}
       {variant === "spec" && <SpecCoverageHeader plan={plan} />}
-      {variant === "plan" && <PlanRecentActivityRail plan={plan} panes={panes} onOpenTask={onOpenTask} />}
+      {variant === "plan" && <PlanRecentActivityRail plan={plan} tabs={tabs} onOpenTask={onOpenTask} />}
       {variant === "plan" && planId && api && (
         <PlanSkillsSection planId={planId} plan={plan} api={api} />
       )}
@@ -591,7 +609,7 @@ function resolvePlanModel(kind: PlanDetailKind, plan?: Plan, spec?: Plan, specSe
   return spec;
 }
 
-export function DetailContent({ kind, planId, api, task, plan, spec, specSections, panes, onOpenPane, onOpenTask, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
+export function DetailContent({ kind, planId, api, task, plan, spec, specSections, tabs, onOpenTab, onOpenTask, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
   if (kind === "task") {
     const onSection = onSectionFrame ?? onSectionClick;
     return task ? (
@@ -600,8 +618,8 @@ export function DetailContent({ kind, planId, api, task, plan, spec, specSection
         task={task}
         plan={plan}
         planId={planId}
-        panes={panes}
-        onOpenPane={onOpenPane}
+        tabs={tabs}
+        onOpenTab={onOpenTab}
         onSection={onSection}
         renderTaskAttachmentThumbnails={renderTaskAttachmentThumbnails}
       />
@@ -621,7 +639,7 @@ export function DetailContent({ kind, planId, api, task, plan, spec, specSection
       variant={variant}
       planSections={kind === "spec" ? (spec?.sections ?? []) : displayPlan.sections}
       specSections={specSections ?? (kind === "spec" ? displayPlan.sections : [])}
-      panes={panes}
+      tabs={tabs}
       planId={navPlanId}
       api={api}
       onSection={onSection}

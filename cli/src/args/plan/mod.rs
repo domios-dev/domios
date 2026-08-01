@@ -154,8 +154,15 @@ pub enum PlanAction {
         query: String,
         #[arg(long)]
         project: Option<String>,
-        #[arg(long)]
+        /// Restrict to plan, plan_section, spec, spec_section, task, or stride
+        #[arg(
+            long,
+            value_parser = ["plan", "plan_section", "spec", "spec_section", "task", "stride"]
+        )]
         kind: Option<String>,
+        /// Restrict to an indexed scope such as global or workspace:<id>
+        #[arg(long)]
+        scope: Option<String>,
         #[arg(long, default_value = "10")]
         limit: usize,
         #[arg(long, conflicts_with_all = ["archived", "all"])]
@@ -223,7 +230,7 @@ pub enum PlanAction {
         set: String,
         /// Planner tab id advancing the state (records author as planner; omit = user).
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         note: Option<String>,
     },

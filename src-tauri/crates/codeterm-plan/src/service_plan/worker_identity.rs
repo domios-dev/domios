@@ -1,3 +1,8 @@
+use crate::plan::Task;
+
+pub const WORKER_IDENTITY_END: &str = "<!-- codeterm-worker-identity-end -->";
+pub const WORKER_ACK_INSTRUCTION: &str = "Before inspecting files or narrating work, run `codeterm agent ack`. It confirms task ownership and does not replace the final report.";
+
 fn trimmed(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
@@ -42,9 +47,62 @@ pub fn compose_worker_identity(
     }
 }
 
+pub fn compose_task_worker_identity(task: &Task, effective_personality: Option<&str>) -> String {
+    compose_worker_identity_contract(
+        effective_personality,
+        task.role_guidance.as_deref(),
+        task.executor_role.as_deref(),
+        &task.name,
+    )
+}
+
+pub fn compose_worker_identity_contract(
+    personality: Option<&str>,
+    role_guidance: Option<&str>,
+    executor_role: Option<&str>,
+    task_name: &str,
+) -> String {
+    let mut lines = Vec::new();
+    if let Some(identity) = compose_worker_identity(personality, role_guidance, Some(task_name)) {
+        lines.push(identity);
+    } else {
+        lines.push(format!("You are the Worker responsible for: {task_name}"));
+    }
+    if let Some(role) = trimmed(executor_role) {
+        lines.push(format!("Executor role: {role}."));
+    }
+    if !lines[0].contains(task_name) {
+        lines.push(format!("Your assigned task is: {task_name}"));
+    }
+    lines.join("\n")
+}
+
+pub fn attach_worker_identity(identity: &str, assignment: &str) -> String {
+    format!(
+        "{}\n\n{}\n\n{}",
+        identity.trim(),
+        WORKER_IDENTITY_END,
+        assignment.trim_start()
+    )
+}
+
+pub fn split_worker_identity(prompt: &str) -> (Option<&str>, &str) {
+    let Some((identity, assignment)) = prompt.split_once(WORKER_IDENTITY_END) else {
+        return (None, prompt);
+    };
+    let identity = identity.trim();
+    (
+        (!identity.is_empty()).then_some(identity),
+        assignment.trim_start(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::compose_worker_identity;
+    use super::{
+        attach_worker_identity, compose_worker_identity, compose_worker_identity_contract,
+        split_worker_identity,
+    };
 
     #[test]
     fn keeps_matching_persona_guidance_once() {
@@ -94,5 +152,31 @@ mod tests {
             compose_worker_identity(Some("  "), Some("  "), Some("Legacy task")),
             None
         );
+    }
+
+    #[test]
+    fn task_identity_leads_with_persona_role_and_purpose() {
+        let identity = compose_worker_identity_contract(
+            Some("Hopper"),
+            Some("Audit the evidence boundary."),
+            Some("rust-backend-dev"),
+            "Repair delivery",
+        );
+
+        assert_eq!(
+            identity,
+            "You are Hopper. Audit the evidence boundary.\n\
+             Executor role: rust-backend-dev.\n\
+             Your assigned task is: Repair delivery"
+        );
+    }
+
+    #[test]
+    fn identity_transport_marker_is_removed_by_split() {
+        let prompt = attach_worker_identity("You are Hopper.", "# Repair delivery");
+        let (identity, assignment) = split_worker_identity(&prompt);
+
+        assert_eq!(identity, Some("You are Hopper."));
+        assert_eq!(assignment, "# Repair delivery");
     }
 }

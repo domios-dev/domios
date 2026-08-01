@@ -1,0 +1,7 @@
+{
+  "provider": "codex",
+  "situation": "tool-result-card-negative-r1",
+  "source": "reported live false pending prompt",
+  "until": "Viewed Image",
+  "expected": "no native pending prompt"
+}

@@ -1,3 +1,4 @@
+use super::external_refs::ExternalRef;
 use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -96,15 +97,15 @@ pub struct ElementCanvas {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct OrchestratorRef {
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     pub session_id: Option<String>,
     pub title: Option<String>,
 }
 
 impl OrchestratorRef {
-    pub fn from_pane(p: &str) -> Self {
+    pub fn from_tab(p: &str) -> Self {
         Self {
-            pane_id: Some(p.into()),
+            tab_id: Some(p.into()),
             ..Default::default()
         }
     }
@@ -116,8 +117,8 @@ pub type AgentRef = OrchestratorRef;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlannerRef {
-    Pane {
-        pane_id: String,
+    Tab {
+        tab_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,7 +163,7 @@ pub struct PlannerInboxEntry {
     #[serde(default)]
     pub phase: PlannerDeliveryPhase,
     #[serde(default)]
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -181,7 +182,7 @@ pub struct PlannerRequest {
     #[serde(default)]
     pub payload_blob: Option<String>,
     #[serde(default)]
-    pub caller_pane_id: Option<String>,
+    pub caller_tab_id: Option<String>,
     #[serde(default)]
     pub caller_session_id: Option<String>,
     pub state: PlannerRequestState,
@@ -197,7 +198,7 @@ pub struct PlannerRequest {
     #[serde(default)]
     pub failed_at: Option<u64>,
     #[serde(default)]
-    pub delivered_to_pane_id: Option<String>,
+    pub delivered_to_tab_id: Option<String>,
     #[serde(default)]
     pub delivered_to_session_id: Option<String>,
     #[serde(default)]
@@ -207,7 +208,7 @@ pub struct PlannerRequest {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskLaneMetadata {
     #[serde(default)]
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<String>,
     #[serde(default)]
@@ -247,9 +248,9 @@ pub struct TaskExecutionReportSnapshot {
     pub status: Option<String>,
     #[serde(default)]
     pub sha: Option<String>,
-    /// Pane that submitted a proxy report; None means the executor reported.
+    /// Tab that submitted a proxy report; None means the executor reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reporter_pane_id: Option<String>,
+    pub reporter_tab_id: Option<String>,
     #[serde(default)]
     pub changed_files: Vec<String>,
     #[serde(default)]
@@ -265,7 +266,7 @@ pub struct TaskExecutionReportSnapshot {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskExecutionAttempt {
     pub id: String,
-    pub executor_pane_id: String,
+    pub executor_tab_id: String,
     #[serde(default)]
     pub executor_title: Option<String>,
     #[serde(default)]
@@ -279,9 +280,9 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     #[serde(default)]
-    pub orchestrator_pane_id: Option<String>,
+    pub orchestrator_tab_id: Option<String>,
     #[serde(default)]
     pub mesh_peer: Option<String>,
     #[serde(default)]
@@ -296,6 +297,8 @@ pub struct TaskExecutionAttempt {
     pub report: Option<TaskExecutionReportSnapshot>,
     #[serde(default)]
     pub assigned_at: Option<u64>,
+    #[serde(default)]
+    pub acknowledged_at: Option<u64>,
     #[serde(default)]
     pub reported_at: Option<u64>,
     #[serde(default)]
@@ -544,7 +547,11 @@ pub struct Task {
     pub personality_provenance: Option<IdentityProvenance>,
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    pub external_refs: Vec<ExternalRef>,
     pub test_plan: Option<String>,
+    #[serde(default)]
+    pub qa_plan: Option<String>,
     pub correctness: Option<String>,
     pub status: TaskStatus,
     #[serde(default)]
@@ -589,7 +596,7 @@ pub struct Task {
     pub parent_task_id: Option<String>,
     #[serde(default, alias = "dependency_task_ids")]
     pub depends_on: Vec<String>,
-    pub assigned_pane_id: Option<String>,
+    pub assigned_tab_id: Option<String>,
     #[serde(default)]
     pub lane: TaskLaneMetadata,
     #[serde(default)]
@@ -847,7 +854,7 @@ mod tests {
         let p = Plan::new(
             "Voice UX".into(),
             "/repo".into(),
-            OrchestratorRef::from_pane("abc123"),
+            OrchestratorRef::from_tab("abc123"),
         );
         assert_eq!(p.status, PlanStatus::Active);
         assert!(p.sections.is_empty() && p.tasks.is_empty() && p.loops.is_empty());
@@ -888,7 +895,7 @@ mod tests {
             "tasks": [
                 {"id":"task_1","name":"n","type":"implement","model":null,
                  "model_rationale":null,"status":"pending","status_label":null,
-                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_tab_id":null,
                  "peer":null}
             ]
         }"#;
@@ -925,7 +932,7 @@ mod tests {
             "tasks": [
                 {"id":"task_1","name":"n","type":"implement","model":null,
                  "model_rationale":null,"status":"pending","status_label":null,
-                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_tab_id":null,
                  "peer":null,"executor_role":"rust-backend-dev"}
             ]
         }"#;
@@ -961,16 +968,16 @@ mod tests {
     }
 
     #[test]
-    fn planner_ref_pane_roundtrips() {
+    fn planner_ref_tab_roundtrips() {
         let mut p = Plan::new("P".into(), "/r".into(), Default::default());
-        p.planner = Some(PlannerRef::Pane {
-            pane_id: "pane_plan".into(),
+        p.planner = Some(PlannerRef::Tab {
+            tab_id: "tab_plan".into(),
             session_id: Some("sid".into()),
             title: None,
         });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"kind\":\"pane\""));
-        assert!(json.contains("\"pane_id\":\"pane_plan\""));
+        assert!(json.contains("\"kind\":\"Tab\""));
+        assert!(json.contains("\"tab_id\":\"tab_plan\""));
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.planner, p.planner);
     }
@@ -1061,7 +1068,7 @@ mod tests {
             "tasks": [
                 {"id":"task_1","name":"n","type":"implement","model":null,
                  "model_rationale":null,"status":"in_review","status_label":null,
-                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_tab_id":null,
                  "peer":null}
             ]
         }"#;
@@ -1092,7 +1099,9 @@ mod tests {
             personality: None,
             personality_provenance: None,
             acceptance_criteria: vec!["ac".into()],
+            external_refs: vec![],
             test_plan: Some("Oracle: run x".into()),
+            qa_plan: None,
             correctness: None,
             status: TaskStatus::InReview,
             review_stage: ReviewStage::Review,
@@ -1101,7 +1110,7 @@ mod tests {
             review_oracle: Some("sig".into()),
             review_evidence: vec![ReviewEvidence {
                 id: "rev_1".into(),
-                from: OrchestratorRef::from_pane("qa1"),
+                from: OrchestratorRef::from_tab("qa1"),
                 verdict: ReviewVerdict::Bounce,
                 note: "needs fix".into(),
                 at: 5,
@@ -1137,7 +1146,7 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: None,
+            assigned_tab_id: None,
             lane: TaskLaneMetadata::default(),
             taken_by_role: None,
             peer: None,

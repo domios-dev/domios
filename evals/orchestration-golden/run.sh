@@ -17,8 +17,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUT_DIR="${ORCH_GOLDEN_OUT_DIR:-$REPO_ROOT/target-check/evals/orchestration-golden/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$OUT_DIR"
+REPORT_LOG="$OUT_DIR/orchestration-golden.log"
+exec 3>>"$REPORT_LOG"
 
 declare -a ROWS=()
+
+report() {
+  printf '%s\n' "$*"
+  printf '%s\n' "$*" >&3
+}
+
+reportf() {
+  local format="$1"
+  shift
+  printf "$format" "$@"
+  printf "$format" "$@" >&3
+}
+
+check_dev_precondition() {
+  if curl -fsS http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
+    return 0
+  fi
+
+  report "ABORT: dev daemon not healthy on 7686. Start it (orchestrator owns dev): ./build.sh dev"
+  report "report: $REPORT_LOG"
+  return 7
+}
 
 run_harness() {
   local name="$1"
@@ -26,10 +50,10 @@ run_harness() {
   local log="$OUT_DIR/${name}.log"
   local start end elapsed rc status
 
-  echo
-  echo "== $name =="
-  echo "command: $command"
-  echo "log: $log"
+  report
+  report "== $name =="
+  report "command: $command"
+  report "log: $log"
 
   start="$(date +%s)"
   (
@@ -47,10 +71,12 @@ run_harness() {
   fi
 
   ROWS+=("$name|$status|$rc|${elapsed}s|$command|$log")
-  echo "$status: $name rc=$rc elapsed=${elapsed}s"
+  report "$status: $name rc=$rc elapsed=${elapsed}s"
   if [ "$rc" -ne 0 ]; then
-    echo "last log lines:"
-    tail -40 "$log" || true
+    report "last log lines:"
+    while IFS= read -r line; do
+      report "$line"
+    done < <(tail -40 "$log")
   fi
 }
 
@@ -59,25 +85,28 @@ print_summary() {
   pass=0
   fail=0
 
-  echo
-  echo "======================================================================"
-  echo " ORCHESTRATION GOLDEN — summary"
-  echo "======================================================================"
-  printf " %-30s %-7s %-4s %-8s %s\n" "HARNESS" "STATUS" "RC" "ELAPSED" "LOG"
-  echo "----------------------------------------------------------------------"
+  report
+  report "======================================================================"
+  report " ORCHESTRATION GOLDEN — summary"
+  report "======================================================================"
+  reportf " %-30s %-7s %-4s %-8s %s\n" "HARNESS" "STATUS" "RC" "ELAPSED" "LOG"
+  report "----------------------------------------------------------------------"
   for row in "${ROWS[@]}"; do
     IFS='|' read -r name status rc elapsed command log <<< "$row"
-    printf " %-30s %-7s %-4s %-8s %s\n" "$name" "$status" "$rc" "$elapsed" "$log"
+    reportf " %-30s %-7s %-4s %-8s %s\n" "$name" "$status" "$rc" "$elapsed" "$log"
     case "$status" in
       PASS) pass=$((pass + 1)) ;;
       *) fail=$((fail + 1)) ;;
     esac
   done
-  echo "----------------------------------------------------------------------"
-  echo " PASS=$pass  FAIL=$fail"
-  echo " logs=$OUT_DIR"
-  echo "======================================================================"
+  report "----------------------------------------------------------------------"
+  report " PASS=$pass  FAIL=$fail"
+  report " logs=$OUT_DIR"
+  report " report=$REPORT_LOG"
+  report "======================================================================"
 }
+
+check_dev_precondition || exit $?
 
 run_harness "orchestrator-creation-matrix" "bash evals/orchestrator-creation-matrix/run.sh"
 run_harness "restore-matrix" "bash evals/restore-matrix/run.sh"

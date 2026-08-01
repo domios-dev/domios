@@ -133,30 +133,30 @@ fn remote_worker_record_body_builds_from_spawn_request_and_response() {
         "model": "opus",
     });
     let spawn_data = serde_json::json!({
-        "pane_id": "53854ac8",
+        "tab_id": "53854ac8",
         "title": "Canvas Orchestrator",
     });
     let reg = remote_worker_record_body("eight", &spawn_body, &spawn_data)
         .expect("registerable spawn produces a record body");
-    assert_eq!(reg["orchestrator_pane"], "4d479b6c");
+    assert_eq!(reg["orchestrator_tab"], "4d479b6c");
     assert_eq!(reg["peer"], "eight");
-    assert_eq!(reg["remote_pane"], "53854ac8");
+    assert_eq!(reg["remote_tab"], "53854ac8");
     assert_eq!(reg["title"], "Canvas Orchestrator");
     assert_eq!(reg["model"], "opus");
 }
 
 #[test]
-fn remote_worker_record_body_skips_without_report_target_or_pane() {
+fn remote_worker_record_body_skips_without_report_target_or_tab() {
     use super::relay::remote_worker_record_body;
     // No report target → nothing to nest under.
     let no_report = serde_json::json!({"agent": "claude"});
-    let data = serde_json::json!({"pane_id": "p1", "title": "W"});
+    let data = serde_json::json!({"tab_id": "p1", "title": "W"});
     assert!(remote_worker_record_body("eight", &no_report, &data).is_none());
 
-    // Spawn failed (no pane id) → nothing to register.
+    // Spawn failed (no tab id) → nothing to register.
     let with_report = serde_json::json!({"report_to": "main"});
-    let no_pane = serde_json::json!({"error": "boom"});
-    assert!(remote_worker_record_body("eight", &with_report, &no_pane).is_none());
+    let no_tab = serde_json::json!({"error": "boom"});
+    assert!(remote_worker_record_body("eight", &with_report, &no_tab).is_none());
 }
 
 #[test]
@@ -184,6 +184,7 @@ fn apply_maps_to_install_auto() {
             from_file: None,
             continue_prompt: None,
             continue_tab: None,
+            no_continue: false,
             after_update: None,
         }),
         None,
@@ -202,6 +203,7 @@ fn apply_with_manifest_url_appends_query() {
             from_file: None,
             continue_prompt: None,
             continue_tab: None,
+            no_continue: false,
             after_update: None,
         }),
         Some("http://localhost:9999/latest.json".to_string()),
@@ -220,6 +222,7 @@ fn update_install_local_only_options_are_rejected_over_mesh() {
             from_file: Some("C:/tmp/CodeTerm.exe".into()),
             continue_prompt: Some("verify".into()),
             continue_tab: Some("tab_1".into()),
+            no_continue: false,
             after_update: None,
         }),
         None,
@@ -454,12 +457,13 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
             schedule: "0 3 * * *".into(),
             task: "do x".into(),
             workspace: Some("ws_1".into()),
+            team: None,
             agent: "claude".into(),
             model: None,
             cwd: None,
             skill: None,
             description: None,
-            creator_pane: Some("pane_9".into()),
+            report_tab: Some("tab_9".into()),
             once: true,
             jitter_max_ms: Some(5000),
             tz: Some("Europe/Riga".into()),
@@ -475,17 +479,18 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
     assert_eq!(body["jitter_max_ms"], 5000);
     assert_eq!(body["tz"], "Europe/Riga");
     assert_eq!(body["timeout_seconds"], 1800);
-    assert_eq!(body["creator_pane_id"], "pane_9");
+    assert_eq!(body["report_target_tab_id"], "tab_9");
 }
 
 #[test]
-fn pane_new_relays_cmd_field() {
-    use crate::PaneAction;
+fn tab_new_relays_cmd_field() {
+    use crate::TabAction;
     let cmd = Commands::Tab {
-        action: PaneAction::New {
+        action: TabAction::New {
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),
             title: Some("runner".into()),
+            team: None,
             cmd: Some("pnpm test".into()),
             eager: true,
             chat_backend: None,
@@ -494,7 +499,7 @@ fn pane_new_relays_cmd_field() {
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes");
+    assert_eq!(p, "/api/tabs");
     let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
     assert_eq!(body["workspace_id"], "ws_1");
     assert_eq!(body["cwd"], "C:/Developer/codeterm");
@@ -504,10 +509,10 @@ fn pane_new_relays_cmd_field() {
 }
 
 #[test]
-fn pane_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
-    use crate::PaneAction;
+fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
+    use crate::TabAction;
     let list = Commands::Tab {
-        action: PaneAction::List {
+        action: TabAction::List {
             workspace: Some("ws 1".into()),
             all_workspaces: false,
             agents: true,
@@ -515,26 +520,26 @@ fn pane_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     };
     let (method, path, body) = cli_command_to_api(&list);
     assert_eq!(method, "GET");
-    assert_eq!(path, "/api/panes?agents=true&workspace_id=ws%201");
+    assert_eq!(path, "/api/tabs?agents=true&workspace_id=ws%201");
     assert!(body.is_none());
 
     let inspect = Commands::Tab {
-        action: PaneAction::Inspect {
+        action: TabAction::Inspect {
             tabs: vec!["tab_1".into(), "tab_2".into()],
         },
     };
     let (method, path, body) = cli_command_to_api(&inspect);
     assert_eq!(method, "GET");
-    assert_eq!(path, "/api/panes/inspect?pane_ids=tab_1,tab_2");
+    assert_eq!(path, "/api/tabs/inspect?tab_ids=tab_1,tab_2");
     assert!(body.is_none());
 }
 
 #[test]
 fn remote_worker_forget_body_matches_registry_delete_contract() {
-    let body = super::relay::remote_worker_forget_body("ROG", "pane_1");
+    let body = super::relay::remote_worker_forget_body("ROG", "tab_1");
     assert_eq!(body["peer"], "ROG");
-    assert_eq!(body["remote_pane"], "pane_1");
-    assert!(body.get("orchestrator_pane").is_none());
+    assert_eq!(body["remote_tab"], "tab_1");
+    assert!(body.get("orchestrator_tab").is_none());
 }
 
 #[test]
@@ -642,7 +647,7 @@ fn mem_stats_still_routes_to_stats() {
 fn send_text_is_fire_and_forget_on_mesh() {
     let cmd = Commands::SendText {
         text: Some("ping".into()),
-        pane: Some("abc123".into()),
+        tab: Some("abc123".into()),
         from_file: None,
         stdin: false,
         actions: None,
@@ -651,7 +656,7 @@ fn send_text_is_fire_and_forget_on_mesh() {
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes/abc123/send");
+    assert_eq!(p, "/api/tabs/abc123/send");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert_eq!(body["text"], "ping");
     assert!(
@@ -664,7 +669,7 @@ fn send_text_is_fire_and_forget_on_mesh() {
 fn send_delay_maps_to_delayed_messages() {
     let cmd = Commands::SendText {
         text: Some("later".into()),
-        pane: Some("abc123".into()),
+        tab: Some("abc123".into()),
         from_file: None,
         stdin: false,
         actions: None,
@@ -673,7 +678,7 @@ fn send_delay_maps_to_delayed_messages() {
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes/abc123/delayed-messages");
+    assert_eq!(p, "/api/tabs/abc123/delayed-messages");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert_eq!(body["text"], "later");
     assert!(
@@ -695,7 +700,7 @@ fn send_text_stdin_mesh_body_preserves_exact_text() {
         &mut stdin,
     );
     assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes/abc123/send");
+    assert_eq!(p, "/api/tabs/abc123/send");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert_eq!(body["text"], text);
 }
@@ -714,7 +719,7 @@ fn send_actions_allows_empty_payload_on_mesh() {
         &mut stdin,
     );
     assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes/abc123/send");
+    assert_eq!(p, "/api/tabs/abc123/send");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert!(body.get("text").is_none());
     assert_eq!(body["actions"][0]["type"], "key");
@@ -723,19 +728,16 @@ fn send_actions_allows_empty_payload_on_mesh() {
 
 #[test]
 fn only_post_sends_are_delivery_id_bearing() {
-    assert!(super::relay::is_send_relay(
-        "POST",
-        "/api/panes/abc123/send"
-    ));
+    assert!(super::relay::is_send_relay("POST", "/api/tabs/abc123/send"));
     assert!(super::relay::is_send_relay(
         "post",
-        "/api/panes/general/send"
+        "/api/tabs/general/send"
     ));
     assert!(
-        !super::relay::is_send_relay("GET", "/api/panes/abc123/send"),
+        !super::relay::is_send_relay("GET", "/api/tabs/abc123/send"),
         "a GET is never a logical send"
     );
-    assert!(!super::relay::is_send_relay("POST", "/api/panes"));
+    assert!(!super::relay::is_send_relay("POST", "/api/tabs"));
 }
 
 #[test]
@@ -764,7 +766,7 @@ fn delivery_id_generates_uuid_when_unset_or_blank() {
 #[test]
 fn relay_envelope_stamps_delivery_id_only_on_sends() {
     let send =
-        super::relay::build_relay_envelope("POST", "/api/panes/abc/send", Some(r#"{"text":"hi"}"#));
+        super::relay::build_relay_envelope("POST", "/api/tabs/abc/send", Some(r#"{"text":"hi"}"#));
     let id = send
         .get("delivery_id")
         .and_then(|v| v.as_str())
@@ -772,7 +774,7 @@ fn relay_envelope_stamps_delivery_id_only_on_sends() {
     assert!(!id.is_empty());
     assert_eq!(send["body"]["text"], "hi", "body is preserved");
 
-    let read = super::relay::build_relay_envelope("GET", "/api/panes", None);
+    let read = super::relay::build_relay_envelope("GET", "/api/tabs", None);
     assert!(
         read.get("delivery_id").is_none(),
         "reads carry no delivery_id"

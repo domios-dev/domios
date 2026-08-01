@@ -91,8 +91,10 @@ pending/in_progress/blocked/in_review → paused
 any open state → cancelled
 ```
 
-- `in_progress` requires a live bound Worker tab.
-- Dispatch or `task take` atomically binds the tab and starts a pending task.
+- `in_progress` requires both a live runtime binding and the Worker's durable
+  `codeterm agent ack`; either may arrive first.
+- `dispatch_ready` proves PTY, session, and lane readiness but does not start
+  the task. A missing ACK emits `worker_ack_timeout` after the bounded deadline.
 - `codeterm agent report --status in_review` atomically records the handoff,
   moves the bound task to `in_review`, and pushes the report into the
   Orchestrator tab. Workers never poll or separately update task status.
@@ -111,8 +113,8 @@ Before a wave:
    focused oracle, and central gates requested.
 3. Run plan doctor.
 4. Dispatch through `codeterm plan task dispatch`.
-5. Treat success as real only after the command returns verified Worker
-   readiness, session binding, task id, branch, and worktree provenance.
+5. Wait for pushed `dispatch_ready`, then pushed `worker_ack`; only the ACK
+   moves the task to `in_progress`. Never poll.
 6. If dispatch fails, alert the user immediately and verify rollback. Never
    blind-retry a write.
 
@@ -122,6 +124,7 @@ Every Worker must be visible under the Orchestrator and carry:
 - `CODETERM_PLAN_ID` and `CODETERM_TASK_ID`;
 - checkout placement chosen by the Orchestrator;
 - a self-contained brief with exact acceptance and test commands;
+- `codeterm agent ack` as its first task action;
 - instructions to report by running `codeterm agent report`.
 
 Use `codeterm docs LANES` for the complete lane lifecycle.
@@ -268,4 +271,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 43 -->
+<!-- revision: 44 -->

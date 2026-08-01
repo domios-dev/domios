@@ -3,6 +3,33 @@ use std::io::{BufRead, BufReader, Write};
 use interprocess::local_socket::{prelude::*, GenericNamespaced};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// Stable provenance labels for values in `identify --json`.
+pub enum ResolutionSource {
+    #[serde(rename = "CODETERM_DATA_DIR")]
+    CodeTermDataDir,
+    #[serde(rename = "CODETERM_API_PORT")]
+    CodeTermApiPort,
+    #[serde(rename = "CODETERM_SOCKET_PATH")]
+    CodeTermSocketPath,
+    #[serde(rename = "CODETERM_INSTANCE")]
+    CodeTermInstance,
+    #[serde(rename = "config")]
+    Config,
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "scan")]
+    Scan,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedSocket {
+    pub path: String,
+    pub source: ResolutionSource,
+}
+
 /// A JSON-RPC client that connects to the CodeTerm socket API.
 pub struct SocketClient {
     reader: BufReader<interprocess::local_socket::Stream>,
@@ -128,6 +155,50 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, SocketCallError> {
+        if is_version_sensitive_method(method) {
+            if let Some(daemon_version) = self.daemon_version() {
+                let cli_version = env!("CARGO_PKG_VERSION");
+                if daemon_version != cli_version {
+                    return Err(SocketCallError::Transport(render_protocol_mismatch(
+                        method,
+                        None,
+                        cli_version,
+                        &daemon_version,
+                    )));
+                }
+            }
+        }
+        match self.call_raw(method, params) {
+            Err(SocketCallError::Rpc(error)) if error.code == -32601 => {
+                let Some(daemon_version) = self.daemon_version() else {
+                    return Err(SocketCallError::Rpc(error));
+                };
+                let cli_version = env!("CARGO_PKG_VERSION");
+                if daemon_version == cli_version {
+                    return Err(SocketCallError::Rpc(error));
+                }
+                Err(SocketCallError::Transport(render_protocol_mismatch(
+                    method,
+                    Some(&error),
+                    cli_version,
+                    &daemon_version,
+                )))
+            }
+            result => result,
+        }
+    }
+
+    fn daemon_version(&mut self) -> Option<String> {
+        self.call_raw("system.identify", None)
+            .ok()
+            .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+    }
+
+    fn call_raw(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
             id: self.next_id,
@@ -181,6 +252,44 @@ impl SocketClient {
     }
 }
 
+fn is_version_sensitive_method(method: &str) -> bool {
+    method.starts_with("tab.") || method == "agent.spawn"
+}
+
+fn render_protocol_mismatch(
+    method: &str,
+    error: Option<&RpcError>,
+    cli_version: &str,
+    daemon_version: &str,
+) -> String {
+    let ordering = compare_versions(cli_version, daemon_version);
+    let direction = match ordering {
+        Some(std::cmp::Ordering::Greater) => "CLI is newer than daemon",
+        Some(std::cmp::Ordering::Less) => "daemon is newer than CLI",
+        _ => "CLI and daemon versions differ",
+    };
+    let incompatible = if error.is_some_and(|error| error.code == -32601) {
+        format!("method '{method}' is unavailable")
+    } else {
+        format!("method '{method}' cannot be used across this version boundary")
+    };
+    format!(
+        "CodeTerm CLI/daemon protocol mismatch: {direction} \
+         (CLI {cli_version}, daemon {daemon_version}); {incompatible}. \
+         Restart or update CodeTerm so the running daemon and installed CLI versions match."
+    )
+}
+
+fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    fn parse(version: &str) -> Option<Vec<u64>> {
+        version
+            .split('.')
+            .map(|part| part.split('-').next()?.parse().ok())
+            .collect()
+    }
+    Some(parse(left)?.cmp(&parse(right)?))
+}
+
 impl RpcClient for SocketClient {
     fn call_detailed(
         &mut self,
@@ -205,38 +314,51 @@ impl RpcClient for SocketClient {
 ///    that blindly trusts the env var ends up with `Failed to connect to
 ///    'codeterm-{old-pid}.sock'` on every invocation.
 pub fn discover_socket() -> Result<String, String> {
-    let deterministic = deterministic_socket_name();
+    discover_socket_resolution().map(|resolved| resolved.path)
+}
+
+pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
+    let deterministic = deterministic_socket_resolution();
     if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
         if !path.is_empty() {
             let normalized = normalize_socket_path(&path);
             if deterministic
-                .as_deref()
-                .is_none_or(|name| name == normalized)
+                .as_ref()
+                .is_none_or(|resolved| resolved.path == normalized)
                 && socket_is_live(&normalized)
             {
-                return Ok(normalized);
+                return Ok(ResolvedSocket {
+                    path: normalized,
+                    source: ResolutionSource::CodeTermSocketPath,
+                });
             }
         }
     }
 
-    if let Some(name) = deterministic {
-        if socket_is_live(&name) {
-            return Ok(name);
+    if let Some(resolved) = deterministic {
+        if socket_is_live(&resolved.path) {
+            return Ok(resolved);
         }
         return Err(format!(
             "CodeTerm socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
-            name
+            resolved.path
         ));
     }
 
     #[cfg(target_os = "windows")]
     {
-        discover_windows_pipe()
+        discover_windows_pipe().map(|path| ResolvedSocket {
+            path,
+            source: ResolutionSource::Scan,
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        discover_unix_socket()
+        discover_unix_socket().map(|path| ResolvedSocket {
+            path,
+            source: ResolutionSource::Scan,
+        })
     }
 }
 
@@ -310,12 +432,23 @@ fn prefers_dev_socket() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn deterministic_socket_name() -> Option<String> {
+    deterministic_socket_resolution().map(|resolved| resolved.path)
+}
+
+fn deterministic_socket_resolution() -> Option<ResolvedSocket> {
     if let Some(prefix) = instance_socket_prefix() {
-        return Some(format!("{prefix}.sock"));
+        return Some(ResolvedSocket {
+            path: format!("{prefix}.sock"),
+            source: ResolutionSource::CodeTermInstance,
+        });
     }
     if prefers_dev_socket() {
-        return Some("codeterm-dev.sock".to_string());
+        return Some(ResolvedSocket {
+            path: "codeterm-dev.sock".to_string(),
+            source: ResolutionSource::CodeTermApiPort,
+        });
     }
     None
 }
@@ -333,7 +466,7 @@ fn is_dev_socket(name: &str) -> bool {
 /// True when the socket name matches the requested port preference.
 ///
 /// A mismatch means the inherited SOCKET_PATH points at the wrong daemon —
-/// typical when the CLI runs inside a prod pane and the user has overridden
+/// typical when the CLI runs inside a prod Tab and the user has overridden
 /// CODETERM_API_PORT to 7686 to target the dev daemon.
 #[cfg(test)]
 fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
@@ -532,6 +665,10 @@ mod tests {
             deterministic_socket_name().as_deref(),
             Some("codeterm-dev-handoff.sock")
         );
+        assert_eq!(
+            deterministic_socket_resolution().map(|resolved| resolved.source),
+            Some(ResolutionSource::CodeTermInstance)
+        );
 
         restore_env("CODETERM_INSTANCE", prev_instance);
         restore_env("CODETERM_API_PORT", prev_port);
@@ -548,6 +685,10 @@ mod tests {
         assert_eq!(
             deterministic_socket_name().as_deref(),
             Some("codeterm-dev.sock")
+        );
+        assert_eq!(
+            deterministic_socket_resolution().map(|resolved| resolved.source),
+            Some(ResolutionSource::CodeTermApiPort)
         );
 
         restore_env("CODETERM_INSTANCE", prev_instance);
@@ -601,6 +742,30 @@ mod tests {
         assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
         assert!(is_dev_socket("codeterm-dev"));
         assert!(is_dev_socket("codeterm-dev.sock"));
+    }
+
+    #[test]
+    fn unknown_tab_method_names_version_skew_and_recovery() {
+        let error = RpcError {
+            code: -32601,
+            message: "Method not found".into(),
+            data: None,
+        };
+
+        let rendered = render_protocol_mismatch("tab.list", Some(&error), "1.7.8", "1.7.7");
+
+        assert!(rendered.contains("CLI is newer than daemon"));
+        assert!(rendered.contains("CLI 1.7.8, daemon 1.7.7"));
+        assert!(rendered.contains("method 'tab.list' is unavailable"));
+        assert!(rendered.contains("Restart or update CodeTerm"));
+    }
+
+    #[test]
+    fn bound_spawn_is_refused_before_cross_version_dispatch() {
+        let rendered = render_protocol_mismatch("agent.spawn", None, "1.7.8", "1.7.7");
+
+        assert!(rendered.contains("cannot be used across this version boundary"));
+        assert!(rendered.contains("Restart or update CodeTerm"));
     }
 
     fn restore_env(key: &str, value: Option<String>) {

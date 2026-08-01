@@ -3,7 +3,7 @@ import type { MissionAgent } from "./types";
 
 interface CrewStripProps {
   crew: MissionAgent[];
-  onAgentClick?: (paneId: string) => void;
+  onAgentClick?: (tabId: string) => void;
   /** Fallback text when nobody is working (e.g. "unclaimed"). */
   emptyLabel?: string;
 }

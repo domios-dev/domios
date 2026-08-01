@@ -1,12 +1,13 @@
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::Response,
     Json,
 };
 
 use crate::api::routes::{check_auth, AppState};
+use crate::api::access_policy::check_access;
 
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
@@ -70,33 +71,6 @@ fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<Strin
         known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
     }
     crate::mesh::crown::verify_signed_request(token, &known_keys).ok()
-}
-
-/// Sensitive relay paths that mutate the peer (install update, change channel).
-/// Read-only paths (GET checks, GET channel) are not gated and remain available
-/// to any paired peer.
-fn path_requires_full_access(method: &str, path: &str) -> bool {
-    let m = method.to_ascii_uppercase();
-    let bare = path.split('?').next().unwrap_or(path);
-    if m == "DELETE" && bare.starts_with("/api/mesh/peers/") {
-        return true;
-    }
-    matches!(
-        (m.as_str(), bare),
-        ("POST", "/api/update/install")
-            | ("POST", "/api/update/channel")
-            | ("POST", "/api/mesh/refresh")
-            | ("POST", "/api/mesh/pair/request")
-            | ("POST", "/api/mesh/pair/accept")
-            | ("POST", "/api/mesh/introduce")
-            | ("POST", "/api/mesh/rpc")
-            | ("POST", "/api/agents/spawn")
-            | ("POST", "/api/hooks/permission")
-            | ("POST", "/api/hooks/stop")
-            | ("POST", "/api/hooks/session_start")
-            | ("POST", "/api/config")
-            | ("PUT", "/api/config")
-    )
 }
 
 /// Verify relay sender: must be paired. Paired = trusted.
@@ -225,8 +199,8 @@ fn default_relay_method() -> String {
 }
 
 /// Parse a successful relayed `agent spawn` into a remote-worker registration
-/// `(report_to, remote_pane, title, model)`. None unless this was a POST spawn
-/// that succeeded, carried a `report_to` target, and produced a pane id.
+/// `(report_to, remote_tab, title, model)`. None unless this was a POST spawn
+/// that succeeded, carried a `report_to` target, and produced a tab id.
 fn spawn_registration_from_relay(
     method: &str,
     path: &str,
@@ -243,8 +217,8 @@ fn spawn_registration_from_relay(
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
     let data = resp.data.as_ref()?;
-    let remote_pane = data
-        .get("pane_id")
+    let remote_tab = data
+        .get("tab_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
@@ -253,7 +227,7 @@ fn spawn_registration_from_relay(
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or(remote_pane);
+        .unwrap_or(remote_tab);
     let model = body
         .get("model")
         .and_then(|v| v.as_str())
@@ -262,7 +236,7 @@ fn spawn_registration_from_relay(
         .map(str::to_string);
     Some((
         report_to.to_string(),
-        remote_pane.to_string(),
+        remote_tab.to_string(),
         title.to_string(),
         model,
     ))
@@ -276,6 +250,21 @@ pub async fn mesh_relay_to_peer(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let (client, peer_name) = {
         let mesh = state.mesh.lock();
+        let peer = mesh.paired_peers.get(&req.target_peer_id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Peer {} not paired", req.target_peer_id),
+            )
+        })?;
+        if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!(
+                    "Peer {} uses incompatible Mesh relay protocol {}",
+                    peer.instance_name, peer.relay_protocol_version
+                ),
+            ));
+        }
         let client = mesh.client_for(&req.target_peer_id).ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
@@ -302,10 +291,10 @@ pub async fn mesh_relay_to_peer(
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
 
     // sidebar ghosts it under the report target immediately (no report yet).
-    if let Some((report_to, remote_pane, title, model)) =
+    if let Some((report_to, remote_tab, title, model)) =
         spawn_registration_from_relay(&cmd.method, &cmd.path, &cmd.body, &resp)
     {
-        if let Ok(orchestrator) = crate::api::routes::resolve_pane(&state, &report_to) {
+        if let Ok(orchestrator) = crate::api::routes::resolve_tab(&state, &report_to) {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -313,7 +302,7 @@ pub async fn mesh_relay_to_peer(
             state.svc.remote_workers.record_spawn(
                 &orchestrator,
                 &peer_name,
-                &remote_pane,
+                &remote_tab,
                 &title,
                 model,
                 now_ms,
@@ -406,7 +395,7 @@ fn saturated_response() -> crate::mesh::types::RelayResponse {
     }
 }
 
-/// A logical pane send (POST `.../send`) gets a fresh delivery id for at-most-once
+/// A logical tab send (POST `.../send`) gets a fresh delivery id for at-most-once
 /// dedupe; every other relayed operation opts out (None).
 fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
     let bare = path.split('?').next().unwrap_or(path);
@@ -444,15 +433,29 @@ async fn perform_relay(
 
     validate_relay_path(&cmd.path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    if path_requires_full_access(&cmd.method, &cmd.path) && sender_id != "local" {
-        let access = state
+    if sender_id != "local" {
+        let (access, protocol_version) = state
             .mesh
             .lock()
             .paired_peers
             .get(sender_id)
-            .map(|p| p.access_level.clone())
-            .unwrap_or(crate::mesh::types::AccessLevel::Full);
-        if access != crate::mesh::types::AccessLevel::Full {
+            .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
+            .unwrap_or((crate::mesh::types::AccessLevel::ReadOnly, 0));
+        if protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Ok(crate::mesh::types::RelayResponse {
+                ok: false,
+                status: StatusCode::UPGRADE_REQUIRED.as_u16(),
+                data: None,
+                error: Some("Incompatible Mesh relay protocol; update CodeTerm".into()),
+            });
+        }
+        let method = Method::from_bytes(cmd.method.as_bytes()).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported method: {}", cmd.method),
+            )
+        })?;
+        if !check_access(&access, &method, &cmd.path) {
             return Ok(crate::mesh::types::RelayResponse {
                 ok: false,
                 status: 403,
@@ -520,7 +523,7 @@ async fn perform_relay(
     let data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
 
     if status < 400 && cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
-        let target_pane = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
+        let target_tab = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
         let preview = cmd
             .body
             .get("text")
@@ -533,13 +536,13 @@ async fn perform_relay(
         let _ = writer.record(crate::service::activity::ActivityEvent::peer_relay(
             sender_id,
             &sender_name,
-            &target_pane,
+            &target_tab,
             &preview,
         ));
         crate::api::events::emit_everywhere(
             &state.svc.app_handle,
             "service-pushed",
-            serde_json::json!({"source_id": sender_name, "target": target_pane, "kind": "mesh"}),
+            serde_json::json!({"source_id": sender_name, "target": target_tab, "kind": "mesh"}),
         );
     }
 
@@ -555,8 +558,8 @@ async fn perform_relay(
     })
 }
 
-/// Surface a structured delivery error (`pane_not_reachable_on_peer`,
-/// `pane_busy_refused`, `submit_unconfirmed`) across the relay boundary instead
+/// Surface a structured delivery error (`tab_not_reachable_on_peer`,
+/// `tab_busy_refused`, `submit_unconfirmed`) across the relay boundary instead
 /// of a bare `HTTP <status>`. `bytes_written` is echoed so a caller can never
 /// read a failure as "nothing happened" when the payload already landed.
 fn relay_error_summary(status: u16, data: &serde_json::Value) -> String {
@@ -648,6 +651,16 @@ pub async fn mesh_relay_stream(
 
     let client = {
         let mesh = state.mesh.lock();
+        let peer = mesh
+            .paired_peers
+            .get(&q.peer)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?;
+        if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!("Peer {} uses an incompatible Mesh relay protocol", peer.instance_name),
+            ));
+        }
         mesh.client_for(&q.peer)
             .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?
     };
@@ -700,6 +713,19 @@ pub async fn mesh_relay_asset(
 
     let (client, signed) = {
         let mesh = state.mesh.lock();
+        let paired = mesh
+            .paired_peers
+            .get(&peer)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
+        if paired.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!(
+                    "Peer {} uses an incompatible Mesh relay protocol",
+                    paired.instance_name
+                ),
+            ));
+        }
         let client = mesh
             .client_for(&peer)
             .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
@@ -732,8 +758,8 @@ pub async fn mesh_relay_asset(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_relay_asset_path, is_streamable_relay_path, path_requires_full_access,
-        tag_relay_send_source, tag_relay_spawn_source, validate_relay_path,
+        is_relay_asset_path, is_streamable_relay_path, tag_relay_send_source,
+        tag_relay_spawn_source, validate_relay_path,
     };
 
     use super::outcome_holds_dedupe;
@@ -744,18 +770,18 @@ mod tests {
 
     #[test]
     fn peer_relay_stamps_delivery_id_only_on_sends() {
-        let id = relay_send_delivery_id("POST", "/api/panes/abc/send")
-            .expect("a forwarded pane send carries a delivery id");
+        let id = relay_send_delivery_id("POST", "/api/tabs/abc/send")
+            .expect("a forwarded Tab send carries a delivery id");
         assert!(uuid::Uuid::parse_str(&id).is_ok(), "a v4 uuid: {id}");
         assert!(
-            relay_send_delivery_id("POST", "/api/panes/abc/send?x=1").is_some(),
+            relay_send_delivery_id("POST", "/api/tabs/abc/send?x=1").is_some(),
             "query string does not hide a send"
         );
         assert!(
-            relay_send_delivery_id("GET", "/api/panes/abc/send").is_none(),
+            relay_send_delivery_id("GET", "/api/tabs/abc/send").is_none(),
             "a GET is never a logical send"
         );
-        assert!(relay_send_delivery_id("POST", "/api/panes").is_none());
+        assert!(relay_send_delivery_id("POST", "/api/tabs").is_none());
         assert!(relay_send_delivery_id("POST", "/api/agents/spawn").is_none());
     }
 
@@ -806,7 +832,7 @@ mod tests {
     #[test]
     fn relay_forwards_structured_delivery_code_not_bare_status() {
         let body = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
-            pane: "53854ac8".into(),
+            tab: "53854ac8".into(),
             detail: "submit not confirmed after 3s".into(),
         }
         .to_json();
@@ -821,25 +847,25 @@ mod tests {
 
     #[test]
     fn relay_marks_zero_byte_refusals_explicitly() {
-        let body = crate::service::delivery_error::DeliveryError::PaneBusyRefused {
-            pane: "53854ac8".into(),
+        let body = crate::service::delivery_error::DeliveryError::TabBusyRefused {
+            tab: "53854ac8".into(),
             detail: "still booting".into(),
         }
         .to_json();
         let summary = relay_error_summary(409, &body);
-        assert!(summary.contains("pane_busy_refused"), "got: {summary}");
+        assert!(summary.contains("tab_busy_refused"), "got: {summary}");
         assert!(summary.contains("nothing written"), "got: {summary}");
     }
 
     #[test]
-    fn relay_unreachable_pane_is_named_not_bare_404() {
-        let body = crate::service::delivery_error::DeliveryError::PaneNotReachableOnPeer {
-            pane: "ghost".into(),
+    fn relay_unreachable_tab_is_named_not_bare_404() {
+        let body = crate::service::delivery_error::DeliveryError::TabNotReachableOnPeer {
+            tab: "ghost".into(),
         }
         .to_json();
         let summary = relay_error_summary(404, &body);
         assert!(
-            summary.contains("pane_not_reachable_on_peer"),
+            summary.contains("tab_not_reachable_on_peer"),
             "got: {summary}"
         );
         assert!(summary.contains("nothing written"), "got: {summary}");
@@ -869,12 +895,12 @@ mod tests {
     #[test]
     fn spawn_relay_registration_extracts_worker_fields() {
         let body = serde_json::json!({"agent":"claude","report_to":"4d479b6c","model":"opus"});
-        let resp = ok_resp(serde_json::json!({"pane_id":"53854ac8","title":"Canvas"}));
-        let (report_to, remote_pane, title, model) =
+        let resp = ok_resp(serde_json::json!({"tab_id":"53854ac8","title":"Canvas"}));
+        let (report_to, remote_tab, title, model) =
             spawn_registration_from_relay("POST", "/api/agents/spawn", &body, &resp)
                 .expect("spawn relay registers");
         assert_eq!(report_to, "4d479b6c");
-        assert_eq!(remote_pane, "53854ac8");
+        assert_eq!(remote_tab, "53854ac8");
         assert_eq!(title, "Canvas");
         assert_eq!(model.as_deref(), Some("opus"));
     }
@@ -882,9 +908,9 @@ mod tests {
     #[test]
     fn spawn_relay_registration_skips_non_spawn_and_unregisterable() {
         let body = serde_json::json!({"report_to":"main"});
-        let resp = ok_resp(serde_json::json!({"pane_id":"p1"}));
+        let resp = ok_resp(serde_json::json!({"tab_id":"p1"}));
         // Wrong path / method.
-        assert!(spawn_registration_from_relay("POST", "/api/panes/x/send", &body, &resp).is_none());
+        assert!(spawn_registration_from_relay("POST", "/api/tabs/x/send", &body, &resp).is_none());
         assert!(spawn_registration_from_relay("GET", "/api/agents/spawn", &body, &resp).is_none());
         // No report target.
         let no_report = serde_json::json!({"agent":"claude"});
@@ -895,7 +921,7 @@ mod tests {
         let failed = RelayResponse {
             ok: false,
             status: 500,
-            data: Some(serde_json::json!({"pane_id":"p1"})),
+            data: Some(serde_json::json!({"tab_id":"p1"})),
             error: Some("boom".into()),
         };
         assert!(
@@ -921,7 +947,7 @@ mod tests {
     #[test]
     fn relay_spawn_tagger_ignores_non_spawn_paths() {
         let mut body = serde_json::json!({"text": "hi"});
-        tag_relay_spawn_source(&mut body, "POST", "/api/panes/x/send", "Mac-Air");
+        tag_relay_spawn_source(&mut body, "POST", "/api/tabs/x/send", "Mac-Air");
         assert_eq!(body.get("origin_peer"), None);
         let mut body2 = serde_json::json!({});
         tag_relay_spawn_source(&mut body2, "GET", "/api/agents/spawn", "Mac-Air");
@@ -934,28 +960,28 @@ mod tests {
 
     #[test]
     fn relay_send_tags_originating_peer() {
-        let mut body = serde_json::json!({"text": "hi", "source_pane": "e8a0ac20"});
-        tag_relay_send_source(&mut body, "POST", "/api/panes/general/send", "BLACKSTAR");
+        let mut body = serde_json::json!({"text": "hi", "source_tab": "e8a0ac20"});
+        tag_relay_send_source(&mut body, "POST", "/api/tabs/general/send", "BLACKSTAR");
         assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
         // Text is NOT pre-wrapped — the send handler owns prefixing.
         assert_eq!(body["text"], serde_json::json!("hi"));
-        assert_eq!(body["source_pane"], serde_json::json!("e8a0ac20"));
+        assert_eq!(body["source_tab"], serde_json::json!("e8a0ac20"));
     }
 
     #[test]
     fn relay_send_peer_overrides_spoofed_body_value() {
         let mut body = serde_json::json!({"text": "hi", "source_peer": "I-AM-ROOT"});
-        tag_relay_send_source(&mut body, "post", "/api/panes/x/send", "BLACKSTAR");
+        tag_relay_send_source(&mut body, "post", "/api/tabs/x/send", "BLACKSTAR");
         assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
     }
 
     #[test]
     fn relay_non_send_paths_untouched() {
         let mut body = serde_json::json!({"foo": "bar"});
-        tag_relay_send_source(&mut body, "GET", "/api/panes", "BLACKSTAR");
+        tag_relay_send_source(&mut body, "GET", "/api/tabs", "BLACKSTAR");
         assert_eq!(body.get("source_peer"), None);
         let mut body2 = serde_json::json!({"foo": "bar"});
-        tag_relay_send_source(&mut body2, "GET", "/api/panes/x/send", "BLACKSTAR");
+        tag_relay_send_source(&mut body2, "GET", "/api/tabs/x/send", "BLACKSTAR");
         assert_eq!(
             body2.get("source_peer"),
             None,
@@ -965,8 +991,8 @@ mod tests {
 
     #[test]
     fn valid_relay_paths_pass() {
-        assert!(validate_relay_path("/api/panes/abc/output").is_ok());
-        assert!(validate_relay_path("/api/panes/abc/send").is_ok());
+        assert!(validate_relay_path("/api/tabs/abc/output").is_ok());
+        assert!(validate_relay_path("/api/tabs/abc/send").is_ok());
         assert!(validate_relay_path("/api/mesh/status").is_ok());
         assert!(validate_relay_path("/api/workspaces").is_ok());
     }
@@ -980,7 +1006,7 @@ mod tests {
 
     #[test]
     fn userinfo_ssrf_rejected() {
-        assert!(validate_relay_path("/api/panes/send?url=http://evil@evil.com").is_err());
+        assert!(validate_relay_path("/api/tabs/send?url=http://evil@evil.com").is_err());
     }
 
     #[test]
@@ -992,97 +1018,14 @@ mod tests {
 
     #[test]
     fn protocol_relative_rejected() {
-        assert!(validate_relay_path("//evil.com/api/panes").is_err());
-    }
-
-    #[test]
-    fn install_update_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/update/install"));
-        assert!(path_requires_full_access(
-            "POST",
-            "/api/update/install?method=auto"
-        ));
-        assert!(path_requires_full_access(
-            "post",
-            "/api/update/install?method=auto&manifest_url=foo"
-        ));
-    }
-
-    #[test]
-    fn set_channel_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/update/channel"));
-    }
-
-    #[test]
-    fn check_and_get_channel_are_open() {
-        assert!(!path_requires_full_access("GET", "/api/update/check"));
-        assert!(!path_requires_full_access(
-            "GET",
-            "/api/update/check?force=true"
-        ));
-        assert!(!path_requires_full_access("GET", "/api/update/channel"));
-    }
-
-    #[test]
-    fn unrelated_paths_are_open() {
-        assert!(!path_requires_full_access(
-            "POST",
-            "/api/panes/general/send"
-        ));
-        assert!(!path_requires_full_access("GET", "/api/mesh/peers"));
-    }
-
-    #[test]
-    fn mesh_refresh_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/mesh/refresh"));
-        assert!(!path_requires_full_access("GET", "/api/mesh/refresh"));
-    }
-
-    #[test]
-    fn mesh_announce_is_open() {
-        // Access gate already validates signed token; re-verify sender_id during apply for relay safety.
-        assert!(!path_requires_full_access("POST", "/api/mesh/announce"));
-    }
-
-    #[test]
-    fn mesh_pairing_endpoints_are_gated() {
-        assert!(path_requires_full_access("POST", "/api/mesh/pair/request"));
-        assert!(path_requires_full_access("POST", "/api/mesh/pair/accept"));
-        assert!(path_requires_full_access("POST", "/api/mesh/introduce"));
-    }
-
-    #[test]
-    fn mesh_rpc_requires_full_access() {
-        assert!(path_requires_full_access("POST", "/api/mesh/rpc"));
-    }
-
-    #[test]
-    fn agent_spawn_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/agents/spawn"));
-    }
-
-    #[test]
-    fn hook_endpoints_are_gated() {
-        assert!(path_requires_full_access("POST", "/api/hooks/permission"));
-        assert!(path_requires_full_access("POST", "/api/hooks/stop"));
-        assert!(path_requires_full_access(
-            "POST",
-            "/api/hooks/session_start"
-        ));
-    }
-
-    #[test]
-    fn config_mutation_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/config"));
-        assert!(path_requires_full_access("PUT", "/api/config"));
-        assert!(!path_requires_full_access("GET", "/api/config"));
+        assert!(validate_relay_path("//evil.com/api/tabs").is_err());
     }
 
     #[test]
     fn only_cursor_streams_are_relayable() {
         assert!(is_streamable_relay_path("/api/events/stream"));
         assert!(is_streamable_relay_path("/api/output/stream"));
-        assert!(!is_streamable_relay_path("/api/panes/abc/send"));
+        assert!(!is_streamable_relay_path("/api/tabs/abc/send"));
         assert!(!is_streamable_relay_path("/api/config"));
     }
 
@@ -1092,23 +1035,8 @@ mod tests {
         assert!(is_relay_asset_path("plugins/git/ui/assets/app.js"));
         // Not a ui/ path, not a plugin path, or traversal — all rejected.
         assert!(!is_relay_asset_path("plugins/git/manifest.json"));
-        assert!(!is_relay_asset_path("panes/abc/ui/x"));
+        assert!(!is_relay_asset_path("tabs/abc/ui/x"));
         assert!(!is_relay_asset_path("plugins/git/ui/../../../etc/passwd"));
     }
 
-    #[test]
-    fn peer_delete_is_gated() {
-        assert!(path_requires_full_access(
-            "DELETE",
-            "/api/mesh/peers/some-uuid"
-        ));
-        assert!(path_requires_full_access(
-            "DELETE",
-            "/api/mesh/peers/peer-abc-123"
-        ));
-        assert!(!path_requires_full_access(
-            "GET",
-            "/api/mesh/peers/some-uuid"
-        ));
-    }
 }

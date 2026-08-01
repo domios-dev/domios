@@ -11,7 +11,7 @@ import {
 import { PlanBoardView } from "./planView/PlanBoardView";
 import { PlanListView } from "./planView/PlanListView";
 import { PlanCompanionBubble } from "./planView/PlanCompanionBubble";
-import { PaneSessionChat } from "../Terminal/PaneSessionChat";
+import { TabSessionChat } from "../Terminal/TabSessionChat";
 
 const BoardSurface = memo(PlanBoardView);
 const ListSurface = memo(PlanListView);
@@ -59,8 +59,8 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const boardProps = useFrozenWhenHidden(props, viewMode === "board");
 
   const renderCompanionChat = useCallback(
-    ({ paneId, chatBackend }: { paneId: string; chatBackend: boolean }) => (
-      <PaneSessionChat paneId={paneId} api={props.api} chatBackend={chatBackend} isVisible />
+    ({ tabId, chatBackend }: { tabId: string; chatBackend: boolean }) => (
+      <TabSessionChat tabId={tabId} api={props.api} chatBackend={chatBackend} isVisible />
     ),
     [props.api],
   );
@@ -116,10 +116,10 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         </div>
         <CompanionSurface
           plans={props.plans}
-          panes={props.panes ?? {}}
+          tabs={props.tabs ?? {}}
           planId={props.planId}
-          orchestratorPaneId={props.orchestratorPaneId}
-          onOpenPane={props.onOpenPane}
+          orchestratorTabId={props.orchestratorTabId}
+          onOpenTab={props.onOpenTab}
           renderChat={renderCompanionChat}
         />
       </div>

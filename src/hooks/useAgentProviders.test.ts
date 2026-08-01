@@ -1,13 +1,13 @@
 // Run: npx tsx src/hooks/useAgentProviders.test.ts
-// Regression for GH #185: secondary useAgentProviders mounts must not wipe the
-// shared descriptor cache while their fetch is still in flight.
 
 import { getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import type { ProviderDescriptor } from "../lib/types";
 import {
+  agentProvidersFromResponse,
   attachModelsUpdatedRefresh,
   shouldRefreshAgentProviders,
   syncAgentDescriptorCache,
+  visibleAgentProviders,
 } from "./useAgentProviders";
 
 let failed = 0;
@@ -48,26 +48,53 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("sync skips while loading so a mounting hook cannot clear warm cache", () => {
-  setAgentDescriptors([provider("claude")]);
-  syncAgentDescriptorCache([], true);
-  assert(getAgentDescriptor("claude")?.id === "claude", "warm cache survives in-flight fetch");
+test("sync hides the previous catalog throughout loading and error before publishing the next catalog", () => {
+  const catalogA = [provider("catalog-a")];
+  const catalogB = [provider("catalog-b")];
+
+  setAgentDescriptors(catalogA);
+  syncAgentDescriptorCache(catalogA, true, null);
+  assert(listAgentDescriptors().length === 0, "loading clears catalog A from cache consumers");
+
+  syncAgentDescriptorCache(catalogA, false, "catalog unavailable");
+  assert(listAgentDescriptors().length === 0, "fetch errors cannot republish retained catalog A items");
+
+  syncAgentDescriptorCache(catalogB, false, null);
+  assert(getAgentDescriptor("catalog-b")?.id === "catalog-b", "settled catalog B reaches cache consumers");
 });
 
 test("sync publishes once loading finishes", () => {
-  syncAgentDescriptorCache([provider("codex")], false);
-  assert(getAgentDescriptor("codex")?.id === "codex", "loaded providers reach cache");
+  syncAgentDescriptorCache([provider("loaded-provider")], false, null);
+  assert(getAgentDescriptor("loaded-provider")?.id === "loaded-provider", "loaded providers reach cache");
 });
 
 test("sync allows empty registry after a completed load", () => {
-  syncAgentDescriptorCache([], false);
-  assert(getAgentDescriptor("codex") === undefined, "empty completed fetch clears cache");
+  syncAgentDescriptorCache([], false, null);
+  assert(getAgentDescriptor("loaded-provider") === undefined, "empty completed fetch clears cache");
 });
 
 test("models-updated refresh is wired alongside contributions changes", () => {
   assert(shouldRefreshAgentProviders("contributions-changed"), "contribution event should refresh");
   assert(shouldRefreshAgentProviders("models-updated"), "models-updated should refresh");
-  assert(!shouldRefreshAgentProviders("pane-focused"), "irrelevant events must not refresh");
+  assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
+});
+
+test("loading or failed catalogs expose no stale provider entries", () => {
+  const stale = [provider("stale-provider")];
+  assert(visibleAgentProviders(stale, true, null).length === 0, "loading hides stale entries");
+  assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
+  assert(
+    visibleAgentProviders(stale, true, null) === visibleAgentProviders([], true, null),
+    "hidden catalogs keep stable identity across consumer renders",
+  );
+  assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
+});
+
+test("malformed catalog responses expose an honest empty catalog", () => {
+  assert(agentProvidersFromResponse({}).length === 0, "object response is not a provider catalog");
+  assert(agentProvidersFromResponse(null).length === 0, "null response is not a provider catalog");
+  const catalog = [provider("catalog-provider")];
+  assert(agentProvidersFromResponse(catalog) === catalog, "array response preserves catalog identity");
 });
 
 test("models-updated listener refetches while mounted", () => {

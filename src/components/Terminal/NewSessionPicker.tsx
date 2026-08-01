@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
-import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
@@ -19,6 +18,7 @@ import { AgentIcon } from "../AgentIcon";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -35,7 +35,7 @@ export function NewSessionPicker({
   onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, selectTabByPane, addNotification, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification, createWorkspace } = useMultiplexer();
   const state = useMuxState();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
@@ -57,6 +57,7 @@ export function NewSessionPicker({
 
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const workspaces = state.workspaces;
   const selectedWorkspace = useMemo(
@@ -95,13 +96,13 @@ export function NewSessionPicker({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || claudeModalOpen) return;
+      if (event.key !== "Escape" || busy || claudeModalOpen || folderPickerOpen) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, claudeModalOpen, onClose]);
+  }, [busy, claudeModalOpen, folderPickerOpen, onClose]);
 
   useEffect(() => {
     const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -112,14 +113,14 @@ export function NewSessionPicker({
   const handleInstallProvider = useCallback((providerId: string) => {
     void (async () => {
       try {
-        const res = await invoke<{ tab_id: string; pane_id: string }>(
-          "install_provider_in_pane",
+        const res = await invoke<{ tab_id: string }>(
+          "install_provider_in_tab",
           { providerId },
         );
         const wsId = state.active_workspace_id;
-        if (wsId && res?.pane_id) await selectTabByPane(wsId, res.pane_id).catch(() => {});
+        if (wsId && res?.tab_id) await selectTabByTab(wsId, res.tab_id).catch(() => {});
         addNotification({
-          pane_id: null,
+          tab_id: null,
           workspace_id: workspaceId,
           title: "Installer running",
           body: "The install command is running in a terminal tab. Come back to Start a session when it finishes.",
@@ -128,7 +129,7 @@ export function NewSessionPicker({
         });
       } catch (e) {
         addNotification({
-          pane_id: null,
+          tab_id: null,
           workspace_id: workspaceId,
           title: "Install failed to start",
           body: e instanceof Error ? e.message : String(e),
@@ -137,7 +138,7 @@ export function NewSessionPicker({
         });
       }
     })();
-  }, [addNotification, selectTabByPane, state.active_workspace_id, workspaceId]);
+  }, [addNotification, selectTabByTab, state.active_workspace_id, workspaceId]);
 
   const handleStartCreateWorkspace = useCallback(() => {
     if (IS_WEB) {
@@ -145,22 +146,12 @@ export function NewSessionPicker({
       setCreatingWorkspace(true);
       return;
     }
-    // Desktop: a workspace IS a folder — pick it natively, name = basename.
+    setFolderPickerOpen(true);
+  }, []);
+  const handleSelectWorkspaceFolder = useCallback((folder: string) => {
+    setFolderPickerOpen(false);
     void (async () => {
-      let folder: string | null = null;
-      try {
-        folder = (await open({
-          directory: true,
-          multiple: false,
-          title: "Choose workspace folder",
-        })) as string | null;
-      } catch {
-        return;
-      }
-      if (!folder) return;
       const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-      // Stay on the picker: the new workspace becomes the spawn DESTINATION;
-      // the UI only navigates there when Start creates the session.
       const info = await createWorkspace(basename, folder, { activate: false });
       if (info?.id) setSelectedWorkspaceId(info.id);
     })();
@@ -175,20 +166,18 @@ export function NewSessionPicker({
   }, [newWorkspaceName, createWorkspace]);
 
   const finishSpawn = useCallback(async (
-    runner: () => Promise<{ workspaceId: string; paneId: string; tabId?: string } | null>,
+    runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
   ) => {
     setBusy(true);
     try {
       const created = await runner();
       if (created) {
-        if (!created.tabId) {
-          await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
-        }
+        await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
         onClose();
       }
     } catch (e) {
       addNotification({
-        pane_id: null,
+        tab_id: null,
         workspace_id: workspaceId,
         title: "Session start failed",
         body: e instanceof Error ? e.message : String(e),
@@ -198,7 +187,7 @@ export function NewSessionPicker({
     } finally {
       setBusy(false);
     }
-  }, [addNotification, onClose, selectTabByPane, workspaceId]);
+  }, [addNotification, onClose, selectTabByTab, workspaceId]);
 
   const runProviderSpawn = useCallback(async (
     providerId: string,
@@ -240,10 +229,10 @@ export function NewSessionPicker({
       plannerModel: choice.plannerModelId,
       workspaceId: wsId,
     })
-      .then((result) => selectTabByPane(wsId, result.orchestrator_pane_id))
+      .then((result) => selectTabByTab(wsId, result.orchestrator_tab_id))
       .catch((e) => {
         addNotification({
-          pane_id: null,
+          tab_id: null,
           workspace_id: wsId,
           title: "Orchestration start failed",
           body: e instanceof Error ? e.message : String(e),
@@ -251,7 +240,7 @@ export function NewSessionPicker({
           sticky: true,
         });
       });
-  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByPane, selectedWorkspaceId]);
+  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, selectedWorkspaceId]);
 
   const handleStart = useCallback(() => {
     if (choice.mode === "pair") {
@@ -516,6 +505,17 @@ export function NewSessionPicker({
             </div>
           </div>
         </>
+      )}
+
+      {folderPickerOpen && (
+        <div className="fixed inset-0 z-[1020]">
+          <RemoteFolderPicker
+            title="Choose workspace folder"
+            initialPath={selectedWorkspace?.cwd ?? workspaceCwd}
+            onCancel={() => setFolderPickerOpen(false)}
+            onSelect={handleSelectWorkspaceFolder}
+          />
+        </div>
       )}
     </div>,
     document.body,

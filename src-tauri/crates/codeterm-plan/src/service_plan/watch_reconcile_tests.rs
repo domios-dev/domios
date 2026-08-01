@@ -5,7 +5,7 @@ fn new_plan(root: &std::path::Path, title: &str) -> Plan {
     Plan::new(
         title.into(),
         root.display().to_string(),
-        OrchestratorRef::from_pane("abc"),
+        OrchestratorRef::from_tab("abc"),
     )
 }
 

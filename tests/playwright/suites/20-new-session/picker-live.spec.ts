@@ -3,7 +3,7 @@
  *       orchestration pair and a single agent.
  * WHY: golden uses the replay transport, so it cannot catch a provider launch
  *      that falls back to a bare shell or starts work without instructions.
- * ORACLE: every returned pane gains a live PTY/session and its first chat
+ * ORACLE: every returned tab gains a live PTY/session and its first chat
  *         message; a taskless pair stays idle until an explicit post-ready probe.
  */
 import { expect, test } from "../../helpers/fixtures";
@@ -16,8 +16,8 @@ import {
 
 type PairResult = {
   plan_id?: string;
-  orchestrator_pane_id: string;
-  planner_pane_id: string;
+  orchestrator_tab_id: string;
+  planner_tab_id: string;
 };
 
 async function createTestWorkspace(
@@ -33,9 +33,9 @@ async function createTestWorkspace(
   return { id: ws.id, name };
 }
 
-async function paneText(api: ApiClient, paneId: string): Promise<string> {
+async function tabText(api: ApiClient, tabId: string): Promise<string> {
   const text = await api
-    .get<{ text?: string } | string>(`/panes/${paneId}/text`)
+    .get<{ text?: string } | string>(`/tabs/${tabId}/text`)
     .catch(() => "");
   return typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
 }
@@ -43,7 +43,7 @@ async function paneText(api: ApiClient, paneId: string): Promise<string> {
 test("@live real orchestration-pair template spawn materializes both providers and waits idle", async ({
   api,
   ui,
-  paneCleanup,
+  tabCleanup,
 }) => {
   const ws = await createTestWorkspace(api);
   const pair = await api.post<PairResult>(
@@ -57,8 +57,8 @@ test("@live real orchestration-pair template spawn materializes both providers a
       title: `pw-live-pair-${Date.now()}`,
     },
   );
-  paneCleanup.track(pair.orchestrator_pane_id);
-  paneCleanup.track(pair.planner_pane_id);
+  tabCleanup.track(pair.orchestrator_tab_id);
+  tabCleanup.track(pair.planner_tab_id);
 
   expect(
     pair.plan_id,
@@ -67,42 +67,42 @@ test("@live real orchestration-pair template spawn materializes both providers a
 
   await assertRealTemplateSpawn(api, ui.page, "orchestration-pair", [
     {
-      paneId: pair.orchestrator_pane_id,
+      tabId: pair.orchestrator_tab_id,
       provider: "claude",
       label: "Orchestrator",
     },
-    { paneId: pair.planner_pane_id, provider: "claude", label: "Planner" },
+    { tabId: pair.planner_tab_id, provider: "claude", label: "Planner" },
   ]);
 
   const plannerStatus = await api.get<Record<string, unknown>>(
-    `/panes/${pair.planner_pane_id}/status`,
+    `/tabs/${pair.planner_tab_id}/status`,
   );
-  expect(plannerStatus.parent_pane_id).toBe(pair.orchestrator_pane_id);
+  expect(plannerStatus.parent_tab_id).toBe(pair.orchestrator_tab_id);
   expect(plannerStatus.role).toBe("Manager");
 
   await Promise.all([
     expectRealSpawnIdle(api, ui.page, {
-      paneId: pair.orchestrator_pane_id,
+      tabId: pair.orchestrator_tab_id,
       provider: "claude",
       label: "Orchestrator",
     }),
     expectRealSpawnIdle(api, ui.page, {
-      paneId: pair.planner_pane_id,
+      tabId: pair.planner_tab_id,
       provider: "claude",
       label: "Planner",
     }),
   ]);
 
-  const orchestratorText = await paneText(api, pair.orchestrator_pane_id);
+  const orchestratorText = await tabText(api, pair.orchestrator_tab_id);
   expect(orchestratorText).not.toContain(
-    `Your Planner specialist is live: pane ${pair.planner_pane_id}`,
+    `Your Planner specialist is live: tab ${pair.planner_tab_id}`,
   );
 
   await expectFreshAssistantReply(
     api,
     ui.page,
     {
-      paneId: pair.orchestrator_pane_id,
+      tabId: pair.orchestrator_tab_id,
       provider: "claude",
       label: "Orchestrator",
     },
@@ -114,10 +114,10 @@ test("@live real orchestration-pair template spawn materializes both providers a
 test("@live real single-agent template spawn materializes a provider and its first chat message", async ({
   api,
   ui,
-  paneCleanup,
+  tabCleanup,
   spawnAgent,
 }) => {
-  const spawned = await spawnAgent<{ pane_id: string; agent: string }>({
+  const spawned = await spawnAgent<{ tab_id: string; agent: string }>({
     agent: "claude",
     model: "sonnet",
     title: "pw-live-single-template",
@@ -127,13 +127,13 @@ test("@live real single-agent template spawn materializes a provider and its fir
   expect(spawned.agent).toBe("claude");
 
   await assertRealTemplateSpawn(api, ui.page, "single-agent", [
-    { paneId: spawned.pane_id, provider: "claude", label: "Single agent" },
+    { tabId: spawned.tab_id, provider: "claude", label: "Single agent" },
   ]);
 
   await expectFreshAssistantReply(
     api,
     ui.page,
-    { paneId: spawned.pane_id, provider: "claude", label: "Single agent" },
+    { tabId: spawned.tab_id, provider: "claude", label: "Single agent" },
     "Return only the decimal result of nineteen plus eight.",
     "27",
   );

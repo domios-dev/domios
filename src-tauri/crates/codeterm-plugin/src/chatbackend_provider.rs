@@ -50,7 +50,7 @@ pub trait ChatBackendProvider: Send + Sync {
         self.id()
     }
 
-    /// Whether a user may open this backend as a pane. Bare `chatBackend: true` ⇒
+    /// Whether a user may open this backend as a tab. Bare `chatBackend: true` ⇒
     /// false (backend-only); `{ spawnable: true }` opts in. Core gates discovery/spawn on this.
     fn spawnable(&self) -> bool {
         false
@@ -68,7 +68,7 @@ pub trait ChatBackendProvider: Send + Sync {
         None
     }
 
-    /// Open a session for a pane (`ctx` = `{ paneId, config, systemPrompt?, preset?, model? }`); returns the plugin-chosen session id.
+    /// Open a session for a tab (`ctx` = `{ tabId, config, systemPrompt?, preset?, model? }`); returns the plugin-chosen session id.
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError>;
 
     /// Deliver one user turn to the session.
@@ -90,10 +90,10 @@ pub trait ChatBackendProvider: Send + Sync {
         cursor: Option<&str>,
     ) -> Result<StructuredChat, ChatBackendError>;
 
-    /// Tear down a session. Best-effort; called on pane close.
+    /// Tear down a session. Best-effort; called on tab close.
     fn close_session(&self, session_id: &str) -> Result<(), ChatBackendError>;
 
-    /// Models this backend offers, for the pane's model picker.
+    /// Models this backend offers, for the tab's model picker.
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError>;
 
     /// Presets this backend offers. Optional: backends without preset support

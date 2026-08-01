@@ -4,34 +4,23 @@ use crate::provider::{
     self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, SettingField,
 };
 
-pub(super) fn builtin_models() -> Vec<ModelInfo> {
-    // Stable alias ids — the CLI resolves them to the latest concrete version.
-    vec![
-        ModelInfo {
-            id: "opus".into(),
-            display_name: "Claude Opus 4.8 (1M context)".into(),
-            description: Some("Best for everyday, complex tasks.".into()),
-            available: None,
-        },
-        ModelInfo {
-            id: "sonnet".into(),
-            display_name: "Claude Sonnet 4.6".into(),
-            description: Some("Efficient for routine tasks.".into()),
-            available: None,
-        },
-        ModelInfo {
-            id: "haiku".into(),
-            display_name: "Claude Haiku 4.5".into(),
-            description: Some("Fastest for quick answers.".into()),
-            available: None,
-        },
-        ModelInfo {
-            id: "fable".into(),
-            display_name: "Claude Fable 5".into(),
-            description: Some("Newest model — enabled once available for your account.".into()),
-            available: Some(false),
-        },
-    ]
+/// Bundled manifest is the single shipped Claude alias catalog; the native
+/// provider registers this exact seed, never a mirrored Rust vector.
+const BUNDLED_MANIFEST: &str =
+    include_str!("../../../../../../plugins/provider-claude/plugin.json");
+
+pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
+    static SEED: std::sync::OnceLock<crate::model_catalog::RegisteredDefaults> =
+        std::sync::OnceLock::new();
+    SEED.get_or_init(|| {
+        let manifest: crate::js_runtime::PluginManifest =
+            serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+        crate::model_catalog::RegisteredDefaults {
+            models: manifest.models.iter().map(ModelInfo::from).collect(),
+            default: manifest.default_model,
+        }
+    })
+    .clone()
 }
 
 /// Resolved list — registered defaults unless the user dropped
@@ -48,7 +37,7 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
         description: Some(
             "Get notified when Claude Code needs permission or finishes a task. \
              Installs PostToolUse / Stop hooks into ~/.claude/settings.json that POST \
-             back to CodeTerm so notifications fire on the right pane."
+             back to CodeTerm so notifications fire on the right tab."
                 .into(),
         ),
         fields: vec![
@@ -185,20 +174,17 @@ mod tests {
     use crate::provider::AgentProvider;
 
     #[test]
-    fn claude_metadata_describes_alias_models_with_fable_disabled() {
+    fn claude_seed_is_manifest_derived_stable_aliases_with_sonnet_default() {
         let p = super::super::ClaudeProvider::new();
-        let models = p.available_models();
-        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
-        assert!(ids.contains(&"sonnet"));
-        assert!(ids.contains(&"opus"));
-        assert!(ids.contains(&"haiku"));
-        // live discovery confirms the account can use it.
-        let fable = models
-            .iter()
-            .find(|m| m.id == "fable")
-            .expect("fable alias present");
-        assert_eq!(fable.available, Some(false));
-        assert_eq!(p.default_model().as_deref(), Some("opus"));
+        let ids: Vec<String> = p.available_models().into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, vec!["opus", "sonnet", "haiku", "fable"]);
+        assert_eq!(p.default_model().as_deref(), Some("sonnet"));
+        let seed = manifest_defaults();
+        assert_eq!(seed.default.as_deref(), Some("sonnet"));
+        assert!(
+            seed.models.iter().all(|m| m.available.is_none()),
+            "static seed availability must stay unknown; only genuine discovery may publish it"
+        );
     }
 
     #[test]

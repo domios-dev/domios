@@ -37,7 +37,7 @@ say "LIVE 3/4 — structured-prompt-check (C9 SSE-source-of-truth: state=questio
 ./testbench/structured-prompt-check.sh 2>&1 | tail -6 || true
 
 say "LIVE 4/4 — stop-oracle (non-vacuous interrupt). http-abort if server base/session exist"
-echo "  run manually with a disposable pane:"
+echo "  run manually with a disposable tab:"
 echo "    testbench/stop-oracle.sh --tab <disposable> --mode stop"
 echo "    testbench/stop-oracle.sh --tab <disposable> --mode http-abort --oc-base http://127.0.0.1:<port> --oc-session ses_…"
 

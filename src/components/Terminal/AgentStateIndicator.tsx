@@ -13,6 +13,7 @@ import {
   Timer,
   X,
 } from "lucide-react";
+import { ActivityDots } from "../shared/ActivityDots";
 
 export type AgentStateKind = "working" | "idle" | "question";
 
@@ -33,8 +34,16 @@ export interface AgentState {
   last_turn_summary?: string | null;
   phase?: string | null;
   elapsed_ms?: number | null;
-  /** Idle for long enough that the pane reads as dormant rather than just done. */
+  /** Idle for long enough that the tab reads as dormant rather than just done. */
   longIdle?: boolean;
+}
+
+export function shouldRenderAgentStateIndicator(
+  state: AgentStateKind,
+  hasMessages: boolean,
+  authoritativeQuestion: boolean,
+): boolean {
+  return state === "question" ? authoritativeQuestion : hasMessages;
 }
 
 type Tone = "accent" | "warn" | "info" | "danger" | "ok";
@@ -161,6 +170,7 @@ export function AgentStateIndicator({
   providerName,
   model,
   className,
+  questionGeneration,
   onStop,
   onCancel,
   onOpenTerminal,
@@ -169,10 +179,11 @@ export function AgentStateIndicator({
   providerName?: string | null;
   model?: string | null;
   className?: string;
-  /** Interrupt the working agent (PTY panes only). Renders a Stop control while
+  questionGeneration?: number | null;
+  /** Interrupt the working agent (PTY tabs only). Renders a Stop control while
    *  working when provided. */
   onStop?: () => void;
-  /** Cancel a terminal-side question/picker (PTY panes only). */
+  /** Cancel a terminal-side question/picker (PTY tabs only). */
   onCancel?: () => void;
   /** Reveal the live terminal — the only place to answer a structural question
    *  that has no inline card. Renders an 'Open terminal' control while
@@ -181,15 +192,21 @@ export function AgentStateIndicator({
 }) {
   const isWorking = state.state === "working";
   const summary = state.last_turn_summary?.trim();
+  const [dismissedQuestionGeneration, setDismissedQuestionGeneration] = useState<number | null>(null);
   // Hook runs every render (rules of hooks); only meaningful while working.
   const phase = useStablePhase(isWorking ? workPhaseOf(state.phase) : "work");
 
   if (state.state === "question") {
+    if (
+      dismissedQuestionGeneration === (questionGeneration ?? -1)
+    ) {
+      return null;
+    }
     const copy = questionCopy(state.subtype);
     const color = toneColor(copy.tone);
     return (
       <div
-        className={`ct-agent-question-in mt-2 flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${className ?? ""}`}
+        className={`ct-agent-question-in relative mt-2 flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${className ?? ""}`}
         data-testid="agent-state"
         data-agent-state="question"
         data-agent-subtype={state.subtype ?? "unknown"}
@@ -208,7 +225,16 @@ export function AgentStateIndicator({
         >
           {copy.icon}
         </span>
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setDismissedQuestionGeneration(questionGeneration ?? -1)}
+          aria-label="Dismiss waiting card"
+          title="Dismiss waiting card"
+          className="ct-agent-dismiss-question absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md"
+        >
+          <X size={14} strokeWidth={2} aria-hidden />
+        </button>
+        <div className="min-w-0 flex-1 pr-6">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-semibold leading-tight" style={{ color: "var(--ct-fg)" }}>
               {copy.title}
@@ -277,11 +303,12 @@ export function AgentStateIndicator({
       aria-live="polite"
       aria-label={`Agent ${text}`}
     >
-      <span aria-hidden className="ct-phase-dots">
-        <i />
-        <i />
-        <i />
-      </span>
+      <ActivityDots
+        size="small"
+        tone={phase === "thinking" ? "thinking" : "accent"}
+        rhythm={phase}
+        idle={!isWorking}
+      />
       {/* keyed by state (not text) so it fades in on working↔idle, never on a status tick */}
       <span
         key={isWorking ? "working" : "idle"}

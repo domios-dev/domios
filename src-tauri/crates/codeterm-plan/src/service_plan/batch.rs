@@ -398,7 +398,9 @@ impl PlanStore {
                                     model,
                                     model_rationale: why,
                                     acceptance_criteria: vec![],
+                                    external_refs: vec![],
                                     test_plan: None,
+                                    qa_plan: None,
                                     correctness: None,
                                     status: status
                                         .as_deref()
@@ -431,7 +433,7 @@ impl PlanStore {
                                     intent: None,
                                     parent_task_id: None,
                                     depends_on: vec![],
-                                    assigned_pane_id: None,
+                                    assigned_tab_id: None,
                                     lane: Default::default(),
                                     taken_by_role: None,
                                     peer: None,
@@ -584,7 +586,7 @@ impl PlanStore {
                                 }
                                 task.milestones.push(Milestone {
                                     id: id.clone(),
-                                    from: from.unwrap_or_else(|| AgentRef::from_pane("unknown")),
+                                    from: from.unwrap_or_else(|| AgentRef::from_tab("unknown")),
                                     kind,
                                     text,
                                     ts: now_ms,
@@ -699,7 +701,7 @@ impl PlanStore {
                                     id: milestone_id.clone(),
                                     from: from
                                         .clone()
-                                        .unwrap_or_else(|| AgentRef::from_pane("unknown")),
+                                        .unwrap_or_else(|| AgentRef::from_tab("unknown")),
                                     kind: "handoff".into(),
                                     text: format!("handoff #{}", seq),
                                     ts: now_ms,

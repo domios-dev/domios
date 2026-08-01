@@ -57,7 +57,7 @@ function setupDom() {
           title: FIXTURE_PLAN.title,
           status: FIXTURE_PLAN.status,
           updated_at: FIXTURE_PLAN.updated_at,
-          assigned_pane_ids: [],
+          assigned_tab_ids: [],
         };
         return new Response(JSON.stringify({ plans: [entry] }), { status: 200 });
       }
@@ -109,11 +109,11 @@ test("N PlanButton consumers trigger exactly ONE index fetch", async () => {
   fullCalls = 0;
   const { host, root } = await renderTree(
     <PlansProvider api={API}>
-      <PlanButton paneId="orch-1" panes={{}} />
-      <PlanButton paneId="orch-1" panes={{}} />
-      <PlanButton paneId="orch-1" panes={{}} />
-      <PlanButton paneId="orch-1" panes={{}} />
-      <PlanButton paneId="orch-1" panes={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
     </PlansProvider>,
   );
   const buttons = host.querySelectorAll('[data-testid="plan-button"]');
@@ -128,7 +128,7 @@ test("plans-loaded event refetches the sidebar plan index immediately", async ()
   fullCalls = 0;
   const { root } = await renderTree(
     <PlansProvider api={API}>
-      <PlanButton paneId="orch-1" panes={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
     </PlansProvider>,
   );
   assert(indexCalls === 1, `one index fetch before event (got ${indexCalls})`);
@@ -146,7 +146,7 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   fullCalls = 0;
   const { root } = await renderTree(
     <PlansProvider api={API}>
-      <PlanButton paneId="orch-1" panes={{}} />
+      <PlanButton tabId="orch-1" tabs={{}} />
       <FullProbe />
       <FullProbe />
     </PlansProvider>,

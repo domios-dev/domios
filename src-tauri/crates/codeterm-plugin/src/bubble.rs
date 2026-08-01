@@ -1,4 +1,4 @@
-//! Status-bubble capability — a plugin contributes a pane-scoped status pill to the
+//! Status-bubble capability — a plugin contributes a tab-scoped status pill to the
 //! footer row; `bubble(ctx)` returns a [`BubbleData`] or `None` to hide. Clicking
 //! opens its glance popover. Core resolves via [`BubbleRegistry`], never an identity.
 
@@ -42,12 +42,12 @@ pub struct BubbleData {
     pub action: Option<String>,
 }
 
-/// A source of pane-footer status pills. Implemented by `JsBubbleProvider`.
+/// A source of tab-footer status pills. Implemented by `JsBubbleProvider`.
 #[async_trait]
 pub trait BubbleProvider: Send + Sync {
     fn id(&self) -> &str;
 
-    /// Compute the pill for a pane context. `None` hides it for that pane.
+    /// Compute the pill for a tab context. `None` hides it for that tab.
     async fn bubble(&self, ctx: Value) -> Result<Option<BubbleData>, BubbleError>;
 }
 

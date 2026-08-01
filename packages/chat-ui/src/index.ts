@@ -1,6 +1,12 @@
 export { formatAgentWorkingLine, AGENT_WORKING_LINE_SEP } from "./formatAgentWorkingLine";
 export { MessageBubble } from "./MessageBubble";
 export { RichMarkdown } from "./MarkdownBody";
+export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
+export { configureHtmlFileLoader } from "./htmlFileLoader";
+export type { HtmlFileLoader } from "./htmlFileLoader";
+export { configureLocalArtifactLoader } from "./localArtifactLoader";
+export type { LocalArtifactLoader, LocalArtifactKind, LocalPreviewFile } from "./localArtifactLoader";
+export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } from "./htmlSanitize";
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 export { parseAttachedDiscussionDoc } from "./discussionDoc";
 export type { AttachedDiscussionDoc } from "./discussionDoc";
@@ -8,6 +14,6 @@ export { InteractiveElementRenderer } from "./interactive/InteractiveElementRend
 export { InteractiveQuestion } from "./interactive/InteractiveQuestion";
 export type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 export { ShowCommandsProvider, useShowCommands } from "./toolcard/toolKindVisual";
-export type { PaneNameResolver } from "./codeterm/templates";
+export type { TabNameResolver } from "./codeterm/templates";
 export { extractPlanRefs } from "./codeterm/planRefs";
 export { installInboundReportCardHarness } from "./codeterm/InboundReportCard.browserHarness";

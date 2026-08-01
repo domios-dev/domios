@@ -44,11 +44,10 @@ pub async fn mem_graph_relate(
         properties: serde_json::json!({}),
         reason: b.reason,
     };
-    state
-        .svc
-        .mem
-        .graph_relate(&r)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::mem::store::with_write_worker(super::worker_id_from_headers(&headers), || {
+        state.svc.mem.graph_relate(&r)
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -116,11 +115,10 @@ pub async fn mem_graph_create(
         scope: b.scope.unwrap_or_else(|| "global".to_string()),
         properties: b.properties,
     };
-    state
-        .svc
-        .mem
-        .graph_create_entity(&e)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::mem::store::with_write_worker(super::worker_id_from_headers(&headers), || {
+        state.svc.mem.graph_create_entity(&e)
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

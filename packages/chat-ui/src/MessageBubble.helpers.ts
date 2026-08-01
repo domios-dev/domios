@@ -2,7 +2,7 @@ import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
 } from "@codeterm/chat-core";
-import { shortPaneRef } from "@codeterm/chat-core";
+import { shortTabRef } from "@codeterm/chat-core";
 type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
 
 export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
@@ -20,8 +20,8 @@ export interface StructuredInbound {
 
 export function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
   const fromLabel = message.fromLabel?.trim();
-  const fromPane = shortPaneRef(message.fromPane);
-  if (!fromLabel && !fromPane) return null;
+  const fromTab = shortTabRef(message.fromTab);
+  if (!fromLabel && !fromTab) return null;
   const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "tab");
   const title = kind === "mesh" && message.fromMesh
     ? `${fromLabel}@${message.fromMesh}`
@@ -29,9 +29,9 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
   return {
     kind,
     origin: {
-      kind: "pane",
+      kind: "tab",
       title: title ?? "",
-      paneIdShort: fromPane,
+      tabIdShort: fromTab,
       model: message.fromModel,
       mesh: kind === "mesh" ? undefined : message.fromMesh,
       report: kind === "report",

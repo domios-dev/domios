@@ -53,7 +53,7 @@ pub async fn retrospective_write(
     let from = body
         .get("from")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_else(|| AgentRef::from_pane("unknown"));
+        .unwrap_or_else(|| AgentRef::from_tab("unknown"));
     let store = state.svc.plan_store.clone();
     let stride_id = store
         .add_retrospective(&plan_id, &text, from, now)

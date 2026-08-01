@@ -1,5 +1,5 @@
 import { TaskPriority, TaskStatus, type Plan, type Section } from "./types";
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import { milestone, plan, task } from "./layout/fixtures";
 import {
   PERF_PLAN_SECTIONS,
@@ -34,7 +34,7 @@ export type PerfFixtureProfile =
   | "done-heavy"
   | "card-metadata"
   | "plan-with-known-tasks"
-  | "pane-tree-with-statuses"
+  | "tab-tree-with-statuses"
   | "mid-stream-chat-transcript";
 
 export function perfFixtureCount(): number {
@@ -45,7 +45,7 @@ export function perfFixtureCount(): number {
     if (
       profile === "card-metadata" ||
       profile === "plan-with-known-tasks" ||
-      profile === "pane-tree-with-statuses" ||
+      profile === "tab-tree-with-statuses" ||
       profile === "mid-stream-chat-transcript"
     ) {
       return 1;
@@ -64,7 +64,7 @@ export function perfFixtureProfile(): PerfFixtureProfile {
     if (profile === "done-heavy") return "done-heavy";
     if (profile === "card-metadata") return "card-metadata";
     if (profile === "plan-with-known-tasks") return "plan-with-known-tasks";
-    if (profile === "pane-tree-with-statuses") return "pane-tree-with-statuses";
+    if (profile === "tab-tree-with-statuses") return "tab-tree-with-statuses";
     if (profile === "mid-stream-chat-transcript") return "mid-stream-chat-transcript";
     return "default";
   } catch {
@@ -72,7 +72,7 @@ export function perfFixtureProfile(): PerfFixtureProfile {
   }
 }
 
-export { buildCardMetadataFixturePlans, buildCardMetadataFixturePanes } from "./cardMetadataFixture";
+export { buildCardMetadataFixturePlans, buildCardMetadataFixtureTabs } from "./cardMetadataFixture";
 
 export function buildDoneHeavyPerfFixturePlans(): Plan[] {
   const sectionIds = PERF_PLAN_SECTION_IDS;
@@ -81,7 +81,7 @@ export function buildDoneHeavyPerfFixturePlans(): Plan[] {
       status: TaskStatus.InProgress,
       created_at: i,
       priority: PRIORITIES[i % PRIORITIES.length],
-      assigned_pane_id: `pane-active-${i}`,
+      assigned_tab_id: `tab-active-${i}`,
       name: `Active task ${i}: current implementation lane`,
       body: `Active work item ${i} for canvas perf / legibility validation.`,
       milestones: [milestone(`perf_active_${i}_m0`, "status_update", null)],
@@ -129,10 +129,10 @@ export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
       status: TaskStatus.InProgress,
       created_at: 2,
       priority: TaskPriority.P0,
-      assigned_pane_id: "pane-known-impl",
+      assigned_tab_id: "tab-known-impl",
       taken_by_role: "frontend-dev",
       name: "Implement fixture-backed plan controls",
-      body: "Stable in-progress task with a bound pane and predictable title.",
+      body: "Stable in-progress task with a bound Tab and predictable title.",
       acceptance_criteria: ["Board card opens detail", "List row preserves scroll"],
       milestones: [milestone("known_impl_m0", "status_update", null)],
     }),
@@ -140,7 +140,7 @@ export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
       status: TaskStatus.InReview,
       created_at: 3,
       priority: TaskPriority.P2,
-      assigned_pane_id: "pane-known-review",
+      assigned_tab_id: "tab-known-review",
       taken_by_role: "code-reviewer",
       name: "Review deterministic fixture migration",
       body: "Review task exercises non-pending status columns.",
@@ -164,7 +164,7 @@ export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
     ],
     goal: {
       vector: "Known task plan for deterministic board/list/canvas Playwright tests.",
-      postulates: ["Task ids, statuses, and pane bindings remain stable across runs"],
+      postulates: ["Task ids, statuses, and Tab bindings remain stable across runs"],
     },
     heartbeat: {
       current_focus: "Migrating canvas tests away from live setup.",
@@ -176,22 +176,22 @@ export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
   })];
 }
 
-export function buildPaneTreeWithStatusesFixturePlans(): Plan[] {
+export function buildTabTreeWithStatusesFixturePlans(): Plan[] {
   const plans = buildPlanWithKnownTasksFixturePlans();
   const p = plans[0];
   return [{
     ...p,
-    id: "fixture_pane_tree_plan",
-    title: "Pane tree with statuses",
+    id: "fixture_tab_tree_plan",
+    title: "Tab tree with statuses",
     tasks: p.tasks.map((t, i) => ({
       ...t,
-      assigned_pane_id: ["pane-orch", "pane-worker-active", "pane-worker-waiting", "pane-worker-idle"][i] ?? t.assigned_pane_id,
+      assigned_tab_id: ["tab-orch", "tab-worker-active", "tab-worker-waiting", "tab-worker-idle"][i] ?? t.assigned_tab_id,
       parent_task_id: i > 1 ? "known_impl" : t.parent_task_id,
     })),
     heartbeat: {
-      current_focus: "Validate pane status badges and assigned-agent affordances.",
-      active_lanes: ["pane-orch", "pane-worker-active", "pane-worker-waiting"],
-      rules: ["Working, Waiting, Idle, and Dead panes are represented"],
+      current_focus: "Validate Tab status badges and assigned-agent affordances.",
+      active_lanes: ["tab-orch", "tab-worker-active", "tab-worker-waiting"],
+      rules: ["Working, Waiting, Idle, and Dead Tabs are represented"],
       learnings: [],
     },
   }];
@@ -207,16 +207,16 @@ export function buildMidStreamChatTranscriptFixturePlans(): Plan[] {
     tasks: p.tasks.map((t, i) => ({
       ...t,
       status: i === 0 ? TaskStatus.Done : i === 1 ? TaskStatus.InProgress : TaskStatus.Pending,
-      assigned_pane_id: i === 1 ? "pane-chat-streaming" : t.assigned_pane_id,
+      assigned_tab_id: i === 1 ? "tab-chat-streaming" : t.assigned_tab_id,
       status_label: i === 1 ? "streaming reply" : t.status_label,
       name: i === 1 ? "Assistant reply is mid-stream" : t.name,
       body: i === 1
-        ? "Fixture represents a chat pane with user prompt, partial assistant response, and tool output in flight."
+        ? "Fixture represents a chat Tab with user prompt, partial assistant response, and tool output in flight."
         : t.body,
     })),
     heartbeat: {
       current_focus: "Assistant is streaming a response while canvas remains usable.",
-      active_lanes: ["pane-chat-streaming"],
+      active_lanes: ["tab-chat-streaming"],
       rules: ["Transcript state is deterministic"],
       learnings: [{ id: "chat_stream_1", text: "Partial replies should not shift plan controls.", ts: 1, tag: "chat" }],
     },
@@ -250,11 +250,11 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       group: GROUPS[i % GROUPS.length],
       taken_by_role: ROLES[i % ROLES.length],
       peer: syntheticPeer(i),
-      assigned_pane_id: active ? `pane-agent-${i}` : null,
+      assigned_tab_id: active ? `tab-agent-${i}` : null,
       handle: `t${i}-implement-feature-module-${i}`,
       lane: i % 2 === 0
         ? {
-            pane_id: `pane-${i}`,
+            tab_id: `tab-${i}`,
             workspace_id: `ws-${i}`,
             workspace_name: i % 4 === 0 ? "codeterm" : `lane-workspace-${i}`,
             worktree_path: `/Users/dev/Developer/codeterm-module-${i}`,
@@ -320,36 +320,36 @@ export function buildPerfFixturePlans(n: number): Plan[] {
   })];
 }
 
-export function buildPerfFixturePanes(plans: Plan[]): Record<string, Pane> {
-  const panes: Record<string, Pane> = {};
+export function buildPerfFixtureTabs(plans: Plan[]): Record<string, Tab> {
+  const tabs: Record<string, Tab> = {};
   const add = (id: string | null | undefined, title: string) => {
     const pid = id?.trim();
-    if (pid && !panes[pid]) panes[pid] = { id: pid, pty_id: null, pane_type: "Terminal", title, cwd: null };
+    if (pid && !tabs[pid]) tabs[pid] = { id: pid, pty_id: null, tab_type: "Terminal", title, cwd: null };
   };
   for (const p of plans) {
     for (const t of p.tasks) {
-      add(t.assigned_pane_id, t.taken_by_role ?? t.name ?? "agent");
-      add(t.lane?.pane_id, t.lane?.workspace_name ?? t.taken_by_role ?? "agent");
+      add(t.assigned_tab_id, t.taken_by_role ?? t.name ?? "agent");
+      add(t.lane?.tab_id, t.lane?.workspace_name ?? t.taken_by_role ?? "agent");
     }
   }
-  return panes;
+  return tabs;
 }
 
-export function buildPaneTreeWithStatusesFixturePanes(): Record<string, Pane> {
+export function buildTabTreeWithStatusesFixtureTabs(): Record<string, Tab> {
   return {
-    "pane-orch": { id: "pane-orch", pty_id: null, pane_type: "Terminal", title: "Orchestrator", cwd: null, agent_type: "codex", can_spawn: true, depth: 0, agent_state: { state: "working", status_line: "Coordinating fixture migration", elapsed_ms: 42000 } },
-    "pane-worker-active": { id: "pane-worker-active", pty_id: null, pane_type: "Terminal", title: "Fisher", cwd: null, agent_type: "codex", parent_pane_id: "pane-orch", depth: 1, agent_state: { state: "working", status_line: "Running assertions", elapsed_ms: 18000 } },
-    "pane-worker-waiting": { id: "pane-worker-waiting", pty_id: null, pane_type: "Terminal", title: "Reviewer", cwd: null, agent_type: "codex", parent_pane_id: "pane-orch", depth: 1, agent_state: { state: "question", status_line: "Waiting for report", elapsed_ms: 9000 } },
-    "pane-worker-idle": { id: "pane-worker-idle", pty_id: null, pane_type: "Terminal", title: "Docs", cwd: null, agent_type: "codex", parent_pane_id: "pane-orch", depth: 1, agent_state: { state: "idle", status_line: "Idle", elapsed_ms: 0 } },
+    "tab-orch": { id: "tab-orch", pty_id: null, tab_type: "Terminal", title: "Orchestrator", cwd: null, agent_type: "codex", can_spawn: true, depth: 0, agent_state: { state: "working", status_line: "Coordinating fixture migration", elapsed_ms: 42000 } },
+    "tab-worker-active": { id: "tab-worker-active", pty_id: null, tab_type: "Terminal", title: "Fisher", cwd: null, agent_type: "codex", parent_tab_id: "tab-orch", depth: 1, agent_state: { state: "working", status_line: "Running assertions", elapsed_ms: 18000 } },
+    "tab-worker-waiting": { id: "tab-worker-waiting", pty_id: null, tab_type: "Terminal", title: "Reviewer", cwd: null, agent_type: "codex", parent_tab_id: "tab-orch", depth: 1, agent_state: { state: "question", status_line: "Waiting for report", elapsed_ms: 9000 } },
+    "tab-worker-idle": { id: "tab-worker-idle", pty_id: null, tab_type: "Terminal", title: "Docs", cwd: null, agent_type: "codex", parent_tab_id: "tab-orch", depth: 1, agent_state: { state: "idle", status_line: "Idle", elapsed_ms: 0 } },
   };
 }
 
-export function buildMidStreamChatTranscriptFixturePanes(): Record<string, Pane> {
+export function buildMidStreamChatTranscriptFixtureTabs(): Record<string, Tab> {
   return {
-    "pane-chat-streaming": {
-      id: "pane-chat-streaming",
+    "tab-chat-streaming": {
+      id: "tab-chat-streaming",
       pty_id: null,
-      pane_type: "Terminal",
+      tab_type: "Terminal",
       title: "General Agent · streaming fixture",
       cwd: null,
       agent_type: "codex",
@@ -361,8 +361,8 @@ export function buildMidStreamChatTranscriptFixturePanes(): Record<string, Pane>
         submit_available: true,
       },
     },
-    "pane-known-impl": { id: "pane-known-impl", pty_id: null, pane_type: "Terminal", title: "Implementation lane", cwd: null, agent_type: "codex", agent_state: { state: "working", status_line: "Applying patch", elapsed_ms: 12000 } },
-    "pane-known-review": { id: "pane-known-review", pty_id: null, pane_type: "Terminal", title: "Review lane", cwd: null, agent_type: "codex", agent_state: { state: "question", status_line: "Awaiting diff", elapsed_ms: 3000 } },
+    "tab-known-impl": { id: "tab-known-impl", pty_id: null, tab_type: "Terminal", title: "Implementation lane", cwd: null, agent_type: "codex", agent_state: { state: "working", status_line: "Applying patch", elapsed_ms: 12000 } },
+    "tab-known-review": { id: "tab-known-review", pty_id: null, tab_type: "Terminal", title: "Review lane", cwd: null, agent_type: "codex", agent_state: { state: "question", status_line: "Awaiting diff", elapsed_ms: 3000 } },
   };
 }
 

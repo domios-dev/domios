@@ -34,15 +34,15 @@ export function NetworkTab() {
             ["POST", "/api/workspaces/:id/tabs/:tid/move", "Move tab"],
           ]} />
           <EndpointGroup title="Tabs" endpoints={[
-            ["GET", "/api/panes", "List all"],
-            ["POST", "/api/panes/:id/focus", "Focus"],
-            ["POST", "/api/panes/:id/close", "Close"],
-            ["POST", "/api/panes/:id/send", "Send text (fire & forget)"],
-            ["POST", "/api/panes/:id/exec", "Send + wait {command, timeout_ms}"],
-            ["POST", "/api/panes/:id/rename", "Rename {title}"],
-            ["POST", "/api/panes/:id/resize", "Resize {cols, rows}"],
-            ["GET", "/api/panes/:id/output", "Get output {?offset=N}"],
-            ["GET", "/api/panes/:id/output/stream", "SSE real-time stream"],
+            ["GET", "/api/tabs", "List all"],
+            ["POST", "/api/tabs/:id/focus", "Focus"],
+            ["POST", "/api/tabs/:id/close", "Close"],
+            ["POST", "/api/tabs/:id/send", "Send text (fire & forget)"],
+            ["POST", "/api/tabs/:id/exec", "Send + wait {command, timeout_ms}"],
+            ["POST", "/api/tabs/:id/rename", "Rename {title}"],
+            ["POST", "/api/tabs/:id/resize", "Resize {cols, rows}"],
+            ["GET", "/api/tabs/:id/output", "Get output {?offset=N}"],
+            ["GET", "/api/tabs/:id/output/stream", "SSE real-time stream"],
           ]} />
           <EndpointGroup title="Integration" endpoints={[
             ["POST", "/api/notifications", "Create {title, body, level}"],

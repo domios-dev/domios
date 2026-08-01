@@ -1,16 +1,15 @@
-import type { Pane } from "./types";
+import type { Tab } from "./types";
 
-export function isAgentCapablePane(pane: Pane): boolean {
-  if (pane.agent_type) return true;
-  if (pane.backing?.kind === "chat_backend") return true;
+export function isAgentCapableTab(tab: Tab): boolean {
+  if (tab.agent_type) return true;
+  if (tab.backing?.kind === "chat_backend") return true;
   return false;
 }
 
-export function canMakeOrchestrator(pane: Pane | null | undefined): boolean {
-  if (!pane) return false;
-  if (!isAgentCapablePane(pane)) return false;
-  if (pane.protected) return false;
-  if (pane.role === "Orchestrator") return false;
-  if (pane.parent_pane_id) return false;
+export function canMakeOrchestrator(tab: Tab | null | undefined): boolean {
+  if (!tab) return false;
+  if (!isAgentCapableTab(tab)) return false;
+  if (tab.protected) return false;
+  if (tab.role === "Orchestrator") return false;
   return true;
 }
