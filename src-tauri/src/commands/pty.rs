@@ -6,6 +6,31 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
+struct RestoredFreshLaunchInput {
+    params: crate::service::SpawnAgentParams,
+    launch_task: Option<String>,
+}
+
+fn restored_fresh_launch_input(
+    registry: &crate::agent::registry::AgentRegistry,
+    mut params: crate::service::SpawnAgentParams,
+) -> RestoredFreshLaunchInput {
+    params.task = None;
+    params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
+    let provider_id = params.agent.as_deref().expect("restored launch provider");
+    let launch_task = crate::service::provider_launch_task(
+        registry,
+        provider_id,
+        None,
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    );
+    RestoredFreshLaunchInput {
+        params,
+        launch_task,
+    }
+}
+
 #[tauri::command]
 pub async fn spawn_pty(
     config_state: tauri::State<'_, crate::config::ConfigState>,
@@ -389,28 +414,23 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type_for_fresh;
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
-            let launch_task = crate::service::provider_launch_task(
+            let input = restored_fresh_launch_input(
                 &svc.agent_registry,
-                &provider_id,
-                None,
-                tab_role.as_deref(),
-                tab_role_profile.as_deref(),
+                crate::service::SpawnAgentParams {
+                    agent: Some(provider_id.clone()),
+                    cwd: tab_cwd.clone(),
+                    skip_permissions: Some(skip_perms),
+                    model: tab_model.clone(),
+                    role: tab_role.clone(),
+                    role_profile: tab_role_profile.clone(),
+                    ..Default::default()
+                },
             );
-            let params = crate::service::SpawnAgentParams {
-                agent: Some(provider_id.clone()),
-                cwd: tab_cwd.clone(),
-                skip_permissions: Some(skip_perms),
-                model: tab_model.clone(),
-                role: tab_role.clone(),
-                role_profile: tab_role_profile.clone(),
-                starter_prompt: crate::service::starter_prompt_for_role(tab_role.as_deref()),
-                ..Default::default()
-            };
             let launch_cmd = svc.agent_registry.with_provider(&provider_id, |_| {
                 crate::service::build_agent_command(
                     &provider_id,
-                    &params,
-                    launch_task.as_deref(),
+                    &input.params,
+                    input.launch_task.as_deref(),
                     None,
                     &svc.agent_registry,
                 )
@@ -435,7 +455,7 @@ pub async fn spawn_pty_core(
                     pid,
                     &provider_id,
                     &cmd,
-                    launch_task.as_deref(),
+                    input.launch_task.as_deref(),
                     tab_role.as_deref(),
                     tab_role_profile.as_deref(),
                     prompt_delivery,
@@ -1101,5 +1121,46 @@ mod kill_pty_tests {
             "real-id",
             "wrapped PTY real-id not found"
         ));
+    }
+}
+
+#[cfg(test)]
+mod restored_fresh_launch_tests {
+    use super::restored_fresh_launch_input;
+
+    #[test]
+    fn restored_fresh_launch_preserves_worker_identity_without_starter_turn() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        for historical_task in [Some("historical assigned task"), None] {
+            let input = restored_fresh_launch_input(
+                &registry,
+                crate::service::SpawnAgentParams {
+                    agent: Some("fixture-provider".into()),
+                    cwd: Some("fixture-cwd".into()),
+                    model: Some("fixture-model".into()),
+                    role: Some("Worker".into()),
+                    role_profile: Some("fixture-profile".into()),
+                    task: historical_task.map(str::to_string),
+                    ..Default::default()
+                },
+            );
+            let identity = input.launch_task.as_deref().unwrap();
+
+            assert_eq!(input.params.task, None);
+            assert_eq!(input.params.role.as_deref(), Some("Worker"));
+            assert_eq!(
+                input.params.role_profile.as_deref(),
+                Some("fixture-profile")
+            );
+            assert_eq!(input.params.cwd.as_deref(), Some("fixture-cwd"));
+            assert_eq!(input.params.model.as_deref(), Some("fixture-model"));
+            assert_eq!(
+                input.params.starter_prompt,
+                crate::agent::provider::StarterPrompt::NoStarter
+            );
+            assert_eq!(identity.matches("You are a CodeTerm Worker.").count(), 1);
+            assert!(!identity.contains("## Assignment"));
+            assert!(!identity.contains("historical assigned task"));
+        }
     }
 }

@@ -565,9 +565,9 @@ fn build_relaunch_command_with_registry(
     session_present: bool,
     structured_prompt_server: Option<StructuredPromptServer>,
     launch_task: Option<&str>,
-    role: Option<&str>,
+    _role: Option<&str>,
 ) -> Option<String> {
-    let starter_prompt = crate::service::starter_prompt_for_role(role);
+    let starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     if session_present && structured_prompt_server.is_some() {
         if let Some(sid) = session_id {
             return registry.with_provider(provider, |p| {
