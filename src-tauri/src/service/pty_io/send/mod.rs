@@ -339,6 +339,9 @@ impl ServiceContext {
             );
         };
         let text = sanitize_agent_prompt_input(text);
+        if let Some(tab_id) = tab_id.as_deref() {
+            self.log_prewrite_delivery_timeline(tab_id, pty_id, &agent_id, &text);
+        }
         let strategy = self
             .agent_registry
             .with_provider(&agent_id, |provider| provider.verify_submit_strategy())

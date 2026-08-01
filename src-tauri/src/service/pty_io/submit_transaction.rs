@@ -503,9 +503,11 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .bracketed_paste_mode(self.pty_id)
             .unwrap_or(false);
         let paste = xterm_paste(text, bracketed_paste_mode);
+        let payload_sha256 = crate::service::launch_diagnostics::digest(text);
         log::info!(
-            "[submit-audit] paste-encoding pty={} bracketed_paste_mode={} source_bytes={} encoded_bytes={}",
+            "[submit-audit] paste-encoding pty={} payload_sha256={} bracketed_paste_mode={} source_bytes={} encoded_bytes={}",
             self.pty_id,
+            payload_sha256,
             bracketed_paste_mode,
             text.len(),
             paste.len()
@@ -545,9 +547,21 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         };
         let (acknowledgment, signals) = enqueued?;
         *self.signals.lock() = Some(signals);
+        log::info!(
+            "[delivery-timeline] event=payload-enqueued pty={} payload_sha256={} encoded_bytes={}",
+            self.pty_id,
+            payload_sha256,
+            paste.len(),
+        );
         acknowledgment
             .wait(deadline.saturating_duration_since(Instant::now()))
             .map_err(|error| injection_write_error(self.pty_id, error))?;
+        log::info!(
+            "[delivery-timeline] event=payload-write-ack pty={} payload_sha256={} encoded_bytes={}",
+            self.pty_id,
+            payload_sha256,
+            paste.len(),
+        );
         Ok(paste.len())
     }
 
