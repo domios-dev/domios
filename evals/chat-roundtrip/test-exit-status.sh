@@ -4,8 +4,10 @@ set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 RUN="$ROOT/evals/chat-roundtrip/run.sh"
+CHECKED_RUN="$ROOT/evals/chat-roundtrip/run-checked.ps1"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+PS_LOG_DIR="target-check/evals/chat-roundtrip/exit-status-$$"
+trap 'rm -rf "$TMP_DIR" "$ROOT/$PS_LOG_DIR"' EXIT
 
 assert_status() {
   local label="$1" actual="$2" expected="$3"
@@ -43,7 +45,30 @@ run_canonical_capture() {
   assert_summary "captured failures=$failures" "$log" "$expected_summary"
 }
 
+run_powershell_capture() {
+  local failures="$1" expected_status="$2" expected_summary="$3"
+  local log="$PS_LOG_DIR/verdict-$failures.log" status
+  local powershell
+  if command -v pwsh >/dev/null; then
+    powershell="$(command -v pwsh)"
+  elif command -v pwsh.exe >/dev/null; then
+    powershell="$(command -v pwsh.exe)"
+  elif command -v powershell.exe >/dev/null; then
+    powershell="$(command -v powershell.exe)"
+  else
+    echo "SKIP PowerShell caller oracle: PowerShell is unavailable"
+    return
+  fi
+  "$powershell" -NoProfile -NonInteractive -File "$CHECKED_RUN" \
+    -LogPath "$log" -VerdictOnly "$failures"
+  status=$?
+  assert_status "PowerShell failures=$failures" "$status" "$expected_status"
+  assert_summary "PowerShell failures=$failures" "$ROOT/$log" "$expected_summary"
+}
+
 run_direct 1 1 "[messaging-core] 1 assertion(s) FAILED"
 run_direct 0 0 "[messaging-core] ALL PASS"
 run_canonical_capture 1 1 "[messaging-core] 1 assertion(s) FAILED"
 run_canonical_capture 0 0 "[messaging-core] ALL PASS"
+run_powershell_capture 1 1 "[messaging-core] 1 assertion(s) FAILED"
+run_powershell_capture 0 0 "[messaging-core] ALL PASS"
