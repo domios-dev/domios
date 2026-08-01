@@ -3,10 +3,11 @@ mod cmd;
 mod mesh_cli;
 mod stdout;
 
+use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
 use cmd::print::{handle_result, print_human, print_object};
 
 use clap::Parser;
-use client::{discover_socket, SocketClient};
+use client::{discover_socket, discover_socket_resolution, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
@@ -67,85 +68,18 @@ fn instance_suffix() -> String {
 /// absolute so a typo cannot silently route plugin operations into a relative
 /// workspace path.
 pub fn data_root() -> std::path::PathBuf {
-    if let Ok(root) = std::env::var("CODETERM_DATA_DIR") {
-        if !root.trim().is_empty() {
-            let path = std::path::PathBuf::from(root);
-            if path.is_absolute() {
-                return path;
-            }
-        }
-    }
-    dirs::home_dir().unwrap_or_default().join(data_dir_name())
+    resolved_data_root().value
 }
 
 /// Read API config (host, port, token).
 /// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
 /// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
 pub fn read_api_config() -> (String, Option<String>) {
-    let config_dir = data_root();
-    let config_path = config_dir.join("config.toml");
-
-    let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
-
-    if let Ok(content) = std::fs::read_to_string(&config_path) {
-        if let Ok(val) = content.parse::<toml::Table>() {
-            if let Some(api) = val.get("api").and_then(|v| v.as_table()) {
-                let raw_host = api
-                    .get("host")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("127.0.0.1");
-                host = if raw_host == "0.0.0.0" {
-                    "127.0.0.1".to_string()
-                } else {
-                    raw_host.to_string()
-                };
-                port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
-            }
-        }
-    }
-
-    if let Ok(env_port) = std::env::var("CODETERM_API_PORT") {
-        if let Ok(p) = env_port.parse::<i64>() {
-            port = p;
-        }
-    }
-
-    let config_token = || {
-        std::fs::read_to_string(&config_path)
-            .ok()
-            .and_then(|content| content.parse::<toml::Table>().ok())
-            .and_then(|val| {
-                val.get("api")?
-                    .as_table()?
-                    .get("token")?
-                    .as_str()
-                    .map(String::from)
-            })
-    };
-
-    let signed_token = read_mesh_signed_token();
-
-    let env_token = std::env::var("CODETERM_API_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty());
-
-    let targets_dev = std::env::var("CODETERM_INSTANCE")
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false)
-        || std::env::var("CODETERM_SOCKET_PATH")
-            .map(|sp| sp.contains("codeterm-dev"))
-            .unwrap_or(false)
-        || std::env::var("CODETERM_API_PORT")
-            .map(|p| !p.trim().is_empty() && p.trim() != "7685")
-            .unwrap_or(false);
-
-    let token = if targets_dev {
-        config_token().or(signed_token).or(env_token)
-    } else {
-        env_token.or(signed_token).or_else(config_token)
-    };
-
-    (format!("http://{}:{}", host, port), token)
+    let resolved = resolve_api_config();
+    (
+        format!("http://{}:{}", resolved.host, resolved.port),
+        resolved.token,
+    )
 }
 
 /// Produce a fresh Ed25519 signed token from this machine's mesh identity.
@@ -438,15 +372,15 @@ fn main_impl() {
         return;
     }
 
-    let socket_path = match discover_socket() {
-        Ok(p) => p,
+    let resolved_socket = match discover_socket_resolution() {
+        Ok(resolved) => resolved,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
     };
 
-    let mut client = match SocketClient::connect(&socket_path) {
+    let mut client = match SocketClient::connect(&resolved_socket.path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -455,7 +389,7 @@ fn main_impl() {
     };
 
     let result = match cli.command {
-        Commands::Identify => client.call("system.identify", None),
+        Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
         Commands::Capabilities => client.call("system.capabilities", None),
 
