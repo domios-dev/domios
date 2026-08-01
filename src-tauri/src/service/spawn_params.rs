@@ -11,6 +11,17 @@ pub(crate) fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provi
     }
 }
 
+pub(crate) fn starter_prompt_for_creation(
+    role: Option<&str>,
+    task: Option<&str>,
+) -> crate::agent::provider::StarterPrompt {
+    if role.is_some() && task.is_some_and(|task| !task.trim().is_empty()) {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    } else {
+        crate::agent::provider::StarterPrompt::NoStarter
+    }
+}
+
 impl SpawnTabSpec {
     pub fn from_agent_params(params: SpawnAgentParams) -> Self {
         Self::from_agent_params_command(params, None)
@@ -107,6 +118,8 @@ impl SpawnTabSpec {
             }
         };
         let args = agent.extra_args.clone();
+        let starter_prompt =
+            starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),
@@ -122,7 +135,7 @@ impl SpawnTabSpec {
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
-            starter_prompt: starter_prompt_for_role(agent.role.as_deref()),
+            starter_prompt,
             task_id: None,
             task_launch_authority: None,
             plan_task: None,
@@ -421,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_spawn_uses_role_based_starter_policy() {
+    fn standalone_new_session_remains_no_starter() {
         let roleless = SpawnTabSpec::from_agent_params(SpawnAgentParams::default())
             .to_agent_params()
             .unwrap();
@@ -430,15 +443,59 @@ mod tests {
             crate::agent::provider::StarterPrompt::NoStarter
         );
 
+        let rest = SpawnAgentParams::from_json(&serde_json::json!({"agent": "codex"})).unwrap();
+        assert!(rest.role.is_none());
+        assert!(rest.task.is_none());
+        assert_eq!(
+            rest.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn fresh_team_creation_cardinality_survives_spawn_spec_roundtrip() {
+        for (task, expected) in [
+            (None, crate::agent::provider::StarterPrompt::NoStarter),
+            (
+                Some("assigned brief".to_string()),
+                crate::agent::provider::StarterPrompt::AssignedTask,
+            ),
+        ] {
+            let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+                role: Some("Worker".into()),
+                task: task.clone(),
+                ..Default::default()
+            });
+            let json = serde_json::to_string(&spec).unwrap();
+            let restored: SpawnTabSpec = serde_json::from_str(&json).unwrap();
+            let params = restored.to_agent_params().unwrap();
+
+            assert_eq!(params.role.as_deref(), Some("Worker"));
+            assert_eq!(params.task, task);
+            assert_eq!(params.starter_prompt, expected);
+        }
+    }
+
+    #[test]
+    fn worker_without_task_does_not_inherit_assigned_starter() {
         let worker = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             role: Some("Worker".into()),
             ..Default::default()
         })
         .to_agent_params()
         .unwrap();
+
         assert_eq!(
             worker.starter_prompt,
-            crate::agent::provider::StarterPrompt::AssignedTask
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn blank_task_never_becomes_assigned_starter() {
+        assert_eq!(
+            starter_prompt_for_creation(Some("Worker"), Some("   ")),
+            crate::agent::provider::StarterPrompt::NoStarter
         );
     }
 }

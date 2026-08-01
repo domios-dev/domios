@@ -21,6 +21,46 @@ pub(crate) struct RestoredLaunch {
     pub role_profile: Option<String>,
 }
 
+struct RestoredSnapshotLaunchInput {
+    params: crate::service::SpawnAgentParams,
+    launch_task: Option<String>,
+    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+}
+
+fn restored_snapshot_launch_input(
+    registry: &crate::agent::registry::AgentRegistry,
+    launch: RestoredLaunch,
+    _historical_task: Option<String>,
+    skip_permissions: bool,
+) -> RestoredSnapshotLaunchInput {
+    let params = crate::service::SpawnAgentParams {
+        agent: Some(launch.provider_id),
+        cwd: launch.cwd,
+        skip_permissions: Some(skip_permissions),
+        model: launch.model,
+        resume_session_id: launch.session_id,
+        role: launch.role,
+        role_profile: launch.role_profile,
+        starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
+        ..Default::default()
+    };
+    let provider_id = params.agent.as_deref().expect("restored launch provider");
+    let launch_task = crate::service::orchestrator::provider_launch_task(
+        registry,
+        provider_id,
+        None,
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    );
+    RestoredSnapshotLaunchInput {
+        params,
+        launch_task,
+        fallback_spec: None,
+        origin: crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+    }
+}
+
 pub(crate) fn claim_restored_pty_boot(
     mux: &MuxState,
     tab_id: &str,
@@ -408,57 +448,32 @@ impl ServiceContext {
             |stage, error| self.emit_boot_stage(tab_id, stage, Some(error)),
             |launch, restored_task| {
                 let pc = crate::config::provider_config(&launch.provider_id);
-                let launch_task = crate::service::orchestrator::provider_launch_task(
+                let input = restored_snapshot_launch_input(
                     &self.agent_registry,
-                    &launch.provider_id,
-                    restored_task.as_deref(),
-                    launch.role.as_deref(),
-                    launch.role_profile.as_deref(),
+                    launch,
+                    restored_task,
+                    pc.resume_skip_permissions.unwrap_or(true),
                 );
-                let params = crate::service::SpawnAgentParams {
-                    agent: Some(launch.provider_id.clone()),
-                    cwd: launch.cwd,
-                    skip_permissions: Some(pc.resume_skip_permissions.unwrap_or(true)),
-                    model: launch.model,
-                    resume_session_id: launch.session_id,
-                    role: launch.role,
-                    role_profile: launch.role_profile,
-                    ..Default::default()
-                };
+                let provider_id = input
+                    .params
+                    .agent
+                    .clone()
+                    .expect("restored launch provider");
                 let launch_cmd = crate::service::orchestrator::build_agent_command(
-                    &launch.provider_id,
-                    &params,
-                    launch_task.as_deref(),
+                    &provider_id,
+                    &input.params,
+                    input.launch_task.as_deref(),
                     None,
                     &self.agent_registry,
                 );
-                let fallback_spec = self
-                    .agent_registry
-                    .with_provider(&launch.provider_id, |provider| {
-                        matches!(
-                            crate::service::launch_delivery::mode_for_descriptor(
-                                &provider.system_prompt_delivery(),
-                            ),
-                            crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                        )
-                    })
-                    .unwrap_or(true)
-                    .then(|| {
-                        crate::service::launch_delivery::fallback_delivery_spec(
-                            None,
-                            launch_task.as_deref(),
-                            None,
-                        )
-                    })
-                    .flatten();
                 crate::service::orchestrator::launch_agent_in_background(
                     self.clone(),
                     tab_id.to_string(),
                     launch_cmd,
-                    launch.provider_id,
-                    crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
-                    launch_task,
-                    fallback_spec,
+                    provider_id,
+                    input.origin,
+                    input.launch_task,
+                    input.fallback_spec,
                     None,
                 );
             },
@@ -554,6 +569,128 @@ impl ServiceContext {
             }
         })
         .await;
+    }
+}
+
+#[cfg(test)]
+mod restored_snapshot_launch_tests {
+    use super::{
+        restore_materialization_core, restored_snapshot_launch_input, RestoredSnapshotLaunchInput,
+    };
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{AgentRole, PendingDeliveryChannel, PendingDeliveryRecord};
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+
+    fn restored_worker(
+        historical_task: Option<&str>,
+    ) -> (MuxState, String, String, String, Option<String>) {
+        let (mut state, parent_id) = MultiplexerState::new();
+        let workspace_id = state.find_workspace_for_tab(&parent_id).unwrap();
+        state
+            .set_tab_role(&parent_id, AgentRole::Orchestrator, None)
+            .unwrap();
+        let team_id = state
+            .resolve_or_mint_team_for_parent(&parent_id)
+            .unwrap()
+            .team_id;
+        let tab_id = state.create_tab(&workspace_id).unwrap();
+        state
+            .set_tab_role(&tab_id, AgentRole::Worker, Some(&parent_id))
+            .unwrap();
+        let historical_task = historical_task.map(str::to_string);
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_session_id = Some("fixture-session".into());
+        tab.agent_session_model = Some("fixture-model".into());
+        tab.cwd = Some("fixture-cwd".into());
+        tab.role_profile = Some("fixture-profile".into());
+        tab.restored_from_snapshot = true;
+        if historical_task.is_some() {
+            tab.pending_delivery = Some(PendingDeliveryRecord::new(
+                "historical-digest".into(),
+                PendingDeliveryChannel::InteractiveInput,
+            ));
+        }
+        (
+            Arc::new(TimedRwLock::new("restored-snapshot-no-replay", state)),
+            tab_id,
+            parent_id,
+            team_id,
+            historical_task,
+        )
+    }
+
+    #[test]
+    fn restored_materialization_preserves_worker_identity_without_assignment_replay() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        for historical_task in [Some("historical assigned task"), None] {
+            let (mux, tab_id, parent_id, team_id, historical_task) =
+                restored_worker(historical_task);
+            let was_assigned = historical_task.is_some();
+            let observed = parking_lot::Mutex::new(None::<RestoredSnapshotLaunchInput>);
+
+            let launch = restore_materialization_core(
+                &mux,
+                &tab_id,
+                "fixture-provider",
+                Some("fixture-session"),
+                Some("fixture-cwd"),
+                true,
+                false,
+                || Ok(historical_task.clone()),
+                |_, _| panic!("restored fixture must not fail"),
+                |launch, restored_task| {
+                    *observed.lock() = Some(restored_snapshot_launch_input(
+                        &registry,
+                        launch,
+                        restored_task,
+                        true,
+                    ));
+                },
+            )
+            .unwrap()
+            .unwrap();
+            let input = observed.into_inner().unwrap();
+            let tab = mux.read().get_tab(&tab_id).unwrap().clone();
+
+            assert_eq!(launch.provider_id, "fixture-provider");
+            assert_eq!(input.params.agent.as_deref(), Some("fixture-provider"));
+            assert_eq!(
+                input.params.resume_session_id.as_deref(),
+                Some("fixture-session")
+            );
+            assert_eq!(input.params.cwd.as_deref(), Some("fixture-cwd"));
+            assert_eq!(input.params.model.as_deref(), Some("fixture-model"));
+            assert_eq!(input.params.role.as_deref(), Some("Worker"));
+            assert_eq!(
+                input.params.role_profile.as_deref(),
+                Some("fixture-profile")
+            );
+            assert_eq!(input.params.task, None);
+            assert_eq!(
+                input.params.starter_prompt,
+                crate::agent::provider::StarterPrompt::NoStarter
+            );
+            let identity = input.launch_task.as_deref().unwrap();
+            assert_eq!(identity.matches("You are a CodeTerm Worker.").count(), 1);
+            assert!(!identity.contains("## Assignment"));
+            assert!(!identity.contains("historical assigned task"));
+            assert!(input.fallback_spec.is_none());
+            assert!(matches!(
+                input.origin,
+                crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
+            ));
+            assert_eq!(tab.parent_tab_id.as_deref(), Some(parent_id.as_str()));
+            assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+            assert_eq!(tab.agent_session_id.as_deref(), Some("fixture-session"));
+            assert_eq!(tab.agent_session_model.as_deref(), Some("fixture-model"));
+            assert_eq!(tab.cwd.as_deref(), Some("fixture-cwd"));
+            assert_eq!(tab.role, Some(AgentRole::Worker));
+            assert_eq!(tab.role_profile.as_deref(), Some("fixture-profile"));
+            assert_eq!(tab.pending_delivery.is_some(), was_assigned);
+        }
     }
 }
 

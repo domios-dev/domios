@@ -703,6 +703,115 @@ fn add_team_member_uses_existing_manager_and_team() {
 }
 
 #[test]
+fn manual_team_worker_has_system_identity_and_no_starter_turn() {
+    let (mux, team_id, manager, _, _) = team_members();
+    let prepared = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        &manager,
+        AddTeamMemberParams {
+            provider: "spawn-capable".into(),
+            role: "worker".into(),
+            title: Some("Manual worker".into()),
+            task: None,
+            model: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(prepared.spawn_params.role.as_deref(), Some("Worker"));
+    assert_eq!(
+        prepared.spawn_params.parent_tab_id.as_deref(),
+        Some(manager.as_str())
+    );
+    assert_eq!(
+        prepared.spawn_params.spawned_by_tab_id.as_deref(),
+        Some(manager.as_str())
+    );
+    assert!(prepared.spawn_params.task.is_none());
+    assert_eq!(
+        prepared.spawn_params.starter_prompt,
+        crate::agent::provider::StarterPrompt::NoStarter
+    );
+
+    let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(prepared.spawn_params);
+    let json = serde_json::to_string(&spec).unwrap();
+    let restored: crate::service::spawn::SpawnTabSpec = serde_json::from_str(&json).unwrap();
+    let restored = restored.to_agent_params().unwrap();
+    let system_context = crate::service::orchestrator::spawn_onboarding_task(&restored).unwrap();
+
+    assert_eq!(restored.role.as_deref(), Some("Worker"));
+    assert!(restored.task.is_none());
+    assert_eq!(
+        restored.starter_prompt,
+        crate::agent::provider::StarterPrompt::NoStarter
+    );
+    assert_eq!(
+        system_context.matches("You are a CodeTerm Worker.").count(),
+        1
+    );
+    assert!(!system_context.contains("## Assignment"));
+}
+
+#[test]
+fn new_explicit_task_worker_gets_exactly_one_assigned_starter() {
+    let (mux, team_id, manager, _, _) = team_members();
+    let brief = "Audit the Team worker starter cardinality.";
+    let prepared = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        &manager,
+        AddTeamMemberParams {
+            provider: "spawn-capable".into(),
+            role: "worker".into(),
+            title: None,
+            task: Some(brief.into()),
+            model: None,
+        },
+    )
+    .unwrap();
+    let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(prepared.spawn_params);
+    let restored = spec.to_agent_params().unwrap();
+    let system_context = crate::service::orchestrator::spawn_onboarding_task(&restored).unwrap();
+
+    assert_eq!(restored.role.as_deref(), Some("Worker"));
+    assert_eq!(restored.task.as_deref(), Some(brief));
+    assert_eq!(
+        restored.starter_prompt,
+        crate::agent::provider::StarterPrompt::AssignedTask
+    );
+    assert_eq!(system_context.matches(brief).count(), 1);
+    assert_eq!(
+        system_context.matches("You are a CodeTerm Worker.").count(),
+        1
+    );
+}
+
+#[test]
+fn whitespace_team_task_is_normalized_to_manual_creation() {
+    let (mux, team_id, manager, _, _) = team_members();
+    let prepared = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        &manager,
+        AddTeamMemberParams {
+            provider: "spawn-capable".into(),
+            role: "worker".into(),
+            title: None,
+            task: Some("   ".into()),
+            model: None,
+        },
+    )
+    .unwrap();
+
+    assert!(prepared.spawn_params.task.is_none());
+    assert_eq!(
+        prepared.spawn_params.starter_prompt,
+        crate::agent::provider::StarterPrompt::NoStarter
+    );
+}
+
+#[test]
 fn add_team_member_sets_exact_planner_role_and_emits_one_state_change() {
     let (mut mux, team_id, manager, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&manager).unwrap();
