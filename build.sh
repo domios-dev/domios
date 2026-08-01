@@ -1477,12 +1477,12 @@ EOF
     PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
     if ! validate_dev_provenance; then
       echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
-      echo "Run ./build.sh dev to rebuild and record valid dev provenance." >&2
+      echo "Run ./build.sh dev --wait to rebuild and record valid dev provenance." >&2
       exit 2
     fi
     if ! preflight_dev_prebuilt_runtime; then
       echo "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." >&2
-      echo "Run ./build.sh dev to restore prerequisites and record valid dev provenance." >&2
+      echo "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance." >&2
       exit 2
     fi
     kill_dev
