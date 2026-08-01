@@ -318,6 +318,36 @@ console.log("\n--- parseUsage: /status gauges ---\n");
   );
 }
 
+console.log("\n--- quota-free usage fetch ---\n");
+{
+  let request: Record<string, unknown> | null = null;
+  const p = loadCodexWithHost(baseHost({
+    fetch: (raw: string) => {
+      request = JSON.parse(raw);
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({
+          rate_limit: {
+            primary_window: { used_percent: 17, limit_window_seconds: 18_000, reset_at: 1_780_000_000 },
+            secondary_window: { used_percent: 92, limit_window_seconds: 604_800, reset_at: 1_781_000_000 },
+          },
+        }),
+      });
+    },
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ tokens: { access_token: "secret-token", account_id: "account-1" } }),
+    },
+  }));
+  const raw = p.fetchUsage();
+  const usage = p.parseUsage(raw, 1_000_000);
+  eq(request?.url, "https://chatgpt.com/backend-api/wham/usage", "fetchUsage uses the provider account meter endpoint");
+  eq(usage?.session_pct, 17, "fetchUsage maps the short window");
+  eq(usage?.weekly_pct, 92, "fetchUsage maps the weekly window");
+  eq(usage?.session_resets_at_ms, 1_780_000_000_000, "fetchUsage maps reset seconds to milliseconds");
+  assert(!raw.includes("secret-token"), "fetchUsage output never persists credentials");
+}
+
 console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) ---\n");
 {
   const p = loadHostPlugin();

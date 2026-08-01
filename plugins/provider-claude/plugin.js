@@ -47,6 +47,80 @@ function usageNormalize(raw) {
   }
   return out;
 }
+var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
+function fetchClaudeUsage(host2) {
+  const credentialsPath = host2.expandHome("~/.claude/.credentials.json");
+  if (!credentialsPath) return null;
+  const credentials = safeJson(host2.fs.readFile(credentialsPath));
+  const oauth = objectAt(credentials, "claudeAiOauth");
+  const accessToken = stringAt(oauth, "accessToken");
+  if (!accessToken) return null;
+  const response = safeJson(host2.fetch(JSON.stringify({
+    url: "https://api.anthropic.com/api/oauth/usage",
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "anthropic-beta": "oauth-2025-04-20",
+      "User-Agent": "codeterm-usage/1.7.8"
+    }
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const session = objectAt(body, "five_hour");
+  const weekly = objectAt(body, "seven_day");
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CLAUDE_USAGE_KIND,
+    session_pct: numberAt(session, "utilization"),
+    session_resets_at_ms: isoToMs(stringAt(session, "resets_at")),
+    weekly_pct: numberAt(weekly, "utilization"),
+    weekly_resets_at_ms: isoToMs(stringAt(weekly, "resets_at"))
+  });
+}
+function parseFetchedClaudeUsage(raw, nowMs) {
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") !== CLAUDE_USAGE_KIND) return void 0;
+  return {
+    provider: "claude",
+    account_id: null,
+    captured_at_ms: nowMs,
+    session_pct: numberAt(fetched, "session_pct"),
+    session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+    weekly_pct: numberAt(fetched, "weekly_pct"),
+    weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+    raw_text: raw
+  };
+}
+function safeJson(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function objectAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return nested && typeof nested === "object" ? nested : null;
+}
+function stringAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+function numberAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+function isoToMs(value) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 function usageBlockIsComplete(block) {
   return block.pct === null || block.resetsMs !== null;
 }
@@ -302,9 +376,9 @@ function fetchLiveModels(key) {
       "anthropic-version": "2023-06-01"
     }
   }));
-  const response = safeJson(raw);
+  const response = safeJson2(raw);
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
-  const body = safeJson(response.body);
+  const body = safeJson2(response.body);
   const data = body && body.data;
   if (!Array.isArray(data)) return null;
   const out = [];
@@ -381,7 +455,7 @@ function withVersion(displayName, version) {
   if (/\d+(?:\.\d+)?/.test(displayName)) return displayName.replace(/\d+(?:\.\d+)?/, version);
   return displayName + " " + version;
 }
-function safeJson(s) {
+function safeJson2(s) {
   try {
     return JSON.parse(String(s || "null"));
   } catch (_) {
@@ -1143,6 +1217,8 @@ var plugin = {
   parseUsage(rawText, nowMs) {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
+    const fetched = parseFetchedClaudeUsage(raw, nowMs);
+    if (fetched !== void 0) return fetched;
     const text = usageNormalize(raw);
     const session = usageParseBlock(text, "Current session", false, nowMs);
     const weekly = usageParseBlock(text, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
@@ -1158,6 +1234,9 @@ var plugin = {
       weekly_resets_at_ms: weekly.resetsMs,
       raw_text: raw
     };
+  },
+  fetchUsage() {
+    return fetchClaudeUsage(host);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.

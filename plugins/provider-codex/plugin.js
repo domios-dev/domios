@@ -362,9 +362,58 @@ function readSessionMeta(path) {
 }
 
 // plugins/provider-codex/src/usage.ts
+var CODEX_USAGE_KIND = "codeterm_usage_v1";
+function fetchCodexUsage(host2) {
+  const authPath = host2.expandHome("~/.codex/auth.json");
+  if (!authPath) return null;
+  const auth = safeJson(host2.fs.readFile(authPath));
+  const tokens = objectAt(auth, "tokens");
+  const accessToken = stringAt(tokens, "access_token");
+  const accountId = stringAt(tokens, "account_id");
+  if (!accessToken || !accountId) return null;
+  const response = safeJson(host2.fetch(JSON.stringify({
+    url: "https://chatgpt.com/backend-api/wham/usage",
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "ChatGPT-Account-Id": accountId,
+      "User-Agent": "codeterm-usage/1.7.8"
+    }
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const rateLimit = objectAt(body, "rate_limit");
+  if (!rateLimit) return null;
+  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean);
+  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window) < 86400) ?? null;
+  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window) >= 86400) ?? null;
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CODEX_USAGE_KIND,
+    account_id: accountId,
+    session_pct: numberAt(session, "used_percent"),
+    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
+    weekly_pct: numberAt(weekly, "used_percent"),
+    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at"))
+  });
+}
 function parseCodexUsage(rawText, nowMs) {
   const raw = String(rawText || "");
   if (!raw.trim()) return null;
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
+    return {
+      provider: "codex",
+      account_id: stringAt(fetched, "account_id"),
+      captured_at_ms: nowMs,
+      session_pct: numberAt(fetched, "session_pct"),
+      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+      weekly_pct: numberAt(fetched, "weekly_pct"),
+      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+      raw_text: raw
+    };
+  }
   const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
   const lines = text.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
@@ -381,6 +430,36 @@ function parseCodexUsage(rawText, nowMs) {
     weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
     raw_text: raw
   };
+}
+function safeJson(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function objectAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return nested && typeof nested === "object" ? nested : null;
+}
+function stringAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+function numberAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+function secondsToMs(value) {
+  return value === null ? null : value * 1e3;
+}
+function windowDuration(window) {
+  return numberAt(window, "limit_window_seconds");
 }
 function parseCodexLimits(lines, nowMs) {
   const out = [];
@@ -1023,6 +1102,9 @@ var plugin = {
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
     return parseCodexUsage(rawText, nowMs);
+  },
+  fetchUsage() {
+    return fetchCodexUsage(host);
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
