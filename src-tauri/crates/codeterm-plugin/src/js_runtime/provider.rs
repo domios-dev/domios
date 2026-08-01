@@ -965,7 +965,10 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        self.try_call::<Vec<SerdeModelInfo>>("discoverModels", &[])
+        // `null` is the plugin's honest "no genuine discovery" signal — it must
+        // not deserialize-fail into warn noise, and never falls back to a seed.
+        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[])
+            .flatten()
             .map(|models| models.iter().map(ModelInfo::from).collect())
     }
 

@@ -22,15 +22,20 @@ export function manifestModels(): ModelInfo[] {
 }
 
 function fetchLiveModels(key: string): AnthropicModel[] | null {
-  const raw = host.fetch(JSON.stringify({
-    url: "https://api.anthropic.com/v1/models",
-    method: "GET",
-    timeoutMs: 3000,
-    headers: {
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-    },
-  }));
+  let raw: string;
+  try {
+    raw = host.fetch(JSON.stringify({
+      url: "https://api.anthropic.com/v1/models",
+      method: "GET",
+      timeoutMs: 3000,
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+      },
+    }));
+  } catch (_) {
+    return null;
+  }
   const response = safeJson(raw) as { status?: number; body?: string } | null;
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
   const body = safeJson(response.body) as AnthropicModelsResponse | null;

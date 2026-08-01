@@ -142,6 +142,30 @@ fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+/// Registered seeds survive live overlays so cache validation can always
+/// compare against what the current build actually ships.
+fn seed_registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
+    static REG: OnceLock<RwLock<HashMap<String, RegisteredDefaults>>> = OnceLock::new();
+    REG.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Deterministic hash of the registered seed (ids, display, descriptions,
+/// availability, order, default); no registered seed hashes `null`.
+fn seed_fingerprint(provider_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let seed = seed_registry().read().get(provider_id).cloned();
+    let canonical = match seed {
+        Some(defaults) => serde_json::json!({
+            "default": defaults.default,
+            "models": defaults.models,
+        }),
+        None => serde_json::Value::Null,
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
     static REG: OnceLock<RwLock<HashMap<String, RegisteredEfforts>>> = OnceLock::new();
     REG.get_or_init(|| RwLock::new(HashMap::new()))
@@ -152,9 +176,20 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
 /// ships with for the current build; bump it alongside upstream releases.
 pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
-    registry()
+    let unchanged = seed_registry()
+        .read()
+        .get(provider_id)
+        .is_some_and(|prior| prior.models == defaults.models && prior.default == defaults.default);
+    seed_registry()
         .write()
-        .insert(provider_id.to_string(), ProviderModels::seed(defaults));
+        .insert(provider_id.to_string(), defaults.clone());
+    let mut reg = registry().write();
+    // Re-registering an UNCHANGED seed (plugin rescan/hot-reload) must not drop
+    // a genuine live overlay; a changed seed invalidates it by definition.
+    if unchanged && reg.get(provider_id).map(|s| s.source) == Some(Source::Live) {
+        return;
+    }
+    reg.insert(provider_id.to_string(), ProviderModels::seed(defaults));
 }
 
 pub fn register_reasoning_efforts(
@@ -202,6 +237,14 @@ pub fn prime_from_cache(provider_id: &str) {
     let Some(fetched_at) = cached.fetched_at_system() else {
         return;
     };
+    let current = seed_fingerprint(provider_id);
+    if cached.seed_fingerprint.as_deref() != Some(current.as_str()) {
+        log::warn!(
+            "[model_catalog] {provider_id} cache was captured against a different seed \
+             (or predates seed fingerprinting) — keeping the registered seed"
+        );
+        return;
+    }
     {
         let reg = registry().read();
         if reg.get(provider_id).map(|s| s.source) == Some(Source::Live) {
@@ -475,6 +518,10 @@ struct CachedSnapshot {
     #[serde(default)]
     default: Option<String>,
     models: Vec<ModelInfo>,
+    /// Fingerprint of the registered seed this snapshot was captured against.
+    /// Absent (legacy cache) or mismatched → the snapshot never primes.
+    #[serde(default)]
+    seed_fingerprint: Option<String>,
 }
 
 impl CachedSnapshot {
@@ -496,6 +543,7 @@ fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
         fetched_at_unix: secs.as_secs(),
         default: snapshot.default.clone(),
         models: snapshot.models.clone(),
+        seed_fingerprint: Some(seed_fingerprint(provider_id)),
     };
     let path = cache_path(provider_id);
     match serde_json::to_string_pretty(&payload) {
@@ -771,8 +819,8 @@ fn render_example(
          #   - Built-in id you didn't mention → stays, auto-updates on release.\n\
          #\n\
          # That means: adding one custom model doesn't freeze the rest of\n\
-         # your list — when a new CodeTerm release ships `opus-4.8`, it\n\
-         # arrives automatically alongside your customizations.\n\
+         # your list — when a new CodeTerm release ships an updated built-in\n\
+         # catalog, it arrives automatically alongside your customizations.\n\
          #\n\
          # ## Full replacement\n\
          #\n\
@@ -858,18 +906,18 @@ fall back to provider defaults.
 
 ```toml
 # Optional: which model is selected by default for fresh sessions.
-default = "opus"
+default = "example-model"
 default_effort = "medium"
 
 [[models]]
-id = "opus"
-display_name = "Claude Opus 4.8 (1M context)"
+id = "example-model"
+display_name = "Example Model (extended context)"
 description = "Best for everyday, complex tasks."
 
 [[models]]
-id = "sonnet"
-display_name = "Claude Sonnet 4.6"
-description = "Best for everyday tasks."
+id = "example-model-mini"
+display_name = "Example Model Mini"
+description = "Efficient for routine tasks."
 
 [[efforts]]
 id = "xhigh"
