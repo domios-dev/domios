@@ -196,12 +196,11 @@ export function ChatSetupState({
 
   if (transitionState === "hidden") return null;
 
-  const cardStyle = {
+  const cardStyle: React.CSSProperties = {
     opacity: transitionState === "exiting" ? 0 : 1,
     pointerEvents: transitionState === "exiting" ? "none" : undefined,
     transition: reducedMotion ? "none" : "opacity 120ms ease",
-    "--chat-provider-color": providerIconColor ?? "var(--ct-accent, #58a6ff)",
-  } as React.CSSProperties;
+  };
 
   if (view.kind !== "starting" && transitionState !== "exiting") return null;
 

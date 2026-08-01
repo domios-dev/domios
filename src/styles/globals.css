@@ -2548,7 +2548,6 @@ button,
 }
 
 .chat-launch-overlay {
-  background: var(--ct-bg, #0d1117);
   inset: 0;
   position: absolute;
   z-index: 1;
@@ -2564,9 +2563,9 @@ button,
 
 .chat-launch-ring::after {
   animation: ct-chat-liquid-orbit 3.2s var(--ct-ease-liquid-breathe) infinite alternate;
-  border: 1px solid color-mix(in srgb, var(--chat-provider-color) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent);
   border-radius: 46% 54% 52% 48% / 51% 45% 55% 49%;
-  box-shadow: 0 0 24px color-mix(in srgb, var(--chat-provider-color) 8%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent);
   content: "";
   inset: -9px;
   pointer-events: none;
