@@ -158,39 +158,6 @@ impl PlanStore {
         None
     }
 
-    pub fn active_owned_plan_frontier_for_tab(
-        &self,
-        tab_id: &str,
-    ) -> Option<(String, usize, usize)> {
-        if tab_id.trim().is_empty() {
-            return None;
-        }
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
-            if plan.status != PlanStatus::Active
-                || plan.mode != PlanMode::Execution
-                || plan.owner.tab_id.as_deref() != Some(tab_id)
-            {
-                continue;
-            }
-            let pending = plan
-                .tasks
-                .iter()
-                .filter(|task| task.status == TaskStatus::Pending)
-                .count();
-            if pending == 0 {
-                continue;
-            }
-            let live_lanes = plan
-                .tasks
-                .iter()
-                .filter(|task| super::task_attempts::live_attempt_count(task) > 0)
-                .count();
-            return Some((plan.id.clone(), pending, live_lanes));
-        }
-        None
-    }
-
     pub fn task_bindings_for_tab(&self, tab_id: &str) -> Vec<(String, String)> {
         if tab_id.trim().is_empty() {
             return Vec::new();

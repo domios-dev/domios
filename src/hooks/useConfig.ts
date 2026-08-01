@@ -85,15 +85,7 @@ export function defaultConfig(): AppConfig {
   },
   orchestration: {
     plan_reminders: true,
-    nudge_after_turns: 12,
     nudge_interval_secs: 1800,
-    idle_poke: {
-      enabled: true,
-      idle_threshold_secs: 150,
-      live_lane_cap: 3,
-      max_per_day: 4,
-      backoff_base_secs: 90,
-    },
   },
   };
 }

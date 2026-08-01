@@ -35,7 +35,6 @@ toast_duration = 5  # seconds
 
 [orchestration]
 plan_reminders = true
-nudge_after_turns = 0  # disabled; reminders are time-based by default
 nudge_interval_secs = 1800  # 30 minutes
 
 [orchestration.reflect]
@@ -474,4 +473,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->

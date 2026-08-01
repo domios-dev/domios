@@ -14,8 +14,7 @@ pub use send::{chat_send_status, chat_send_text, send_text};
 
 #[cfg(test)]
 pub(crate) use send::{
-    send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
-    TabInputTransport,
+    send_action_bytes, should_prepend_source, SendAction, SendTextBody, TabInputTransport,
 };
 
 pub async fn list_tabs(
@@ -710,8 +709,6 @@ fn resolve_pty_id_with_fallback(
 pub(crate) struct GetTextQuery {
     #[serde(default)]
     formatted: bool,
-    #[serde(default)]
-    caller: Option<String>,
 }
 
 pub async fn get_tab_usage(
@@ -757,10 +754,6 @@ pub async fn get_tab_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
-    if let Some(caller) = query.caller.as_deref().filter(|s| !s.is_empty()) {
-        let caller = resolve_tab(&state, caller).unwrap_or_else(|_| caller.to_string());
-        state.svc.maybe_send_polling_nudge(&caller, &tab_id);
-    }
     let cmd = crate::dispatch::Command::GetText {
         tab_id: tab_id.clone(),
         formatted: query.formatted,

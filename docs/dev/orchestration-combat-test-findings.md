@@ -67,7 +67,7 @@ detection: no report AND no Tab output progress over a window. — *open
 (tasks filed)*
 
 ### F8. Reminders/nudges gated on `mode == Execution`; nothing flips it
-All nudge channels (turn-based, timed, idle poke) filter plans to
+The periodic scheduler reminder channel filters plans to
 `PlanMode::Execution`. The orchestrator flow ends at `approve` and nothing
 transitions approved → execution, so the whole reminder layer was silently
 inert for the entire run (and likely for every effort driven this way).
@@ -84,4 +84,4 @@ recorded as strides; follow-ups become backlog notes, not scope creep;
 8/13 tasks done with zero bounces in the first ~2h; lane isolation
 (worktrees + lane/* branches) flawless; report format discipline exact.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -19,8 +19,6 @@ use crate::multiplexer::types::TabBacking;
 pub struct ChatQuery {
     #[serde(default)]
     pub since: usize,
-    #[serde(default)]
-    pub caller: Option<String>,
 }
 
 /// What a transcript read may honestly resolve for a tab.
@@ -60,10 +58,6 @@ pub async fn snapshot(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
-    if let Some(caller) = query.caller.as_deref().filter(|s| !s.is_empty()) {
-        let caller = resolve_tab(&state, caller).unwrap_or_else(|_| caller.to_string());
-        state.svc.maybe_send_polling_nudge(&caller, &tab_id);
-    }
     if chat_read_target(&state.svc.mux, &tab_id)? == ChatReadTarget::Unbound {
         return Ok(Json(
             serde_json::json!({ "messages": [], "count": 0, "pending": true }),
