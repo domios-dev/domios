@@ -6,11 +6,11 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
+fn xterm_paste_preserves_multiline_bracketed_input_as_one_paste() {
     let text = "alpha\r\nbeta\ngamma\rdelta";
     assert_eq!(
         xterm_paste(text, true),
-        "\x1b[200~alpha\rbeta\rgamma\rdelta\x1b[201~"
+        "\x1b[200~alpha\nbeta\ngamma\ndelta\x1b[201~"
     );
     assert_eq!(xterm_paste(text, false), "alpha\rbeta\rgamma\rdelta");
 }
