@@ -5,7 +5,6 @@ use crate::service::ServiceContext;
 
 mod authenticated;
 mod ingress;
-mod input_authority;
 mod readiness;
 
 use authenticated::optimistic_agent_pty_target;
@@ -250,12 +249,6 @@ impl ServiceContext {
                 detail,
             })?;
         self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail,
-            })?;
-        // Routability proves an agent PTY exists, never that it owns input.
-        self.await_replacement_input_authority(tab_id, &pty_id)
             .map_err(|detail| DeliveryError::TabBusyRefused {
                 tab: tab_id.to_string(),
                 detail,
