@@ -83,6 +83,20 @@ function setGeometry(el: HTMLElement, geometry: Geometry): void {
   Object.defineProperty(el, "clientHeight", { configurable: true, get: () => geometry.clientHeight });
 }
 
+function countScrollTopWrites(el: HTMLElement): { reset: () => void; value: () => number } {
+  let scrollTop = el.scrollTop;
+  let writes = 0;
+  Object.defineProperty(el, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      writes += 1;
+      scrollTop = value;
+    },
+  });
+  return { reset: () => { writes = 0; }, value: () => writes };
+}
+
 let hookResult: UseChatScrollResult | null = null;
 
 function Fixture({ loading, messageCount }: { loading: boolean; messageCount: number }) {
@@ -179,7 +193,23 @@ async function main(): Promise<void> {
     `incoming messages preserve a manually detached viewport (got scrollTop=${scroll.scrollTop})`,
   );
 
+  const detachedWrites = countScrollTopWrites(scroll);
+  await renderFixture(root, false, 2);
+  assert(
+    detachedWrites.value() === 0,
+    `an unrelated commit does not interrupt detached native momentum (writes=${detachedWrites.value()})`,
+  );
+
   await act(async () => hookResult!.scrollToBottom());
+
+  setGeometry(scroll, { scrollHeight: 1200, clientHeight: 400 });
+  scroll.scrollTop = 800;
+  const pinnedWrites = countScrollTopWrites(scroll);
+  await renderFixture(root, false, 2);
+  assert(
+    pinnedWrites.value() === 0,
+    `an unrelated commit does not reassign an already pinned viewport (writes=${pinnedWrites.value()})`,
+  );
 
   // --- 3d. every pinned commit re-syncs before paint even without a resize ---
   // (window shift: top row dropped + new row appended, total height unchanged.)
