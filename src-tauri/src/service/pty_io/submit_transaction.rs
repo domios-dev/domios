@@ -180,8 +180,10 @@ struct Observation {
     tail: String,
 }
 
-/// Paste and submit-key writes stay inside one per-PTY transaction. A new send
-/// resets the prior key-only recovery cycle before entering this boundary.
+/// Two-phase submit boundary. The paste and the CR are separate PTY writes; the
+/// CR is emitted only after the TUI has *causally* rendered the paste (a new
+/// frame satisfying the draft predicate), then the provider turn transition is
+/// observed independently. Elapsed time is a failure bound only, never readiness.
 trait SubmitTransport {
     fn observe(&self) -> Option<Observation>;
     /// Predicate over the FULL parsed screen: the normalized draft or a
@@ -475,15 +477,14 @@ fn run_with_submit_key<T: SubmitTransport>(
     }
 
     let turn_was_started = transport.turn_started();
-    let submit_started = Instant::now();
     let mut submit_observed = !two_phase;
     let mut submit_key_writes = 0usize;
     for _ in 0..MAX_SUBMIT_KEY_WRITES {
+        if !transport.retry_active() {
+            break;
+        }
         if submit_key_writes > 0 {
-            if !transport.retry_active() {
-                break;
-            }
-            let retry_deadline = submit_started + Duration::from_secs(submit_key_writes as u64);
+            let retry_deadline = started + Duration::from_secs(submit_key_writes as u64);
             transport.wait_retry_deadline(retry_deadline.min(turn_deadline));
             if !transport.retry_active() || Instant::now() >= turn_deadline {
                 break;
