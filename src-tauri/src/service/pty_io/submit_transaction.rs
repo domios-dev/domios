@@ -223,11 +223,11 @@ struct PtySubmitTransport<'a> {
 }
 
 fn xterm_paste(text: &str, bracketed_paste_mode: bool) -> String {
-    let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     if bracketed_paste_mode {
         format!("\x1b[200~{normalized}\x1b[201~")
     } else {
-        normalized
+        normalized.replace('\n', "\r")
     }
 }
 

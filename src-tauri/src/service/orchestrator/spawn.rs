@@ -37,16 +37,11 @@ fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
 }
 
 fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
-    let starts_assigned_work = params
-        .task
-        .as_deref()
-        .is_some_and(|task| !task.trim().is_empty())
-        || params.role.is_some();
-    params.starter_prompt = if starts_assigned_work {
-        crate::agent::provider::StarterPrompt::AssignedTask
-    } else {
-        crate::agent::provider::StarterPrompt::IdleWakeup
-    };
+    if params.role.is_none() {
+        params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
+        return;
+    }
+    params.starter_prompt = crate::agent::provider::StarterPrompt::AssignedTask;
 }
 
 fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
@@ -981,21 +976,37 @@ mod hierarchy_defaults_tests {
     }
 
     #[test]
-    fn standalone_agent_waits_without_receiving_an_assigned_task_turn() {
+    fn roleless_agent_starts_without_a_visible_turn() {
         let mut params = SpawnAgentParams::default();
 
         prepare_standard_starter_prompt(&mut params);
 
         assert_eq!(
             params.starter_prompt,
-            crate::agent::provider::StarterPrompt::IdleWakeup
+            crate::agent::provider::StarterPrompt::NoStarter
         );
     }
 
     #[test]
-    fn explicit_task_keeps_the_assigned_task_turn() {
+    fn roleless_task_is_system_context_without_a_visible_turn() {
         let mut params = SpawnAgentParams {
             task: Some("Inspect the launch path.".into()),
+            ..Default::default()
+        };
+
+        prepare_standard_starter_prompt(&mut params);
+
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+    }
+
+    #[test]
+    fn role_assignment_keeps_the_assigned_task_turn() {
+        let mut params = SpawnAgentParams {
+            task: Some("Inspect the launch path.".into()),
+            role: Some("Worker".into()),
             ..Default::default()
         };
 
