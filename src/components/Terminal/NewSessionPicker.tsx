@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
-import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
@@ -19,6 +18,7 @@ import { AgentIcon } from "../AgentIcon";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -57,6 +57,7 @@ export function NewSessionPicker({
 
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const workspaces = state.workspaces;
   const selectedWorkspace = useMemo(
@@ -95,13 +96,13 @@ export function NewSessionPicker({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || claudeModalOpen) return;
+      if (event.key !== "Escape" || busy || claudeModalOpen || folderPickerOpen) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, claudeModalOpen, onClose]);
+  }, [busy, claudeModalOpen, folderPickerOpen, onClose]);
 
   useEffect(() => {
     const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -145,22 +146,12 @@ export function NewSessionPicker({
       setCreatingWorkspace(true);
       return;
     }
-    // Desktop: a workspace IS a folder — pick it natively, name = basename.
+    setFolderPickerOpen(true);
+  }, []);
+  const handleSelectWorkspaceFolder = useCallback((folder: string) => {
+    setFolderPickerOpen(false);
     void (async () => {
-      let folder: string | null = null;
-      try {
-        folder = (await open({
-          directory: true,
-          multiple: false,
-          title: "Choose workspace folder",
-        })) as string | null;
-      } catch {
-        return;
-      }
-      if (!folder) return;
       const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-      // Stay on the picker: the new workspace becomes the spawn DESTINATION;
-      // the UI only navigates there when Start creates the session.
       const info = await createWorkspace(basename, folder, { activate: false });
       if (info?.id) setSelectedWorkspaceId(info.id);
     })();
@@ -514,6 +505,17 @@ export function NewSessionPicker({
             </div>
           </div>
         </>
+      )}
+
+      {folderPickerOpen && (
+        <div className="fixed inset-0 z-[1020]">
+          <RemoteFolderPicker
+            title="Choose workspace folder"
+            initialPath={selectedWorkspace?.cwd ?? workspaceCwd}
+            onCancel={() => setFolderPickerOpen(false)}
+            onSelect={handleSelectWorkspaceFolder}
+          />
+        </div>
       )}
     </div>,
     document.body,
