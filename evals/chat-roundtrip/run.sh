@@ -29,6 +29,26 @@
 #   CR_KEEP=1 ./run.sh                  # leave tabs/workspace for inspection
 set -uo pipefail
 
+report_verdict() {
+  local failures="$1" providers="$2"
+  echo
+  if [ "$failures" -eq 0 ]; then
+    echo "[messaging-core] ALL PASS — delivery + messaging core proven for: $providers"
+    return 0
+  fi
+  echo "[messaging-core] $failures assertion(s) FAILED" >&2
+  return 1
+}
+
+if [ "${1:-}" = "--verdict-only" ]; then
+  [[ "${2:-}" =~ ^[0-9]+$ ]] || {
+    echo "usage: $0 --verdict-only <failure-count>" >&2
+    exit 2
+  }
+  report_verdict "$2" "${CR_PROVIDERS:-claude codex}"
+  exit $?
+fi
+
 ROOT="$(git rev-parse --show-toplevel)"
 # shellcheck source=/dev/null
 source "$ROOT/evals/_lib/lib.sh"   # auto dev_env + `dc` (locked to dev 7686)
@@ -441,7 +461,7 @@ case_ledger() {
   local provider="$1" tab="$2"
   local nonce; nonce="LG$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: LEDGER-$nonce"
-  echo "[chat-roundtrip] $provider: ledger — chat-send reaches sent, exactly one user turn, no failure retained"
+  echo "[chat-roundtrip] $provider: ledger — chat-send reaches confirmed, exactly one user turn, no failure retained"
   local resp send_id
   resp="$(ledger_send "$tab" "$prompt")"
   send_id="$(echo "$resp" | $PY -c "import json,sys;print(json.load(sys.stdin).get('send_id',''))" 2>/dev/null)"
@@ -466,12 +486,12 @@ case_ledger() {
 # --- Case: detached ledger delivery (closed-Chat evidence) -----------
 # Stops the live chat stream FIRST, then sends through the ledger: no delta
 # sink exists while the turn persists, so only the append-window evidence scan
-# (run by GET /chat-send) can classify it. Reattach => sent, no Retry.
+# (run by GET /chat-send) can classify it. Reattach => confirmed, no Retry.
 case_ledger_detached() {
   local provider="$1" tab="$2"
   local nonce; nonce="LD$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: DETACH-$nonce"
-  echo "[chat-roundtrip] $provider: ledger-detached — no live sink during delivery; reattach reconciles to sent"
+  echo "[chat-roundtrip] $provider: ledger-detached — no live sink during delivery; reattach reconciles to confirmed"
   # Runs first on the fresh tab, before any chat subscription starts.
   # so no delta tailer/poller exists — detached by construction.
   local resp send_id
@@ -497,7 +517,7 @@ case_ledger_detached() {
 
 # --- Case: ledger send after agent restart (rebind exact-once) -------
 # Restart the agent (fresh PTY under the same tab), then a ledger send must
-# reach sent with the payload written exactly once into the NEW session flow.
+# reach confirmed with the payload written exactly once into the NEW session flow.
 case_ledger_restart() {
   local provider="$1" tab="$2"
   echo "[chat-roundtrip] $provider: ledger-restart — agent restart + rebind, then exact-once ledger send"
@@ -658,13 +678,7 @@ main() {
     [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$(tab_of "$pair")" >/dev/null 2>&1
   done
 
-  echo
-  if [ "$FAILS" -eq 0 ]; then
-    echo "[messaging-core] ALL PASS — delivery + messaging core proven for: $PROVIDERS"
-    exit 0
-  fi
-  echo "[messaging-core] $FAILS assertion(s) FAILED" >&2
-  exit 1
+  report_verdict "$FAILS" "$PROVIDERS"
 }
 
 main "$@"
