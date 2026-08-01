@@ -714,6 +714,7 @@ mod tests {
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
+    use serde_json::json;
     use std::sync::Arc;
 
     fn update_fixture() -> (ServiceFixture, String, String, String, String) {
