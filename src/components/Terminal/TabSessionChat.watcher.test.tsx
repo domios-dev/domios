@@ -306,7 +306,7 @@ test("normal chat_backend Tab keeps composer and hides read-only bar", async () 
   await act(async () => root.unmount());
 });
 
-test("bound-session pending snapshot renders recovery instead of false empty", async () => {
+test("bound-session pending snapshot renders the provider loader instead of false empty", async () => {
   const tabId = "recovering-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -316,13 +316,14 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
-  assert(host.querySelector('[data-testid="chat-recovering-state"]'), "recovery state mounted");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "provider loader mounted");
+  assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "duplicate recovery loader absent");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "false empty state absent");
   assert(host.querySelector('[data-testid="chat-composer"]'), "chat remains interactive");
   await act(async () => root.unmount());
 });
 
-test("fresh unbound PTY chat stays silently empty while keeping launch failure actionable", async () => {
+test("fresh unbound PTY launch failure remains neutral loading", async () => {
   const tabId = "fresh-unbound-chat";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -348,10 +349,8 @@ test("fresh unbound PTY chat stays silently empty while keeping launch failure a
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "fresh chat has no recovery placeholder");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "fresh chat has no empty-history placeholder");
   assert(composer, "usable fresh chat keeps its named composer");
-  assert(
-    host.querySelector('[role="alert"][aria-label="Launch failed"]'),
-    "unbound PTY authority keeps its launch failure actionable",
-  );
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unbound PTY authority keeps loading");
+  assert(!host.querySelector('[role="alert"]'), "no failure alert is rendered");
   await act(async () => root.unmount());
 });
 
@@ -371,7 +370,7 @@ test("an attached chat never regresses to a stale launch failure", async () => {
   await act(async () => root.unmount());
 });
 
-test("an attached current session ignores a late PTY reattach stage", async () => {
+test("an attached current session never shows a failure surface", async () => {
   const tabId = "attached-reattached";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -382,7 +381,6 @@ test("an attached current session ignores a late PTY reattach stage", async () =
   });
   const { host, root } = await renderTabSessionChat(tabId, state);
   assert(host.querySelector('[data-testid="chat-composer"]'), "current attached chat remains usable");
-  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "late PTY reattach cannot cover current chat");
   assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "reattach clears any failure presentation");
   await act(async () => root.unmount());
 });
@@ -405,7 +403,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
     () => ({ text: "", offset: 0, pending: true }),
   );
   const composer = host.querySelector('[data-testid="chat-composer"]');
-  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "pre-attach failure remains visible");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "pre-attach state remains neutral loading");
 
   await act(async () => {
     emitChat({
@@ -415,7 +413,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
       messages: [{ id: "same-session-event", type: "assistant", content: "attached", timestamp: "1" }],
     });
   });
-  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "stale launch nonce cannot claim current authority");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "stale launch nonce cannot claim current authority");
   assert(!host.textContent?.includes("attached"), "stale launch nonce cannot alter the transcript");
 
   await act(async () => {
@@ -426,7 +424,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
       messages: [{ id: "current-session-event", type: "assistant", content: "attached", timestamp: "2" }],
     });
   });
-  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "current authority attaches the durable transcript");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "current authority never exposes a failure surface");
   assert(host.textContent?.includes("attached"), "current-authority event updates the transcript");
 
   await act(async () => {
@@ -442,7 +440,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
   await act(async () => root.unmount());
 });
 
-test("launch retry uses the generic Tab restart command", async () => {
+test("launch failure has no inline failure or retry state", async () => {
   const tabId = "generic-retry-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -457,11 +455,10 @@ test("launch retry uses the generic Tab restart command", async () => {
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
-  const retry = host.querySelector('[data-testid="chat-launch-retry"]') as HTMLButtonElement | null;
-  assert(retry, "unattached failed launch exposes retry");
-  await act(async () => retry.click());
-  assert(commands.includes("restart_agent_tab"), "retry targets the current Tab through the generic restart seam");
-  assert(!commands.includes("restart_general_agent_tab"), "retry never assumes this Tab is the General Agent");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "neutral loader remains visible");
+  assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "inline retry is absent");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "failure card is absent");
+  assert(!commands.includes("restart_agent_tab"), "loading UI does not mutate agent lifecycle");
   await act(async () => root.unmount());
 });
 
@@ -494,7 +491,7 @@ test("T7 awaiting-store keeps the composer identity, draft, and focus", async ()
   await act(async () => root.unmount());
 });
 
-test("snapshot failure keeps a retryable chat surface", async () => {
+test("snapshot failure stays on the neutral provider loader", async () => {
   const tabId = "failed-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -502,13 +499,14 @@ test("snapshot failure keeps a retryable chat surface", async () => {
   const { host, root } = await renderTabSessionChat(tabId, state, () => {
     throw new Error("snapshot unavailable");
   });
-  assert(host.querySelector('[data-testid="chat-recovery-error"]'), "error state mounted");
-  assert(host.querySelector('[data-testid="chat-retry"]'), "retry remains reachable");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "provider loader remains mounted");
+  assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "error state is not rendered");
+  assert(!host.querySelector('[data-testid="chat-retry"]'), "inline retry is not rendered");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "failure is not shown as empty");
   await act(async () => root.unmount());
 });
 
-test("T6 manual reconnect resubscribes without releasing a shared tailer", async () => {
+test("mount failure remains loading without releasing a shared tailer", async () => {
   const tabId = "reattach-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -523,17 +521,10 @@ test("T6 manual reconnect resubscribes without releasing a shared tailer", async
       messages: [{ id: "history-1", type: "assistant", content: "restored history" }],
     };
   });
-  const reconnect = host.querySelector('[data-testid="chat-retry"]') as HTMLButtonElement | null;
-  assert(reconnect, "reconnect remains reachable after mount failure");
-  await act(async () => reconnect.click());
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "mount failure remains neutral loading");
+  assert(!host.querySelector('[data-testid="chat-retry"]'), "no inline reconnect surface remains");
   assert(commands.filter((command) => command === "chat_stop").length === 0, "manual reconnect never releases another view lease");
-  assert(commands.filter((command) => command === "chat_start").length === 2, "manual reconnect starts once after the failed attach");
-  assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "manual reconnect clears the error");
-  assert(host.textContent?.includes("restored history"), "history reappears after reconnect");
+  assert(commands.filter((command) => command === "chat_start").length === 1, "mount performs one attach attempt");
   await act(async () => root.unmount());
 });
 
