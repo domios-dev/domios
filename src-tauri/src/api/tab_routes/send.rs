@@ -27,10 +27,11 @@ pub async fn chat_send_text(
     } else {
         text
     };
+    let submit_claim = state.svc.claim_chat_submit_cycle(&tab_id);
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
     // Anchor capture reads the session file and may enter a plugin VM.
-    tokio::task::spawn_blocking(move || svc.start_chat_send(&send_tab, text))
+    tokio::task::spawn_blocking(move || svc.start_chat_send(&send_tab, text, submit_claim))
         .await
         .map_err(|_| {
             SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed"))
