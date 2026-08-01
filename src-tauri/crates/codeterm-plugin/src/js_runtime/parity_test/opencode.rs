@@ -124,18 +124,42 @@ fn detect_session_id_finds_recent_session() {
         rusqlite::params!["ses_old", "/work/proj", 1_700_000_000_000i64],
     )
     .unwrap();
+    let mut excluded = Vec::new();
+    for index in 0..25 {
+        let foreign = format!("ses_crowd_{index:02}");
+        conn.execute(
+            "INSERT INTO session (id, directory, time_created) VALUES (?1, ?2, ?3)",
+            rusqlite::params![foreign, "/crowd/proj", now_ms + 100 + index],
+        )
+        .unwrap();
+        let same_cwd = format!("ses_excluded_{index:02}");
+        conn.execute(
+            "INSERT INTO session (id, directory, time_created) VALUES (?1, ?2, ?3)",
+            rusqlite::params![same_cwd, "/work/proj", now_ms + 200 + index],
+        )
+        .unwrap();
+        excluded.push(same_cwd);
+    }
     drop(conn);
 
     let _env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
     let j = opencode();
     // Recent session within default 300s window → found.
     assert_eq!(
-        j.detect_session_id("/work/proj", &[], None),
+        j.detect_session_id("/work/proj", &excluded, None),
         Some("ses_fresh".to_string())
     );
     // Excluded → skip to next; old session outside window → null.
     assert_eq!(
-        j.detect_session_id("/work/proj", &["ses_fresh".to_string()], None),
+        j.detect_session_id(
+            "/work/proj",
+            &excluded
+                .iter()
+                .cloned()
+                .chain(std::iter::once("ses_fresh".to_string()))
+                .collect::<Vec<_>>(),
+            None,
+        ),
         None
     );
     assert_eq!(
@@ -247,4 +271,10 @@ fn sqlite_backed_session_capabilities() {
     assert_eq!(peer_cursor, format!(r#"[{TC_PART},["p0","p1"]]"#));
     let empty = j.read_structured_chat("/work/proj", SES_ID, Some(&peer_cursor));
     assert!(empty.messages.is_empty(), "{:#?}", empty.messages);
+
+    for malformed in ["1000", "not-json", r#"[1000,"legacy-id"]"#] {
+        let refused = j.read_structured_chat("/work/proj", SES_ID, Some(malformed));
+        assert!(refused.messages.is_empty(), "{:#?}", refused.messages);
+        assert_eq!(refused.cursor.as_deref(), Some(malformed));
+    }
 }

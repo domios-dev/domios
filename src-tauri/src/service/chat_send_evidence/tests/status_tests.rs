@@ -456,6 +456,79 @@ fn identical_payloads_with_staggered_anchors_claim_distinct_turns() {
 }
 
 #[test]
+fn identical_payloads_with_inverted_capture_and_start_order_claim_distinct_turns() {
+    let (fixture, tab_id) = unbound_service_fixture("windowed");
+    let root = fixture.temp.path().join("inverted-order-jsonl-evidence");
+    std::fs::create_dir_all(&root).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
+    let session_path = root.join("session-inverted.jsonl");
+    std::fs::write(&session_path, "").unwrap();
+    bind_fixture_session(&fixture, &tab_id, "session-inverted");
+
+    let loose_evidence = fixture.service.chat_send_anchor(&tab_id);
+    std::fs::write(
+        &session_path,
+        format!(
+            "{}\n",
+            serde_json::json!({ "role": "user", "content": "same inverted turn" })
+        ),
+    )
+    .unwrap();
+    let restrictive_evidence = fixture.service.chat_send_anchor(&tab_id);
+
+    let restrictive = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "same inverted turn",
+            restrictive_evidence.anchor,
+            restrictive_evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&restrictive.send_id, Ok(()))
+        .unwrap();
+    let loose = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "same inverted turn",
+            loose_evidence.anchor,
+            loose_evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&loose.send_id, Ok(()))
+        .unwrap();
+
+    use std::io::Write;
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(session_path)
+            .unwrap(),
+        "{}",
+        serde_json::json!({ "role": "user", "content": "same inverted turn" })
+    )
+    .unwrap();
+
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, loose.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+}
+
+#[test]
 fn chat_send_status_rejects_pre_send_foreign_and_claimed_turns() {
     let (fixture, tab_id) = unbound_service_fixture("windowed");
     let root = fixture.temp.path().join("inverse-jsonl-evidence");
