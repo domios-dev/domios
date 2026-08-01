@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -422,7 +422,10 @@ async function launchPrebuilt(options) {
           fail(error);
         }
       };
-      watcher = watch(log, inspect);
+      const logName = basename(log);
+      watcher = watch(dirname(log), (_event, filename) => {
+        if (filename === null || String(filename) === logName) inspect();
+      });
       watcher.on("error", fail);
       child = spawn(app, [], {
         cwd: repo,
