@@ -2024,6 +2024,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
 - `--group`
 - `--handle`
@@ -2191,6 +2192,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number
 - `--group`
 - `--handle`
 - `--intent`
@@ -2377,7 +2379,7 @@ Report worker progress to the owning orchestrator or plan
 
 Send text to a tab (default: current tab)
 
-- `--actions` — Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
+- `--actions` — Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting

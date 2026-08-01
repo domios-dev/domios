@@ -89,6 +89,47 @@ fn render_tree_groups_by_workspace_and_nests_children() {
 }
 
 #[test]
+fn tab_list_merges_remote_workers_into_their_team() {
+    let mut tabs = vec![json!({
+        "id":"orch",
+        "title":"Dumas",
+        "role":"Orchestrator",
+        "workspace_name":"CodeTerm",
+        "workspace_id":"ws"
+    })];
+    merge_remote_workers(
+        &mut tabs,
+        &json!({
+            "orch": [{
+                "peer":"Mac-Air",
+                "remote_tab":"remote1",
+                "title":"Release 1.7.8",
+                "model":"gpt-5.6-sol"
+            }],
+            "other-orchestrator": [{
+                "peer":"eight",
+                "remote_tab":"hidden",
+                "title":"Other team"
+            }]
+        }),
+    );
+
+    let out = render_tab_tree(&tabs);
+    assert!(
+        out.contains("Dumas") && out.contains("[orchestrator]"),
+        "{out}"
+    );
+    assert!(
+        out.contains("Release 1.7.8") && out.contains("[worker @Mac-Air]"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("Other team"),
+        "foreign team leaked into scoped list: {out}"
+    );
+}
+
+#[test]
 fn render_tree_falls_back_to_agent_type_without_model() {
     let tabs = vec![
         json!({"id":"eeee","tab_title":"plain","workspace_name":"W","workspace_id":"w"}),
