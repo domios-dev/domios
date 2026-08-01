@@ -294,7 +294,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 use std::time::Duration;
                 // Startup burst runs only while mesh is enabled.
                 if cfg.lock().mesh.enabled {
-                    let _ = mesh::refresh_local_addresses(&mesh);
+                    let _ = mesh::refresh_local_addresses(&mesh).await;
                     let report = mesh::broadcast_announce(&mesh, None).await;
                     log::info!(
                         "[mesh/announce.startup] sent={} ok={} stale={} errors={}",
@@ -317,7 +317,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     if !cfg.lock().mesh.enabled {
                         continue;
                     }
-                    let changed = mesh::refresh_local_addresses(&mesh);
+                    let changed = mesh::refresh_local_addresses(&mesh).await;
                     let heartbeat_due = last_heartbeat.elapsed() >= Duration::from_secs(90);
                     if !changed && !heartbeat_due {
                         continue;

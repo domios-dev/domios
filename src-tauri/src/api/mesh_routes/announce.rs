@@ -20,7 +20,7 @@ pub async fn mesh_refresh(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    crate::mesh::refresh_local_addresses(&state.mesh);
+    crate::mesh::refresh_local_addresses(&state.mesh).await;
     let report = crate::mesh::broadcast_announce(&state.mesh, None).await;
 
     crate::api::events::emit_everywhere(
@@ -79,11 +79,11 @@ pub async fn mesh_announce_inbound(
 
     let mut mesh = state.mesh.lock();
     match mesh.apply_announce(&sender_id, &ann) {
-        Ok(Some(prev)) => {
+        Ok(change) if change.changed() => {
             log::info!(
                 "[mesh/announce] sender={} old={:?} new={:?}",
                 sender_id,
-                prev.iter().map(|a| &a.ip).collect::<Vec<_>>(),
+                change.previous_addresses.iter().map(|a| &a.ip).collect::<Vec<_>>(),
                 ann.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
             );
             drop(mesh);
@@ -94,7 +94,7 @@ pub async fn mesh_announce_inbound(
             );
             Ok(Json(serde_json::json!({ "ok": true, "changed": true })))
         }
-        Ok(None) => Ok(Json(serde_json::json!({ "ok": true, "changed": false }))),
+        Ok(_) => Ok(Json(serde_json::json!({ "ok": true, "changed": false }))),
         Err(e) => Err((StatusCode::FORBIDDEN, e)),
     }
 }

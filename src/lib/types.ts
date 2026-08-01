@@ -550,9 +550,20 @@ export interface PairedPeer {
   is_primary: boolean;
   access_level: string;
   version: string | null;
-  /** Verified HTTPS web UI URL — announced only while the peer's own web
-   * access is Ready, so its presence is proof the link resolves. */
-  https_url?: string | null;
+  web_ui?: WebUiAnnouncement | null;
+  relay_protocol_version: number;
+}
+
+export const RELAY_PROTOCOL_VERSION = 1;
+
+export type WebUiEndpoint =
+  | { transport: "tailscale_https"; host: string; port: number }
+  | { transport: "tailscale_http"; ip: string; port: number }
+  | { transport: "lan_http"; ip: string; port: number };
+
+export interface WebUiAnnouncement {
+  protocol_version: number;
+  endpoints: WebUiEndpoint[];
 }
 
 export interface DiscoveredPeer {
@@ -582,6 +593,7 @@ export interface MeshPeersResponse {
   paired: PairedPeer[];
   discovered: DiscoveredPeer[];
   incoming_requests: MeshPairingRequest[];
+  local_instance_name: string;
 }
 
 /// Per-provider settings stored under `agents.<id>` in the TOML config.
