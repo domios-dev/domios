@@ -293,7 +293,8 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .unwrap_or(false);
         let paste = xterm_paste(text, bracketed_paste_mode);
         let paste_len = paste.len();
-        let chunks = vec![paste.into_bytes(), key.to_vec()];
+        let mut input = paste.into_bytes();
+        input.extend_from_slice(key);
         log::info!(
             "[submit-audit] atomic-initial pty={} bracketed_paste_mode={} source_bytes={} encoded_bytes={} key_bytes={}",
             self.pty_id,
@@ -312,16 +313,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         };
         let timeout = deadline.saturating_duration_since(Instant::now());
         let result = match self.permit.as_ref() {
-            Some(permit) => session.write_batch_and_flush_guarded(
-                chunks.clone(),
-                permit.clone(),
-                timeout,
-            ),
+            Some(permit) => session.write_and_flush_guarded(input.clone(), permit.clone(), timeout),
             None => self
                 .svc
                 .pty
                 .lock()
-                .write_batch_and_flush(self.pty_id, chunks.clone(), timeout),
+                .write_and_flush(self.pty_id, &input, timeout),
         };
         log::info!(
             "[submit-audit] atomic-initial pty={} session_gen={} queue_result={}",
@@ -333,13 +330,11 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             return Some(Err(injection_write_error(self.pty_id, error)));
         }
         if self.permit.is_some() {
-            for chunk in &chunks {
-                crate::pty::capture::CaptureRegistry::global().tap_input(
-                    self.pty_id,
-                    "pty.write",
-                    chunk,
-                );
-            }
+            crate::pty::capture::CaptureRegistry::global().tap_input(
+                self.pty_id,
+                "pty.write",
+                &input,
+            );
         }
         Some(Ok(paste_len))
     }
