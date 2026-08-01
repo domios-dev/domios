@@ -203,9 +203,10 @@ ct_gateway_first_ticket() {
 }
 
 ct_gateway_update_job() {
-  local state="$1" exit_code="$2" outcome="$3" started_at="${4:-}" ended_at="${5:-}"
+  local state="$1" exit_code="$2" outcome="$3" started_at="${4:-}" ended_at="${5:-}" command_exit_code="${6:-}"
   local args=(update --dir "$(ct_gateway_dir)" --job-id "$CT_BUILD_JOB_ID" --state "$state")
   [ -n "$exit_code" ] && args+=(--exit-code "$exit_code")
+  [ -n "$command_exit_code" ] && args+=(--command-exit-code "$command_exit_code")
   [ -n "$outcome" ] && args+=(--outcome "$outcome")
   [ -n "$started_at" ] && args+=(--started-at "$started_at")
   [ -n "$ended_at" ] && args+=(--ended-at "$ended_at")
@@ -242,14 +243,18 @@ ct_gateway_reap_stale_queue_locked() {
 }
 
 ct_gateway_finish() {
-  local rc="$1" dir lock state outcome lock_pid lock_start
+  local rc="$1" command_exit_code="${2:-}" outcome_override="${3:-}"
+  local dir lock state outcome lock_pid lock_start
   [ "${CT_GATEWAY_ACTIVE:-0}" = "1" ] || return 0
   CT_GATEWAY_ACTIVE=0
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
   ct_gateway_mutex_acquire "$dir" || return $?
   rm -rf "$dir/queue/${CT_BUILD_QUEUE_KEY:-missing}"
-  if [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
+  if [ -n "$outcome_override" ]; then
+    state=failed
+    outcome="$outcome_override"
+  elif [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
     state=cancelled
     outcome=cancelled
   elif [ "$rc" -eq 0 ]; then
@@ -259,7 +264,7 @@ ct_gateway_finish() {
     state=failed
     outcome=command_failed
   fi
-  ct_gateway_update_job "$state" "$rc" "$outcome" "" "$(ct_gateway_now)" || true
+  ct_gateway_update_job "$state" "$rc" "$outcome" "" "$(ct_gateway_now)" "$command_exit_code" || true
   lock_pid="$(cat "$lock/pid" 2>/dev/null || true)"
   lock_start="$(cat "$lock/start_token" 2>/dev/null || true)"
   if [ -d "$lock" ] && [ "$(cat "$lock/job_id" 2>/dev/null || true)" = "$CT_BUILD_JOB_ID" ] &&
