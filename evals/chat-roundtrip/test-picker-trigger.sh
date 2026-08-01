@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# WHAT: Verifies the picker helper emits one exact raw PTY request.
-# WHY: An Enter action starts Submit recovery and its trailing keys clear the picker.
+# WHAT/WHY: Verifies one raw request; an Enter action starts picker-clearing recovery.
 # ORACLE: Captured JSON is raw /model plus one CR, on the configured API port.
 set -euo pipefail
 
