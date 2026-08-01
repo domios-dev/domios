@@ -6,6 +6,40 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
+fn cancelled_submit_cycle_cannot_write_trailing_enter_into_next_prompt() {
+    let pty_id = "cancelled-cycle-next-prompt";
+    let old_claim = claim_submit_cycle(pty_id);
+    let writes = RefCell::new(Vec::new());
+
+    assert!(old_claim
+        .while_current(|| writes.borrow_mut().push("old:enter+0"))
+        .is_some());
+    let new_claim = claim_submit_cycle(pty_id);
+    writes.borrow_mut().push("new:/model-picker");
+    assert!(old_claim
+        .while_current(|| writes.borrow_mut().push("old:enter+1"))
+        .is_none());
+    assert!(old_claim
+        .while_current(|| writes.borrow_mut().push("old:enter+2"))
+        .is_none());
+
+    assert!(new_claim.is_current());
+    assert_eq!(&*writes.borrow(), &["old:enter+0", "new:/model-picker"]);
+}
+
+#[test]
+fn submit_cycle_cancellation_is_scoped_to_one_pty() {
+    let first = claim_submit_cycle("cycle-scope-first");
+    let second = claim_submit_cycle("cycle-scope-second");
+    let newer_first = claim_submit_cycle("cycle-scope-first");
+
+    assert!(!first.is_current());
+    assert!(newer_first.is_current());
+    assert!(second.is_current());
+    assert!(!first.same_cycle(&second));
+}
+
+#[test]
 fn xterm_paste_preserves_multiline_bracketed_input_as_one_paste() {
     let text = "alpha\r\nbeta\ngamma\rdelta";
     assert_eq!(

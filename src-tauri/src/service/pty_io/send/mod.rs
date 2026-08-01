@@ -9,6 +9,21 @@ pub(crate) use readiness::provider_or_generic_tui;
 #[cfg(test)]
 use readiness::{provider_frame_ready, wait_for_observed_readiness};
 
+fn spawn_with_submit_claim(
+    pty_id: Option<String>,
+    spawn: impl FnOnce(Option<super::submit_transaction::SubmitCycleClaim>),
+) {
+    let claim = pty_id
+        .as_deref()
+        .map(super::submit_transaction::claim_submit_cycle);
+    spawn(claim);
+}
+
+fn after_submit_cycle_cancel<T>(pty_id: &str, input: impl FnOnce() -> T) -> T {
+    super::submit_transaction::cancel_submit_cycle(pty_id);
+    input()
+}
+
 /// Bounded window to let the composer render a bracketed paste before Enter is
 /// sent as a separate write. A codex/opencode TUI swallows a \r glued to the
 /// paste mid-ingestion; waiting for the paste to land avoids that. The deadline
@@ -364,13 +379,41 @@ impl ServiceContext {
         text: &str,
         submit: bool,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = self
+            .resolve_pty_id(tab_id)
+            .ok()
+            .map(|pty_id| super::submit_transaction::claim_submit_cycle(&pty_id));
+        self.send_text_input_delivery_claimed(tab_id, text, submit, submit_claim)
+    }
+
+    fn send_text_input_delivery_claimed(
+        &self,
+        tab_id: &str,
+        text: &str,
+        submit: bool,
+        submit_claim: Option<super::submit_transaction::SubmitCycleClaim>,
+    ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
         let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
-        self.send_text_to_pty_smart_delivery(&pty_id, text, submit)
+        let submit_claim = match submit_claim {
+            Some(claim) if claim.pty_id() == pty_id => claim,
+            Some(claim) => {
+                return Err(DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail: format!(
+                        "PTY changed after input ingress: {} -> {}",
+                        claim.pty_id(),
+                        pty_id
+                    ),
+                })
+            }
+            None => super::submit_transaction::claim_submit_cycle(&pty_id),
+        };
+        self.send_text_to_pty_smart_delivery_claimed(&pty_id, text, submit, submit_claim)
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -441,6 +484,17 @@ impl ServiceContext {
         text: &str,
         submit: bool,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_smart_delivery_claimed(pty_id, text, submit, submit_claim)
+    }
+
+    fn send_text_to_pty_smart_delivery_claimed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit: bool,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
@@ -451,7 +505,13 @@ impl ServiceContext {
         }
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
-            return self.send_text_to_pty_delivery(pty_id, delivery_target, text, submit);
+            return self.send_text_to_pty_delivery_claimed(
+                pty_id,
+                delivery_target,
+                text,
+                submit,
+                submit_claim,
+            );
         };
         let text = sanitize_agent_prompt_input(text);
         let strategy = self
@@ -459,7 +519,7 @@ impl ServiceContext {
             .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
         let submit_key: &[u8] = b"\r";
-        super::submit_transaction::submit_text_with_key(
+        super::submit_transaction::submit_text_with_key_claimed(
             self,
             pty_id,
             &text,
@@ -473,6 +533,7 @@ impl ServiceContext {
                 ..Default::default()
             },
             None,
+            submit_claim,
         )
         .map(|_| ())
         .map_err(|error| DeliveryError::from_injection(delivery_target, error))
@@ -681,14 +742,29 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_delivery_claimed(pty_id, delivery_target, text, enter, submit_claim)
+    }
+
+    fn send_text_to_pty_delivery_claimed(
+        &self,
+        pty_id: &str,
+        delivery_target: &str,
+        text: &str,
+        enter: bool,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
+        crate::service::inject_safety::notify_if_unsafe_prompt(&self.screen_state, pty_id);
         super::submit_transaction::submit_entry(
             super::submit_transaction::PtySubmitEntry::Direct,
             text,
             |text| {
-                self.send_text_verified(
+                super::submit_transaction::submit_text_with_key_claimed(
+                    self,
                     pty_id,
                     text,
                     enter,
+                    b"\r",
                     crate::agent::provider::VerifySubmitStrategy::None,
                     crate::service::inject_verify::VerifyOpts {
                         require_prompt_first: false,
@@ -696,6 +772,8 @@ impl ServiceContext {
                         verify_submit: enter,
                         ..Default::default()
                     },
+                    None,
+                    submit_claim,
                 )
                 .map(|_| ())
                 .map_err(|error| DeliveryError::from_injection(delivery_target, error))
@@ -743,10 +821,12 @@ impl ServiceContext {
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
     pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(tab_id)?;
-        self.pty
-            .lock()
-            .write(&pty_id, data)
-            .map_err(|e| e.to_string())
+        after_submit_cycle_cancel(&pty_id, || {
+            self.pty
+                .lock()
+                .write(&pty_id, data)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Inject ordered raw key sequences off-thread so the state reactor never
@@ -754,10 +834,13 @@ impl ServiceContext {
     pub fn inject_raw_keys_async(&self, tab_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(tab_id)?;
         let pty = self.pty.clone();
-        std::thread::spawn(move || {
-            for bytes in writes {
-                let _ = pty.lock().write(&pty_id, &bytes);
-            }
+        let write_pty_id = pty_id.clone();
+        after_submit_cycle_cancel(&pty_id, || {
+            std::thread::spawn(move || {
+                for bytes in writes {
+                    let _ = pty.lock().write(&write_pty_id, &bytes);
+                }
+            });
         });
         Ok(())
     }
@@ -773,22 +856,28 @@ impl ServiceContext {
         let svc = self.clone();
         let tab = tab_id.to_string();
         let text = text.to_string();
-        std::thread::spawn(move || {
-            if let Err(error) = svc.send_text_input(&tab, &text, submit) {
-                if delivery_is_unknown(&error) {
-                    log::warn!("[send-async] delivery to Tab {tab} remains unknown");
-                    return;
+        let pty_id = self.resolve_pty_id(tab_id).ok();
+        spawn_with_submit_claim(pty_id, move |submit_claim| {
+            std::thread::spawn(move || {
+                if let Err(error) =
+                    svc.send_text_input_delivery_claimed(&tab, &text, submit, submit_claim)
+                {
+                    let error = error.ledger_message();
+                    if delivery_is_unknown(&error) {
+                        log::warn!("[send-async] delivery to Tab {tab} remains unknown");
+                        return;
+                    }
+                    log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
+                    crate::api::events::emit_everywhere(
+                        &svc.app_handle,
+                        "chat-send-failed",
+                        serde_json::json!({
+                            "tab_id": &tab,
+                            "error": &error,
+                        }),
+                    );
                 }
-                log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
-                crate::api::events::emit_everywhere(
-                    &svc.app_handle,
-                    "chat-send-failed",
-                    serde_json::json!({
-                        "tab_id": &tab,
-                        "error": &error,
-                    }),
-                );
-            }
+            });
         });
     }
 
