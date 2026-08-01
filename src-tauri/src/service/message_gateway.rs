@@ -176,7 +176,13 @@ impl DeliverySeam for super::ServiceContext {
         execute_ordered_actions(
             text,
             &ordered,
-            |body, enter| self.send_text_input(tab, body, enter),
+            |body, enter| {
+                if enter {
+                    self.send_text(tab, body)
+                } else {
+                    self.insert_text(tab, body)
+                }
+            },
             |bytes| self.write_raw(tab, bytes),
             await_action_deadline,
         )

@@ -181,10 +181,6 @@ struct Observation {
     tail: String,
 }
 
-/// Two-phase submit boundary. The paste and the CR are separate PTY writes; the
-/// CR is emitted only after the TUI has *causally* rendered the paste (a new
-/// frame satisfying the draft predicate), then the provider turn transition is
-/// observed independently. Elapsed time is a failure bound only, never readiness.
 trait SubmitTransport {
     fn observe(&self) -> Option<Observation>;
     /// Predicate over the FULL parsed screen: the normalized draft or a
@@ -208,6 +204,14 @@ trait SubmitTransport {
     }
     fn retry_active(&self) -> bool {
         true
+    }
+    fn write_initial_submit(
+        &self,
+        _text: &str,
+        _key: &[u8],
+        _deadline: Instant,
+    ) -> Option<Result<usize, InjectionError>> {
+        None
     }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
@@ -293,6 +297,68 @@ impl SubmitTransport for PtySubmitTransport<'_> {
 
     fn retry_active(&self) -> bool {
         self.submit_cycle.is_current(self.submit_generation)
+    }
+
+    fn write_initial_submit(
+        &self,
+        text: &str,
+        key: &[u8],
+        deadline: Instant,
+    ) -> Option<Result<usize, InjectionError>> {
+        if text.is_empty() {
+            return Some(self.write_submit_key(key, deadline).map(|()| 0));
+        }
+        let bracketed_paste_mode = self
+            .svc
+            .screen_state
+            .lock()
+            .bracketed_paste_mode(self.pty_id)
+            .unwrap_or(false);
+        let paste = xterm_paste(text, bracketed_paste_mode).into_bytes();
+        let paste_len = paste.len();
+        let frames = vec![paste, key.to_vec()];
+        let session = match self.svc.pty.lock().get_session(self.pty_id) {
+            Some(session) => session,
+            None => {
+                return Some(Err(InjectionError::PtyClosed {
+                    pty_id: self.pty_id.to_string(),
+                }));
+            }
+        };
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        log::info!(
+            "[submit-audit] initial-submit pty={} bracketed_paste_mode={} source_bytes={} encoded_bytes={} session_gen={}",
+            self.pty_id,
+            bracketed_paste_mode,
+            text.len(),
+            paste_len,
+            session.generation
+        );
+        let result = match self.permit.as_ref() {
+            Some(permit) => {
+                session.write_frames_and_flush_guarded(frames.clone(), permit.clone(), timeout)
+            }
+            None => {
+                self.svc
+                    .pty
+                    .lock()
+                    .write_frames_and_flush(self.pty_id, frames.clone(), timeout)
+            }
+        };
+        if result.is_ok() && self.permit.is_some() {
+            for frame in &frames {
+                crate::pty::capture::CaptureRegistry::global().tap_input(
+                    self.pty_id,
+                    "pty.write",
+                    frame,
+                );
+            }
+        }
+        Some(
+            result
+                .map(|()| paste_len)
+                .map_err(|error| injection_write_error(self.pty_id, error)),
+        )
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -432,7 +498,7 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     let changed = transport.generation() != armed;
     let fresh_turn = changed && !turn_was_started && transport.turn_started();
     let drained = draft_left_composer(transport, text, baseline_evidence, echo_observed, armed);
-    if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
+    if matches!(strategy, VerifySubmitStrategy::TuiInputDrained { .. }) {
         return fresh_turn;
     }
     drained || fresh_turn
@@ -460,9 +526,22 @@ fn run_with_submit_key<T: SubmitTransport>(
     let started = Instant::now();
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
+    let initial_key_delay = if enter && !text.is_empty() {
+        strategy.initial_key_delay()
+    } else {
+        Duration::ZERO
+    };
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let bytes_written = transport.write_paste(text, turn_deadline)?;
+    let turn_was_started = enter.then(|| transport.turn_started());
+    let initial_enter_armed = transport.generation();
+    let initial_submit = (enter && initial_key_delay.is_zero())
+        .then(|| transport.write_initial_submit(text, submit_key, turn_deadline))
+        .flatten();
+    let (bytes_written, mut submit_key_writes) = match initial_submit {
+        Some(result) => (result?, 1),
+        None => (transport.write_paste(text, turn_deadline)?, 0),
+    };
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -477,12 +556,38 @@ fn run_with_submit_key<T: SubmitTransport>(
         });
     }
 
-    let turn_was_started = transport.turn_started();
+    let turn_was_started = turn_was_started.unwrap_or(false);
     let submit_started = Instant::now();
     let mut submit_observed = !two_phase;
-    let mut submit_key_writes = 0usize;
-    for _ in 0..MAX_SUBMIT_KEY_WRITES {
-        if submit_key_writes > 0 {
+    if submit_key_writes == 1 && !two_phase {
+        return Ok(InjectionResult {
+            bytes_written,
+            echo_observed: paste_observed,
+            submit_observed,
+            submit_anomaly: false,
+            submit_key_writes,
+            elapsed: started.elapsed(),
+        });
+    }
+    if submit_key_writes == 1 {
+        submit_observed |= submission_acknowledged_now(
+            transport,
+            text,
+            baseline_evidence,
+            paste_observed,
+            turn_was_started,
+            initial_enter_armed,
+            &strategy,
+        );
+    }
+    while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
+        if submit_key_writes == 0 && !initial_key_delay.is_zero() {
+            let first_key_deadline = submit_started + initial_key_delay;
+            transport.wait_retry_deadline(first_key_deadline.min(turn_deadline));
+            if !transport.retry_active() || Instant::now() >= turn_deadline {
+                break;
+            }
+        } else if submit_key_writes > 0 {
             if !transport.retry_active() {
                 break;
             }

@@ -403,7 +403,13 @@ pub async fn send_text(
                 crate::service::pty_io::execute_ordered_actions(
                     &text,
                     &ordered,
-                    |body, enter| svc.send_text_input(&action_tab, body, enter),
+                    |body, enter| {
+                        if enter {
+                            svc.send_text(&action_tab, body)
+                        } else {
+                            svc.insert_text(&action_tab, body)
+                        }
+                    },
                     |bytes| svc.write_raw(&action_tab, bytes),
                     crate::service::pty_io::await_action_deadline,
                 )

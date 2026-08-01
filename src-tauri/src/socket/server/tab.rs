@@ -211,8 +211,11 @@ pub(super) fn dispatch(
                         data: None,
                     })?;
             } else {
-                svc.as_ref()
-                    .send_text_input_detached(&resolved_target, &raw_text, enter);
+                if enter {
+                    svc.send_text_detached(&resolved_target, &raw_text);
+                } else {
+                    svc.insert_text_detached(&resolved_target, &raw_text);
+                }
             }
             Ok(serde_json::json!({"ok": true}))
         }

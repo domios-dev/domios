@@ -47,10 +47,19 @@ pub enum VerifySubmitStrategy {
     ShellPrompt { timeout: Duration },
     /// Submit through an interactive TUI. The PTY boundary waits for a
     /// rendered draft before Enter, then observes the provider turn.
-    TuiInputDrained,
+    TuiInputDrained { initial_key_delay: Duration },
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
+}
+
+impl VerifySubmitStrategy {
+    pub fn initial_key_delay(&self) -> Duration {
+        match self {
+            Self::TuiInputDrained { initial_key_delay } => *initial_key_delay,
+            Self::ShellPrompt { .. } | Self::None => Duration::ZERO,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

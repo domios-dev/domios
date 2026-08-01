@@ -110,7 +110,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
-        VerifySubmitStrategy::TuiInputDrained
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::ZERO,
+        }
     }
 
     fn detect_from_title(&self, title: &str) -> bool {
@@ -459,7 +461,7 @@ mod tests {
         let p = ClaudeProvider::new();
         assert!(matches!(
             p.verify_submit_strategy(),
-            VerifySubmitStrategy::TuiInputDrained
+            VerifySubmitStrategy::TuiInputDrained { .. }
         ));
     }
 

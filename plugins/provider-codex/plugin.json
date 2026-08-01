@@ -21,7 +21,8 @@
       "flag": "-c developer_instructions"
     },
     "verifySubmit": {
-      "kind": "tui_input_drained"
+      "kind": "tui_input_drained",
+      "initialKeyDelayMs": 150
     },
     "busySubmit": {
       "kind": "submit_normally"

@@ -40,10 +40,12 @@ fn echo_mismatch_admits_the_write() {
 
 #[test]
 fn direct_send_boundaries_retain_delivery_error_type() {
-    let _: fn(&crate::service::ServiceContext, &str, &str) -> Result<(), DeliveryError> =
-        crate::service::ServiceContext::send_text_with_guarantee;
-    let _: fn(&crate::service::ServiceContext, &str, &str) -> Result<(), DeliveryError> =
-        crate::service::ServiceContext::send_text_delivery;
+    let _: fn(
+        &crate::service::ServiceContext,
+        &str,
+        &str,
+        Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
+    ) -> Result<(), DeliveryError> = crate::service::ServiceContext::send_chat_text_claimed;
 }
 
 #[test]

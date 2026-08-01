@@ -50,7 +50,11 @@ pub struct PtyTransport<'a> {
 
 impl TabTransport for PtyTransport<'_> {
     fn send(&self, text: &str, enter: bool) -> Result<(), String> {
-        self.svc.send_text_input(&self.tab_id, text, enter)
+        if enter {
+            self.svc.send_text(&self.tab_id, text)
+        } else {
+            self.svc.insert_text(&self.tab_id, text)
+        }
     }
 
     fn send_batch(&self, batch: Vec<SendBatchItem>) -> Result<(), String> {

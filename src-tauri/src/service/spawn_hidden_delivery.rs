@@ -17,5 +17,5 @@ pub(super) fn deliver_hidden_pty_task(
             tab_id
         );
     }
-    svc.send_text_to_pty_smart(pty_id, task_text)
+    svc.send_text_to_pty(pty_id, task_text)
 }

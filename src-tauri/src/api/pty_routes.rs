@@ -118,7 +118,11 @@ pub async fn pty_write(
         tokio::task::spawn_blocking(move || {
             let text_stripped = body.data.trim_end_matches('\r');
             let enter = text_stripped.len() != body.data.len();
-            svc.send_text_to_pty_input(&pty_id, text_stripped, enter)
+            if enter {
+                svc.send_text_to_pty(&pty_id, text_stripped)
+            } else {
+                svc.insert_text_to_pty(&pty_id, text_stripped)
+            }
         })
         .await
         .map_err(|e| {

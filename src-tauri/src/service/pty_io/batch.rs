@@ -30,7 +30,7 @@ impl ServiceContext {
         self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
         execute_pty_batch(batch, super::await_action_deadline, |text| {
-            self.send_text_to_pty_smart(&pty_id, text)
+            self.send_text_to_pty(&pty_id, text)
         })
     }
 }

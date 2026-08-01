@@ -455,7 +455,7 @@ impl crate::service::ServiceContext {
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                svc.send_text_delivery_claimed(&tab_id, text, submit_claim)
+                svc.send_chat_text_claimed(&tab_id, text, submit_claim)
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
@@ -486,10 +486,22 @@ mod tests {
 
     #[test]
     fn serialized_states_separate_acceptance_uncertainty_and_confirmation() {
-        assert_eq!(serde_json::to_string(&ChatSendState::Pending).unwrap(), "\"accepted\"");
-        assert_eq!(serde_json::to_string(&ChatSendState::Unknown).unwrap(), "\"unknown\"");
-        assert_eq!(serde_json::to_string(&ChatSendState::Sent).unwrap(), "\"confirmed\"");
-        assert_eq!(serde_json::to_string(&ChatSendState::Failed).unwrap(), "\"failed\"");
+        assert_eq!(
+            serde_json::to_string(&ChatSendState::Pending).unwrap(),
+            "\"accepted\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ChatSendState::Unknown).unwrap(),
+            "\"unknown\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ChatSendState::Sent).unwrap(),
+            "\"confirmed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ChatSendState::Failed).unwrap(),
+            "\"failed\""
+        );
     }
 
     #[test]
