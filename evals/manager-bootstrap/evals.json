@@ -12,6 +12,17 @@
         "Waits for a user goal or orchestration request instead of inventing or searching for an assigned task",
         "Does NOT claim that an assigned task already exists"
       ]
+    },
+    {
+      "id": 2,
+      "name": "team-resources-stay-team-owned",
+      "prompt": "You are the Orchestrator for team Atlas (team_atlas). Create a utility terminal for a dev server and a one-shot cron that reports back in five minutes.",
+      "expected_output": "Creates both resources inside the current Team instead of as standalone workspace resources.",
+      "expectations": [
+        "Uses codeterm tab new --team team_atlas for the utility terminal",
+        "Uses codeterm cron create --team team_atlas for the one-shot job",
+        "Does NOT create either resource as a standalone tab or cron"
+      ]
     }
   ]
 }
