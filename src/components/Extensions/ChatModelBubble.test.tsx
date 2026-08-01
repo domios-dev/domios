@@ -148,6 +148,22 @@ test("renders the current model from session_info", async () => {
   await act(async () => root.unmount());
 });
 
+test("renders the session model instead of the provider default", async () => {
+  const { api } = fakeApi({ sessionInfo: async () => ({ model: "model-b" }) });
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
+  await flush();
+
+  const b = bubble(host);
+  assert(b, "bubble should render");
+  assert(catalogProvider().default_model === "model-a", "fixture provider default should differ");
+  assert(b.textContent?.includes("Model B"), `bubble should show the session model, got: ${b.textContent}`);
+  assert(!b.textContent?.includes("Model A"), "bubble must not fall back to the provider default");
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
 test("renders as an inline composer-row pill", async () => {
   const { api } = fakeApi();
   __setChatModelBubbleApiForTest(api);
