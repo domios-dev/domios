@@ -52,23 +52,24 @@ well-meaning "one more heuristic" changes. Read this before touching
   stale identical turns can never confirm anything.
 - Every eligible send records a `SendEvidenceAnchor` at start: provider, cwd,
   the tab's current-launch session identity, and a capability-typed
-  append-window boundary. A temporarily unbound launch may resolve its session
-  through the provider's bounded, cwd-scoped session detector; status
-  reconciliation still requires that session and launch nonce to match the
-  tab's current binding.
+  append-window boundary. A temporarily unbound file-backed launch may resolve
+  its session through the provider's bounded, cwd-scoped session detector.
+  Persisted reconciliation always requires the current launch nonce to equal
+  the nonce reported by the provider when it bound that session.
   JSONL uses a transcript byte offset. If the exact acknowledged bound
   session's append-only file does not exist yet, its first materialization is
   the boundary; a generic missing path never defaults to offset zero.
-  Structured stores use the provider's opaque `read_structured_chat` cursor
+  Structured stores use the provider's opaque, exclusive
+  `read_structured_chat` cursor
   (`uses_structured_chat` capability; a cursor-less non-empty store mints no
   anchor rather than an unbounded window). If the structured session itself is
-  created by the send, its provider-reported creation time must be at or after
-  the captured boundary before the current binding can resolve that anchor. If
+  created by the send, its provider-reported creation time must be strictly
+  after the captured millisecond before the current binding can resolve that anchor. If
   Chat was closed during delivery, the ledger read (`chat_send_status`) runs
   `scan_transcript_evidence`: it
   inspects ONLY that exact session's append window past the boundary, counts
-  exact matching user turns, subtracts turns already claimed by confirmed
-  sends of the same tab+session+payload, and confirms oldest-first. Pre-send
+  exact matching user turns, verifies that nested suffix windows can assign one
+  distinct turn to every confirmed same-payload send, and confirms oldest-first. Pre-send
   history, another/latest session, and already-consumed turns can never
   confirm.
 - Daemon restart: the ledger is in-memory, so the frontend shows a failure
@@ -107,4 +108,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

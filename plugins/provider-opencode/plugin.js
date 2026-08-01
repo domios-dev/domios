@@ -180,19 +180,22 @@ var plugin = {
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(_cwd, exclude, maxAgeMs) {
+  detectSessionId(cwd, exclude, maxAgeMs) {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
+    const targetDirectory = normalizeSessionDirectory(cwd);
+    if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
     const excludeList = Array.isArray(exclude) ? exclude : typeof exclude === "string" && exclude ? [exclude] : [];
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT id FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 5",
+      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 20",
       [windowMs]
     );
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
       if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (normalizeSessionDirectory(rows[i].directory) !== targetDirectory) continue;
       if (excludeList.indexOf(id) !== -1) continue;
       return id;
     }
@@ -330,33 +333,40 @@ var plugin = {
       [sessionId]
     );
   },
-  // part.time_created seen, passed back to fetch only newer parts next poll.
   usesStructuredChat() {
     return true;
   },
   readStructuredChat(_cwd, sessionId, cursor) {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    const sinceMs = cursor ? parseInt(cursor, 10) || 0 : 0;
+    const [sinceMs, seenAtSinceMs] = parseStructuredCursor(cursor);
     const rows = host.fs.sqliteQuery(
       db,
       "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_created >= ?2 ORDER BY p.time_created ASC, p.id ASC",
       [sessionId, sinceMs]
     );
     const messages = [];
-    let maxTs = sinceMs;
+    let lastTs = sinceMs;
+    let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
       const ts = rows[i].ts || 0;
-      if (ts > maxTs) maxTs = ts;
+      const id = String(rows[i].id);
+      if (ts > lastTs) {
+        lastTs = ts;
+        seenAtLastTs = [];
+      }
+      if (seenAtLastTs.indexOf(id) !== -1) continue;
+      seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
       let role = "assistant";
       const msg = safeJson(rows[i].msg);
       if (msg && msg.role) role = msg.role;
-      const cm = partToChatMsg(part, role, String(rows[i].id), ts);
+      const cm = partToChatMsg(part, role, id, ts);
       if (cm) messages.push(cm);
     }
-    return { messages, cursor: String(maxTs) };
+    seenAtLastTs.sort();
+    return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
 function parsePermissionPrompt(text) {
@@ -573,6 +583,17 @@ function safeJson(s) {
   } catch (_) {
     return null;
   }
+}
+function normalizeSessionDirectory(value) {
+  const normalized = String(value || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  return host.platform() === "windows" ? normalized.toLowerCase() : normalized;
+}
+function parseStructuredCursor(cursor) {
+  const parsed = safeJson(cursor || "");
+  if (!Array.isArray(parsed) || parsed.length !== 2) return [0, []];
+  const ts = typeof parsed[0] === "number" && Number.isFinite(parsed[0]) ? parsed[0] : 0;
+  const ids = Array.isArray(parsed[1]) ? parsed[1].filter((id) => typeof id === "string") : [];
+  return [ts, ids];
 }
 function displayNameFromId(id) {
   const slash = id.split("/");

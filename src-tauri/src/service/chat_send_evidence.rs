@@ -84,9 +84,8 @@ pub(crate) struct CapturedSendEvidence {
     pub(crate) live_binding: Option<SendLiveBinding>,
 }
 
-/// One turn instance confirms at most one send: a scan may only confirm when
-/// the append window holds MORE matching user turns than sends already
-/// confirmed for the same tab+session+payload.
+/// One turn instance confirms at most one send. Nested append windows remain
+/// jointly attributable only when every newer suffix has enough exact turns.
 fn scan_transcript_evidence(
     registry: &AgentRegistry,
     ledger: &ChatSendLedger,
@@ -112,18 +111,45 @@ fn scan_transcript_evidence(
             }
             None => continue,
         };
-        let anchor = &candidate.anchor;
-        let matching_turns = window_user_turns(registry, anchor, &session_id)
-            .iter()
-            .filter(|content| normalize_turn_evidence(content) == candidate.payload)
-            .count();
-        let claimed = ledger.claimed_turn_count(tab_id, &session_id, &candidate.payload);
-        if matching_turns > claimed {
+        if candidate_has_attributable_turn(
+            registry,
+            ledger,
+            tab_id,
+            source,
+            &candidate,
+            &session_id,
+        ) {
             if let Some(status) = ledger.confirm_send(&candidate.send_id) {
                 on_confirmed(status);
             }
         }
     }
+}
+
+fn candidate_has_attributable_turn(
+    registry: &AgentRegistry,
+    ledger: &ChatSendLedger,
+    tab_id: &str,
+    source: &BoundEvidenceSource,
+    candidate: &EvidenceCandidate,
+    session_id: &str,
+) -> bool {
+    let mut claims = ledger.confirmed_evidence_claims(tab_id, session_id, &candidate.payload);
+    claims.push(candidate.clone());
+    claims.sort_by_key(|claim| std::cmp::Reverse(claim.sequence));
+    claims.iter().enumerate().all(|(index, claim)| {
+        if claim.anchor.provider_id != source.provider_id
+            || claim.anchor.cwd != source.cwd
+            || claim.anchor.session_id.as_deref() != Some(session_id)
+        {
+            return false;
+        }
+        window_user_turns(registry, &claim.anchor, session_id)
+            .iter()
+            .filter(|content| normalize_turn_evidence(content) == candidate.payload)
+            .count()
+            >= index + 1
+    })
 }
 
 fn jsonl_window_user_turns(
@@ -195,7 +221,7 @@ fn structured_session_materialized_after_boundary(
         })
         .flatten()
         .and_then(|created_at| created_at.duration_since(std::time::UNIX_EPOCH).ok())
-        .is_some_and(|created_at| created_at.as_millis() >= u128::from(*not_before_ms))
+        .is_some_and(|created_at| created_at.as_millis() > u128::from(*not_before_ms))
 }
 
 impl ServiceContext {
@@ -257,6 +283,9 @@ impl ServiceContext {
             })
             .unwrap_or((false, false));
         let session_id = session_id.or_else(|| {
+            if structured {
+                return None;
+            }
             let max_age = set_at_elapsed? + std::time::Duration::from_secs(30);
             binding_nonce.as_ref()?;
             if !can_detect_unbound {
@@ -328,11 +357,15 @@ impl ServiceContext {
         let source = {
             let mux = self.mux.read();
             mux.get_tab(tab_id).and_then(|tab| {
+                let binding_nonce = tab.session_binding_nonce.clone()?;
+                if tab.reported_session_binding_nonce.as_ref() != Some(&binding_nonce) {
+                    return None;
+                }
                 Some(BoundEvidenceSource {
                     provider_id: tab.agent_type.clone()?,
                     cwd: tab.cwd.clone().unwrap_or_default(),
                     session_id: tab.agent_session_id.clone()?,
-                    binding_nonce: tab.session_binding_nonce.clone(),
+                    binding_nonce: Some(binding_nonce),
                 })
             })
         };

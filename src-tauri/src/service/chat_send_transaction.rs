@@ -61,8 +61,10 @@ pub(crate) struct SendLiveBinding {
     pub(crate) binding_nonce: Option<String>,
 }
 
+#[derive(Clone)]
 pub(crate) struct EvidenceCandidate {
     pub(crate) send_id: String,
+    pub(crate) sequence: u64,
     pub(crate) payload: String,
     pub(crate) anchor: SendEvidenceAnchor,
     pub(crate) live_binding: Option<SendLiveBinding>,
@@ -341,6 +343,7 @@ impl ChatSendLedger {
                 let anchor = state.anchor_by_id.get(send_id)?.clone();
                 Some(EvidenceCandidate {
                     send_id: send_id.clone(),
+                    sequence: status.sequence,
                     payload,
                     anchor,
                     live_binding: state.live_binding_by_id.get(send_id).cloned(),
@@ -349,30 +352,39 @@ impl ChatSendLedger {
             .collect()
     }
 
-    /// Sends already confirmed for this tab+session+payload — each one already
-    /// consumed a matching transcript turn, so a scan must find MORE matching
-    /// turns than this count before it may confirm another send.
-    pub(crate) fn claimed_turn_count(
+    /// Confirmed anchored sends whose exact turns must remain uniquely
+    /// attributable when another append window is reconciled.
+    pub(crate) fn confirmed_evidence_claims(
         &self,
         tab_id: &str,
         session_id: &str,
         payload: &str,
-    ) -> usize {
+    ) -> Vec<EvidenceCandidate> {
         let state = self.state.lock();
         state
-            .by_id
-            .values()
-            .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Sent)
-            .filter(|status| {
-                state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
+            .order
+            .iter()
+            .filter_map(|send_id| {
+                let status = state.by_id.get(send_id)?;
+                if status.tab_id != tab_id
+                    || status.state != ChatSendState::Sent
+                    || state.payload_by_id.get(send_id).map(String::as_str) != Some(payload)
+                {
+                    return None;
+                }
+                let anchor = state.anchor_by_id.get(send_id)?.clone();
+                if anchor.session_id.as_deref() != Some(session_id) {
+                    return None;
+                }
+                Some(EvidenceCandidate {
+                    send_id: send_id.clone(),
+                    sequence: status.sequence,
+                    payload: payload.to_string(),
+                    anchor,
+                    live_binding: state.live_binding_by_id.get(send_id).cloned(),
+                })
             })
-            .filter(|status| {
-                state
-                    .anchor_by_id
-                    .get(&status.send_id)
-                    .is_some_and(|anchor| anchor.session_id.as_deref() == Some(session_id))
-            })
-            .count()
+            .collect()
     }
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {

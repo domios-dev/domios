@@ -26,6 +26,20 @@ fn bind_fixture_session(
     tab.reported_session_binding_nonce = Some("binding-current".into());
 }
 
+fn set_fixture_session_without_report(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+    tab_id: &str,
+    session_id: &str,
+) {
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .agent_session_id = Some(session_id.into());
+}
+
 #[test]
 fn chat_send_status_reconciles_detached_jsonl_turn_from_captured_anchor() {
     let (fixture, tab_id) = unbound_service_fixture("windowed");
@@ -146,6 +160,69 @@ fn chat_send_status_reconciles_rebound_jsonl_turn_from_detected_session_anchor()
 }
 
 #[test]
+fn detected_session_requires_current_reported_binding_before_confirmation() {
+    let (fixture, tab_id) = unbound_service_fixture("windowed");
+    let root = fixture.temp.path().join("reported-binding-jsonl-evidence");
+    std::fs::create_dir_all(&root).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
+    let session_path = root.join("session-detected.jsonl");
+    std::fs::write(&session_path, "").unwrap();
+
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    let send = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "reported exact turn",
+            evidence.anchor,
+            evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&send.send_id, Ok(()))
+        .unwrap();
+    std::fs::write(
+        session_path,
+        format!(
+            "{}\n",
+            serde_json::json!({ "role": "user", "content": "reported exact turn" })
+        ),
+    )
+    .unwrap();
+    set_fixture_session_without_report(&fixture, &tab_id, "session-detected");
+
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .reported_session_binding_nonce = Some("binding-stale".into());
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+
+    bind_fixture_session(&fixture, &tab_id, "session-detected");
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
+    assert_eq!(confirmed[0].send_id, send.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+}
+
+#[test]
 fn chat_send_status_reconciles_detached_structured_turn_from_captured_anchor() {
     let (fixture, tab_id) = unbound_service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();
@@ -155,6 +232,10 @@ fn chat_send_status_reconciles_detached_structured_turn_from_captured_anchor() {
         .register_provider(Box::new(provider.clone()));
 
     let evidence = fixture.service.chat_send_anchor(&tab_id);
+    let not_before_ms = match evidence.anchor.as_ref().unwrap().window {
+        EvidenceWindow::StructuredMaterialization { not_before_ms } => not_before_ms,
+        ref other => panic!("expected materialization boundary, got {other:?}"),
+    };
     let send = fixture
         .service
         .chat_send_ledger
@@ -171,6 +252,10 @@ fn chat_send_status_reconciles_detached_structured_turn_from_captured_anchor() {
         .finish(&send.send_id, Ok(()))
         .unwrap();
     provider.append_user_row("session-structured", "detached structured turn");
+    provider.created_at.lock().insert(
+        "session-structured".into(),
+        std::time::UNIX_EPOCH + std::time::Duration::from_millis(not_before_ms + 1),
+    );
     bind_fixture_session(&fixture, &tab_id, "session-structured");
 
     fixture.service.reconcile_chat_send_evidence(&tab_id);
@@ -178,6 +263,28 @@ fn chat_send_status_reconciles_detached_structured_turn_from_captured_anchor() {
         fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
         ChatSendState::Sent
     );
+}
+
+#[test]
+fn structured_unbound_anchor_refuses_cross_cwd_detected_session() {
+    let (fixture, tab_id) = unbound_service_fixture("structured-store");
+    let provider = StructuredStoreProvider::new();
+    provider.append_user_row("session-foreign-cwd", "foreign turn");
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+
+    let evidence = fixture
+        .service
+        .chat_send_anchor(&tab_id)
+        .anchor
+        .expect("deferred structured boundary remains available");
+    assert_eq!(evidence.session_id, None);
+    assert!(matches!(
+        evidence.window,
+        EvidenceWindow::StructuredMaterialization { .. }
+    ));
 }
 
 #[test]
@@ -224,6 +331,128 @@ fn structured_session_created_before_boundary_cannot_confirm() {
         fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
         ChatSendState::Unknown
     );
+}
+
+#[test]
+fn structured_session_created_at_floored_boundary_cannot_confirm() {
+    let (fixture, tab_id) = unbound_service_fixture("structured-store");
+    let provider = StructuredStoreProvider::new();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider.clone()));
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    let not_before_ms = match evidence.anchor.as_ref().unwrap().window {
+        EvidenceWindow::StructuredMaterialization { not_before_ms } => not_before_ms,
+        ref other => panic!("expected materialization boundary, got {other:?}"),
+    };
+    let send = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "equal millisecond turn",
+            evidence.anchor,
+            evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&send.send_id, Ok(()))
+        .unwrap();
+    provider.rows.lock().insert(
+        "session-equal".into(),
+        vec![crate::agent::chat_types::ChatMsg {
+            id: "equal".into(),
+            kind: "user".into(),
+            content: "equal millisecond turn".into(),
+            ..Default::default()
+        }],
+    );
+    provider.created_at.lock().insert(
+        "session-equal".into(),
+        std::time::UNIX_EPOCH + std::time::Duration::from_millis(not_before_ms),
+    );
+    bind_fixture_session(&fixture, &tab_id, "session-equal");
+
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+}
+
+#[test]
+fn identical_payloads_with_staggered_anchors_claim_distinct_turns() {
+    let (fixture, tab_id) = unbound_service_fixture("windowed");
+    let root = fixture.temp.path().join("staggered-jsonl-evidence");
+    std::fs::create_dir_all(&root).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
+    let session_path = root.join("session-staggered.jsonl");
+    std::fs::write(&session_path, "").unwrap();
+    bind_fixture_session(&fixture, &tab_id, "session-staggered");
+
+    let first_evidence = fixture.service.chat_send_anchor(&tab_id);
+    let first = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "same staggered turn",
+            first_evidence.anchor,
+            first_evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&first.send_id, Ok(()))
+        .unwrap();
+    std::fs::write(
+        &session_path,
+        format!(
+            "{}\n",
+            serde_json::json!({ "role": "user", "content": "same staggered turn" })
+        ),
+    )
+    .unwrap();
+
+    let second_evidence = fixture.service.chat_send_anchor(&tab_id);
+    let second = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "same staggered turn",
+            second_evidence.anchor,
+            second_evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&second.send_id, Ok(()))
+        .unwrap();
+    use std::io::Write;
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(session_path)
+            .unwrap(),
+        "{}",
+        serde_json::json!({ "role": "user", "content": "same staggered turn" })
+    )
+    .unwrap();
+
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, second.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
 }
 
 #[test]
@@ -317,11 +546,11 @@ fn chat_send_status_rejects_pre_send_foreign_and_claimed_turns() {
     assert_eq!(unresolved[0].send_id, second.send_id);
     assert_eq!(unresolved[0].state, ChatSendState::Unknown);
     assert_eq!(
-        fixture.service.chat_send_ledger.claimed_turn_count(
-            &tab_id,
-            "session-owned",
-            "same exact turn"
-        ),
+        fixture
+            .service
+            .chat_send_ledger
+            .confirmed_evidence_claims(&tab_id, "session-owned", "same exact turn")
+            .len(),
         1
     );
     fixture.service.reconcile_chat_send_evidence(&tab_id);
