@@ -3,6 +3,7 @@ import {
   captureChatScrollAnchor,
   chatActivationRestoreTarget,
   getPersistedChatScrollState,
+  isChatViewportAtBottom,
   nextChatViewportMode,
   resolveChatScrollTopForAnchor,
   setPersistedChatScrollState,
@@ -82,6 +83,9 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
   const [showScrollDown, setShowScrollDown] = useState(false);
 
   const writeScrollTop = useCallback((el: HTMLDivElement, scrollTop: number) => {
+    const alreadyAtTarget = Math.abs(el.scrollTop - scrollTop) <= 0.5;
+    const alreadyAtRequestedBottom = scrollTop >= el.scrollHeight && isChatViewportAtBottom(el);
+    if (alreadyAtTarget || alreadyAtRequestedBottom) return;
     el.scrollTop = scrollTop;
     authoredScrollTopRef.current = el.scrollTop;
   }, []);

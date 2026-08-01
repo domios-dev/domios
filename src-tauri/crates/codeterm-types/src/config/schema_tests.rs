@@ -47,7 +47,7 @@ fn memory_l1_budget_user_override() {
 fn orchestration_plan_reminder_defaults() {
     let cfg: OrchestrationConfig = toml::from_str("").unwrap();
     assert!(cfg.plan_reminders);
-    assert_eq!(cfg.nudge_after_turns, 12);
+    assert_eq!(cfg.nudge_after_turns, 0);
     assert_eq!(cfg.nudge_interval_secs, 1800);
     assert!(cfg.idle_poke.enabled);
     assert_eq!(cfg.idle_poke.idle_threshold_secs, 150);

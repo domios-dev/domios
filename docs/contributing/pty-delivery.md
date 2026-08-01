@@ -50,16 +50,26 @@ well-meaning "one more heuristic" changes. Read this before touching
   (`confirm_delivered_user_turn`). One turn confirms at most one send,
   oldest first. Deltas only — history snapshots never feed reconciliation, so
   stale identical turns can never confirm anything.
-- Every send records a `SendEvidenceAnchor` at start: provider, cwd, the
-  tab's bound session id, and a capability-typed append-window boundary —
-  the transcript byte offset for JSONL providers, or the provider's opaque
-  `read_structured_chat` cursor for structured stores (`uses_structured_chat`
-  capability; a cursor-less non-empty store mints no anchor rather than an
-  unbounded window). If Chat was closed during delivery (no live sink), the
-  ledger read (`chat_send_status`) runs `scan_transcript_evidence`: it
+- Every eligible send records a `SendEvidenceAnchor` at start: provider, cwd,
+  the tab's current-launch session identity, and a capability-typed
+  append-window boundary. A temporarily unbound file-backed launch may resolve
+  its session through the provider's bounded, cwd-scoped session detector.
+  Persisted reconciliation always requires the current launch nonce to equal
+  the nonce reported by the provider when it bound that session.
+  JSONL uses a transcript byte offset. If the exact acknowledged bound
+  session's append-only file does not exist yet, its first materialization is
+  the boundary; a generic missing path never defaults to offset zero.
+  Structured stores use the provider's opaque, exclusive
+  `read_structured_chat` cursor
+  (`uses_structured_chat` capability; a cursor-less non-empty store mints no
+  anchor rather than an unbounded window). If the structured session itself is
+  created by the send, its provider-reported creation time must be strictly
+  after the captured millisecond before the current binding can resolve that anchor. If
+  Chat was closed during delivery, the ledger read (`chat_send_status`) runs
+  `scan_transcript_evidence`: it
   inspects ONLY that exact session's append window past the boundary, counts
-  exact matching user turns, subtracts turns already claimed by confirmed
-  sends of the same tab+session+payload, and confirms oldest-first. Pre-send
+  exact matching user turns, verifies that nested suffix windows can assign one
+  distinct turn to every confirmed same-payload send, and confirms oldest-first. Pre-send
   history, another/latest session, and already-consumed turns can never
   confirm.
 - Daemon restart: the ledger is in-memory, so the frontend shows a failure
@@ -69,9 +79,11 @@ well-meaning "one more heuristic" changes. Read this before touching
   the remaining truth).
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
-- A send with no evidence after the recovery deadline remains `unknown` and
-  can still reconcile from later transcript evidence. Chat UI never renders
-  delivery banners, failure cards, Retry actions, or notifications.
+- A send with no evidence after the recovery deadline remains `unknown`.
+  Anchored sends can still reconcile from later transcript evidence; a send
+  whose session or bounded window cannot be identified remains honestly
+  live-evidence-only. Chat UI never renders delivery banners, failure cards,
+  Retry actions, or notifications.
 
 ## Hard don'ts
 
@@ -96,4 +108,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 7 -->
+<!-- revision: 9 -->
