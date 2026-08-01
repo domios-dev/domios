@@ -50,7 +50,7 @@ gated()   { echo "  [GATED]   $1: $2"; record "$1" GATED "$2"; }
 # --- json helpers (python; portable) --------------------------------
 # js <json-string> <python-expr-on-d>
 js() {
-  python - "$2" <<PY 2>/dev/null
+  "$PYTHON_BIN" - "$2" <<PY 2>/dev/null
 import json,sys
 try:
     d=json.loads('''$1''')
@@ -87,7 +87,7 @@ if ! curl -s --max-time 3 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
   echo "ABORT: dev daemon not healthy on 7686. Start it (orchestrator owns dev): ./build.sh dev" >&2
   exit 7
 fi
-BUILD=$(dev_get /api/health | python -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
+BUILD=$(dev_get /api/health | "$PYTHON_BIN" -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
 echo "  dev build: $BUILD"
 
 # Baseline plan-id set — cleanup sweeps everything created past this, and
@@ -118,16 +118,16 @@ mk_plan() {
   echo ""
 }
 
-tab_count() { dev_get /api/tabs | python -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null; }
-plan_count() { dc plan list --json 2>/dev/null | python -c "import json,sys;d=json.load(sys.stdin);print(len(d if isinstance(d,list) else d.get('plans',[])))" 2>/dev/null; }
-tab_exists() { dev_get /api/tabs | python -c "import json,sys;print(any(p.get('id')=='$1' for p in json.load(sys.stdin)))" 2>/dev/null; }
-tab_session() { dev_get "/api/tabs" | python -c "import json,sys;print(next((p.get('session_id') or p.get('session') or '' for p in json.load(sys.stdin) if p.get('id')=='$1'),''))" 2>/dev/null; }
+tab_count() { dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null; }
+plan_count() { dc plan list --json 2>/dev/null | "$PYTHON_BIN" -c "import json,sys;d=json.load(sys.stdin);print(len(d if isinstance(d,list) else d.get('plans',[])))" 2>/dev/null; }
+tab_exists() { dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(any(p.get('id')=='$1' for p in json.load(sys.stdin)))" 2>/dev/null; }
+tab_session() { dev_get "/api/tabs" | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('session_id') or p.get('session') or '' for p in json.load(sys.stdin) if p.get('id')=='$1'),''))" 2>/dev/null; }
 
 # grep a tab's parsed chat transcript for a fixed string. Returns 0 if found.
 tab_chat_has() {
   local tab="$1" needle="$2"
   dc tab chat --tab "$tab" --json 2>/dev/null \
-    | python -c '
+    | "$PYTHON_BIN" -c '
 import json,sys
 needle=sys.argv[1]
 try:
@@ -144,7 +144,7 @@ sys.exit(0 if needle in blob else 1)
 tab_chat_start_has() {
   local tab="$1" needle="$2"
   dev_post "/api/tabs/$tab/chat-raw/start" '{}' \
-    | python -c '
+    | "$PYTHON_BIN" -c '
 import json,sys
 needle=sys.argv[1]
 try:
@@ -159,7 +159,7 @@ sys.exit(0 if needle in blob else 1)
 tab_chat_tool_stats() {
   local tab="$1"
   dev_post "/api/tabs/$tab/chat-raw/start" '{}' \
-    | python - <<'PY' 2>/dev/null
+    | "$PYTHON_BIN" - <<'PY' 2>/dev/null
 import json,sys
 try:
     d=json.load(sys.stdin)
@@ -318,7 +318,7 @@ scenario_D() {
 
   # role actually flipped
   local role_after
-  role_after=$(dev_get /api/tabs | python -c "import json,sys;print(next((p.get('role','') for p in json.load(sys.stdin) if p.get('id')=='$tab'),''))" 2>/dev/null)
+  role_after=$(dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('role','') for p in json.load(sys.stdin) if p.get('id')=='$tab'),''))" 2>/dev/null)
   if echo "$role_after" | grep -qi "orchestrator"; then
     pass D.role "tab promoted to Orchestrator (role=$role_after)"
   else
@@ -461,7 +461,7 @@ scenario_F() {
 doctor_planner_rule() {
   # echoes "<severity>" of the planner_unpaired finding, or "" if absent
   local plan="$1"
-  dc plan doctor "$plan" --kind quality --json 2>/dev/null | python - <<'PY' 2>/dev/null
+  dc plan doctor "$plan" --kind quality --json 2>/dev/null | "$PYTHON_BIN" - <<'PY' 2>/dev/null
 import json,sys
 try:
     d=json.load(sys.stdin)
