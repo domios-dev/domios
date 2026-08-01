@@ -27,7 +27,7 @@ import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
-import { useAgentProviders } from "./hooks/useAgentProviders";
+import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
@@ -58,7 +58,7 @@ function useStableJsonValue<T>(value: T): T {
 }
 
 function AppInner() {
-  useAgentProviders();
+  useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
   useEffect(() => {
     if (!IS_WEB) {

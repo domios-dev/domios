@@ -83,6 +83,10 @@ test("loading or failed catalogs expose no stale provider entries", () => {
   const stale = [provider("stale-provider")];
   assert(visibleAgentProviders(stale, true, null).length === 0, "loading hides stale entries");
   assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
+  assert(
+    visibleAgentProviders(stale, true, null) === visibleAgentProviders([], true, null),
+    "hidden catalogs keep stable identity across consumer renders",
+  );
   assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
 });
 
