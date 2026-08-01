@@ -53,9 +53,9 @@ function PeerTerminalComponent({
       className={`relative bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
         isThisMachine
           ? offline
-            ? "border-2 border-[var(--ct-border)] shadow-none opacity-55 grayscale"
-            : "border-2 border-[var(--ct-accent)] shadow-[0_8px_24px_rgba(203,166,247,0.2)]"
-          : "border border-[var(--ct-border)] shadow-md"
+            ? "border border-[var(--ct-border)] shadow-none opacity-55 grayscale"
+            : "border border-[color-mix(in_srgb,var(--ct-accent)_72%,var(--ct-border))] shadow-[0_6px_18px_rgba(0,0,0,0.14)]"
+          : "border border-[var(--ct-border)] shadow-sm"
       }`}
       style={{ width: 360 }}
     >

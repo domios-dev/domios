@@ -24,6 +24,7 @@ import {
   planServeSetup,
   serveSetupTask,
   webLinkWithToken,
+  webLinkWithTokenAndRelay,
   type ServeSetupPlan,
   type ServeStatus,
 } from "../../lib/webAccess";
@@ -625,11 +626,15 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         {activeTab === "map" && (
           <>
             <div ref={mapRef} className="absolute inset-0">
-              <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_92%,transparent)] px-2 py-1.5 shadow-lg backdrop-blur-md">
+              <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 shadow-sm">
                 <MeshWebUiControl
                   snapshot={serve?.snapshot ?? null}
                   loading={serveLoading}
                   onOpenSurface={() => setWebUiOpen(true)}
+                  accessUrl={serve?.snapshot?.url
+                    ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
+                    : null}
+                  onOpenUrl={(url) => void invoke("open_url", { url })}
                   onAction={runWebUiAction}
                   touchUi={touchUi}
                   menuAlign="left"

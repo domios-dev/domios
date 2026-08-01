@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Plus } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
@@ -326,12 +326,18 @@ export function MeshCanvas({
             {p.isGhost ? (
               <button
                 onClick={onAddPeerClick}
-                className="w-[260px] py-6 rounded-xl border-2 border-dashed border-[var(--ct-border)] bg-transparent text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-fg)] flex flex-col items-center gap-1 cursor-pointer transition-colors"
+                className="group flex min-h-[88px] w-[280px] items-center gap-3 rounded-lg border border-dashed border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_28%,transparent)] px-4 text-left text-[var(--ct-muted-fg)] transition-colors hover:border-[color-mix(in_srgb,var(--ct-accent)_65%,var(--ct-border))] hover:bg-[color-mix(in_srgb,var(--ct-accent)_4%,transparent)] hover:text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)] cursor-pointer"
                 data-peer-card
+                aria-label="Add a peer in Network settings"
               >
-                <Plus size={20} />
-                <span className="text-[11px] uppercase tracking-wider">Add a peer</span>
-                <span className="text-[10px] opacity-70 normal-case tracking-normal">discover or invite</span>
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-[var(--ct-muted-fg)] transition-colors group-hover:border-[color-mix(in_srgb,var(--ct-accent)_55%,var(--ct-border))] group-hover:text-[var(--ct-accent)]">
+                  <Plus size={16} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] font-semibold text-[var(--ct-fg)]">Add peer</span>
+                  <span className="mt-1 block text-[10px] text-[var(--ct-muted-fg)]">Discover or invite in Network settings</span>
+                </span>
+                <ArrowRight size={15} className="shrink-0 text-[var(--ct-muted)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--ct-accent)]" />
               </button>
             ) : (
               <PeerTerminal
