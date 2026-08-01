@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LIB="$ROOT/evals/_lib/lib.sh"
 FIXTURE="$(mktemp -d)"
-trap 'rm -rf "$FIXTURE"' EXIT
+trap 'status=$?; rm -rf "$FIXTURE"; exit "$status"' EXIT
 
 mkdir -p \
   "$FIXTURE/home/.codeterm-dev/bin" \
@@ -21,6 +21,15 @@ printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.codeterm-dev-named-insta
 
 printf '%s\n' \
   '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = identify ] && [ "${2:-}" = --json ] && [ -z "${CODETERM_API_TOKEN:-}" ]; then' \
+  '  case "${CODETERM_INSTANCE:-}" in' \
+  '    "") data_dir="$HOME/.codeterm-dev"; port=7686; instance=null;;' \
+  '    missing) data_dir="$HOME/.codeterm-dev-missing"; port=7799; instance='\''"missing"'\'';;' \
+  '    *) data_dir="$HOME/.codeterm-dev-named-instance"; port=7788; instance='\''"  Named_Instance  "'\'';;' \
+  '  esac' \
+  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":%s,"socket_path":"fixture.sock","instance":%s}}\n'\'' "$data_dir" "$port" "$instance"' \
+  '  exit 0' \
+  'fi' \
   'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
   '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
@@ -37,7 +46,7 @@ printf '%s\n' \
   '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
   '  esac' \
   'fi' \
-  'printf "NAMED_DEV_CLI_WON token=%s\n" "$CODETERM_API_TOKEN"' \
+  'printf "NAMED_DEV_CLI_WON token=%s port=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT"' \
   > "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -45,6 +54,7 @@ printf '%s\n' \
   > "$FIXTURE/hostile/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
+  '[ -z "${CURL_LOG:-}" ] || printf '\''%s\n'\'' "$*" >> "$CURL_LOG"' \
   'body='\''{"status":"ok","instance":{"name":"  Named_Instance  ","api_port":"7788"}}'\''' \
   'case "$*" in' \
   '  *"%{http_code}"*) printf '\''%s\n200\n'\'' "$body";;' \
@@ -73,23 +83,28 @@ chmod -x "$FIXTURE/home/.codeterm-dev/bin/codeterm"
 
 named_output="$(
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
-    CODETERM_INSTANCE='  Named_Instance  ' CODETERM_API_PORT=7788 \
+    CODETERM_INSTANCE='  Named_Instance  ' \
     CODETERM_API_TOKEN=prod-token CODETERM_SOCKET_PATH=prod.sock \
     bash -c 'source "$1"; dc identify' _ "$LIB"
 )"
-if ! grep -q '^NAMED_DEV_CLI_WON token=named-token$' <<<"$named_output"; then
+if ! grep -q '^NAMED_DEV_CLI_WON token=named-token port=7788$' <<<"$named_output"; then
   echo "named dev CLI or token selection failed: $named_output" >&2
   exit 1
 fi
 
 named_http_output="$(
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
-    CODETERM_INSTANCE='  Named_Instance  ' CODETERM_API_PORT=7788 \
+    CODETERM_INSTANCE='  Named_Instance  ' \
     CODETERM_API_TOKEN=prod-token CODETERM_SOCKET_PATH=prod.sock \
+    CURL_LOG="$FIXTURE/curl.log" \
     bash -c 'source "$1"; dev_get /api/health' _ "$LIB"
 )"
 if ! grep -q '"status":"ok"' <<<"$named_http_output"; then
   echo "named HTTP helper did not reach the selected instance: $named_http_output" >&2
+  exit 1
+fi
+if ! grep -q '127.0.0.1:7788/api/health' "$FIXTURE/curl.log"; then
+  echo "named HTTP helper ignored the CLI-resolved port" >&2
   exit 1
 fi
 if grep -q 'FAKE_PROD_CLI_WON' <<<"$named_output"; then
@@ -113,8 +128,8 @@ if ! grep -q "instance='missing'" <<<"$missing_output"; then
   echo "resolution error did not name the requested instance: $missing_output" >&2
   exit 1
 fi
-if ! grep -q "resolved_path='<unresolved>'" <<<"$missing_output"; then
-  echo "resolution error did not name the unresolved path: $missing_output" >&2
+if ! grep -q "resolved_path='$FIXTURE/home/.codeterm-dev-missing/config.toml'" <<<"$missing_output"; then
+  echo "resolution error did not name the missing config path: $missing_output" >&2
   exit 1
 fi
 if ! grep -q "expected_data_dir='$FIXTURE/home/.codeterm-dev-missing'" <<<"$missing_output"; then
