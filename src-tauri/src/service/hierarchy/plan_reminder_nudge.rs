@@ -2,7 +2,6 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
-use codeterm_types::pty::TabStatus;
 use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -78,7 +77,6 @@ fn send_due_plan_time_reminders_with(
     counter: &crate::service::plan::reminders::TurnCounter,
     now: u64,
     interval_secs: u64,
-    tab_is_idle: impl Fn(&str) -> bool,
     deliver: impl Fn(
         &str,
         &PlanReminderTarget,
@@ -93,13 +91,7 @@ fn send_due_plan_time_reminders_with(
     let mut due = 0usize;
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
-        let is_idle_owner =
-            matches!(&timed.target, PlanReminderTarget::Owner { .. }) && tab_is_idle(&timed.tab_id);
-        let is_due = if is_idle_owner {
-            counter.idle_owner_time_nudge_due(&timed.tab_id, now, interval_secs)
-        } else {
-            counter.time_nudge_due(&timed.tab_id, now, interval_secs)
-        };
+        let is_due = counter.time_nudge_due(&timed.tab_id, now, interval_secs);
         if !is_due {
             continue;
         }
@@ -287,22 +279,9 @@ impl ServiceContext {
             &self.plan_turn_counter,
             now,
             cfg.nudge_interval_secs,
-            |tab_id| self.plan_reminder_tab_is_idle(tab_id),
             |tab_id, target, kind| self.deliver_plan_reminder_target(tab_id, target, kind),
         );
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
-    }
-
-    fn plan_reminder_tab_is_idle(&self, tab_id: &str) -> bool {
-        let pty_id = {
-            let mux = self.mux.read();
-            mux.get_tab(tab_id).map(|tab| tab.pty_id.clone())
-        };
-        match pty_id {
-            Some(Some(pty_id)) => self.agent_tracker.lock().get_status(&pty_id) == TabStatus::Idle,
-            Some(None) => true,
-            None => false,
-        }
     }
 
     /// Lifecycle mutations use this to clear only deadlines that became
@@ -838,13 +817,13 @@ mod tests {
         let counter = crate::service::plan::reminders::TurnCounter::new();
         let writes = RefCell::new(Vec::new());
         let plans = vec![owner_plan(&tab_id)];
+        assert!(!counter.time_nudge_due(&tab_id, 90, 10));
 
         send_due_plan_time_reminders_with(
             &plans,
             &counter,
             100,
             10,
-            |_| true,
             |id, _, _| {
                 if crate::service::plan_reconcile::tab_has_live_agent(mux.get_tab(id).unwrap()) {
                     writes.borrow_mut().push(id.to_string());
@@ -882,6 +861,7 @@ mod tests {
             tab.boot_stage = Some(BootStage::AgentReady);
         }
         let writes = RefCell::new(Vec::new());
+        assert!(!counter.time_nudge_due(&tab_id, 90, 10));
 
         for _ in 0..2 {
             send_due_plan_time_reminders_with(
@@ -889,7 +869,6 @@ mod tests {
                 &counter,
                 100,
                 10,
-                |_| true,
                 |id, _, _| {
                     assert!(crate::service::plan_reconcile::tab_has_live_agent(
                         mux.get_tab(id).unwrap()
