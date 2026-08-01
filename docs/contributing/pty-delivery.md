@@ -14,8 +14,10 @@ well-meaning "one more heuristic" changes. Read this before touching
 1. **The payload is written at most once.** One bracketed paste to the exact
    PTY the caller resolved. Nothing may ever re-write the payload — not a
    retry loop, not a recovery path, not a watchdog.
-2. **Submission is a bounded blind key-only burst.** Write CR immediately,
-   then again at one and two seconds. Never gate these writes on screen,
+2. **Submission is a bounded blind key-only burst.** Write CR immediately by
+   default, then at one and two seconds. A provider capability may declare a
+   bounded first-key offset for a proven TUI ingestion window; elapsed time
+   triggers the key and never claims readiness. Never gate writes on screen,
    composer, status, or provider identity; never repeat the payload. Each PTY
    owns one resettable burst: a new send cancels the old burst immediately
    instead of waiting behind a CodeTerm message queue.
@@ -108,4 +110,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

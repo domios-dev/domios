@@ -25,7 +25,6 @@ pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
 mod hierarchy;
-mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
 mod kpi_hooks;

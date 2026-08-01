@@ -61,7 +61,11 @@ impl ServiceContext {
             .get("enter")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        self.send_text_input_detached(&tab_id, &text, enter);
+        if enter {
+            self.send_text_detached(&tab_id, &text);
+        } else {
+            self.insert_text_detached(&tab_id, &text);
+        }
         Ok(serde_json::json!({"ok": true}))
     }
 

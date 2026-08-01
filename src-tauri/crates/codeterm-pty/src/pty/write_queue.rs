@@ -72,7 +72,7 @@ impl GuardedInputGate {
 }
 
 pub struct WriteRequest {
-    pub data: Vec<u8>,
+    frames: Vec<Vec<u8>>,
     permit: Option<GuardedInputPermit>,
     completed: Option<mpsc::SyncSender<Result<(), String>>>,
 }
@@ -89,16 +89,20 @@ impl WriteQueue {
             while let Ok(req) = receiver.recv() {
                 let result = match req.permit {
                     Some(permit) => match permit.gate.lock() {
-                        Ok(state) if state.accepting && state.epoch == permit.epoch => writer
-                            .write_all(&req.data)
-                            .and_then(|()| writer.flush())
+                        Ok(state) if state.accepting && state.epoch == permit.epoch => req
+                            .frames
+                            .iter()
+                            .try_for_each(|frame| {
+                                writer.write_all(frame).and_then(|()| writer.flush())
+                            })
                             .map_err(|error| error.to_string()),
                         Ok(_) => Err(STALE_AGENT_INPUT.to_string()),
                         Err(error) => Err(error.to_string()),
                     },
-                    None => writer
-                        .write_all(&req.data)
-                        .and_then(|()| writer.flush())
+                    None => req
+                        .frames
+                        .iter()
+                        .try_for_each(|frame| writer.write_all(frame).and_then(|()| writer.flush()))
                         .map_err(|error| error.to_string()),
                 };
                 if let Some(completed) = req.completed {
@@ -126,7 +130,7 @@ impl WriteQueue {
             .as_ref()
             .ok_or_else(|| "PTY write channel closed".to_string())?
             .send(WriteRequest {
-                data,
+                frames: vec![data],
                 permit: None,
                 completed: None,
             })
@@ -134,17 +138,27 @@ impl WriteQueue {
     }
 
     pub fn send_and_wait(&self, data: Vec<u8>, timeout: Duration) -> Result<(), String> {
+        self.send_frames_and_wait(vec![data], timeout)
+    }
+
+    pub fn send_frames_and_wait(
+        &self,
+        frames: Vec<Vec<u8>>,
+        timeout: Duration,
+    ) -> Result<(), String> {
         let (completed, receiver) = mpsc::sync_channel(0);
-        let sender = self.sender.lock().map_err(|error| error.to_string())?;
-        sender
-            .as_ref()
-            .ok_or_else(|| "PTY write channel closed".to_string())?
-            .send(WriteRequest {
-                data,
-                permit: None,
-                completed: Some(completed),
-            })
-            .map_err(|_| "PTY write channel closed".to_string())?;
+        {
+            let sender = self.sender.lock().map_err(|error| error.to_string())?;
+            sender
+                .as_ref()
+                .ok_or_else(|| "PTY write channel closed".to_string())?
+                .send(WriteRequest {
+                    frames,
+                    permit: None,
+                    completed: Some(completed),
+                })
+                .map_err(|_| "PTY write channel closed".to_string())?;
+        }
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
@@ -156,17 +170,28 @@ impl WriteQueue {
         permit: GuardedInputPermit,
         timeout: Duration,
     ) -> Result<(), String> {
+        self.send_frames_and_wait_guarded(vec![data], permit, timeout)
+    }
+
+    pub fn send_frames_and_wait_guarded(
+        &self,
+        frames: Vec<Vec<u8>>,
+        permit: GuardedInputPermit,
+        timeout: Duration,
+    ) -> Result<(), String> {
         let (completed, receiver) = mpsc::sync_channel(0);
-        let sender = self.sender.lock().map_err(|error| error.to_string())?;
-        sender
-            .as_ref()
-            .ok_or_else(|| "PTY write channel closed".to_string())?
-            .send(WriteRequest {
-                data,
-                permit: Some(permit),
-                completed: Some(completed),
-            })
-            .map_err(|_| "PTY write channel closed".to_string())?;
+        {
+            let sender = self.sender.lock().map_err(|error| error.to_string())?;
+            sender
+                .as_ref()
+                .ok_or_else(|| "PTY write channel closed".to_string())?
+                .send(WriteRequest {
+                    frames,
+                    permit: Some(permit),
+                    completed: Some(completed),
+                })
+                .map_err(|_| "PTY write channel closed".to_string())?;
+        }
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
@@ -306,6 +331,38 @@ mod tests {
     }
 
     #[test]
+    fn frame_batch_prevents_another_request_from_splitting_paste_and_submit() {
+        let data = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let queue = Arc::new(WriteQueue::new(Box::new(FirstWriteBarrier {
+            data: data.clone(),
+            first_entered: entered_tx,
+            release_first: release_rx,
+            first: true,
+        })));
+        let initial_queue = queue.clone();
+        let initial = std::thread::spawn(move || {
+            initial_queue.send_frames_and_wait(
+                vec![b"paste".to_vec(), b"\r".to_vec()],
+                Duration::from_secs(5),
+            )
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("paste frame must reach the writer");
+
+        queue.send(b"next".to_vec()).unwrap();
+        release_tx.send(()).unwrap();
+        initial.join().unwrap().unwrap();
+        queue
+            .send_and_wait(b"tail".to_vec(), Duration::from_secs(1))
+            .unwrap();
+
+        assert_eq!(&*data.lock().unwrap(), b"paste\rnexttail");
+    }
+
+    #[test]
     fn revoked_permit_writes_no_bytes_and_keeps_queue_live() {
         let data = Arc::new(Mutex::new(Vec::new()));
         let (entered_tx, entered_rx) = mpsc::sync_channel(1);
@@ -332,7 +389,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .send(WriteRequest {
-                data: b"envelope".to_vec(),
+                frames: vec![b"envelope".to_vec()],
                 permit: Some(permit),
                 completed: Some(done_tx),
             })

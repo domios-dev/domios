@@ -262,7 +262,7 @@ impl ServiceContext {
                         .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
                 })
             };
-            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text));
+            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty(&pty_id, &text));
             drop(pty_claim);
             if let Err(error) = result {
                 if delivery_is_unknown(&error) {
@@ -336,16 +336,8 @@ impl ServiceContext {
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
     /// a causal turn transition or an actionable delivery failure.
     pub fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
-        self.send_text_delivery(tab_id, text)
-            .map_err(|error| error.ledger_message())
-    }
-
-    pub(crate) fn send_text_delivery(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), DeliveryError> {
         self.send_text_input_delivery(tab_id, text, true, None)
+            .map_err(|error| error.ledger_message())
     }
 
     pub(crate) fn claim_chat_submit_cycle(
@@ -357,7 +349,7 @@ impl ServiceContext {
             .map(|pty_id| super::submit_transaction::claim_submit_cycle(&pty_id))
     }
 
-    pub(crate) fn send_text_delivery_claimed(
+    pub(crate) fn send_chat_text_claimed(
         &self,
         tab_id: &str,
         text: &str,
@@ -366,13 +358,8 @@ impl ServiceContext {
         self.send_text_input_delivery(tab_id, text, true, claim)
     }
 
-    pub(crate) fn send_text_input(
-        &self,
-        tab_id: &str,
-        text: &str,
-        submit: bool,
-    ) -> Result<(), String> {
-        self.send_text_input_delivery(tab_id, text, submit, None)
+    pub(crate) fn insert_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
+        self.send_text_input_delivery(tab_id, text, false, None)
             .map_err(|error| error.ledger_message())
     }
 
@@ -395,7 +382,7 @@ impl ServiceContext {
         let claim = claim
             .filter(|claim| claim.pty_id() == pty_id)
             .unwrap_or_else(|| super::submit_transaction::claim_submit_cycle(&pty_id));
-        self.send_text_to_pty_smart_delivery_claimed(&pty_id, text, submit, claim)
+        self.deliver_pty_input_claimed(&pty_id, text, submit, claim)
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -423,54 +410,27 @@ impl ServiceContext {
         Ok(pty_id)
     }
 
-    /// Compatibility entry point for callers which explicitly require delivery
-    /// confirmation. `send_text` now applies the same transaction contract.
-    pub fn send_text_with_guarantee(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), DeliveryError> {
-        if self.tab_chat_backing(tab_id).is_some() {
-            return self
-                .chatbackend_tab_send(tab_id, text)
-                .map_err(|error| DeliveryError::from_opaque(tab_id, error));
-        }
-        let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
-        self.send_text_to_pty_smart_guaranteed(&pty_id, text)
-    }
-
-    /// Capability-aware delivery. PTY agent transactions remain pending until
-    /// a causal turn transition or an actionable failure.
-    pub fn send_text_to_pty_smart(
-        &self,
-        pty_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        self.send_text_to_pty_smart_delivery(pty_id, text, true)
+    pub fn send_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
+        self.send_text_to_pty_input_delivery(pty_id, text, true)
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn send_text_to_pty_input(
-        &self,
-        pty_id: &str,
-        text: &str,
-        submit: bool,
-    ) -> Result<(), String> {
-        self.send_text_to_pty_smart_delivery(pty_id, text, submit)
+    pub(crate) fn insert_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
+        self.send_text_to_pty_input_delivery(pty_id, text, false)
             .map_err(|error| error.ledger_message())
     }
 
-    fn send_text_to_pty_smart_delivery(
+    fn send_text_to_pty_input_delivery(
         &self,
         pty_id: &str,
         text: &str,
         submit: bool,
     ) -> Result<(), DeliveryError> {
         let claim = super::submit_transaction::claim_submit_cycle(pty_id);
-        self.send_text_to_pty_smart_delivery_claimed(pty_id, text, submit, claim)
+        self.deliver_pty_input_claimed(pty_id, text, submit, claim)
     }
 
-    fn send_text_to_pty_smart_delivery_claimed(
+    fn deliver_pty_input_claimed(
         &self,
         pty_id: &str,
         text: &str,
@@ -479,19 +439,16 @@ impl ServiceContext {
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
-        let Some(agent_id) = agent_type else {
-            return self.send_text_to_pty_delivery_claimed(
-                pty_id,
-                delivery_target,
-                text,
-                submit,
-                claim,
-            );
-        };
-        let text = sanitize_agent_prompt_input(text);
-        let strategy = self
-            .agent_registry
-            .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
+        let text = agent_type
+            .as_ref()
+            .map(|_| sanitize_agent_prompt_input(text))
+            .unwrap_or_else(|| text.to_string());
+        let strategy = agent_type
+            .as_deref()
+            .and_then(|agent_id| {
+                self.agent_registry
+                    .with_provider(agent_id, |provider| provider.verify_submit_strategy())
+            })
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
         let submit_key: &[u8] = b"\r";
         super::submit_transaction::submit_text_with_key_claimed(
@@ -529,50 +486,6 @@ impl ServiceContext {
         }
     }
 
-    /// Verified twin of `send_text_to_pty_smart` — waits for echo/submit
-    /// evidence. Parked: terminal delivery can't be reliably confirmed (TUIs
-    /// intercept input, ConPTY echo is not proof), so production uses the
-    /// optimistic path. Kept for callers that can tolerate its false negatives.
-    pub fn send_text_to_pty_smart_guaranteed(
-        &self,
-        pty_id: &str,
-        text: &str,
-    ) -> Result<(), DeliveryError> {
-        let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
-        if let Some(ref pid) = tab_id {
-            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
-                .map_err(|detail| DeliveryError::TabBusyRefused {
-                    tab: pid.clone(),
-                    detail,
-                })?;
-        }
-        let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
-        if let Some(ref agent_id) = agent_type {
-            let text = sanitize_agent_prompt_input(text);
-            let strategy = self
-                .agent_registry
-                .with_provider(agent_id, |p| p.verify_submit_strategy())
-                .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-            let opts = crate::service::inject_verify::VerifyOpts {
-                // A live TUI's last line is its footer, not a shell prompt.
-                require_prompt_first: false,
-                verify_echo: true,
-                verify_submit: true,
-                ..Default::default()
-            };
-            return super::submit_transaction::submit_entry(
-                super::submit_transaction::PtySubmitEntry::Direct,
-                &text,
-                |text| {
-                    self.send_text_verified(pty_id, text, true, strategy, opts)
-                        .map(|_| ())
-                        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
-                },
-            );
-        }
-        self.send_text_to_pty_delivery(pty_id, delivery_target, text, true)
-    }
-
     /// Deliver the initial agent launch command to a bare shell — no verify path
     /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
@@ -593,11 +506,7 @@ impl ServiceContext {
     }
 
     /// Queue text without making the caller wait for PTY or TUI evidence.
-    pub async fn send_text_when_ready(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
+    pub async fn send_text_when_ready(&self, tab_id: &str, text: &str) -> Result<(), String> {
         self.send_text_detached(tab_id, text);
         Ok(())
     }
@@ -607,7 +516,7 @@ impl ServiceContext {
         tab_id: &str,
         text: &str,
     ) -> Result<(), String> {
-        self.send_text_input_detached(tab_id, text, false);
+        self.insert_text_detached(tab_id, text);
         Ok(())
     }
 
@@ -702,59 +611,6 @@ impl ServiceContext {
         }
     }
 
-    /// `send_text` by PTY id, skipping tab→pty resolution — use when the caller
-    /// holds a verified pty_id and must not race a `link_pty` swap of `tab.pty_id`.
-    pub fn send_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
-        let tab_id = self.resolve_tab_and_ready_agent(pty_id).0;
-        self.send_text_to_pty_delivery(pty_id, tab_id.as_deref().unwrap_or(pty_id), text, true)
-            .map_err(|error| error.ledger_message())
-    }
-
-    fn send_text_to_pty_delivery(
-        &self,
-        pty_id: &str,
-        delivery_target: &str,
-        text: &str,
-        enter: bool,
-    ) -> Result<(), DeliveryError> {
-        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
-        self.send_text_to_pty_delivery_claimed(pty_id, delivery_target, text, enter, claim)
-    }
-
-    fn send_text_to_pty_delivery_claimed(
-        &self,
-        pty_id: &str,
-        delivery_target: &str,
-        text: &str,
-        enter: bool,
-        claim: super::submit_transaction::SubmitCycleClaim,
-    ) -> Result<(), DeliveryError> {
-        super::submit_transaction::submit_entry(
-            super::submit_transaction::PtySubmitEntry::Direct,
-            text,
-            |text| {
-                super::submit_transaction::submit_text_with_key_claimed(
-                    self,
-                    pty_id,
-                    text,
-                    enter,
-                    b"\r",
-                    crate::agent::provider::VerifySubmitStrategy::None,
-                    crate::service::inject_verify::VerifyOpts {
-                        require_prompt_first: false,
-                        verify_echo: enter,
-                        verify_submit: enter,
-                        ..Default::default()
-                    },
-                    None,
-                    claim,
-                )
-                .map(|_| ())
-                .map_err(|error| DeliveryError::from_injection(delivery_target, error))
-            },
-        )
-    }
-
     /// Launch-time delivery targets the PTY already owned by the lifecycle.
     /// It must not enter the public post-ready Tab send gate.
     pub(crate) fn send_launch_text_optimistic(
@@ -818,15 +674,24 @@ impl ServiceContext {
     /// Failures emit inline Chat status; delivery diagnostics never become
     /// global Notifications.
     pub fn send_text_detached(&self, tab_id: &str, text: &str) {
-        self.send_text_input_detached(tab_id, text, true);
+        self.deliver_text_detached(tab_id, text, true);
     }
 
-    pub(crate) fn send_text_input_detached(&self, tab_id: &str, text: &str, submit: bool) {
+    pub(crate) fn insert_text_detached(&self, tab_id: &str, text: &str) {
+        self.deliver_text_detached(tab_id, text, false);
+    }
+
+    fn deliver_text_detached(&self, tab_id: &str, text: &str, submit: bool) {
         let svc = self.clone();
         let tab = tab_id.to_string();
         let text = text.to_string();
         std::thread::spawn(move || {
-            if let Err(error) = svc.send_text_input(&tab, &text, submit) {
+            let result = if submit {
+                svc.send_text(&tab, &text)
+            } else {
+                svc.insert_text(&tab, &text)
+            };
+            if let Err(error) = result {
                 if delivery_is_unknown(&error) {
                     log::warn!("[send-async] delivery to Tab {tab} remains unknown");
                     return;

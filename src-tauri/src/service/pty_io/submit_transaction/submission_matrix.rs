@@ -132,7 +132,9 @@ fn opts() -> VerifyOpts {
 
 fn strategy(capabilities: &SpawnCapabilities) -> VerifySubmitStrategy {
     assert_eq!(capabilities.verify_submit.kind, "tui_input_drained");
-    VerifySubmitStrategy::TuiInputDrained
+    VerifySubmitStrategy::TuiInputDrained {
+        initial_key_delay: Duration::ZERO,
+    }
 }
 
 fn pass(provider: &str, dimension: &str) {

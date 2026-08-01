@@ -146,8 +146,11 @@ pub(super) fn dispatch(
                 for send in result.sends.iter().filter(|send| {
                     (result.mode == "new" && send.order == 1) || result.mode == "compact"
                 }) {
-                    svc.as_ref()
-                        .send_text_input_detached(&result.tab_id, &send.text, send.enter);
+                    if send.enter {
+                        svc.send_text_detached(&result.tab_id, &send.text);
+                    } else {
+                        svc.insert_text_detached(&result.tab_id, &send.text);
+                    }
                 }
                 emit_plan_changed(app, &id);
             }

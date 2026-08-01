@@ -85,7 +85,7 @@ fn parse_full_manifest() {
     assert_eq!(m.spawn.status_bar_rows, 3);
     assert!(matches!(
         m.spawn.verify_submit,
-        SerdeVerifySubmit::TuiInputDrained
+        SerdeVerifySubmit::TuiInputDrained { .. }
     ));
     assert!(matches!(
         ProviderReadinessStrategy::from(&m.spawn.provider_readiness),
@@ -334,10 +334,14 @@ fn readiness_conversion() {
 
 #[test]
 fn verify_submit_conversion() {
-    let s = SerdeVerifySubmit::TuiInputDrained;
+    let s = SerdeVerifySubmit::TuiInputDrained {
+        initial_key_delay_ms: 150,
+    };
     let v: VerifySubmitStrategy = (&s).into();
     match v {
-        VerifySubmitStrategy::TuiInputDrained => {}
+        VerifySubmitStrategy::TuiInputDrained { initial_key_delay } => {
+            assert_eq!(initial_key_delay, std::time::Duration::from_millis(150));
+        }
         _ => panic!(),
     }
 }

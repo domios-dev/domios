@@ -189,6 +189,7 @@ struct ControlledTransport {
     tail: &'static str,
     generation: Cell<u64>,
     turn: Cell<bool>,
+    scheduled_waits: Cell<usize>,
     writes: RefCell<Vec<String>>,
 }
 
@@ -198,6 +199,7 @@ impl ControlledTransport {
             tail,
             generation: Cell::new(0),
             turn: Cell::new(false),
+            scheduled_waits: Cell::new(0),
             writes: RefCell::new(Vec::new()),
         }
     }
@@ -228,6 +230,10 @@ impl SubmitTransport for ControlledTransport {
         self.turn.get()
     }
 
+    fn wait_retry_deadline(&self, _deadline: Instant) {
+        self.scheduled_waits.set(self.scheduled_waits.get() + 1);
+    }
+
     fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
         self.generation.set(self.generation.get() + 1);
         self.writes.borrow_mut().push(format!("paste:{text}"));
@@ -243,6 +249,27 @@ impl SubmitTransport for ControlledTransport {
         self.generation.set(self.generation.get() + 1);
         Ok(())
     }
+}
+
+#[test]
+fn provider_ingestion_offset_schedules_only_the_first_submit_key() {
+    let io = ControlledTransport::new("> prompt");
+    let mut options = opts();
+    options.verify_submit = false;
+    let result = run(
+        &io,
+        "1",
+        true,
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::from_millis(150),
+        },
+        options,
+    )
+    .unwrap();
+
+    assert_eq!(io.scheduled_waits.get(), 1);
+    assert_eq!(&*io.writes.borrow(), &["paste:1", "enter:> prompt"]);
+    assert_eq!(result.submit_key_writes, 1);
 }
 
 struct ComposerRedrawWithoutTurn {
@@ -362,7 +389,9 @@ pub(super) fn opts() -> VerifyOpts {
 }
 
 pub(super) fn tui() -> VerifySubmitStrategy {
-    VerifySubmitStrategy::TuiInputDrained
+    VerifySubmitStrategy::TuiInputDrained {
+        initial_key_delay: Duration::ZERO,
+    }
 }
 
 struct HalfIngestion {
@@ -959,7 +988,9 @@ fn working_provider_recovers_swallowed_enter_when_draft_leaves_composer() {
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
     let strategies = [
-        VerifySubmitStrategy::TuiInputDrained,
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::ZERO,
+        },
         VerifySubmitStrategy::ShellPrompt {
             timeout: Duration::ZERO,
         },

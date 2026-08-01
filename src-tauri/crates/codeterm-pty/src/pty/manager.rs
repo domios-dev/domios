@@ -81,6 +81,16 @@ impl PtySession {
             .send_and_wait_guarded(data, permit, timeout)
     }
 
+    pub fn write_frames_and_flush_guarded(
+        &self,
+        frames: Vec<Vec<u8>>,
+        permit: GuardedInputPermit,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        self.write_queue
+            .send_frames_and_wait_guarded(frames, permit, timeout)
+    }
+
     pub fn resize(&self, cols: u16, rows: u16) -> Result<bool, String> {
         let mut size = self.size.lock().map_err(|e| e.to_string())?;
         if *size == (cols, rows) {
@@ -597,6 +607,22 @@ impl PtyManager {
             .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
         crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
         session.write_queue.send_and_wait(data.to_vec(), timeout)
+    }
+
+    pub fn write_frames_and_flush(
+        &self,
+        pty_id: &str,
+        frames: Vec<Vec<u8>>,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
+        for frame in &frames {
+            crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", frame);
+        }
+        session.write_queue.send_frames_and_wait(frames, timeout)
     }
 
     pub fn rearm_guarded_input(&self, pty_id: &str) -> Result<(), String> {
