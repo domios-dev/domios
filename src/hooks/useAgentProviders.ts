@@ -16,6 +16,8 @@ import type { ProviderDescriptor } from "../lib/types";
 import { setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
+const EMPTY_AGENT_PROVIDERS: ProviderDescriptor[] = [];
+
 export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "models-updated";
 }
@@ -25,7 +27,7 @@ export function visibleAgentProviders(
   loading: boolean,
   error: string | null,
 ): ProviderDescriptor[] {
-  return loading || error ? [] : items;
+  return loading || error ? EMPTY_AGENT_PROVIDERS : items;
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
@@ -81,11 +83,15 @@ export function useAgentProviders(): {
     "agent_provider",
     fetcher,
   );
-  useLayoutEffect(() => {
-    syncAgentDescriptorCache(items, loading, error);
-  }, [items, loading, error]);
   useEffect(() => {
     return attachModelsUpdatedRefresh(refetch);
   }, [refetch]);
   return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
+}
+
+export function useAgentProviderCachePublisher(): void {
+  const { providers } = useAgentProviders();
+  useLayoutEffect(() => {
+    setAgentDescriptors(providers);
+  }, [providers]);
 }
