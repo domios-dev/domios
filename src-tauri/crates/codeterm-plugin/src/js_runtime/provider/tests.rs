@@ -433,6 +433,19 @@ async fn discover_models_missing_export_returns_none() {
     assert_eq!(p.discover_models().await, None);
 }
 
+#[tokio::test]
+async fn discover_models_null_return_is_no_discovery() {
+    let p = load(
+        MIN_MANIFEST,
+        "module.exports.default = { discoverModels() { return null; } };",
+    );
+    assert_eq!(
+        p.discover_models().await,
+        None,
+        "a JS null means no genuine discovery — never a fallback list"
+    );
+}
+
 #[test]
 fn install_command_resolved_per_platform() {
     let json = r#"{
