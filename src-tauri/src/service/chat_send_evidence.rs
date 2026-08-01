@@ -33,6 +33,9 @@ fn window_user_turns(
         EvidenceWindow::JsonlMaterialization => {
             jsonl_window_user_turns(registry, anchor, session_id, 0)
         }
+        EvidenceWindow::JsonlSessionMaterialization { not_before_ms } => {
+            jsonl_window_user_turns_after(registry, anchor, session_id, 0, Some(*not_before_ms))
+        }
         EvidenceWindow::Structured { cursor } => registry
             .with_provider(&anchor.provider_id, |provider| {
                 provider.read_structured_chat(&anchor.cwd, session_id, cursor.as_deref())
@@ -99,6 +102,13 @@ fn scan_transcript_evidence(
         }
         let session_id = match candidate.anchor.session_id.clone() {
             Some(session_id) => session_id,
+            None if jsonl_session_materialized_for_current_binding(&candidate, source) => {
+                if !ledger.bind_evidence_session(&candidate.send_id, &source.session_id) {
+                    continue;
+                }
+                candidate.anchor.session_id = Some(source.session_id.clone());
+                source.session_id.clone()
+            }
             None if structured_session_materialized_after_boundary(
                 registry, &candidate, source,
             ) =>
@@ -169,6 +179,16 @@ fn jsonl_window_user_turns(
     session_id: &str,
     transcript_offset: u64,
 ) -> Vec<String> {
+    jsonl_window_user_turns_after(registry, anchor, session_id, transcript_offset, None)
+}
+
+fn jsonl_window_user_turns_after(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    session_id: &str,
+    transcript_offset: u64,
+    not_before_ms: Option<u64>,
+) -> Vec<String> {
     let Some(path) = registry
         .with_provider(&anchor.provider_id, |provider| {
             provider.session_jsonl_path(&anchor.cwd, session_id)
@@ -188,6 +208,17 @@ fn jsonl_window_user_turns(
             delta
                 .messages
                 .iter()
+                .filter(|rich| {
+                    not_before_ms.is_none_or(|boundary| {
+                        rich.timestamp
+                            .as_deref()
+                            .and_then(|timestamp| {
+                                chrono::DateTime::parse_from_rfc3339(timestamp).ok()
+                            })
+                            .and_then(|timestamp| u64::try_from(timestamp.timestamp_millis()).ok())
+                            .is_some_and(|timestamp| timestamp > boundary)
+                    })
+                })
                 .enumerate()
                 .flat_map(|(index, rich)| crate::service::tab_chat::rich_to_chat_msgs(rich, index))
                 .filter(|msg| msg.kind == "user")
@@ -214,6 +245,20 @@ fn candidate_matches_source(candidate: &EvidenceCandidate, source: &BoundEvidenc
             .as_deref()
             .is_none_or(|session_id| session_id == source.session_id)
             && binding.binding_nonce.as_deref() == source.binding_nonce.as_deref()
+    })
+}
+
+fn jsonl_session_materialized_for_current_binding(
+    candidate: &EvidenceCandidate,
+    source: &BoundEvidenceSource,
+) -> bool {
+    matches!(
+        candidate.anchor.window,
+        EvidenceWindow::JsonlSessionMaterialization { .. }
+    ) && candidate.live_binding.as_ref().is_some_and(|binding| {
+        binding.session_id.is_none()
+            && binding.binding_nonce.is_some()
+            && binding.binding_nonce == source.binding_nonce
     })
 }
 
@@ -281,7 +326,7 @@ impl ServiceContext {
                 live_binding,
             };
         };
-        let (structured, can_detect_unbound) = self
+        let (structured, can_detect_unbound, has_hooks) = self
             .agent_registry
             .with_provider(&provider_id, |provider| {
                 (
@@ -290,9 +335,10 @@ impl ServiceContext {
                         provider.session_id_injection(),
                         crate::agent::provider::SessionIdInjection::None
                     ),
+                    provider.has_hooks(),
                 )
             })
-            .unwrap_or((false, false));
+            .unwrap_or((false, false, false));
         let session_id = session_id.or_else(|| {
             if structured {
                 return None;
@@ -350,6 +396,21 @@ impl ServiceContext {
                     cwd,
                     session_id: None,
                     window: EvidenceWindow::StructuredMaterialization {
+                        not_before_ms: captured_at_ms,
+                    },
+                })
+            }
+            None if !structured
+                && can_detect_unbound
+                && has_hooks
+                && binding_nonce.is_some()
+                && set_at_elapsed.is_some() =>
+            {
+                Some(SendEvidenceAnchor {
+                    provider_id,
+                    cwd,
+                    session_id: None,
+                    window: EvidenceWindow::JsonlSessionMaterialization {
                         not_before_ms: captured_at_ms,
                     },
                 })
@@ -481,6 +542,10 @@ mod tests {
                             kind: "text".into(),
                             data: serde_json::json!({ "text": content }),
                         }],
+                        timestamp: value
+                            .get("timestamp")
+                            .and_then(|timestamp| timestamp.as_str())
+                            .map(str::to_string),
                         ..Default::default()
                     })
                 })
@@ -489,6 +554,9 @@ mod tests {
                 new_offset: bytes.len() as u64,
                 messages,
             }
+        }
+        fn has_hooks(&self) -> bool {
+            true
         }
     }
 
