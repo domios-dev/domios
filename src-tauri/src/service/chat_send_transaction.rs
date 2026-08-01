@@ -441,8 +441,8 @@ impl crate::service::ServiceContext {
         &self,
         tab_id: &str,
         text: String,
+        submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
     ) -> Result<ChatSendStatus, String> {
-        let submit_claim = self.claim_chat_submit_cycle(tab_id);
         let evidence = self.chat_send_anchor(tab_id);
         let pending = self.chat_send_ledger.try_start_scoped(
             tab_id,
