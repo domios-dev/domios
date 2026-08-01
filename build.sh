@@ -295,25 +295,30 @@ finish_build_gateway_logging() {
 }
 
 build_gateway_logging_on_exit() {
-  local command_status="$?" summary_status reader_status finish_status
+  local captured_status="$?" command_status="" command_status_text=UNKNOWN
+  local summary_status reader_status finish_status
   trap - EXIT INT TERM
   set +e
-  printf 'Build gateway job %s exit: %s\n' "$CT_BUILD_JOB_ID" "$command_status"
+  if [ "${CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN:-0}" = "1" ] && [ "${CT_GATEWAY_CANCELLED:-0}" != "1" ]; then
+    command_status="$captured_status"
+    command_status_text="$captured_status"
+  fi
+  printf 'Build gateway job %s exit: %s\n' "$CT_BUILD_JOB_ID" "$command_status_text"
   summary_status=$?
   finish_build_gateway_logging
   reader_status=$?
   if [ "$summary_status" -ne 0 ] || [ "$reader_status" -ne 0 ]; then
     printf 'ERROR: build gateway logging path broke (exit %s); command exit was %s; log: %s\n' \
-      "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
-    ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+      "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status_text" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+    ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" logging_failed
     finish_status=$?
     [ "$finish_status" -eq 0 ] || exit "$finish_status"
     exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
   fi
-  ct_gateway_finish "$command_status"
+  ct_gateway_finish "$captured_status" "$command_status"
   finish_status=$?
   [ "$finish_status" -eq 0 ] || exit "$finish_status"
-  exit "$command_status"
+  exit "$captured_status"
 }
 
 break_build_gateway_log_reader() {
@@ -350,6 +355,7 @@ enter_build_gateway() {
   exec > >(run_build_gateway_log_reader "$gateway_log" >&3) 2>&1
   CT_BUILD_GATEWAY_LOG_READER_PID=$!
   CT_BUILD_GATEWAY_LOG_PATH="$gateway_log"
+  CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=0
   trap 'build_gateway_logging_on_exit' EXIT
   if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
     if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
@@ -359,14 +365,15 @@ enter_build_gateway() {
     fi
     exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
   fi
+  CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=1
 }
 
 check_build_gateway_logging() {
-  local root success_log reader_status open_status
+  local root success_log reader_success_status reader_failure_status open_status killed_status
   root="$(mktemp -d "${TMPDIR:-/tmp}/codeterm-gateway-logging.XXXXXX")"
   CT_BUILD_GATEWAY_CHECK_ROOT="$root"
   trap 'rm -rf -- "$CT_BUILD_GATEWAY_CHECK_ROOT"' EXIT
-  CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/success" ./build.sh gateway-log-probe success \
+  CT_BUILD_JOB_ID=healthy CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-log-probe success \
     > "$root/success.console" 2>&1
   success_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/success.console" | head -1 | tr -d '\r')"
   grep -q '^MARKER_LAST$' "$root/success.console" || {
@@ -378,22 +385,37 @@ check_build_gateway_logging() {
     return 1
   }
   echo "success: final marker reached console and gateway log"
-  if CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/reader" ./build.sh gateway-log-probe reader-failure \
-      > "$root/reader.console" 2>&1; then
-    reader_status=0
+  if CT_BUILD_JOB_ID=reader-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe reader-failure-success > "$root/reader-success.console" 2>&1; then
+    reader_success_status=0
   else
-    reader_status=$?
+    reader_success_status=$?
   fi
-  [ "$reader_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
-    echo "build gateway logging regression: reader failure exited $reader_status" >&2
+  [ "$reader_success_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: reader failure after success exited $reader_success_status" >&2
     return 1
   }
-  grep -q 'build gateway logging path broke' "$root/reader.console" || {
+  grep -q 'build gateway logging path broke.*command exit was 0' "$root/reader-success.console" || {
     echo "build gateway logging regression: reader failure was misclassified" >&2
     return 1
   }
-  echo "reader failure: exit $reader_status reported as gateway logging failure"
-  if CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/open" ./build.sh gateway-log-probe open-failure \
+  if CT_BUILD_JOB_ID=reader-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe reader-failure-command-fail > "$root/reader-failure.console" 2>&1; then
+    reader_failure_status=0
+  else
+    reader_failure_status=$?
+  fi
+  [ "$reader_failure_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: reader failure after command failure exited $reader_failure_status" >&2
+    return 1
+  }
+  grep -q 'build gateway logging path broke.*command exit was 101' "$root/reader-failure.console" || {
+    echo "build gateway logging regression: failed command status was not reported" >&2
+    return 1
+  }
+  echo "reader failures: exit 74 preserved command exits 0 and 101"
+  if CT_BUILD_JOB_ID=open-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe open-failure \
       > "$root/open.console" 2>&1; then
     open_status=0
   else
@@ -407,7 +429,45 @@ check_build_gateway_logging() {
     echo "build gateway logging regression: open failure was misclassified" >&2
     return 1
   }
-  echo "open failure: exit $open_status reported as gateway logging failure"
+  grep -q 'command exit was UNKNOWN' "$root/open.console" || {
+    echo "build gateway logging regression: open failure invented a command status" >&2
+    return 1
+  }
+  if CT_BUILD_JOB_ID=command-killed CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe command-killed > "$root/killed.console" 2>&1; then
+    killed_status=0
+  else
+    killed_status=$?
+  fi
+  [ "$killed_status" -eq 130 ] || {
+    echo "build gateway logging regression: killed command exited $killed_status" >&2
+    return 1
+  }
+  grep -q 'Build gateway job command-killed exit: UNKNOWN' "$root/killed.console" || {
+    echo "build gateway logging regression: killed command invented a command status" >&2
+    return 1
+  }
+  CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-status > "$root/status.json"
+  node - "$root/status.json" <<'JS'
+const status = require(process.argv[2]);
+const jobs = Object.fromEntries(status.recent.map((job) => [job.job_id, job]));
+const expected = {
+  healthy: ["success", 0, 0],
+  "reader-success": ["logging_failed", 74, 0],
+  "reader-failure": ["logging_failed", 74, 101],
+  "open-failure": ["logging_failed", 74, null],
+  "command-killed": ["cancelled", 130, null],
+};
+for (const [id, values] of Object.entries(expected)) {
+  const job = jobs[id];
+  if (!job) throw new Error(`gateway status omitted ${id}`);
+  const actual = [job.outcome, job.exit_code, job.command_exit_code];
+  if (JSON.stringify(actual) !== JSON.stringify(values)) {
+    throw new Error(`${id} recorded ${JSON.stringify(actual)}, expected ${JSON.stringify(values)}`);
+  }
+}
+JS
+  echo "job records: gateway outcome and command exit are independently recoverable"
   rm -rf -- "$root"
   trap - EXIT
   unset CT_BUILD_GATEWAY_CHECK_ROOT
@@ -1090,7 +1150,19 @@ EOF
     [ "$log_probe_mode" != "open-failure" ] || CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1
     enter_build_gateway "$CMD $log_probe_mode"
     printf 'MARKER_FIRST\n'
-    [ "$log_probe_mode" != "reader-failure" ] || break_build_gateway_log_reader
+    case "$log_probe_mode" in
+      reader-failure-success)
+        break_build_gateway_log_reader
+        exit 0
+        ;;
+      reader-failure-command-fail)
+        break_build_gateway_log_reader
+        exit 101
+        ;;
+      command-killed)
+        kill -TERM "$$"
+        ;;
+    esac
     printf 'MARKER_LAST\n'
     ;;
   gateway-logging-check)
