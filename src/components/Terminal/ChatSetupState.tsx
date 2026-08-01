@@ -196,17 +196,18 @@ export function ChatSetupState({
 
   if (transitionState === "hidden") return null;
 
-  const cardStyle: React.CSSProperties = {
+  const cardStyle = {
     opacity: transitionState === "exiting" ? 0 : 1,
     pointerEvents: transitionState === "exiting" ? "none" : undefined,
     transition: reducedMotion ? "none" : "opacity 120ms ease",
-  };
+    "--chat-provider-color": providerIconColor ?? "var(--ct-accent, #58a6ff)",
+  } as React.CSSProperties;
 
   if (view.kind !== "starting" && transitionState !== "exiting") return null;
 
   const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;
   return (
-    <div ref={cardRef} className="chat-launch-overlay flex justify-center px-4 py-12" data-testid="chat-setup-state" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
+    <div ref={cardRef} className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
       <div className="flex w-full max-w-sm flex-col items-center text-center">
         <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
           <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />

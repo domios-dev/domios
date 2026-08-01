@@ -289,7 +289,7 @@ test("watcher Tab mounts read-only bar and no composer input", async () => {
 test("normal chat_backend Tab keeps composer and hides read-only bar", async () => {
   const tabId = "chat-tab";
   const state = muxStateFor({
-    [tabId]: tabBase(tabId),
+    [tabId]: tabBase(tabId, { agent_type: "codex" }),
   });
   const { host, root } = await renderTabSessionChat(tabId, state);
   const chat = host.querySelector('[data-testid="tab-session-chat"]');
@@ -303,6 +303,11 @@ test("normal chat_backend Tab keeps composer and hides read-only bar", async () 
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
   assert(composer?.getAttribute("data-tab-id") === tabId, "composer exposes stable Tab scope");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
+  const emptyState = host.querySelector('[data-testid="chat-empty-state"]');
+  assert(emptyState?.getAttribute("role") === "status", "empty chat exposes a neutral status");
+  assert(emptyState?.getAttribute("aria-label") === "No messages yet", "empty chat status is named");
+  assert(emptyState.textContent?.includes("No messages yet"), "empty chat has a concise label");
+  assert(emptyState.querySelector('.agent-icon'), "empty chat keeps the provider mark centered");
   await act(async () => root.unmount());
 });
 

@@ -527,6 +527,17 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
+  const agentStateIndicatorVisible = !inlinePrompt && shouldRenderAgentStateIndicator(
+    liveAgentState.state,
+    renderedEnrichedMessages.length > 0,
+    inputRequestAdmission.notificationReady,
+  );
+  const showEmptyState = setupView.kind === "none"
+    && !chatLoading
+    && renderedEnrichedMessages.length === 0
+    && !inlinePrompt
+    && !agentStateIndicatorVisible;
+
   return (
     <div
       ref={chatRootRef}
@@ -555,6 +566,23 @@ export function TabSessionChat({
         </div>
       )}
       <div className="relative flex-1 min-h-0">
+      {showEmptyState && (
+        <div
+          className="chat-empty-state pointer-events-none absolute inset-0 flex items-center justify-center select-none"
+          data-testid="chat-empty-state"
+          role="status"
+          aria-label="No messages yet"
+          style={{ "--chat-provider-color": provider?.iconColor ?? "var(--ct-accent, #58a6ff)" } as React.CSSProperties}
+        >
+          <span className="chat-empty-mark" aria-hidden>
+            <span className="chat-empty-orbit" />
+            <AgentIcon providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
+          </span>
+          <span className="chat-empty-label">
+            No messages yet
+          </span>
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -634,11 +662,7 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
-        {!inlinePrompt && shouldRenderAgentStateIndicator(
-          liveAgentState.state,
-          renderedEnrichedMessages.length > 0,
-          inputRequestAdmission.notificationReady,
-        ) && (
+        {agentStateIndicatorVisible && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
