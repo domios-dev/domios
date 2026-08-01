@@ -86,6 +86,101 @@ fn chat_send_status_reconciles_detached_jsonl_turn_from_captured_anchor() {
 }
 
 #[test]
+fn chat_send_status_reconciles_unbound_jsonl_materialization_from_reported_session() {
+    let (fixture, tab_id) = unbound_service_fixture("windowed");
+    let root = fixture.temp.path().join("unbound-jsonl-materialization");
+    std::fs::create_dir_all(&root).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
+
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    let anchor = evidence.anchor.as_ref().expect("materialization anchor");
+    assert_eq!(anchor.session_id, None);
+    let not_before_ms = match anchor.window {
+        EvidenceWindow::JsonlSessionMaterialization { not_before_ms } => not_before_ms,
+        ref other => panic!("expected session materialization boundary, got {other:?}"),
+    };
+    let send = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "unbound materialized turn",
+            evidence.anchor,
+            evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&send.send_id, Ok(()))
+        .unwrap();
+    std::fs::write(
+        root.join("session-materialized.jsonl"),
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "role": "user",
+                "content": "unbound materialized turn",
+                "timestamp": chrono::DateTime::from_timestamp_millis(not_before_ms as i64)
+                    .unwrap()
+                    .to_rfc3339(),
+            })
+        ),
+    )
+    .unwrap();
+
+    set_fixture_session_without_report(&fixture, &tab_id, "session-materialized");
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .reported_session_binding_nonce = Some("binding-stale".into());
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+
+    bind_fixture_session(&fixture, &tab_id, "session-materialized");
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+
+    use std::io::Write;
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(root.join("session-materialized.jsonl"))
+            .unwrap(),
+        "{}",
+        serde_json::json!({
+            "role": "user",
+            "content": "unbound materialized turn",
+            "timestamp": chrono::DateTime::from_timestamp_millis(not_before_ms as i64 + 1)
+                .unwrap()
+                .to_rfc3339(),
+        })
+    )
+    .unwrap();
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
+    assert_eq!(confirmed[0].send_id, send.send_id);
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+}
+
+#[test]
 fn missing_jsonl_store_without_acknowledged_binding_stays_anchorless() {
     let (fixture, tab_id) = unbound_service_fixture("windowed");
     let root = fixture.temp.path().join("unacknowledged-jsonl-evidence");

@@ -36,6 +36,9 @@ pub(crate) enum EvidenceWindow {
     /// The exact bound session's append-only transcript path did not exist at
     /// send start. Its first materialization is the bounded append region.
     JsonlMaterialization,
+    /// The fresh launch was unbound at send start. Only timestamped rows
+    /// strictly after capture in its later reported session are eligible.
+    JsonlSessionMaterialization { not_before_ms: u64 },
     /// Structured store (`uses_structured_chat` capability): the window is
     /// rows after this opaque provider cursor. `None` = the store was empty at
     /// send start, so every row is post-send.
@@ -46,7 +49,7 @@ pub(crate) enum EvidenceWindow {
 }
 
 /// Transcript scope captured at send start. A missing session id is valid only
-/// for a structured materialization resolved by the current binding.
+/// for a materialization resolved by the current launch's reported binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
