@@ -570,16 +570,12 @@ export function TabSessionChat({
         <div
           className="chat-empty-state pointer-events-none absolute inset-0 flex items-center justify-center select-none"
           data-testid="chat-empty-state"
-          role="status"
-          aria-label="No messages yet"
+          aria-hidden
           style={{ "--chat-provider-color": provider?.iconColor ?? "var(--ct-accent, #58a6ff)" } as React.CSSProperties}
         >
           <span className="chat-empty-mark" aria-hidden>
             <span className="chat-empty-orbit" />
             <AgentIcon providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
-          </span>
-          <span className="chat-empty-label">
-            No messages yet
           </span>
         </div>
       )}

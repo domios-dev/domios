@@ -2617,18 +2617,6 @@ button,
   position: relative;
 }
 
-.chat-empty-label {
-  color: color-mix(in srgb, var(--ct-muted-fg, #8b949e) 48%, transparent);
-  font-size: 11px;
-  font-weight: 500;
-  left: 0;
-  letter-spacing: 0.08em;
-  position: absolute;
-  right: 0;
-  text-align: center;
-  top: calc(50% + 50px);
-}
-
 @keyframes ct-chat-liquid-orbit {
   from { opacity: 0.42; transform: rotate(-7deg) scale(0.97); }
   to { opacity: 0.82; transform: rotate(11deg) scale(1.045); }
