@@ -12,7 +12,7 @@ import {
 } from "./presetManagerApi";
 import { PluginDetailPanel } from "./PluginDetailPanel";
 import type { CatalogEntry } from "./pluginCatalog";
-import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useAgentProviderCachePublisher } from "../../hooks/useAgentProviders";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
@@ -109,7 +109,7 @@ const CATALOG_ENTRY: CatalogEntry = {
 };
 
 function CatalogPluginDetail() {
-  useAgentProviders();
+  useAgentProviderCachePublisher();
   return (
     <PluginDetailPanel
       entry={CATALOG_ENTRY}
