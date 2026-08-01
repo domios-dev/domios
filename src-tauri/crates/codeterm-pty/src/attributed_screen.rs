@@ -742,27 +742,30 @@ where
         .iter()
         .map(std::borrow::Borrow::borrow)
         .collect::<Vec<_>>();
-    if rows.len() < 2 {
+    let comparable = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !row.side_band)
+        .collect::<Vec<_>>();
+    if comparable.len() < 2 {
         return None;
     }
     let mut counts = BTreeMap::<AttributedColor, usize>::new();
-    for row in &rows {
+    for (_, row) in &comparable {
         *counts.entry(row.content_bg.clone()).or_default() += 1;
     }
-    let singleton = rows
+    let singleton = comparable
         .iter()
-        .enumerate()
         .filter(|(_, row)| counts.get(&row.content_bg) == Some(&1))
-        .map(|(idx, _)| idx)
+        .map(|(idx, _)| *idx)
         .collect::<Vec<_>>();
     if singleton.len() == 1 && counts.values().any(|count| *count > 1) {
         return singleton.first().copied();
     }
-    let highlighted = rows
+    let highlighted = comparable
         .iter()
-        .enumerate()
-        .filter(|(_, row)| row.background_selected && !row.side_band)
-        .map(|(idx, _)| idx)
+        .filter(|(_, row)| row.background_selected)
+        .map(|(idx, _)| *idx)
         .collect::<Vec<_>>();
     (highlighted.len() == 1).then(|| highlighted[0])
 }
