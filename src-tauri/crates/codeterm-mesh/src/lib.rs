@@ -15,6 +15,7 @@ pub mod serve_setup;
 pub mod toggle;
 pub mod transport;
 pub mod types;
+pub mod web_ui_endpoints;
 
 use std::sync::Arc;
 
@@ -22,7 +23,7 @@ use parking_lot::Mutex;
 
 pub use broadcast::{
     broadcast_announce, broadcast_introductions, broadcast_sync, refresh_local_addresses,
-    AnnounceReport,
+    refresh_local_addresses_blocking, refresh_local_addresses_blocking_force, AnnounceReport,
 };
 pub use manager::{MeshManager, PairingDelivery};
 pub use ports::{LastActivityProvider, MeshEventSink};

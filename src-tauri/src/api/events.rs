@@ -704,7 +704,35 @@ pub fn emit_everywhere<S: Serialize>(app: &tauri::AppHandle, event_type: &str, d
     let value = serde_json::to_value(&data).unwrap_or(serde_json::Value::Null);
     let _ = app.emit(event_type, &value);
     if let Some(events) = app.try_state::<EventBroadcasterState>() {
-        events.publish_generic(event_type, value);
+        events.publish_generic(event_type, web_safe_event_payload(event_type, value));
+    }
+}
+
+fn web_safe_event_payload(event_type: &str, mut value: serde_json::Value) -> serde_json::Value {
+    if event_type == "config-changed" {
+        if let Some(api) = value
+            .get_mut("api")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            api.insert("token".into(), serde_json::Value::Null);
+        }
+    }
+    value
+}
+
+#[cfg(test)]
+mod web_safe_tests {
+    use super::web_safe_event_payload;
+
+    #[test]
+    fn config_events_do_not_publish_api_tokens_to_sse() {
+        let payload = serde_json::json!({
+            "api": { "token": "permanent-secret", "port": 7685 },
+            "mesh": { "enabled": true }
+        });
+        let safe = web_safe_event_payload("config-changed", payload);
+        assert_eq!(safe["api"]["token"], serde_json::Value::Null);
+        assert_eq!(safe["api"]["port"], 7685);
     }
 }
 

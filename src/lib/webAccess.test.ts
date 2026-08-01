@@ -83,6 +83,13 @@ assert(
   "http://127.0.0.1:7685/#token=a%20b%2Fc",
 );
 assert("no token → unchanged", webLinkWithToken("http://127.0.0.1:7685/", null), "http://127.0.0.1:7685/");
+let rejectedUnsafeOrigin = false;
+try {
+  webLinkWithToken("https://evil.example.com/", "secret");
+} catch {
+  rejectedUnsafeOrigin = true;
+}
+assert("rejects token attachment to an untrusted origin", rejectedUnsafeOrigin, true);
 assert(
   "builds authenticated self link",
   webLinkWithTokenAndRelay("https://host.ts.net/", "abc123", null),
@@ -90,8 +97,8 @@ assert(
 );
 assert(
   "builds authenticated relay link",
-  webLinkWithTokenAndRelay("https://host.ts.net/", "abc123", { id: "peer/a", name: "Mac Air" }),
-  "https://host.ts.net/#token=abc123&relay=peer%2Fa&relay_name=Mac+Air",
+  webLinkWithTokenAndRelay("https://host.ts.net/", "abc123", { id: "peer/a" }),
+  "https://host.ts.net/#token=abc123&relay=peer%2Fa",
 );
 
 console.log("\nserveHint:");

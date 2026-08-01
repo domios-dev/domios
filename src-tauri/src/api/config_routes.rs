@@ -28,6 +28,16 @@ fn api_bind_disclosure(
     }))
 }
 
+fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
+    if let Some(api) = config
+        .get_mut("api")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        api.insert("token".into(), serde_json::Value::Null);
+    }
+    config
+}
+
 pub async fn get_config_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -41,6 +51,7 @@ pub async fn get_config_api(
             "Config serialization failed",
         )
     })?;
+    let full = redact_rest_config(full);
     match q.key {
         Some(key) => {
             let val = dot_get(&full, &key).ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
@@ -95,6 +106,7 @@ pub async fn patch_config_api(
 
     let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+    new_cfg.api.token = cfg.api.token.clone();
 
     // builtin fresh (clients send the old colors along with the new name).
     let current_theme_name = state.config.lock().theme.name.clone();
@@ -239,4 +251,21 @@ pub async fn bridge_send_api(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_rest_config;
+
+    #[test]
+    fn rest_config_never_serializes_api_token() {
+        let config = serde_json::json!({
+            "api": { "host": "0.0.0.0", "token": "permanent-secret" },
+            "mesh": { "enabled": true }
+        });
+        let redacted = redact_rest_config(config);
+        assert_eq!(redacted["api"]["token"], serde_json::Value::Null);
+        assert_eq!(redacted["api"]["host"], "0.0.0.0");
+        assert_eq!(redacted["mesh"]["enabled"], true);
+    }
 }

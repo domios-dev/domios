@@ -1,12 +1,13 @@
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::Response,
     Json,
 };
 
 use crate::api::routes::{check_auth, AppState};
+use crate::api::access_policy::check_access;
 
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
@@ -70,33 +71,6 @@ fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<Strin
         known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
     }
     crate::mesh::crown::verify_signed_request(token, &known_keys).ok()
-}
-
-/// Sensitive relay paths that mutate the peer (install update, change channel).
-/// Read-only paths (GET checks, GET channel) are not gated and remain available
-/// to any paired peer.
-fn path_requires_full_access(method: &str, path: &str) -> bool {
-    let m = method.to_ascii_uppercase();
-    let bare = path.split('?').next().unwrap_or(path);
-    if m == "DELETE" && bare.starts_with("/api/mesh/peers/") {
-        return true;
-    }
-    matches!(
-        (m.as_str(), bare),
-        ("POST", "/api/update/install")
-            | ("POST", "/api/update/channel")
-            | ("POST", "/api/mesh/refresh")
-            | ("POST", "/api/mesh/pair/request")
-            | ("POST", "/api/mesh/pair/accept")
-            | ("POST", "/api/mesh/introduce")
-            | ("POST", "/api/mesh/rpc")
-            | ("POST", "/api/agents/spawn")
-            | ("POST", "/api/hooks/permission")
-            | ("POST", "/api/hooks/stop")
-            | ("POST", "/api/hooks/session_start")
-            | ("POST", "/api/config")
-            | ("PUT", "/api/config")
-    )
 }
 
 /// Verify relay sender: must be paired. Paired = trusted.
@@ -276,6 +250,21 @@ pub async fn mesh_relay_to_peer(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let (client, peer_name) = {
         let mesh = state.mesh.lock();
+        let peer = mesh.paired_peers.get(&req.target_peer_id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Peer {} not paired", req.target_peer_id),
+            )
+        })?;
+        if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!(
+                    "Peer {} uses incompatible Mesh relay protocol {}",
+                    peer.instance_name, peer.relay_protocol_version
+                ),
+            ));
+        }
         let client = mesh.client_for(&req.target_peer_id).ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
@@ -444,15 +433,29 @@ async fn perform_relay(
 
     validate_relay_path(&cmd.path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    if path_requires_full_access(&cmd.method, &cmd.path) && sender_id != "local" {
-        let access = state
+    if sender_id != "local" {
+        let (access, protocol_version) = state
             .mesh
             .lock()
             .paired_peers
             .get(sender_id)
-            .map(|p| p.access_level.clone())
-            .unwrap_or(crate::mesh::types::AccessLevel::Full);
-        if access != crate::mesh::types::AccessLevel::Full {
+            .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
+            .unwrap_or((crate::mesh::types::AccessLevel::ReadOnly, 0));
+        if protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Ok(crate::mesh::types::RelayResponse {
+                ok: false,
+                status: StatusCode::UPGRADE_REQUIRED.as_u16(),
+                data: None,
+                error: Some("Incompatible Mesh relay protocol; update CodeTerm".into()),
+            });
+        }
+        let method = Method::from_bytes(cmd.method.as_bytes()).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported method: {}", cmd.method),
+            )
+        })?;
+        if !check_access(&access, &method, &cmd.path) {
             return Ok(crate::mesh::types::RelayResponse {
                 ok: false,
                 status: 403,
@@ -648,6 +651,16 @@ pub async fn mesh_relay_stream(
 
     let client = {
         let mesh = state.mesh.lock();
+        let peer = mesh
+            .paired_peers
+            .get(&q.peer)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?;
+        if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!("Peer {} uses an incompatible Mesh relay protocol", peer.instance_name),
+            ));
+        }
         mesh.client_for(&q.peer)
             .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?
     };
@@ -700,6 +713,19 @@ pub async fn mesh_relay_asset(
 
     let (client, signed) = {
         let mesh = state.mesh.lock();
+        let paired = mesh
+            .paired_peers
+            .get(&peer)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
+        if paired.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!(
+                    "Peer {} uses an incompatible Mesh relay protocol",
+                    paired.instance_name
+                ),
+            ));
+        }
         let client = mesh
             .client_for(&peer)
             .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
@@ -732,8 +758,8 @@ pub async fn mesh_relay_asset(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_relay_asset_path, is_streamable_relay_path, path_requires_full_access,
-        tag_relay_send_source, tag_relay_spawn_source, validate_relay_path,
+        is_relay_asset_path, is_streamable_relay_path, tag_relay_send_source,
+        tag_relay_spawn_source, validate_relay_path,
     };
 
     use super::outcome_holds_dedupe;
@@ -996,86 +1022,6 @@ mod tests {
     }
 
     #[test]
-    fn install_update_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/update/install"));
-        assert!(path_requires_full_access(
-            "POST",
-            "/api/update/install?method=auto"
-        ));
-        assert!(path_requires_full_access(
-            "post",
-            "/api/update/install?method=auto&manifest_url=foo"
-        ));
-    }
-
-    #[test]
-    fn set_channel_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/update/channel"));
-    }
-
-    #[test]
-    fn check_and_get_channel_are_open() {
-        assert!(!path_requires_full_access("GET", "/api/update/check"));
-        assert!(!path_requires_full_access(
-            "GET",
-            "/api/update/check?force=true"
-        ));
-        assert!(!path_requires_full_access("GET", "/api/update/channel"));
-    }
-
-    #[test]
-    fn unrelated_paths_are_open() {
-        assert!(!path_requires_full_access("POST", "/api/tabs/general/send"));
-        assert!(!path_requires_full_access("GET", "/api/mesh/peers"));
-    }
-
-    #[test]
-    fn mesh_refresh_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/mesh/refresh"));
-        assert!(!path_requires_full_access("GET", "/api/mesh/refresh"));
-    }
-
-    #[test]
-    fn mesh_announce_is_open() {
-        // Access gate already validates signed token; re-verify sender_id during apply for relay safety.
-        assert!(!path_requires_full_access("POST", "/api/mesh/announce"));
-    }
-
-    #[test]
-    fn mesh_pairing_endpoints_are_gated() {
-        assert!(path_requires_full_access("POST", "/api/mesh/pair/request"));
-        assert!(path_requires_full_access("POST", "/api/mesh/pair/accept"));
-        assert!(path_requires_full_access("POST", "/api/mesh/introduce"));
-    }
-
-    #[test]
-    fn mesh_rpc_requires_full_access() {
-        assert!(path_requires_full_access("POST", "/api/mesh/rpc"));
-    }
-
-    #[test]
-    fn agent_spawn_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/agents/spawn"));
-    }
-
-    #[test]
-    fn hook_endpoints_are_gated() {
-        assert!(path_requires_full_access("POST", "/api/hooks/permission"));
-        assert!(path_requires_full_access("POST", "/api/hooks/stop"));
-        assert!(path_requires_full_access(
-            "POST",
-            "/api/hooks/session_start"
-        ));
-    }
-
-    #[test]
-    fn config_mutation_is_gated() {
-        assert!(path_requires_full_access("POST", "/api/config"));
-        assert!(path_requires_full_access("PUT", "/api/config"));
-        assert!(!path_requires_full_access("GET", "/api/config"));
-    }
-
-    #[test]
     fn only_cursor_streams_are_relayable() {
         assert!(is_streamable_relay_path("/api/events/stream"));
         assert!(is_streamable_relay_path("/api/output/stream"));
@@ -1093,19 +1039,4 @@ mod tests {
         assert!(!is_relay_asset_path("plugins/git/ui/../../../etc/passwd"));
     }
 
-    #[test]
-    fn peer_delete_is_gated() {
-        assert!(path_requires_full_access(
-            "DELETE",
-            "/api/mesh/peers/some-uuid"
-        ));
-        assert!(path_requires_full_access(
-            "DELETE",
-            "/api/mesh/peers/peer-abc-123"
-        ));
-        assert!(!path_requires_full_access(
-            "GET",
-            "/api/mesh/peers/some-uuid"
-        ));
-    }
 }

@@ -6,6 +6,7 @@ import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
+import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 
 export interface RecentPush {
   source_id: string;
@@ -27,6 +28,7 @@ interface PeerLayout {
   servicesError?: string | null;
   servicesLoaded?: boolean;
   webUrl?: string | null;
+  webUnavailableReason?: string;
 }
 
 interface PushStats {
@@ -96,6 +98,7 @@ export function MeshCanvas({
         webUrl: webUiBaseUrl
           ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, null)
           : null,
+        webUnavailableReason: webUiBaseUrl ? undefined : "Web UI is not enabled on this machine",
       },
     ];
     peers.forEach((p, i) => {
@@ -112,12 +115,16 @@ export function MeshCanvas({
         servicesStale: p.services_stale,
         servicesError: p.services_error,
         servicesLoaded: p.services_loaded,
-        webUrl: p.online && webUiBaseUrl
+        webUrl: p.online && p.relay_protocol_version === RELAY_PROTOCOL_VERSION && webUiBaseUrl
           ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, {
               id: p.instance_id,
-              name: p.name,
             })
           : null,
+        webUnavailableReason: !p.online
+          ? `${p.name} is offline`
+          : p.relay_protocol_version !== RELAY_PROTOCOL_VERSION
+            ? `Update CodeTerm on ${p.name} to use Web UI relay`
+            : "The browser gateway is unavailable",
       });
     });
     if (showGhost) {
@@ -354,6 +361,7 @@ export function MeshCanvas({
                 servicesError={p.servicesError}
                 servicesLoaded={p.servicesLoaded}
                 webUrl={p.webUrl}
+                webUnavailableReason={p.webUnavailableReason}
                 onOpenWebUi={onOpenPeerWebUi}
               />
             )}

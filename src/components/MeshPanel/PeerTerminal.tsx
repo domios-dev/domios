@@ -20,6 +20,7 @@ interface Props {
   servicesLoaded?: boolean;
   /** Verified peer web UI URL — the Open action shows only when this is set. */
   webUrl?: string | null;
+  webUnavailableReason?: string;
   onOpenWebUi?: (url: string) => void;
 }
 
@@ -44,6 +45,7 @@ function PeerTerminalComponent({
   offline = false,
   onGoOnline,
   webUrl = null,
+  webUnavailableReason,
   onOpenWebUi,
 }: Props) {
   const visibleServices = services.filter((service) => service.kind !== "cron");
@@ -145,7 +147,7 @@ function PeerTerminalComponent({
             if (webUrl) onOpenWebUi?.(webUrl);
           }}
           className="ml-auto inline-flex h-6 items-center gap-1 rounded border border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)] px-2.5 text-[10px] font-semibold text-[var(--ct-accent)] transition-colors enabled:cursor-pointer enabled:hover:border-[var(--ct-accent)] enabled:hover:bg-[color-mix(in_srgb,var(--ct-accent)_18%,transparent)] disabled:cursor-default disabled:border-[var(--ct-border)] disabled:bg-[var(--ct-titlebar-bg)] disabled:text-[var(--ct-muted)]"
-          title={webUrl ? `Open ${name}'s Web UI — ${webUrl}` : `${name} has not shared a Web UI`}
+          title={webUrl ? `Open ${name}'s Web UI — ${webUrl}` : webUnavailableReason ?? `${name} Web UI is unavailable`}
         >
           Open
           <ArrowUpRight size={11} />

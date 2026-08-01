@@ -49,8 +49,10 @@ pub fn get_network_info(
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let port = state.lock().api.port;
-    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port)
-        .or_else(|| mesh.lock().local_https_url.clone());
+    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port).or_else(|| {
+        let mesh = mesh.lock();
+        crate::mesh::web_ui_endpoints::preferred_https_url(mesh.local_web_ui.as_ref())
+    });
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
@@ -72,7 +74,9 @@ pub fn get_serve_status(
     let port = state.lock().api.port;
     let mut status = crate::mesh::probe_serve_status(port);
     if status.https_url.is_none() {
-        if let Some(cached) = mesh.lock().local_https_url.clone() {
+        if let Some(cached) = crate::mesh::web_ui_endpoints::preferred_https_url(
+            mesh.lock().local_web_ui.as_ref(),
+        ) {
             status.https_url = Some(cached);
             status.active = true;
         }
@@ -84,21 +88,25 @@ pub fn get_serve_status(
 /// have shown the exact commands and required a second confirming click before
 /// invoking this. Idempotent + defends against clobbering a sibling CodeTerm.
 #[tauri::command]
-pub fn enable_web_access(
+pub async fn enable_web_access(
     state: tauri::State<'_, crate::config::ConfigState>,
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    app: AppHandle,
     https_port: Option<u16>,
-) -> crate::mesh::ServeResult {
+) -> Result<crate::mesh::ServeResult, String> {
     let port = state.lock().api.port;
-    crate::mesh::enable_web_serve(port, https_port)
+    crate::service::web_access::enable(app, mesh.inner().clone(), port, https_port).await
 }
 
 /// Tear down the Serve HTTPS listener that proxies to this daemon.
 #[tauri::command]
-pub fn disable_web_access(
+pub async fn disable_web_access(
     state: tauri::State<'_, crate::config::ConfigState>,
-) -> crate::mesh::ServeResult {
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    app: AppHandle,
+) -> Result<crate::mesh::ServeResult, String> {
     let port = state.lock().api.port;
-    crate::mesh::disable_web_serve(port)
+    crate::service::web_access::disable(app, mesh.inner().clone(), port).await
 }
 
 /// Cleanly restart the CodeTerm process. Used by the Settings UI after the user

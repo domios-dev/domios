@@ -36,7 +36,8 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - `sign_request()` — signs a request with this peer's private key
 - `verify_signed_request()` — verifies signature against known paired peer public keys
 - Paired = allowed. Not paired = rejected.
-- AccessLevel check can be added per-endpoint in the future.
+- Normal peer requests and relayed requests use the same `AccessLevel` policy.
+- Secret-vault routes and mesh token minting are local-only at every access level.
 
 ## Flows
 
@@ -69,6 +70,33 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - Manual approval for pairing (no auto-pair)
 - Public keys exchanged during pairing, verified on every request
 - Unpair = remove pubkey = auth fails
+
+## Web UI discovery and relay
+
+Every live announce carries `relay_protocol_version` and an optional typed
+`web_ui` capability. Endpoints are limited to verified Tailscale HTTPS,
+Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes
+`/api/health` and matches the running build before advertising an origin; the
+receiver validates and reorders the typed endpoints before storing them.
+
+The default **Open** action never sends a remote daemon token to the browser.
+It opens the local Web UI entry origin with the local token in a URL fragment
+and a paired peer ID. The browser removes that fragment from history, resolves
+the peer name from the authenticated local peer list, and sends API traffic
+through the signed Mesh relay. Relay authorization uses the same policy as a
+direct signed peer request. REST config responses redact `api.token`, and
+`/api/secrets/*` cannot be relayed even with Full access.
+
+Relay protocol version `1` is intentionally incompatible with older daemons.
+Both incoming and outgoing relay paths reject a peer with `426 Upgrade
+Required`; the Mesh card keeps **Open** disabled and asks the user to update
+that peer.
+
+The browser origin that served the SPA remains its gateway. An already-loaded
+page can render during a gateway outage, but it cannot fetch data or switch
+peers until that gateway returns. Safe gateway failover requires a separate
+short-lived, single-use handoff grant; permanent API tokens are never shared as
+a fallback.
 
 ## Remote plan commands
 
@@ -254,4 +282,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

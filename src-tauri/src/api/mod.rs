@@ -1,3 +1,4 @@
+pub(crate) mod access_policy;
 pub mod auth;
 pub mod events;
 pub mod routes;

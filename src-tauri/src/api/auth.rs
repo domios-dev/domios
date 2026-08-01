@@ -6,6 +6,7 @@ use axum::{
 };
 
 use super::routes::AppState;
+use super::access_policy::check_access;
 use crate::mesh::types::AccessLevel;
 
 #[derive(Clone, Debug)]
@@ -17,6 +18,7 @@ pub enum CallerIdentity {
     Peer {
         instance_id: String,
         access_level: AccessLevel,
+        relay_protocol_version: u16,
     },
 }
 
@@ -42,6 +44,11 @@ const PUBLIC_PATHS: &[&str] = &[
     "/api/mesh/pair/confirm",
     "/api/mesh/pair/reject",
 ];
+
+fn peer_protocol_allowed(version: u16, path: &str) -> bool {
+    version == crate::mesh::types::RELAY_PROTOCOL_VERSION
+        || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
+}
 
 /// Paths whose handler does its OWN authentication (a mesh-signed token, not the
 /// bearer API token) and must therefore skip the bearer-token middleware. This
@@ -120,82 +127,17 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
                 .get(&sender_id)
                 .map(|p| p.access_level.clone())
                 .unwrap_or(AccessLevel::ReadOnly);
+            let relay_protocol_version = paired_peers
+                .get(&sender_id)
+                .map(|peer| peer.relay_protocol_version)
+                .unwrap_or(0);
             Ok(CallerIdentity::Peer {
                 instance_id: sender_id,
                 access_level,
+                relay_protocol_version,
             })
         }
         Err(_) => Err(()),
-    }
-}
-
-fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
-    match access {
-        AccessLevel::Full => true,
-        AccessLevel::ReadOnly => *method == Method::GET,
-        AccessLevel::AgentIsolated => {
-            if *method == Method::GET {
-                return true;
-            }
-            let write_allowed = [
-                "/send",
-                "/exec",
-                "/report",
-                "/reports",
-                "/respond",
-                "/clear",
-                "/describe",
-                "/can-spawn",
-                "/agent-type",
-            ];
-            if path.starts_with("/api/tabs/") && write_allowed.iter().any(|s| path.ends_with(s)) {
-                return true;
-            }
-            path == "/api/agents/spawn" || path == "/api/batch" || path == "/api/notifications"
-        }
-        AccessLevel::Custom(perms) => {
-            use crate::mesh::types::Permission;
-            if perms.contains(&Permission::Admin) {
-                return true;
-            }
-            if *method == Method::GET {
-                let can_read = perms.contains(&Permission::ReadTabs)
-                    || perms.contains(&Permission::ReadOutput);
-                if can_read {
-                    return true;
-                }
-            }
-            if path.starts_with("/api/tabs/") {
-                if path.ends_with("/send") && perms.contains(&Permission::SendInput) {
-                    return true;
-                }
-                if (path.ends_with("/output") || path.ends_with("/text"))
-                    && perms.contains(&Permission::ReadOutput)
-                {
-                    return true;
-                }
-                if perms.contains(&Permission::WriteTabs) {
-                    return true;
-                }
-            }
-            if path.starts_with("/api/agents/") && perms.contains(&Permission::SpawnAgents) {
-                return true;
-            }
-            if path.starts_with("/api/workspaces") && perms.contains(&Permission::ManageWorkspaces)
-            {
-                return true;
-            }
-            if (path == "/api/fs/list-dir" || path == "/api/fs/mkdir")
-                && (perms.contains(&Permission::ManageWorkspaces)
-                    || perms.contains(&Permission::SpawnAgents))
-            {
-                return true;
-            }
-            if path.starts_with("/api/crons") && perms.contains(&Permission::ManageCrons) {
-                return true;
-            }
-            false
-        }
     }
 }
 
@@ -263,6 +205,7 @@ pub async fn auth_middleware(
         Ok(CallerIdentity::Peer {
             ref instance_id,
             ref access_level,
+            relay_protocol_version,
         }) => {
             if !state.config.lock().mesh.enabled {
                 log::warn!(
@@ -274,6 +217,20 @@ pub async fn auth_middleware(
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Mesh networking is disabled",
+                )
+                    .into_response();
+            }
+            if !peer_protocol_allowed(relay_protocol_version, &path) {
+                log::warn!(
+                    "[auth] Rejecting peer {} with relay protocol {} on {} {}",
+                    instance_id,
+                    relay_protocol_version,
+                    method,
+                    path
+                );
+                return (
+                    StatusCode::UPGRADE_REQUIRED,
+                    "Incompatible Mesh relay protocol; update CodeTerm",
                 )
                     .into_response();
             }
@@ -354,6 +311,18 @@ mod tests {
         ));
         // Unpair must be DELETE — a GET on the same path is not exempt.
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/abc123"));
+    }
+
+    #[test]
+    fn old_peer_protocol_can_only_bootstrap_compatibility_state() {
+        assert!(peer_protocol_allowed(0, "/api/mesh/announce"));
+        assert!(peer_protocol_allowed(0, "/api/mesh/sync"));
+        assert!(!peer_protocol_allowed(0, "/api/events/stream"));
+        assert!(!peer_protocol_allowed(0, "/api/config"));
+        assert!(peer_protocol_allowed(
+            crate::mesh::types::RELAY_PROTOCOL_VERSION,
+            "/api/events/stream"
+        ));
     }
 
     #[test]

@@ -85,6 +85,7 @@ mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
+pub mod web_access;
 pub(crate) mod worker_ack;
 mod worker_identity;
 mod worker_lane;

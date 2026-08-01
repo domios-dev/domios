@@ -75,6 +75,9 @@ use super::types::{
 };
 use super::{crown, discovered, identity, peer_services, peers, transport};
 
+mod announce;
+pub use announce::PeerAnnounceChange;
+
 /// Central mesh state — composes identity with peer/discovery state.
 /// Single Mutex — no lock ordering concerns.
 pub struct MeshManager {
@@ -88,7 +91,7 @@ pub struct MeshManager {
     pub broadcast_expires_at: Option<u64>,
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
-    pub local_https_url: Option<String>,
+    pub local_web_ui: Option<types::WebUiAnnouncement>,
     pub api_port: u16,
     pub build_hash: String,
     pub pairing_targets: HashMap<String, (String, u16, String)>,
@@ -224,7 +227,7 @@ impl MeshManager {
             broadcast_expires_at: None,
             tailscale_ip: None,
             local_ip: None,
-            local_https_url: None,
+            local_web_ui: None,
             api_port,
             build_hash: String::new(),
             pairing_targets: HashMap::new(),
@@ -334,6 +337,7 @@ impl MeshManager {
                 })
                 .cloned()
                 .collect(),
+            local_instance_name: self.ident.instance_name.clone(),
             local_last_active_ms: self.last_activity.read_for_gossip(),
             local_dev: codeterm_paths::is_dev_instance(),
         }
@@ -705,119 +709,6 @@ impl MeshManager {
         ))
     }
 
-    pub fn local_announce_addresses(&self) -> Vec<types::PeerAddress> {
-        let mut out = Vec::new();
-        if let Some(ip) = &self.tailscale_ip {
-            if !ip.is_empty() {
-                out.push(types::PeerAddress {
-                    ip: ip.clone(),
-                    is_tailscale: true,
-                });
-            }
-        }
-        if let Some(ip) = &self.local_ip {
-            if !ip.is_empty() && types::is_lan_private_ip(ip) {
-                out.push(types::PeerAddress {
-                    ip: ip.clone(),
-                    is_tailscale: false,
-                });
-            }
-        }
-        out
-    }
-
-    pub fn build_announce(&self) -> types::PeerAnnounce {
-        let online = self.local_http_healthy;
-        types::PeerAnnounce {
-            instance_id: self.ident.identity.instance_id.clone(),
-            instance_name: self.ident.instance_name.clone(),
-            addresses: if online {
-                self.local_announce_addresses()
-            } else {
-                Vec::new()
-            },
-            api_port: self.api_port,
-            online,
-            https_url: if online {
-                self.local_https_url.clone()
-            } else {
-                None
-            },
-        }
-    }
-
-    pub fn set_local_http_healthy(&mut self, healthy: bool) -> bool {
-        let changed = self.local_http_healthy != healthy;
-        self.local_http_healthy = healthy;
-        changed
-    }
-
-    pub fn apply_announce(
-        &mut self,
-        sender_id: &str,
-        ann: &types::PeerAnnounce,
-    ) -> Result<Option<Vec<types::PeerAddress>>, String> {
-        if sender_id != ann.instance_id {
-            return Err(format!(
-                "Sender {} cannot announce addresses for {}",
-                sender_id, ann.instance_id
-            ));
-        }
-        let clean = types::sanitize_addresses(&ann.addresses);
-        if clean.is_empty() && ann.online {
-            return Ok(None);
-        }
-        let (prev, online_changed) = {
-            let peer = self
-                .paired_peers
-                .get_mut(&ann.instance_id)
-                .ok_or_else(|| format!("Peer {} not paired", ann.instance_id))?;
-            let prev = peer.addresses.clone();
-            let online_changed = peer.online != ann.online;
-            peer.addresses = clean.clone();
-            peer.api_port = ann.api_port;
-            peer.online = ann.online;
-            peer.https_url = ann.https_url.clone();
-            if !ann.instance_name.is_empty() {
-                peer.instance_name = ann.instance_name.clone();
-            }
-            (prev, online_changed)
-        };
-        let _ = self.save();
-        if prev_addrs_equal(&prev, &clean) && !online_changed {
-            Ok(None)
-        } else {
-            Ok(Some(prev))
-        }
-    }
-
-    pub fn set_peer_addr_override(
-        &mut self,
-        peer_id: &str,
-        ip: &str,
-        port: Option<u16>,
-    ) -> Result<Vec<types::PeerAddress>, String> {
-        let peer = self
-            .paired_peers
-            .get_mut(peer_id)
-            .ok_or_else(|| format!("Peer {} not paired", peer_id))?;
-        let prev = peer.addresses.clone();
-        peer.addresses = vec![types::PeerAddress::from_ip(ip)];
-        if let Some(p) = port {
-            peer.api_port = p;
-        }
-        let _ = self.save();
-        Ok(prev)
-    }
-}
-
-fn prev_addrs_equal(a: &[types::PeerAddress], b: &[types::PeerAddress]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter()
-        .zip(b.iter())
-        .all(|(x, y)| x.ip == y.ip && x.is_tailscale == y.is_tailscale)
 }
 
 #[cfg(test)]
@@ -843,7 +734,8 @@ mod liveness_tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: 0,
             consecutive_misses: 0,
             last_active_ms: None,
         }
@@ -892,7 +784,7 @@ mod liveness_tests {
         mesh.paired_peers
             .insert("peer-1".into(), paired_peer("peer-1"));
 
-        let prev = mesh
+        let change = mesh
             .apply_announce(
                 "peer-1",
                 &types::PeerAnnounce {
@@ -901,13 +793,16 @@ mod liveness_tests {
                     addresses: Vec::new(),
                     api_port: 7685,
                     online: false,
-                    https_url: None,
+                    web_ui: None,
+                    relay_protocol_version: 0,
                 },
             )
             .unwrap();
         let peer = mesh.paired_peers.get("peer-1").unwrap();
 
-        assert!(prev.is_some());
+        assert!(change.changed());
+        assert!(change.addresses_changed);
+        assert!(change.online_changed);
         assert!(peer.addresses.is_empty());
         assert!(!peer.online);
     }
@@ -919,7 +814,7 @@ mod liveness_tests {
         mesh.paired_peers
             .insert("peer-1".into(), paired_peer("peer-1"));
 
-        let prev = mesh
+        let change = mesh
             .apply_announce(
                 "peer-1",
                 &types::PeerAnnounce {
@@ -928,13 +823,14 @@ mod liveness_tests {
                     addresses: Vec::new(),
                     api_port: 7685,
                     online: true,
-                    https_url: None,
+                    web_ui: None,
+                    relay_protocol_version: 0,
                 },
             )
             .unwrap();
         let peer = mesh.paired_peers.get("peer-1").unwrap();
 
-        assert!(prev.is_none());
+        assert!(!change.changed());
         assert_eq!(peer.addresses.len(), 1);
         assert!(peer.online);
     }
@@ -947,7 +843,7 @@ mod liveness_tests {
         peer.addresses.clear();
         mesh.paired_peers.insert("peer-1".into(), peer);
 
-        let prev = mesh
+        let change = mesh
             .apply_announce(
                 "peer-1",
                 &types::PeerAnnounce {
@@ -956,12 +852,14 @@ mod liveness_tests {
                     addresses: Vec::new(),
                     api_port: 7685,
                     online: false,
-                    https_url: None,
+                    web_ui: None,
+                    relay_protocol_version: 0,
                 },
             )
             .unwrap();
 
-        assert!(prev.is_some());
+        assert!(change.changed());
+        assert!(change.online_changed);
         assert!(!mesh.paired_peers.get("peer-1").unwrap().online);
     }
 }
@@ -972,7 +870,9 @@ mod pairing_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{PairedPeer, PeerAddress, PeerAnnounce};
+    use crate::types::{
+        PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, WebUiEndpoint,
+    };
 
     fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         let mut m = MeshManager::new("test-host".into(), 7685);
@@ -989,7 +889,8 @@ mod tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: 0,
             consecutive_misses: 0,
             last_active_ms: None,
         };
@@ -1006,13 +907,16 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7777,
             online: true,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         };
-        let prev = m
-            .apply_announce("peer-A", &ann)
-            .expect("ok")
-            .expect("changed");
-        assert_eq!(prev.len(), 2, "old list returned for logging");
+        let change = m.apply_announce("peer-A", &ann).expect("ok");
+        assert!(change.addresses_changed);
+        assert_eq!(
+            change.previous_addresses.len(),
+            2,
+            "old list returned for logging"
+        );
         let after = &m.paired_peers["peer-A"];
         assert_eq!(after.addresses.len(), 1, "list fully replaced, not merged");
         assert_eq!(after.addresses[0].ip, "100.99.99.99");
@@ -1020,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_announce_stores_and_clears_https_url() {
+    fn apply_announce_stores_and_clears_web_ui() {
         let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
         let with_https = PeerAnnounce {
             instance_id: "peer-A".into(),
@@ -1028,20 +932,27 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.64.0.5")],
             api_port: 7685,
             online: true,
-            https_url: Some("https://peer-a.tail.ts.net".into()),
+            web_ui: Some(WebUiAnnouncement {
+                protocol_version: types::RELAY_PROTOCOL_VERSION,
+                endpoints: vec![WebUiEndpoint::TailscaleHttps {
+                    host: "peer-a.tail.ts.net".into(),
+                    port: 443,
+                }],
+            }),
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         };
-        m.apply_announce("peer-A", &with_https).expect("ok");
-        assert_eq!(
-            m.paired_peers["peer-A"].https_url.as_deref(),
-            Some("https://peer-a.tail.ts.net")
-        );
+        let added = m.apply_announce("peer-A", &with_https).expect("ok");
+        assert!(added.web_ui_changed);
+        assert_eq!(m.paired_peers["peer-A"].web_ui, with_https.web_ui);
 
         let without = PeerAnnounce {
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
             ..with_https
         };
-        m.apply_announce("peer-A", &without).expect("ok");
-        assert_eq!(m.paired_peers["peer-A"].https_url, None);
+        let cleared = m.apply_announce("peer-A", &without).expect("ok");
+        assert!(cleared.web_ui_changed);
+        assert_eq!(m.paired_peers["peer-A"].web_ui, None);
     }
 
     #[test]
@@ -1053,7 +964,8 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7685,
             online: true,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         };
         let err = m.apply_announce("peer-B", &ann).unwrap_err();
         assert!(err.contains("cannot announce"), "got: {}", err);
@@ -1072,10 +984,11 @@ mod tests {
             addresses: vec![],
             api_port: 7685,
             online: true,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         };
         let res = m.apply_announce("peer-A", &ann).expect("ok");
-        assert!(res.is_none(), "empty list does not clear cache");
+        assert!(!res.changed(), "empty list does not clear cache");
         assert_eq!(m.paired_peers["peer-A"].addresses.len(), 1);
     }
 
@@ -1088,10 +1001,11 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.64.0.5")],
             api_port: 7685,
             online: true,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         };
         let res = m.apply_announce("peer-A", &ann).expect("ok");
-        assert!(res.is_none(), "identical list reports no change");
+        assert!(!res.changed(), "identical list reports no change");
     }
 
     #[test]
@@ -1171,7 +1085,8 @@ mod tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
-            https_url: None,
+            web_ui: None,
+            relay_protocol_version: 0,
             consecutive_misses: 0,
             last_active_ms: None,
         };

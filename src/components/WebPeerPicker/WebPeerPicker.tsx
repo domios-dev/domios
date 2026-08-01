@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createPortal } from "react-dom";
+import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
 import {
   formatLastActiveBadge,
@@ -18,6 +19,7 @@ import {
   invalidateWebRequestContext,
 } from "../../lib/webApi";
 import { clampFloatingPosition, type FloatingPosition } from "../shared/floatingPosition";
+import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 
 let nextPeerSwitchId = 0;
 
@@ -31,11 +33,12 @@ interface PairedPeer {
   addresses: PeerAddress[];
   api_port: number;
   online: boolean;
-  https_url?: string | null;
+  relay_protocol_version: number;
   last_active_ms?: number | null;
 }
 interface MeshPeers {
   paired: PairedPeer[];
+  local_instance_name: string;
   local_last_active_ms?: number | null;
   local_dev?: boolean;
 }
@@ -44,11 +47,12 @@ interface MeshPeers {
  * Web-mirror peer switcher (top-left). Lists the LOCAL daemon's paired mesh
  * peers; selecting one sets a relay target so every request is proxied
  * through the local daemon's mesh relay (the browser stays pointed at its own
- * daemon — no re-point, no peer-scoped token). Selecting "this host" clears
- * the target. In-place switch reattaches events and refreshes mux state.
+ * daemon — no re-point, no peer-scoped token). Selecting the gateway machine
+ * clears the target. In-place switch reattaches events and refreshes mux state.
  */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
+  const [localName, setLocalName] = useState("CodeTerm");
   const [open, setOpen] = useState(false);
   const [resumePeer, setResumePeer] = useState<PairedPeer | null>(null);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
@@ -62,9 +66,10 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     try {
       const res = await localJson<MeshPeers>("GET", "/api/mesh/peers");
       const paired = res.paired ?? [];
+      setLocalName(res.local_instance_name);
       setPeers(rankPeersByLastActive(paired));
       setResumePeer(
-        pickResumePeer(paired, res.local_last_active_ms ?? null, !!res.local_dev, {
+        pickResumePeer(paired.filter((peer) => peer.online && peer.relay_protocol_version === RELAY_PROTOCOL_VERSION), res.local_last_active_ms ?? null, !!res.local_dev, {
           hasRelayTarget: !!relayTarget(),
           dismissedThisSession: resumePromptDismissed(),
         }),
@@ -75,9 +80,21 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
     void refresh();
-    const t = setInterval(() => void refresh(), 15_000);
-    return () => clearInterval(t);
+    void listen("mesh-state-changed", () => void refresh()).then((registered) => {
+      if (active) {
+        unlisten = registered;
+        void refresh();
+      } else {
+        registered();
+      }
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -128,12 +145,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
 
   const target = displayTarget;
   const onSelf = !target;
-  const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? "this host" : target.name;
+  const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? localName : target.name;
 
   const switchTo = useCallback(
     (peer: PairedPeer | null) => {
       const switchId = ++nextPeerSwitchId;
-      const nextName = peer?.instance_name ?? "this host";
+      const nextName = peer?.instance_name ?? localName;
       setSwitchingTo(nextName);
       setSwitchFailed(false);
       invalidateWebRequestContext();
@@ -151,7 +168,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       resetWebEvents();
       window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
-    [],
+    [localName],
   );
 
   const stayHere = useCallback(() => {
@@ -224,12 +241,14 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           >
             <span className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]" />
             <span className="flex-1 truncate">
-              this host ({selfHost().replace(/^https?:\/\//, "")})
+              {localName} ({selfHost().replace(/^https?:\/\//, "")})
             </span>
           </button>
           {peers.map((p) => {
             const active = target?.id === p.instance_id;
             const badge = formatLastActiveBadge(p.last_active_ms);
+            const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
+            const available = p.online && compatible;
             return (
               <button
                 type="button"
@@ -238,9 +257,10 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 data-testid="peer-picker-item"
                 data-peer-name={p.instance_name}
                 data-peer-online={String(!!p.online)}
+                disabled={!available}
                 onClick={() => switchTo(p)}
                 className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] disabled:opacity-40 ${active ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
-                title={p.instance_name}
+                title={!p.online ? `${p.instance_name} is offline` : compatible ? p.instance_name : `Update CodeTerm on ${p.instance_name}`}
               >
                 <span
                   className={`w-2 h-2 rounded-full shrink-0 ${p.online ? "bg-[var(--ct-green,#3fb950)]" : "bg-[var(--ct-muted,#8b949e)]"}`}
@@ -251,6 +271,9 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 )}
                 {!p.online && !badge && (
                   <span className="text-[9px] opacity-60 shrink-0">offline</span>
+                )}
+                {p.online && !compatible && (
+                  <span className="text-[9px] opacity-60 shrink-0">update required</span>
                 )}
               </button>
             );

@@ -18,12 +18,24 @@ function assert(condition: unknown, message: string): asserts condition {
 async function run() {
   const {
     clearRelayTarget,
+    GATEWAY_STATE_EVENT,
     invalidateWebRequestContext,
+    resolveRelayTarget,
     setRelayTarget,
     setTokenFor,
     webFetch,
     webUpload,
   } = await import("./webApi");
+  const gatewayStates: boolean[] = [];
+  window.addEventListener(GATEWAY_STATE_EVENT, (event) => {
+    gatewayStates.push((event as CustomEvent<{ available: boolean }>).detail.available);
+  });
+  const authoritative = resolveRelayTarget(
+    [{ instance_id: "peer-1", instance_name: "Authoritative name" }],
+    "peer-1",
+  );
+  assert(authoritative?.name === "Authoritative name", "relay bootstrap resolves the authenticated peer name");
+  assert(resolveRelayTarget([], "peer-1") === null, "unknown relay bootstrap peers are rejected");
   const upload = new Blob(["image-bytes"], { type: "image/png" });
   let uploadUrl = "";
   let uploadInit: RequestInit | undefined;
@@ -64,6 +76,13 @@ async function run() {
   } catch (error) {
     assert(error instanceof DOMException && error.name === "AbortError", "old request rejects as AbortError");
   }
+  globalThis.fetch = async () => {
+    throw new TypeError("connection refused");
+  };
+  try {
+    await webFetch("/api/health");
+  } catch {}
+  assert(gatewayStates[gatewayStates.length - 1] === false, "a failed gateway request publishes unavailable state");
 
   const { loadCachedStateSync, saveStateSnapshot } = await import("./stateCache");
   const state = (id: string) => ({

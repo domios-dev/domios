@@ -16,7 +16,7 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
+import { currentToken, IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
@@ -123,7 +123,12 @@ const HTTP_MAP: Record<string, Mapper> = {
       preset: a.preset,
       model: a.model,
     }),
-  get_config: () => webJson("GET", "/api/config"),
+  get_config: async () => {
+    const config = await webJson<Record<string, unknown>>("GET", "/api/config");
+    const api = config.api as Record<string, unknown> | undefined;
+    if (api) api.token = currentToken();
+    return config;
+  },
   list_notifications: () => webJson("GET", "/api/notifications"),
   notify: (a) =>
     webJson("POST", "/api/notifications", {
@@ -712,6 +717,11 @@ export async function listen<T>(
     if (perf) {
       perf.events += 1;
       perf.byEvent[event] = (perf.byEvent[event] ?? 0) + 1;
+    }
+    if (IS_WEB && event === "config-changed" && e.payload && typeof e.payload === "object") {
+      const config = e.payload as Record<string, unknown>;
+      const api = config.api as Record<string, unknown> | undefined;
+      if (api) api.token = currentToken();
     }
     handler(e);
   };
