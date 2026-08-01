@@ -209,14 +209,6 @@ trait SubmitTransport {
     fn retry_active(&self) -> bool {
         true
     }
-    fn write_atomic_initial(
-        &self,
-        _text: &str,
-        _key: &[u8],
-        _deadline: Instant,
-    ) -> Option<Result<usize, InjectionError>> {
-        None
-    }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
@@ -301,71 +293,6 @@ impl SubmitTransport for PtySubmitTransport<'_> {
 
     fn retry_active(&self) -> bool {
         self.submit_cycle.is_current(self.submit_generation)
-    }
-
-    fn write_atomic_initial(
-        &self,
-        text: &str,
-        key: &[u8],
-        deadline: Instant,
-    ) -> Option<Result<usize, InjectionError>> {
-        if text.is_empty() {
-            return Some(self.write_submit_key(key, deadline).map(|()| 0));
-        }
-        let bracketed_paste_mode = self
-            .svc
-            .screen_state
-            .lock()
-            .bracketed_paste_mode(self.pty_id)
-            .unwrap_or(false);
-        let paste = xterm_paste(text, bracketed_paste_mode);
-        let paste_len = paste.len();
-        let mut input = paste.into_bytes();
-        input.extend_from_slice(key);
-        log::info!(
-            "[submit-audit] atomic-initial pty={} submit_generation={} current={} source_bytes={} encoded_bytes={} key_bytes={}",
-            self.pty_id,
-            self.submit_generation,
-            self.retry_active(),
-            text.len(),
-            paste_len,
-            key.len()
-        );
-        let session = match self.svc.pty.lock().get_session(self.pty_id) {
-            Some(session) => session,
-            None => {
-                return Some(Err(InjectionError::PtyClosed {
-                    pty_id: self.pty_id.to_string(),
-                }));
-            }
-        };
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        let result = match self.permit.as_ref() {
-            Some(permit) => session.write_and_flush_guarded(input.clone(), permit.clone(), timeout),
-            None => self
-                .svc
-                .pty
-                .lock()
-                .write_and_flush(self.pty_id, &input, timeout),
-        };
-        log::info!(
-            "[submit-audit] atomic-initial-ack pty={} submit_generation={} session_gen={} queue_result={}",
-            self.pty_id,
-            self.submit_generation,
-            session.generation,
-            if result.is_ok() { "ok" } else { "error" }
-        );
-        if let Err(error) = result {
-            return Some(Err(injection_write_error(self.pty_id, error)));
-        }
-        if self.permit.is_some() {
-            crate::pty::capture::CaptureRegistry::global().tap_input(
-                self.pty_id,
-                "pty.write",
-                &input,
-            );
-        }
-        Some(Ok(paste_len))
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -535,15 +462,7 @@ fn run_with_submit_key<T: SubmitTransport>(
     let two_phase = enter && opts.verify_submit;
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let turn_was_started = enter.then(|| transport.turn_started());
-    let initial_enter_armed = transport.generation();
-    let atomic_initial = enter
-        .then(|| transport.write_atomic_initial(text, submit_key, turn_deadline))
-        .flatten();
-    let (bytes_written, mut submit_key_writes) = match atomic_initial {
-        Some(result) => (result?, 1),
-        None => (transport.write_paste(text, turn_deadline)?, 0),
-    };
+    let bytes_written = transport.write_paste(text, turn_deadline)?;
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -558,35 +477,16 @@ fn run_with_submit_key<T: SubmitTransport>(
         });
     }
 
-    let turn_was_started = turn_was_started.unwrap_or(false);
+    let turn_was_started = transport.turn_started();
+    let submit_started = Instant::now();
     let mut submit_observed = !two_phase;
-    if submit_key_writes == 1 && !two_phase {
-        return Ok(InjectionResult {
-            bytes_written,
-            echo_observed: paste_observed,
-            submit_observed,
-            submit_anomaly: false,
-            submit_key_writes,
-            elapsed: started.elapsed(),
-        });
-    }
-    if submit_key_writes == 1 && two_phase {
-        submit_observed |= submission_acknowledged_now(
-            transport,
-            text,
-            baseline_evidence,
-            paste_observed,
-            turn_was_started,
-            initial_enter_armed,
-            &strategy,
-        );
-    }
-    while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
-        if !transport.retry_active() {
-            break;
-        }
+    let mut submit_key_writes = 0usize;
+    for _ in 0..MAX_SUBMIT_KEY_WRITES {
         if submit_key_writes > 0 {
-            let retry_deadline = started + Duration::from_secs(submit_key_writes as u64);
+            if !transport.retry_active() {
+                break;
+            }
+            let retry_deadline = submit_started + Duration::from_secs(submit_key_writes as u64);
             transport.wait_retry_deadline(retry_deadline.min(turn_deadline));
             if !transport.retry_active() || Instant::now() >= turn_deadline {
                 break;

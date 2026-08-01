@@ -480,7 +480,13 @@ impl ServiceContext {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
-            return self.send_text_to_pty_delivery(pty_id, delivery_target, text, submit);
+            return self.send_text_to_pty_delivery_claimed(
+                pty_id,
+                delivery_target,
+                text,
+                submit,
+                claim,
+            );
         };
         let text = sanitize_agent_prompt_input(text);
         let strategy = self
@@ -711,14 +717,28 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), DeliveryError> {
+        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_delivery_claimed(pty_id, delivery_target, text, enter, claim)
+    }
+
+    fn send_text_to_pty_delivery_claimed(
+        &self,
+        pty_id: &str,
+        delivery_target: &str,
+        text: &str,
+        enter: bool,
+        claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
         super::submit_transaction::submit_entry(
             super::submit_transaction::PtySubmitEntry::Direct,
             text,
             |text| {
-                self.send_text_verified(
+                super::submit_transaction::submit_text_with_key_claimed(
+                    self,
                     pty_id,
                     text,
                     enter,
+                    b"\r",
                     crate::agent::provider::VerifySubmitStrategy::None,
                     crate::service::inject_verify::VerifyOpts {
                         require_prompt_first: false,
@@ -726,6 +746,8 @@ impl ServiceContext {
                         verify_submit: enter,
                         ..Default::default()
                     },
+                    None,
+                    claim,
                 )
                 .map(|_| ())
                 .map_err(|error| DeliveryError::from_injection(delivery_target, error))
