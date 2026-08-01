@@ -41,46 +41,50 @@ function provider(): ProviderDescriptor {
   };
 }
 
-setupDom();
+async function main() {
+  setupDom();
 
-let resolveCatalog!: (providers: ProviderDescriptor[]) => void;
-const catalog = new Promise<ProviderDescriptor[]>((resolve) => {
-  resolveCatalog = resolve;
-});
-__setInvokeForTest(async <T,>(command: string): Promise<T> => {
-  if (command === "list_agent_providers") return await catalog as unknown as T;
-  throw new Error(`Unexpected command: ${command}`);
-});
-__setListenForTest(async () => () => {});
+  let resolveCatalog!: (providers: ProviderDescriptor[]) => void;
+  const catalog = new Promise<ProviderDescriptor[]>((resolve) => {
+    resolveCatalog = resolve;
+  });
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "list_agent_providers") return await catalog as unknown as T;
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  __setListenForTest(async () => () => {});
 
-const host = document.createElement("div");
-document.body.appendChild(host);
-const root = createRoot(host);
-const config = defaultConfig();
-config.api = undefined as never;
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const config = defaultConfig();
+  config.api = undefined as never;
 
-await act(async () => {
-  root.render(<MemorySettingsTab config={config} onUpdate={() => {}} />);
-});
+  await act(async () => {
+    root.render(<MemorySettingsTab config={config} onUpdate={() => {}} />);
+  });
 
-const extraction = host.querySelector('[data-testid="memory-settings-extraction-model"]') as HTMLSelectElement | null;
-assert(extraction, "extraction model selector renders before catalog arrival");
-assert(extraction.disabled, "selector is disabled while catalog loads");
-assert(extraction.textContent?.includes("Loading model catalog"), "loading state is explicit");
-assert(host.querySelector('input[data-testid="memory-settings-extraction-model"]') === null, "no free-text fallback renders");
+  const extraction = host.querySelector('[data-testid="memory-settings-extraction-model"]') as HTMLSelectElement | null;
+  assert(extraction, "extraction model selector renders before catalog arrival");
+  assert(extraction.disabled, "selector is disabled while catalog loads");
+  assert(extraction.textContent?.includes("Loading model catalog"), "loading state is explicit");
+  assert(host.querySelector('input[data-testid="memory-settings-extraction-model"]') === null, "no free-text fallback renders");
 
-await act(async () => {
-  resolveCatalog([provider()]);
-  await catalog;
-  await Promise.resolve();
-});
+  await act(async () => {
+    resolveCatalog([provider()]);
+    await catalog;
+    await Promise.resolve();
+  });
 
-const optionValues = Array.from(extraction.options).map((option) => option.value);
-assert(optionValues.join(",") === ",model-a,model-b", `selector entries must equal the catalog, got ${optionValues}`);
-assert(!extraction.disabled, "selector enables when catalog models arrive");
+  const optionValues = Array.from(extraction.options).map((option) => option.value);
+  assert(optionValues.join(",") === ",model-a,model-b", `selector entries must equal the catalog, got ${optionValues}`);
+  assert(!extraction.disabled, "selector enables when catalog models arrive");
 
-await act(async () => root.unmount());
-__setInvokeForTest(null);
-__setListenForTest(null);
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
 
-console.log("✓ Memory model selector waits for and renders the plugin catalog exactly");
+  console.log("✓ Memory model selector waits for and renders the plugin catalog exactly");
+}
+
+void main();
