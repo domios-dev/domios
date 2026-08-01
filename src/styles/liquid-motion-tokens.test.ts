@@ -106,4 +106,10 @@ for (const [css, before, after] of substitutedDeclarations) {
   assert.equal(resolved, before, `substitution must resolve to its pre-change declaration: ${after}`);
 }
 
+assert.match(
+  globalsCss,
+  /\.chat-launch-overlay\[data-transition-state="present"\]\s*\{[^}]*animation:\s*ct-chat-loader-reveal var\(--ct-duration-fast\) var\(--ct-ease-liquid-settle\) var\(--ct-duration-normal\) both;/s,
+  "chat loader reveal must remain delayed, theme-tokenized, and cancellable by state",
+);
+
 console.log("liquid motion token tests: passed");
