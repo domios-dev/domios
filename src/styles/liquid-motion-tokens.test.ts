@@ -111,5 +111,8 @@ assert.match(
   /\.ct-deferred-loader\[data-transition-state="present"\]\s*\{[^}]*animation:\s*ct-deferred-loader-reveal var\(--ct-duration-fast\) var\(--ct-ease-liquid-settle\) var\(--ct-duration-normal\) both;/s,
   "shared loader reveal must remain delayed, theme-tokenized, and cancellable by state",
 );
+assert.match(globalsCss, /@property --launch-progress\s*\{[^}]*syntax:\s*"<percentage>"/s, "launch progress must interpolate as a percentage");
+assert.match(globalsCss, /\.chat-launch-ring::before\s*\{[^}]*conic-gradient\([^}]*var\(--launch-progress\)[^}]*mask:\s*radial-gradient/s, "launch progress must be a transparent masked ring");
+assert.doesNotMatch(globalsCss, /\.chat-launch-ring::before\s*\{[^}]*background:\s*var\(--ct-bg/s, "launch glyph must not sit on a circular backing");
 
 console.log("liquid motion token tests: passed");

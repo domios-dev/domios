@@ -2534,16 +2534,21 @@ button,
   }
 }
 
+@property --launch-progress {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 8%;
+}
+
 .chat-launch-ring {
   --launch-progress: 16%;
   align-items: center;
-  background: conic-gradient(var(--ct-accent, #58a6ff) var(--launch-progress), color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent) 0);
   border-radius: 9999px;
   display: flex;
   height: 72px;
   justify-content: center;
   position: relative;
-  transition: background var(--ct-duration-liquid-donut) var(--ct-ease-liquid-settle);
+  transition: --launch-progress var(--ct-duration-liquid-donut) var(--ct-ease-liquid-settle);
   width: 72px;
 }
 
@@ -2562,22 +2567,15 @@ button,
 }
 
 .chat-launch-ring::before {
-  background: var(--ct-bg, #0d1117);
+  background: conic-gradient(var(--ct-accent, #58a6ff) var(--launch-progress), color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent) 0);
   border-radius: inherit;
   content: "";
-  inset: 2px;
-  position: absolute;
-}
-
-.chat-launch-ring::after {
-  animation: ct-chat-liquid-orbit 3.2s var(--ct-ease-liquid-breathe) infinite alternate;
-  border: 1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent);
-  border-radius: 46% 54% 52% 48% / 51% 45% 55% 49%;
-  box-shadow: 0 0 24px color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent);
-  content: "";
-  inset: -9px;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--ct-accent, #58a6ff) 14%, transparent));
+  inset: 0;
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
   pointer-events: none;
   position: absolute;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
 }
 
 .chat-launch-glyph {
@@ -2616,11 +2614,6 @@ button,
   position: relative;
 }
 
-@keyframes ct-chat-liquid-orbit {
-  from { opacity: 0.42; transform: rotate(-7deg) scale(0.97); }
-  to { opacity: 0.82; transform: rotate(11deg) scale(1.045); }
-}
-
 @keyframes ct-deferred-loader-reveal {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -2632,15 +2625,17 @@ button,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-launch-ring::after,
   .ct-deferred-loader[data-transition-state="present"],
   .chat-empty-state {
     animation: none;
   }
 
   .chat-launch-ring {
-    background: repeating-conic-gradient(var(--ct-accent, #58a6ff) 0deg 3deg, transparent 3deg 45deg);
     transition: none;
+  }
+
+  .chat-launch-ring::before {
+    background: repeating-conic-gradient(var(--ct-accent, #58a6ff) 0deg 3deg, transparent 3deg 45deg);
   }
 
   .chat-launch-ticks {
