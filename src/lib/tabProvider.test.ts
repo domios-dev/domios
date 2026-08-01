@@ -39,8 +39,6 @@ function seed() {
       iconSvg: "<svg id='lmstudio'/>",
       iconColor: "#ff6600",
       iconHint: "LM",
-      availableModels: [{ id: "qwen-2.5", display_name: "Qwen 2.5" }],
-      defaultModel: "qwen-2.5",
     },
   ]);
 }

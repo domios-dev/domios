@@ -3,6 +3,7 @@
 import { getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import type { ProviderDescriptor } from "../lib/types";
 import {
+  agentProvidersFromResponse,
   attachModelsUpdatedRefresh,
   shouldRefreshAgentProviders,
   syncAgentDescriptorCache,
@@ -83,6 +84,13 @@ test("loading or failed catalogs expose no stale provider entries", () => {
   assert(visibleAgentProviders(stale, true, null).length === 0, "loading hides stale entries");
   assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
   assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
+});
+
+test("malformed catalog responses expose an honest empty catalog", () => {
+  assert(agentProvidersFromResponse({}).length === 0, "object response is not a provider catalog");
+  assert(agentProvidersFromResponse(null).length === 0, "null response is not a provider catalog");
+  const catalog = [provider("catalog-provider")];
+  assert(agentProvidersFromResponse(catalog) === catalog, "array response preserves catalog identity");
 });
 
 test("models-updated listener refetches while mounted", () => {
