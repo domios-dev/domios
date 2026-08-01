@@ -72,7 +72,7 @@ impl GuardedInputGate {
 }
 
 pub struct WriteRequest {
-    pub data: Vec<u8>,
+    pub chunks: Vec<Vec<u8>>,
     permit: Option<GuardedInputPermit>,
     completed: Option<mpsc::SyncSender<Result<(), String>>>,
 }
@@ -89,17 +89,13 @@ impl WriteQueue {
             while let Ok(req) = receiver.recv() {
                 let result = match req.permit {
                     Some(permit) => match permit.gate.lock() {
-                        Ok(state) if state.accepting && state.epoch == permit.epoch => writer
-                            .write_all(&req.data)
-                            .and_then(|()| writer.flush())
-                            .map_err(|error| error.to_string()),
+                        Ok(state) if state.accepting && state.epoch == permit.epoch => {
+                            write_chunks(&mut writer, &req.chunks)
+                        }
                         Ok(_) => Err(STALE_AGENT_INPUT.to_string()),
                         Err(error) => Err(error.to_string()),
                     },
-                    None => writer
-                        .write_all(&req.data)
-                        .and_then(|()| writer.flush())
-                        .map_err(|error| error.to_string()),
+                    None => write_chunks(&mut writer, &req.chunks),
                 };
                 if let Some(completed) = req.completed {
                     let _ = completed.send(result.clone());
@@ -126,7 +122,7 @@ impl WriteQueue {
             .as_ref()
             .ok_or_else(|| "PTY write channel closed".to_string())?
             .send(WriteRequest {
-                data,
+                chunks: vec![data],
                 permit: None,
                 completed: None,
             })
@@ -134,13 +130,21 @@ impl WriteQueue {
     }
 
     pub fn send_and_wait(&self, data: Vec<u8>, timeout: Duration) -> Result<(), String> {
+        self.send_batch_and_wait(vec![data], timeout)
+    }
+
+    pub fn send_batch_and_wait(
+        &self,
+        chunks: Vec<Vec<u8>>,
+        timeout: Duration,
+    ) -> Result<(), String> {
         let (completed, receiver) = mpsc::sync_channel(0);
         let sender = self.sender.lock().map_err(|error| error.to_string())?;
         sender
             .as_ref()
             .ok_or_else(|| "PTY write channel closed".to_string())?
             .send(WriteRequest {
-                data,
+                chunks,
                 permit: None,
                 completed: Some(completed),
             })
@@ -156,13 +160,22 @@ impl WriteQueue {
         permit: GuardedInputPermit,
         timeout: Duration,
     ) -> Result<(), String> {
+        self.send_batch_and_wait_guarded(vec![data], permit, timeout)
+    }
+
+    pub fn send_batch_and_wait_guarded(
+        &self,
+        chunks: Vec<Vec<u8>>,
+        permit: GuardedInputPermit,
+        timeout: Duration,
+    ) -> Result<(), String> {
         let (completed, receiver) = mpsc::sync_channel(0);
         let sender = self.sender.lock().map_err(|error| error.to_string())?;
         sender
             .as_ref()
             .ok_or_else(|| "PTY write channel closed".to_string())?
             .send(WriteRequest {
-                data,
+                chunks,
                 permit: Some(permit),
                 completed: Some(completed),
             })
@@ -179,6 +192,16 @@ impl WriteQueue {
     }
 }
 
+fn write_chunks(writer: &mut Box<dyn Write + Send>, chunks: &[Vec<u8>]) -> Result<(), String> {
+    for chunk in chunks {
+        writer
+            .write_all(chunk)
+            .and_then(|()| writer.flush())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +209,10 @@ mod tests {
 
     struct MockWriter {
         data: Arc<Mutex<Vec<u8>>>,
+    }
+
+    struct ChunkWriter {
+        writes: Arc<Mutex<Vec<Vec<u8>>>>,
     }
 
     impl Write for MockWriter {
@@ -196,6 +223,37 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    impl Write for ChunkWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.writes.lock().unwrap().push(buf.to_vec());
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn batch_keeps_paste_and_enter_adjacent_but_separate() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let queue = WriteQueue::new(Box::new(ChunkWriter {
+            writes: writes.clone(),
+        }));
+
+        queue
+            .send_batch_and_wait(
+                vec![b"\x1b[200~message\x1b[201~".to_vec(), b"\r".to_vec()],
+                Duration::from_secs(1),
+            )
+            .unwrap();
+
+        assert_eq!(
+            &*writes.lock().unwrap(),
+            &[b"\x1b[200~message\x1b[201~".to_vec(), b"\r".to_vec()]
+        );
     }
 
     struct FirstWriteBarrier {
@@ -332,7 +390,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .send(WriteRequest {
-                data: b"envelope".to_vec(),
+                chunks: vec![b"envelope".to_vec()],
                 permit: Some(permit),
                 completed: Some(done_tx),
             })
