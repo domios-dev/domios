@@ -150,6 +150,7 @@ impl MultiplexerState {
                 agent_type_locked: tab.map(|p| p.agent_type_locked).unwrap_or(false),
                 claude_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
+                    provisioned_cwd: p.provisioned_cwd.clone(),
                     session_binding_nonce: p.session_binding_nonce.clone(),
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
                     agent_state: p.agent_state.clone(),
@@ -358,7 +359,9 @@ impl MultiplexerState {
                     title: restored_title,
                     description: description.clone(),
                     cwd: cwd.clone(),
-                    provisioned_cwd: None,
+                    provisioned_cwd: agent_identity
+                        .as_ref()
+                        .and_then(|identity| identity.provisioned_cwd.clone()),
                     url: None,
                     agent_type: restored_agent_type,
                     agent_type_locked: restored_locked,

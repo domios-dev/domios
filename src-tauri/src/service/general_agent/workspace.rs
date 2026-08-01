@@ -94,7 +94,8 @@ pub fn ensure_general_workspace(
                 tab.protected = true;
                 tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
                 tab.can_spawn = true;
-                tab.cwd = Some(general_cwd);
+                tab.cwd = Some(general_cwd.clone());
+                tab.provisioned_cwd = Some(general_cwd);
                 tab.hidden = false;
                 tab.show_in_tabbar = true;
                 if default_chat_view && !tab.chat_view {
@@ -125,7 +126,8 @@ pub fn ensure_general_workspace(
                 tab.protected = true;
                 tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
                 tab.can_spawn = true;
-                tab.cwd = Some(general_cwd);
+                tab.cwd = Some(general_cwd.clone());
+                tab.provisioned_cwd = Some(general_cwd);
                 tab.chat_view = default_chat_view;
             }
             mux.register_alias(GENERAL_ALIAS, &tab_id);
@@ -160,6 +162,15 @@ mod tests {
         mux.get_tab(tab_id).expect("tab").chat_view
     }
 
+    fn assert_general_cwd_is_provisioned(mux: &MultiplexerState) {
+        let tab_id = mux
+            .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+            .expect("General alias");
+        let tab = mux.get_tab(&tab_id).expect("General Tab");
+        assert_eq!(tab.provisioned_cwd, tab.cwd);
+        assert!(tab.provisioned_cwd.is_some());
+    }
+
     #[test]
     fn general_workspace_created_with_default_chat_enabled_sets_chat_view() {
         let mut mux = MultiplexerState::empty();
@@ -167,6 +178,7 @@ mod tests {
         super::ensure_general_workspace(&mut mux, true);
 
         assert!(general_tab_chat_view(&mux));
+        assert_general_cwd_is_provisioned(&mux);
     }
 
     #[test]
@@ -196,6 +208,7 @@ mod tests {
         let tab = mux.get_tab(tab_id).expect("tab");
         assert_eq!(tab.title, GENERAL_TAB_TITLE);
         assert!(tab.chat_view);
+        assert_general_cwd_is_provisioned(&mux);
     }
 
     #[test]
