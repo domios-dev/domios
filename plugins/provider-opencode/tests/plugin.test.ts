@@ -77,6 +77,46 @@ const ocHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- cwd-scoped session detection ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { id: "ses_foreign", directory: "/other/proj" },
+        { id: "ses_owned", directory: "/work/proj" },
+      ],
+    },
+  }));
+  eq(p.detectSessionId("/work/proj", [], 300000), "ses_owned", "detectSessionId rejects a newer cross-cwd session");
+  eq(p.detectSessionId("/missing/proj", [], 300000), null, "detectSessionId refuses when cwd has no candidate");
+}
+
+console.log("\n--- exclusive structured cursor ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows: Array<Record<string, unknown>> = [
+    { id: "p1", ts: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
+        const sinceTs = Number(params[1] || 0);
+        return rows.filter((row) => Number(row.ts) >= sinceTs);
+      },
+    },
+  }));
+  const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
+  eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
+  rows.push({ id: "p0", ts: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
+  eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
+  const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
+  eq(empty.messages, [], "cursor excludes every previously returned part");
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
