@@ -37,11 +37,7 @@ fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
 }
 
 fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
-    if params.role.is_none() {
-        params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
-        return;
-    }
-    params.starter_prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+    params.starter_prompt = crate::service::starter_prompt_for_role(params.role.as_deref());
 }
 
 fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {

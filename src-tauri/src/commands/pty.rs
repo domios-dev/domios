@@ -6,14 +6,6 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
-fn restored_starter_prompt(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
-    if role.is_none() {
-        crate::agent::provider::StarterPrompt::NoStarter
-    } else {
-        crate::agent::provider::StarterPrompt::AssignedTask
-    }
-}
-
 #[tauri::command]
 pub async fn spawn_pty(
     config_state: tauri::State<'_, crate::config::ConfigState>,
@@ -411,7 +403,7 @@ pub async fn spawn_pty_core(
                 model: tab_model.clone(),
                 role: tab_role.clone(),
                 role_profile: tab_role_profile.clone(),
-                starter_prompt: restored_starter_prompt(tab_role.as_deref()),
+                starter_prompt: crate::service::starter_prompt_for_role(tab_role.as_deref()),
                 ..Default::default()
             };
             let launch_cmd = svc.agent_registry.with_provider(&provider_id, |_| {
@@ -1109,25 +1101,5 @@ mod kill_pty_tests {
             "real-id",
             "wrapped PTY real-id not found"
         ));
-    }
-}
-
-#[cfg(test)]
-mod restored_starter_prompt_tests {
-    use crate::agent::provider::StarterPrompt;
-
-    use super::restored_starter_prompt;
-
-    #[test]
-    fn roleless_restore_has_no_visible_starter_turn() {
-        assert_eq!(restored_starter_prompt(None), StarterPrompt::NoStarter);
-    }
-
-    #[test]
-    fn role_restore_keeps_the_assigned_task_starter() {
-        assert_eq!(
-            restored_starter_prompt(Some("Worker")),
-            StarterPrompt::AssignedTask
-        );
     }
 }
