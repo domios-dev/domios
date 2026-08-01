@@ -210,38 +210,15 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
-                if !raw_text.trim().is_empty() {
-                    svc.as_ref()
-                        .maybe_send_owned_plan_reminder(&resolved_target);
-                }
             } else {
                 svc.as_ref()
                     .send_text_input_detached(&resolved_target, &raw_text, enter);
-                if !raw_text.trim().is_empty() {
-                    svc.as_ref()
-                        .maybe_send_owned_plan_reminder(&resolved_target);
-                }
             }
             Ok(serde_json::json!({"ok": true}))
         }
 
         "tab.get_output" => {
             let tab_id = get_string_param(params, "tab_id")?;
-            if let Some(src) = params
-                .as_ref()
-                .and_then(|p| p.get("source_tab"))
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                let (caller, target) = {
-                    let m = mux.write();
-                    (
-                        m.resolve_tab_id(src).unwrap_or_else(|| src.to_string()),
-                        m.resolve_tab_id(&tab_id).unwrap_or_else(|| tab_id.clone()),
-                    )
-                };
-                svc.as_ref().maybe_send_polling_nudge(&caller, &target);
-            }
             let max_bytes = params
                 .as_ref()
                 .and_then(|p| p.get("max_bytes"))

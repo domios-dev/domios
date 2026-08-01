@@ -1,7 +1,5 @@
 //! Background tasks: auto-save, mesh health, update check, agent idle poll.
 
-use std::collections::{HashMap, HashSet};
-
 use tauri::Manager;
 
 use crate::multiplexer::commands::MuxState;
@@ -395,84 +393,25 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             let cfg = states.config.lock();
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
-        let idle_poke_cfg = states.config.clone();
         let app_handle = app_handle.clone();
-        let mut idle_since_by_pty: HashMap<String, u64> = HashMap::new();
-        let mut was_idle_by_pty: HashSet<String> = HashSet::new();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
                 // Hold tracker lock for collect, then unlock before mux updates.
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let (changed, status_snapshots): (
-                    Vec<(
-                        String,
-                        crate::agent::status::TabStatus,
-                        crate::agent::status::TabStatus,
-                    )>,
-                    Vec<(String, crate::agent::status::TabStatus)>,
-                ) = {
+                let changed = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
                     let mut changes = Vec::new();
-                    let mut snapshots = Vec::with_capacity(pty_ids.len());
                     for pty_id in pty_ids {
                         let prev = t.get_status(&pty_id);
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);
                         if now != prev {
-                            changes.push((pty_id.clone(), prev, now));
+                            changes.push((pty_id, prev, now));
                         }
-                        snapshots.push((pty_id, now));
                     }
-                    (changes, snapshots)
+                    changes
                 }; // tracker lock released here
-                let idle_threshold = {
-                    let cfg = idle_poke_cfg.lock();
-                    cfg.orchestration.idle_poke.idle_threshold_secs
-                };
-                let mut seen_pty_ids = HashSet::new();
-
-                for (pty_id, status) in status_snapshots {
-                    seen_pty_ids.insert(pty_id.clone());
-                    let tab_id = mux.write().tab_id_for_pty(&pty_id);
-                    let Some(tab_id) = tab_id else {
-                        continue;
-                    };
-                    match status {
-                        crate::agent::status::TabStatus::Idle => {
-                            let started_at = idle_since_by_pty.entry(pty_id.clone()).or_insert(now);
-                            if now.saturating_sub(*started_at) >= idle_threshold {
-                                if let Some(service) =
-                                    app_handle.try_state::<crate::service::ServiceState>()
-                                {
-                                    service.maybe_send_idle_plan_poke(&tab_id);
-                                }
-                            }
-                            was_idle_by_pty.insert(pty_id);
-                        }
-                        crate::agent::status::TabStatus::Working => {
-                            idle_since_by_pty.remove(&pty_id);
-                            if was_idle_by_pty.remove(&pty_id) {
-                                if let Some(service) =
-                                    app_handle.try_state::<crate::service::ServiceState>()
-                                {
-                                    service.plan_turn_counter.reset_activity(&tab_id);
-                                }
-                            }
-                        }
-                        _ => {
-                            idle_since_by_pty.remove(&pty_id);
-                        }
-                    }
-                }
-
-                let seen_pty_ids = seen_pty_ids;
-                idle_since_by_pty.retain(|pty_id, _| seen_pty_ids.contains(pty_id));
-                was_idle_by_pty.retain(|pty_id| seen_pty_ids.contains(pty_id));
 
                 for (pty_id, raw_prev, raw_now) in changed {
                     let tab_id = mux.write().tab_id_for_pty(&pty_id);
