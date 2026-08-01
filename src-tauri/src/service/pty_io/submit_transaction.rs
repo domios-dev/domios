@@ -63,7 +63,25 @@ fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
     CYCLES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn reset_submit_cycle(pty_id: &str) -> (Arc<SubmitCycle>, u64) {
+#[derive(Clone)]
+pub(crate) struct SubmitCycleClaim {
+    pty_id: String,
+    cycle: Arc<SubmitCycle>,
+    generation: u64,
+}
+
+impl SubmitCycleClaim {
+    pub(crate) fn pty_id(&self) -> &str {
+        &self.pty_id
+    }
+
+    #[cfg(test)]
+    fn is_current(&self) -> bool {
+        self.cycle.is_current(self.generation)
+    }
+}
+
+pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     let cycle = {
         let mut cycles = submit_cycles().lock();
         if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
@@ -75,7 +93,11 @@ fn reset_submit_cycle(pty_id: &str) -> (Arc<SubmitCycle>, u64) {
         }
     };
     let generation = cycle.reset();
-    (cycle, generation)
+    SubmitCycleClaim {
+        pty_id: pty_id.to_string(),
+        cycle,
+        generation,
+    }
 }
 
 fn retire_submit_cycle(pty_id: &str, cycle: &Arc<SubmitCycle>) {
@@ -556,7 +578,30 @@ pub(crate) fn submit_text_with_key(
     opts: VerifyOpts,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 ) -> Result<InjectionResult, InjectionError> {
-    let (submit_cycle, submit_generation) = reset_submit_cycle(pty_id);
+    let claim = claim_submit_cycle(pty_id);
+    submit_text_with_key_claimed(
+        svc, pty_id, text, enter, submit_key, strategy, opts, permit, claim,
+    )
+}
+
+pub(crate) fn submit_text_with_key_claimed(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    claim: SubmitCycleClaim,
+) -> Result<InjectionResult, InjectionError> {
+    if claim.pty_id() != pty_id {
+        return Err(InjectionError::AgentInputUnavailable {
+            pty_id: pty_id.to_string(),
+        });
+    }
+    let submit_cycle = Arc::clone(&claim.cycle);
+    let submit_generation = claim.generation;
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);

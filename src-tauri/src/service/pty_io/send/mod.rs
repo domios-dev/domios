@@ -345,7 +345,25 @@ impl ServiceContext {
         tab_id: &str,
         text: &str,
     ) -> Result<(), DeliveryError> {
-        self.send_text_input_delivery(tab_id, text, true)
+        self.send_text_input_delivery(tab_id, text, true, None)
+    }
+
+    pub(crate) fn claim_chat_submit_cycle(
+        &self,
+        tab_id: &str,
+    ) -> Option<super::submit_transaction::SubmitCycleClaim> {
+        self.resolve_pty_id(tab_id)
+            .ok()
+            .map(|pty_id| super::submit_transaction::claim_submit_cycle(&pty_id))
+    }
+
+    pub(crate) fn send_text_delivery_claimed(
+        &self,
+        tab_id: &str,
+        text: &str,
+        claim: Option<super::submit_transaction::SubmitCycleClaim>,
+    ) -> Result<(), DeliveryError> {
+        self.send_text_input_delivery(tab_id, text, true, claim)
     }
 
     pub(crate) fn send_text_input(
@@ -354,7 +372,7 @@ impl ServiceContext {
         text: &str,
         submit: bool,
     ) -> Result<(), String> {
-        self.send_text_input_delivery(tab_id, text, submit)
+        self.send_text_input_delivery(tab_id, text, submit, None)
             .map_err(|error| error.ledger_message())
     }
 
@@ -363,6 +381,7 @@ impl ServiceContext {
         tab_id: &str,
         text: &str,
         submit: bool,
+        claim: Option<super::submit_transaction::SubmitCycleClaim>,
     ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
@@ -373,7 +392,10 @@ impl ServiceContext {
             Ok(pty_id) => pty_id,
             Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
         };
-        self.send_text_to_pty_smart_delivery(&pty_id, text, submit)
+        let claim = claim
+            .filter(|claim| claim.pty_id() == pty_id)
+            .unwrap_or_else(|| super::submit_transaction::claim_submit_cycle(&pty_id));
+        self.send_text_to_pty_smart_delivery_claimed(&pty_id, text, submit, claim)
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -444,6 +466,17 @@ impl ServiceContext {
         text: &str,
         submit: bool,
     ) -> Result<(), DeliveryError> {
+        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_smart_delivery_claimed(pty_id, text, submit, claim)
+    }
+
+    fn send_text_to_pty_smart_delivery_claimed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit: bool,
+        claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
@@ -455,7 +488,7 @@ impl ServiceContext {
             .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
         let submit_key: &[u8] = b"\r";
-        super::submit_transaction::submit_text_with_key(
+        super::submit_transaction::submit_text_with_key_claimed(
             self,
             pty_id,
             &text,
@@ -469,6 +502,7 @@ impl ServiceContext {
                 ..Default::default()
             },
             None,
+            claim,
         )
         .map(|_| ())
         .map_err(|error| DeliveryError::from_injection(delivery_target, error))
