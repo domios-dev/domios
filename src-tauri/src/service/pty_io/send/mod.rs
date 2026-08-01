@@ -3,6 +3,7 @@
 use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
 
+mod input_authority;
 mod readiness;
 
 pub(crate) use readiness::provider_or_generic_tui;
@@ -391,6 +392,12 @@ impl ServiceContext {
                 detail,
             })?;
         self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            })?;
+        // Routability proves an agent PTY exists, never that it owns input.
+        self.await_replacement_input_authority(tab_id, &pty_id)
             .map_err(|detail| DeliveryError::TabBusyRefused {
                 tab: tab_id.to_string(),
                 detail,

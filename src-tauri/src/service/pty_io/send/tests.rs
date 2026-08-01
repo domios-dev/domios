@@ -406,6 +406,123 @@ fn restored_tab_target_survives_reconnect_and_activation() {
     assert_eq!(agent_type, "claude");
 }
 
+// ---------------------------------------------------------------------------
+// replacement_input_authority_tests
+//
+// The first payload write after a rebind must follow an observed input
+// authority event on the same replacement identity.
+// ---------------------------------------------------------------------------
+
+use super::input_authority::{
+    input_authority_proven, record_input_authority, resolve_replacement_authority,
+};
+use std::cell::RefCell;
+
+/// Mirrors the exact order `prepare_tab_pty_delivery` performs: the authority
+/// gate resolves first, and only its `Ok` admits the payload write.
+fn deliver_first_payload(
+    timeline: &RefCell<Vec<String>>,
+    tab_id: &str,
+    pty_id: &str,
+    proven: bool,
+    authority_observed: bool,
+    bound_after_authority: Option<&str>,
+) -> Result<(), String> {
+    resolve_replacement_authority(
+        tab_id,
+        pty_id,
+        proven,
+        || {
+            timeline
+                .borrow_mut()
+                .push(format!("input-authority:{pty_id}"));
+            authority_observed
+        },
+        || {
+            timeline.borrow_mut().push("identity-recheck".into());
+            bound_after_authority.map(str::to_string)
+        },
+    )?;
+    timeline.borrow_mut().push(format!("payload-write:{pty_id}"));
+    Ok(())
+}
+
+#[test]
+fn post_restart_chat_send_waits_for_replacement_input_authority() {
+    let tab = "tab-restart";
+    let old_pty = "pty-old";
+    let new_pty = "pty-new";
+
+    record_input_authority(tab, old_pty);
+    assert!(
+        !input_authority_proven(tab, new_pty),
+        "a replacement identity may not inherit the old PTY's authority"
+    );
+
+    let timeline = RefCell::new(Vec::new());
+    deliver_first_payload(&timeline, tab, new_pty, false, true, Some(new_pty)).unwrap();
+    assert_eq!(
+        timeline.into_inner(),
+        [
+            "input-authority:pty-new",
+            "identity-recheck",
+            "payload-write:pty-new",
+        ],
+        "the payload write must follow the authority event, never precede it"
+    );
+
+    let timeline = RefCell::new(Vec::new());
+    let refused = deliver_first_payload(&timeline, tab, new_pty, false, false, Some(new_pty));
+    assert!(refused.is_err());
+    assert_eq!(
+        timeline.into_inner(),
+        ["input-authority:pty-new"],
+        "an unobserved authority event must refuse before any write"
+    );
+
+    let timeline = RefCell::new(Vec::new());
+    let rebound = deliver_first_payload(&timeline, tab, new_pty, false, true, Some("pty-newer"));
+    assert!(rebound.is_err());
+    assert_eq!(
+        timeline.into_inner(),
+        ["input-authority:pty-new", "identity-recheck"],
+        "a payload must never target an identity the tab no longer holds"
+    );
+
+    record_input_authority(tab, new_pty);
+    assert!(input_authority_proven(tab, new_pty));
+    let timeline = RefCell::new(Vec::new());
+    deliver_first_payload(&timeline, tab, new_pty, true, false, Some(new_pty)).unwrap();
+    assert_eq!(
+        timeline.into_inner(),
+        ["identity-recheck", "payload-write:pty-new"],
+        "a proven identity re-observes nothing and stays deliverable"
+    );
+}
+
+#[test]
+fn post_restart_send_without_attributable_turn_stays_unconfirmed() {
+    let written = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
+        tab: "tab-restart".into(),
+        detail: "no attributable user turn after rebind".into(),
+    };
+    assert!(written.bytes_written());
+    assert!(
+        delivery_is_unknown(&written.ledger_message()),
+        "a written payload with zero attributable turns stays unknown"
+    );
+
+    let refused = crate::service::delivery_error::DeliveryError::TabBusyRefused {
+        tab: "tab-restart".into(),
+        detail: "Agent in Tab tab-restart did not take input authority on PTY pty-new".into(),
+    };
+    assert!(!refused.bytes_written());
+    assert!(
+        !delivery_is_unknown(&refused.ledger_message()),
+        "a pre-write refusal is an actionable failure, not delivery uncertainty"
+    );
+}
+
 #[test]
 fn transport_failure_emits_chat_send_failed_event() {
     let (mut mux, tab_id) = MultiplexerState::new();
