@@ -2562,10 +2562,6 @@ button,
   position: absolute;
 }
 
-.chat-launch-ring-failed {
-  background: conic-gradient(var(--ct-red, #f85149) var(--launch-progress), color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent) 0);
-}
-
 .chat-launch-glyph {
   align-items: center;
   display: flex;
@@ -2588,10 +2584,6 @@ button,
   .chat-launch-ring {
     background: repeating-conic-gradient(var(--ct-accent, #58a6ff) 0deg 3deg, transparent 3deg 45deg);
     transition: none;
-  }
-
-  .chat-launch-ring-failed {
-    background: repeating-conic-gradient(var(--ct-red, #f85149) 0deg 3deg, transparent 3deg 45deg);
   }
 
   .chat-launch-ticks {

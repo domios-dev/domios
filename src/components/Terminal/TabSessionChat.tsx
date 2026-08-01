@@ -34,7 +34,6 @@ import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
-import { reattachTabChat } from "./chatReattach";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
@@ -116,16 +115,6 @@ export function TabSessionChat({
   const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace } = useMultiplexer();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const teamNameSelector = useCallback((state: Parameters<typeof selectTab>[0]) => {
-    const teamId = (state.tabs[tabId] as (typeof state.tabs)[string] & { team_id?: string | null } | undefined)?.team_id;
-    return teamId ? state.teams.find((team) => team.id === teamId)?.name ?? null : null;
-  }, [tabId]);
-  const teamName = useMuxSelector(teamNameSelector);
-  const projectNameSelector = useCallback((state: Parameters<typeof selectTab>[0]) => {
-    const workspace = state.workspaces.find((candidate) => candidate.tabs.includes(tabId));
-    return workspace?.name ?? null;
-  }, [tabId]);
-  const projectName = useMuxSelector(projectNameSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
@@ -165,7 +154,6 @@ export function TabSessionChat({
     recovering,
     error,
     attachmentState,
-    retry,
     enrichedMessages,
     hiddenMessageCount,
     hiddenNewerCount,
@@ -185,6 +173,10 @@ export function TabSessionChat({
     allowUnboundAuthority: effectiveChatBackend,
   });
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
+  const chatLoading = loading || recovering || error != null;
+  const setupView = chatLoading && enrichedMessages.length === 0
+    ? { kind: "starting", label: "Starting" } as const
+    : bootSetupView;
 
   const {
     scrollRef,
@@ -252,12 +244,6 @@ export function TabSessionChat({
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
-
-  const handleLaunchRetry = useCallback(() => {
-    void invoke("restart_agent_tab", { tabId }).catch((error) =>
-      showComposerError(error instanceof Error ? error.message : String(error)),
-    );
-  }, [tabId, showComposerError]);
 
   const focusComposer = useCallback(() => {
     chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
@@ -541,10 +527,6 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  if (loading) {
-    return <div className="p-4 text-sm opacity-60">Loading chat…</div>;
-  }
-
   return (
     <div
       ref={chatRootRef}
@@ -612,28 +594,6 @@ export function TabSessionChat({
             </button>
           </div>
         )}
-        {error && (
-          <div className="py-8 text-center text-sm" data-testid="chat-recovery-error">
-            <div className="mb-2">Chat history could not be loaded.</div>
-            <div className="text-xs opacity-60">{error}</div>
-            <button
-              type="button"
-              data-testid="chat-retry"
-              onClick={() => void reattachTabChat(tabId).catch(() => retry())}
-              className="mt-3 rounded px-3 py-1.5 text-xs hover:brightness-125"
-              style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
-            >
-              Reconnect
-            </button>
-          </div>
-        )}
-        {renderedEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
-          error ? null : recovering ? (
-            <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
-              Recovering chat history…
-            </div>
-          ) : null
-        )}
         {renderedEnrichedMessages.map(({ msg, item, origin }) => {
           const originProps = originPropsById.get(msg.id);
           return (
@@ -667,15 +627,11 @@ export function TabSessionChat({
         })}
         <ChatSetupState
           tab={tab}
-          view={bootSetupView}
+          view={setupView}
           providerName={provider?.displayName ?? "the agent"}
           providerIconSvg={provider?.iconSvg}
           providerIconColor={provider?.iconColor}
           providerIconHint={provider?.iconHint}
-          teamName={teamName}
-          projectName={projectName}
-          onRetry={handleLaunchRetry}
-          onOpenTerminal={onOpenTerminalFallback}
           onEscape={focusComposer}
         />
         {!inlinePrompt && shouldRenderAgentStateIndicator(
@@ -728,10 +684,11 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      {renderedEnrichedMessages.length > 0 && (
+      {renderedEnrichedMessages.length > 0 && (chatLoading || bootSetupView.kind === "starting") && (
         <ChatSetupStatusLine
           tab={tab}
           providerName={provider?.displayName ?? "the agent"}
+          chatLoading={chatLoading}
         />
       )}
       <ChatComposer

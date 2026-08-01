@@ -76,7 +76,7 @@ async function main() {
     assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");
     assert(chatSetupView(tab("agent_launching")).kind === "starting", "launching is starting");
     assert(chatSetupView(tab("delivering_instructions")).kind === "starting", "fallback delivery is starting");
-    assert(chatSetupView(tab("spawn_failed", "boom")).kind === "failed", "spawn_failed is failed");
+    assert(chatSetupView(tab("spawn_failed", "boom")).kind === "starting", "spawn_failed keeps loading");
     assert(chatSetupView(tab("pty_reattached")).kind === "none", "a reattached live PTY is not booting");
     assert(chatSetupView(null).kind === "none", "no Tab is none");
   });
@@ -88,32 +88,15 @@ async function main() {
     assert(chatSetupView(tab("shell_ready"), true).kind === "none", "ShellReady is stale after hydration");
   });
 
-  await test("starting renders the setup card with the stage label", async () => {
+  await test("starting renders only the provider progress glyph", async () => {
     const p = { ...tab("preparing_role_instructions"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Tab;
     const host = await render(
-      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" teamName="Launch Crew" projectName="identity-card" />,
+      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" />,
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
-    const stage = host.querySelector('[data-testid="chat-setup-stage"]');
-    assert(stage?.textContent?.includes("Preparing worker instructions"), "stage label shows the launch event");
     assert(host.querySelector('[data-testid="chat-launch-glyph"]')?.getAttribute("aria-label") === "Claude Code", "glyph is named by descriptor display name");
     assert(host.querySelector('[data-testid="chat-launch-ring"]'), "thin conic ring rendered");
-    assert(host.querySelector('[data-testid="chat-launch-eyebrow"]')?.textContent === "Launch Crew", "actual Team name is rendered");
-    assert(host.querySelector('[data-testid="chat-launch-role"]')?.textContent === "Worker", "role line rendered");
-    assert(host.querySelector('[data-testid="chat-launch-facts"]')?.textContent === "Claude Code · Focused · identity-card", "honest provider/model/project facts rendered");
     assert(host.querySelectorAll('[data-testid="chat-launch-ticks"] i').length === 8, "static reduced-motion tick marks are present");
-    assert(stage?.getAttribute("aria-live") === "polite", "stage is polite live region");
-  });
-
-  await test("project identity never exposes absolute paths", async () => {
-    const windows = { ...tab("agent_launching"), cwd: "D:\\Developer\\secret-project" } as Tab;
-    const posix = { ...tab("agent_launching"), cwd: "/Users/esme/secret-project" } as Tab;
-    const windowsHost = await render(<ChatSetupState tab={windows} view={chatSetupView(windows)} providerName="Codex" projectName="Workspace Display" />);
-    const posixHost = await render(<ChatSetupState tab={posix} view={chatSetupView(posix)} providerName="Codex" projectName="Workspace Display" />);
-    const rendered = `${windowsHost.textContent}\n${posixHost.textContent}`;
-    assert(rendered.includes("Workspace Display"), "workspace display name is used");
-    assert(!rendered.includes("D:\\Developer\\secret-project"), "Windows path is not rendered");
-    assert(!rendered.includes("/Users/esme/secret-project"), "POSIX path is not rendered");
   });
 
   await test("history can keep rendering while the compact boot status remains visible", async () => {
@@ -132,65 +115,23 @@ async function main() {
     assert(!host.querySelector('[data-testid="chat-setup-status-line"]'), "ready status hidden");
   });
 
-  await test("failed renders plain language without raw backend failure text", async () => {
+  await test("failed launch remains a neutral provider loader", async () => {
     const p = tab("spawn_failed", "SYSTEM REMINDER: secret launch details");
-    let opened = false;
-    let retried = false;
     const host = await render(
-      <ChatSetupState
-        tab={p}
-        view={chatSetupView(p)}
-        providerName="Claude Code"
-        onRetry={() => { retried = true; }}
-        onOpenTerminal={() => {
-          opened = true;
-        }}
-      />,
+      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" />,
     );
-    const card = host.querySelector('[data-testid="chat-launch-failed"]');
-    assert(card, "failed card rendered");
-    assert(card.textContent?.includes("Claude Code could not start"), "names the provider");
-    assert(!card.textContent?.includes("SYSTEM REMINDER"), "raw reminder text is never rendered");
-    const btn = host.querySelector('[data-testid="chat-launch-retry"]') as HTMLButtonElement | null;
-    assert(btn, "retry button present");
-    await act(async () => {
-      btn.click();
-    });
-    assert(retried, "retry routes through launch retry callback");
-    assert(!opened, "show log is withheld until a second failure");
+    assert(host.querySelector('[data-testid="chat-setup-state"]'), "neutral setup loader remains rendered");
+    assert(host.querySelector('[data-testid="chat-launch-ring"]'), "progress ring remains rendered");
+    assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failure card is rendered");
+    assert(!host.textContent?.includes("could not"), "no failure copy is rendered");
+    assert(!host.textContent?.includes("SYSTEM REMINDER"), "raw failure detail is hidden");
   });
 
-  await test("non-retryable failure never offers a retry action", async () => {
-    const p = tab("spawn_failed", "not restartable", false);
+  await test("chat loading uses the compact line after content exists", async () => {
     const host = await render(
-      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Codex" onRetry={() => {}} />,
+      <ChatSetupStatusLine tab={tab("agent_ready")} providerName="Codex" chatLoading />,
     );
-    assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "retry is hidden when the Tab cannot be restarted");
-  });
-
-  await test("a failed provisioned agent offers retry without a provider-specific branch", async () => {
-    const p = { ...tab("spawn_failed", "launch failed", false), agent_type: "provider-from-descriptor" } as Tab;
-    const host = await render(
-      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Agent" onRetry={() => {}} />,
-    );
-    assert(host.querySelector('[data-testid="chat-launch-retry"]'), "provisioned agent can retry");
-  });
-
-  await test("second launch failure exposes the terminal log action", async () => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const renderState = async (stage: Tab["boot_stage"]) => {
-      const current = tab(stage);
-      await act(async () => {
-        root.render(<ChatSetupState tab={current} view={chatSetupView(current)} providerName="Claude Code" onRetry={() => {}} onOpenTerminal={() => {}} />);
-      });
-    };
-    await renderState("spawn_failed");
-    assert(!host.querySelector('[data-testid="chat-launch-show-log"]'), "first failure does not expose log action");
-    await renderState("pty_starting");
-    await renderState("spawn_failed");
-    assert(host.querySelector('[data-testid="chat-launch-show-log"]'), "second failure exposes log action");
+    assert(host.querySelector('[data-testid="chat-setup-status-line"]')?.textContent === "Loading chat…", "neutral loading line rendered");
   });
 
   await test("ready overlaps the transcript only through its opacity transition", async () => {
