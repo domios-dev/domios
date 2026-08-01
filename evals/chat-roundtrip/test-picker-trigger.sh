@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# WHAT/WHY: Verifies one raw request; an Enter action starts picker-clearing recovery.
-# ORACLE: Captured JSON is raw /model plus one CR, on the configured API port.
+# WHAT/WHY: Verifies two raw requests; an Enter action starts picker-clearing recovery.
+# ORACLE: Captured JSON is raw /model then one raw CR, on the configured API port.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -53,20 +53,24 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as capture:
     requests = [json.loads(line) for line in capture if line.strip()]
 
-if len(requests) != 1:
-    raise SystemExit(f"expected exactly one request, got {len(requests)}")
+if len(requests) != 2:
+    raise SystemExit(f"expected exactly two requests, got {len(requests)}")
 
 expected_url = "http://127.0.0.1:43197/api/tabs/picker-tab/send"
-if requests[0]["url"] != expected_url:
-    raise SystemExit(
-        f"expected configured API URL {expected_url!r}, got {requests[0]['url']!r}"
-    )
+for index, request in enumerate(requests, start=1):
+    if request["url"] != expected_url:
+        raise SystemExit(
+            f"request {index}: expected configured API URL {expected_url!r}, "
+            f"got {request['url']!r}"
+        )
 
-payload = json.loads(requests[0]["body"])
-if payload != {"text": "/model\r", "raw": True}:
-    raise SystemExit(f"expected one raw /model plus CR request, got {payload!r}")
-if len(payload["text"]) != 7 or ord(payload["text"][-1]) != 13:
-    raise SystemExit("request text is not exactly /model followed by one carriage return")
+payloads = [json.loads(request["body"]) for request in requests]
+if payloads[0] != {"text": "/model", "raw": True}:
+    raise SystemExit(f"request 1: expected raw /model, got {payloads[0]!r}")
+if payloads[1] != {"text": "\r", "raw": True}:
+    raise SystemExit(f"request 2: expected one raw carriage return, got {payloads[1]!r}")
+if len(payloads[1]["text"]) != 1 or ord(payloads[1]["text"]) != 13:
+    raise SystemExit("request 2: text is not exactly one carriage return")
 
 print("picker trigger request shape: PASS")
 PY
