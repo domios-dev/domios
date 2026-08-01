@@ -68,6 +68,7 @@ impl SpawnAgentParams {
             structured_prompt_server: None,
         };
         out.normalize_role_profile()?;
+        out.starter_prompt = crate::service::starter_prompt_for_role(out.role.as_deref());
         Ok(out)
     }
 }

@@ -217,7 +217,7 @@ pub async fn resume_session_api(
         plan_id: None,
         can_spawn: None,
         task: None,
-        starter_prompt: Default::default(),
+        starter_prompt: crate::service::starter_prompt_for_role(None),
         task_id: None,
         task_launch_authority: None,
         plan_task: None,
