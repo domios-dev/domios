@@ -13,19 +13,43 @@ use super::write_queue::{GuardedInputGate, GuardedInputPermit, WriteAcknowledgem
 
 pub struct PtyWriteAcknowledgement {
     pub generation: u64,
-    pty_id: String,
-    data: Vec<u8>,
+    capture_after_ack: Option<(String, Vec<u8>)>,
     acknowledgment: WriteAcknowledgement,
 }
 
 impl PtyWriteAcknowledgement {
+    fn unguarded(
+        generation: u64,
+        pty_id: &str,
+        data: &[u8],
+        acknowledgment: WriteAcknowledgement,
+    ) -> Self {
+        crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
+        Self {
+            generation,
+            capture_after_ack: None,
+            acknowledgment,
+        }
+    }
+
+    fn guarded(
+        generation: u64,
+        pty_id: &str,
+        data: &[u8],
+        acknowledgment: WriteAcknowledgement,
+    ) -> Self {
+        Self {
+            generation,
+            capture_after_ack: Some((pty_id.to_string(), data.to_vec())),
+            acknowledgment,
+        }
+    }
+
     pub fn wait(self, timeout: std::time::Duration) -> Result<(), String> {
         self.acknowledgment.wait(timeout)?;
-        crate::pty::capture::CaptureRegistry::global().tap_input(
-            &self.pty_id,
-            "pty.write",
-            &self.data,
-        );
+        if let Some((pty_id, data)) = self.capture_after_ack {
+            crate::pty::capture::CaptureRegistry::global().tap_input(&pty_id, "pty.write", &data);
+        }
         Ok(())
     }
 }
@@ -631,12 +655,12 @@ impl PtyManager {
             .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
         let acknowledgment = session.write_queue.enqueue_with_ack(data.to_vec())?;
-        Ok(PtyWriteAcknowledgement {
-            generation: session.generation,
-            pty_id: pty_id.to_string(),
-            data: data.to_vec(),
+        Ok(PtyWriteAcknowledgement::unguarded(
+            session.generation,
+            pty_id,
+            data,
             acknowledgment,
-        })
+        ))
     }
 
     pub fn rearm_guarded_input(&self, pty_id: &str) -> Result<(), String> {
@@ -687,12 +711,12 @@ impl PtyManager {
             .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
         let acknowledgment = session.enqueue_write_and_flush_guarded(data.to_vec(), permit)?;
-        Ok(PtyWriteAcknowledgement {
-            generation: session.generation,
-            pty_id: pty_id.to_string(),
-            data: data.to_vec(),
+        Ok(PtyWriteAcknowledgement::guarded(
+            session.generation,
+            pty_id,
+            data,
             acknowledgment,
-        })
+        ))
     }
 
     /// Resize PTY
