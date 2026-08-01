@@ -363,8 +363,8 @@ spawn_slot() {
   local cwd="$WORKSPACE_CWD/$title"
   mkdir -p "$cwd"
   local out tab_id tab_id sid
-  out=$(dc agent spawn "$provider" --workspace "$WORKSPACE_ID" --cwd "$cwd" --title "$title" --model "$model" 2>&1)
-  tab_id=$(echo "$out" | grep -oE 'tab [a-f0-9]+' | awk '{print $2}' | head -1)
+  out=$(dc agent spawn "$provider" --workspace "$WORKSPACE_ID" --cwd "$cwd" --title "$title" --model "$model" --json 2>&1)
+  tab_id=$(echo "$out" | json_field "data.get('tab_id')")
   if [ -z "$tab_id" ]; then
     replace_slot_field "$provider" "$idx" skipped 1
     replace_slot_field "$provider" "$idx" reason "spawn failed: $out"
