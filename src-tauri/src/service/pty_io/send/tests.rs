@@ -1,3 +1,4 @@
+use super::ingress::spawn_with_submit_claim;
 use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
@@ -37,7 +38,7 @@ fn new_detached_send_cancels_prior_submit_cycle_before_worker_spawn() {
     let old_claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
     let worker_spawned = std::cell::Cell::new(false);
 
-    super::spawn_with_submit_claim(Some(pty_id.to_string()), |new_claim| {
+    spawn_with_submit_claim(Some(pty_id.to_string()), |new_claim| {
         worker_spawned.set(true);
         let new_claim = new_claim.expect("PTY input must own its ingress claim");
         assert!(old_claim.same_cycle(&new_claim));
@@ -55,7 +56,8 @@ fn new_raw_input_cancels_prior_submit_cycle_before_first_key() {
     let old_claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
     let first_key_written = std::cell::Cell::new(false);
 
-    super::after_submit_cycle_cancel(pty_id, || {
+    let claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+    claim.enqueue_if_current(|| {
         assert!(!old_claim.is_current());
         first_key_written.set(true);
     });

@@ -55,6 +55,22 @@ impl ServiceContext {
         crate::service::inject_verify::InjectionResult,
         crate::service::inject_verify::InjectionError,
     > {
+        let submit_claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_verified_claimed(pty_id, text, enter, submit_strategy, opts, submit_claim)
+    }
+
+    pub(crate) fn send_text_verified_claimed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+        submit_strategy: crate::agent::provider::VerifySubmitStrategy,
+        opts: crate::service::inject_verify::VerifyOpts,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
         use crate::service::inject_verify::InjectionError;
         let started = std::time::Instant::now();
         // Notify, never block — an unsafe-prompt detection must not lock the user out of sending.
@@ -69,10 +85,20 @@ impl ServiceContext {
             }
         }
 
-        super::submit_transaction::submit_text(self, pty_id, text, enter, submit_strategy, opts)
+        super::submit_transaction::submit_text_with_key_claimed(
+            self,
+            pty_id,
+            text,
+            enter,
+            b"\r",
+            submit_strategy,
+            opts,
+            None,
+            submit_claim,
+        )
     }
 
-    pub(crate) fn send_text_verified_guarded(
+    pub(crate) fn send_text_verified_guarded_claimed(
         &self,
         pty_id: &str,
         text: &str,
@@ -80,11 +106,12 @@ impl ServiceContext {
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         permit: crate::pty::write_queue::GuardedInputPermit,
         opts: crate::service::inject_verify::VerifyOpts,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
     ) -> Result<
         crate::service::inject_verify::InjectionResult,
         crate::service::inject_verify::InjectionError,
     > {
-        super::submit_transaction::submit_text_with_key(
+        super::submit_transaction::submit_text_with_key_claimed(
             self,
             pty_id,
             text,
@@ -93,6 +120,7 @@ impl ServiceContext {
             submit_strategy,
             opts,
             Some(permit),
+            submit_claim,
         )
     }
 

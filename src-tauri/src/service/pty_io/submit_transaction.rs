@@ -18,17 +18,23 @@ const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = 3;
 
 struct SubmitCycle {
+    pty_id: String,
     generation: AtomicU64,
     waiter: Mutex<Option<Thread>>,
     write_gate: Mutex<()>,
+    #[cfg(test)]
+    boundary_hook: Mutex<Option<(u64, Box<dyn FnOnce() + Send>)>>,
 }
 
 impl SubmitCycle {
-    fn new() -> Self {
+    fn new(pty_id: String) -> Self {
         Self {
+            pty_id,
             generation: AtomicU64::new(0),
             waiter: Mutex::new(None),
             write_gate: Mutex::new(()),
+            #[cfg(test)]
+            boundary_hook: Mutex::new(None),
         }
     }
 
@@ -50,8 +56,34 @@ impl SubmitCycle {
     }
 
     fn while_current<T>(&self, generation: u64, write: impl FnOnce() -> T) -> Option<T> {
+        self.while_current_at_boundary(generation, || {}, write)
+    }
+
+    fn while_current_at_boundary<T>(
+        &self,
+        generation: u64,
+        at_boundary: impl FnOnce(),
+        write: impl FnOnce() -> T,
+    ) -> Option<T> {
+        at_boundary();
+        #[cfg(test)]
+        self.run_boundary_hook(generation);
         let _write_gate = self.write_gate.lock();
         self.is_current(generation).then(write)
+    }
+
+    #[cfg(test)]
+    fn run_boundary_hook(&self, generation: u64) {
+        let hook = {
+            let mut hook = self.boundary_hook.lock();
+            hook.as_ref()
+                .is_some_and(|(hook_generation, _)| *hook_generation == generation)
+                .then(|| hook.take().map(|(_, hook)| hook))
+                .flatten()
+        };
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 
     fn wait_until(&self, generation: u64, deadline: Instant) -> bool {
@@ -73,6 +105,23 @@ impl SubmitCycle {
 fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
     static CYCLES: OnceLock<Mutex<HashMap<String, Weak<SubmitCycle>>>> = OnceLock::new();
     CYCLES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+fn submit_cycle_registered(pty_id: &str) -> bool {
+    submit_cycles().lock().contains_key(pty_id)
+}
+
+impl Drop for SubmitCycle {
+    fn drop(&mut self) {
+        let mut cycles = submit_cycles().lock();
+        if cycles
+            .get(&self.pty_id)
+            .is_some_and(|cycle| std::ptr::eq(cycle.as_ptr(), self))
+        {
+            cycles.remove(&self.pty_id);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -101,8 +150,13 @@ impl SubmitCycleClaim {
         Arc::ptr_eq(&self.cycle, &other.cycle)
     }
 
-    fn while_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
-        self.cycle.while_current(self.generation, write)
+    pub(crate) fn enqueue_if_current<T>(&self, enqueue: impl FnOnce() -> T) -> Option<T> {
+        self.cycle.while_current(self.generation, enqueue)
+    }
+
+    #[cfg(test)]
+    fn set_boundary_hook(&self, hook: impl FnOnce() + Send + 'static) {
+        *self.cycle.boundary_hook.lock() = Some((self.generation, Box::new(hook)));
     }
 }
 
@@ -112,7 +166,7 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
         if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
             cycle
         } else {
-            let cycle = Arc::new(SubmitCycle::new());
+            let cycle = Arc::new(SubmitCycle::new(pty_id.to_string()));
             cycles.insert(pty_id.to_string(), Arc::downgrade(&cycle));
             cycle
         }
@@ -128,27 +182,6 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
         pty_id: pty_id.to_string(),
         cycle,
         generation,
-    }
-}
-
-pub(crate) fn cancel_submit_cycle(pty_id: &str) {
-    let claim = claim_submit_cycle(pty_id);
-    log::info!(
-        "[submit-cycle] cancel pty={} cycle={:p} generation={}",
-        pty_id,
-        Arc::as_ptr(&claim.cycle),
-        claim.generation
-    );
-}
-
-fn retire_submit_cycle(pty_id: &str, cycle: &Arc<SubmitCycle>) {
-    let mut cycles = submit_cycles().lock();
-    let current_is_cycle = cycles
-        .get(pty_id)
-        .and_then(Weak::upgrade)
-        .is_some_and(|current| Arc::ptr_eq(&current, cycle));
-    if current_is_cycle && Arc::strong_count(cycle) == 1 {
-        cycles.remove(pty_id);
     }
 }
 
@@ -292,11 +325,81 @@ trait SubmitTransport {
 struct PtySubmitTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
-    signal: Arc<ScreenChangeSignal>,
-    status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
+    signals: Mutex<Option<PtySubmitSignals>>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
+}
+
+struct PtySubmitSignals {
+    screen: Arc<ScreenChangeSignal>,
+    status: Arc<codeterm_types::pty::TabStatusSignal>,
+}
+
+impl PtySubmitTransport<'_> {
+    fn signals(&self) -> Option<PtySubmitSignals> {
+        self.signals
+            .lock()
+            .as_ref()
+            .map(|signals| PtySubmitSignals {
+                screen: Arc::clone(&signals.screen),
+                status: Arc::clone(&signals.status),
+            })
+    }
+
+    fn write_submit_key_current(
+        &self,
+        key: &[u8],
+        deadline: Instant,
+    ) -> Result<bool, InjectionError> {
+        let composer_generation = { self.svc.screen_state.lock().pty_generation(self.pty_id) };
+        let Some(enqueued) = self.submit_cycle.while_current(self.submit_generation, || {
+            let acknowledgment = match self.permit.as_ref() {
+                Some(permit) => self.svc.pty.lock().enqueue_write_and_flush_guarded(
+                    self.pty_id,
+                    key,
+                    permit.clone(),
+                ),
+                None => self
+                    .svc
+                    .pty
+                    .lock()
+                    .enqueue_write_and_flush(self.pty_id, key),
+            }
+            .map_err(|error| injection_write_error(self.pty_id, error))?;
+            self.svc.feed_input_parser(self.pty_id, "", true);
+            Ok::<_, InjectionError>(acknowledgment)
+        }) else {
+            log::info!(
+                "[submit-cycle] key-write-skipped pty={} cycle={:p} generation={} current_generation={}",
+                self.pty_id,
+                Arc::as_ptr(&self.submit_cycle),
+                self.submit_generation,
+                self.submit_cycle.current_generation()
+            );
+            return Ok(false);
+        };
+        let acknowledgment = enqueued?;
+        let session_generation = acknowledgment.generation;
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let result = acknowledgment.wait(timeout);
+        log::info!(
+            "[submit-audit] key-write pty={} cycle={:p} submit_generation={} session_gen={} composer_gen={:?} enqueue_timeout_ms={} zero_timeout={} queue_result={}",
+            self.pty_id,
+            Arc::as_ptr(&self.submit_cycle),
+            self.submit_generation,
+            session_generation,
+            composer_generation,
+            timeout.as_millis(),
+            timeout.is_zero(),
+            match &result {
+                Ok(()) => "ok",
+                Err(error) => error.as_str(),
+            }
+        );
+        result.map_err(|error| injection_write_error(self.pty_id, error))?;
+        Ok(true)
+    }
 }
 
 fn xterm_paste(text: &str, bracketed_paste_mode: bool) -> String {
@@ -333,13 +436,17 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn generation(&self) -> u64 {
-        self.signal.generation()
+        self.signals()
+            .map(|signals| signals.screen.generation())
+            .unwrap_or(0)
     }
 
     fn wait_change(&self, generation: u64, deadline: Instant) -> bool {
-        deadline
-            .checked_duration_since(Instant::now())
-            .is_some_and(|remaining| self.signal.wait_after(generation, remaining))
+        self.signals().is_some_and(|signals| {
+            deadline
+                .checked_duration_since(Instant::now())
+                .is_some_and(|remaining| signals.screen.wait_after(generation, remaining))
+        })
     }
 
     fn turn_started(&self) -> bool {
@@ -353,13 +460,17 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn turn_generation(&self) -> u64 {
-        self.status_signal.generation()
+        self.signals()
+            .map(|signals| signals.status.generation())
+            .unwrap_or(0)
     }
 
     fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
-        deadline
-            .checked_duration_since(Instant::now())
-            .is_some_and(|remaining| self.status_signal.wait_after(turn_generation, remaining))
+        self.signals().is_some_and(|signals| {
+            deadline
+                .checked_duration_since(Instant::now())
+                .is_some_and(|remaining| signals.status.wait_after(turn_generation, remaining))
+        })
     }
 
     fn wait_retry_deadline(&self, deadline: Instant) {
@@ -399,33 +510,44 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             text.len(),
             paste.len()
         );
-        let session = self
-            .svc
-            .pty
-            .lock()
-            .get_session(self.pty_id)
-            .ok_or_else(|| InjectionError::PtyClosed {
-                pty_id: self.pty_id.to_string(),
-            })?;
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        let result = match self.permit.as_ref() {
-            Some(permit) => {
-                session.write_and_flush_guarded(paste.as_bytes().to_vec(), permit.clone(), timeout)
+        let Some(enqueued) = self.submit_cycle.while_current(self.submit_generation, || {
+            let signals = PtySubmitSignals {
+                screen: self
+                    .svc
+                    .screen_state
+                    .lock()
+                    .arm_screen_change_signal(self.pty_id),
+                status: self
+                    .svc
+                    .agent_tracker
+                    .lock()
+                    .arm_status_change_signal(self.pty_id),
+            };
+            let acknowledgment = match self.permit.as_ref() {
+                Some(permit) => self.svc.pty.lock().enqueue_write_and_flush_guarded(
+                    self.pty_id,
+                    paste.as_bytes(),
+                    permit.clone(),
+                ),
+                None => self
+                    .svc
+                    .pty
+                    .lock()
+                    .enqueue_write_and_flush(self.pty_id, paste.as_bytes()),
             }
-            None => self
-                .svc
-                .pty
-                .lock()
-                .write_and_flush(self.pty_id, paste.as_bytes(), timeout),
+            .map_err(|error| injection_write_error(self.pty_id, error))?;
+            self.svc.feed_input_parser(self.pty_id, text, false);
+            Ok::<_, InjectionError>((acknowledgment, signals))
+        }) else {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: self.pty_id.to_string(),
+            });
         };
-        result.map_err(|error| injection_write_error(self.pty_id, error))?;
-        if self.permit.is_some() {
-            crate::pty::capture::CaptureRegistry::global().tap_input(
-                self.pty_id,
-                "pty.write",
-                paste.as_bytes(),
-            );
-        }
+        let (acknowledgment, signals) = enqueued?;
+        *self.signals.lock() = Some(signals);
+        acknowledgment
+            .wait(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|error| injection_write_error(self.pty_id, error))?;
         Ok(paste.len())
     }
 
@@ -434,56 +556,21 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         text: &str,
         deadline: Instant,
     ) -> Result<Option<usize>, InjectionError> {
-        self.submit_cycle
-            .while_current(self.submit_generation, || self.write_paste(text, deadline))
-            .transpose()
+        match self.write_paste(text, deadline) {
+            Err(InjectionError::AgentInputUnavailable { .. }) => Ok(None),
+            result => result.map(Some),
+        }
     }
 
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
-        let composer_generation = { self.svc.screen_state.lock().pty_generation(self.pty_id) };
-        let session = self
-            .svc
-            .pty
-            .lock()
-            .get_session(self.pty_id)
-            .ok_or_else(|| {
-                log::warn!(
-                    "[submit-audit] key-write pty={} session=missing composer_gen={:?}",
-                    self.pty_id,
-                    composer_generation
-                );
-                InjectionError::PtyClosed {
-                    pty_id: self.pty_id.to_string(),
-                }
-            })?;
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        let result = match self.permit.as_ref() {
-            Some(permit) => session.write_and_flush_guarded(key.to_vec(), permit.clone(), timeout),
-            None => self
-                .svc
-                .pty
-                .lock()
-                .write_and_flush(self.pty_id, key, timeout),
-        };
-        log::info!(
-            "[submit-audit] key-write pty={} cycle={:p} submit_generation={} session_gen={} composer_gen={:?} enqueue_timeout_ms={} zero_timeout={} queue_result={}",
-            self.pty_id,
-            Arc::as_ptr(&self.submit_cycle),
-            self.submit_generation,
-            session.generation,
-            composer_generation,
-            timeout.as_millis(),
-            timeout.is_zero(),
-            match &result {
-                Ok(()) => "ok",
-                Err(error) => error.as_str(),
-            }
-        );
-        result.map_err(|error| injection_write_error(self.pty_id, error))?;
-        if self.permit.is_some() {
-            crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
-        }
-        Ok(())
+        self.write_submit_key_current(key, deadline)
+            .and_then(|written| {
+                written
+                    .then_some(())
+                    .ok_or_else(|| InjectionError::AgentInputUnavailable {
+                        pty_id: self.pty_id.to_string(),
+                    })
+            })
     }
 
     fn write_submit_key_if_active(
@@ -491,19 +578,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         key: &[u8],
         deadline: Instant,
     ) -> Result<bool, InjectionError> {
-        let Some(result) = self.submit_cycle.while_current(self.submit_generation, || {
-            self.write_submit_key(key, deadline)
-        }) else {
-            log::info!(
-                "[submit-cycle] key-write-skipped pty={} cycle={:p} generation={} current_generation={}",
-                self.pty_id,
-                Arc::as_ptr(&self.submit_cycle),
-                self.submit_generation,
-                self.submit_cycle.current_generation()
-            );
-            return Ok(false);
-        };
-        result.map(|()| true)
+        self.write_submit_key_current(key, deadline)
     }
 }
 
@@ -564,11 +639,20 @@ fn run<T: SubmitTransport>(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
-    run_with_submit_key(transport, text, enter, b"\r", strategy, opts)
+    run_with_submit_key(
+        transport,
+        "test-transport",
+        text,
+        enter,
+        b"\r",
+        strategy,
+        opts,
+    )
 }
 
 fn run_with_submit_key<T: SubmitTransport>(
     transport: &T,
+    pty_id: &str,
     text: &str,
     enter: bool,
     submit_key: &[u8],
@@ -582,7 +666,7 @@ fn run_with_submit_key<T: SubmitTransport>(
     let baseline_evidence = transport.draft_evidence_count(text);
     let Some(bytes_written) = transport.write_paste_if_active(text, turn_deadline)? else {
         return Err(InjectionError::AgentInputUnavailable {
-            pty_id: "superseded submit cycle".to_string(),
+            pty_id: pty_id.to_string(),
         });
     };
     let mut paste_observed =
@@ -721,19 +805,15 @@ pub(crate) fn submit_text_with_key_claimed(
     let submit_generation = submit_claim.generation;
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
-    let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
-    let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
-    svc.feed_input_parser(pty_id, text, enter);
     let transport = PtySubmitTransport {
         svc,
         pty_id,
-        signal,
-        status_signal,
+        signals: Mutex::new(None),
         permit,
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
     };
-    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).map(
+    let result = run_with_submit_key(&transport, pty_id, text, enter, submit_key, strategy, opts).map(
         |result| {
             if result.submit_anomaly {
                 log::warn!(
@@ -765,7 +845,6 @@ pub(crate) fn submit_text_with_key_claimed(
     }
     drop(transaction);
     retire_transaction_lock(pty_id, &lock);
-    retire_submit_cycle(pty_id, &submit_cycle);
     result
 }
 
@@ -786,6 +865,8 @@ pub(crate) fn write_terminal_reply(
 mod classification_tests;
 #[cfg(test)]
 mod collapsed_paste_tests;
+#[cfg(test)]
+mod cycle_cancellation_tests;
 #[cfg(test)]
 mod dropped_enter_tests;
 #[cfg(test)]
