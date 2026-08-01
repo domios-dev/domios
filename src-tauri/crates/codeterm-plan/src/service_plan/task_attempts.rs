@@ -404,30 +404,60 @@ pub fn new_assignment_attempt(
     }
 }
 
-pub fn mark_task_assignment_closed(task: &mut Task, tab: Option<&str>, now_ms: u64) {
-    let tab = tab.and_then(|value| {
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then_some(trimmed)
-    });
-    if let Some(tab) = tab {
-        if let Some(attempt) = task
-            .execution_attempts
-            .iter_mut()
-            .rev()
-            .find(|attempt| attempt.executor_tab_id == tab && attempt.closed_at.is_none())
-        {
+pub fn record_noncompetitive_replacement_attempt(
+    attempts: &mut Vec<TaskExecutionAttempt>,
+    replacement: TaskExecutionAttempt,
+    now_ms: u64,
+) {
+    close_live_noncompetitive_attempt_slice(attempts, now_ms);
+    attempts.push(replacement);
+}
+
+fn close_live_noncompetitive_attempt_slice(
+    attempts: &mut [TaskExecutionAttempt],
+    now_ms: u64,
+) -> usize {
+    let mut closed = 0;
+    for attempt in attempts {
+        if attempt.closed_at.is_none() && attempt.competition_group_id.is_none() {
             attempt.closed_at = Some(now_ms);
-            return;
+            closed += 1;
         }
     }
-    if let Some(attempt) = task
-        .execution_attempts
-        .iter_mut()
-        .rev()
-        .find(|attempt| attempt.closed_at.is_none())
-    {
-        attempt.closed_at = Some(now_ms);
+    closed
+}
+
+pub fn mark_task_assignment_closed(task: &mut Task, tab: Option<&str>, now_ms: u64) -> usize {
+    close_live_attempts_for_optional_tab(&mut task.execution_attempts, tab, now_ms)
+}
+
+pub fn close_live_attempts_for_optional_tab(
+    attempts: &mut [TaskExecutionAttempt],
+    tab: Option<&str>,
+    now_ms: u64,
+) -> usize {
+    let Some(tab) = tab.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then_some(trimmed)
+    }) else {
+        return 0;
+    };
+    close_live_attempts_for_tab(attempts, tab, now_ms)
+}
+
+pub fn close_live_attempts_for_tab(
+    attempts: &mut [TaskExecutionAttempt],
+    tab_id: &str,
+    now_ms: u64,
+) -> usize {
+    let mut closed = 0;
+    for attempt in attempts {
+        if attempt.executor_tab_id == tab_id && attempt.closed_at.is_none() {
+            attempt.closed_at = Some(now_ms);
+            closed += 1;
+        }
     }
+    closed
 }
 
 fn provider_name_from_model(value: Option<&str>) -> Option<String> {
@@ -768,7 +798,11 @@ impl PlanStore {
             attempt.model = draft.model.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
-            task.execution_attempts.push(attempt.clone());
+            record_noncompetitive_replacement_attempt(
+                &mut task.execution_attempts,
+                attempt.clone(),
+                now_ms,
+            );
             created = Some(attempt);
             Ok(())
         })?;

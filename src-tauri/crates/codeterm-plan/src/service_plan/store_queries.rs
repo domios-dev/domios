@@ -170,7 +170,11 @@ impl PlanStore {
                 plan.tasks
                     .into_iter()
                     .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-                    .filter(move |task| task.assigned_tab_id.as_deref() == Some(tab_id))
+                    .filter(move |task| {
+                        task.execution_attempts.iter().any(|attempt| {
+                            attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
+                        })
+                    })
                     .map(move |task| (plan_id.clone(), task.id))
             })
             .collect()

@@ -49,7 +49,11 @@ impl PlanStore {
             );
             attempt.executor_title = Some(executor_title.to_string());
             attempt_id = Some(attempt.id.clone());
-            task.execution_attempts.push(attempt);
+            super::task_attempts::record_noncompetitive_replacement_attempt(
+                &mut task.execution_attempts,
+                attempt,
+                now_ms,
+            );
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
             plan.mode = crate::plan::PlanMode::Execution;
@@ -507,7 +511,11 @@ impl PlanStore {
             );
             attempt.executor_title = Some(executor_title.to_string());
             attempt.session_id = Some(session_id.to_string());
-            task.execution_attempts.push(attempt);
+            super::task_attempts::record_noncompetitive_replacement_attempt(
+                &mut task.execution_attempts,
+                attempt,
+                now_ms,
+            );
             task.status = crate::plan::TaskStatus::InProgress;
             task.status_changed_at = now_ms;
             task.updated_at = now_ms;
