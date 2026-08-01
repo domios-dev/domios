@@ -30,8 +30,8 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::lane_liveness::LaneThresholds;
 use crate::plan::reconcile::{
-    detect_lane_demotions, detect_plan_drift, detect_tab_gone, DriftItem, DriftKind,
-    ReconcileConfig, TabProbe, TabRole, DEFAULT_STALE_REVIEW_MS,
+    detect_lane_demotions, detect_plan_drift, DriftItem, DriftKind, ReconcileConfig, TabProbe,
+    TabRole, DEFAULT_STALE_REVIEW_MS,
 };
 use crate::plan::{PlanStatus, Task, TaskStatus};
 use crate::service::plan::{cleanup_debt, PlanError, ReconcileFixResult};
@@ -64,9 +64,28 @@ impl ServiceContext {
         let cleanup_debt =
             cleanup_debt::detect_plan_cleanup_debt(&plan, |tab_id| self.tab_probe(tab_id).exists);
         let counts = drift_counts(&drift);
+        let gone_attempts = plan
+            .tasks
+            .iter()
+            .flat_map(|task| {
+                let task_id = task.id.clone();
+                task.execution_attempts
+                    .iter()
+                    .filter(|attempt| attempt.closed_at.is_none())
+                    .filter(move |attempt| !self.tab_probe(&attempt.executor_tab_id).exists)
+                    .map(move |attempt| (task_id.clone(), attempt.executor_tab_id.clone()))
+            })
+            .collect::<Vec<_>>();
         let fixed = if fix {
-            self.plan_store
-                .apply_reconcile_fixes(plan_id, &drift, now_ms)?
+            let mut fixed = self
+                .plan_store
+                .apply_reconcile_fixes(plan_id, &drift, now_ms)?;
+            fixed.extend(self.plan_store.close_gone_task_attempts(
+                plan_id,
+                &gone_attempts,
+                now_ms,
+            )?);
+            fixed
         } else {
             Vec::new()
         };
@@ -90,16 +109,10 @@ impl ServiceContext {
         }
         let mut changed_plans = Vec::new();
         for (plan_id, task_id) in bindings {
-            let Some(plan) = self.plan_store.get(&plan_id) else {
-                continue;
-            };
-            let item_exists = detect_tab_gone(&plan, tab_id)
-                .iter()
-                .any(|item| item.task_id == task_id);
-            if !item_exists {
-                continue;
-            }
-            match self.plan_store.flag_tab_gone(&plan_id, &task_id, now_ms) {
+            match self
+                .plan_store
+                .flag_tab_gone(&plan_id, &task_id, tab_id, now_ms)
+            {
                 Ok(true) => changed_plans.push(plan_id),
                 Ok(false) => {}
                 Err(e) => log::warn!(
@@ -252,11 +265,30 @@ fn now_ms() -> u64 {
 }
 
 fn live_attempt_session(task: &Task) -> Option<String> {
-    task.execution_attempts
+    live_attempt_session_for_assignment(task.assigned_tab_id.as_deref(), &task.execution_attempts)
+}
+
+fn live_attempt_session_for_assignment(
+    assigned_tab_id: Option<&str>,
+    attempts: &[crate::plan::TaskExecutionAttempt],
+) -> Option<String> {
+    let assigned_tab_id = assigned_tab_id
+        .map(str::trim)
+        .filter(|tab_id| !tab_id.is_empty())?;
+    let mut matching = attempts
         .iter()
-        .rev()
-        .find(|attempt| attempt.closed_at.is_none())
-        .and_then(|attempt| attempt.session_id.clone())
+        .filter(|attempt| attempt.closed_at.is_none())
+        .filter(|attempt| attempt.executor_tab_id == assigned_tab_id);
+    let attempt = matching.next()?;
+    if matching.next().is_some() {
+        return None;
+    }
+    attempt
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|session_id| !session_id.is_empty())
+        .map(str::to_string)
 }
 
 fn map_role(role: AgentRole) -> TabRole {
@@ -280,6 +312,161 @@ mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::TabBacking;
+    use crate::plan::TaskExecutionAttempt;
+    use crate::service::plan::task_attempts::{
+        close_live_attempts_for_optional_tab, close_live_attempts_for_tab,
+        record_noncompetitive_replacement_attempt,
+    };
+
+    fn attempt(id: &str, tab_id: &str) -> TaskExecutionAttempt {
+        TaskExecutionAttempt {
+            id: id.into(),
+            executor_tab_id: tab_id.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn replacement_dispatch_closes_prior_noncompetitive_attempt() {
+        let mut attempts = vec![attempt("attempt-a", "tab-a")];
+        record_noncompetitive_replacement_attempt(&mut attempts, attempt("attempt-b", "tab-b"), 20);
+
+        assert_eq!(attempts[0].closed_at, Some(20));
+        assert_eq!(attempts[1].closed_at, None);
+
+        let unchanged_on_failed_commit = vec![attempt("attempt-current", "tab-current")];
+        assert_eq!(unchanged_on_failed_commit[0].closed_at, None);
+    }
+
+    #[test]
+    fn closing_reassigned_tab_closes_only_its_attempt() {
+        let mut attempts = vec![attempt("attempt-a", "tab-a"), attempt("attempt-b", "tab-b")];
+
+        assert_eq!(close_live_attempts_for_tab(&mut attempts, "tab-a", 30), 1);
+        assert_eq!(close_live_attempts_for_tab(&mut attempts, "tab-a", 40), 0);
+        assert_eq!(attempts[0].closed_at, Some(30));
+        assert_eq!(attempts[1].closed_at, None);
+    }
+
+    #[test]
+    fn reconcile_closes_dead_attempt_without_touching_active_replacement() {
+        let mut attempts = vec![
+            attempt("attempt-dead", "tab-dead"),
+            attempt("attempt-live", "tab-live"),
+        ];
+
+        assert_eq!(
+            close_live_attempts_for_tab(&mut attempts, "tab-dead", 50),
+            1
+        );
+        assert_eq!(attempts[0].closed_at, Some(50));
+        assert_eq!(attempts[1].closed_at, None);
+    }
+
+    #[test]
+    fn replacement_closure_does_not_collapse_live_competition_group() {
+        let mut peer_a = attempt("peer-a", "peer-a-tab");
+        peer_a.competition_group_id = Some("group".into());
+        let mut peer_b = attempt("peer-b", "peer-b-tab");
+        peer_b.competition_group_id = Some("group".into());
+        let mut attempts = vec![attempt("ordinary", "ordinary-tab"), peer_a, peer_b];
+
+        record_noncompetitive_replacement_attempt(
+            &mut attempts,
+            attempt("replacement", "replacement-tab"),
+            60,
+        );
+        assert_eq!(attempts[0].closed_at, Some(60));
+        assert_eq!(attempts[1].closed_at, None);
+        assert_eq!(attempts[2].closed_at, None);
+        assert_eq!(attempts[3].closed_at, None);
+        close_live_attempts_for_tab(&mut attempts, "peer-a-tab", 70);
+        assert_eq!(attempts[2].closed_at, None);
+    }
+
+    #[test]
+    fn live_attempt_consumers_converge_after_stale_attempt_repair() {
+        let mut attempts = vec![
+            attempt("attempt-stale", "tab-gone"),
+            attempt("attempt-active", "tab-active"),
+        ];
+        assert_eq!(
+            attempts
+                .iter()
+                .filter(|attempt| attempt.closed_at.is_none())
+                .count(),
+            2
+        );
+
+        close_live_attempts_for_tab(&mut attempts, "tab-gone", 80);
+
+        assert_eq!(
+            attempts
+                .iter()
+                .filter(|attempt| attempt.closed_at.is_none())
+                .count(),
+            1
+        );
+        assert_eq!(attempts[1].executor_tab_id, "tab-active");
+    }
+
+    #[test]
+    fn missing_executor_does_not_close_latest_open_attempt() {
+        let mut attempts = vec![attempt("attempt-a", "tab-a"), attempt("attempt-b", "tab-b")];
+
+        assert_eq!(
+            close_live_attempts_for_optional_tab(&mut attempts, None, 90),
+            0
+        );
+        assert_eq!(
+            close_live_attempts_for_optional_tab(&mut attempts, Some("  "), 90),
+            0
+        );
+        assert!(attempts.iter().all(|attempt| attempt.closed_at.is_none()));
+    }
+
+    #[test]
+    fn live_attempt_session_requires_assigned_tab() {
+        let mut open = attempt("attempt-open", "tab-open");
+        open.session_id = Some("session-open".into());
+
+        assert_eq!(
+            live_attempt_session_for_assignment(None, &[open.clone()]),
+            None
+        );
+        assert_eq!(
+            live_attempt_session_for_assignment(Some("  "), &[open]),
+            None
+        );
+    }
+
+    #[test]
+    fn live_attempt_session_selects_exact_parallel_competition_peer() {
+        let mut peer_a = attempt("peer-a", "tab-a");
+        peer_a.session_id = Some("session-a".into());
+        peer_a.competition_group_id = Some("group".into());
+        let mut peer_b = attempt("peer-b", "tab-b");
+        peer_b.session_id = Some("session-b".into());
+        peer_b.competition_group_id = Some("group".into());
+
+        assert_eq!(
+            live_attempt_session_for_assignment(Some("tab-a"), &[peer_a, peer_b]),
+            Some("session-a".into())
+        );
+    }
+
+    #[test]
+    fn live_attempt_session_rejects_ambiguous_assigned_attempts() {
+        let mut first = attempt("first", "tab-shared");
+        first.session_id = Some("session-first".into());
+        let mut second = attempt("second", "tab-shared");
+        second.session_id = Some("session-second".into());
+
+        assert_eq!(
+            live_attempt_session_for_assignment(Some("tab-shared"), &[first, second]),
+            None
+        );
+    }
 
     #[test]
     fn tab_has_live_agent_requires_verified_session_and_supports_both_backings() {

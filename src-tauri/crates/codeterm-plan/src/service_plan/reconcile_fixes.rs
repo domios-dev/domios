@@ -153,19 +153,48 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
+        tab_id: &str,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
             let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
                 return Ok(false);
             };
-            let assigned = task.assigned_tab_id.clone();
-            task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            task.assigned_tab_id = None;
-            task.lane.tab_id = None;
-            task.status_label = Some(TAB_GONE_LABEL.into());
-            task.updated_at = now_ms;
-            Ok(true)
+            let closed = task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) > 0;
+            if task.assigned_tab_id.as_deref() == Some(tab_id) {
+                task.assigned_tab_id = None;
+                task.lane.tab_id = None;
+                task.status_label = Some(TAB_GONE_LABEL.into());
+                task.updated_at = now_ms;
+                return Ok(true);
+            }
+            Ok(closed)
+        })
+    }
+
+    pub fn close_gone_task_attempts(
+        &self,
+        plan_id: &str,
+        gone: &[(String, String)],
+        now_ms: u64,
+    ) -> Result<Vec<ReconcileFixResult>, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let mut changed = Vec::new();
+            for (task_id, tab_id) in gone {
+                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == *task_id) else {
+                    continue;
+                };
+                if task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) == 0 {
+                    continue;
+                }
+                changed.push(fix_result_action(
+                    plan_id,
+                    task_id,
+                    DriftKind::BoundToClosedTab,
+                    "closed_dead_attempt",
+                ));
+            }
+            Ok(changed)
         })
     }
 }
