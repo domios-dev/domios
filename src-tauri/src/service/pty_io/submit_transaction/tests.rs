@@ -16,8 +16,8 @@ fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
 }
 
 #[test]
-fn xterm_paste_does_not_inject_a_windows_sacrificial_space() {
-    assert_eq!(xterm_paste("payload", true), "\x1b[200~payload\x1b[201~");
+fn xterm_paste_writes_single_line_chat_input_as_plain_text() {
+    assert_eq!(xterm_paste("payload", true), "payload");
 }
 
 // A CR before the post-paste frame reproduces bf1278870; the turn never starts.
