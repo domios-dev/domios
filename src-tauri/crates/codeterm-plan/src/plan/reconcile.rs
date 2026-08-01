@@ -1,5 +1,6 @@
 use super::lane_liveness::{derive_lane_liveness, LaneInputs, LaneLiveness, LaneThresholds};
 use super::{Plan, Task, TaskStatus};
+use crate::service_plan::state::{task_projection, DependencyWait, TaskPresentation};
 use serde::{Deserialize, Serialize};
 
 pub const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
@@ -15,6 +16,8 @@ pub struct AgedOpenTask {
     pub task_id: String,
     pub name: String,
     pub status: TaskStatus,
+    pub presentation: TaskPresentation,
+    pub dependency_waits: Vec<DependencyWait>,
     pub age_ms: u64,
 }
 
@@ -36,6 +39,10 @@ pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
         .iter()
         .filter(|task| task.status.counts_as_open_work())
         .filter_map(|task| {
+            let projection = task_projection(plan, task);
+            if projection.presentation == TaskPresentation::WaitingOnDependencies {
+                return None;
+            }
             let threshold = stale_threshold_ms(&task.status)?;
             if task.status_changed_at == 0 {
                 return None;
@@ -45,6 +52,8 @@ pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
                 task_id: task.id.clone(),
                 name: task.name.clone(),
                 status: task.status.clone(),
+                presentation: projection.presentation,
+                dependency_waits: projection.dependency_waits,
                 age_ms: age,
             })
         })
@@ -130,6 +139,7 @@ where
 {
     let mut items = Vec::new();
     for task in &plan.tasks {
+        let projection = task_projection(plan, task);
         let assigned_tab = task
             .assigned_tab_id
             .as_deref()
@@ -192,6 +202,7 @@ where
         }
 
         if task.status == TaskStatus::Pending
+            && projection.presentation == TaskPresentation::ActionablePending
             && tab.is_none()
             && task.status_changed_at > 0
             && config.now_ms.saturating_sub(task.status_changed_at) > PENDING_UNSTAFFED_STALE_MS
@@ -486,6 +497,35 @@ mod tests {
         assert!(items
             .iter()
             .any(|item| item.kind == DriftKind::StalePendingUnstaffed));
+    }
+
+    #[test]
+    fn dependency_waiting_pending_is_not_stale_unstaffed_or_aged() {
+        let dependency = task("dependency", TaskStatus::InProgress);
+        let mut waiting = task("waiting", TaskStatus::Pending);
+        waiting.depends_on = vec![dependency.id.clone()];
+        waiting.status_changed_at = 1;
+        let plan = plan(vec![dependency, waiting]);
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+
+        assert!(aged_open_tasks(&plan, now).is_empty());
+        assert!(detect_plan_drift(&plan, &cfg(now), |_| TabProbe::default())
+            .iter()
+            .all(|item| item.kind != DriftKind::StalePendingUnstaffed));
+    }
+
+    #[test]
+    fn missing_dependency_remains_waiting_and_is_not_stale_actionable() {
+        let mut waiting = task("waiting", TaskStatus::Pending);
+        waiting.depends_on = vec!["missing".into()];
+        waiting.status_changed_at = 1;
+        let plan = plan(vec![waiting]);
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+
+        assert!(aged_open_tasks(&plan, now).is_empty());
+        assert!(detect_plan_drift(&plan, &cfg(now), |_| TabProbe::default())
+            .iter()
+            .all(|item| item.kind != DriftKind::StalePendingUnstaffed));
     }
 
     #[test]
