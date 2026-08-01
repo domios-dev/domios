@@ -88,6 +88,10 @@ pub struct CreateShellTabBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub creator_tab_id: Option<String>,
     pub description: Option<String>,
     pub cmd: Option<String>,
     #[serde(default)]
@@ -116,6 +120,12 @@ pub async fn create_shell_tab(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    if body.team_id.is_some() && body.chat_backend.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Team utility terminals must use PTY shell backing".into(),
+        ));
+    }
     let command = match body.chat_backend {
         Some(plugin_id) => {
             validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
@@ -153,6 +163,8 @@ pub async fn create_shell_tab(
         .svc
         .spawn_tab(SpawnTabSpec {
             workspace_id: body.workspace_id,
+            team_id: body.team_id,
+            creator_tab_id: body.creator_tab_id,
             cwd: body.cwd,
             title: body.title,
             description: body

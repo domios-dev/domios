@@ -59,6 +59,8 @@ pub struct CronJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub workspace_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
     pub schedule: String,
     pub enabled: bool,
     pub agent: String,
@@ -75,6 +77,8 @@ pub struct CronJob {
     pub skill: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub creator_tab_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub report_target_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub oneshot: bool,
     #[serde(default = "default_max_history")]
@@ -192,6 +196,8 @@ impl CronStore {
 pub struct CronCreateParams {
     pub name: String,
     pub workspace_id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
     pub schedule: String,
     pub task: String,
     #[serde(default)]
@@ -208,6 +214,8 @@ pub struct CronCreateParams {
     pub skill: Option<String>,
     #[serde(default)]
     pub creator_tab_id: Option<String>,
+    #[serde(default)]
+    pub report_target_tab_id: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
     #[serde(default)]

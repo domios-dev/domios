@@ -2540,6 +2540,74 @@ button,
   initial-value: 8%;
 }
 
+.sidebar-team-terminal-origin {
+  margin: -2px 10px 3px 30px;
+  overflow: hidden;
+  color: var(--ct-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-team-terminal-origin button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.sidebar-team-terminal-origin button:hover {
+  color: var(--ct-accent);
+}
+
+.sidebar-team-cron-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin: 0 6px 1px 12px;
+  border-radius: 5px;
+}
+
+.sidebar-team-cron-row:hover {
+  background: var(--ct-hover);
+}
+
+.sidebar-team-cron-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 4px 5px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.sidebar-team-cron-name {
+  overflow: hidden;
+  color: var(--ct-fg);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-team-cron-state {
+  margin-left: auto;
+  color: var(--ct-muted);
+  font-size: 9px;
+}
+
+.sidebar-team-cron-menu {
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--ct-muted);
+  cursor: pointer;
+}
+
 .chat-launch-ring {
   --launch-progress: 16%;
   align-items: center;

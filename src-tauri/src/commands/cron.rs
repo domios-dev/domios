@@ -39,6 +39,7 @@ pub fn cron_create(
     let params = crate::cron::store::CronCreateParams {
         name,
         workspace_id,
+        team_id: None,
         schedule,
         task,
         description,
@@ -48,6 +49,7 @@ pub fn cron_create(
         role: None,
         skill: None,
         creator_tab_id: None,
+        report_target_tab_id: None,
         enabled: Some(true),
         max_history: None,
         oneshot,

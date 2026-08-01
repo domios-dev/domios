@@ -354,6 +354,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       "POST",
       `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/${enc(s(a, "action"))}`,
     ),
+  mesh_peer_cron_get: (a) =>
+    webJson(
+      "GET",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}`,
+    ),
   mesh_peer_cron_history: (a) =>
     webJson(
       "GET",
@@ -386,6 +391,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   services_regenerate_token: (a) =>
     webJson("POST", `/api/services/${enc(s(a, "id"))}/regenerate-token`),
   activity_list: () => webJson("GET", "/api/activity"),
+  cron_list: (a) => webJson("GET", `/api/crons${a.workspaceId ? `?workspace_id=${enc(s(a, "workspaceId"))}` : ""}`),
   cron_get: (a) => webJson("GET", `/api/crons/${enc(s(a, "id"))}`),
   cron_history: (a) => webJson("GET", `/api/crons/${enc(s(a, "id"))}/history`),
   cron_delete: (a) => webJson("DELETE", `/api/crons/${enc(s(a, "id"))}`),

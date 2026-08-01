@@ -52,6 +52,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             workspace,
             cwd,
             title,
+            team,
             cmd,
             eager,
             chat_backend,
@@ -74,6 +75,17 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
             if let Some(t) = title {
                 body["title"] = serde_json::Value::String(t);
+            }
+            if let Some(team_id) = team {
+                let creator_tab_id = std::env::var("CODETERM_TAB_ID")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        eprintln!("Error: --team requires CODETERM_TAB_ID from a live Team member");
+                        std::process::exit(1);
+                    });
+                body["team_id"] = serde_json::Value::String(team_id);
+                body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
             }
             if eager {
                 body["eager"] = serde_json::Value::Bool(true);
@@ -859,6 +871,8 @@ pub fn render_tab_tree_with_current(
         parent: Option<String>,
         role: String,
         peer: String,
+        team_id: String,
+        creator_tab_id: String,
         is_current: bool,
     }
     // HashMap-unordered).
@@ -886,6 +900,8 @@ pub fn render_tab_tree_with_current(
         let description = sfield(p, "description").to_string();
         let role = sfield(p, "role").to_ascii_lowercase();
         let peer = sfield(p, "remote_peer").to_string();
+        let team_id = sfield(p, "team_id").to_string();
+        let creator_tab_id = sfield(p, "spawned_by_tab_id").to_string();
         let parent = p
             .get("parent_tab_id")
             .and_then(|v| v.as_str())
@@ -902,6 +918,8 @@ pub fn render_tab_tree_with_current(
             parent,
             role,
             peer,
+            team_id,
+            creator_tab_id,
         });
     }
 
@@ -940,7 +958,24 @@ pub fn render_tab_tree_with_current(
             .max()
             .unwrap_or(0)
             .min(24);
-        let by_label = |a: &usize, b: &usize| rows[*a].label.cmp(&rows[*b].label);
+        let labels_by_id: std::collections::HashMap<&str, &str> = rows
+            .iter()
+            .map(|row| (row.id.as_str(), row.label.as_str()))
+            .collect();
+        let row_rank = |row: &Row| {
+            if !row.team_id.is_empty() && row.role.is_empty() {
+                2
+            } else if row.role == "worker" {
+                1
+            } else {
+                0
+            }
+        };
+        let by_label = |a: &usize, b: &usize| {
+            row_rank(&rows[*a])
+                .cmp(&row_rank(&rows[*b]))
+                .then_with(|| rows[*a].label.cmp(&rows[*b].label))
+        };
         roots.sort_by(by_label);
 
         // Iterative DFS so deep nesting can't blow the stack.
@@ -949,7 +984,28 @@ pub fn render_tab_tree_with_current(
             let r = &rows[i];
             let indent = "  ".repeat(depth + 1);
             let current_suffix = if r.is_current { " (self)" } else { "" };
-            let role_suffix = match (r.role.as_str(), r.peer.as_str()) {
+            let utility_suffix = if !r.team_id.is_empty() && r.role.is_empty() {
+                let creator = labels_by_id
+                    .get(r.creator_tab_id.as_str())
+                    .copied()
+                    .filter(|label| !label.is_empty())
+                    .map(|label| format!("terminal by {label}"))
+                    .unwrap_or_else(|| {
+                        let id = if r.creator_tab_id.is_empty() {
+                            "unknown"
+                        } else {
+                            r.creator_tab_id.as_str()
+                        };
+                        format!("terminal by archived {id}")
+                    });
+                Some(creator)
+            } else {
+                None
+            };
+            let role_suffix = match (
+                utility_suffix.as_deref().unwrap_or(r.role.as_str()),
+                r.peer.as_str(),
+            ) {
                 ("", "") => String::new(),
                 (role, "") => format!(" [{}]", role),
                 ("", peer) => format!(" [@{}]", peer),

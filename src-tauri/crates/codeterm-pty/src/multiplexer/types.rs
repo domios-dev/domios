@@ -457,8 +457,8 @@ pub struct Tab {
     /// Behavioral profile layered on top of the structural role.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
-    /// Team membership: the `(team_id, role, role_profile)` triple IS the
-    /// membership relation. `None` = teamless. Minted at the spawn edge (Phase 2).
+    /// Team membership. Roleless members are Team utility terminals; their
+    /// creator is recorded in `spawned_by_tab_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub team_id: Option<String>,
     /// Watcher-mode machine state (charter, policy, tick counters).

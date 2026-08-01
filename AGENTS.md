@@ -236,6 +236,8 @@ Repository-local operational skills live in `.agents/skills/`. Load the matching
 
 ## Orchestration failure visibility
 
+Keep utility work inside its Team: use `codeterm tab new --team <team-id> --cmd "..."` for shells and `codeterm cron create ... --team <team-id>` for schedules. Do not create loose Team utility tabs; Team deletion owns their cleanup.
+
 Treat failures in CodeTerm's own coordination path as product incidents. A
 false-success dispatch, missing `AgentReady` or session binding, undelivered
 brief, vanished Worker, or lost task assignment requires an immediate,
@@ -289,4 +291,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

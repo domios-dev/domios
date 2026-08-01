@@ -151,6 +151,27 @@ fn render_tree_falls_back_to_agent_type_without_model() {
 }
 
 #[test]
+fn render_tree_places_team_terminals_after_workers_with_creator_provenance() {
+    let tabs = vec![
+        json!({"id":"orch","tab_title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"terminal","tab_title":"dev server","team_id":"team","spawned_by_tab_id":"orch","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"worker","tab_title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+    ];
+
+    let out = render_tab_tree(&tabs);
+    let worker = out.find("worker Worker").unwrap();
+    let terminal = out.find("terminal dev server").unwrap();
+    assert!(
+        worker < terminal,
+        "Team terminal must follow workers:\n{out}"
+    );
+    assert!(
+        out.contains("[terminal by Ada]"),
+        "creator provenance missing:\n{out}"
+    );
+}
+
+#[test]
 fn render_tree_includes_description() {
     let tabs = vec![json!({
         "id":"eeee",

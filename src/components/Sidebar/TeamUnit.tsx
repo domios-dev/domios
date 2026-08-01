@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
+import { ChevronRight, ClipboardList, Clock3, LogOut, Terminal, UsersRound } from "lucide-react";
 import type { Tab, ProviderDescriptor, Team } from "../../lib/types";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { TaskStatus, type Plan } from "../Canvas/types";
@@ -369,6 +369,10 @@ export interface TeamUnitProps {
   workers: ReactNode;
   workerCount: number;
   workingWorkerCount: number;
+  terminals?: ReactNode;
+  terminalCount?: number;
+  crons?: ReactNode;
+  cronCount?: number;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
@@ -392,6 +396,10 @@ export function TeamUnit({
   workers,
   workerCount,
   workingWorkerCount,
+  terminals,
+  terminalCount = 0,
+  crons,
+  cronCount = 0,
   providers,
   providersLoading,
   onRenameTeam,
@@ -402,12 +410,14 @@ export function TeamUnit({
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
   const [workersExpanded, setWorkersExpanded] = useState(initialDisclosure.workersExpanded);
+  const [terminalsExpanded, setTerminalsExpanded] = useState(initialDisclosure.terminalsExpanded);
+  const [cronsExpanded, setCronsExpanded] = useState(initialDisclosure.cronsExpanded);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const teamTabCount = managerCount + workerCount;
+  const teamTabCount = managerCount + workerCount + terminalCount;
   const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
@@ -443,6 +453,22 @@ export function TeamUnit({
     setWorkersExpanded((current) => {
       const next = !current;
       persistTeamDisclosureState(team.id, { workersExpanded: next });
+      return next;
+    });
+  };
+
+  const toggleTerminalsExpanded = () => {
+    setTerminalsExpanded((current) => {
+      const next = !current;
+      persistTeamDisclosureState(team.id, { terminalsExpanded: next });
+      return next;
+    });
+  };
+
+  const toggleCronsExpanded = () => {
+    setCronsExpanded((current) => {
+      const next = !current;
+      persistTeamDisclosureState(team.id, { cronsExpanded: next });
       return next;
     });
   };
@@ -610,6 +636,44 @@ export function TeamUnit({
                   {workingWorkerCount > 0 && (
                     <ActivityDots size="small" tone="muted" />
                   )}
+                  <span className="sidebar-team-summary-kebab">⋮</span>
+                </div>
+              )}
+            </div>
+          )}
+          {terminalCount > 0 && (
+            <div data-testid="terminals-section" className="sidebar-team-section">
+              <SidebarDisclosure
+                data-testid="terminals-collapse-toggle"
+                expanded={terminalsExpanded}
+                className="sidebar-team-workers-toggle"
+                onClick={toggleTerminalsExpanded}
+              >TERMINALS {terminalCount}</SidebarDisclosure>
+              {terminalsExpanded ? (
+                <div className="sidebar-team-member-list">{terminals}</div>
+              ) : (
+                <div data-testid="terminals-collapse-summary" className="sidebar-team-workers-summary">
+                  <Terminal size={11} aria-hidden="true" />
+                  {terminalCount} {terminalCount === 1 ? "utility shell" : "utility shells"}
+                  <span className="sidebar-team-summary-kebab">⋮</span>
+                </div>
+              )}
+            </div>
+          )}
+          {cronCount > 0 && (
+            <div data-testid="crons-section" className="sidebar-team-section">
+              <SidebarDisclosure
+                data-testid="crons-collapse-toggle"
+                expanded={cronsExpanded}
+                className="sidebar-team-workers-toggle"
+                onClick={toggleCronsExpanded}
+              >CRONS {cronCount}</SidebarDisclosure>
+              {cronsExpanded ? (
+                <div className="sidebar-team-member-list">{crons}</div>
+              ) : (
+                <div data-testid="crons-collapse-summary" className="sidebar-team-workers-summary">
+                  <Clock3 size={11} aria-hidden="true" />
+                  {cronCount} scheduled {cronCount === 1 ? "job" : "jobs"}
                   <span className="sidebar-team-summary-kebab">⋮</span>
                 </div>
               )}

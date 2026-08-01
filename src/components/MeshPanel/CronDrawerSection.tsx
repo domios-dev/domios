@@ -18,6 +18,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [agent, setAgent] = useState<string>("claude");
+  const [job, setJob] = useState<CronJob | null>(null);
   const [openRun, setOpenRun] = useState<CronRunInfo | null>(null);
   const cronId = serviceIdToCronId(service.id);
   const sourcePeerId = service.source_peer_id;
@@ -38,13 +39,15 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
         if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []);
       })
       .catch(() => {});
-    if (!isRemote) {
-      invoke<CronJob>("cron_get", { id: cronId })
-        .then((j) => {
-          if (!cancelled && j?.agent) setAgent(j.agent);
-        })
-        .catch(() => {});
-    }
+    invoke<CronJob>(isRemote ? "mesh_peer_cron_get" : "cron_get", isRemote
+      ? { instanceId: sourcePeerId, id: cronId }
+      : { id: cronId })
+      .then((next) => {
+        if (cancelled) return;
+        setJob(next);
+        if (next?.agent) setAgent(next.agent);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -104,6 +107,16 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
 
   return (
     <>
+      {job && (
+        <Section label="Execution">
+          <div className={sectionMetaClass}>
+            <div>{job.report_target_tab_id ? `reports to Tab ${job.report_target_tab_id}` : "private cron worker"}</div>
+            <div>provider: <span className="font-mono">{job.agent}</span>{job.model ? ` · ${job.model}` : ""}</div>
+            <div>cwd: <span className="font-mono break-all">{job.cwd ?? "workspace"}</span></div>
+            <div className="mt-1 whitespace-pre-wrap break-words text-[var(--ct-muted-fg)]">{job.task}</div>
+          </div>
+        </Section>
+      )}
       <Section label="Schedule">
         {editingSchedule ? (
           <div className="flex gap-1.5">

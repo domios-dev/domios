@@ -91,6 +91,8 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("title"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let team_id = opt_string_param(params, "team_id");
+            let creator_tab_id = opt_string_param(params, "creator_tab_id");
             let eager = params
                 .as_ref()
                 .and_then(|p| p.get("eager"))
@@ -99,6 +101,8 @@ pub(super) fn dispatch(
             let handle = svc
                 .spawn_tab(crate::service::spawn::SpawnTabSpec {
                     workspace_id,
+                    team_id,
+                    creator_tab_id,
                     cwd,
                     title,
                     visibility: crate::service::spawn::TabVisibility::Visible,

@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
-import { Plus } from "lucide-react";
+import { Clock3, MoreHorizontal, Plus } from "lucide-react";
+import { invoke } from "../../lib/bridge";
 import type {
   Tab,
   TabStatus,
@@ -20,6 +21,8 @@ import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
 import { isSidebarTabVisible } from "./workspaceTabs";
+import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
+import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import {
   TeamUnit,
   type TeamMemberRole,
@@ -127,6 +130,7 @@ export function SidebarWorkspaceTabs({
   onAddTeamMember,
   onCloseTeam,
 }: SidebarWorkspaceTabsProps) {
+  const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const sortedTabs = useMemo(
     () => allSortedTabs.filter(isSidebarTabVisible),
     [allSortedTabs],
@@ -187,6 +191,38 @@ export function SidebarWorkspaceTabs({
     </div>
   );
 
+  const renderTerminalRow = (member: TeamTabMember, items: string[]): ReactNode => {
+    const creatorId = member.tab.spawned_by_tab_id ?? null;
+    const creator = creatorId ? tabs[creatorId] : null;
+    return (
+      <div key={member.tab.id} className="sidebar-team-member sidebar-team-terminal-member">
+        <SidebarSingleTabRow
+          tab={member.tab}
+          index={member.index}
+          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
+          activeWork={activeWork}
+          isClosing={closingTabIds.has(member.tab.id)}
+          isAppearing={appearingTabIds.has(member.tab.id)}
+          group="tab"
+          groupKey={ws.id}
+          items={items}
+          pinnedIds={[]}
+          {...sharedRow}
+        />
+        <div className="sidebar-team-terminal-origin">
+          started by{" "}
+          {creator ? (
+            <button type="button" onClick={() => onActivateTab(creator.id)}>
+              {creator.title || creator.id}
+            </button>
+          ) : (
+            <span>{creatorId ? `${creatorId} · archived` : "unknown"}</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
   const looseItems = sortedTabs
@@ -228,11 +264,15 @@ export function SidebarWorkspaceTabs({
     const managers = sortTeamManagers(
       members.filter((member) => member.tab.role === "Orchestrator" || member.tab.role === "Manager"),
     );
-    const workers = members.filter(
-      (member) => member.tab.role !== "Orchestrator" && member.tab.role !== "Manager",
+    const terminals = members.filter((member) => member.tab.role == null);
+    const workers = members.filter((member) =>
+      member.tab.role !== "Orchestrator"
+      && member.tab.role !== "Manager"
+      && member.tab.role != null,
     );
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
+    const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const orchestratorIds = managers
       .filter((member) => member.tab.role === "Orchestrator")
       .map((member) => member.tab.id);
@@ -247,6 +287,7 @@ export function SidebarWorkspaceTabs({
       workspace_id: ws.id,
     };
     const managerTabId = selectTeamStaffingManager(managers);
+    const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
       <TeamUnit
@@ -276,6 +317,44 @@ export function SidebarWorkspaceTabs({
             ))}
           </>
         }
+        terminalCount={terminals.length}
+        terminals={
+          <SortableContext items={terminalItems} strategy={verticalListSortingStrategy}>
+            {terminals.map((member) => renderTerminalRow(member, terminalItems))}
+          </SortableContext>
+        }
+        cronCount={teamCrons.length}
+        crons={teamCrons.map((job) => (
+          <div key={job.id} className="sidebar-team-cron-row">
+            <button
+              type="button"
+              className="sidebar-team-cron-main"
+              onClick={() => {
+                onBeforeOpenPlan();
+                cronSelectionStore.open({ cronId: job.id, workspaceId: ws.id });
+              }}
+              title={job.report_target_tab_id
+                ? `Reports to Tab ${job.report_target_tab_id}`
+                : "Runs in a private cron worker"}
+            >
+              <Clock3 size={11} aria-hidden="true" />
+              <span className="sidebar-team-cron-name">{job.name}</span>
+              <span className="sidebar-team-cron-state">{job.enabled ? "active" : "paused"}</span>
+            </button>
+            <button
+              type="button"
+              className="sidebar-team-cron-menu"
+              aria-label={`Delete cron ${job.name}`}
+              title="Cron actions"
+              onClick={() => {
+                if (!window.confirm(`Delete cron \"${job.name}\"?`)) return;
+                void invoke("cron_delete", { id: job.id }).then(() => refreshCrons());
+              }}
+            >
+              <MoreHorizontal size={12} />
+            </button>
+          </div>
+        ))}
         providers={providers}
         providersLoading={providersLoading}
         onRenameTeam={onRenameTeam && managerTabId
