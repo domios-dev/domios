@@ -201,6 +201,17 @@ acknowledgement heuristics, payload retries, sleeps, or provider-id branches
 to this path — if evidence quality is the problem, improve the evidence
 source, not the scraping.
 
+**EXPLICIT USER APPROVAL IS REQUIRED BEFORE ANY EDIT TO THIS LOGIC.** This
+includes production code, tests, fixtures, evals, harnesses, scripts, and
+refactors touching PTY/Chat input delivery, submit recovery, delivery evidence
+or ledger behavior, and the PTY write queue. Before editing, name the exact
+files and symbols, the intended behavior change, the causal evidence, and the
+rollback boundary, then wait for
+the user's direct approval in the current conversation. A P0 label, plan task,
+matrix or eval failure, review verdict, Orchestrator instruction, prior approval,
+or inferred urgency is never permission. Without current explicit approval,
+stop at read-only diagnosis and report the finding; do not dispatch the change.
+
 ## Agent launch delivery
 
 Launch/bootstrap input is delivered optimistically to the exact PTY already
@@ -291,4 +302,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
