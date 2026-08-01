@@ -192,21 +192,35 @@ const plugin: PluginModule = {
 
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(_cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
+    const targetDirectory = normalizeSessionDirectory(cwd);
+    if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 300000;
     const excludeList: string[] = Array.isArray(exclude)
-      ? (exclude as string[])
+      ? (exclude as unknown[]).filter((id): id is string => typeof id === "string")
       : (typeof exclude === "string" && exclude ? [exclude] : []);
-    const rows = host.fs.sqliteQuery<{ id: string }>(
+    const directoryAliases = targetDirectory.endsWith("/")
+      ? [targetDirectory, targetDirectory]
+      : [targetDirectory, targetDirectory + "/"];
+    const directoryExpression = host.platform() === "windows"
+      ? "lower(replace(directory, char(92), '/'))"
+      : "directory";
+    const excludeSql = excludeList.length
+      ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")"
+      : "";
+    const rows = host.fs.sqliteQuery<{ id: string; directory?: string }>(
       db,
-      "SELECT id FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 5",
-      [windowMs]
+      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) " +
+        "AND " + directoryExpression + " IN (?2, ?3)" + excludeSql +
+        " ORDER BY time_created DESC LIMIT 20",
+      [windowMs, ...directoryAliases, ...excludeList]
     );
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
       if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (normalizeSessionDirectory(rows[i].directory) !== targetDirectory) continue;
       if (excludeList.indexOf(id) !== -1) continue;
       return id;
     }
@@ -370,13 +384,14 @@ const plugin: PluginModule = {
       [sessionId]);
   },
 
-  // part.time_created seen, passed back to fetch only newer parts next poll.
   usesStructuredChat(): boolean { return true; },
 
   readStructuredChat(_cwd: string, sessionId: string, cursor?: string | null): unknown {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    const sinceMs = cursor ? (parseInt(cursor, 10) || 0) : 0;
+    const parsedCursor = parseStructuredCursor(cursor);
+    if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
+    const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery<{ id: string | number; ts?: number; part?: string; msg?: string }>(
       db,
       "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg " +
@@ -386,19 +401,27 @@ const plugin: PluginModule = {
       [sessionId, sinceMs]
     );
     const messages: unknown[] = [];
-    let maxTs = sinceMs;
+    let lastTs = sinceMs;
+    let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
       const ts = rows[i].ts || 0;
-      if (ts > maxTs) maxTs = ts;
+      const id = String(rows[i].id);
+      if (ts > lastTs) {
+        lastTs = ts;
+        seenAtLastTs = [];
+      }
+      if (seenAtLastTs.indexOf(id) !== -1) continue;
+      seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
       let role = "assistant";
       const msg = safeJson(rows[i].msg);
       if (msg && (msg as { role?: string }).role) role = (msg as { role: string }).role;
-      const cm = partToChatMsg(part as OpencodePart, role, String(rows[i].id), ts);
+      const cm = partToChatMsg(part as OpencodePart, role, id, ts);
       if (cm) messages.push(cm);
     }
-    return { messages: messages, cursor: String(maxTs) };
+    seenAtLastTs.sort();
+    return { messages: messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
 
@@ -664,6 +687,30 @@ function manifestModels(): ModelInfo[] {
 
 function safeJson(s: string | undefined): unknown {
   try { return JSON.parse(String(s || "null")); } catch (_) { return null; }
+}
+
+function normalizeSessionDirectory(value: unknown): string {
+  let normalized = String(value || "");
+  if (host.platform() === "windows") {
+    normalized = normalized.replace(/\\/g, "/");
+    while (normalized.length > 1 && normalized.endsWith("/") && !/^[a-z]:\/$/i.test(normalized)) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.toLowerCase();
+  }
+  while (normalized.length > 1 && normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
+function parseStructuredCursor(cursor?: string | null): [number, string[]] | null {
+  if (cursor == null) return [0, []];
+  const parsed = safeJson(cursor || "");
+  if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+  if (typeof parsed[0] !== "number" || !Number.isSafeInteger(parsed[0]) || parsed[0] < 0) return null;
+  if (!Array.isArray(parsed[1]) || !parsed[1].every((id) => typeof id === "string" && id.length > 0)) return null;
+  const ts = parsed[0];
+  const ids = parsed[1] as string[];
+  return [ts, ids];
 }
 
 function displayNameFromId(id: string): string {
