@@ -571,7 +571,6 @@ export function TabSessionChat({
           className="chat-empty-state pointer-events-none absolute inset-0 flex items-center justify-center select-none"
           data-testid="chat-empty-state"
           aria-hidden
-          style={{ "--chat-provider-color": provider?.iconColor ?? "var(--ct-accent, #58a6ff)" } as React.CSSProperties}
         >
           <span className="chat-empty-mark" aria-hidden>
             <AgentIcon providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
