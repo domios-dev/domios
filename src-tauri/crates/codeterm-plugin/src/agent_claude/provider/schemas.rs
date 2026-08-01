@@ -4,13 +4,12 @@ use crate::provider::{
     self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, SettingField,
 };
 
-/// The bundled provider manifest is the single shipped Claude alias catalog.
-/// The native provider registers the exact seed the JS plugin contributes —
-/// never a mirrored Rust display/availability vector.
+/// Bundled manifest is the single shipped Claude alias catalog; the native
+/// provider registers this exact seed, never a mirrored Rust vector.
 const BUNDLED_MANIFEST: &str =
     include_str!("../../../../../../plugins/provider-claude/plugin.json");
 
-pub(super) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
+pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
     static SEED: std::sync::OnceLock<crate::model_catalog::RegisteredDefaults> =
         std::sync::OnceLock::new();
     SEED.get_or_init(|| {
