@@ -55,6 +55,29 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
         "native and JS must agree field-for-field on the resolved catalog"
     );
     assert_eq!(native.default_model(), js.default_model());
+
+    // Genuine live contribution, isolated under a fixture id: the real
+    // plugin.js and the native model_catalog seam must see one identical
+    // result, without overlaying the process-global `claude` entry.
+    let _cleanup = FixtureCacheCleanup;
+    let fixture_js = claude_js_under_fixture_id();
+    let fixture_native = FixtureNativeReader;
+    assert_eq!(fixture_js.available_models(), manifest_models);
+    assert_eq!(fixture_native.available_models(), manifest_models);
+
+    let live: Vec<ModelInfo> = manifest_models
+        .iter()
+        .map(|m| ModelInfo {
+            available: Some(true),
+            ..m.clone()
+        })
+        .collect();
+    crate::model_catalog::put_live(LIVE_FIXTURE_ID, live.clone(), manifest_default.clone());
+
+    assert_eq!(fixture_native.available_models(), live);
+    assert_eq!(fixture_js.available_models(), live);
+    assert_eq!(fixture_native.default_model(), manifest_default);
+    assert_eq!(fixture_js.default_model(), manifest_default);
 }
 
 const LIVE_FIXTURE_ID: &str = "claude-catalog-live-parity-fixture";
@@ -139,35 +162,6 @@ impl AgentProvider for FixtureNativeReader {
     fn default_model(&self) -> Option<String> {
         crate::model_catalog::resolve_default(LIVE_FIXTURE_ID)
     }
-}
-
-#[test]
-fn claude_genuine_live_contribution_is_identical_for_native_and_js() {
-    if require_plugins().is_none() {
-        return;
-    }
-    let _cleanup = FixtureCacheCleanup;
-    let (manifest_models, manifest_default) = manifest_expectation();
-
-    let js = claude_js_under_fixture_id();
-    let native = FixtureNativeReader;
-    assert_eq!(js.available_models(), manifest_models);
-    assert_eq!(native.available_models(), manifest_models);
-
-    // Genuine live contribution: same stable alias ids, account availability.
-    let live: Vec<ModelInfo> = manifest_models
-        .iter()
-        .map(|m| ModelInfo {
-            available: Some(true),
-            ..m.clone()
-        })
-        .collect();
-    crate::model_catalog::put_live(LIVE_FIXTURE_ID, live.clone(), manifest_default.clone());
-
-    assert_eq!(native.available_models(), live);
-    assert_eq!(js.available_models(), live);
-    assert_eq!(native.default_model(), manifest_default);
-    assert_eq!(js.default_model(), manifest_default);
 }
 
 #[test]
