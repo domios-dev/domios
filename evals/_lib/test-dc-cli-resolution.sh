@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# WHAT: Proves dc selects the active dev CLI and token without consulting PATH.
-# WHY: A stale prod CLI once connected to dev and returned a false-green doctor result.
-# ORACLE: Only the fixture dev CLI runs; hostile PATH stays silent and missing CLI fails closed.
+# WHAT: Proves dc and HTTP helpers select the CLI-resolved dev instance.
+# WHY: Named lanes received the canonical token and failed with a misleading HTTP 401.
+# ORACLE: A deliberately non-canonical instance spelling reaches its fixture CLI and API;
+# missing resolution names the instance, resolved path, and expected data directory.
 
 set -euo pipefail
 
@@ -20,10 +21,22 @@ printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.codeterm-dev-named-insta
 
 printf '%s\n' \
   '#!/usr/bin/env bash' \
-  'printf "DEV_CLI_WON token=%s\n" "$CODETERM_API_TOKEN"' \
+  'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
+  '  case "${CODETERM_INSTANCE:-}" in' \
+  '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
+  '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
+  '  esac' \
+  'fi' \
+  'printf "DEV_CLI_WON token=%s port=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT"' \
   > "$FIXTURE/home/.codeterm-dev/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
+  '  case "${CODETERM_INSTANCE:-}" in' \
+  '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
+  '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
+  '  esac' \
+  'fi' \
   'printf "NAMED_DEV_CLI_WON token=%s\n" "$CODETERM_API_TOKEN"' \
   > "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm"
 printf '%s\n' \
@@ -32,7 +45,11 @@ printf '%s\n' \
   > "$FIXTURE/hostile/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
-  'exit 0' \
+  'body='\''{"status":"ok","instance":{"name":"  Named_Instance  ","api_port":"7788"}}'\''' \
+  'case "$*" in' \
+  '  *"%{http_code}"*) printf '\''%s\n200\n'\'' "$body";;' \
+  '  *) printf '\''%s\n'\'' "$body";;' \
+  'esac' \
   > "$FIXTURE/hostile/curl"
 chmod +x \
   "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
@@ -44,7 +61,7 @@ canonical_output="$(
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
     bash -c 'source "$1"; dc identify' _ "$LIB"
 )"
-if ! grep -q '^DEV_CLI_WON token=canonical-token$' <<<"$canonical_output"; then
+if ! grep -q '^DEV_CLI_WON token=canonical-token port=7686$' <<<"$canonical_output"; then
   echo "canonical dev CLI did not run: $canonical_output" >&2
   exit 1
 fi
@@ -52,13 +69,27 @@ if grep -q 'FAKE_PROD_CLI_WON' <<<"$canonical_output"; then
   echo "hostile PATH binary won for the canonical dev instance" >&2
   exit 1
 fi
+chmod -x "$FIXTURE/home/.codeterm-dev/bin/codeterm"
 
 named_output="$(
-  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_INSTANCE=Named_Instance \
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
+    CODETERM_INSTANCE='  Named_Instance  ' CODETERM_API_PORT=7788 \
+    CODETERM_API_TOKEN=prod-token CODETERM_SOCKET_PATH=prod.sock \
     bash -c 'source "$1"; dc identify' _ "$LIB"
 )"
 if ! grep -q '^NAMED_DEV_CLI_WON token=named-token$' <<<"$named_output"; then
   echo "named dev CLI or token selection failed: $named_output" >&2
+  exit 1
+fi
+
+named_http_output="$(
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
+    CODETERM_INSTANCE='  Named_Instance  ' CODETERM_API_PORT=7788 \
+    CODETERM_API_TOKEN=prod-token CODETERM_SOCKET_PATH=prod.sock \
+    bash -c 'source "$1"; dev_get /api/health' _ "$LIB"
+)"
+if ! grep -q '"status":"ok"' <<<"$named_http_output"; then
+  echo "named HTTP helper did not reach the selected instance: $named_http_output" >&2
   exit 1
 fi
 if grep -q 'FAKE_PROD_CLI_WON' <<<"$named_output"; then
@@ -75,15 +106,19 @@ missing_status=$?
 set -e
 
 if [ "$missing_status" -eq 0 ]; then
-  echo "dc silently succeeded without the active dev CLI" >&2
+  echo "dc silently succeeded without the requested dev instance" >&2
   exit 1
 fi
-if ! grep -q "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm" <<<"$missing_output"; then
-  echo "missing-binary error did not name the active dev CLI: $missing_output" >&2
+if ! grep -q "instance='missing'" <<<"$missing_output"; then
+  echo "resolution error did not name the requested instance: $missing_output" >&2
   exit 1
 fi
-if ! grep -q './build.sh cli' <<<"$missing_output"; then
-  echo "missing-binary error omitted the rebuild command: $missing_output" >&2
+if ! grep -q "resolved_path='<unresolved>'" <<<"$missing_output"; then
+  echo "resolution error did not name the unresolved path: $missing_output" >&2
+  exit 1
+fi
+if ! grep -q "expected_data_dir='$FIXTURE/home/.codeterm-dev-missing'" <<<"$missing_output"; then
+  echo "resolution error did not name the CLI-expected data directory: $missing_output" >&2
   exit 1
 fi
 if grep -q 'FAKE_PROD_CLI_WON' <<<"$missing_output"; then
@@ -91,4 +126,4 @@ if grep -q 'FAKE_PROD_CLI_WON' <<<"$missing_output"; then
   exit 1
 fi
 
-echo "PASS: dc CLI resolution is absolute, instance-aware, and fail-closed"
+echo "PASS: dc and HTTP resolution is CLI-derived, instance-aware, and fail-closed"

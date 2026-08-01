@@ -3,7 +3,7 @@
 #
 # CRITICAL — read once before using:
 #
-#   Every bench targets the DEV daemon (port 7686). The user's prod
+#   Every bench targets a DEV daemon. The user's prod
 #   daemon (port 7685) is NEVER touched by these helpers. To make
 #   that impossible to break by accident:
 #
@@ -16,8 +16,7 @@
 #        is what happens when a Claude session lives inside prod
 #        codeterm) cannot route the call to prod. It also executes
 #        the active dev CLI by absolute path, never through PATH.
-#     3. The HTTP helpers (dev_get, dev_post) are hardcoded to
-#        http://127.0.0.1:7686 — no env-var indirection.
+#     3. The HTTP helpers use the selected dev instance port and token.
 #
 # Usage:
 #   source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
@@ -41,27 +40,148 @@ is_linux()   { case "$OSTYPE" in linux*) return 0;; *) return 1;; esac; }
 
 # --- Dev daemon connection -------------------------------------------
 
-dev_data_dir() {
-  local instance="${CODETERM_INSTANCE:-}" slug
-  if [ -z "$instance" ]; then
-    echo "$HOME/.codeterm-dev"
+EVAL_LIB_REQUESTED_INSTANCE="${CODETERM_INSTANCE:-}"
+if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] &&
+   [ -n "${CODETERM_API_PORT:-}" ] &&
+   [ "${CODETERM_API_PORT:-}" != 7685 ]; then
+  EVAL_LIB_DEV_API_PORT="$CODETERM_API_PORT"
+else
+  EVAL_LIB_DEV_API_PORT=7686
+fi
+EVAL_LIB_RESOLVED_DATA_DIR=""
+EVAL_LIB_RESOLVED_API_TOKEN=""
+
+dev_default_data_dir() {
+  printf '%s\n' "$HOME/.codeterm-dev"
+}
+
+dev_resolution_error() {
+  local resolved_path="$1" expected_data_dir="$2"
+  printf "ERROR [dev-resolution]: instance='%s' resolved_path='%s' expected_data_dir='%s'\n" \
+    "${EVAL_LIB_REQUESTED_INSTANCE:-default}" "$resolved_path" "$expected_data_dir" >&2
+}
+
+dev_bootstrap_cli() {
+  local candidate
+  if [ -n "${CODETERM_CLI_PATH:-}" ] && [ -x "$CODETERM_CLI_PATH" ]; then
+    printf '%s\n' "$CODETERM_CLI_PATH"
     return
   fi
-  slug="$(printf '%s' "$instance" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
-  echo "$HOME/.codeterm-dev-$slug"
+  for candidate in \
+    "$(dev_default_data_dir)/bin/codeterm" \
+    "$(dev_default_data_dir)/bin/codeterm.exe"; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  for candidate in \
+    "$HOME"/.codeterm-dev*/bin/codeterm \
+    "$HOME"/.codeterm-dev*/bin/codeterm.exe; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  dev_resolution_error '<unresolved>' "$(dev_default_data_dir)"
+  return 7
+}
+
+dev_expected_data_dir_from_cli_error() {
+  local output="$1" socket_name
+  socket_name="$(printf '%s\n' "$output" \
+    | grep -oE 'codeterm-dev(-[a-z0-9-]+)?([.]sock)?' \
+    | head -1)"
+  [ -n "$socket_name" ] || return 1
+  socket_name="${socket_name%.sock}"
+  printf '%s/.%s\n' "$HOME" "$socket_name"
+}
+
+dev_cli_expected_data_dir() {
+  local cli="$1" output="${2:-}"
+  if dev_expected_data_dir_from_cli_error "$output"; then
+    return
+  fi
+  output="$(
+    CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
+    CODETERM_API_TOKEN= \
+    CODETERM_SOCKET_PATH= \
+    CODETERM_TAB_ID= \
+    CODETERM_PARENT_TAB_ID= \
+    "$cli" mem stats --json 2>&1
+  )" || true
+  dev_expected_data_dir_from_cli_error "$output"
+}
+
+dev_cli_resolved_token() {
+  local cli output token expected_data_dir
+  cli="$(dev_bootstrap_cli)" || return
+  if ! output="$(
+    CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
+    CODETERM_API_TOKEN= \
+    CODETERM_SOCKET_PATH= \
+    CODETERM_TAB_ID= \
+    CODETERM_PARENT_TAB_ID= \
+    "$cli" config get api.token --json 2>&1
+  )"; then
+    expected_data_dir="$(dev_cli_expected_data_dir "$cli" "$output")" || \
+      expected_data_dir="$HOME/.codeterm-dev*"
+    if [ -f "$expected_data_dir/config.toml" ]; then
+      config_token "$expected_data_dir/config.toml"
+      return
+    fi
+    dev_resolution_error '<unresolved>' "$expected_data_dir"
+    return 7
+  fi
+  token="$(printf '%s\n' "$output" \
+    | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -1)"
+  if [ -z "$token" ]; then
+    dev_resolution_error '<unresolved>' "$HOME/.codeterm-dev*"
+    return 7
+  fi
+  printf '%s\n' "$token"
+}
+
+config_token() {
+  grep -E '^token = ' "$1" | head -1 | sed 's/.*"\(.*\)"/\1/'
+}
+
+dev_data_dir() {
+  local resolved_token cfg cfg_token
+  local -a matches=()
+  if [ -z "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+    dev_default_data_dir
+    return
+  fi
+  resolved_token="$(dev_cli_resolved_token)" || return
+  for cfg in "$HOME"/.codeterm-dev*/config.toml; do
+    [ -f "$cfg" ] || continue
+    cfg_token="$(config_token "$cfg")"
+    [ "$cfg_token" = "$resolved_token" ] && matches+=("${cfg%/config.toml}")
+  done
+  if [ "${#matches[@]}" -ne 1 ]; then
+    dev_resolution_error '<unresolved>' "$HOME/.codeterm-dev*"
+    return 7
+  fi
+  printf '%s\n' "${matches[0]}"
 }
 
 # Read the API token from the active dev instance.
 dev_token() {
   local cfg
-  cfg="$(dev_data_dir)/config.toml"
+  cfg="${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}/config.toml"
   [ -f "$cfg" ] || { echo "ERROR: $cfg not found — is dev installed?" >&2; return 1; }
-  grep -E '^token = ' "$cfg" | head -1 | sed 's/.*"\(.*\)"/\1/'
+  config_token "$cfg"
 }
 
 # Socket path differs across OS. Windows uses a named pipe; Unix uses
 # a stable name in OS-managed namespace (GenericNamespaced).
 dev_socket_path() {
+  if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+    printf '\n'
+    return
+  fi
   if is_windows; then
     echo '\\.\pipe\codeterm-dev.sock'
   else
@@ -72,23 +192,62 @@ dev_socket_path() {
 # Export the four env vars dc needs to target dev.
 # CLI selection remains dc's responsibility and never resolves through PATH.
 dev_env() {
-  export CODETERM_API_PORT=7686
-  export CODETERM_API_TOKEN="$(dev_token)" || return 1
+  local data_dir token
+  export CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT"
   export CODETERM_SOCKET_PATH="$(dev_socket_path)"
+  if [ -n "$EVAL_LIB_RESOLVED_DATA_DIR" ] && [ -n "$EVAL_LIB_RESOLVED_API_TOKEN" ]; then
+    export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
+    export CODETERM_API_TOKEN="$EVAL_LIB_RESOLVED_API_TOKEN"
+    export CODETERM_DEV_AUTH_HEADER="Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
+    return
+  fi
+  export CODETERM_API_TOKEN=
+  export CODETERM_DEV_AUTH_HEADER=
+  data_dir="$(dev_data_dir)" || return 7
+  EVAL_LIB_RESOLVED_DATA_DIR="$data_dir"
+  export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
+  token="$(dev_token)" || return 7
+  EVAL_LIB_RESOLVED_API_TOKEN="$token"
+  export CODETERM_API_TOKEN="$EVAL_LIB_RESOLVED_API_TOKEN"
   export CODETERM_DEV_AUTH_HEADER="Authorization: Bearer $CODETERM_API_TOKEN"
 }
 
-# Convenience: GET an API path, returns JSON. Hardcoded to dev (7686)
-# so it CANNOT accidentally hit prod even if the parent shell's
-# CODETERM_API_PORT is 7685.
+dev_api_url() {
+  printf 'http://127.0.0.1:%s' "$EVAL_LIB_DEV_API_PORT"
+}
+
+dev_assert_target() {
+  local health actual_instance
+  if ! health="$(curl -sS --max-time 1 "$(dev_api_url)/api/health")"; then
+    dev_resolution_error "${CODETERM_DEV_DATA_DIR:-<unresolved>}" \
+      "${CODETERM_DEV_DATA_DIR:-$HOME/.codeterm-dev*}"
+    return 7
+  fi
+  if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+    actual_instance="$(printf '%s\n' "$health" | python -c '
+import json, sys
+print(json.load(sys.stdin).get("instance", {}).get("name", ""))
+')"
+    if [ "$actual_instance" != "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+      dev_resolution_error "${CODETERM_DEV_DATA_DIR:-<unresolved>}" \
+        "${CODETERM_DEV_DATA_DIR:-$HOME/.codeterm-dev*}"
+      return 7
+    fi
+  fi
+}
+
+# Convenience: GET an API path, returns JSON. The selected dev port
+# cannot be replaced by an inherited prod CODETERM_API_PORT.
 dev_http() {
   local method="$1" path="$2" body="${3:-}" response status
+  dev_env || return 7
+  dev_assert_target || return 7
   local -a args=(-sS --max-time 30 -o - -w $'\n%{http_code}' -X "$method"
     -H "$CODETERM_DEV_AUTH_HEADER")
   if [ "$method" = POST ]; then
     args+=(-H "Content-Type: application/json" --data "$body")
   fi
-  if ! response="$(curl "${args[@]}" "http://127.0.0.1:7686$path")"; then
+  if ! response="$(curl "${args[@]}" "$(dev_api_url)$path")"; then
     echo "ERROR [dev-http]: $method $path failed before an HTTP response" >&2
     return 7
   fi
@@ -119,9 +278,11 @@ dev_post() {
 dev_post_as_tab() {
   local tab_id="$1" path="$2" body="${3:-{}}"
   [ -n "$tab_id" ] || { echo "dev_post_as_tab requires tab id" >&2; return 7; }
+  dev_env || return 7
+  dev_assert_target || return 7
   curl -s --fail --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
     -H "X-CodeTerm-Tab-Id: $tab_id" -H "Content-Type: application/json" \
-    --data "$body" "http://127.0.0.1:7686$path"
+    --data "$body" "$(dev_api_url)$path"
 }
 
 # Run the codeterm CLI against the dev daemon, regardless of what
@@ -145,19 +306,21 @@ dc() {
     }
     shift 2
   fi
-  cli="$(dev_data_dir)/bin/codeterm"
+  dev_env || return 7
+  cli="$CODETERM_DEV_DATA_DIR/bin/codeterm"
+  [ -x "$cli" ] || [ ! -x "$cli.exe" ] || cli="$cli.exe"
   if [ ! -x "$cli" ]; then
-    echo "ERROR [dc]: active dev CLI is missing or not executable: $cli" >&2
+    dev_resolution_error "$cli" "$CODETERM_DEV_DATA_DIR"
     echo "            Build it with: ./build.sh cli" >&2
     return 7
   fi
-  if ! curl -s --max-time 1 http://127.0.0.1:7686/api/health > /dev/null 2>&1; then
-    echo "ERROR [dc]: dev daemon not on port 7686. Start it: ./build.sh dev" >&2
+  if ! dev_assert_target; then
+    echo "ERROR [dc]: requested dev daemon is unavailable. Start it: ./build.sh dev" >&2
     echo "             (would have leaked to prod via socket-discovery fallback)" >&2
     return 7
   fi
   # Strip parent CODETERM_TAB_ID — would force a [from <prod-tab>] prefix on every send-text.
-  CODETERM_API_PORT=7686 \
+  CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
   CODETERM_API_TOKEN="$CODETERM_API_TOKEN" \
   CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
   CODETERM_TAB_ID="$caller_tab_id" \
@@ -170,9 +333,9 @@ dc() {
 # Returns dev PID on stdout if listening on 7686, empty otherwise.
 dev_pid() {
   if is_windows; then
-    netstat -ano 2>/dev/null | grep ":7686.*LISTEN" | awk '{print $5}' | head -1
+    netstat -ano 2>/dev/null | grep ":$EVAL_LIB_DEV_API_PORT.*LISTEN" | awk '{print $5}' | head -1
   elif is_macos || is_linux; then
-    lsof -ti:7686 2>/dev/null | head -1
+    lsof -ti:"$EVAL_LIB_DEV_API_PORT" 2>/dev/null | head -1
   fi
 }
 
@@ -194,7 +357,7 @@ dev_kill_hard() {
 dev_wait_ready() {
   local timeout="${1:-120}" elapsed=0
   while [ "$elapsed" -lt "$timeout" ]; do
-    if curl -s --max-time 1 http://127.0.0.1:7686/api/health > /dev/null 2>&1; then
+    if curl -s --max-time 1 "$(dev_api_url)/api/health" > /dev/null 2>&1; then
       return 0
     fi
     sleep 3
@@ -208,7 +371,7 @@ dev_wait_ready() {
 dev_start_bg() {
   (
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    local log_dir="$HOME/.codeterm-dev/logs"
+    local log_dir="${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}/logs"
     mkdir -p "$log_dir"
     "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
     disown "$!" 2>/dev/null || true
@@ -225,9 +388,9 @@ snapshot() {
   mkdir -p "$dir"
   dev_get /api/workspaces > "$dir/ws.json"
   dev_get /api/tabs      > "$dir/tabs.json"
-  python - "$dir" <<'PYEOF'
+  python - "$dir" "${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}" <<'PYEOF'
 import os, sys, shutil
-src = os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'last.json')
+src = os.path.join(sys.argv[2], 'sessions', 'last.json')
 if os.path.exists(src):
     shutil.copy(src, os.path.join(sys.argv[1], 'last.json'))
 PYEOF
@@ -337,8 +500,8 @@ for w in json.load(sys.stdin):
 # exactly one workspace (General). Slow (~30s) but bulletproof.
 reset_dev_state_hard() {
   dev_kill_hard
-  rm -f "$(python -c "import os; print(os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'last.json'))")"
-  rm -rf "$(python -c "import os; print(os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'backups'))")"
+  rm -f "$CODETERM_DEV_DATA_DIR/sessions/last.json"
+  rm -rf "$CODETERM_DEV_DATA_DIR/sessions/backups"
   dev_start_bg
   dev_wait_ready 600
   sleep 3
@@ -349,9 +512,9 @@ reset_dev_state_hard() {
 # Uses python's os.path.expanduser so the path resolves correctly on
 # Windows (git bash $HOME is /c/Users/X — invalid for native Python).
 assert_atomic_save_clean() {
-  python <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
+  python - "$CODETERM_DEV_DATA_DIR" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
 import json, os, sys
-sess = os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions')
+sess = os.path.join(sys.argv[1], 'sessions')
 tmp = os.path.join(sess, 'last.json.tmp')
 last = os.path.join(sess, 'last.json')
 if os.path.exists(tmp):
