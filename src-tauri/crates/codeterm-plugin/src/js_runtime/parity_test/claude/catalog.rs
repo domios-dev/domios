@@ -46,9 +46,8 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
     );
     assert_eq!(js.manifest().default_model, manifest_default);
 
-    // Resolved-path parity through the real providers. User overrides and live
-    // state apply to both readers identically, so equality is unconditional —
-    // this never asserts on (or mutates) the user's models directory.
+    // Resolved-path parity through the real providers: overrides/live state hit
+    // both readers identically, so equality is unconditional and touch-free.
     assert_eq!(
         native.available_models(),
         js.available_models(),
@@ -56,9 +55,8 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
     );
     assert_eq!(native.default_model(), js.default_model());
 
-    // Genuine live contribution, isolated under a fixture id: the real
-    // plugin.js and the native model_catalog seam must see one identical
-    // result, without overlaying the process-global `claude` entry.
+    // Genuine live contribution under a fixture id: both runtimes must see one
+    // identical result without overlaying the process-global `claude` entry.
     let _cleanup = FixtureCacheCleanup;
     let fixture_js = claude_js_under_fixture_id();
     let fixture_native = FixtureNativeReader;
