@@ -9,7 +9,7 @@
  * Adding a new bundled or third-party agent plugin requires ZERO changes here —
  * the descriptor flows through automatically.
  */
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
 
 import type { ProviderDescriptor } from "../lib/types";
@@ -33,10 +33,12 @@ async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   return result ?? [];
 }
 
-// Avoid wiping the shared descriptor cache during a hook's initial loading beat.
-export function syncAgentDescriptorCache(items: ProviderDescriptor[], loading: boolean): void {
-  if (loading) return;
-  setAgentDescriptors(items);
+export function syncAgentDescriptorCache(
+  items: ProviderDescriptor[],
+  loading: boolean,
+  error: string | null,
+): void {
+  setAgentDescriptors(visibleAgentProviders(items, loading, error));
 }
 
 export function attachModelsUpdatedRefresh(
@@ -75,9 +77,9 @@ export function useAgentProviders(): {
     "agent_provider",
     fetcher,
   );
-  useEffect(() => {
-    syncAgentDescriptorCache(items, loading);
-  }, [items, loading]);
+  useLayoutEffect(() => {
+    syncAgentDescriptorCache(items, loading, error);
+  }, [items, loading, error]);
   useEffect(() => {
     return attachModelsUpdatedRefresh(refetch);
   }, [refetch]);
