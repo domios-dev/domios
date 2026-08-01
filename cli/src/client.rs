@@ -3,6 +3,33 @@ use std::io::{BufRead, BufReader, Write};
 use interprocess::local_socket::{prelude::*, GenericNamespaced};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// Stable provenance labels for values in `identify --json`.
+pub enum ResolutionSource {
+    #[serde(rename = "CODETERM_DATA_DIR")]
+    CodeTermDataDir,
+    #[serde(rename = "CODETERM_API_PORT")]
+    CodeTermApiPort,
+    #[serde(rename = "CODETERM_SOCKET_PATH")]
+    CodeTermSocketPath,
+    #[serde(rename = "CODETERM_INSTANCE")]
+    CodeTermInstance,
+    #[serde(rename = "config")]
+    Config,
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "scan")]
+    Scan,
+    #[serde(rename = "absent")]
+    Absent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedSocket {
+    pub path: String,
+    pub source: ResolutionSource,
+}
+
 /// A JSON-RPC client that connects to the CodeTerm socket API.
 pub struct SocketClient {
     reader: BufReader<interprocess::local_socket::Stream>,
@@ -287,38 +314,51 @@ impl RpcClient for SocketClient {
 ///    that blindly trusts the env var ends up with `Failed to connect to
 ///    'codeterm-{old-pid}.sock'` on every invocation.
 pub fn discover_socket() -> Result<String, String> {
-    let deterministic = deterministic_socket_name();
+    discover_socket_resolution().map(|resolved| resolved.path)
+}
+
+pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
+    let deterministic = deterministic_socket_resolution();
     if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
         if !path.is_empty() {
             let normalized = normalize_socket_path(&path);
             if deterministic
-                .as_deref()
-                .is_none_or(|name| name == normalized)
+                .as_ref()
+                .is_none_or(|resolved| resolved.path == normalized)
                 && socket_is_live(&normalized)
             {
-                return Ok(normalized);
+                return Ok(ResolvedSocket {
+                    path: normalized,
+                    source: ResolutionSource::CodeTermSocketPath,
+                });
             }
         }
     }
 
-    if let Some(name) = deterministic {
-        if socket_is_live(&name) {
-            return Ok(name);
+    if let Some(resolved) = deterministic {
+        if socket_is_live(&resolved.path) {
+            return Ok(resolved);
         }
         return Err(format!(
             "CodeTerm socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
-            name
+            resolved.path
         ));
     }
 
     #[cfg(target_os = "windows")]
     {
-        discover_windows_pipe()
+        discover_windows_pipe().map(|path| ResolvedSocket {
+            path,
+            source: ResolutionSource::Scan,
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        discover_unix_socket()
+        discover_unix_socket().map(|path| ResolvedSocket {
+            path,
+            source: ResolutionSource::Scan,
+        })
     }
 }
 
@@ -392,12 +432,23 @@ fn prefers_dev_socket() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn deterministic_socket_name() -> Option<String> {
+    deterministic_socket_resolution().map(|resolved| resolved.path)
+}
+
+fn deterministic_socket_resolution() -> Option<ResolvedSocket> {
     if let Some(prefix) = instance_socket_prefix() {
-        return Some(format!("{prefix}.sock"));
+        return Some(ResolvedSocket {
+            path: format!("{prefix}.sock"),
+            source: ResolutionSource::CodeTermInstance,
+        });
     }
     if prefers_dev_socket() {
-        return Some("codeterm-dev.sock".to_string());
+        return Some(ResolvedSocket {
+            path: "codeterm-dev.sock".to_string(),
+            source: ResolutionSource::CodeTermApiPort,
+        });
     }
     None
 }
@@ -614,6 +665,10 @@ mod tests {
             deterministic_socket_name().as_deref(),
             Some("codeterm-dev-handoff.sock")
         );
+        assert_eq!(
+            deterministic_socket_resolution().map(|resolved| resolved.source),
+            Some(ResolutionSource::CodeTermInstance)
+        );
 
         restore_env("CODETERM_INSTANCE", prev_instance);
         restore_env("CODETERM_API_PORT", prev_port);
@@ -630,6 +685,10 @@ mod tests {
         assert_eq!(
             deterministic_socket_name().as_deref(),
             Some("codeterm-dev.sock")
+        );
+        assert_eq!(
+            deterministic_socket_resolution().map(|resolved| resolved.source),
+            Some(ResolutionSource::CodeTermApiPort)
         );
 
         restore_env("CODETERM_INSTANCE", prev_instance);
