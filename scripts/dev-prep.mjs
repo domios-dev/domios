@@ -15,12 +15,12 @@ import {
   rmSync,
   statSync,
   utimesSync,
-  watch,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -378,6 +378,62 @@ async function terminateOwnedChild(child) {
   }
 }
 
+function readinessSignal(line, apiPort) {
+  return (
+    process.env.CODETERM_TEST_PREBUILT_NEVER_READY !== "1" &&
+    line.includes("REST API generation ") &&
+    line.includes(" health-proven on http://") &&
+    new RegExp(`:${apiPort}(?:\\b|/)`).test(line)
+  );
+}
+
+function disconnectSupervisor() {
+  if (process.connected) process.disconnect();
+}
+
+async function supervisePrebuilt(options) {
+  const app = resolve(option(options, "--app"));
+  const log = resolve(option(options, "--log"));
+  const apiPort = option(options, "--api-port");
+  mkdirSync(dirname(log), { recursive: true });
+  writeFileSync(log, "");
+  const logHandle = openSync(log, "a");
+  const partial = { stdout: "", stderr: "" };
+  let ready = false;
+  const child = spawn(app, [], {
+    cwd: repo,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  const consume = (source, chunk) => {
+    writeSync(logHandle, chunk);
+    const lines = `${partial[source]}${chunk.toString("utf8")}`.split(/\r?\n/);
+    partial[source] = lines.pop() ?? "";
+    const signal = lines.find((line) => readinessSignal(line, apiPort));
+    if (!ready && signal) {
+      ready = true;
+      if (process.connected) process.send({ type: "ready", signal });
+      disconnectSupervisor();
+    }
+  };
+  child.stdout.on("data", (chunk) => consume("stdout", chunk));
+  child.stderr.on("data", (chunk) => consume("stderr", chunk));
+  child.once("error", (error) => {
+    writeSync(logHandle, `[dev-prebuilt] app spawn failed: ${error.message}\n`);
+    if (process.connected) process.send({ type: "failed", error: error.message });
+    disconnectSupervisor();
+  });
+  child.once("exit", (code, signal) => {
+    if (!ready && process.connected) {
+      process.send({ type: "failed", error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
+      disconnectSupervisor();
+    }
+    closeSync(logHandle);
+    process.exitCode = code ?? (signal ? 1 : 0);
+  });
+}
+
 async function launchPrebuilt(options) {
   const app = resolve(option(options, "--app"));
   const log = resolve(option(options, "--log"));
@@ -388,54 +444,30 @@ async function launchPrebuilt(options) {
     throw new Error("invalid prebuilt readiness failure deadline");
   }
   if (!existsSync(app) || !statSync(app).isFile()) throw new Error(`prebuilt app is absent: ${app}`);
-  mkdirSync(dirname(log), { recursive: true });
-  writeFileSync(log, "");
-  const logHandle = openSync(log, "a");
   let child;
-  let watcher;
   let deadline;
-  let offset = 0;
-  let partial = "";
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
-      const inspect = () => {
-        try {
-          const content = readFileSync(log);
-          if (content.length < offset) {
-            offset = 0;
-            partial = "";
-          }
-          const added = content.subarray(offset).toString("utf8");
-          offset = content.length;
-          const lines = `${partial}${added}`.split(/\r?\n/);
-          partial = lines.pop() ?? "";
-          const signal = lines.find(
-            (line) =>
-              process.env.CODETERM_TEST_PREBUILT_NEVER_READY !== "1" &&
-              line.includes("REST API generation ") &&
-              line.includes(" health-proven on http://") &&
-              new RegExp(`:${apiPort}(?:\\b|/)`).test(line),
-          );
-          if (signal) resolveReady(signal);
-        } catch (error) {
-          fail(error);
-        }
-      };
-      const logName = basename(log);
-      watcher = watch(dirname(log), (_event, filename) => {
-        if (filename === null || String(filename) === logName) inspect();
-      });
-      watcher.on("error", fail);
-      child = spawn(app, [], {
-        cwd: repo,
-        detached: true,
-        env: process.env,
-        stdio: ["ignore", logHandle, logHandle],
-        windowsHide: true,
+      child = spawn(
+        node,
+        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort],
+        {
+          cwd: repo,
+          detached: true,
+          env: process.env,
+          stdio: ["ignore", "ignore", "ignore", "ipc"],
+          windowsHide: true,
+        },
+      );
+      child.once("message", (message) => {
+        if (message?.type === "ready") resolveReady(message.signal);
+        else if (message?.type === "failed") fail(new Error(message.error));
       });
       child.once("error", fail);
-      child.once("exit", (code, signal) => fail(new Error(`prebuilt app exited before readiness (code=${code}, signal=${signal})`)));
+      child.once("exit", (code, signal) =>
+        fail(new Error(`prebuilt supervisor exited before readiness (code=${code}, signal=${signal})`)),
+      );
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
       deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms`)), deadlineMs);
@@ -445,9 +477,7 @@ async function launchPrebuilt(options) {
     throw error;
   } finally {
     if (deadline) clearTimeout(deadline);
-    if (watcher) watcher.close();
     if (child) child.removeAllListeners();
-    closeSync(logHandle);
   }
 }
 
@@ -488,6 +518,7 @@ try {
   if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
+  else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));
   else if (command === "--launch-prebuilt") await launchPrebuilt(parseOptions(process.argv.slice(3)));
   else runRegularPrep();
 } catch (error) {
