@@ -2554,19 +2554,6 @@ button,
   z-index: 1;
 }
 
-.chat-launch-overlay::before {
-  animation: ct-chat-ambient-breathe 3.8s var(--ct-ease-liquid-breathe) infinite;
-  background: radial-gradient(circle, color-mix(in srgb, var(--chat-provider-color) 8%, transparent), transparent 68%);
-  content: "";
-  height: 220px;
-  left: 50%;
-  pointer-events: none;
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 220px;
-}
-
 .chat-launch-ring::before {
   background: var(--ct-bg, #0d1117);
   border-radius: inherit;
@@ -2617,15 +2604,6 @@ button,
   width: 72px;
 }
 
-.chat-empty-mark::before {
-  animation: ct-chat-ambient-breathe 5.2s var(--ct-ease-liquid-breathe) infinite;
-  background: radial-gradient(circle, color-mix(in srgb, var(--chat-provider-color) 7%, transparent), transparent 70%);
-  content: "";
-  height: 190px;
-  position: absolute;
-  width: 190px;
-}
-
 .chat-empty-orbit {
   animation: ct-chat-liquid-orbit 5.2s var(--ct-ease-liquid-breathe) infinite alternate;
   border: 1px solid color-mix(in srgb, var(--chat-provider-color) 12%, transparent);
@@ -2656,27 +2634,14 @@ button,
   to { opacity: 0.82; transform: rotate(11deg) scale(1.045); }
 }
 
-@keyframes ct-chat-ambient-breathe {
-  0%, 100% { opacity: 0.48; transform: translate(-50%, -50%) scale(0.94); }
-  50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.04); }
-}
-
-.chat-empty-mark::before {
-  transform: translate(-50%, -50%);
-  left: 50%;
-  top: 50%;
-}
-
 @keyframes ct-chat-empty-settle {
   from { opacity: 0; transform: scale(0.94); }
   to { opacity: 1; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-launch-overlay::before,
   .chat-launch-ring::after,
   .chat-empty-state,
-  .chat-empty-mark::before,
   .chat-empty-orbit {
     animation: none;
   }
