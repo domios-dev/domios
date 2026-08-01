@@ -6,11 +6,11 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn xterm_paste_preserves_multiline_bracketed_input_as_one_paste() {
+fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
     let text = "alpha\r\nbeta\ngamma\rdelta";
     assert_eq!(
         xterm_paste(text, true),
-        "\x1b[200~alpha\nbeta\ngamma\ndelta\x1b[201~"
+        "\x1b[200~alpha\rbeta\rgamma\rdelta\x1b[201~"
     );
     assert_eq!(xterm_paste(text, false), "alpha\rbeta\rgamma\rdelta");
 }
@@ -756,9 +756,15 @@ fn first_submit_key_does_not_wait_for_paste_evidence() {
     assert!(result.submit_anomaly);
     assert!(!result.submit_observed);
     let writes = io.writes.borrow();
-    assert_eq!(writes.first().map(String::as_str), Some("paste:general bootstrap"));
     assert_eq!(
-        writes.iter().filter(|write| write.as_str() == "enter").count(),
+        writes.first().map(String::as_str),
+        Some("paste:general bootstrap")
+    );
+    assert_eq!(
+        writes
+            .iter()
+            .filter(|write| write.as_str() == "enter")
+            .count(),
         MAX_SUBMIT_KEY_WRITES,
         "a parked payload gets the full bounded key-only recovery budget"
     );
@@ -1044,76 +1050,33 @@ fn messenger_report_planner_send_share_submit_transaction() {
     }
 }
 
-struct AtomicInitialTransport {
-    atomic_writes: Cell<usize>,
-    paste_writes: Cell<usize>,
-    key_writes: Cell<usize>,
-}
-
-impl SubmitTransport for AtomicInitialTransport {
-    fn observe(&self) -> Option<Observation> {
-        None
-    }
-
-    fn draft_evidence_count(&self, _text: &str) -> usize {
-        0
-    }
-
-    fn generation(&self) -> u64 {
-        0
-    }
-
-    fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
-        false
-    }
-
-    fn turn_started(&self) -> bool {
-        false
-    }
-
-    fn write_atomic_initial(
-        &self,
-        text: &str,
-        _key: &[u8],
-        _deadline: Instant,
-    ) -> Option<Result<usize, InjectionError>> {
-        self.atomic_writes.set(self.atomic_writes.get() + 1);
-        Some(Ok(text.len()))
-    }
-
-    fn write_paste(&self, _text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
-        self.paste_writes.set(self.paste_writes.get() + 1);
-        Ok(0)
-    }
-
-    fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
-        self.key_writes.set(self.key_writes.get() + 1);
-        Ok(())
-    }
+#[test]
+fn transaction_lock_registry_retires_closed_ptys() {
+    let lock = transaction_lock("closed-pty");
+    assert!(transaction_locks().lock().contains_key("closed-pty"));
+    retire_transaction_lock("closed-pty", &lock);
+    assert!(!transaction_locks().lock().contains_key("closed-pty"));
 }
 
 #[test]
-fn normal_send_queues_payload_and_first_enter_atomically() {
-    let transport = AtomicInitialTransport {
-        atomic_writes: Cell::new(0),
-        paste_writes: Cell::new(0),
-        key_writes: Cell::new(0),
-    };
-    let result = run(
-        &transport,
-        "message",
-        true,
-        VerifySubmitStrategy::None,
-        VerifyOpts {
-            verify_submit: false,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+fn terminal_replies_wait_for_an_active_submit_transaction() {
+    let lock = transaction_lock("reply-lock");
+    let submit = lock.lock();
+    let (entered, receiver) = std::sync::mpsc::sync_channel(1);
+    let reply_lock = lock.clone();
+    let worker = std::thread::spawn(move || {
+        let _reply = reply_lock.lock();
+        let _ = entered.send(());
+    });
 
-    assert_eq!(result.bytes_written, "message".len());
-    assert_eq!(result.submit_key_writes, 1);
-    assert_eq!(transport.atomic_writes.get(), 1);
-    assert_eq!(transport.paste_writes.get(), 0);
-    assert_eq!(transport.key_writes.get(), 0);
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    drop(submit);
+    receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("terminal reply must run after submit completion");
+    worker.join().unwrap();
+    retire_transaction_lock("reply-lock", &lock);
 }
