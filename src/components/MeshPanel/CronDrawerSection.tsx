@@ -5,7 +5,11 @@ import { serviceIdToCronId } from "./types";
 import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters";
 import type { Service } from "./types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL } from "../shared/design";
+import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { Card } from "../shared/Card";
+import { Chip } from "../shared/Chip";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 
 interface Props {
   service: Service;
@@ -20,13 +24,13 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [agent, setAgent] = useState<string>("claude");
   const [job, setJob] = useState<CronJob | null>(null);
   const [openRun, setOpenRun] = useState<CronRunInfo | null>(null);
+  const { providers } = useAgentProviders();
   const cronId = serviceIdToCronId(service.id);
   const sourcePeerId = service.source_peer_id;
   const isRemote = !!sourcePeerId;
   const actionsDisabled = busy || !!service.stale;
   const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
   const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
-  const sectionMetaClass = "text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5";
   const runsMetaClass = "text-[var(--ct-muted-fg)] font-mono";
 
   useEffect(() => {
@@ -36,7 +40,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
       isRemote ? { instanceId: sourcePeerId, id: cronId } : { id: cronId },
     )
       .then((r) => {
-        if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []);
+        if (!cancelled) setRuns(Array.isArray(r) ? r.slice().reverse() : []);
       })
       .catch(() => {});
     invoke<CronJob>(isRemote ? "mesh_peer_cron_get" : "cron_get", isRemote
@@ -105,15 +109,87 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
     }
   };
 
+  const handleAgentChange = async (agentId: string) => {
+    if (!job || isRemote) return;
+    const provider = providers.find((item) => item.id === agentId);
+    setBusy(true);
+    try {
+      const next = await invoke<CronJob>("cron_update", {
+        id: cronId,
+        agent: agentId,
+        model: provider?.default_model ?? "",
+      });
+      setJob(next);
+      setAgent(next.agent);
+      onUpdate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleModelChange = async (model: string) => {
+    if (!job || isRemote) return;
+    setBusy(true);
+    try {
+      const next = await invoke<CronJob>("cron_update", { id: cronId, model });
+      setJob(next);
+      onUpdate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const providerOptions: DropdownSelectOption[] = providers.map((provider) => ({
+    value: provider.id,
+    label: provider.display_name,
+  }));
+  const selectedProvider = job ? providers.find((provider) => provider.id === job.agent) : undefined;
+  const modelOptions: DropdownSelectOption[] = [
+    { value: "", label: "Default model" },
+    ...(selectedProvider?.available_models ?? []).map((model) => ({
+      value: model.id,
+      label: model.display_name,
+    })),
+  ];
+
   return (
-    <>
+    <div className="flex flex-col gap-3">
       {job && (
-        <Section label="Execution">
-          <div className={sectionMetaClass}>
-            <div>{job.report_target_tab_id ? `reports to Tab ${job.report_target_tab_id}` : "private cron worker"}</div>
-            <div>provider: <span className="font-mono">{job.agent}</span>{job.model ? ` · ${job.model}` : ""}</div>
-            <div>cwd: <span className="font-mono break-all">{job.cwd ?? "workspace"}</span></div>
-            <div className="mt-1 whitespace-pre-wrap break-words text-[var(--ct-muted-fg)]">{job.task}</div>
+        <Section label="Purpose">
+          <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--ct-fg)]">
+            {job.description?.trim() || job.task}
+          </div>
+          {job.description?.trim() && (
+            <div className="mt-2 border-t border-[var(--ct-border)] pt-2">
+              <div className="mb-1 text-[9px] uppercase tracking-wide text-[var(--ct-muted)]">Agent task</div>
+              <div className="whitespace-pre-wrap break-words text-[10px] text-[var(--ct-muted-fg)]">{job.task}</div>
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap gap-1.5 text-[10px]">
+            <MetaPill>{job.report_target_tab_id ? `Reports to ${job.report_target_tab_id}` : "Private worker"}</MetaPill>
+            <MetaPill>Action · Start agent</MetaPill>
+            <MetaPill>{job.oneshot ? "Runs once" : "Recurring"}</MetaPill>
+            <MetaPill>{job.cwd ?? "Workspace directory"}</MetaPill>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div>
+              <div className="mb-1 text-[9px] uppercase tracking-wide text-[var(--ct-muted)]">Agent provider</div>
+              <DropdownSelect
+                options={providerOptions}
+                value={job.agent}
+                onChange={(value) => { void handleAgentChange(value); }}
+                disabled={actionsDisabled || isRemote || providerOptions.length === 0}
+              />
+            </div>
+            <div>
+              <div className="mb-1 text-[9px] uppercase tracking-wide text-[var(--ct-muted)]">Model</div>
+              <DropdownSelect
+                options={modelOptions}
+                value={job.model ?? ""}
+                onChange={(value) => { void handleModelChange(value); }}
+                disabled={actionsDisabled || isRemote}
+              />
+            </div>
           </div>
         </Section>
       )}
@@ -141,13 +217,22 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] text-[var(--ct-fg)] flex-1">
-              {service.schedule ? describeSchedule(service.schedule) : "(unset)"}
-              {service.schedule && (
-                <span className="text-[var(--ct-muted)] ml-1">({service.schedule})</span>
-              )}
-            </span>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className={`h-1.5 w-1.5 rounded-full ${service.enabled ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
+                <span className="text-xs text-[var(--ct-fg)]">
+                  {service.schedule ? describeSchedule(service.schedule) : "Schedule not set"}
+                </span>
+              </div>
+              <div className="mt-1 pl-3.5 font-mono text-[10px] text-[var(--ct-muted)]">
+                {service.schedule ?? "—"}
+              </div>
+              <div className="mt-2 pl-3.5 text-[10px] text-[var(--ct-muted-fg)]">
+                Next run {service.next_run ? `${formatFuture(service.next_run)} · ${formatTime(service.next_run)}` : "not scheduled"}
+                {service.last_run_status ? ` · Last ${service.last_run_status.toLowerCase()}` : ""}
+              </div>
+            </div>
             <button
               onClick={() => setEditingSchedule(true)}
               disabled={isRemote || !!service.stale}
@@ -166,7 +251,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
         )}
       </Section>
 
-      <Section label="Cron actions">
+      <Section label="Controls">
         <div className="flex gap-1.5">
           <button
             onClick={handleTrigger}
@@ -187,24 +272,11 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
         </div>
       </Section>
 
-      <Section label="Next / Last run">
-        <div className={sectionMetaClass}>
-          <div>
-            next:{" "}
-            <span className="font-mono">
-              {service.next_run ? `${formatFuture(service.next_run)} (${formatTime(service.next_run)})` : "—"}
-            </span>
-          </div>
-          <div>
-            last status:{" "}
-            <span className="font-mono">{service.last_run_status ?? "—"}</span>
-          </div>
-        </div>
-      </Section>
-
-      {runs.length > 0 && (
-        <Section label="Recent runs">
-          <div className="flex flex-col gap-0.5 max-h-28 overflow-y-auto">
+      <Section label="Run history">
+        {runs.length === 0 ? (
+          <div className="text-[10px] text-[var(--ct-muted)]">No runs yet</div>
+        ) : (
+          <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
             {runs.map((run) => {
               const inspectable = !!run.session_id;
               return (
@@ -227,8 +299,8 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
               );
             })}
           </div>
-        </Section>
-      )}
+        )}
+      </Section>
 
       {openRun && openRun.session_id && (
         <RunChatPopup
@@ -242,17 +314,21 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
           onClose={() => setOpenRun(null)}
         />
       )}
-    </>
+    </div>
   );
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className={UI_PANEL.section}>
+    <Card className="flex flex-col gap-2 p-4">
       <div className={UI_PANEL.sectionLabel}>{label}</div>
       {children}
-    </div>
+    </Card>
   );
+}
+
+function MetaPill({ children }: { children: React.ReactNode }) {
+  return <Chip variant="muted">{children}</Chip>;
 }
 
 function runIcon(status: string): string {

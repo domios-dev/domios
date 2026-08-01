@@ -171,7 +171,9 @@ impl ServiceContext {
             role,
             skill,
             workspace_id,
+            team_id,
             creator_tab_id,
+            report_target_tab_id,
             job_name,
             job_timeout,
         ) = {
@@ -190,7 +192,9 @@ impl ServiceContext {
                 job.role.clone(),
                 job.skill.clone(),
                 job.workspace_id.clone(),
+                job.team_id.clone(),
                 job.creator_tab_id.clone(),
+                job.report_target_tab_id.clone(),
                 job.name.clone(),
                 job.timeout_seconds,
             )
@@ -216,7 +220,7 @@ impl ServiceContext {
         let task_text = crate::cron::task_text::build_cron_task_text(
             &task,
             skill_block.as_deref(),
-            creator_tab_id.as_deref(),
+            report_target_tab_id.as_deref(),
             &run_id,
         );
 
@@ -238,8 +242,8 @@ impl ServiceContext {
                 Some(workspace_id)
             },
             parent_tab_id: None,
-            team_id: None,
-            creator_tab_id: None,
+            team_id,
+            creator_tab_id,
             cwd,
             title: Some(format!("cron:{}", job_name)),
             description: None,
@@ -253,7 +257,7 @@ impl ServiceContext {
                 task: Some(task_text),
                 role,
                 auto_approve: true,
-                report_target_tab_id: creator_tab_id,
+                report_target_tab_id,
                 spawned_by: Some(format!("cron:{}", id)),
                 ..Default::default()
             }),

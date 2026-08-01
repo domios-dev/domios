@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Clock3, MoreHorizontal, Plus } from "lucide-react";
+import { Clock3, Plus, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import type {
   Tab,
@@ -23,6 +23,7 @@ import { TabItem } from "./TabItem";
 import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
+import { DropdownMenu } from "../shared/DropdownMenu";
 import {
   TeamUnit,
   type TeamMemberRole,
@@ -341,18 +342,27 @@ export function SidebarWorkspaceTabs({
               <span className="sidebar-team-cron-name">{job.name}</span>
               <span className="sidebar-team-cron-state">{job.enabled ? "active" : "paused"}</span>
             </button>
-            <button
-              type="button"
+            <DropdownMenu
               className="sidebar-team-cron-menu"
-              aria-label={`Delete cron ${job.name}`}
-              title="Cron actions"
-              onClick={() => {
-                if (!window.confirm(`Delete cron \"${job.name}\"?`)) return;
-                void invoke("cron_delete", { id: job.id }).then(() => refreshCrons());
-              }}
-            >
-              <MoreHorizontal size={12} />
-            </button>
+              menuLabel="Cron actions"
+              items={[{
+                label: "Delete cron",
+                icon: <X size={11} strokeWidth={2} />,
+                danger: true,
+                onClick: () => { void invoke("cron_delete", { id: job.id }).then(() => refreshCrons()); },
+              }]}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={`Cron actions for ${job.name}`}
+                  aria-haspopup="menu"
+                  title="Cron actions"
+                  className="flex h-5 w-5 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-border)] hover:text-[var(--ct-fg)]"
+                >
+                  <span className="text-[13px] font-bold leading-none">⋮</span>
+                </button>
+              }
+            />
           </div>
         ))}
         providers={providers}

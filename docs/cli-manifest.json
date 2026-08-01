@@ -1066,7 +1066,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID to receive reports from cron agent (default: $CODETERM_TAB_ID)",
+              "help": "Tab ID to receive reports. Omit to keep runs private to the cron",
               "aliases": []
             },
             {
@@ -1075,6 +1075,14 @@
               "value_name": "TASK",
               "default": null,
               "help": "Task prompt for the agent",
+              "aliases": []
+            },
+            {
+              "name": "team",
+              "positional": false,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Attach this job to a Team. The calling Tab must belong to it",
               "aliases": []
             },
             {
@@ -10618,6 +10626,14 @@
               "value_name": "EAGER",
               "default": null,
               "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
+              "aliases": []
+            },
+            {
+              "name": "team",
+              "positional": false,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team",
               "aliases": []
             },
             {

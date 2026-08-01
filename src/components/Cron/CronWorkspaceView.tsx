@@ -79,20 +79,8 @@ export function CronWorkspaceView({ cronId }: Props) {
           <X size={16} />
         </button>
       </header>
-      <div className="mx-auto grid w-full max-w-4xl gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
-        <div className="min-w-0 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] p-4">
-          <div className="mb-2 text-[9px] font-bold uppercase tracking-wider text-[var(--ct-muted)]">Task</div>
-          <pre className="whitespace-pre-wrap break-words font-sans text-xs text-[var(--ct-fg)]">{job.task}</pre>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-[10px] text-[var(--ct-muted-fg)]">
-            <span>Provider <strong className="text-[var(--ct-fg)]">{job.agent}</strong></span>
-            <span>Model <strong className="text-[var(--ct-fg)]">{job.model ?? "default"}</strong></span>
-            <span>Working directory <strong className="text-[var(--ct-fg)]">{job.cwd ?? "workspace"}</strong></span>
-            <span>Runs <strong className="text-[var(--ct-fg)]">{job.oneshot ? "once" : "recurring"}</strong></span>
-          </div>
-        </div>
-        <div className="min-w-0 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] p-4">
-          <CronDrawerSection service={toService(job)} onUpdate={() => void refresh()} />
-        </div>
+      <div className="mx-auto w-full max-w-3xl p-5">
+        <CronDrawerSection service={toService(job)} onUpdate={() => void refresh()} />
       </div>
     </section>
   );
