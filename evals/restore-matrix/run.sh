@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# WHAT: Prove provider sessions and isolated markers survive a hard dev restart.
-# WHY: A saved mux snapshot must restore every agent without session cross-wiring.
-# ORACLE: Durable provider-store markers reappear in the same tabs and chat views.
+# Prove provider sessions and isolated markers survive a hard dev restart.
+# Oracle: durable markers return to the same tabs without session cross-wiring.
 set -u
 set -o pipefail
 
@@ -733,7 +732,7 @@ echo "== hard restart dev with Playwright/CDP env"
 (
   cd "$REPO_ROOT" || exit 1
   bash build.sh kill
-  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev --wait
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
 ) || exit 1
 
 echo "== API post-restore assertions"
