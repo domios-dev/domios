@@ -33,28 +33,20 @@ pub struct ChatSendStatus {
 pub(crate) enum EvidenceWindow {
     /// Append-only transcript file: the window is bytes at/after this offset.
     Jsonl { transcript_offset: u64 },
-    /// The exact bound session's append-only transcript path did not exist at
-    /// send start. Its first materialization is the bounded append region.
-    JsonlMaterialization,
-    /// The fresh launch was unbound at send start. Only timestamped rows
-    /// strictly after capture in its later reported session are eligible.
-    JsonlSessionMaterialization { not_before_ms: u64 },
     /// Structured store (`uses_structured_chat` capability): the window is
     /// rows after this opaque provider cursor. `None` = the store was empty at
     /// send start, so every row is post-send.
     Structured { cursor: Option<String> },
-    /// The structured session did not exist at send start. The provider must
-    /// prove the later bound session was created after this boundary.
-    StructuredMaterialization { not_before_ms: u64 },
 }
 
-/// Transcript scope captured at send start. A missing session id is valid only
-/// for a materialization resolved by the current launch's reported binding.
+/// Authoritative transcript identity captured at send start. Evidence for the
+/// send may only come from THIS session, inside its append window — never from
+/// another/latest session and never from pre-send history.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
     pub(crate) cwd: String,
-    pub(crate) session_id: Option<String>,
+    pub(crate) session_id: String,
     pub(crate) window: EvidenceWindow,
 }
 
@@ -64,12 +56,10 @@ pub(crate) struct SendLiveBinding {
     pub(crate) binding_nonce: Option<String>,
 }
 
-#[derive(Clone)]
 pub(crate) struct EvidenceCandidate {
     pub(crate) send_id: String,
     pub(crate) payload: String,
     pub(crate) anchor: SendEvidenceAnchor,
-    pub(crate) live_binding: Option<SendLiveBinding>,
 }
 
 struct ChatSendLedgerState {
@@ -124,7 +114,7 @@ impl ChatSendLedger {
         anchor: Option<SendEvidenceAnchor>,
     ) -> Result<ChatSendStatus, String> {
         let live_binding = anchor.as_ref().map(|anchor| SendLiveBinding {
-            session_id: anchor.session_id.clone(),
+            session_id: Some(anchor.session_id.clone()),
             binding_nonce: None,
         });
         self.try_start_scoped(tab_id, text, anchor, live_binding)
@@ -312,26 +302,6 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
-    pub(crate) fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
-        let state = self.state.lock();
-        let status = state.by_id.get(send_id)?.clone();
-        Some(Self::with_retention_window(&state, status))
-    }
-
-    pub(crate) fn bind_evidence_session(&self, send_id: &str, session_id: &str) -> bool {
-        let mut state = self.state.lock();
-        let Some(anchor) = state.anchor_by_id.get_mut(send_id) else {
-            return false;
-        };
-        match anchor.session_id.as_deref() {
-            Some(bound) => bound == session_id,
-            None => {
-                anchor.session_id = Some(session_id.to_string());
-                true
-            }
-        }
-    }
-
     /// Unconfirmed sends (oldest first) that carry an evidence anchor and a
     /// non-empty normalized payload — the only sends a transcript scan may touch.
     pub(crate) fn evidence_candidates(&self, tab_id: &str) -> Vec<EvidenceCandidate> {
@@ -353,44 +323,35 @@ impl ChatSendLedger {
                     send_id: send_id.clone(),
                     payload,
                     anchor,
-                    live_binding: state.live_binding_by_id.get(send_id).cloned(),
                 })
             })
             .collect()
     }
 
-    /// Confirmed anchored sends whose exact turns must remain uniquely
-    /// attributable when another append window is reconciled.
-    pub(crate) fn confirmed_evidence_claims(
+    /// Sends already confirmed for this tab+session+payload — each one already
+    /// consumed a matching transcript turn, so a scan must find MORE matching
+    /// turns than this count before it may confirm another send.
+    pub(crate) fn claimed_turn_count(
         &self,
         tab_id: &str,
         session_id: &str,
         payload: &str,
-    ) -> Vec<EvidenceCandidate> {
+    ) -> usize {
         let state = self.state.lock();
         state
-            .order
-            .iter()
-            .filter_map(|send_id| {
-                let status = state.by_id.get(send_id)?;
-                if status.tab_id != tab_id
-                    || status.state != ChatSendState::Sent
-                    || state.payload_by_id.get(send_id).map(String::as_str) != Some(payload)
-                {
-                    return None;
-                }
-                let anchor = state.anchor_by_id.get(send_id)?.clone();
-                if anchor.session_id.as_deref() != Some(session_id) {
-                    return None;
-                }
-                Some(EvidenceCandidate {
-                    send_id: send_id.clone(),
-                    payload: payload.to_string(),
-                    anchor,
-                    live_binding: state.live_binding_by_id.get(send_id).cloned(),
-                })
+            .by_id
+            .values()
+            .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Sent)
+            .filter(|status| {
+                state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
             })
-            .collect()
+            .filter(|status| {
+                state
+                    .anchor_by_id
+                    .get(&status.send_id)
+                    .is_some_and(|anchor| anchor.session_id == session_id)
+            })
+            .count()
     }
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
@@ -444,20 +405,6 @@ pub(crate) fn run_chat_send(
         .expect("a started Chat send remains in the bounded ledger until completion")
 }
 
-pub(crate) fn finish_chat_send_with_reconciliation(
-    svc: &crate::service::ServiceContext,
-    tab_id: &str,
-    pending: ChatSendStatus,
-    text: &str,
-    submit: impl FnOnce(&str) -> Result<(), crate::service::delivery_error::DeliveryError>,
-) -> ChatSendStatus {
-    let transport_status = run_chat_send(&svc.chat_send_ledger, pending, text, submit);
-    svc.reconcile_chat_send_evidence(tab_id);
-    svc.chat_send_ledger
-        .status(&transport_status.send_id)
-        .unwrap_or(transport_status)
-}
-
 /// Feed freshly appended session user turns into the ledger. Called from the
 /// live delta sinks only — never from history snapshots, so stale transcript
 /// rows can never confirm a send.
@@ -502,42 +449,14 @@ impl crate::service::ServiceContext {
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
         )?;
-        log::info!(
-            "[delivery-timeline] event=ledger-accepted send_id={} tab={} payload_sha256={} \
-             anchor_session={} live_session={} current_nonce={}",
-            pending.send_id,
-            tab_id,
-            crate::service::launch_diagnostics::digest(&text),
-            evidence
-                .anchor
-                .as_ref()
-                .and_then(|anchor| anchor.session_id.as_deref())
-                .unwrap_or("-"),
-            evidence
-                .live_binding
-                .as_ref()
-                .and_then(|binding| binding.session_id.as_deref())
-                .unwrap_or("-"),
-            evidence
-                .live_binding
-                .as_ref()
-                .and_then(|binding| binding.binding_nonce.as_deref())
-                .unwrap_or("-"),
-        );
         let response = pending.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
-            let status = finish_chat_send_with_reconciliation(
-                &svc,
-                &tab_id,
-                pending,
-                &text,
-                |text| svc.send_text_delivery(&tab_id, text),
-            );
-            if status.state != ChatSendState::Sent {
-                crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
-            }
+            let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
+                svc.send_text_delivery(&tab_id, text)
+            });
+            crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
                 log::warn!(
                     "[chat-send] send_id={} tab={} failed: {}",

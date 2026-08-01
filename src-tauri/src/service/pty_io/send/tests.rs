@@ -1,4 +1,3 @@
-use super::ingress::spawn_with_submit_claim;
 use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
@@ -30,39 +29,6 @@ fn handle() -> crate::ScreenStateHandle {
 fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
     assert!(delivery_is_unknown("submit_unconfirmed: Enter was not observed"));
     assert!(!delivery_is_unknown("pty_unavailable: recipient PTY missing"));
-}
-
-#[test]
-fn new_detached_send_cancels_prior_submit_cycle_before_worker_spawn() {
-    let pty_id = "detached-cycle-ingress";
-    let old_claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
-    let worker_spawned = std::cell::Cell::new(false);
-
-    spawn_with_submit_claim(Some(pty_id.to_string()), |new_claim| {
-        worker_spawned.set(true);
-        let new_claim = new_claim.expect("PTY input must own its ingress claim");
-        assert!(old_claim.same_cycle(&new_claim));
-        assert!(new_claim.generation() > old_claim.generation());
-        assert!(!old_claim.is_current());
-        assert!(new_claim.is_current());
-    });
-
-    assert!(worker_spawned.get());
-}
-
-#[test]
-fn new_raw_input_cancels_prior_submit_cycle_before_first_key() {
-    let pty_id = "raw-cycle-ingress";
-    let old_claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
-    let first_key_written = std::cell::Cell::new(false);
-
-    let claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
-    claim.enqueue_if_current(|| {
-        assert!(!old_claim.is_current());
-        first_key_written.set(true);
-    });
-
-    assert!(first_key_written.get());
 }
 
 #[test]
