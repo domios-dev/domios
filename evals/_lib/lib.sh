@@ -41,14 +41,12 @@ is_linux()   { case "$OSTYPE" in linux*) return 0;; *) return 1;; esac; }
 # --- Dev daemon connection -------------------------------------------
 
 EVAL_LIB_REQUESTED_INSTANCE="${CODETERM_INSTANCE:-}"
-if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] &&
-   [ -n "${CODETERM_API_PORT:-}" ] &&
-   [ "${CODETERM_API_PORT:-}" != 7685 ]; then
-  EVAL_LIB_DEV_API_PORT="$CODETERM_API_PORT"
-else
-  EVAL_LIB_DEV_API_PORT=7686
-fi
+EVAL_LIB_REQUESTED_API_PORT="${CODETERM_API_PORT:-}"
+EVAL_LIB_DEV_API_PORT=7686
+EVAL_LIB_DEV_HOST=127.0.0.1
 EVAL_LIB_RESOLVED_DATA_DIR=""
+EVAL_LIB_RESOLVED_SOCKET_PATH=""
+EVAL_LIB_RESOLVED_INSTANCE=""
 EVAL_LIB_RESOLVED_API_TOKEN=""
 
 dev_default_data_dir() {
@@ -75,111 +73,91 @@ dev_bootstrap_cli() {
       return
     fi
   done
-  for candidate in \
-    "$HOME"/.codeterm-dev*/bin/codeterm \
-    "$HOME"/.codeterm-dev*/bin/codeterm.exe; do
-    if [ -x "$candidate" ]; then
-      printf '%s\n' "$candidate"
-      return
-    fi
-  done
   dev_resolution_error '<unresolved>' "$(dev_default_data_dir)"
   return 7
 }
 
-dev_expected_data_dir_from_cli_error() {
-  local output="$1" socket_name
-  socket_name="$(printf '%s\n' "$output" \
-    | grep -oE 'codeterm-dev(-[a-z0-9-]+)?([.]sock)?' \
-    | head -1)"
-  [ -n "$socket_name" ] || return 1
-  socket_name="${socket_name%.sock}"
-  printf '%s/.%s\n' "$HOME" "$socket_name"
-}
-
-dev_cli_expected_data_dir() {
-  local cli="$1" output="${2:-}"
-  if dev_expected_data_dir_from_cli_error "$output"; then
-    return
+dev_shell_path() {
+  if is_windows; then
+    cygpath -u "$1"
+  else
+    printf '%s\n' "$1"
   fi
-  output="$(
-    CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
-    CODETERM_API_TOKEN= \
-    CODETERM_SOCKET_PATH= \
-    CODETERM_TAB_ID= \
-    CODETERM_PARENT_TAB_ID= \
-    "$cli" mem stats --json 2>&1
-  )" || true
-  dev_expected_data_dir_from_cli_error "$output"
-}
-
-dev_cli_resolved_token() {
-  local cli output token expected_data_dir
-  cli="$(dev_bootstrap_cli)" || return
-  if ! output="$(
-    CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
-    CODETERM_API_TOKEN= \
-    CODETERM_SOCKET_PATH= \
-    CODETERM_TAB_ID= \
-    CODETERM_PARENT_TAB_ID= \
-    "$cli" config get api.token --json 2>&1
-  )"; then
-    expected_data_dir="$(dev_cli_expected_data_dir "$cli" "$output")" || \
-      expected_data_dir="$HOME/.codeterm-dev*"
-    if [ -f "$expected_data_dir/config.toml" ]; then
-      config_token "$expected_data_dir/config.toml"
-      return
-    fi
-    dev_resolution_error '<unresolved>' "$expected_data_dir"
-    return 7
-  fi
-  token="$(printf '%s\n' "$output" \
-    | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -1)"
-  if [ -z "$token" ]; then
-    dev_resolution_error '<unresolved>' "$HOME/.codeterm-dev*"
-    return 7
-  fi
-  printf '%s\n' "$token"
 }
 
 config_token() {
   grep -E '^token = ' "$1" | head -1 | sed 's/.*"\(.*\)"/\1/'
 }
 
-dev_data_dir() {
-  local resolved_token cfg cfg_token
-  local -a matches=()
-  if [ -z "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
-    dev_default_data_dir
-    return
-  fi
-  resolved_token="$(dev_cli_resolved_token)" || return
-  for cfg in "$HOME"/.codeterm-dev*/config.toml; do
-    [ -f "$cfg" ] || continue
-    cfg_token="$(config_token "$cfg")"
-    [ "$cfg_token" = "$resolved_token" ] && matches+=("${cfg%/config.toml}")
-  done
-  if [ "${#matches[@]}" -ne 1 ]; then
-    dev_resolution_error '<unresolved>' "$HOME/.codeterm-dev*"
+dev_resolve_identity() {
+  local cli output parsed data_dir
+  cli="$(dev_bootstrap_cli)" || return 7
+  if ! output="$(
+    unset CODETERM_API_TOKEN CODETERM_TAB_ID CODETERM_PARENT_TAB_ID
+    if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+      export CODETERM_INSTANCE="$EVAL_LIB_REQUESTED_INSTANCE"
+      unset CODETERM_SOCKET_PATH
+      if [ -n "$EVAL_LIB_REQUESTED_API_PORT" ] &&
+         [ "$EVAL_LIB_REQUESTED_API_PORT" != 7685 ]; then
+        export CODETERM_API_PORT="$EVAL_LIB_REQUESTED_API_PORT"
+      else
+        unset CODETERM_API_PORT
+      fi
+    else
+      unset CODETERM_INSTANCE
+      export CODETERM_API_PORT=7686
+      export CODETERM_SOCKET_PATH="$(dev_socket_path)"
+    fi
+    "$cli" identify --json
+  )"; then
+    dev_resolution_error '<unresolved>' '<identify --json unavailable>'
     return 7
   fi
-  printf '%s\n' "${matches[0]}"
+  if ! parsed="$(printf '%s\n' "$output" | python -c '
+import json, sys
+connection = json.load(sys.stdin)["connection"]
+values = [
+    connection["data_dir"],
+    connection["host"],
+    str(connection["port"]),
+    connection["socket_path"],
+    connection.get("instance") or "",
+]
+print("\t".join(values))
+')"; then
+    dev_resolution_error '<unresolved>' '<valid identify --json connection>'
+    return 7
+  fi
+  IFS=$'\t' read -r data_dir EVAL_LIB_DEV_HOST EVAL_LIB_DEV_API_PORT \
+    EVAL_LIB_RESOLVED_SOCKET_PATH EVAL_LIB_RESOLVED_INSTANCE <<<"$parsed"
+  EVAL_LIB_RESOLVED_DATA_DIR="$(dev_shell_path "$data_dir")"
+  if [ "$EVAL_LIB_DEV_API_PORT" = 7685 ]; then
+    dev_resolution_error "$EVAL_LIB_RESOLVED_DATA_DIR" "$EVAL_LIB_RESOLVED_DATA_DIR"
+    return 7
+  fi
+}
+
+dev_data_dir() {
+  [ -n "$EVAL_LIB_RESOLVED_DATA_DIR" ] || dev_resolve_identity || return 7
+  printf '%s\n' "$EVAL_LIB_RESOLVED_DATA_DIR"
 }
 
 # Read the API token from the active dev instance.
 dev_token() {
   local cfg
   cfg="${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}/config.toml"
-  [ -f "$cfg" ] || { echo "ERROR: $cfg not found — is dev installed?" >&2; return 1; }
+  if [ ! -f "$cfg" ]; then
+    dev_resolution_error "$cfg" "${CODETERM_DEV_DATA_DIR:-$EVAL_LIB_RESOLVED_DATA_DIR}"
+    return 7
+  fi
   config_token "$cfg"
 }
 
 # Socket path differs across OS. Windows uses a named pipe; Unix uses
 # a stable name in OS-managed namespace (GenericNamespaced).
 dev_socket_path() {
-  if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
-    printf '\n'
+  if [ -n "$EVAL_LIB_RESOLVED_SOCKET_PATH" ]; then
+    printf '%s\n' "$EVAL_LIB_RESOLVED_SOCKET_PATH"
     return
   fi
   if is_windows; then
@@ -192,20 +170,21 @@ dev_socket_path() {
 # Export the four env vars dc needs to target dev.
 # CLI selection remains dc's responsibility and never resolves through PATH.
 dev_env() {
-  local data_dir token
-  export CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT"
-  export CODETERM_SOCKET_PATH="$(dev_socket_path)"
+  local token
   if [ -n "$EVAL_LIB_RESOLVED_DATA_DIR" ] && [ -n "$EVAL_LIB_RESOLVED_API_TOKEN" ]; then
+    export CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT"
+    export CODETERM_SOCKET_PATH="$EVAL_LIB_RESOLVED_SOCKET_PATH"
     export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
     export CODETERM_API_TOKEN="$EVAL_LIB_RESOLVED_API_TOKEN"
     export CODETERM_DEV_AUTH_HEADER="Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
     return
   fi
+  dev_resolve_identity || return 7
+  export CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT"
+  export CODETERM_SOCKET_PATH="$EVAL_LIB_RESOLVED_SOCKET_PATH"
+  export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
   export CODETERM_API_TOKEN=
   export CODETERM_DEV_AUTH_HEADER=
-  data_dir="$(dev_data_dir)" || return 7
-  EVAL_LIB_RESOLVED_DATA_DIR="$data_dir"
-  export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
   token="$(dev_token)" || return 7
   EVAL_LIB_RESOLVED_API_TOKEN="$token"
   export CODETERM_API_TOKEN="$EVAL_LIB_RESOLVED_API_TOKEN"
@@ -213,24 +192,24 @@ dev_env() {
 }
 
 dev_api_url() {
-  printf 'http://127.0.0.1:%s' "$EVAL_LIB_DEV_API_PORT"
+  printf 'http://%s:%s' "$EVAL_LIB_DEV_HOST" "$EVAL_LIB_DEV_API_PORT"
 }
 
 dev_assert_target() {
   local health actual_instance
   if ! health="$(curl -sS --max-time 1 "$(dev_api_url)/api/health")"; then
     dev_resolution_error "${CODETERM_DEV_DATA_DIR:-<unresolved>}" \
-      "${CODETERM_DEV_DATA_DIR:-$HOME/.codeterm-dev*}"
+      "${CODETERM_DEV_DATA_DIR:-$(dev_default_data_dir)}"
     return 7
   fi
-  if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+  if [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
     actual_instance="$(printf '%s\n' "$health" | python -c '
 import json, sys
 print(json.load(sys.stdin).get("instance", {}).get("name", ""))
 ')"
-    if [ "$actual_instance" != "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
+    if [ "$actual_instance" != "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
       dev_resolution_error "${CODETERM_DEV_DATA_DIR:-<unresolved>}" \
-        "${CODETERM_DEV_DATA_DIR:-$HOME/.codeterm-dev*}"
+        "${CODETERM_DEV_DATA_DIR:-$(dev_default_data_dir)}"
       return 7
     fi
   fi
