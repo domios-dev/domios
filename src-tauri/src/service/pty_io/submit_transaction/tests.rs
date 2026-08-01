@@ -14,7 +14,6 @@ fn xterm_paste_preserves_multiline_bracketed_input_as_one_paste() {
     );
     assert_eq!(xterm_paste(text, false), "alpha\rbeta\rgamma\rdelta");
 }
-
 #[test]
 fn xterm_paste_does_not_inject_a_windows_sacrificial_space() {
     assert_eq!(xterm_paste("payload", true), "\x1b[200~payload\x1b[201~");
@@ -1042,35 +1041,4 @@ fn messenger_report_planner_send_share_submit_transaction() {
         ));
         assert_eq!(submit_calls, 1);
     }
-}
-
-#[test]
-fn transaction_lock_registry_retires_closed_ptys() {
-    let lock = transaction_lock("closed-pty");
-    assert!(transaction_locks().lock().contains_key("closed-pty"));
-    retire_transaction_lock("closed-pty", &lock);
-    assert!(!transaction_locks().lock().contains_key("closed-pty"));
-}
-
-#[test]
-fn terminal_replies_wait_for_an_active_submit_transaction() {
-    let lock = transaction_lock("reply-lock");
-    let submit = lock.lock();
-    let (entered, receiver) = std::sync::mpsc::sync_channel(1);
-    let reply_lock = lock.clone();
-    let worker = std::thread::spawn(move || {
-        let _reply = reply_lock.lock();
-        let _ = entered.send(());
-    });
-
-    assert!(matches!(
-        receiver.try_recv(),
-        Err(std::sync::mpsc::TryRecvError::Empty)
-    ));
-    drop(submit);
-    receiver
-        .recv_timeout(Duration::from_secs(1))
-        .expect("terminal reply must run after submit completion");
-    worker.join().unwrap();
-    retire_transaction_lock("reply-lock", &lock);
 }
