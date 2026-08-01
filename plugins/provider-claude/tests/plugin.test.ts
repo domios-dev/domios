@@ -520,5 +520,33 @@ assert(
   "parseUsage accepts the completed current-session reset frame",
 );
 
+console.log("\n--- quota-free usage fetch ---\n");
+{
+  let request: Record<string, unknown> | null = null;
+  const p = loadClaudeWithHost(baseHost({
+    fetch: (raw: string) => {
+      request = JSON.parse(raw);
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({
+          five_hour: { utilization: 17, resets_at: "2026-08-01T08:39:59.000Z" },
+          seven_day: { utilization: 92, resets_at: "2026-08-02T16:59:59.000Z" },
+        }),
+      });
+    },
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: "secret-token" } }),
+    },
+  }));
+  const raw = p.fetchUsage();
+  const fetched = p.parseUsage(raw, now);
+  eq(request?.url, "https://api.anthropic.com/api/oauth/usage", "fetchUsage uses the provider OAuth meter endpoint");
+  eq(fetched?.session_pct, 17, "fetchUsage maps the five-hour window");
+  eq(fetched?.weekly_pct, 92, "fetchUsage maps the seven-day window");
+  eq(fetched?.weekly_resets_at_ms, Date.parse("2026-08-02T16:59:59.000Z"), "fetchUsage maps ISO reset time");
+  assert(!raw.includes("secret-token"), "fetchUsage output never persists credentials");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

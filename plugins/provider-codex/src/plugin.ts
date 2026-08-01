@@ -8,7 +8,7 @@ import {
   type MenuOption,
 } from "./prompt";
 import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
-import { parseCodexUsage } from "./usage";
+import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 
@@ -485,6 +485,10 @@ const plugin: PluginModule = {
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText: string, nowMs: number): unknown {
     return parseCodexUsage(rawText, nowMs);
+  },
+
+  fetchUsage(): unknown {
+    return fetchCodexUsage(host);
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {

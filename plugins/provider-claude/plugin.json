@@ -84,5 +84,12 @@
       "--model",
       "{model}"
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "api.anthropic.com"
+      ]
+    }
   }
 }

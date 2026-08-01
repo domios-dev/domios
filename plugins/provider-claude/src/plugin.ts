@@ -1,7 +1,13 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
-import { usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
+import {
+  fetchClaudeUsage,
+  parseFetchedClaudeUsage,
+  usageBlockIsComplete,
+  usageNormalize,
+  usageParseBlock,
+} from "./usage";
 import {
   ClaudeEntry,
   claudeSessionFilePath,
@@ -339,6 +345,8 @@ const plugin: PluginModule = {
   parseUsage(rawText: string, nowMs: number): unknown {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
+    const fetched = parseFetchedClaudeUsage(raw, nowMs);
+    if (fetched !== undefined) return fetched;
     const text = usageNormalize(raw);
 
     const session = usageParseBlock(text, "Current session", false, nowMs);
@@ -356,6 +364,10 @@ const plugin: PluginModule = {
       weekly_resets_at_ms: weekly.resetsMs,
       raw_text: raw,
     };
+  },
+
+  fetchUsage(): unknown {
+    return fetchClaudeUsage(host);
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.

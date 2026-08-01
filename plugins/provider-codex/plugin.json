@@ -101,5 +101,12 @@
       "-c",
       "model_reasoning_effort=\"{effort}\""
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "chatgpt.com"
+      ]
+    }
   }
 }

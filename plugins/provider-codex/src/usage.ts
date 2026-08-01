@@ -3,6 +3,63 @@ interface CodexGauge {
   resetsMs: number | null;
 }
 
+interface UsageHost {
+  expandHome(path: string): string | null;
+  fetch(opts: string): string;
+  fs: { readFile(path: string): string | null };
+}
+
+interface CodexRateWindow {
+  used_percent?: number;
+  limit_window_seconds?: number;
+  reset_at?: number;
+}
+
+interface CodexRateLimit {
+  primary_window?: CodexRateWindow | null;
+  secondary_window?: CodexRateWindow | null;
+}
+
+const CODEX_USAGE_KIND = "codeterm_usage_v1";
+
+export function fetchCodexUsage(host: UsageHost): string | null {
+  const authPath = host.expandHome("~/.codex/auth.json");
+  if (!authPath) return null;
+  const auth = safeJson(host.fs.readFile(authPath));
+  const tokens = objectAt(auth, "tokens");
+  const accessToken = stringAt(tokens, "access_token");
+  const accountId = stringAt(tokens, "account_id");
+  if (!accessToken || !accountId) return null;
+
+  const response = safeJson(host.fetch(JSON.stringify({
+    url: "https://chatgpt.com/backend-api/wham/usage",
+    method: "GET",
+    timeoutMs: 6000,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "ChatGPT-Account-Id": accountId,
+      "User-Agent": "codeterm-usage/1.7.8",
+    },
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const rateLimit = objectAt(body, "rate_limit") as CodexRateLimit | null;
+  if (!rateLimit) return null;
+
+  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean) as CodexRateWindow[];
+  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window)! < 86_400) ?? null;
+  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window)! >= 86_400) ?? null;
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CODEX_USAGE_KIND,
+    account_id: accountId,
+    session_pct: numberAt(session, "used_percent"),
+    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
+    weekly_pct: numberAt(weekly, "used_percent"),
+    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at")),
+  });
+}
+
 type CodexFamily = "general" | "legacy-session" | "weekly" | "model";
 
 interface CodexLimitLine {
@@ -14,6 +71,19 @@ interface CodexLimitLine {
 export function parseCodexUsage(rawText: string, nowMs: number): unknown {
   const raw = String(rawText || "");
   if (!raw.trim()) return null;
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
+    return {
+      provider: "codex",
+      account_id: stringAt(fetched, "account_id"),
+      captured_at_ms: nowMs,
+      session_pct: numberAt(fetched, "session_pct"),
+      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+      weekly_pct: numberAt(fetched, "weekly_pct"),
+      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+      raw_text: raw,
+    };
+  }
   const text = raw
     .split("\r")
     .join("")
@@ -39,6 +109,42 @@ export function parseCodexUsage(rawText: string, nowMs: number): unknown {
     weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
     raw_text: raw,
   };
+}
+
+function safeJson(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function objectAt(value: unknown, key: string): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return nested && typeof nested === "object" ? nested as Record<string, unknown> : null;
+}
+
+function stringAt(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+
+function numberAt(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+
+function secondsToMs(value: number | null): number | null {
+  return value === null ? null : value * 1000;
+}
+
+function windowDuration(window: CodexRateWindow): number | null {
+  return numberAt(window, "limit_window_seconds");
 }
 
 function parseCodexLimits(lines: string[], nowMs: number): CodexLimitLine[] {

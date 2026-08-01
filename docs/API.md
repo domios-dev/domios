@@ -535,7 +535,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 
 #### Usage Tracker
 
-Per-provider usage snapshots scraped from the running agent (Claude `/usage`, Codex `/status`). The poller runs a hidden background tab, observes the provider's own usage screen, and persists `{used_pct, weekly_pct, weekly_opus_pct, ts_ms, resets_at, weekly_resets_at, account_id}` rows. Drives the in-app Usage bubble + history modal; everything is local — nothing is reported upstream.
+Per-provider usage snapshots come from each provider plugin's quota-free `fetchUsage` capability. Claude reads its OAuth usage endpoint, Codex reads its account rate-limit endpoint, and Cursor reads its dashboard endpoint. The poller never starts an agent or sends a metered prompt to observe usage. Plugins reduce account responses to meter percentages and reset timestamps before the core persists them; credentials and unrelated account fields are never stored. The snapshots drive the in-app Usage bubble and history modal.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -545,7 +545,7 @@ Per-provider usage snapshots scraped from the running agent (Claude `/usage`, Co
 | GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
 | POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe right now. Returns `{queued, probe_id}`; `503` if the poller isn't running. |
 
-**Adaptive polling.** A single background scheduler ticks every 30 s and decides which (provider, account) is due to probe. The base cadence steps through `[120 s, 300 s, 600 s, 1200 s, 2400 s]` (`BACKOFF_STEPS_S` in `src-tauri/src/usage/poller.rs`) with ±10% jitter at the top — dense while a tab for that provider is active, then stretches out the longer the user is idle. A tab is "active" when its activity timestamp is fresh (`TabActivity::mark` on keypress / send / focus). After `PAUSE_AFTER_FAILURES = 3` consecutive probe failures the account is paused until manual refresh.
+**Adaptive polling.** A single background scheduler ticks every 30 s and decides which (provider, account) is due to probe. The cadence steps through `[600 s, 1200 s, 1800 s, 2400 s, 3000 s]` (`BACKOFF_STEPS_S` in `src-tauri/src/usage/poller.rs`) with ±10% jitter. A tab is "active" when its activity timestamp is fresh (`TabActivity::mark` on keypress, send, or focus). Providers without a quota-free `fetchUsage` capability are not scheduled.
 
 **Projection algorithm.** `src-tauri/src/usage/projection.rs` builds per-day-of-week medians from the last 4 weeks of snapshots, projects today's curve from the elapsed shape, and rejects "pair-noise" jumps wider than `SHAPE_PAIR_GAP_MS = 4h` apart with `SHAPE_PAIR_DELTA_MAX = 25 %` jump — typical of off-device usage gaps where two distant samples bracket someone else's activity on the same account. The frontend uses `activeWeeklyCycle()` in `src/components/Usage/cycle.ts` to discard stale `weekly_resets_at` values that lag the latest `resets_at`.
 
@@ -1400,4 +1400,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 101 -->
+<!-- revision: 102 -->
