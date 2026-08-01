@@ -437,7 +437,7 @@ impl ServiceContext {
         submit: bool,
         claim: super::submit_transaction::SubmitCycleClaim,
     ) -> Result<(), DeliveryError> {
-        let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
+        let (tab_id, agent_type) = self.resolve_tab_and_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let text = agent_type
             .as_ref()
@@ -471,17 +471,13 @@ impl ServiceContext {
         .map_err(|error| DeliveryError::from_injection(delivery_target, error))
     }
 
-    fn resolve_tab_and_ready_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
+    fn resolve_tab_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
         let mux = self.mux.read();
         match mux.tab_id_for_pty(pty_id) {
-            Some(pid) => {
-                let at = mux.get_tab(&pid).and_then(|p| {
-                    (p.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady))
-                        .then(|| p.agent_type.clone())
-                        .flatten()
-                });
-                (Some(pid), at)
-            }
+            Some(pid) => (
+                Some(pid.clone()),
+                mux.get_tab(&pid).and_then(|p| p.agent_type.clone()),
+            ),
             None => (None, None),
         }
     }
