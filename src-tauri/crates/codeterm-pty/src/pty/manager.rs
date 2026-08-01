@@ -9,7 +9,50 @@ use parking_lot::Mutex as PlMutex;
 
 pub use super::spawn_gate::PtySpawnGate;
 pub use super::teardown::{PtyReaper, PtyTeardownSignal};
-use super::write_queue::{GuardedInputGate, GuardedInputPermit, WriteQueue};
+use super::write_queue::{GuardedInputGate, GuardedInputPermit, WriteAcknowledgement, WriteQueue};
+
+pub struct PtyWriteAcknowledgement {
+    pub generation: u64,
+    capture_after_ack: Option<(String, Vec<u8>)>,
+    acknowledgment: WriteAcknowledgement,
+}
+
+impl PtyWriteAcknowledgement {
+    fn unguarded(
+        generation: u64,
+        pty_id: &str,
+        data: &[u8],
+        acknowledgment: WriteAcknowledgement,
+    ) -> Self {
+        crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
+        Self {
+            generation,
+            capture_after_ack: None,
+            acknowledgment,
+        }
+    }
+
+    fn guarded(
+        generation: u64,
+        pty_id: &str,
+        data: &[u8],
+        acknowledgment: WriteAcknowledgement,
+    ) -> Self {
+        Self {
+            generation,
+            capture_after_ack: Some((pty_id.to_string(), data.to_vec())),
+            acknowledgment,
+        }
+    }
+
+    pub fn wait(self, timeout: std::time::Duration) -> Result<(), String> {
+        self.acknowledgment.wait(timeout)?;
+        if let Some((pty_id, data)) = self.capture_after_ack {
+            crate::pty::capture::CaptureRegistry::global().tap_input(&pty_id, "pty.write", &data);
+        }
+        Ok(())
+    }
+}
 
 pub struct SpawnMark {
     pub when: Instant,
@@ -71,14 +114,22 @@ impl Drop for PtySession {
 }
 
 impl PtySession {
+    pub fn enqueue_write_and_flush_guarded(
+        &self,
+        data: Vec<u8>,
+        permit: GuardedInputPermit,
+    ) -> Result<WriteAcknowledgement, String> {
+        self.write_queue.enqueue_guarded_with_ack(data, permit)
+    }
+
     pub fn write_and_flush_guarded(
         &self,
         data: Vec<u8>,
         permit: GuardedInputPermit,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
-        self.write_queue
-            .send_and_wait_guarded(data, permit, timeout)
+        self.enqueue_write_and_flush_guarded(data, permit)?
+            .wait(timeout)
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<bool, String> {
@@ -591,12 +642,25 @@ impl PtyManager {
         data: &[u8],
         timeout: std::time::Duration,
     ) -> Result<(), String> {
+        self.enqueue_write_and_flush(pty_id, data)?.wait(timeout)
+    }
+
+    pub fn enqueue_write_and_flush(
+        &self,
+        pty_id: &str,
+        data: &[u8],
+    ) -> Result<PtyWriteAcknowledgement, String> {
         let session = self
             .sessions
             .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
-        crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
-        session.write_queue.send_and_wait(data.to_vec(), timeout)
+        let acknowledgment = session.write_queue.enqueue_with_ack(data.to_vec())?;
+        Ok(PtyWriteAcknowledgement::unguarded(
+            session.generation,
+            pty_id,
+            data,
+            acknowledgment,
+        ))
     }
 
     pub fn rearm_guarded_input(&self, pty_id: &str) -> Result<(), String> {
@@ -632,15 +696,27 @@ impl PtyManager {
         permit: GuardedInputPermit,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
+        self.enqueue_write_and_flush_guarded(pty_id, data, permit)?
+            .wait(timeout)
+    }
+
+    pub fn enqueue_write_and_flush_guarded(
+        &self,
+        pty_id: &str,
+        data: &[u8],
+        permit: GuardedInputPermit,
+    ) -> Result<PtyWriteAcknowledgement, String> {
         let session = self
             .sessions
             .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
-        session
-            .write_and_flush_guarded(data.to_vec(), permit, timeout)
-            .map(|()| {
-                crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
-            })
+        let acknowledgment = session.enqueue_write_and_flush_guarded(data.to_vec(), permit)?;
+        Ok(PtyWriteAcknowledgement::guarded(
+            session.generation,
+            pty_id,
+            data,
+            acknowledgment,
+        ))
     }
 
     /// Resize PTY
