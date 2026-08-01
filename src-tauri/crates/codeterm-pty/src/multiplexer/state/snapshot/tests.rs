@@ -868,6 +868,24 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
     assert_eq!(tab.model_identity_mismatch, Some(mismatch));
 }
 
+#[test]
+fn provisioned_cwd_round_trips_through_snapshot() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let tab_id = state.create_tab(&wsid).unwrap();
+    let cwd = state
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.cwd.clone())
+        .expect("tab cwd");
+    state.get_tab_mut(&tab_id).unwrap().provisioned_cwd = Some(cwd.clone());
+
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+    let tab = restored.get_tab(&tab_id).expect("Tab restored");
+
+    assert_eq!(tab.cwd.as_deref(), Some(cwd.as_str()));
+    assert_eq!(tab.provisioned_cwd.as_deref(), Some(cwd.as_str()));
+}
+
 // ── Ghost-tab repro harness ───────────────────────────────────────────────
 
 /// Repro: a tab marked skip_snapshot (first-run picker or any ephemeral

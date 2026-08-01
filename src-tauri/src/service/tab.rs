@@ -143,12 +143,13 @@ impl ServiceContext {
 
         self.discard_pending_delivery(tab_id)
             .map_err(|error| format!("pending delivery discard failed: {error}"))?;
-        self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+        self.invalidate_guarded_agent_input(tab_id);
         self.release_worker_persona_for_tab(tab_id);
         let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         let pty_ids = self.mux.write().close_tab(tab_id)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
