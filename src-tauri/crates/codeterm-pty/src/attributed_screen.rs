@@ -221,9 +221,15 @@ fn cell_char(cell: &AttributedCell) -> &str {
     }
 }
 
-fn row_content_bg(screen: &AttributedScreen, row: u16) -> AttributedColor {
+fn row_content_bg(screen: &AttributedScreen, row: u16, content_width: usize) -> AttributedColor {
     let mut counts = BTreeMap::<AttributedColor, usize>::new();
-    for cell in screen.cells.get(row as usize).into_iter().flatten() {
+    for cell in screen
+        .cells
+        .get(row as usize)
+        .into_iter()
+        .flatten()
+        .take(content_width)
+    {
         if !cell.ch.trim().is_empty() {
             *counts.entry(cell.bg.clone()).or_default() += 1;
         }
@@ -238,13 +244,15 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
     let side_band = framed.trim_start().starts_with('┃') || framed.trim_start().starts_with('╹');
     let stripped = strip_side_preview(&strip_side_band(&framed));
     let clean = clean_option_label(&stripped);
+    let content_width = primary_content_width(&stripped, &clean);
     let indent = stripped.chars().take_while(|c| c.is_whitespace()).count();
     let class = marker_class(stripped.trim_start());
     let footer = is_footer_hint(&stripped);
     let border = is_box_border(&stripped);
     let multi_select = contains_checkbox(&stripped) || contains_select_all_hint(&stripped);
-    let (selected_score, background_selected) = selected_score(screen, row, &framed, class);
-    let content_bg = row_content_bg(screen, row);
+    let (selected_score, background_selected) =
+        selected_score(screen, row, &framed, class, content_width);
+    let content_bg = row_content_bg(screen, row, content_width);
     let bold = row_is_bold(screen, row);
     let option_like = !clean.is_empty()
         && !footer
@@ -267,6 +275,12 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
         background_selected,
         bold,
     }
+}
+
+fn primary_content_width(text: &str, label: &str) -> usize {
+    text.find(label)
+        .map(|start| text[..start + label.len()].chars().count())
+        .unwrap_or_else(|| text.chars().count())
 }
 
 fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
@@ -647,6 +661,7 @@ fn selected_score(
     row: u16,
     text: &str,
     class: MarkerClass,
+    content_width: usize,
 ) -> (usize, bool) {
     let mut score = 0;
     let leading = text.trim_start();
@@ -664,7 +679,12 @@ fn selected_score(
     let mut inverse = 0usize;
     let mut bg_delta = 0usize;
     let mut fg_delta = 0usize;
-    let row_cells = screen.cells.get(row as usize).into_iter().flatten();
+    let row_cells = screen
+        .cells
+        .get(row as usize)
+        .into_iter()
+        .flatten()
+        .take(content_width);
     let mut bg_counts = BTreeMap::<AttributedColor, usize>::new();
     for cell in row_cells.clone() {
         if !cell.ch.trim().is_empty() {
