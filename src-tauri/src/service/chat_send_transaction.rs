@@ -312,6 +312,12 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
+    pub(crate) fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let state = self.state.lock();
+        let status = state.by_id.get(send_id)?.clone();
+        Some(Self::with_retention_window(&state, status))
+    }
+
     pub(crate) fn bind_evidence_session(&self, send_id: &str, session_id: &str) -> bool {
         let mut state = self.state.lock();
         let Some(anchor) = state.anchor_by_id.get_mut(send_id) else {
@@ -438,6 +444,20 @@ pub(crate) fn run_chat_send(
         .expect("a started Chat send remains in the bounded ledger until completion")
 }
 
+pub(crate) fn finish_chat_send_with_reconciliation(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    pending: ChatSendStatus,
+    text: &str,
+    submit: impl FnOnce(&str) -> Result<(), crate::service::delivery_error::DeliveryError>,
+) -> ChatSendStatus {
+    let transport_status = run_chat_send(&svc.chat_send_ledger, pending, text, submit);
+    svc.reconcile_chat_send_evidence(tab_id);
+    svc.chat_send_ledger
+        .status(&transport_status.send_id)
+        .unwrap_or(transport_status)
+}
+
 /// Feed freshly appended session user turns into the ledger. Called from the
 /// live delta sinks only — never from history snapshots, so stale transcript
 /// rows can never confirm a send.
@@ -486,10 +506,16 @@ impl crate::service::ServiceContext {
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
-            let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                svc.send_text_delivery(&tab_id, text)
-            });
-            crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            let status = finish_chat_send_with_reconciliation(
+                &svc,
+                &tab_id,
+                pending,
+                &text,
+                |text| svc.send_text_delivery(&tab_id, text),
+            );
+            if status.state != ChatSendState::Sent {
+                crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            }
             if let Some(error) = status.error.as_deref() {
                 log::warn!(
                     "[chat-send] send_id={} tab={} failed: {}",

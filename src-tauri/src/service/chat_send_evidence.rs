@@ -48,18 +48,9 @@ fn window_user_turns(
                     .collect()
             })
             .unwrap_or_default(),
-        EvidenceWindow::StructuredMaterialization { .. } => registry
-            .with_provider(&anchor.provider_id, |provider| {
-                provider.read_structured_chat(&anchor.cwd, session_id, None)
-            })
-            .map(|chat| {
-                chat.messages
-                    .into_iter()
-                    .filter(|msg| msg.kind == "user")
-                    .map(|msg| msg.content)
-                    .collect()
-            })
-            .unwrap_or_default(),
+        EvidenceWindow::StructuredMaterialization { not_before_ms } => {
+            structured_materialization_user_turns(registry, anchor, session_id, *not_before_ms)
+        }
     }
 }
 
@@ -109,10 +100,7 @@ fn scan_transcript_evidence(
                 candidate.anchor.session_id = Some(source.session_id.clone());
                 source.session_id.clone()
             }
-            None if structured_session_materialized_after_boundary(
-                registry, &candidate, source,
-            ) =>
-            {
+            None if structured_session_matches_current_binding(&candidate, source) => {
                 if !ledger.bind_evidence_session(&candidate.send_id, &source.session_id) {
                     continue;
                 }
@@ -255,29 +243,71 @@ fn jsonl_session_materialized_for_current_binding(
     matches!(
         candidate.anchor.window,
         EvidenceWindow::JsonlSessionMaterialization { .. }
-    ) && candidate.live_binding.as_ref().is_some_and(|binding| {
+    ) && unbound_launch_matches_current_binding(candidate, source)
+}
+
+fn structured_session_matches_current_binding(
+    candidate: &EvidenceCandidate,
+    source: &BoundEvidenceSource,
+) -> bool {
+    matches!(
+        candidate.anchor.window,
+        EvidenceWindow::StructuredMaterialization { .. }
+    ) && unbound_launch_matches_current_binding(candidate, source)
+}
+
+fn unbound_launch_matches_current_binding(
+    candidate: &EvidenceCandidate,
+    source: &BoundEvidenceSource,
+) -> bool {
+    candidate.live_binding.as_ref().is_some_and(|binding| {
         binding.session_id.is_none()
             && binding.binding_nonce.is_some()
             && binding.binding_nonce == source.binding_nonce
     })
 }
 
-fn structured_session_materialized_after_boundary(
+fn structured_materialization_user_turns(
     registry: &AgentRegistry,
-    candidate: &EvidenceCandidate,
-    source: &BoundEvidenceSource,
-) -> bool {
-    let EvidenceWindow::StructuredMaterialization { not_before_ms } = &candidate.anchor.window
-    else {
-        return false;
-    };
-    registry
-        .with_provider(&candidate.anchor.provider_id, |provider| {
-            provider.session_created_at(&candidate.anchor.cwd, &source.session_id)
+    anchor: &SendEvidenceAnchor,
+    session_id: &str,
+    not_before_ms: u64,
+) -> Vec<String> {
+    let created_after_boundary = registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.session_created_at(&anchor.cwd, session_id)
         })
         .flatten()
         .and_then(|created_at| created_at.duration_since(std::time::UNIX_EPOCH).ok())
-        .is_some_and(|created_at| created_at.as_millis() > u128::from(*not_before_ms))
+        .is_some_and(|created_at| created_at.as_millis() > u128::from(not_before_ms));
+    registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.read_structured_chat(&anchor.cwd, session_id, None)
+        })
+        .map(|chat| {
+            chat.messages
+                .into_iter()
+                .filter(|msg| {
+                    msg.kind == "user"
+                        && (created_after_boundary
+                            || msg
+                                .timestamp
+                                .as_deref()
+                                .and_then(source_timestamp_ms)
+                                .is_some_and(|timestamp| timestamp > not_before_ms))
+                })
+                .map(|msg| msg.content)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn source_timestamp_ms(timestamp: &str) -> Option<u64> {
+    timestamp.parse::<u64>().ok().or_else(|| {
+        chrono::DateTime::parse_from_rfc3339(timestamp)
+            .ok()
+            .and_then(|timestamp| u64::try_from(timestamp.timestamp_millis()).ok())
+    })
 }
 
 impl ServiceContext {

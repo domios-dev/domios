@@ -86,6 +86,51 @@ fn chat_send_status_reconciles_detached_jsonl_turn_from_captured_anchor() {
 }
 
 #[test]
+fn chat_send_completion_reconciles_jsonl_append_before_emitting_unknown() {
+    let (fixture, tab_id) = unbound_service_fixture("windowed");
+    let root = fixture.temp.path().join("completion-jsonl-evidence");
+    std::fs::create_dir_all(&root).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
+    let session_path = root.join("session-completion.jsonl");
+    std::fs::write(&session_path, "").unwrap();
+    bind_fixture_session(&fixture, &tab_id, "session-completion");
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    let pending = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "completion exact turn",
+            evidence.anchor,
+            evidence.live_binding,
+        )
+        .unwrap();
+
+    let status = crate::service::chat_send_transaction::finish_chat_send_with_reconciliation(
+        &fixture.service,
+        &tab_id,
+        pending,
+        "completion exact turn",
+        |_| {
+            std::fs::write(
+                &session_path,
+                format!(
+                    "{}\n",
+                    serde_json::json!({ "role": "user", "content": "completion exact turn" })
+                ),
+            )
+            .unwrap();
+            Ok(())
+        },
+    );
+
+    assert_eq!(status.state, ChatSendState::Sent);
+}
+
+#[test]
 fn chat_send_status_reconciles_unbound_jsonl_materialization_from_reported_session() {
     let (fixture, tab_id) = unbound_service_fixture("windowed");
     let root = fixture.temp.path().join("unbound-jsonl-materialization");
@@ -425,6 +470,75 @@ fn structured_session_created_before_boundary_cannot_confirm() {
     assert_eq!(
         fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
         ChatSendState::Unknown
+    );
+}
+
+#[test]
+fn restarted_structured_session_confirms_only_post_boundary_turn() {
+    let (fixture, tab_id) = unbound_service_fixture("structured-store");
+    let provider = StructuredStoreProvider::new();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider.clone()));
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    let not_before_ms = match evidence.anchor.as_ref().unwrap().window {
+        EvidenceWindow::StructuredMaterialization { not_before_ms } => not_before_ms,
+        ref other => panic!("expected materialization boundary, got {other:?}"),
+    };
+    let send = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(
+            &tab_id,
+            "restart structured turn",
+            evidence.anchor,
+            evidence.live_binding,
+        )
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&send.send_id, Ok(()))
+        .unwrap();
+    provider.rows.lock().insert(
+        "session-restarted".into(),
+        vec![crate::agent::chat_types::ChatMsg {
+            id: "equal-boundary".into(),
+            kind: "user".into(),
+            content: "restart structured turn".into(),
+            timestamp: Some(not_before_ms.to_string()),
+            ..Default::default()
+        }],
+    );
+    provider
+        .created_at
+        .lock()
+        .insert("session-restarted".into(), std::time::UNIX_EPOCH);
+    bind_fixture_session(&fixture, &tab_id, "session-restarted");
+
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Unknown
+    );
+    provider
+        .rows
+        .lock()
+        .get_mut("session-restarted")
+        .unwrap()
+        .push(crate::agent::chat_types::ChatMsg {
+            id: "post-boundary".into(),
+            kind: "user".into(),
+            content: "restart structured turn".into(),
+            timestamp: Some((not_before_ms + 1).to_string()),
+            ..Default::default()
+        });
+
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(
+        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
+        ChatSendState::Sent
     );
 }
 
