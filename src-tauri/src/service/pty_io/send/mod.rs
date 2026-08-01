@@ -3,8 +3,14 @@
 use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
 
+mod authenticated;
+mod ingress;
 mod input_authority;
 mod readiness;
+
+use authenticated::optimistic_agent_pty_target;
+#[cfg(test)]
+use authenticated::{authenticated_pty_target, submit_authenticated_pty_input};
 
 pub(crate) use readiness::provider_or_generic_tui;
 #[cfg(test)]
@@ -150,65 +156,8 @@ pub fn await_bare_shell_prompt(
     ready
 }
 
-pub(super) fn authenticated_pty_target(
-    tab: &crate::multiplexer::types::Tab,
-    expected_session_id: &str,
-    expected_binding_nonce: &str,
-) -> Result<(String, String), String> {
-    let target = optimistic_agent_pty_target(tab)?;
-    let authenticated = tab.agent_session_id.as_deref() == Some(expected_session_id)
-        && tab.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
-        && tab.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce);
-    if !authenticated {
-        return Err("agent_unavailable: planner session is stale".into());
-    }
-    Ok(target)
-}
-
-pub(super) fn optimistic_agent_pty_target(
-    tab: &crate::multiplexer::types::Tab,
-) -> Result<(String, String), String> {
-    // chat_view is UI mount state, not backend routability — a background or
-    // hidden tab with a live agent PTY/session must still accept input.
-    let routable = tab.agent_type.is_some();
-    if !routable {
-        return Err("agent_unavailable: recipient agent is not accepting input".into());
-    }
-    match &tab.backing {
-        crate::multiplexer::types::TabBacking::Pty => Ok((
-            tab.pty_id
-                .clone()
-                .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())?,
-            tab.agent_type.clone().unwrap_or_default(),
-        )),
-        crate::multiplexer::types::TabBacking::ChatBackend { .. } => {
-            Err("agent_unavailable: recipient is not PTY-backed".into())
-        }
-    }
-}
-
 fn delivery_is_unknown(error: &str) -> bool {
     error.starts_with("submit_unconfirmed:")
-}
-
-#[derive(Clone)]
-pub(crate) struct AuthenticatedPtyDelivery {
-    pub(crate) pty_id: String,
-    pub(crate) provider_id: String,
-    pub(crate) permit: crate::pty::write_queue::GuardedInputPermit,
-}
-
-#[cfg(test)]
-pub(super) fn submit_authenticated_pty_input<T>(
-    tab: &crate::multiplexer::types::Tab,
-    expected_session_id: &str,
-    expected_binding_nonce: &str,
-    text: &str,
-    submit: impl FnOnce(&str, &str, &str) -> Result<T, String>,
-) -> Result<T, String> {
-    let (pty_id, provider_id) =
-        authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?;
-    submit(&pty_id, &provider_id, text)
 }
 
 pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
@@ -219,121 +168,6 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 }
 
 impl ServiceContext {
-    fn authenticated_pty_delivery(
-        &self,
-        tab_id: &str,
-        expected_session_id: &str,
-        expected_binding_nonce: &str,
-    ) -> Result<AuthenticatedPtyDelivery, String> {
-        let (pty_id, provider_id) = {
-            let mux = self.mux.read();
-            let resolved = mux
-                .resolve_tab_id(tab_id)
-                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
-            let tab = mux
-                .get_tab(&resolved)
-                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
-            authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?
-        };
-        let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
-        Ok(AuthenticatedPtyDelivery {
-            pty_id,
-            provider_id,
-            permit,
-        })
-    }
-
-    pub(crate) fn send_to_agent_when_ready_detached(&self, tab_id: &str, text: &str) {
-        let svc = self.clone();
-        let tab = tab_id.to_string();
-        let text = text.to_string();
-        std::thread::spawn(move || {
-            let pty_claim = svc.pty_ownership.acquire(&tab);
-            let pty_id = {
-                let mux = svc.mux.read();
-                let target = mux
-                    .get_tab(&tab)
-                    .filter(|tab| tab.agent_type.is_some())
-                    .ok_or_else(|| {
-                        "agent_unavailable: recipient is no longer an agent".to_string()
-                    });
-                target.and_then(|tab| {
-                    tab.pty_id
-                        .clone()
-                        .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
-                })
-            };
-            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text));
-            drop(pty_claim);
-            if let Err(error) = result {
-                if delivery_is_unknown(&error) {
-                    log::warn!("[send-async] agent delivery to Tab {tab} remains unknown");
-                    return;
-                }
-                log::warn!("[send-async] agent delivery to Tab {tab} failed: {error}");
-                crate::api::events::emit_everywhere(
-                    &svc.app_handle,
-                    "chat-send-failed",
-                    serde_json::json!({
-                        "tab_id": &tab,
-                        "error": &error,
-                    }),
-                );
-            }
-        });
-    }
-
-    pub(crate) fn send_to_authenticated_agent_session(
-        &self,
-        tab_id: &str,
-        expected_session_id: &str,
-        expected_binding_nonce: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        let delivery =
-            self.authenticated_pty_delivery(tab_id, expected_session_id, expected_binding_nonce)?;
-        self.send_authenticated_delivery_with_options(
-            delivery,
-            text,
-            super::submit_transaction::PtySubmitEntry::Planner,
-            true,
-        )
-    }
-
-    fn send_authenticated_delivery_with_options(
-        &self,
-        delivery: AuthenticatedPtyDelivery,
-        text: &str,
-        entry: super::submit_transaction::PtySubmitEntry,
-        verify_submit: bool,
-    ) -> Result<(), String> {
-        let strategy = self
-            .agent_registry
-            .with_provider(&delivery.provider_id, |provider| {
-                provider.verify_submit_strategy()
-            })
-            .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
-        super::submit_transaction::submit_entry(entry, text, |text| {
-            self.send_text_verified_guarded(
-                &delivery.pty_id,
-                text,
-                true,
-                strategy,
-                delivery.permit.clone(),
-                crate::service::inject_verify::VerifyOpts {
-                    require_prompt_first: false,
-                    verify_echo: false,
-                    verify_submit,
-                    ..Default::default()
-                },
-            )
-            .map(|_| ())
-            .map_err(|error| {
-                DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
-            })
-        })
-    }
-
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
     /// a causal turn transition or an actionable delivery failure.
     pub fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
@@ -341,11 +175,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn send_text_delivery(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), DeliveryError> {
+    pub(crate) fn send_text_delivery(&self, tab_id: &str, text: &str) -> Result<(), DeliveryError> {
         self.send_text_input_delivery(tab_id, text, true)
     }
 
@@ -365,13 +195,41 @@ impl ServiceContext {
         text: &str,
         submit: bool,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = self
+            .resolve_pty_id(tab_id)
+            .ok()
+            .map(|pty_id| super::submit_transaction::claim_submit_cycle(&pty_id));
+        self.send_text_input_delivery_claimed(tab_id, text, submit, submit_claim)
+    }
+
+    fn send_text_input_delivery_claimed(
+        &self,
+        tab_id: &str,
+        text: &str,
+        submit: bool,
+        submit_claim: Option<super::submit_transaction::SubmitCycleClaim>,
+    ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
         let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
-        self.send_text_to_pty_smart_delivery(&pty_id, text, submit)
+        let submit_claim = match submit_claim {
+            Some(claim) if claim.pty_id() == pty_id => claim,
+            Some(claim) => {
+                return Err(DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail: format!(
+                        "PTY changed after input ingress: {} -> {}",
+                        claim.pty_id(),
+                        pty_id
+                    ),
+                })
+            }
+            None => super::submit_transaction::claim_submit_cycle(&pty_id),
+        };
+        self.send_text_to_pty_smart_delivery_claimed(&pty_id, text, submit, submit_claim)
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -407,27 +265,37 @@ impl ServiceContext {
 
     /// Compatibility entry point for callers which explicitly require delivery
     /// confirmation. `send_text` now applies the same transaction contract.
-    pub fn send_text_with_guarantee(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), DeliveryError> {
+    pub fn send_text_with_guarantee(&self, tab_id: &str, text: &str) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
+        let submit_claim = self
+            .resolve_pty_id(tab_id)
+            .ok()
+            .map(|pty_id| super::submit_transaction::claim_submit_cycle(&pty_id));
         let pty_id = self.prepare_tab_pty_delivery(tab_id)?;
-        self.send_text_to_pty_smart_guaranteed(&pty_id, text)
+        let submit_claim = match submit_claim {
+            Some(claim) if claim.pty_id() == pty_id => claim,
+            Some(claim) => {
+                return Err(DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail: format!(
+                        "PTY changed after input ingress: {} -> {}",
+                        claim.pty_id(),
+                        pty_id
+                    ),
+                })
+            }
+            None => super::submit_transaction::claim_submit_cycle(&pty_id),
+        };
+        self.send_text_to_pty_smart_guaranteed_claimed(&pty_id, text, submit_claim)
     }
 
     /// Capability-aware delivery. PTY agent transactions remain pending until
     /// a causal turn transition or an actionable failure.
-    pub fn send_text_to_pty_smart(
-        &self,
-        pty_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
+    pub fn send_text_to_pty_smart(&self, pty_id: &str, text: &str) -> Result<(), String> {
         self.send_text_to_pty_smart_delivery(pty_id, text, true)
             .map_err(|error| error.ledger_message())
     }
@@ -448,6 +316,17 @@ impl ServiceContext {
         text: &str,
         submit: bool,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_smart_delivery_claimed(pty_id, text, submit, submit_claim)
+    }
+
+    fn send_text_to_pty_smart_delivery_claimed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit: bool,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
@@ -458,7 +337,13 @@ impl ServiceContext {
         }
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let Some(agent_id) = agent_type else {
-            return self.send_text_to_pty_delivery(pty_id, delivery_target, text, submit);
+            return self.send_text_to_pty_delivery_claimed(
+                pty_id,
+                delivery_target,
+                text,
+                submit,
+                submit_claim,
+            );
         };
         let text = sanitize_agent_prompt_input(text);
         let strategy = self
@@ -466,7 +351,7 @@ impl ServiceContext {
             .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
         let submit_key: &[u8] = b"\r";
-        super::submit_transaction::submit_text_with_key(
+        super::submit_transaction::submit_text_with_key_claimed(
             self,
             pty_id,
             &text,
@@ -480,6 +365,7 @@ impl ServiceContext {
                 ..Default::default()
             },
             None,
+            submit_claim,
         )
         .map(|_| ())
         .map_err(|error| DeliveryError::from_injection(delivery_target, error))
@@ -509,6 +395,16 @@ impl ServiceContext {
         pty_id: &str,
         text: &str,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_smart_guaranteed_claimed(pty_id, text, submit_claim)
+    }
+
+    fn send_text_to_pty_smart_guaranteed_claimed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
         if let Some(ref pid) = tab_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))
@@ -535,13 +431,20 @@ impl ServiceContext {
                 super::submit_transaction::PtySubmitEntry::Direct,
                 &text,
                 |text| {
-                    self.send_text_verified(pty_id, text, true, strategy, opts)
-                        .map(|_| ())
-                        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
+                    self.send_text_verified_claimed(
+                        pty_id,
+                        text,
+                        true,
+                        strategy,
+                        opts,
+                        submit_claim,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| DeliveryError::from_injection(delivery_target, error))
                 },
             );
         }
-        self.send_text_to_pty_delivery(pty_id, delivery_target, text, true)
+        self.send_text_to_pty_delivery_claimed(pty_id, delivery_target, text, true, submit_claim)
     }
 
     /// Deliver the initial agent launch command to a bare shell — no verify path
@@ -561,25 +464,6 @@ impl ServiceContext {
             format!("{}\r", cmd).into_bytes()
         };
         self.pty.lock().write(pty_id, &payload)
-    }
-
-    /// Queue text without making the caller wait for PTY or TUI evidence.
-    pub async fn send_text_when_ready(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        self.send_text_detached(tab_id, text);
-        Ok(())
-    }
-
-    pub(crate) async fn stage_text_when_ready(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        self.send_text_input_detached(tab_id, text, false);
-        Ok(())
     }
 
     pub(crate) fn await_agent_boot_blocking(
@@ -688,14 +572,29 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), DeliveryError> {
+        let submit_claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        self.send_text_to_pty_delivery_claimed(pty_id, delivery_target, text, enter, submit_claim)
+    }
+
+    fn send_text_to_pty_delivery_claimed(
+        &self,
+        pty_id: &str,
+        delivery_target: &str,
+        text: &str,
+        enter: bool,
+        submit_claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
+        crate::service::inject_safety::notify_if_unsafe_prompt(&self.screen_state, pty_id);
         super::submit_transaction::submit_entry(
             super::submit_transaction::PtySubmitEntry::Direct,
             text,
             |text| {
-                self.send_text_verified(
+                super::submit_transaction::submit_text_with_key_claimed(
+                    self,
                     pty_id,
                     text,
                     enter,
+                    b"\r",
                     crate::agent::provider::VerifySubmitStrategy::None,
                     crate::service::inject_verify::VerifyOpts {
                         require_prompt_first: false,
@@ -703,6 +602,8 @@ impl ServiceContext {
                         verify_submit: enter,
                         ..Default::default()
                     },
+                    None,
+                    submit_claim,
                 )
                 .map(|_| ())
                 .map_err(|error| DeliveryError::from_injection(delivery_target, error))
@@ -745,91 +646,6 @@ impl ServiceContext {
                 )
             },
         )
-    }
-
-    /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
-    pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
-        let pty_id = self.resolve_pty_id(tab_id)?;
-        self.pty
-            .lock()
-            .write(&pty_id, data)
-            .map_err(|e| e.to_string())
-    }
-
-    /// Inject ordered raw key sequences off-thread so the state reactor never
-    /// blocks on the pty lock. PTY-only — chatBackend tabs have no keys.
-    pub fn inject_raw_keys_async(&self, tab_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
-        let pty_id = self.resolve_pty_id(tab_id)?;
-        let pty = self.pty.clone();
-        std::thread::spawn(move || {
-            for bytes in writes {
-                let _ = pty.lock().write(&pty_id, &bytes);
-            }
-        });
-        Ok(())
-    }
-
-    /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
-    /// Failures emit inline Chat status; delivery diagnostics never become
-    /// global Notifications.
-    pub fn send_text_detached(&self, tab_id: &str, text: &str) {
-        self.send_text_input_detached(tab_id, text, true);
-    }
-
-    pub(crate) fn send_text_input_detached(&self, tab_id: &str, text: &str, submit: bool) {
-        let svc = self.clone();
-        let tab = tab_id.to_string();
-        let text = text.to_string();
-        std::thread::spawn(move || {
-            if let Err(error) = svc.send_text_input(&tab, &text, submit) {
-                if delivery_is_unknown(&error) {
-                    log::warn!("[send-async] delivery to Tab {tab} remains unknown");
-                    return;
-                }
-                log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
-                crate::api::events::emit_everywhere(
-                    &svc.app_handle,
-                    "chat-send-failed",
-                    serde_json::json!({
-                        "tab_id": &tab,
-                        "error": &error,
-                    }),
-                );
-            }
-        });
-    }
-
-    /// Feed payloads to the typed-launch input parser so the CLI/API path triggers
-    /// the same `agent_type` lock as a direct Tauri write. Skips locked tabs.
-    pub(crate) fn feed_input_parser(&self, pty_id: &str, text: &str, enter: bool) {
-        let (tab_id, locked) = {
-            let m = self.mux.read();
-            let pid = m.tab_id_for_pty(pty_id);
-            let locked = pid
-                .as_ref()
-                .and_then(|id| m.get_tab(id))
-                .map(|p| p.agent_type_locked)
-                .unwrap_or(false);
-            (pid, locked)
-        };
-        let Some(tab_id) = tab_id else { return };
-        if locked {
-            self.input_parser.clear(&tab_id);
-            return;
-        }
-        let mut payload = text.as_bytes().to_vec();
-        if enter {
-            payload.push(b'\r');
-        }
-        if let Some(provider_id) = self.input_parser.process(&tab_id, &payload) {
-            log::info!(
-                "[input-parser] detected '{}' send in Tab {} — locking agent_type",
-                provider_id,
-                tab_id,
-            );
-            self.set_and_lock_tab_agent_type(&tab_id, provider_id);
-            self.emit_state_changed();
-        }
     }
 }
 

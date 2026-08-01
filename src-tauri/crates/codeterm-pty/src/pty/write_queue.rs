@@ -77,6 +77,18 @@ pub struct WriteRequest {
     completed: Option<mpsc::SyncSender<Result<(), String>>>,
 }
 
+pub struct WriteAcknowledgement {
+    receiver: mpsc::Receiver<Result<(), String>>,
+}
+
+impl WriteAcknowledgement {
+    pub fn wait(self, timeout: Duration) -> Result<(), String> {
+        self.receiver
+            .recv_timeout(timeout)
+            .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
+    }
+}
+
 pub struct WriteQueue {
     sender: Mutex<Option<mpsc::Sender<WriteRequest>>>,
 }
@@ -134,6 +146,26 @@ impl WriteQueue {
     }
 
     pub fn send_and_wait(&self, data: Vec<u8>, timeout: Duration) -> Result<(), String> {
+        self.enqueue_with_ack(data)?.wait(timeout)
+    }
+
+    pub fn enqueue_with_ack(&self, data: Vec<u8>) -> Result<WriteAcknowledgement, String> {
+        self.enqueue_with_ack_and_permit(data, None)
+    }
+
+    pub fn enqueue_guarded_with_ack(
+        &self,
+        data: Vec<u8>,
+        permit: GuardedInputPermit,
+    ) -> Result<WriteAcknowledgement, String> {
+        self.enqueue_with_ack_and_permit(data, Some(permit))
+    }
+
+    fn enqueue_with_ack_and_permit(
+        &self,
+        data: Vec<u8>,
+        permit: Option<GuardedInputPermit>,
+    ) -> Result<WriteAcknowledgement, String> {
         let (completed, receiver) = mpsc::sync_channel(0);
         let sender = self.sender.lock().map_err(|error| error.to_string())?;
         sender
@@ -141,13 +173,11 @@ impl WriteQueue {
             .ok_or_else(|| "PTY write channel closed".to_string())?
             .send(WriteRequest {
                 data,
-                permit: None,
+                permit,
                 completed: Some(completed),
             })
             .map_err(|_| "PTY write channel closed".to_string())?;
-        receiver
-            .recv_timeout(timeout)
-            .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
+        Ok(WriteAcknowledgement { receiver })
     }
 
     pub fn send_and_wait_guarded(
@@ -156,20 +186,7 @@ impl WriteQueue {
         permit: GuardedInputPermit,
         timeout: Duration,
     ) -> Result<(), String> {
-        let (completed, receiver) = mpsc::sync_channel(0);
-        let sender = self.sender.lock().map_err(|error| error.to_string())?;
-        sender
-            .as_ref()
-            .ok_or_else(|| "PTY write channel closed".to_string())?
-            .send(WriteRequest {
-                data,
-                permit: Some(permit),
-                completed: Some(completed),
-            })
-            .map_err(|_| "PTY write channel closed".to_string())?;
-        receiver
-            .recv_timeout(timeout)
-            .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
+        self.enqueue_guarded_with_ack(data, permit)?.wait(timeout)
     }
 
     pub fn close(&self) {
@@ -303,6 +320,29 @@ mod tests {
             .send_and_wait(b"-after".to_vec(), Duration::from_secs(1))
             .unwrap();
         assert_eq!(&*data.lock().unwrap(), b"blockerqueued-after");
+    }
+
+    #[test]
+    fn enqueue_returns_before_write_acknowledgement() {
+        let data = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let queue = WriteQueue::new(Box::new(FirstWriteBarrier {
+            data: data.clone(),
+            first_entered: entered_tx,
+            release_first: release_rx,
+            first: true,
+        }));
+        queue.send(b"blocker".to_vec()).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first queue request must block at the writer");
+
+        let acknowledgment = queue.enqueue_with_ack(b"queued".to_vec()).unwrap();
+        release_tx.send(()).unwrap();
+        acknowledgment.wait(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(&*data.lock().unwrap(), b"blockerqueued");
     }
 
     #[test]

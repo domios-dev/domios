@@ -18,9 +18,8 @@ use crate::agent::status::TabStatus;
 static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-/// Per-tab throttle for post-launch session-id detection (cursor and any other
-/// hookless, non-injecting provider). Detection is on-disk fs work; once per
-/// second per tab is plenty during the brief window before the id is found.
+/// Per-tab throttle for hookless, file-backed session-id detection.
+/// Structured sessions require authoritative provider binding.
 static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
@@ -458,17 +457,8 @@ impl ServiceContext {
         }
     }
 
-    /// Post-launch session-id detection for providers that report their session
-    /// neither by hook nor by launch injection (cursor). claude/codex hook their
-    /// id in; injecting providers get a pre-generated id at spawn. A pure-detect
-    /// provider's id only exists once the agent writes its on-disk session, so we
-    /// poll the provider's `detect_session_id` here (where the agent is already
-    /// detected from output) until it resolves, then pin it — otherwise
-    /// `chat_start` stays "pending" forever and the chat view renders empty even
-    /// though the TUI works.
-    ///
-    /// Once bound, ownership stays pinned to this tab. Session replacement must
-    /// arrive through an explicit provider event, never a cwd-wide disk heuristic.
+    /// Post-launch detection is limited to hookless, file-backed providers.
+    /// Structured sessions require authoritative per-launch provider binding.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
         let (cwd, set_at_elapsed, current_session) = {
             let mux = self.mux.read();
@@ -493,7 +483,7 @@ impl ServiceContext {
                     p.session_id_injection(),
                     crate::agent::provider::SessionIdInjection::None
                 );
-                inj && (!p.has_hooks() || p.uses_structured_chat())
+                should_heuristically_detect_session(inj, p.has_hooks(), p.uses_structured_chat())
             })
             .unwrap_or(false);
         if !needs {
@@ -786,6 +776,14 @@ fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
     current_session.is_none()
 }
 
+fn should_heuristically_detect_session(
+    has_no_injection: bool,
+    has_hooks: bool,
+    uses_structured_chat: bool,
+) -> bool {
+    has_no_injection && !has_hooks && !uses_structured_chat
+}
+
 struct LegacyAutoApproveResponse {
     kind: &'static str,
     bytes: Vec<u8>,
@@ -873,7 +871,8 @@ fn decide_agent_output_lifecycle(
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{
-        decide_agent_output_lifecycle, screen_ends_in_shell_prompt, should_detect_unbound_session,
+        decide_agent_output_lifecycle, screen_ends_in_shell_prompt,
+        should_detect_unbound_session, should_heuristically_detect_session,
         AgentOutputLifecycleDecision,
     };
 
@@ -906,6 +905,13 @@ mod exit_detection_tests {
     fn session_detection_never_replaces_a_bound_session() {
         assert!(should_detect_unbound_session(None));
         assert!(!should_detect_unbound_session(Some("session-owned-by-tab")));
+    }
+
+    #[test]
+    fn structured_sessions_require_authoritative_provider_binding() {
+        assert!(!should_heuristically_detect_session(true, true, true));
+        assert!(!should_heuristically_detect_session(true, false, true));
+        assert!(should_heuristically_detect_session(true, false, false));
     }
 }
 

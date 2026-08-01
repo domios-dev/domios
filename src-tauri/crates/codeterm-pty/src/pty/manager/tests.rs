@@ -4,6 +4,95 @@ use crate::pty::windows_test_support::{
     conpty_host_children_of_current_process, exclusive_conpty_test, legacy_conhost_children,
     new_conpty_hosts, wait_for_processes_gone,
 };
+use std::io::Write;
+use std::sync::{mpsc, Arc, Mutex};
+
+struct DelayedFirstWrite {
+    data: Arc<Mutex<Vec<u8>>>,
+    first_entered: mpsc::SyncSender<()>,
+    release_first: mpsc::Receiver<()>,
+    landed: mpsc::Sender<Vec<u8>>,
+    first: bool,
+}
+
+impl Write for DelayedFirstWrite {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.first {
+            self.first = false;
+            self.first_entered.send(()).unwrap();
+            self.release_first.recv().unwrap();
+        }
+        self.data.lock().unwrap().extend_from_slice(buf);
+        self.landed.send(buf.to_vec()).unwrap();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn queued_unguarded_write_is_captured_when_ack_wait_times_out() {
+    static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(1);
+
+    let data = Arc::new(Mutex::new(Vec::new()));
+    let (first_entered_tx, first_entered_rx) = mpsc::sync_channel(0);
+    let (release_first_tx, release_first_rx) = mpsc::sync_channel(0);
+    let (landed_tx, landed_rx) = mpsc::channel();
+    let queue = WriteQueue::new(Box::new(DelayedFirstWrite {
+        data: data.clone(),
+        first_entered: first_entered_tx,
+        release_first: release_first_rx,
+        landed: landed_tx,
+        first: true,
+    }));
+    queue.send(b"blocker".to_vec()).unwrap();
+    first_entered_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .unwrap();
+
+    let capture_id = NEXT_CAPTURE.fetch_add(1, Ordering::Relaxed);
+    let pty_id = format!("ack-timeout-capture-{}-{capture_id}", std::process::id());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("queued-timeout.cast");
+    let registry = crate::pty::capture::CaptureRegistry::global();
+    registry
+        .start(&pty_id, path.clone(), 80, 24, 0, Vec::new())
+        .unwrap();
+
+    let payload = b"queued-payload";
+    let acknowledgment = queue.enqueue_with_ack(payload.to_vec()).unwrap();
+    let result = PtyWriteAcknowledgement::unguarded(7, &pty_id, payload, acknowledgment)
+        .wait(std::time::Duration::ZERO);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(error) if super::super::write_queue::is_write_ack_timeout(error)
+        ),
+        "the queued write must remain uncertain while the writer is blocked: {result:?}"
+    );
+
+    release_first_tx.send(()).unwrap();
+    assert_eq!(
+        landed_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap(),
+        b"blocker"
+    );
+    assert_eq!(
+        landed_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap(),
+        payload
+    );
+    assert_eq!(&*data.lock().unwrap(), b"blockerqueued-payload");
+
+    registry.stop(&pty_id).unwrap();
+    let capture = std::fs::read_to_string(path).unwrap();
+    assert!(capture.contains("\"source\":\"pty.write\""));
+    assert!(capture.contains("\"text\":\"queued-payload\""));
+}
 
 /// Load-bearing contract for the reader-race guard in read_pty_core: once a
 /// backend channel is claimed, has_backend_reader flips true and the rx side

@@ -77,6 +77,96 @@ const ocHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- cwd-scoped session detection ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { id: "ses_foreign", directory: "/other/proj" },
+        { id: "ses_owned", directory: "/work/proj" },
+      ],
+    },
+  }));
+  eq(p.detectSessionId("/work/proj", [], 300000), "ses_owned", "detectSessionId rejects a newer cross-cwd session");
+  eq(p.detectSessionId("/missing/proj", [], 300000), null, "detectSessionId refuses when cwd has no candidate");
+}
+
+console.log("\n--- platform-safe session directory normalization ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows = [
+    { id: "ses_slash", directory: "/work/a/b" },
+    { id: "ses_backslash", directory: "/work/a\\b" },
+    { id: "ses_root", directory: "/" },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => rows,
+    },
+  }));
+  eq(p.detectSessionId("/work/a\\b", [], 300000), "ses_backslash", "POSIX backslash remains a legal distinct path byte");
+  eq(p.detectSessionId("/", [], 300000), "ses_root", "POSIX root is preserved");
+
+  const windows = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: () => true,
+      sqliteQuery: () => [
+        { id: "ses_drive_relative", directory: "C:" },
+        { id: "ses_drive_root", directory: "C:/" },
+      ],
+    },
+  }));
+  eq(windows.detectSessionId("C:\\", [], 300000), "ses_drive_root", "Windows drive root is not aliased to drive-relative cwd");
+}
+
+console.log("\n--- exclusive structured cursor ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows: Array<Record<string, unknown>> = [
+    { id: "p1", ts: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
+        const sinceTs = Number(params[1] || 0);
+        return rows.filter((row) => Number(row.ts) >= sinceTs);
+      },
+    },
+  }));
+  const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
+  eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
+  rows.push({ id: "p0", ts: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
+  eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
+  const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
+  eq(empty.messages, [], "cursor excludes every previously returned part");
+}
+
+console.log("\n--- malformed structured cursor fails closed ---\n");
+{
+  let queryCalls = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      sqliteQuery: () => {
+        queryCalls++;
+        return [{ id: "history", ts: 1, part: JSON.stringify({ type: "text", text: "history" }), msg: JSON.stringify({ role: "user" }) }];
+      },
+    },
+  }));
+  for (const cursor of ["1000", "not-json", '[1000,"legacy-id"]']) {
+    const result = p.readStructuredChat("/work/proj", "ses_owned", cursor) as { messages: unknown[]; cursor: string };
+    eq(result.messages, [], `cursor ${cursor} replays no history`);
+    eq(result.cursor, cursor, `cursor ${cursor} is preserved on refusal`);
+  }
+  eq(queryCalls, 0, "malformed and legacy cursors never query the store");
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
