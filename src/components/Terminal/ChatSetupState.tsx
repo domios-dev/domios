@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
+import { DeferredLoader } from "../shared/DeferredLoader";
 import type { BootStage, Tab } from "../../lib/types";
 import type { TabBootOverlayView } from "./bootOverlay";
 
@@ -206,13 +207,13 @@ export function ChatSetupState({
 
   const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;
   return (
-    <div ref={cardRef} className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
+    <DeferredLoader ref={cardRef} state={transitionState} className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
       <div className="flex w-full max-w-sm flex-col items-center text-center">
         <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
           <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />
           <span className="chat-launch-ticks" data-testid="chat-launch-ticks" aria-hidden>{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</span>
         </div>
       </div>
-    </div>
+    </DeferredLoader>
   );
 }

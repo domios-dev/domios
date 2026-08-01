@@ -2553,11 +2553,11 @@ button,
   z-index: 1;
 }
 
-.chat-launch-overlay[data-transition-state="present"] {
-  animation: ct-chat-loader-reveal var(--ct-duration-fast) var(--ct-ease-liquid-settle) var(--ct-duration-normal) both;
+.ct-deferred-loader[data-transition-state="present"] {
+  animation: ct-deferred-loader-reveal var(--ct-duration-fast) var(--ct-ease-liquid-settle) var(--ct-duration-normal) both;
 }
 
-.chat-launch-overlay[data-transition-state="exiting"] {
+.ct-deferred-loader[data-transition-state="exiting"] {
   animation: none;
 }
 
@@ -2621,7 +2621,7 @@ button,
   to { opacity: 0.82; transform: rotate(11deg) scale(1.045); }
 }
 
-@keyframes ct-chat-loader-reveal {
+@keyframes ct-deferred-loader-reveal {
   from { opacity: 0; }
   to { opacity: 1; }
 }
@@ -2633,7 +2633,7 @@ button,
 
 @media (prefers-reduced-motion: reduce) {
   .chat-launch-ring::after,
-  .chat-launch-overlay[data-transition-state="present"],
+  .ct-deferred-loader[data-transition-state="present"],
   .chat-empty-state {
     animation: none;
   }

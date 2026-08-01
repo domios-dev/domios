@@ -165,7 +165,7 @@ Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the W
 - **Blocking / IO / heavy / subprocess work in a Tauri command → `tokio::task::spawn_blocking`.** Synchronous `dispatch::dispatch`, disk reads, network, `Command::new` all qualify. A plain sync `fn` command runs on the runtime too — same rule applies.
 - **Hot-path commands (fire on tab switch / mount / render) must be cheap and bounded.** Cache expensive snapshots; rebuild on change (file-watcher / explicit action), never on every call.
 - **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many tabs), not a clean 2-tab dev instance.
-- **Suppress loader flicker.** Delay transient loading UI by 200ms and cancel it when readiness wins; the delay is presentation-only, never a readiness signal.
+- **Suppress loader flicker.** Use the shared `DeferredLoader`: reveal after 200ms, cancel when readiness wins, and never treat delay as readiness.
 
 ## No sleeps or timer-driven coordination
 
@@ -289,4 +289,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
