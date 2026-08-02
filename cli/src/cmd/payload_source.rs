@@ -49,7 +49,11 @@ fn collect(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Stri
         if !canonical.starts_with(root) { return Err("AgentPad entry escapes the current pad".into()); }
         let metadata = fs::metadata(&canonical).map_err(|e| format!("inspect AgentPad entry: {e}"))?;
         if metadata.is_dir() { collect(root, &canonical, files)?; }
-        else if metadata.is_file() { files.push(canonical.strip_prefix(root).unwrap().to_path_buf()); }
+        else if metadata.is_file() {
+            let relative = canonical.strip_prefix(root).unwrap();
+            if relative.to_str().is_none() { return Err("AgentPad file name is not UTF-8".into()); }
+            files.push(relative.to_path_buf());
+        }
     }
     Ok(())
 }
@@ -70,5 +74,29 @@ mod tests {
         assert_eq!(read_from_pad("nested/report.md").unwrap(), "quotes ` $ Привіт\n\n");
         assert!(read_from_pad("../other.md").is_err());
         assert!(read_from_pad("nested").is_err());
+        assert_eq!(read_from_pad("nested/report.md").unwrap(), "quotes ` $ Привіт\n\n");
+    }
+
+    #[test]
+    fn current_pad_never_falls_back_without_current_tab_identity() {
+        let old = std::env::var_os("CODETERM_TAB_ID");
+        std::env::remove_var("CODETERM_TAB_ID");
+        assert!(current_pad().unwrap_err().contains("focused-tab fallback is not allowed"));
+        if let Some(value) = old { std::env::set_var("CODETERM_TAB_ID", value); }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_escape_is_rejected_before_read() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let pad = temp.path().join("full-tab-symlink");
+        fs::create_dir(&pad).unwrap();
+        let outside = temp.path().join("outside.md");
+        fs::write(&outside, "outside").unwrap();
+        symlink(outside, pad.join("escape.md")).unwrap();
+        std::env::set_var("CODETERM_TAB_ID", "full-tab-symlink");
+        std::env::set_var("CODETERM_PAD_DIR", &pad);
+        assert!(read_from_pad("escape.md").is_err());
     }
 }
