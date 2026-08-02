@@ -313,6 +313,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         executor_role: None,
         competition: None,
         intent: None,
+        execution_intent: Default::default(),
         parent_task_id: None,
         depends_on: vec![],
         assigned_tab_id: None,

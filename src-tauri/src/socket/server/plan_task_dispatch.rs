@@ -279,7 +279,7 @@ fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> 
 #[derive(Clone, Debug)]
 struct DispatchEvidence {
     session_id: String,
-    lane: WorkerLaneProvenance,
+    lane: Option<WorkerLaneProvenance>,
 }
 
 fn apply_dispatch_starting_contract(
@@ -308,20 +308,36 @@ fn dispatch_ready_event(
     attempt_id: &str,
     evidence: &DispatchEvidence,
 ) -> Value {
-    json!({
+    let mut event = json!({
         "kind": "dispatch_ready",
         "plan_id": plan_id,
         "task_id": task_id,
         "tab_id": tab_id,
         "attempt_id": attempt_id,
         "session_id": evidence.session_id,
-        "lane": {
-            "worktree_path": evidence.lane.worktree_path,
-            "branch": evidence.lane.branch,
-            "base": evidence.lane.base,
-            "canonical_project_path": evidence.lane.canonical_cwd,
-        },
-    })
+    });
+    if let Some(lane) = evidence.lane.as_ref() {
+        event["lane"] = json!({
+            "worktree_path": lane.worktree_path,
+            "branch": lane.branch,
+            "base": lane.base,
+            "canonical_project_path": lane.canonical_cwd,
+        });
+    }
+    event
+}
+
+fn checkout_required(reason: impl Into<String>) -> JsonRpcError {
+    let reason = reason.into();
+    JsonRpcError {
+        code: -32012,
+        message: format!("repository checkout required: {reason}"),
+        data: Some(json!({
+            "type": "checkout_required",
+            "stage": "checkout_preflight",
+            "reason": reason,
+        })),
+    }
 }
 
 fn epoch_ms() -> u64 {
@@ -400,7 +416,7 @@ pub(super) struct DispatchStartup {
     pub(super) original_task: Task,
     pub(super) original_plan_mode: crate::plan::PlanMode,
     pub(super) lane_for_commit: TaskLaneMetadata,
-    pub(super) provenance: WorkerLaneProvenance,
+    pub(super) provenance: Option<WorkerLaneProvenance>,
     pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
     pub(super) spawn_command: String,
 }
@@ -413,16 +429,28 @@ impl DispatchStartup {
             deadline,
             |deadline| await_agent_ready(ready_rx, deadline),
             |deadline| wait_for_tab_session(&self.svc, &self.tab_id, deadline),
-            || {
-                verify_worker_lane(
-                    &self.provenance.canonical_cwd,
-                    &self.provenance.worktree_path,
-                    Some(&self.provenance.branch),
-                    Some(&self.provenance.base),
+            || match self.provenance.as_ref() {
+                Some(provenance) => verify_worker_lane(
+                    &provenance.canonical_cwd,
+                    &provenance.worktree_path,
+                    Some(&provenance.branch),
+                    Some(&provenance.base),
                 )
+                .map(Some),
+                None => Ok(None),
             },
             |lane, session_id| {
-                let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, lane);
+                let lane_metadata = lane
+                    .as_ref()
+                    .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
+                    .unwrap_or_else(|| {
+                        let mut metadata = self.lane_for_commit.clone();
+                        metadata.worktree_path = None;
+                        metadata.branch = None;
+                        metadata.base = None;
+                        metadata.cleanup_status = None;
+                        metadata
+                    });
                 self.svc
                     .plan_store
                     .finish_task_dispatch(
@@ -528,8 +556,8 @@ fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
 where
     Ready: FnOnce(Instant) -> Result<(), String>,
     Binding: FnOnce(Instant) -> Result<String, String>,
-    Provenance: FnOnce() -> Result<WorkerLaneProvenance, String>,
-    Commit: FnOnce(&WorkerLaneProvenance, &str) -> Result<(), String>,
+    Provenance: FnOnce() -> Result<Option<WorkerLaneProvenance>, String>,
+    Commit: FnOnce(&Option<WorkerLaneProvenance>, &str) -> Result<(), String>,
     Rollback: FnOnce() -> Result<(), String>,
 {
     let outcome = (|| {
@@ -761,12 +789,32 @@ pub(super) fn dispatch(
     } else {
         plan.canonical_project_path.clone()
     };
-    let lane_resolution =
-        resolve_dispatch_lane(explicit_cwd.as_deref(), &canonical_cwd, &detail.task.lane)?;
-    preflight_checkout_occupancy(&plan, &task_id, &lane_resolution.spawn_cwd)?;
+    let requires_repository = detail.task.execution_intent.requires_repository();
+    let lane_resolution = if requires_repository {
+        verify_worker_lane(&canonical_cwd, &canonical_cwd, None, None)
+            .map_err(checkout_required)?;
+        Some(resolve_dispatch_lane(
+            explicit_cwd.as_deref(),
+            &canonical_cwd,
+            &detail.task.lane,
+        )?)
+    } else {
+        None
+    };
+    let spawn_cwd = lane_resolution
+        .as_ref()
+        .map(|lane| lane.spawn_cwd.clone())
+        .unwrap_or_else(|| {
+            explicit_cwd
+                .clone()
+                .unwrap_or_else(|| canonical_cwd.clone())
+        });
+    if requires_repository {
+        preflight_checkout_occupancy(&plan, &task_id, &spawn_cwd)?;
+    }
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
-        cwd: Some(lane_resolution.spawn_cwd.clone()),
+        cwd: Some(spawn_cwd),
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
@@ -783,18 +831,29 @@ pub(super) fn dispatch(
     };
 
     let lane_label = format!("{plan_id}-{task_id}");
-    let provisioned_lane = if lane_resolution.existing.is_some() {
-        None
+    let provisioned_lane = if requires_repository
+        && lane_resolution
+            .as_ref()
+            .is_some_and(|resolution| resolution.existing.is_none())
+    {
+        Some(
+            svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
+                .map_err(|error| dispatch_failed("lane_provision", error))?,
+        )
     } else {
-        svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
-            .map_err(|error| dispatch_failed("lane_provision", error))?
+        None
     };
-    let initial_provenance = match provisioned_lane.as_ref() {
-        Some(lane) => lane.verify(),
-        None => lane_resolution
-            .existing
-            .clone()
-            .ok_or_else(|| "dispatch did not provision or resolve a worker lane".to_string()),
+    let initial_provenance = if requires_repository {
+        match provisioned_lane.as_ref() {
+            Some(lane) => lane.verify(),
+            None => lane_resolution
+                .as_ref()
+                .and_then(|resolution| resolution.existing.clone())
+                .ok_or_else(|| "dispatch did not provision or resolve a worker lane".to_string()),
+        }
+        .map(Some)
+    } else {
+        Ok(None)
     };
     let initial_provenance = match initial_provenance {
         Ok(provenance) => provenance,
@@ -813,7 +872,17 @@ pub(super) fn dispatch(
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let lane_for_commit = detail.task.lane.clone();
-    let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
+    let starting_lane = initial_provenance
+        .as_ref()
+        .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance))
+        .unwrap_or_else(|| {
+            let mut lane = lane_for_commit.clone();
+            lane.worktree_path = None;
+            lane.branch = None;
+            lane.base = None;
+            lane.cleanup_status = None;
+            lane
+        });
     spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
         &task_id,
@@ -910,16 +979,18 @@ pub(super) fn dispatch(
         "task_id": task_id,
         "attempt_id": attempt_id,
         "agent": resolved_provider,
-        "lane": {
-            "worktree_path": initial_provenance.worktree_path,
-            "branch": initial_provenance.branch,
-            "base": initial_provenance.base,
-            "canonical_project_path": initial_provenance.canonical_cwd,
+    });
+    if let Some(provenance) = initial_provenance.as_ref() {
+        result["lane"] = json!({
+            "worktree_path": provenance.worktree_path,
+            "branch": provenance.branch,
+            "base": provenance.base,
+            "canonical_project_path": provenance.canonical_cwd,
             "destination": detail.task.lane.destination,
             "workspace_id": detail.task.lane.workspace_id,
             "workspace_name": detail.task.lane.workspace_name,
-        },
-    });
+        });
+    }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);

@@ -565,6 +565,7 @@ mod tests {
             body: String::new(),
             role_guidance: None,
             intent: None,
+            execution_intent: Default::default(),
             parent_task_id: None,
             depends_on: vec![],
             assigned_tab_id: None,

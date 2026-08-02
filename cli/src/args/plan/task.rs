@@ -80,6 +80,8 @@ pub enum PlanTaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
+        #[arg(long, value_parser = ["repository_mutation", "non_repository"])]
+        execution_intent: Option<String>,
         #[arg(long)]
         parent: Option<String>,
         #[arg(
