@@ -474,7 +474,7 @@ mod tests {
 
         assert_eq!(rendered, expected);
         assert!(rendered.starts_with("## Dispatch contract"));
-        assert!(rendered.ends_with("complete lane lifecycle.\n\n"));
+        assert!(rendered.trim_end().ends_with("complete lane lifecycle."));
         assert!(!rendered.contains("## Review capacity"));
         assert!(!rendered.contains("INCOMPLETE"));
     }

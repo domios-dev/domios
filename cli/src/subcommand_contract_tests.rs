@@ -256,7 +256,10 @@ fn docs_section_parser_rejects_blank_and_conflicting_selectors() {
             "12",
         ],
     ] {
-        let error = Cli::try_parse_from(args).expect_err("selector must be rejected");
+        let error = match Cli::try_parse_from(args) {
+            Ok(_) => panic!("selector must be rejected"),
+            Err(error) => error,
+        };
         let message = error.to_string();
         assert!(message.contains("--section") || message.contains("section slug"));
     }
