@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Planner-owned progression of a plan's structure. This is the single gate for
-/// execution-task creation: only `Approved` unlocks non-planning task generation.
+/// execution dispatch: only `Approved` unlocks draft execution tasks.
 /// `PlanMode` remains the lifecycle (planning/approved/execution/complete);
 /// `planning_state` is the finer-grained planner progress that gates approval.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -31,7 +31,7 @@ impl PlanningState {
         }
     }
 
-    /// Execution-task creation is unlocked only once the planner reaches approved.
+    /// Execution dispatch is unlocked only once the Orchestrator approves.
     pub fn allows_execution_tasks(&self) -> bool {
         matches!(self, PlanningState::Approved)
     }

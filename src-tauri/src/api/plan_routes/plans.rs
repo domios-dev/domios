@@ -781,26 +781,30 @@ pub async fn mode_set(
     match mode {
         PlanMode::Approved => state
             .svc
-            .plan_store
-            .set_planning_state(
+            .approve_and_activate_plan(
                 &id,
-                PlanningState::Approved,
-                PlanningAuthor::User,
+                &crate::api::tab_routes::authenticated_plan_caller(&headers),
                 None,
                 now,
             )
-            .map_err(plan_err)?,
-        PlanMode::Planning => state
-            .svc
-            .plan_store
-            .set_planning_state(
+            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?,
+        PlanMode::Planning => {
+            state
+                .svc
+                .authorize_plan_orchestrator(
+                    &id,
+                    &crate::api::tab_routes::authenticated_plan_caller(&headers),
+                )
+                .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
+            state.svc.plan_store.set_planning_state(
                 &id,
                 PlanningState::StructureReady,
                 PlanningAuthor::User,
                 None,
                 now,
             )
-            .map_err(plan_err)?,
+            .map_err(plan_err)?
+        }
         PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => state
             .svc
             .plan_store

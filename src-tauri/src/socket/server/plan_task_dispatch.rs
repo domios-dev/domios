@@ -701,6 +701,21 @@ pub(super) fn dispatch(
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+    svc.authorize_plan_orchestrator(
+        &plan_id,
+        &crate::service::AuthenticatedPlanCaller {
+            tab_id: owned_str(p, "caller_tab_id"),
+            session_id: owned_str(p, "session_id"),
+            binding_nonce: owned_str(p, "session_binding_nonce"),
+        },
+    )
+    .map_err(|message| JsonRpcError {
+        code: -32003,
+        message,
+        data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
+    })?;
+    svc.ensure_task_dispatchable(&plan_id)
+        .map_err(plan_rpc_err)?;
     let mut exemption: Option<DispatchExemption> = None;
     match regression_dispatch_decision(&plan, &detail.task) {
         RegressionDispatchDecision::Clear => {}

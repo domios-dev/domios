@@ -364,6 +364,7 @@ pub(super) fn dispatch(
 
         "plan.ingest" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             let markdown = get_string_param(params, "markdown")?;
             let result = store
                 .ingest_plan_sections(&id, &markdown, now)
@@ -374,6 +375,7 @@ pub(super) fn dispatch(
 
         "plan.section.add" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             let title =
                 get_string_param(params, "title").or_else(|_| get_string_param(params, "name"))?;
             let body = p
@@ -410,6 +412,7 @@ pub(super) fn dispatch(
 
         "plan.section.update" => {
             let (id, sid) = plan_refs::resolve_section(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store
                 .update_section(
                     &id,
@@ -440,6 +443,7 @@ pub(super) fn dispatch(
 
         "plan.section.rm" => {
             let (id, sid) = plan_refs::resolve_section(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "section_id": sid }))

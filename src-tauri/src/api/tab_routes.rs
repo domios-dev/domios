@@ -472,6 +472,23 @@ pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
+pub(crate) fn authenticated_plan_caller(
+    headers: &HeaderMap,
+) -> crate::service::AuthenticatedPlanCaller {
+    let header = |name| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: caller_tab_header(headers),
+        session_id: header("X-CodeTerm-Session-Id"),
+        binding_nonce: header("X-CodeTerm-Binding-Nonce"),
+    }
+}
+
 /// A self-termination refusal is a 403 (authenticated but forbidden); anything
 /// else from a close is a missing target.
 pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
