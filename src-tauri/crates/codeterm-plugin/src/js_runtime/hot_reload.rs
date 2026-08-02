@@ -119,6 +119,8 @@ pub struct HotReloadRegistry {
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    contribution_event_count: std::sync::atomic::AtomicUsize,
 }
 
 static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
@@ -153,6 +155,8 @@ impl HotReloadRegistry {
             service: Mutex::new(None),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            contribution_event_count: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -215,6 +219,9 @@ impl HotReloadRegistry {
     }
 
     fn emit_agent_provider_changed(&self) {
+        #[cfg(test)]
+        self.contribution_event_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let svc = self.service.lock().clone().and_then(|w| w.upgrade());
         if let Some(svc) = svc {
             svc.contributions_changed("agent_provider");
@@ -435,6 +442,12 @@ impl HotReloadRegistry {
     #[cfg(test)]
     pub fn load_count(&self) -> usize {
         self.load_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn contribution_event_count(&self) -> usize {
+        self.contribution_event_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
