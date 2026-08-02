@@ -443,6 +443,7 @@ impl PlanStore {
                                     milestones: vec![],
                                     execution_attempts: vec![],
                                     pause_reason: None,
+                                    interruption: Default::default(),
                                     personality,
                                     personality_provenance,
                                     attachments: vec![],

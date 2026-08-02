@@ -844,6 +844,7 @@ impl PlanStore {
                         milestones: vec![],
                         execution_attempts: vec![],
                         pause_reason: None,
+                        interruption: Default::default(),
                         attachments: vec![],
                     };
                     follow_up.id = fid.clone();

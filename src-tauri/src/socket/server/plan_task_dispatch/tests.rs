@@ -1183,7 +1183,6 @@ fn brief_lists_section_links_and_test_plan() {
     assert!(brief.contains("## Sections"));
     assert!(brief.contains("Phase 1 (sec_9)"));
 }
-
 #[test]
 fn brief_omits_empty_optional_sections() {
     let t = task(json!({

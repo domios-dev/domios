@@ -116,7 +116,6 @@ impl PlanStore {
                 .iter_mut()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            let task_status = task.status.clone();
             let attempt = task
                 .execution_attempts
                 .iter_mut()
@@ -157,6 +156,7 @@ impl PlanStore {
             {
                 return Err(PlanError::Io("stale interruption owner".into()));
             }
+            let task_status = task.status.clone();
             let attempt = task
                 .execution_attempts
                 .iter_mut()
@@ -313,7 +313,7 @@ impl PlanStore {
                 .interruption
                 .checkpoint
                 .as_ref()
-                .filter(|checkpoint| task.interruption.handoff_required)
+                .filter(|_| task.interruption.handoff_required)
                 .ok_or_else(|| PlanError::Io("task has no adoptable checkpoint".into()))?;
             if checkpoint.diff_sha256 != expected_digest
                 || checkpoint.diff_sha256 != checkpoint_digest(&checkpoint.diff_artifact)

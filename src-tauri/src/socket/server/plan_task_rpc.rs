@@ -1,8 +1,11 @@
 use super::plan::{emit_plan_changed, plan_rpc_err};
-use super::plan_fields::{optional_string_field, string_array_field, tab_and_ancestors, tab_role};
+use super::plan_fields::{
+    execution_intent_field, optional_string_field, string_array_field, tab_and_ancestors, tab_role,
+};
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
+pub(super) use super::plan_task_authority::authorize_draft_mutation;
 use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 use super::plan_role_helpers::{
     assign_task_with_profile, record_spawned_attempt, RespawnAttemptRoleExt,
@@ -16,51 +19,6 @@ use crate::service::{
 };
 use serde_json::{json, Value};
 use tauri::AppHandle;
-
-fn execution_intent_field(
-    p: Option<&Value>,
-) -> Result<crate::plan::TaskExecutionIntent, JsonRpcError> {
-    p.and_then(|value| value.get("execution_intent"))
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map(|intent| intent.unwrap_or_default())
-        .map_err(|error| JsonRpcError {
-            code: -32602,
-            message: format!("invalid execution_intent: {error}"),
-            data: Some(json!({ "type": "invalid_execution_intent" })),
-        })
-}
-
-pub(super) fn authorize_draft_mutation(
-    svc: &ServiceState,
-    plan_id: &str,
-    params: Option<&Value>,
-) -> Result<(), JsonRpcError> {
-    svc.authorize_draft_structure_mutation(
-        plan_id,
-        &crate::service::AuthenticatedPlanCaller {
-            tab_id: params
-                .and_then(|value| value.get("caller_tab_id"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            session_id: params
-                .and_then(|value| value.get("session_id"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            binding_nonce: params
-                .and_then(|value| value.get("session_binding_nonce"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        },
-    )
-    .map(|_| ())
-    .map_err(|message| JsonRpcError {
-        code: -32003,
-        message,
-        data: Some(json!({ "type": "plan_draft_authorization_required" })),
-    })
-}
 
 fn authenticated_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
     crate::service::AuthenticatedPlanCaller {
@@ -1190,17 +1148,16 @@ mod tests {
             tab.session_binding_nonce = Some("nonce".into());
             tab.reported_session_binding_nonce = Some("nonce".into());
         }
-        fixture
-            .service
-            .plan_store
-            .with_plan(&plan_id, 5, |plan| {
-                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-                task.interruption.owner_epoch = 2;
-                task.interruption.owner_tab_id = Some(tab_id.clone());
-                task.interruption.owner_session_id = Some("owner-session".into());
-                Ok(())
-            })
+        let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
             .unwrap();
+        task.interruption.owner_epoch = 2;
+        task.interruption.owner_tab_id = Some(tab_id.clone());
+        task.interruption.owner_session_id = Some("owner-session".into());
+        fixture.service.plan_store.save(&mut plan, 5).unwrap();
         let service = Arc::new(fixture.service.clone());
         let missing = Some(json!({ "plan_id": plan_id, "task_id": task_id }));
         assert!(verify_owner_epoch_for_task_mutation(

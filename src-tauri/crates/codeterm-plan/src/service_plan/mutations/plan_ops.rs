@@ -341,6 +341,7 @@ impl PlanStore {
             milestones: vec![],
             execution_attempts: vec![],
             pause_reason: None,
+            interruption: Default::default(),
             attachments: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();

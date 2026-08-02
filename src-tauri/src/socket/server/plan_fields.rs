@@ -1,8 +1,28 @@
 use serde_json::Value;
 
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{tag_facets_from_value, MilestoneKind, TagFacet, TaskGroup};
+use crate::plan::{
+    tag_facets_from_value, MilestoneKind, TagFacet, TaskExecutionIntent, TaskGroup,
+};
 use crate::service::ServiceState;
+
+use super::JsonRpcError;
+
+pub(super) fn execution_intent_field(
+    params: Option<&Value>,
+) -> Result<TaskExecutionIntent, JsonRpcError> {
+    params
+        .and_then(|value| value.get("execution_intent"))
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map(|intent| intent.unwrap_or_default())
+        .map_err(|error| JsonRpcError {
+            code: -32602,
+            message: format!("invalid execution_intent: {error}"),
+            data: Some(serde_json::json!({ "type": "invalid_execution_intent" })),
+        })
+}
 
 pub(super) fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
     raw.split(',')

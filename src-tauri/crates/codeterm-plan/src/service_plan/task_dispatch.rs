@@ -188,7 +188,7 @@ impl PlanStore {
         task_id: &str,
         tab_id: &str,
         executor_title: &str,
-        mut lane: crate::plan::TaskLaneMetadata,
+        lane: crate::plan::TaskLaneMetadata,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         self.begin_task_dispatch_with_policy(
@@ -211,7 +211,7 @@ impl PlanStore {
         task_id: &str,
         tab_id: &str,
         executor_title: &str,
-        lane: crate::plan::TaskLaneMetadata,
+        mut lane: crate::plan::TaskLaneMetadata,
         intent: crate::plan::ExecutionIntent,
         allowance: Option<crate::plan::ProviderAllowance>,
         provider: Option<&str>,
