@@ -16,7 +16,9 @@ pub use status::TabStatusInfo;
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
 };
-use report_persistence::persist_local_task_report;
+use report_persistence::{
+    persist_authorized_local_task_report, rejected_report_delivery_message,
+};
 
 use super::{RejectedTaskTransition, ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
@@ -527,52 +529,16 @@ impl ServiceContext {
 
         if let Some(ref plan_id) = eff_plan_id {
             if !homed_to_remote && !foreign && rejected_task_transition.is_none() {
-                let persistence: Result<String, String> = (|| {
-                    let task_id = eff_task_id.as_deref().ok_or_else(|| {
-                        report_persistence::report_persistence_incident(
-                            tab_id,
-                            plan_id,
-                            None,
-                            "the report resolved a plan but no exact task",
-                        )
-                    })?;
-                    let reporter_is_plan_owner = self
-                        .plan_store
-                        .owner_of(plan_id)
-                        .and_then(|owner| owner.tab_id)
-                        .as_deref()
-                        == Some(tab_id);
-                    if !reporter_is_plan_owner {
-                        if let Some(detail) = self.plan_store.show_task(task_id) {
-                            let owner_epoch = detail.task.interruption.owner_epoch;
-                            if owner_epoch > 0 {
-                                let session_id = from_ref.session_id.as_deref().ok_or_else(|| {
-                                    report_persistence::report_persistence_incident(
-                                        tab_id,
-                                        plan_id,
-                                        Some(task_id),
-                                        "owner-epoch report requires the exact authenticated session",
-                                    )
-                                })?;
-                                self.verify_task_owner_session(
-                                    task_id,
-                                    tab_id,
-                                    session_id,
-                                    owner_epoch,
-                                )
-                                .map_err(|error| {
-                                    report_persistence::report_persistence_incident(
-                                        tab_id,
-                                        plan_id,
-                                        Some(task_id),
-                                        &error,
-                                    )
-                                })?;
-                            }
-                        }
-                    }
-                    persist_local_task_report(
-                        &self.plan_store,
+                let persistence = eff_task_id.as_deref().ok_or_else(|| {
+                    report_persistence::report_persistence_incident(
+                        tab_id,
+                        plan_id,
+                        None,
+                        "the report resolved a plan but no exact task",
+                    )
+                }).and_then(|task_id| {
+                    persist_authorized_local_task_report(
+                        self,
                         tab_id,
                         plan_id,
                         task_id,
@@ -582,9 +548,9 @@ impl ServiceContext {
                         task_status,
                         milestone_kind,
                         epoch_ms(),
-                    )?;
-                    Ok(task_id.to_string())
-                })();
+                    )
+                    .map(|()| task_id.to_string())
+                });
                 match persistence {
                     Ok(task_id) => {
                         persisted_task = Some((plan_id.clone(), task_id));
@@ -609,14 +575,7 @@ impl ServiceContext {
         let storage_key = target.storage_key();
         let delivered_message = rejected_task_transition.as_ref().map_or_else(
             || message.to_string(),
-            |rejection| {
-                format!(
-                    "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
-                     The report itself was delivered and must not be resent.\n\
-                     Owner action required: {}\n\n{}",
-                    rejection.cause, message
-                )
-            },
+            |rejection| rejected_report_delivery_message(&rejection.cause, message),
         );
         if rejected_task_transition.is_some() {
             notices.push(
