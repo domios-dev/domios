@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{BridgeAction, Commands, UpdateAction};
+use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
