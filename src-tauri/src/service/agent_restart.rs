@@ -418,6 +418,10 @@ impl ServiceContext {
         if let Some(reaper) = reaper {
             reaper.wait_bounded(Duration::from_secs(5))?;
         }
+        self.signal_worker_interruption(
+            &snap.tab_id,
+            crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
+        );
         self.screen_state.lock().remove(&snap.pty_id);
         crate::service::stream_preview::remove(&snap.pty_id);
         self.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);

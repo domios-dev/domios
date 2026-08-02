@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 use crate::plan::InterruptionCheckpoint;
 use crate::service::plan::interruption::checkpoint_digest;
@@ -13,6 +14,11 @@ pub enum WorkerInterruptionEvent {
     ProviderExhausted,
     ProcessExited,
     ForcedContextReset,
+}
+
+fn pending_interruptions() -> &'static Mutex<std::collections::HashSet<String>> {
+    static PENDING: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
 }
 
 impl WorkerInterruptionEvent {
@@ -83,6 +89,13 @@ impl super::ServiceContext {
     }
 
     pub fn signal_worker_interruption(&self, tab_id: &str, event: WorkerInterruptionEvent) -> bool {
+        if pending_interruptions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(tab_id)
+        {
+            return true;
+        }
         let owned = self.plan_store.list_full().into_iter().find_map(|plan| {
             let plan_id = plan.id.clone();
             let repo_path = if plan.canonical_project_path.trim().is_empty() {
@@ -131,7 +144,15 @@ impl super::ServiceContext {
         let Some(request) = owned else {
             return false;
         };
+        let claimed = pending_interruptions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(tab_id.to_string());
+        if !claimed {
+            return true;
+        }
         let svc = self.clone();
+        let pending_tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
             if let Err(error) = svc.interrupt_worker_attempt(request).await {
                 log::error!("[worker-interruption] coordination incident: {error}");
@@ -144,6 +165,10 @@ impl super::ServiceContext {
                     }),
                 );
             }
+            pending_interruptions()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&pending_tab_id);
         });
         true
     }
