@@ -141,6 +141,9 @@ fn chatbackend_host_exec_env(
             workspace_id.to_string(),
         );
     }
+    if let Some(pad_dir) = ctx.get("padDir").and_then(|v| v.as_str()) {
+        env.insert("CODETERM_PAD_DIR".to_string(), pad_dir.to_string());
+    }
     let socket_path = vm
         .service()
         .map(|svc| svc.socket_display_path())
@@ -396,6 +399,7 @@ mod tests {
             &json!({
                 "tabId": "chat-tab",
                 "workspaceId": "ws-1",
+                "padDir": "/instance/runtime/agent-pads/chat-tab",
                 "config": {}
             }),
         );
@@ -408,6 +412,7 @@ mod tests {
             env.get("CODETERM_WORKSPACE_ID").map(String::as_str),
             Some("ws-1")
         );
+        assert_eq!(env.get("CODETERM_PAD_DIR").map(String::as_str), Some("/instance/runtime/agent-pads/chat-tab"));
         assert!(env.contains_key("CODETERM_SOCKET_PATH"));
     }
 

@@ -418,6 +418,9 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode tabs unresumable after restart.
         self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
+        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+        })?;
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -510,8 +513,7 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.mux.write().close_tab(&tab_id);
-                self.emit_state_changed();
+                let _ = self.close_tab(&tab_id);
                 return Err(error.to_string());
             }
         }
