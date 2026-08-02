@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Sidebar/TabItem.general-agent.test.tsx
 
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { TabItem } from "./TabItem";

@@ -1230,10 +1230,11 @@ var plugin = {
         continue;
       }
       const message = value.message && typeof value.message === "object" ? value.message : null;
-      const metadata = message && message.metadata && typeof message.metadata === "object" ? message.metadata : null;
-      const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message && message.effort, message && message.reasoning_effort, metadata && metadata.effort];
+      const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : null;
+      const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message?.effort, message?.reasoning_effort, metadata?.effort];
       for (let j = 0; j < candidates.length; j++) {
-        const effort = typeof candidates[j] === "string" ? candidates[j].trim() : "";
+        const candidate = candidates[j];
+        const effort = typeof candidate === "string" ? candidate.trim() : "";
         if (supported[effort]) return effort;
       }
     }
@@ -1541,13 +1542,17 @@ var plugin = {
     };
   },
   installIntegration(_apiPort, options) {
-    if (!options || options.consent !== true) return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
     const existed = host.fileExists(path);
     const originalValue = existed ? host.fs.readFile(path) : null;
-    if (existed && typeof originalValue !== "string") return { ok: false, error: "could not read existing settings JSON at " + path };
+    if (existed && typeof originalValue !== "string") {
+      return { ok: false, error: "could not read existing settings JSON at " + path };
+    }
     const original = typeof originalValue === "string" ? originalValue : "";
     let parsed = {};
     if (existed) {
@@ -1557,9 +1562,13 @@ var plugin = {
         return { ok: false, error: "existing settings JSON is malformed at " + path };
       }
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    }
     const json = parsed;
-    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
     if (!json.hooks) json.hooks = {};
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
     const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
@@ -1585,11 +1594,15 @@ var plugin = {
       Stop: newEntry("", stopCmd, 5e3),
       SessionStart: newEntry("", sessionStartCmd, 5e3)
     };
-    if (options.precompact_memory_export === true) newHooks.PreCompact = newEntry("", precompactCmd, 1e4);
+    if (options.precompact_memory_export === true) {
+      newHooks.PreCompact = newEntry("", precompactCmd, 1e4);
+    }
     const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) return { ok: false, error: "hooks." + k + " is not an array" };
+      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
+        return { ok: false, error: "hooks." + k + " is not an array" };
+      }
       const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => !isCodetermHook(entry)) : [];
       if (newHooks[k]) {
         existing.push(newHooks[k]);
@@ -1598,7 +1611,9 @@ var plugin = {
         json.hooks[k] = existing;
       }
     }
-    if (!host.fs.writeFile(path + ".codeterm-backup", original) || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) return { ok: false, error: "could not write recoverable backup for " + path };
+    if (!host.fs.writeFile(path + ".codeterm-backup", original) || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) {
+      return { ok: false, error: "could not write recoverable backup for " + path };
+    }
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       host.log("info", "[claude-plugin] hooks installed at " + path);
@@ -1618,18 +1633,26 @@ var plugin = {
     } catch (_) {
       return { ok: false, error: "existing settings JSON is malformed at " + path };
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    }
     const json = parsed;
     if (json.hooks === void 0) return { ok: true };
-    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) return { ok: false, error: "hooks is not an object" };
+    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
+      return { ok: false, error: "hooks is not an object" };
+    }
     const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) return { ok: false, error: "hooks." + k + " is not an array" };
+      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
+        return { ok: false, error: "hooks." + k + " is not an array" };
+      }
     }
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (Array.isArray(json.hooks[k])) json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      if (Array.isArray(json.hooks[k])) {
+        json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      }
     }
     const ok = host.fs.writeJson(path, json);
     if (ok) {

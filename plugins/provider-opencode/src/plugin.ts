@@ -289,7 +289,10 @@ const plugin: PluginModule = {
     };
   },
 
-  installIntegration(apiPort: number): unknown {
+  installIntegration(
+    apiPort: number,
+    _options: { consent: boolean; precompact_memory_export?: boolean },
+  ): unknown {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
@@ -341,7 +344,7 @@ const plugin: PluginModule = {
       plugin_file_current?: boolean;
     };
     if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration!(apiPort);
+    return this.installIntegration!(apiPort, { consent: true });
   },
 
   sessionExists(_cwd: string, sessionId: string): boolean {

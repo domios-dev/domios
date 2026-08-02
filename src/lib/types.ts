@@ -616,6 +616,8 @@ export interface MeshPeersResponse {
 export interface ProviderConfig {
   resume_sessions?: boolean;
   resume_skip_permissions?: boolean;
+  spawn_skip_permissions?: boolean;
+  spawn_skip_permissions_remembered?: boolean;
   default_model?: string;
   /// When false, the provider is hidden from the per-workspace
   /// "New <Provider> Session" menu. Defaults to true (visible).

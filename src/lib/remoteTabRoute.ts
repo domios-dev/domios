@@ -6,7 +6,7 @@ export interface RemoteTabRoute {
   tabId: string;
 }
 
-export interface RemoteTabActionRequest {
+export interface RemoteTabActionRequest extends Record<string, unknown> {
   ordinaryTabId: string;
   peerId: string;
   method: string;

@@ -113,7 +113,7 @@ export interface AgentProvider {
   } | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
-  discoverModels?(): ModelInfo[];
+  discoverModels?(): ModelInfo[] | null;
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;

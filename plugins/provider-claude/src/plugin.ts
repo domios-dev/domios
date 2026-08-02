@@ -355,7 +355,8 @@ const plugin: PluginModule = {
         : null;
       const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message?.effort, message?.reasoning_effort, metadata?.effort];
       for (let j = 0; j < candidates.length; j++) {
-        const effort = typeof candidates[j] === "string" ? candidates[j].trim() : "";
+        const candidate = candidates[j];
+        const effort = typeof candidate === "string" ? candidate.trim() : "";
         if (supported[effort]) return effort;
       }
     }

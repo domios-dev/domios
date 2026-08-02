@@ -254,7 +254,7 @@ var plugin = {
       plugin_installed: installed
     };
   },
-  installIntegration(apiPort) {
+  installIntegration(apiPort, _options) {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
@@ -296,7 +296,7 @@ var plugin = {
   ensureIntegrationOnStartup(apiPort) {
     const status = this.checkIntegration();
     if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration(apiPort);
+    return this.installIntegration(apiPort, { consent: true });
   },
   sessionExists(_cwd, sessionId) {
     const db = opencodeDbPath();
