@@ -92,7 +92,13 @@ pub fn ensure_general_workspace(
             let _ = mux.rename_tab(&pid, GENERAL_TAB_TITLE);
             if let Some(tab) = mux.get_tab_mut(&pid) {
                 tab.protected = true;
-                tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+                tab.role = None;
+                tab.role_profile = None;
+                tab.team_id = None;
+                tab.parent_tab_id = None;
+                tab.machine_agent_identity = Some(
+                    crate::multiplexer::types::MachineAgentIdentity::GeneralAgent,
+                );
                 tab.can_spawn = true;
                 tab.cwd = Some(general_cwd.clone());
                 tab.provisioned_cwd = Some(general_cwd);
@@ -124,7 +130,13 @@ pub fn ensure_general_workspace(
             let _ = mux.rename_tab(&tab_id, GENERAL_TAB_TITLE);
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
                 tab.protected = true;
-                tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+                tab.role = None;
+                tab.role_profile = None;
+                tab.team_id = None;
+                tab.parent_tab_id = None;
+                tab.machine_agent_identity = Some(
+                    crate::multiplexer::types::MachineAgentIdentity::GeneralAgent,
+                );
                 tab.can_spawn = true;
                 tab.cwd = Some(general_cwd.clone());
                 tab.provisioned_cwd = Some(general_cwd);

@@ -189,26 +189,54 @@ fn startup_turn_is_delivered_before_session_binding_wait() {
 
 #[test]
 fn fallback_provider_receives_one_composed_startup_turn() {
+    let contract = super::super::instructions::render_system_prompt("codex", None);
     let message = super::compose_startup_message(
         true,
-        "system contract".into(),
-        Some("bootstrap task".into()),
+        contract.clone(),
+        Some("BOOTSTRAP_SENTINEL".into()),
     )
     .unwrap();
 
-    assert_eq!(message, "system contract\n\nbootstrap task");
+    assert_eq!(message, "BOOTSTRAP_SENTINEL");
+    assert_runtime_contract_cardinality(&contract, &message);
+    assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
 }
 
 #[test]
 fn provider_with_native_system_prompt_receives_only_bootstrap_turn() {
+    let contract = super::super::instructions::render_system_prompt("codex", None);
     let message = super::compose_startup_message(
         false,
-        "system contract".into(),
-        Some("bootstrap task".into()),
+        contract.clone(),
+        Some("BOOTSTRAP_SENTINEL".into()),
     )
     .unwrap();
 
-    assert_eq!(message, "bootstrap task");
+    assert_eq!(message, "BOOTSTRAP_SENTINEL");
+    assert_runtime_contract_cardinality(&contract, &message);
+    assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
+}
+
+fn assert_runtime_contract_cardinality(contract: &str, startup_turn: &str) {
+    for sentinel in [
+        "You are the General Agent",
+        "# CodeTerm CLI reference",
+        "# CodeTerm Memory Protocol",
+    ] {
+        assert_eq!(
+            contract.matches(sentinel).count() + startup_turn.matches(sentinel).count(),
+            1,
+            "runtime contract sentinel must be delivered once: {sentinel}"
+        );
+    }
+}
+
+#[test]
+fn provider_without_bootstrap_receives_no_interactive_startup_turn() {
+    let contract = super::super::instructions::render_system_prompt("codex", None);
+
+    assert!(super::compose_startup_message(true, contract.clone(), None).is_none());
+    assert!(super::compose_startup_message(false, contract, None).is_none());
 }
 
 fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
@@ -261,6 +289,11 @@ fn general_agent_env_uses_configured_api_port_not_parent_env() {
         env.get("CODETERM_API_TOKEN").map(String::as_str),
         Some("test-token")
     );
+    assert_eq!(
+        env.get("CODETERM_MACHINE_AGENT_IDENTITY").map(String::as_str),
+        Some("general_agent")
+    );
+    assert!(!env.contains_key("CODETERM_ROLE"));
 }
 
 #[test]
