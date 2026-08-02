@@ -112,6 +112,16 @@ pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, r
             headers.insert("X-CodeTerm-Tab-Id", v);
         }
     }
+    if let Ok(session) = std::env::var("CODETERM_SESSION_ID") {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&session) {
+            headers.insert("X-CodeTerm-Session-Id", v);
+        }
+    }
+    if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&nonce) {
+            headers.insert("X-CodeTerm-Binding-Nonce", v);
+        }
+    }
     if let Ok(worker) = std::env::var("CODETERM_WORKER_ID") {
         if let Ok(v) = reqwest::header::HeaderValue::from_str(&worker) {
             headers.insert("X-CodeTerm-Worker-Id", v);

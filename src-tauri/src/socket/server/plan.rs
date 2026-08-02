@@ -134,10 +134,24 @@ pub(super) fn dispatch(
                 .map(str::to_string);
             let owner = owner_from_params(body);
             let outcome = svc
-                .create_first_plan_for_orchestrator(
+                .create_first_plan_for_caller(
                     title,
                     project,
                     owner,
+                    crate::service::FirstPlanCaller {
+                        tab_id: body
+                            .get("caller_tab_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        session_id: body
+                            .get("session_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        binding_nonce: body
+                            .get("session_binding_nonce")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                    },
                     kinds,
                     from_spec.clone(),
                     now,
@@ -350,6 +364,7 @@ pub(super) fn dispatch(
 
         "plan.ingest" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             let markdown = get_string_param(params, "markdown")?;
             let result = store
                 .ingest_plan_sections(&id, &markdown, now)
@@ -360,6 +375,7 @@ pub(super) fn dispatch(
 
         "plan.section.add" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             let title =
                 get_string_param(params, "title").or_else(|_| get_string_param(params, "name"))?;
             let body = p
@@ -396,6 +412,7 @@ pub(super) fn dispatch(
 
         "plan.section.update" => {
             let (id, sid) = plan_refs::resolve_section(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store
                 .update_section(
                     &id,
@@ -426,6 +443,7 @@ pub(super) fn dispatch(
 
         "plan.section.rm" => {
             let (id, sid) = plan_refs::resolve_section(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "section_id": sid }))

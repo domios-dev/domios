@@ -6,6 +6,7 @@ use crate::cmd::hints::{
     extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
     task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
+use crate::cmd::plan::inject_trusted_session;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::print_object;
@@ -144,15 +145,14 @@ fn run_task(
             let caller = caller_tab(client).ok_or(
                 "task take requires a Tab on the target machine and is unavailable over mesh",
             )?;
-            call(
-                client,
-                "task.take",
-                json!({ "task_id": task_id, "caller_tab_id": caller }),
-            )
-            .map(|val| (val, None))
+            let mut params = json!({ "task_id": task_id, "caller_tab_id": caller });
+            inject_trusted_session(&mut params);
+            call(client, "task.take", params).map(|val| (val, None))
         }
         TaskAction::Drop { task_id } => {
-            call(client, "task.drop", json!({ "task_id": task_id })).map(|val| (val, None))
+            let mut params = json!({ "task_id": task_id });
+            inject_trusted_session(&mut params);
+            call(client, "task.drop", params).map(|val| (val, None))
         }
         TaskAction::Add {
             name,

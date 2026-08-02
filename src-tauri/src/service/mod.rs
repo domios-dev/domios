@@ -43,6 +43,7 @@ mod output_feed;
 pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;
+mod plan_authority;
 pub mod plugin_host;
 pub mod provider_update;
 pub(crate) mod pty_activation;
@@ -113,9 +114,12 @@ use crate::{
 
 // Re-export public types used by callers.
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
-pub(crate) use hierarchy::FirstPlanTeamError;
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
+pub(crate) use hierarchy::{FirstPlanCaller, FirstPlanTeamError};
+pub(crate) use plan_authority::{
+    ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
+};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,

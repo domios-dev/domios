@@ -9,7 +9,7 @@ mod status;
 mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
-pub(crate) use first_plan::FirstPlanTeamError;
+pub(crate) use first_plan::{FirstPlanCaller, FirstPlanTeamError};
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub use status::TabStatusInfo;
 

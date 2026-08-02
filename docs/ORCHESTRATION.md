@@ -80,8 +80,11 @@ When a Planner is bound:
 
 - send new requirements, evidence, and structural corrections to the Planner;
 - do not silently add GOAL, Spec, Plan sections, or execution tasks yourself;
-- run `codeterm plan doctor <plan> --kind quality` before approval and dispatch;
-- execution tasks require an approved plan;
+- let the Planner create and revise the draft sections and tasks;
+- run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
+  approve <plan>` action to approve the structure and activate its tasks;
+- never ask the Planner to self-approve or manually set `structure_ready`;
+- draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
 
 If the Planner is intentionally waived, record that explicitly on the plan.
@@ -286,4 +289,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 47 -->
+<!-- revision: 48 -->

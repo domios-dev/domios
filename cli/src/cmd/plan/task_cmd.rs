@@ -8,7 +8,7 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, lane_params, maybe_inject_caller_tab, resolve_text};
+use super::{call, inject_trusted_session, lane_params, maybe_inject_caller_tab, resolve_text};
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
@@ -416,7 +416,7 @@ pub(super) fn run_task(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             let mut val = call(client, "plan.task.add", params)?;
             if let Some(task_id) = val
                 .get("task_id")
@@ -609,6 +609,7 @@ pub(super) fn run_task(
             if let Some(p) = mesh {
                 params["peer"] = json!(p);
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.task.assign", params).map(Some)
         }
         PlanTaskAction::Dispatch {
@@ -644,7 +645,7 @@ pub(super) fn run_task(
             if let Some(cwd) = cwd {
                 params["cwd"] = json!(cwd);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             let val = call(client, "plan.task.dispatch", params)?;
             if json {
                 return Ok(Some(val));
@@ -729,6 +730,7 @@ pub(super) fn run_task(
             if let Some(title) = title {
                 params["title"] = json!(title);
             }
+            inject_trusted_session(&mut params);
             let val = call(client, "plan.task.respawn", params)?;
             if json {
                 return Ok(Some(val));
@@ -787,6 +789,7 @@ pub(super) fn run_task(
                     params["plan_id"] = json!(pid);
                 }
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.task.rm", params).map(Some)
         }
     }

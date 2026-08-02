@@ -5,24 +5,10 @@ impl PlanStore {
     pub fn ensure_task_creation_allowed(
         &self,
         plan_id: &str,
-        kind: &str,
-        force: bool,
+        _kind: &str,
+        _force: bool,
     ) -> Result<(), PlanError> {
-        if force {
-            return Ok(());
-        }
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        // Planning-kind tasks are the planning workflow itself (improve GOAL/spec/plan/task-graph)
-        // and delegated planning subwork — always allowed regardless of state.
-        if kind == "planning" {
-            return Ok(());
-        }
-        // says so (planner-advanced planning_state, or an already-approved lifecycle).
-        if plan.execution_tasks_unlocked() {
-            Ok(())
-        } else {
-            Err(PlanError::TaskCreationRequiresApproval)
-        }
+        self.get(plan_id).ok_or(PlanError::NotFound).map(|_| ())
     }
 
     pub fn update_plan(
@@ -725,13 +711,11 @@ mod planning_state_tests {
     }
 
     #[test]
-    fn drafting_blocks_execution_tasks_but_allows_planning_kind() {
+    fn drafting_records_execution_tasks_without_unlocking_them() {
         let (_d, s, pid) = store();
-        assert!(matches!(
-            add(&s, &pid, "implement"),
-            Err(PlanError::TaskCreationRequiresApproval)
-        ));
+        assert!(add(&s, &pid, "implement").is_ok());
         assert!(add(&s, &pid, "planning").is_ok());
+        assert!(!s.get(&pid).unwrap().execution_tasks_unlocked());
     }
 
     #[test]
