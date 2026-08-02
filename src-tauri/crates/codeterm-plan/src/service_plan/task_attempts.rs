@@ -460,6 +460,24 @@ pub fn close_live_attempts_for_tab(
     closed
 }
 
+pub fn accept_exact_attempt(
+    attempt: &mut TaskExecutionAttempt,
+    reason: &str,
+    now_ms: u64,
+) {
+    let competition_winner = attempt.winner;
+    crate::service_plan::competition::set_attempt_judgement(
+        attempt,
+        "accepted",
+        Some(reason),
+        competition_winner,
+        now_ms,
+    );
+    if attempt.closed_at.is_none() {
+        attempt.closed_at = Some(now_ms);
+    }
+}
+
 fn provider_name_from_model(value: Option<&str>) -> Option<String> {
     split_provider_model(value).0
 }
