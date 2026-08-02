@@ -749,7 +749,7 @@ fn main_impl() {
         Commands::Plugin { .. } => unreachable!(),
 
         Commands::Mesh { action } => {
-            cmd::mesh::handle_mesh(cli.json, action);
+            cmd::mesh::handle_mesh(&mut client, cli.json, action);
             return;
         }
         Commands::Mem { action } => {

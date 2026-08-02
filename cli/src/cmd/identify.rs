@@ -155,12 +155,18 @@ struct ConnectionIdentity {
     instance_source: ResolutionSource,
 }
 
+#[derive(Serialize)]
+struct CliIdentity {
+    version: &'static str,
+    build_sha: &'static str,
+}
+
 pub fn handle(
     client: &mut impl RpcClient,
     json: bool,
     socket: ResolvedSocket,
 ) -> Result<serde_json::Value, String> {
-    let identity = client.call("system.identify", None)?;
+    let identity = extend_cli_identity(client.call("system.identify", None)?)?;
     if !json {
         return Ok(identity);
     }
@@ -182,6 +188,21 @@ pub fn handle(
             instance_source: instance.source,
         },
     )
+}
+
+fn extend_cli_identity(mut identity: serde_json::Value) -> Result<serde_json::Value, String> {
+    let object = identity
+        .as_object_mut()
+        .ok_or_else(|| "system.identify returned a non-object payload".to_string())?;
+    object.insert(
+        "cli".to_string(),
+        serde_json::to_value(CliIdentity {
+            version: env!("CARGO_PKG_VERSION"),
+            build_sha: env!("CODETERM_CLI_BUILD_SHA"),
+        })
+        .map_err(|error| error.to_string())?,
+    );
+    Ok(identity)
 }
 
 fn extend_payload(
@@ -248,6 +269,19 @@ mod tests {
                 "instance_source": "CODETERM_INSTANCE"
             })
         );
+    }
+
+    #[test]
+    fn cli_identity_includes_version_and_build_sha() {
+        let payload = extend_cli_identity(serde_json::json!({
+            "name": "CodeTerm",
+            "version": "1.7.8"
+        }))
+        .unwrap();
+
+        assert_eq!(payload["cli"]["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(payload["cli"]["build_sha"], env!("CODETERM_CLI_BUILD_SHA"));
+        assert_eq!(payload["cli"]["build_sha"].as_str().unwrap().len(), 40);
     }
 
     #[test]
