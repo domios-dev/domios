@@ -583,6 +583,7 @@ function codexParseWeeklyResets(raw, nowMs) {
 }
 
 // plugins/provider-codex/src/execWrapper.ts
+var MAX_SUMMARY_CHARS = 160;
 function quotedValue(source, key) {
   const keyMatch = new RegExp("\\b" + key + "\\s*:\\s*").exec(source);
   if (!keyMatch) return null;
@@ -610,8 +611,7 @@ function decodeString(value, quote) {
     return "\\" + escaped;
   });
 }
-function callObject(source) {
-  const start = source.indexOf("tools.shell_command");
+function callObjectAt(source, start) {
   const open = start < 0 ? -1 : source.indexOf("{", start);
   if (open < 0) return null;
   let depth = 0;
@@ -630,6 +630,19 @@ function callObject(source) {
     }
   }
   return null;
+}
+function callObjects(source, toolName) {
+  const objects = [];
+  const needle = `tools.${toolName}`;
+  let offset = 0;
+  while (offset < source.length) {
+    const start = source.indexOf(needle, offset);
+    if (start < 0) break;
+    const body = callObjectAt(source, start);
+    if (body) objects.push(body);
+    offset = start + needle.length;
+  }
+  return objects;
 }
 function jsonCallObject(source) {
   const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
@@ -652,7 +665,7 @@ function unwrapShellCommand(raw) {
       const timeout_ms2 = typeof value.timeout_ms === "number" ? value.timeout_ms : void 0;
       return { command: command2, ...workdir2 ? { workdir: workdir2 } : {}, ...timeout_ms2 !== void 0 ? { timeout_ms: timeout_ms2 } : {} };
     }
-    const body = callObject(raw);
+    const body = callObjects(raw, "shell_command")[0];
     if (!body) return null;
     const command = quotedValue(body, "command") || quotedValue(body, "cmd");
     if (!command || !command.trim()) return null;
@@ -663,6 +676,51 @@ function unwrapShellCommand(raw) {
   } catch (_) {
     return null;
   }
+}
+function compactCommand(command) {
+  return command.replace(/\s+/g, " ").trim();
+}
+function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
+  if (value.length <= limit) return value;
+  return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
+}
+function commandSummary(commands) {
+  const compact = commands.map(compactCommand).filter(Boolean);
+  const first = compact[0];
+  const suffix = compact.length > 1 ? ` (+${compact.length - 1} more)` : "";
+  const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
+  return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
+}
+function readableToolName(name) {
+  const leaf = name.split("__").pop() || name;
+  return leaf.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+function fallbackSummary(raw) {
+  const nested = /\btools\.([A-Za-z_$][\w$]*)/.exec(raw);
+  const firstLine = raw.split(/\r\n?|\n/).map((line) => line.trim()).find(Boolean) || "Tool activity";
+  const summary = nested ? readableToolName(nested[1]) : firstLine;
+  return { kind: "generic", summary: clipSummary(summary), detail: raw.trim() };
+}
+function summarizeExecScript(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const commandBodies = [
+    ...callObjects(raw, "exec_command"),
+    ...callObjects(raw, "shell_command")
+  ];
+  const commands = commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+  if (commands.length > 0) return commandSummary(commands);
+  const image = callObjects(raw, "view_image")[0];
+  if (image) {
+    const path = quotedValue(image, "path");
+    if (path) return { kind: "read", summary: clipSummary(path), detail: path };
+  }
+  const stdin = callObjects(raw, "write_stdin")[0];
+  if (stdin) {
+    const chars = quotedValue(stdin, "chars");
+    const summary = chars ? "Send input to running command" : "Wait for command output";
+    return { kind: "generic", summary, detail: summary };
+  }
+  return fallbackSummary(raw);
 }
 
 // plugins/provider-codex/src/patchEdits.ts
@@ -1226,12 +1284,16 @@ var plugin = {
     };
   },
   installIntegration(apiPort, options) {
-    if (!options || options.consent !== true) return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const path = codexHooksPath();
     if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
     const hooksExisted = host.fs.fileExists(path);
     const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
-    if (hooksExisted && typeof originalHooksValue !== "string") return { ok: false, error: "could not read existing hooks JSON at " + path };
+    if (hooksExisted && typeof originalHooksValue !== "string") {
+      return { ok: false, error: "could not read existing hooks JSON at " + path };
+    }
     const originalHooks = typeof originalHooksValue === "string" ? originalHooksValue : "";
     let parsedHooks = {};
     if (hooksExisted) {
@@ -1241,23 +1303,35 @@ var plugin = {
         return { ok: false, error: "existing hooks JSON is malformed at " + path };
       }
     }
-    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) return { ok: false, error: "existing hooks JSON must contain an object at " + path };
+    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) {
+      return { ok: false, error: "existing hooks JSON must contain an object at " + path };
+    }
     const json = parsedHooks;
-    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
-    if (json.hooks?.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) return { ok: false, error: "hooks.SessionStart is not an array" };
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    if (json.hooks?.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
     const configPath = codexConfigPath();
     const configExisted = !!configPath && host.fs.fileExists(configPath);
     const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
-    if (configExisted && typeof originalConfigValue !== "string") return { ok: false, error: "could not read existing Codex config at " + configPath };
+    if (configExisted && typeof originalConfigValue !== "string") {
+      return { ok: false, error: "could not read existing Codex config at " + configPath };
+    }
     const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
     const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
     const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
     const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
-    if (scriptExisted && typeof originalScriptValue !== "string") return { ok: false, error: "could not read existing hook script at " + scriptPath };
+    if (scriptExisted && typeof originalScriptValue !== "string") {
+      return { ok: false, error: "could not read existing hook script at " + scriptPath };
+    }
     const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
     const ownershipPath = codexHookTrustOwnershipPath();
     const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
-    if (ownershipPath && !ownershipSnapshot) return { ok: false, error: "could not read existing Codex trust ownership record" };
+    if (ownershipPath && !ownershipSnapshot) {
+      return { ok: false, error: "could not read existing Codex trust ownership record" };
+    }
     const artifactPaths = [
       path + ".codeterm-backup",
       path + ".codeterm-backup-state",
@@ -1265,7 +1339,9 @@ var plugin = {
       ...scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []
     ];
     const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
-    if (artifactSnapshots.some((snapshot) => snapshot === null)) return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
+    if (artifactSnapshots.some((snapshot) => snapshot === null)) {
+      return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
+    }
     const rollbackSnapshots = [
       { path, existed: hooksExisted, bytes: originalHooks },
       ...configPath ? [{ path: configPath, existed: configExisted, bytes: originalConfig }] : [],
@@ -1277,11 +1353,19 @@ var plugin = {
       const restored = restoreIntegrationFiles(rollbackSnapshots);
       return { ok: false, error: restored ? error : error + "; exact rollback failed" };
     };
-    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks) || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) return fail("could not write recoverable backup for " + path);
-    if (configPath && configExisted && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) return fail("could not write recoverable backup for " + configPath);
-    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript) || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) return fail("could not write recoverable backup for " + scriptPath);
+    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks) || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
+      return fail("could not write recoverable backup for " + path);
+    }
+    if (configPath && configExisted && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
+      return fail("could not write recoverable backup for " + configPath);
+    }
+    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript) || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
+      return fail("could not write recoverable backup for " + scriptPath);
+    }
     if (!json.hooks) json.hooks = {};
-    if (json.hooks.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) return { ok: false, error: "hooks.SessionStart is not an array" };
+    if (json.hooks.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
     if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
     json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
     const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
@@ -1289,7 +1373,7 @@ var plugin = {
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const cmd = guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" ' + "-H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
+    const cmd = guard + `curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
     const commandWindows = scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"' : cmd;
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
       return fail("writeFile failed for " + scriptPath);
@@ -1324,17 +1408,25 @@ var plugin = {
     let hooksOk = true;
     if (host.fs.fileExists(path)) {
       const json = host.fs.readJson(path);
-      if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: false, error: "could not safely read hooks JSON at " + path };
-      if (Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      if (!json || !json.hooks || typeof json.hooks !== "object") {
+        return { ok: false, error: "could not safely read hooks JSON at " + path };
+      }
+      if (Array.isArray(json.hooks.SessionStart)) {
+        json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      }
       hooksOk = host.fs.writeJson(path, json);
     }
     const ownershipPath = codexHookTrustOwnershipPath();
     if (ownershipPath && host.fs.fileExists(ownershipPath)) {
       const ownedTarget = host.fs.readFile(ownershipPath);
-      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) host.fs.removeFile(ownershipPath);
+      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
+        host.fs.removeFile(ownershipPath);
+      }
     }
     const scriptPath = codexWindowsHookScriptPath();
-    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) host.fs.removeFile(scriptPath);
+    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
+      host.fs.removeFile(scriptPath);
+    }
     return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
   },
   restoreIntegration() {
@@ -1491,7 +1583,11 @@ var plugin = {
     return classifyCodexTabState(snapshot, host.unixNowMs());
   },
   providerSelfUpdateCapability() {
-    return { inSession: true, restartRequired: true };
+    return {
+      inSession: true,
+      restartRequired: true,
+      completionSignal: "provider_classification"
+    };
   }
 };
 function nestedApplyPatch(raw) {
@@ -1514,9 +1610,11 @@ function nestedApplyPatch(raw) {
 function canonicalToolFields(name, input) {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
   const shell = raw ? unwrapShellCommand(raw) : null;
   const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
   const edits = patch ? patchEdits(patch) : [];
+  if (script) return { tool_kind: script.kind, tool_summary: script.summary, tool_detail: script.detail };
   if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
   if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
   if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
@@ -1570,7 +1668,7 @@ function restoreIntegrationFiles(snapshots) {
   }
   return restored;
 }
-function codexWindowsHookScript(apiPort) {
+function codexWindowsHookScript(_apiPort) {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,

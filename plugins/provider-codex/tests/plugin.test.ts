@@ -101,6 +101,21 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- provider update capability ---\n");
+
+{
+  const p = loadHostPlugin();
+  eq(
+    p.providerSelfUpdateCapability(),
+    {
+      inSession: true,
+      restartRequired: true,
+      completionSignal: "provider_classification",
+    },
+    "in-session updates declare the completion signal required for restart",
+  );
+}
+
 console.log("\n--- task instructions launch ---\n");
 
 {
@@ -737,6 +752,31 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   const malformedData = parsed.messages[1].blocks[0].data;
   eq(malformedData.tool_kind, "generic", "malformed shell wrapper falls back to generic");
   assert(!String(malformedData.tool_summary).includes("{"), "malformed shell wrapper does not expose JSON summary");
+}
+
+{
+  const calls = [
+    `const r = await tools.exec_command({cmd:"./build.sh check",workdir:"/repo"}); text(r.output);`,
+    `const results = await Promise.all([tools.exec_command({cmd:"rg -n provider src"}),tools.exec_command({cmd:"sed -n '1,80p' src/main.ts"})]); for (const r of results) text(r.output);`,
+    `const r = await tools.write_stdin({session_id:42,chars:"",yield_time_ms:1000}); text(r.output);`,
+    `const r = await tools.view_image({path:"/tmp/update-error.png",detail:"original"}); image(r.image_url);`,
+    "const r = await tools.view_image({path:\"C:\\\\work\\\\update-error.png\",detail:\"original\"});\r\nimage(r.image_url);",
+    "first readable line\r\nsecond line",
+  ];
+  const parsed = hostPlugin.parseSessionDelta(calls.map((input, index) => JSON.stringify({
+    type: "response_item",
+    payload: { type: "custom_tool_call", name: "exec", call_id: `call_readable_${index}`, input },
+  })).join("\n")) as { messages: any[] };
+  const data = parsed.messages.map((message) => message.blocks[0].data);
+
+  eq(data[0].tool_kind, "command", "nested exec_command renders as a command");
+  eq(data[0].tool_summary, "./build.sh check", "nested exec_command exposes its command");
+  eq(data[1].tool_summary, "rg -n provider src (+1 more)", "parallel commands keep a readable summary");
+  eq(data[2].tool_summary, "Wait for command output", "empty write_stdin is described as a wait");
+  eq(data[3].tool_kind, "read", "view_image renders as a read action");
+  eq(data[3].tool_summary, "/tmp/update-error.png", "view_image exposes the inspected path");
+  eq(data[4].tool_summary, "C:\\work\\update-error.png", "Windows paths survive readable summaries");
+  eq(data[5].tool_summary, "first readable line", "unknown exec scripts fall back to one line");
 }
 
 console.log("\n--- discoverModels ---\n");

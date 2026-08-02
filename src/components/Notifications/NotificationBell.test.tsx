@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Notification } from "../../lib/types";
+import { __setInvokeForTest } from "../../lib/bridge";
 import { NotificationBell } from "./NotificationBell";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -27,6 +28,14 @@ const item: Notification = {
   level: "Warning",
   timestamp: Date.now(),
   read: false,
+  actions: [
+    {
+      label: "Update",
+      type: "invoke",
+      value: "respond_provider_update_prompt",
+      args: { promptId: "prompt-1", accept: true },
+    },
+  ],
 };
 
 const host = document.createElement("div");
@@ -38,9 +47,14 @@ const calls = {
   navigated: [] as Array<[string, string | null]>,
   readAll: 0,
   clearedAll: 0,
+  invoked: [] as Array<{ command: string; args: unknown }>,
 };
 
 async function run() {
+  __setInvokeForTest(async (command, args) => {
+    calls.invoked.push({ command, args });
+    return undefined as never;
+  });
   await act(async () => {
     root.render(
       <NotificationBell
@@ -65,6 +79,15 @@ async function run() {
   assert(panel.className.includes("max-w-[calc(100vw-16px)]"), "panel should stay within the mobile viewport width");
   assert(panel.getAttribute("style")?.includes("100dvh"), "panel height should follow the dynamic mobile viewport");
   assert(panel.querySelector('[aria-label="Close notifications"]'), "panel should expose a visible close control");
+  const update = Array.from(panel.querySelectorAll("button")).find(
+    (button) => button.textContent === "Update",
+  );
+  assert(update, "actionable notification should expose Update inside the bell panel");
+  await act(async () => update.click());
+  assert(
+    calls.invoked[0]?.command === "respond_provider_update_prompt",
+    "Update should invoke the provider update command",
+  );
   assert(!panel.textContent?.includes(item.body!), "complete message should start collapsed");
 
   const expand = panel.querySelector<HTMLButtonElement>('[aria-label="Show complete message for Agent needs input"]');
@@ -94,6 +117,7 @@ async function run() {
   );
 
   await act(async () => root.unmount());
+  __setInvokeForTest(null);
   console.log("NotificationBell tests: 1/1 passed");
 }
 
