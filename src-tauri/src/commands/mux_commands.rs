@@ -573,11 +573,14 @@ pub fn build_agent_launch_command(
 
 /// The one atomic spawn command: create + cwd + agent_type + activate + focus a tab.
 #[tauri::command]
-pub fn mux_spawn_tab(
+pub async fn mux_spawn_tab(
     svc: State<'_, ServiceState>,
     params: crate::service::transport::AtomicSpawnParams,
 ) -> Result<crate::service::transport::AtomicSpawn, String> {
-    svc.spawn_tab_atomic(params)
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.spawn_tab_atomic(params))
+        .await
+        .map_err(|error| format!("atomic spawn task failed: {error}"))?
 }
 
 /// Paired orchestration creation.
