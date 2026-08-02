@@ -512,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn non_complete_plan_with_paused_work_never_renders_fully_done() {
+    fn percent_done_matches_displayed_counts() {
         let val = json!({
             "plan_id": "pl_1",
             "title": "Paused work",
