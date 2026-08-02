@@ -11,6 +11,22 @@ use crate::agent::reports::ReportDetails;
 use super::ServiceContext;
 
 const WORKER_ACK_TIMEOUT: Duration = Duration::from_secs(60);
+const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(60);
+const WORKER_ACK_REMINDER: &str = "Acknowledge this Worker assignment with codeterm agent ack before doing any work. If acknowledgement is still absent at the final bounded startup deadline, this tab will be cleaned up.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkerAckFirstDeadline {
+    SystemReminder,
+    StartupUnbound,
+}
+
+fn first_deadline_action(authenticated_attempt_binding: bool) -> WorkerAckFirstDeadline {
+    if authenticated_attempt_binding {
+        WorkerAckFirstDeadline::SystemReminder
+    } else {
+        WorkerAckFirstDeadline::StartupUnbound
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WorkerAckSignal {
@@ -77,20 +93,81 @@ pub(crate) fn worker_ack_timeout_event(
     spawn_command: &str,
 ) -> Value {
     json!({
-        "kind": "worker_ack_timeout",
+        "kind": "worker_ack_startup_failed",
         "plan_id": plan_id,
         "task_id": task_id,
         "tab_id": tab_id,
         "attempt_id": attempt_id,
-        "deadline_seconds": WORKER_ACK_TIMEOUT.as_secs(),
+        "deadline_seconds": (WORKER_ACK_TIMEOUT + WORKER_ACK_FINAL_TIMEOUT).as_secs(),
         "expected_command": "codeterm agent ack",
         "spawn_command": spawn_command,
-        "impact": "Worker ownership is unconfirmed; task remains awaiting_worker_ack.",
-        "fallback": "Inspect the existing tab once. Do not blind-resend or duplicate-dispatch.",
+        "impact": "Worker startup failed; the exact attempt was closed and its tab assignment was cleared.",
+        "fallback": "Inspect the preserved lane before dispatching a replacement Worker.",
     })
 }
 
 impl ServiceContext {
+    fn live_unacknowledged_attempt_owns_tab(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: Option<&str>,
+    ) -> bool {
+        self.plan_store.get(plan_id).is_some_and(|plan| {
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .is_some_and(|task| {
+                    task.assigned_tab_id.as_deref() == Some(tab_id)
+                        && task.execution_attempts.iter().any(|attempt| {
+                            attempt.id == attempt_id
+                                && attempt.executor_tab_id == tab_id
+                                && attempt.closed_at.is_none()
+                                && attempt.acknowledged_at.is_none()
+                                && session_id.is_none_or(|session_id| {
+                                    attempt.session_id.as_deref() == Some(session_id)
+                                })
+                        })
+                })
+        })
+    }
+
+    fn authenticated_worker_binding(&self, tab_id: &str) -> Option<(String, String)> {
+        self.mux.read().get_tab(tab_id).and_then(|tab| {
+            let session_id = tab.agent_session_id.clone()?.trim().to_string();
+            let nonce = tab.session_binding_nonce.clone()?;
+            (!session_id.is_empty()
+                && tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str()))
+            .then_some((session_id, nonce))
+        })
+    }
+
+    fn deliver_worker_ack_reminder(&self, tab_id: &str, attempt_id: &str) -> Result<(), String> {
+        use crate::service::message_gateway::{
+            DeliveryClass, MessageBody, MessageOrigin, OutboundMessage,
+        };
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("worker-ack")
+            .id(Some(attempt_id.to_string()));
+        self.gateway
+            .submit(
+                self,
+                OutboundMessage {
+                    target: tab_id.to_string(),
+                    body: MessageBody::Text {
+                        body: WORKER_ACK_REMINDER.to_string(),
+                    },
+                    envelope: Some(envelope),
+                    class: DeliveryClass::SystemNotice,
+                    origin: MessageOrigin::System,
+                    idempotency_key: Some(format!("worker-ack-reminder:{attempt_id}")),
+                },
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     pub(crate) fn publish_worker_lifecycle_report(
         &self,
         parent_tab_id: &str,
@@ -191,17 +268,69 @@ impl ServiceContext {
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             }
-            let acknowledged = service.plan_store.get(&plan_id).is_some_and(|plan| {
-                plan.tasks
-                    .iter()
-                    .find(|task| task.id == task_id)
-                    .into_iter()
-                    .flat_map(|task| task.execution_attempts.iter())
-                    .any(|attempt| attempt.id == attempt_id && attempt.acknowledged_at.is_some())
-            });
-            if !service.worker_ack.expire(&worker_tab_id, &attempt_id) || acknowledged {
+            if !service.live_unacknowledged_attempt_owns_tab(
+                &plan_id,
+                &task_id,
+                &worker_tab_id,
+                &attempt_id,
+                None,
+            ) {
                 return;
             }
+            let authenticated = service.authenticated_worker_binding(&worker_tab_id);
+            let reminder_allowed = authenticated.as_ref().is_some_and(|(session_id, _)| {
+                service.live_unacknowledged_attempt_owns_tab(
+                    &plan_id,
+                    &task_id,
+                    &worker_tab_id,
+                    &attempt_id,
+                    Some(session_id),
+                )
+            });
+            match first_deadline_action(reminder_allowed) {
+                WorkerAckFirstDeadline::SystemReminder => {
+                    if let Err(error) =
+                        service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id)
+                    {
+                        log::warn!(
+                            "[worker-ack] reminder delivery failed attempt={attempt_id}: {error}"
+                        );
+                    }
+                }
+                WorkerAckFirstDeadline::StartupUnbound => {
+                    let _ = service.plan_store.mark_worker_startup_deadline(
+                        &plan_id,
+                        &task_id,
+                        &worker_tab_id,
+                        &attempt_id,
+                        false,
+                        epoch_ms(),
+                    );
+                }
+            }
+            match receiver.recv_timeout(WORKER_ACK_FINAL_TIMEOUT) {
+                Ok(WorkerAckSignal::Acknowledged) | Ok(WorkerAckSignal::Superseded) => return,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            if !service.worker_ack.expire(&worker_tab_id, &attempt_id) {
+                return;
+            }
+            let finalized = service
+                .plan_store
+                .mark_worker_startup_deadline(
+                    &plan_id,
+                    &task_id,
+                    &worker_tab_id,
+                    &attempt_id,
+                    true,
+                    epoch_ms(),
+                )
+                .unwrap_or(false);
+            if !finalized {
+                return;
+            }
+            let _ = service.close_tab(&worker_tab_id);
             service.publish_worker_lifecycle_report(
                 &parent_tab_id,
                 &worker_tab_id,
@@ -289,6 +418,13 @@ impl ServiceContext {
     }
 }
 
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,6 +457,37 @@ mod tests {
 
         assert!(!registry.expire("tab", "attempt-b"));
         assert!(registry.expire("tab", "attempt-a"));
+        assert!(receiver.recv().is_err());
+    }
+
+    #[test]
+    fn bound_worker_missing_ack_gets_one_system_reminder() {
+        assert_eq!(
+            first_deadline_action(true),
+            WorkerAckFirstDeadline::SystemReminder
+        );
+        assert_eq!(
+            WORKER_ACK_REMINDER,
+            "Acknowledge this Worker assignment with codeterm agent ack before doing any work. If acknowledgement is still absent at the final bounded startup deadline, this tab will be cleaned up."
+        );
+        assert!(!WORKER_ACK_REMINDER.contains("Task body"));
+    }
+
+    #[test]
+    fn unbound_worker_gets_no_ack_reminder_or_input() {
+        assert_eq!(
+            first_deadline_action(false),
+            WorkerAckFirstDeadline::StartupUnbound
+        );
+    }
+
+    #[test]
+    fn worker_ack_final_deadline_cleans_once() {
+        let registry = WorkerAckRegistry::default();
+        let receiver = registry.arm("tab", "attempt");
+
+        assert!(registry.expire("tab", "attempt"));
+        assert!(!registry.expire("tab", "attempt"));
         assert!(receiver.recv().is_err());
     }
 }
