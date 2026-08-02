@@ -144,7 +144,7 @@ fn concurrent_planner_plan_create_never_duplicates_team_plan() {
     let harness = Arc::new(FirstPlanHarness::new(dir.path()));
     let (_, _, caller) = bound_pair(&harness.mux, "race");
     let barrier = Arc::new(std::sync::Barrier::new(2));
-    let results: Vec<_> = (0..2)
+    let threads: Vec<_> = (0..2)
         .map(|index| {
             let harness = Arc::clone(&harness);
             let caller = caller.clone();
@@ -154,6 +154,9 @@ fn concurrent_planner_plan_create_never_duplicates_team_plan() {
                 planner_create(&harness, caller, &format!("Race {index}"), index + 1)
             })
         })
+        .collect();
+    let results: Vec<_> = threads
+        .into_iter()
         .map(|thread| thread.join().unwrap())
         .collect();
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
