@@ -500,6 +500,14 @@ impl AgentProvider for JsProvider {
             })
     }
 
+    fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
+        self.try_call::<Option<String>>(
+            "detectSessionReasoningEffort",
+            &[json!(cwd), json!(session_id)],
+        )
+        .flatten()
+    }
+
     fn session_created_at(&self, cwd: &str, session_id: &str) -> Option<std::time::SystemTime> {
         let ms = self
             .try_call::<Option<i64>>("sessionCreatedMs", &[json!(cwd), json!(session_id)])

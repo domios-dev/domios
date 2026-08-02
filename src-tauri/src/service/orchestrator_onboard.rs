@@ -226,6 +226,8 @@ mod tests {
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
+            reasoning_effort_identity: Default::default(),
+            context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,

@@ -236,6 +236,7 @@ fn reports_included_when_configured() {
         actual_model: None,
         model_fallback: None,
         model_identity_mismatch: None,
+        reasoning_effort: Default::default(),
     }];
     let chat_tail = |_: &str, _: usize| Vec::new();
     let sources = ObservationSources {

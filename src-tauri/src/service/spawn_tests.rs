@@ -86,6 +86,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -621,6 +622,7 @@ fn from_agent_params_carries_model_into_spec() {
         spawned_by_tab_id: None,
         model: Some("gpt-5.4-mini".into()),
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -659,6 +661,32 @@ fn to_agent_params_carries_model_as_dedicated_field() {
         !args.iter().any(|a| a == "--model"),
         "model must not leak into args"
     );
+}
+
+#[test]
+fn planned_effort_survives_host_owned_params_spec_pipeline() {
+    let params = SpawnAgentParams {
+        agent: Some("claude".into()),
+        planned_reasoning_effort: Some("high".into()),
+        reasoning_effort: Some("medium".into()),
+        ..Default::default()
+    };
+    let spec = SpawnTabSpec::from_agent_params(params);
+    let params = spec.to_agent_params().unwrap();
+    assert_eq!(params.planned_reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(params.reasoning_effort.as_deref(), Some("medium"));
+}
+
+#[test]
+fn generic_spawn_json_cannot_claim_planned_effort() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "planned_reasoning_effort": "max",
+        "reasoning_effort": "high"
+    }))
+    .unwrap();
+    assert_eq!(params.planned_reasoning_effort, None);
+    assert_eq!(params.reasoning_effort.as_deref(), Some("high"));
 }
 
 #[test]
@@ -740,6 +768,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -801,6 +830,7 @@ fn from_agent_params_carries_activate_into_spec() {
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,

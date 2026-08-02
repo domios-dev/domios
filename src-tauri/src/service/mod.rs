@@ -56,6 +56,7 @@ pub mod remote_workers;
 pub mod remote_tabs;
 mod role_identity;
 mod role_profile;
+mod reasoning_effort;
 pub mod session_persist;
 pub mod smart_add;
 pub mod spawn;

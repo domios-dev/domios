@@ -50,6 +50,7 @@ impl SpawnAgentParams {
             spawned_by_tab_id: json_str(params, "spawned_by_tab_id"),
             model: json_str(params, "model"),
             planned_model: json_str(params, "planned_model"),
+            planned_reasoning_effort: None,
             reasoning_effort: json_str(params, "reasoning_effort")
                 .or_else(|| json_str(params, "reasoning-effort")),
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),

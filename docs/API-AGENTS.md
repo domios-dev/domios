@@ -159,7 +159,7 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. Provider permissions and sandboxing remain enabled unless a visible user explicitly sends `skip_permissions: true`; the provider maps that capability to its own flag. `audience: "automation"` always forces the bypass off, even when a workspace remembers a visible-user preference. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
+All fields are optional. `agent` defaults to `"claude"`. Provider permissions and sandboxing remain enabled unless a visible user explicitly sends `skip_permissions: true`; the provider maps that capability to its own flag. `audience: "automation"` always forces the bypass off, even when a workspace remembers a visible-user preference. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -216,4 +216,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

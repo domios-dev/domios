@@ -40,7 +40,15 @@ export {
 } from "./toolEvents";
 export { stabilizeTimelineItems } from "./timelineStability";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";
-export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
+export {
+  isSessionResetMessage,
+  lastSessionResetIndex,
+  trimAfterSessionReset,
+} from "./sessionReset";
+export {
+  CONTEXT_EPOCH_BOUNDARY_TEXT,
+  projectContextEpochs,
+} from "./contextEpoch";
 export {
   MARKER_OPEN,
   MARKER_CLOSE,

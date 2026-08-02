@@ -1,7 +1,8 @@
 //! Settings + notification schemas, model catalog, and bridge-rule install.
 
 use crate::provider::{
-    self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, SettingField,
+    self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, ReasoningEffortInfo,
+    SettingField,
 };
 
 /// Bundled manifest is the single shipped Claude alias catalog; the native
@@ -21,6 +22,25 @@ pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
         }
     })
     .clone()
+}
+
+pub(crate) fn reasoning_effort_defaults() -> (Vec<ReasoningEffortInfo>, Option<String>) {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    (
+        manifest
+            .reasoning_efforts
+            .iter()
+            .map(ReasoningEffortInfo::from)
+            .collect(),
+        manifest.default_reasoning_effort,
+    )
+}
+
+pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    manifest.commands.reasoning_effort_launch_args_format
 }
 
 /// Resolved list — registered defaults unless the user dropped

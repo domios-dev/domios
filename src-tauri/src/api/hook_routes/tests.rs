@@ -453,6 +453,16 @@ fn matching_nonce_advances_lineage_over_materialized_parent() {
             .as_deref(),
         Some("new-rollout"),
     );
+    let snapshot = mux.read();
+    let archive = snapshot
+        .get_tab(&tab_id)
+        .unwrap()
+        .context_epoch_archives
+        .first()
+        .expect("prior provider context is archived");
+    assert_eq!(archive.provider, "codex");
+    assert_eq!(archive.cwd, "/tmp/project");
+    assert_eq!(archive.session_id, "parent-rollout");
 }
 
 #[test]
