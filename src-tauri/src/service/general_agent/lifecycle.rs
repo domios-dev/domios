@@ -788,13 +788,8 @@ fn general_agent_permission_bypass(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
 ) -> bool {
-    crate::service::permission_policy::permission_bypass_allowed(
-        registry,
-        provider,
-        true,
-        false,
-        crate::multiplexer::types::TabAudience::User,
-    )
+    crate::service::permission_policy::authorize_permission_bypass(registry, provider, true)
+        .is_some()
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {

@@ -474,7 +474,6 @@ fn enqueue_agent_turn(
                     model: if model.is_empty() { None } else { Some(model) },
                     task: Some(task),
                     worker_id: Some(worker_id_blocking.clone()),
-                    auto_approve: false,
                     spawned_by: Some(spawned_by),
                     resume_session_id,
                     ..Default::default()

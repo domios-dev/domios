@@ -67,12 +67,12 @@ open_settings = "Ctrl+,"
 #                  by the saved session id is missing on disk (`AgentProvider::session_exists`
 #                  returns false), CodeTerm clears the stale id and launches fresh
 #                  instead of looping on "No conversation found".
-# resume_skip_permissions: explicit provider permission/sandbox bypass for visible resumes.
-# Automation and hidden probes never inherit this choice.
+# full_access: one global permission choice for every agent provider.
+# Omit it until onboarding or the first agent launch asks the user.
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
-resume_skip_permissions = false
+full_access = true
 
 [api]
 enabled = true
@@ -118,13 +118,14 @@ the listener policy the process actually owns. `localhost`, `::1`, and `[::1]`
 are canonicalized to bindable loopback socket addresses; other hostnames are
 rejected in favor of an explicit numeric address.
 
-Provider permission bypass is also fail-closed. Fresh and resumed agents keep
-provider permissions/sandboxing unless a visible spawn explicitly selects the
-bypass capability. A remembered choice is stored under that provider's
-`[agents.<id>]` section only when both Bypass and Remember are selected.
-Launching without Remember clears both durable fields. The effective state is
-shown from the tab/session's `auto_approve` value; hidden probes and other
-automation always run sandboxed, including crash recovery and restart.
+Agent access is one global choice. `agent.full_access = true` applies the
+provider's permission-bypass capability whenever any ordinary agent starts or
+restarts; `false` keeps provider permission prompts. General Agent always has
+full access. The first-run picker asks once with Full access selected by default;
+there are no per-provider, per-resume, audience, or Remember-choice policies.
+On first load, an enabled remembered bypass from the former global or
+per-provider settings is converted to `agent.full_access = true` before any
+agent tab starts; the removed keys are then deleted from the saved config.
 
 ## Config API
 
@@ -174,4 +175,4 @@ Settings UI: Settings > Agents > General Agent section (enable, auto-restart tog
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 34 -->
+<!-- revision: 36 -->

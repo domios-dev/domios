@@ -89,6 +89,17 @@ fn test_spawn_agent_params_from_json_minimal() {
 }
 
 #[test]
+fn spawn_payload_cannot_override_global_agent_access() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "skip_permissions": true,
+    }))
+    .unwrap();
+    assert_eq!(params.skip_permissions, None);
+    assert!(params.permission_bypass_authorization.is_none());
+}
+
+#[test]
 fn spawn_agent_params_from_json_treats_empty_role_fields_as_absent() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",

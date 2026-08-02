@@ -35,6 +35,13 @@ export async function setUiSettings(patch: Record<string, unknown>): Promise<voi
   cached = next;
 }
 
+export async function setAgentSettings(patch: Partial<AppConfig["agent"]>): Promise<void> {
+  const config = await invoke<AppConfig>("get_config");
+  const next: AppConfig = { ...config, agent: { ...config.agent, ...patch } };
+  await invoke("update_config", { config: next });
+  cached = next;
+}
+
 export async function setProviderSettings(
   providerId: string,
   patch: Partial<ProviderConfig> | Record<string, unknown>,

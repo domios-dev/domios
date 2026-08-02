@@ -21,8 +21,6 @@ pub struct AtomicSpawnParams {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
-    #[serde(default)]
-    pub skip_permissions: bool,
     /// chatBackend openSession config (systemPrompt/preset/model). Ignored for PTY.
     #[serde(default)]
     pub config: Option<serde_json::Value>,
@@ -293,13 +291,11 @@ impl ServiceContext {
             tab_id
         };
 
-        let permission_bypass = crate::service::permission_policy::permission_bypass_allowed(
+        let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
             provider,
-            params.skip_permissions,
-            false,
-            crate::multiplexer::types::TabAudience::User,
-        );
+        )?
+        .is_some();
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             tab.auto_approve = permission_bypass;
         }

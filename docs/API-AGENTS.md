@@ -28,8 +28,7 @@ Restart the agent in a tab. Default behaviour is graceful: send the provider-spe
   "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "session_was_stale": false,
   "session_action": "resume",
-  "auto_approve": true,
-  "permission_profile": "yolo",
+  "full_access": true,
   "force": false
 }
 ```
@@ -158,12 +157,11 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
   "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
   "workspace_id": "b4e2c8d1", // optional, defaults to active workspace
-  "skip_permissions": false,   // explicit visible-user trust expansion; defaults false
   "audience": "automation"     // optional: suppress user bells for bench/probe tabs
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. Provider permissions and sandboxing remain enabled unless a visible user explicitly sends `skip_permissions: true`; the provider maps that capability to its own flag. `audience: "automation"` always forces the bypass off, even when a workspace remembers a visible-user preference. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
+All fields are optional. `agent` defaults to `"claude"`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -220,4 +218,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 3 -->
+<!-- revision: 5 -->

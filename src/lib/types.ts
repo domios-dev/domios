@@ -479,7 +479,7 @@ export interface AgentConfig {
   poll_interval_ms: number;
   idle_timeout_s: number;
   resume_sessions: boolean;
-  resume_skip_permissions: boolean;
+  full_access?: boolean;
 }
 
 export interface ApiConfig {
@@ -615,9 +615,6 @@ export interface MeshPeersResponse {
 /// Mirrors `src-tauri/src/config/schema.rs::ProviderConfig`.
 export interface ProviderConfig {
   resume_sessions?: boolean;
-  resume_skip_permissions?: boolean;
-  spawn_skip_permissions?: boolean;
-  spawn_skip_permissions_remembered?: boolean;
   default_model?: string;
   /// When false, the provider is hidden from the per-workspace
   /// "New <Provider> Session" menu. Defaults to true (visible).
