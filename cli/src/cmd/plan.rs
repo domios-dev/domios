@@ -223,6 +223,7 @@ fn run_plan(
                 "title": title,
                 "owner": owner_from_env(),
             });
+            inject_trusted_session(&mut params);
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
