@@ -52,6 +52,17 @@ fn local_skill_edit_resolves_authoritative_plan_directory_from_rpc() {
 
 #[test]
 fn list_show_and_new_route_explicit_plan_to_rpc() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let worker_keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+    ];
+    let previous = worker_keys.map(|key| (key, std::env::var(key).ok()));
+    for key in worker_keys {
+        std::env::remove_var(key);
+    }
     let mut client = FakeRpc::default();
     handle(
         &mut client,
@@ -108,6 +119,11 @@ fn list_show_and_new_route_explicit_plan_to_rpc() {
             )
         ]
     );
+    for (key, value) in previous {
+        if let Some(value) = value {
+            std::env::set_var(key, value);
+        }
+    }
 }
 
 #[test]
@@ -150,5 +166,42 @@ fn list_show_and_new_use_plan_id_from_environment() {
     match previous {
         Some(value) => std::env::set_var("CODETERM_PLAN_ID", value),
         None => std::env::remove_var("CODETERM_PLAN_ID"),
+    }
+}
+
+#[test]
+fn plan_skill_show_forwards_exact_worker_binding() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let keys = [
+        ("CODETERM_TAB_ID", "ced263e9"),
+        ("CODETERM_SESSION_ID", "session-5upl98"),
+        ("CODETERM_SESSION_BINDING_NONCE", "nonce-5upl98"),
+        ("CODETERM_TASK_ID", "task_6bd5ky"),
+    ];
+    let previous = keys.map(|(key, _)| (key, std::env::var(key).ok()));
+    for (key, value) in keys {
+        std::env::set_var(key, value);
+    }
+    let mut client = FakeRpc::default();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "dispatch-contract".into(),
+            plan: Some("pl_zzmxgb".into()),
+        },
+    )
+    .unwrap();
+    let params = client.calls[0].1.as_ref().unwrap();
+    assert_eq!(params["caller_tab_id"], "ced263e9");
+    assert_eq!(params["caller_session_id"], "session-5upl98");
+    assert_eq!(params["session_binding_nonce"], "nonce-5upl98");
+    assert_eq!(params["plan_id"], "pl_zzmxgb");
+    assert_eq!(params["task_id"], "task_6bd5ky");
+    for (key, value) in previous {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
     }
 }

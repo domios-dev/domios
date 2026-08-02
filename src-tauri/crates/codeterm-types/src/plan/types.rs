@@ -263,6 +263,25 @@ pub struct TaskExecutionReportSnapshot {
     pub skipped: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AttachmentRef>,
+    #[serde(default)]
+    pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
+    #[serde(default)]
+    pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanSkillManifestEntry {
+    pub slug: String,
+    pub title: String,
+    pub purpose: String,
+    pub content_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LoadedPlanSkillEvidence {
+    pub slug: String,
+    pub content_digest: String,
+    pub loaded_at: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -279,6 +298,8 @@ pub struct TaskExecutionAttempt {
     pub model: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub session_binding_nonce: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -323,6 +344,10 @@ pub struct TaskExecutionAttempt {
     pub judged_at: Option<u64>,
     #[serde(default)]
     pub winner: bool,
+    #[serde(default)]
+    pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
+    #[serde(default)]
+    pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

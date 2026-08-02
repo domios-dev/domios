@@ -65,11 +65,18 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        store,
+        &resolved.plan_id,
+    )
+    .map_err(|error| error.to_string())?;
     let brief = crate::service::plan::task_brief::render_task_brief(
         &detail.task,
         &detail.sections,
         detail.task.personality.as_deref(),
         instruction.as_deref(),
+        Some(&resolved.plan_id),
+        &manifest,
     );
     params.task = Some(brief);
     params.plan_id = Some(resolved.plan_id);
@@ -119,6 +126,14 @@ fn bind_worker_task_to_tab(
             now_ms,
         )
         .map_err(|error| error.to_string())?;
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) =
+        store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now_ms)
+    {
+        let _ = store.revert_task_dispatch(&plan_id, &task_id, now_ms);
+        return Err(error.to_string());
+    }
     if let Some(session_id) = session_id {
         if let Err(error) = store.finish_task_dispatch(
             &plan_id,
