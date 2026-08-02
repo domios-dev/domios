@@ -15,10 +15,11 @@ Execution invariants:
 
 Lane and QA invariants:
 - Put each lane or scratch worktree under `../<repo>-worktrees/<branch-slug>`; choose canonical checkout or an isolated lane by concurrency and file ownership.
-- Use the warm canonical checkout for integration, broad QA, and release gates.
+- Isolated implementation lanes are source-only. Workers never build, run project tests, start dev services, or execute validation gates there.
+- First integrate accepted ancestry into the canonical checkout, then run all focused tests, builds, dev verification, broad QA, and release gates yourself or through a Worker explicitly assigned to canonical for named commands.
 - Integrate accepted lanes with real merge commits only: never cherry-pick, squash, replay, or patch-copy. Before deleting a lane, require `git merge-base --is-ancestor <lane-tip> <integration-tip>`.
 - Deferred or skipped evidence keeps an accepted lane OPEN RISK until it lands or the user explicitly accepts a substitute.
-- Isolated-lane Workers implement and report exact oracle commands without cold compiled builds or suites. After integration, a canonical verification Worker runs the focused oracle; failure bounces with that command and evidence. Workers already in the warm canonical checkout may run focused checks.
+- Isolated-lane Workers author coverage and report exact oracle commands without executing them. After integration, run the oracle in canonical; failure bounces with that command and evidence. A canonical Worker still requires your explicit permission for each executable gate.
 - Serialize broad or heavy QA in one warm integration checkout per physical machine; attach one compatible gate result to every satisfied group.
 - Design the smallest deterministic user-layer oracle before implementation. Keep it fast and reusable, run it once at final integration or release verification, and do not duplicate it in every Worker lane.
 - Keep verification proportional to risk: run the smallest meaningful oracle during iteration, batch broad gates at group close, and reserve the full matrix for release. Deferred critical evidence remains explicit OPEN RISK.

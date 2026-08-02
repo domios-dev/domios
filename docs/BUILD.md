@@ -33,7 +33,7 @@ pnpm install
 # Daily commands; run from the repository root.
 .\build.ps1 dev           # foreground dev on 7686
 .\build.ps1 check         # incremental compile check
-.\build.ps1 worktree-check # isolated compile check while dev owns the gateway
+.\build.ps1 worktree-check # canonical integration compile check
 .\build.ps1 cli           # rebuild only the installed CLI
 .\build.ps1 install-local # incremental production build + self-install
 ```
@@ -45,9 +45,9 @@ command short unless the continuation itself must be customized.
 
 ## Choose one operation
 
-These flows are deliberately separate. Run all shared builds and gates from the
-warm canonical checkout; lanes may only run focused checks or named isolated dev
-instances.
+These flows are deliberately separate. Run every build, test, dev instance, and
+executable gate from the warm canonical checkout under Orchestrator authority.
+Isolated Worker lanes are source-only.
 
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
@@ -197,7 +197,7 @@ production app during startup, in-app update, or `install-local`.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. The failed invocation now terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
-| `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Use `build.ps1 worktree-check` for an isolated sccache-backed compile check or `build.ps1 test-one <app|pty|cli> <filter>` for one focused test. Do not add `--wait-build` or hand-compose `CARGO_TARGET_DIR`. |
+| `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Stop and make an explicit canonical integration decision. Do not move the command into a Worker lane, add `--wait-build`, or hand-compose `CARGO_TARGET_DIR`. |
 | A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `.\build.ps1 clean`. Confirm free space before restarting `.\build.ps1 dev`; do not delete another worktree's target or touch production. |
 | A Windows native dependency fails with `LNK1106` and `dumpbin` shows a cached `.o` ending before its COFF string-table length | `sccache` retained a truncated C/C++ object; a clean Cargo target can restore the same corrupt cache entry. | In PowerShell set `$env:SCCACHE_RECACHE='1'`, rerun the failing `.\build.ps1` operation once, then remove the environment variable. Verify the rebuilt object with `dumpbin` before retrying normally. |
 
@@ -415,4 +415,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->

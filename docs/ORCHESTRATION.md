@@ -57,10 +57,10 @@ Run this loop after every report, reminder, task close, tab death, or gate:
    focus.
 4. **Give every actionable task an exit:** dispatch, pause with a reason, judge,
    replan through the Planner, or escalate.
-5. **Keep writers parallel.** The Orchestrator chooses canonical checkout or
-   isolated lanes based on concurrency and file ownership.
-6. **Serialize heavy gates.** Run broad QA once in the warm canonical checkout,
-   not independently in cold lanes.
+5. **Keep source writers parallel.** Implementation Workers use isolated,
+   source-only lanes based on concurrency and file ownership.
+6. **Own canonical verification.** Real-merge accepted ancestry first, then run
+   every build, test, dev check, and gate in the canonical checkout.
 7. **Let heartbeat follow state.** Heartbeat is derived automatically from
    plan and task state; never maintain focus or lane fields manually.
 8. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
@@ -158,18 +158,21 @@ Never sleep or poll for Worker readiness, reports, gates, or process startup.
 Wait on explicit readiness, session-binding, process-exit, stream-completion, or
 report events, with a bounded failure deadline.
 
-Long gates run in a visible tab or delegated QA lane and send an explicit
-completion marker back to the Orchestrator. Continue other frontier work while
-the gate runs.
+Long gates run in a visible canonical tab and send an explicit completion
+marker back to the Orchestrator. Continue other frontier work while the gate
+runs. Delegation is allowed only to a Worker assigned to canonical with an
+explicit list of authorized commands.
 
 One immediate sanity read is allowed after a concrete event. Repeated manual
 checks are polling.
 
 ## Verification and acceptance
 
-Workers in isolated lanes implement and report the exact focused oracle without
-starting cold compiled builds or suites. A Worker already placed in the warm
-canonical checkout may run the focused oracle directly.
+Workers in isolated lanes implement source, author coverage, and report exact
+oracle commands without executing project verification. They do not build,
+run tests, start dev services, or execute gates, even when a command is focused
+or cheap. A Worker in canonical still requires explicit Orchestrator permission
+for each authorized command.
 
 After integrating a lane candidate, run its focused oracle through a canonical
 verification Worker. If it fails, bounce the task with the exact command and
@@ -179,8 +182,8 @@ Design the smallest deterministic user-layer oracle before implementation so
 unit-green changes cannot silently break the real workflow. Keep that oracle
 fast, reusable, and event-driven.
 
-During iteration, use lightweight non-build checks where useful. Run compiled
-focused checks in the warm canonical checkout, then run the actual user-layer
+During lane iteration, use source inspection and non-executable static review.
+After real merge, run focused checks in canonical, then run the actual user-layer
 oracle once at final integration or release verification.
 
 The final verification covers the layer where the user experienced the defect:
@@ -196,7 +199,9 @@ The final verification covers the layer where the user experienced the defect:
 Unit-green alone does not close a user-visible defect. Deferred final
 user-layer evidence remains explicit open risk.
 
-Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
+Testing ladder — per-task = canonical focused filters after merge; per-group
+(milestone) = one full canonical regression gate; per-release = the farm matrix
+across every platform.
 
 Repository-specific restrictions override generic gate suggestions.
 
@@ -271,4 +276,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 44 -->
+<!-- revision: 45 -->
