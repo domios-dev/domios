@@ -6522,7 +6522,7 @@
                   "positional": false,
                   "value_name": "NOTE",
                   "default": null,
-                  "help": "Claim note. Required with --claim.",
+                  "help": "Claim note. Required with --claim",
                   "aliases": []
                 },
                 {
@@ -10425,7 +10425,7 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Temporary positional alias for the tab id. Prefer --tab.",
+              "help": "Temporary positional alias for the tab id. Prefer --tab",
               "aliases": []
             },
             {
@@ -10433,7 +10433,7 @@
               "positional": false,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID to close.",
+              "help": "Tab ID to close",
               "aliases": []
             }
           ],
@@ -10521,7 +10521,7 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Temporary positional alias for the tab id. Prefer --tab.",
+              "help": "Temporary positional alias for the tab id. Prefer --tab",
               "aliases": []
             },
             {
@@ -10529,7 +10529,7 @@
               "positional": false,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID to focus.",
+              "help": "Tab ID to focus",
               "aliases": []
             }
           ],
@@ -10569,7 +10569,7 @@
               "positional": false,
               "value_name": "ID",
               "default": null,
-              "help": "One or more tab ids to inspect. Repeat the flag for multiple tabs.",
+              "help": "One or more tab ids to inspect. Repeat the flag for multiple tabs",
               "aliases": []
             },
             {
@@ -10577,7 +10577,7 @@
               "positional": true,
               "value_name": "TABS",
               "default": null,
-              "help": "Temporary positional aliases for tab ids. Prefer --tab.",
+              "help": "Temporary positional aliases for tab ids. Prefer --tab",
               "aliases": []
             }
           ],
