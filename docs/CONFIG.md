@@ -119,9 +119,9 @@ are canonicalized to bindable loopback socket addresses; other hostnames are
 rejected in favor of an explicit numeric address.
 
 Agent access is one global choice. `agent.full_access = true` applies the
-provider's permission-bypass capability whenever any ordinary agent starts or
-restarts; `false` keeps provider permission prompts. General Agent always has
-full access. The first-run picker asks once with Full access selected by default;
+provider's permission-bypass capability whenever any agent starts or restarts,
+including General Agent; `false` keeps provider permission prompts everywhere.
+The first-run picker asks once with Full access selected by default;
 there are no per-provider, per-resume, audience, or Remember-choice policies.
 On first load, an enabled remembered bypass from the former global or
 per-provider settings is converted to `agent.full_access = true` before any
@@ -175,4 +175,4 @@ Settings UI: Settings > Agents > General Agent section (enable, auto-restart tog
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->
