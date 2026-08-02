@@ -11,6 +11,7 @@ interface SubscriptionRecord {
   cursor: string | null;
   generation: number;
   disposed: boolean;
+  settlements: Map<number, { promise: Promise<void>; resolve: () => void }>;
 }
 
 const subscriptions = new Map<string, SubscriptionRecord>();
@@ -20,6 +21,9 @@ function connect(record: SubscriptionRecord): void {
   record.controller?.abort();
   const controller = new AbortController();
   const generation = ++record.generation;
+  let settle!: () => void;
+  const settlement = new Promise<void>((resolve) => { settle = resolve; });
+  record.settlements.set(generation, { promise: settlement, resolve: settle });
   record.controller = controller;
   const params = new URLSearchParams({
     peer: record.peerId,
@@ -67,6 +71,7 @@ function connect(record: SubscriptionRecord): void {
     }
   }).finally(() => {
     if (generation === record.generation) record.controller = null;
+    record.settlements.get(generation)?.resolve();
   });
 }
 
@@ -93,6 +98,7 @@ export function subscribeRemoteTabEvent<T>(
     cursor: null,
     generation: 0,
     disposed: false,
+    settlements: new Map(),
   };
   subscriptions.set(event, record);
   connect(record);
@@ -117,4 +123,8 @@ export function remoteTabEventSubscriptionSnapshot(event: string): {
     disposed: record.disposed,
     hasController: record.controller !== null,
   } : null;
+}
+
+export function waitForRemoteTabEventGenerationSettlement(event: string, generation: number): Promise<void> {
+  return subscriptions.get(event)?.settlements.get(generation)?.promise ?? Promise.resolve();
 }

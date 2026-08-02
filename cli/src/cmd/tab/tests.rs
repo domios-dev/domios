@@ -345,3 +345,34 @@ fn malformed_remote_targets_never_classify_as_local() {
     }
     assert_eq!(super::classify_remote_tab_id("local"), super::RemoteTabTarget::Local);
 }
+
+#[test]
+fn every_tab_action_rejects_malformed_remote_before_local_transport() {
+    use crate::args::misc::TabCaptureAction;
+    let bad = || Some("mesh:peer/bad?tab".to_string());
+    let actions = vec![
+        TabAction::Inspect { tabs: vec![bad().unwrap()] },
+        TabAction::Focus { id: bad().unwrap() },
+        TabAction::Close { id: bad().unwrap() },
+        TabAction::Rename { tab: bad(), title: "x".into() },
+        TabAction::Describe { tab: bad(), summary: "x".into() },
+        TabAction::GetText { tab: bad(), formatted: false },
+        TabAction::Exec { tab: bad(), command: "x".into(), timeout: 1 },
+        TabAction::Status { tab: bad() },
+        TabAction::Stop { tab: bad() },
+        TabAction::Chat { tab: bad(), since: 0 },
+        TabAction::Capture { action: TabCaptureAction::Start { tab: bad(), out: "x.cast".into() } },
+        TabAction::Capture { action: TabCaptureAction::Stop { tab: bad() } },
+    ];
+    let mut local_transport_calls = 0;
+    for action in &actions {
+        if invalid_user_tab_selector(action).is_none() { local_transport_calls += 1; }
+    }
+    assert_eq!(local_transport_calls, 0, "malformed mesh selectors reached local RPC/HTTP");
+}
+
+#[test]
+fn remote_chat_path_percent_encodes_unicode_selector() {
+    let encoded = urlencoding::encode("таб:one");
+    assert_eq!(format!("/api/tabs/{encoded}/chat?since=9"), "/api/tabs/%D1%82%D0%B0%D0%B1%3Aone/chat?since=9");
+}
