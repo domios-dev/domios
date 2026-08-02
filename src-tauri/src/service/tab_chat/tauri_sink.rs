@@ -15,6 +15,8 @@ use crate::service::tab_chat::DeltaSink;
 struct DeltaEvent<'a> {
     tab_id: &'a str,
     messages: &'a [RichMessage],
+    start_offset: u64,
+    offset: u64,
 }
 
 pub struct TauriDeltaSink {
@@ -28,11 +30,13 @@ impl TauriDeltaSink {
 }
 
 impl DeltaSink for TauriDeltaSink {
-    fn emit(&self, tab_id: &str, messages: Vec<RichMessage>) {
+    fn emit(&self, tab_id: &str, messages: Vec<RichMessage>, start_offset: u64, offset: u64) {
         let event = format!("tab-chat-{}", tab_id);
         let payload = DeltaEvent {
             tab_id,
             messages: &messages,
+            start_offset,
+            offset,
         };
         // emit_everywhere: webview + SSE bus, so the web mirror's chat streams assistant deltas too.
         crate::api::events::emit_everywhere(

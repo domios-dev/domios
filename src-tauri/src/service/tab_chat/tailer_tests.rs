@@ -30,7 +30,7 @@ struct Collector {
     msgs: Mutex<Vec<RichMessage>>,
 }
 impl DeltaSink for Collector {
-    fn emit(&self, _tab_id: &str, messages: Vec<RichMessage>) {
+    fn emit(&self, _tab_id: &str, messages: Vec<RichMessage>, _start_offset: u64, _offset: u64) {
         self.msgs.lock().extend(messages);
     }
 }
