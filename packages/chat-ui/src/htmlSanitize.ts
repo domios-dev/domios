@@ -35,6 +35,10 @@ const EXTRA_TAGS = [
   "wbr",
 ];
 
+const SAFE_SVG_TAGS = ["circle", "ellipse", "g", "line", "path", "polygon", "polyline", "rect", "svg"];
+const SVG_PAINT_ATTRIBUTES = new Set(["color", "fill", "stroke"]);
+const SAFE_SVG_PAINT = /^(?:none|currentcolor|transparent|inherit|[a-z]+|#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla)\([^()]*)$/i;
+
 /** Cosmetic properties only: nothing that can position, overlay, or animate out of flow. */
 const ALLOWED_STYLE_PROPERTIES = new Set([
   "align-items", "background", "background-color", "background-image", "border", "border-bottom",
@@ -59,7 +63,7 @@ function stripCssComments(value: string): string {
 
 export const CHAT_HTML_SANITIZE_SCHEMA = {
   ...defaultSchema,
-  tagNames: [...new Set([...(defaultSchema.tagNames ?? []), ...EXTRA_TAGS])],
+  tagNames: [...new Set([...(defaultSchema.tagNames ?? []), ...EXTRA_TAGS, ...SAFE_SVG_TAGS])],
   attributes: {
     ...defaultSchema.attributes,
     "*": [...new Set([...(defaultSchema.attributes?.["*"] ?? []), "className", "style", "title"])],
@@ -69,6 +73,15 @@ export const CHAT_HTML_SANITIZE_SCHEMA = {
     abbr: ["title"],
     time: ["dateTime"],
     img: [...new Set([...(defaultSchema.attributes?.img ?? []), "loading", "width", "height"])],
+    svg: ["ariaHidden", "color", "fill", "height", "preserveAspectRatio", "role", "stroke", "strokeLinecap", "strokeLinejoin", "strokeWidth", "viewBox", "width"],
+    g: ["color", "fill", "stroke", "strokeLinecap", "strokeLinejoin", "strokeWidth"],
+    path: ["clipRule", "d", "fill", "fillRule", "stroke", "strokeLinecap", "strokeLinejoin", "strokeWidth"],
+    circle: ["cx", "cy", "fill", "r", "stroke", "strokeWidth"],
+    ellipse: ["cx", "cy", "fill", "rx", "ry", "stroke", "strokeWidth"],
+    line: ["stroke", "strokeLinecap", "strokeWidth", "x1", "x2", "y1", "y2"],
+    polygon: ["fill", "points", "stroke", "strokeLinejoin", "strokeWidth"],
+    polyline: ["fill", "points", "stroke", "strokeLinecap", "strokeLinejoin", "strokeWidth"],
+    rect: ["fill", "height", "rx", "ry", "stroke", "strokeWidth", "width", "x", "y"],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -99,6 +112,13 @@ function scrubNode(node: HastNode) {
       node.properties!.style = safe;
     } else {
       delete node.properties!.style;
+    }
+  }
+  if (SAFE_SVG_TAGS.includes(node.tagName ?? "") && node.properties) {
+    for (const [name, value] of Object.entries(node.properties)) {
+      if (SVG_PAINT_ATTRIBUTES.has(name) && (typeof value !== "string" || !SAFE_SVG_PAINT.test(value.trim()))) {
+        delete node.properties[name];
+      }
     }
   }
   for (const child of node.children ?? []) {
