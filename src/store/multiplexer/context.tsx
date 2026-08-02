@@ -50,11 +50,10 @@ export interface MultiplexerActionsContextType {
   setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
   setAgentType: (tabId: string, agentType: string | null) => void;
   updateTabStatus: (tabId: string, status: TabStatus) => void;
-  spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
+  spawnClaudeTab: (workspaceId: string, cwd?: string) => void;
   spawnAgentTab: (
     workspaceId: string,
     agentId: string,
-    skipPermissions: boolean,
     cwd?: string,
     model?: string,
   ) => Promise<SpawnedTab | null>;

@@ -7,7 +7,6 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
-import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig } from "../../lib/types";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
@@ -39,12 +38,9 @@ import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
+import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
-import {
-  durablePermissionBypassPreference,
-  rememberedPermissionBypass,
-} from "../../lib/permissionBypass";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -118,18 +114,17 @@ export function Sidebar({
   } = useMultiplexer();
   const state = useMuxState();
   const isWorkspaceMode = mainView === "workspace";
-  const [agentSpawnModal, setAgentSpawnModal] = useState<
-    { folder: string; agentId: string; workspaceId: string } | null
-  >(null);
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [skipPermissions, setSkipPermissions] = useState(false);
-  const [rememberPermissionChoice, setRememberPermissionChoice] = useState(false);
   const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
-  const [sessionPicker, setSessionPicker] = useState<{ workspaceId: string; workspaceCwd: string | null } | null>(null);
+  const [sessionPicker, setSessionPicker] = useState<{
+    workspaceId: string;
+    workspaceCwd: string | null;
+    initialProviderId?: string;
+  } | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
@@ -148,15 +143,10 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
-    const descriptor = providers.find((provider) => provider.id === agentId);
-    const providerConfig = agentsConfig?.[agentId];
-    const supportsBypass = descriptor?.supports_permission_bypass === true;
-    const saved = supportsBypass && rememberedPermissionBypass(providerConfig);
-    const openPermissionReview = (selectedFolder: string) => {
-      setSkipPermissions(saved);
-      setRememberPermissionChoice(saved);
-      setAgentSpawnModal({ folder: selectedFolder, agentId, workspaceId });
-    };
+    if (config?.agent.full_access === undefined) {
+      setSessionPicker({ workspaceId, workspaceCwd, initialProviderId: agentId });
+      return;
+    }
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
@@ -165,11 +155,7 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            if (!supportsBypass) {
-              spawnAgentTab(workspaceId, agentId, saved, path);
-            } else {
-              openPermissionReview(path);
-            }
+            spawnAgentTab(workspaceId, agentId, path);
           },
         });
         return;
@@ -187,27 +173,8 @@ export function Sidebar({
       }
       if (!folder) return;
     }
-    if (!supportsBypass) {
-      spawnAgentTab(workspaceId, agentId, saved, folder);
-      return;
-    }
-    openPermissionReview(folder);
-  }, [agentsConfig, providers, spawnAgentTab]);
-
-  const handlePermissionConfirm = useCallback(() => {
-    if (!agentSpawnModal) return;
-    void setProviderSettings(
-      agentSpawnModal.agentId,
-      durablePermissionBypassPreference(skipPermissions, rememberPermissionChoice),
-    );
-    spawnAgentTab(
-      agentSpawnModal.workspaceId,
-      agentSpawnModal.agentId,
-      skipPermissions,
-      agentSpawnModal.folder,
-    );
-    setAgentSpawnModal(null);
-  }, [agentSpawnModal, rememberPermissionChoice, skipPermissions, spawnAgentTab]);
+    spawnAgentTab(workspaceId, agentId, folder);
+  }, [config?.agent.full_access, spawnAgentTab]);
 
   const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
     if (!orchestrationModal) return;
@@ -235,6 +202,17 @@ export function Sidebar({
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     if (firstRunActive) return;
     setSessionPicker({ workspaceId, workspaceCwd });
+  }, [firstRunActive]);
+
+  useEffect(() => {
+    const openRequestedSession = (event: Event) => {
+      if (firstRunActive) return;
+      const detail = (event as CustomEvent<OpenNewSessionDetail>).detail;
+      if (!detail?.workspaceId) return;
+      setSessionPicker(detail);
+    };
+    window.addEventListener(OPEN_NEW_SESSION_EVENT, openRequestedSession);
+    return () => window.removeEventListener(OPEN_NEW_SESSION_EVENT, openRequestedSession);
   }, [firstRunActive]);
 
   useEffect(() => {
@@ -899,55 +877,10 @@ export function Sidebar({
           workspaceId={sessionPicker.workspaceId}
           workspaceCwd={sessionPicker.workspaceCwd}
           agentsConfig={agentsConfig}
+          agentConfig={config?.agent}
+          initialProviderId={sessionPicker.initialProviderId}
           onClose={() => setSessionPicker(null)}
         />
-      )}
-      {agentSpawnModal && (
-        <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setAgentSpawnModal(null)} />
-          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden">
-            <div className="px-4 pt-4 pb-2">
-              <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn {getAgentProvider(agentSpawnModal.agentId)?.displayName ?? agentSpawnModal.agentId}</div>
-              <div className="mt-2 text-[11px] text-[var(--ct-muted)] truncate" title={agentSpawnModal.folder}>
-                {agentSpawnModal.folder}
-              </div>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-2.5">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={skipPermissions}
-                  onChange={(e) => setSkipPermissions(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-[12px] text-[var(--ct-fg)]">Bypass provider permissions and sandbox</span>
-              </label>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberPermissionChoice}
-                  onChange={(e) => setRememberPermissionChoice(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-[12px] text-[var(--ct-muted-fg)]">Remember my choice</span>
-              </label>
-            </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
-              <button
-                onClick={() => setAgentSpawnModal(null)}
-                className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePermissionConfirm}
-                className="px-4 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 transition-opacity"
-              >
-                Launch
-              </button>
-            </div>
-          </div>
-        </>
       )}
 
       {orchestrationModal && (

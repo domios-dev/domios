@@ -4,7 +4,7 @@ import { IS_WEB } from "../../lib/webApi";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
-import { setProviderSettings } from "../../lib/clientSettings";
+import { setAgentSettings } from "../../lib/clientSettings";
 import {
   defaultNewSessionChoice,
   readPersistedNewSessionChoice,
@@ -20,10 +20,6 @@ import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { Button } from "../shared/Button";
-import {
-  durablePermissionBypassPreference,
-  rememberedPermissionBypass,
-} from "../../lib/permissionBypass";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -31,11 +27,15 @@ export function NewSessionPicker({
   workspaceId,
   workspaceCwd,
   agentsConfig,
+  agentConfig,
+  initialProviderId,
   onClose,
 }: {
   workspaceId: string;
   workspaceCwd?: string | null;
   agentsConfig?: AppConfig["agents"];
+  agentConfig?: AppConfig["agent"];
+  initialProviderId?: string;
   onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
@@ -48,9 +48,7 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => defaultNewSessionChoice(visibleProviders));
   const [busy, setBusy] = useState(false);
-  const [permissionModalProviderId, setPermissionModalProviderId] = useState<string | null>(null);
-  const [skipPermissions, setSkipPermissions] = useState(false);
-  const [rememberPermissionChoice, setRememberPermissionChoice] = useState(false);
+  const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const disabledProviderIds = useMemo(
     () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
@@ -71,9 +69,15 @@ export function NewSessionPicker({
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
-    setChoice(readPersistedNewSessionChoice(visibleProviders));
+    const restored = readPersistedNewSessionChoice(visibleProviders);
+    if (initialProviderId && visibleProviders.some((provider) => provider.id === initialProviderId)) {
+      const provider = visibleProviders.find((candidate) => candidate.id === initialProviderId);
+      setChoice({ mode: "single", providerId: initialProviderId, modelId: provider?.default_model });
+    } else {
+      setChoice(restored);
+    }
     hasRestoredRef.current = true;
-  }, [visibleProviders]);
+  }, [initialProviderId, visibleProviders]);
 
   useEffect(() => {
     if (!hasRestoredRef.current) return;
@@ -98,13 +102,13 @@ export function NewSessionPicker({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || permissionModalProviderId || folderPickerOpen) return;
+      if (event.key !== "Escape" || busy || folderPickerOpen) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, permissionModalProviderId, folderPickerOpen, onClose]);
+  }, [busy, folderPickerOpen, onClose]);
 
   useEffect(() => {
     const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -194,7 +198,6 @@ export function NewSessionPicker({
   const runProviderSpawn = useCallback(async (
     providerId: string,
     modelId: string | undefined,
-    skipPermissions: boolean,
   ) => {
     if (disabledProviderIds.has(providerId)) return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
@@ -202,16 +205,15 @@ export function NewSessionPicker({
       spawnAgentTab(
         selectedWorkspaceId,
         providerId,
-        skipPermissions,
         targetCwd ?? undefined,
         modelId,
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
 
-  const runSingleSpawn = useCallback(async (skipPermissions: boolean) => {
+  const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
-    await runProviderSpawn(choice.providerId, choice.modelId, skipPermissions);
+    await runProviderSpawn(choice.providerId, choice.modelId);
   }, [choice, runProviderSpawn]);
 
   const runPairSpawn = useCallback(() => {
@@ -245,31 +247,43 @@ export function NewSessionPicker({
   }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, selectedWorkspaceId]);
 
   const handleStart = useCallback(() => {
-    if (choice.mode === "pair") {
-      void runPairSpawn();
+    const start = async () => {
+      if (choice.mode === "pair") {
+        runPairSpawn();
+      } else {
+        await runSingleSpawn();
+      }
+    };
+    if (agentConfig?.full_access !== undefined) {
+      void start();
       return;
     }
-    const provider = visibleProviders.find((candidate) => candidate.id === choice.providerId);
-    const providerConfig = agentsConfig?.[choice.providerId];
-    const saved = rememberedPermissionBypass(providerConfig);
-    if (provider?.supports_permission_bypass) {
-      setSkipPermissions(saved);
-      setRememberPermissionChoice(saved);
-      setPermissionModalProviderId(choice.providerId);
-      return;
-    }
-    void runSingleSpawn(provider?.supports_permission_bypass === true && saved);
-  }, [agentsConfig, choice, runPairSpawn, runSingleSpawn, visibleProviders]);
-
-  const handlePermissionConfirm = useCallback(() => {
-    if (!permissionModalProviderId) return;
-    void setProviderSettings(
-      permissionModalProviderId,
-      durablePermissionBypassPreference(skipPermissions, rememberPermissionChoice),
-    );
-    setPermissionModalProviderId(null);
-    void runSingleSpawn(skipPermissions);
-  }, [permissionModalProviderId, rememberPermissionChoice, runSingleSpawn, skipPermissions]);
+    setBusy(true);
+    void setAgentSettings({ full_access: firstAccessFull })
+      .then(() => {
+        setBusy(false);
+        return start();
+      })
+      .catch((error) => {
+        setBusy(false);
+        addNotification({
+          tab_id: null,
+          workspace_id: workspaceId,
+          title: "Agent access was not saved",
+          body: error instanceof Error ? error.message : String(error),
+          level: "Error",
+          sticky: true,
+        });
+      });
+  }, [
+    addNotification,
+    agentConfig?.full_access,
+    choice.mode,
+    firstAccessFull,
+    runPairSpawn,
+    runSingleSpawn,
+    workspaceId,
+  ]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     setChoice((prev) => {
@@ -457,6 +471,23 @@ export function NewSessionPicker({
           <span className="min-w-0 truncate">{previewText}</span>
         </div>
 
+        {agentConfig?.full_access === undefined && (
+          <label className="relative mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={firstAccessFull}
+              onChange={(event) => setFirstAccessFull(event.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 accent-[var(--ct-accent)]"
+            />
+            <span>
+              <span className="block text-[12px] text-[var(--ct-fg)]">Full access for agents</span>
+              <span className="mt-0.5 block text-[11px] text-[var(--ct-muted-fg)]">
+                Agents can edit files and run commands without asking. You can change this later in Settings.
+              </span>
+            </span>
+          </label>
+        )}
+
         <div className="relative mt-4 flex justify-end">
           <Button
             variant="primary"
@@ -469,49 +500,6 @@ export function NewSessionPicker({
           </Button>
         </div>
       </div>
-
-      {permissionModalProviderId && (
-        <>
-          <div className="fixed inset-0 z-[1010] bg-black/40" onClick={() => setPermissionModalProviderId(null)} />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Provider permission options"
-            className="fixed z-[1010] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden"
-          >
-            <div className="px-4 pt-4 pb-2">
-              <div className="text-[13px] font-medium text-[var(--ct-fg)]">
-                Spawn {visibleProviders.find((provider) => provider.id === permissionModalProviderId)?.display_name ?? permissionModalProviderId}
-              </div>
-              <div className="mt-1 text-[11px] text-[var(--ct-muted-fg)]">Provider permissions and sandboxing stay enabled by default.</div>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-2.5">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={skipPermissions}
-                  onChange={(e) => setSkipPermissions(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-[12px] text-[var(--ct-fg)]">Bypass provider permissions and sandbox</span>
-              </label>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberPermissionChoice}
-                  onChange={(e) => setRememberPermissionChoice(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-[12px] text-[var(--ct-muted-fg)]">Remember my choice</span>
-              </label>
-            </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
-              <Button variant="ghost" size="sm" onClick={() => setPermissionModalProviderId(null)}>Cancel</Button>
-              <Button variant="accent" size="sm" onClick={handlePermissionConfirm}>Launch</Button>
-            </div>
-          </div>
-        </>
-      )}
 
       {folderPickerOpen && (
         <div className="fixed inset-0 z-[1020]">

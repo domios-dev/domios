@@ -256,7 +256,6 @@ impl ServiceContext {
                 model,
                 task: Some(task_text),
                 role,
-                auto_approve: false,
                 report_target_tab_id,
                 spawned_by: Some(format!("cron:{}", id)),
                 ..Default::default()

@@ -79,14 +79,6 @@ impl RestartOutcome {
         }
     }
 
-    /// Permission/sandbox profile the relaunch preserves from the tab.
-    pub fn permission_profile(&self) -> &'static str {
-        if self.auto_approve {
-            "yolo"
-        } else {
-            "sandboxed"
-        }
-    }
 }
 
 /// Tab state captured before any restart leg mutates it.
@@ -340,13 +332,13 @@ impl ServiceContext {
             )));
         }
 
-        let auto_approve = crate::service::permission_policy::permission_bypass_allowed(
+        let auto_approve = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
             &provider,
-            tab.auto_approve,
-            tab.hidden,
-            tab.audience,
-        );
+        )
+        .ok()
+        .flatten()
+        .is_some();
         if let Some(live_tab) = mux.get_tab_mut(&resolved) {
             live_tab.auto_approve = auto_approve;
         }
@@ -551,13 +543,13 @@ fn build_relaunch_command(
     launch_task: Option<&str>,
 ) -> Option<String> {
     let provider = &snap.provider;
-    let auto_approve = crate::service::permission_policy::permission_bypass_allowed(
+    let auto_approve = crate::service::permission_policy::configured_permission_bypass(
         &svc.agent_registry,
         provider,
-        snap.auto_approve,
-        false,
-        crate::multiplexer::types::TabAudience::User,
-    );
+    )
+    .ok()
+    .flatten()
+    .is_some();
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
     let structured_prompt_server = svc

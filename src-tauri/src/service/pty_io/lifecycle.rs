@@ -450,12 +450,18 @@ impl ServiceContext {
             },
             |stage, error| self.emit_boot_stage(tab_id, stage, Some(error)),
             |launch, restored_task| {
-                let pc = crate::config::provider_config(&launch.provider_id);
+                let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
+                    &self.agent_registry,
+                    &launch.provider_id,
+                )
+                .ok()
+                .flatten()
+                .is_some();
                 let input = restored_snapshot_launch_input(
                     &self.agent_registry,
                     launch,
                     restored_task,
-                    pc.resume_skip_permissions.unwrap_or(true),
+                    permission_bypass,
                 );
                 let provider_id = input
                     .params

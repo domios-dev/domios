@@ -88,8 +88,15 @@ pub fn complete_general_agent_first_run(
     config: State<'_, crate::config::ConfigState>,
     app: tauri::AppHandle,
     provider_id: String,
+    full_access: bool,
 ) -> Result<(), String> {
-    crate::service::general_agent::complete_first_run_core(&svc, &config, &app, &provider_id)
+    crate::service::general_agent::complete_first_run_core(
+        &svc,
+        &config,
+        &app,
+        &provider_id,
+        full_access,
+    )
 }
 
 #[tauri::command]

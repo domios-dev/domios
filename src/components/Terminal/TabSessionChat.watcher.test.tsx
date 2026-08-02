@@ -192,8 +192,8 @@ test("store Tab action doubles preserve invocation contracts", async () => {
   const moves: Array<[string, string, string]> = [];
   const creates: Array<[string, string | undefined]> = [];
   const closes: Array<[string, string]> = [];
-  const claudeSpawns: Array<[string, boolean, string | undefined]> = [];
-  const agentSpawns: Array<[string, string, boolean, string | undefined, string | undefined]> = [];
+  const claudeSpawns: Array<[string, string | undefined]> = [];
+  const agentSpawns: Array<[string, string, string | undefined, string | undefined]> = [];
   const createdTabResult = { id: "created-tab" } as Awaited<
     ReturnType<MultiplexerActionsContextType["createTab"]>
   >;
@@ -211,11 +211,11 @@ test("store Tab action doubles preserve invocation contracts", async () => {
     setActiveTab: (workspaceId, tabId) => {
       activations.push([workspaceId, tabId]);
     },
-    spawnClaudeTab: (workspaceId, skipPermissions, cwd) => {
-      claudeSpawns.push([workspaceId, skipPermissions, cwd]);
+    spawnClaudeTab: (workspaceId, cwd) => {
+      claudeSpawns.push([workspaceId, cwd]);
     },
-    spawnAgentTab: async (workspaceId, agentId, skipPermissions, cwd, model) => {
-      agentSpawns.push([workspaceId, agentId, skipPermissions, cwd, model]);
+    spawnAgentTab: async (workspaceId, agentId, cwd, model) => {
+      agentSpawns.push([workspaceId, agentId, cwd, model]);
       return null;
     },
   });
@@ -224,8 +224,8 @@ test("store Tab action doubles preserve invocation contracts", async () => {
   const created = await actions.createTab("workspace-1", "/repo/new");
   actions.closeTab("workspace-1", "tab-2");
   actions.setActiveTab("workspace-1", "tab-2");
-  actions.spawnClaudeTab("workspace-1", true, "/repo/claude");
-  await actions.spawnAgentTab("workspace-1", "codex", false, "/repo/codex", "gpt-5");
+  actions.spawnClaudeTab("workspace-1", "/repo/claude");
+  await actions.spawnAgentTab("workspace-1", "codex", "/repo/codex", "gpt-5");
 
   assert(moves.length === 1, `move called ${moves.length} times`);
   assert(
@@ -253,17 +253,15 @@ test("store Tab action doubles preserve invocation contracts", async () => {
   assert(claudeSpawns.length === 1, `Claude spawn called ${claudeSpawns.length} times`);
   assert(
     claudeSpawns[0]?.[0] === "workspace-1"
-      && claudeSpawns[0]?.[1] === true
-      && claudeSpawns[0]?.[2] === "/repo/claude",
+      && claudeSpawns[0]?.[1] === "/repo/claude",
     "Claude spawn receives expected arguments",
   );
   assert(agentSpawns.length === 1, `agent spawn called ${agentSpawns.length} times`);
   assert(
     agentSpawns[0]?.[0] === "workspace-1"
       && agentSpawns[0]?.[1] === "codex"
-      && agentSpawns[0]?.[2] === false
-      && agentSpawns[0]?.[3] === "/repo/codex"
-      && agentSpawns[0]?.[4] === "gpt-5",
+      && agentSpawns[0]?.[2] === "/repo/codex"
+      && agentSpawns[0]?.[3] === "gpt-5",
     "agent spawn receives expected arguments",
   );
 });
