@@ -24,7 +24,7 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
 }
 
 #[test]
-fn runtime_ready_then_acknowledged_enters_progress() {
+fn worker_ack_transitions_exact_pending_task_to_in_progress() {
     let (root, project) = git_project();
     let resolved = resolve_dispatch_lane(
         None,
@@ -107,7 +107,7 @@ fn runtime_ready_then_acknowledged_enters_progress() {
     let task = store.show_task(&task_id).unwrap().task;
     let attempt = task.execution_attempts.last().unwrap();
     assert_eq!(task.status, TaskStatus::InProgress);
-    assert_eq!(task.status_label, None);
+    assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(attempt.acknowledged_at, Some(6));
     assert_eq!(attempt.session_id.as_deref(), Some("session-worker"));
     assert_eq!(attempt.worktree_path, task.lane.worktree_path);
@@ -121,7 +121,7 @@ fn runtime_ready_then_acknowledged_enters_progress() {
 }
 
 #[test]
-fn acknowledged_then_runtime_ready_enters_progress() {
+fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let plan = store
@@ -160,10 +160,24 @@ fn acknowledged_then_runtime_ready_enters_progress() {
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 5)
         .unwrap();
     assert_eq!(ack.attempt.acknowledged_at, Some(5));
-    assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
-        TaskStatus::Pending
-    );
+    let acknowledged = store.show_task(&task_id).unwrap().task;
+    assert_eq!(acknowledged.status, TaskStatus::InProgress);
+    assert_eq!(acknowledged.status_label.as_deref(), Some("acknowledged"));
+    let first_changed_at = acknowledged.status_changed_at;
+
+    let replay = store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 6)
+        .unwrap();
+    assert_eq!(replay.attempt.acknowledged_at, Some(5));
+    let after_replay = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after_replay.status_changed_at, first_changed_at);
+    assert_eq!(after_replay.status_label.as_deref(), Some("acknowledged"));
+    assert!(store
+        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 7)
+        .is_err());
+    let after_stale = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after_stale.status_changed_at, first_changed_at);
+    assert_eq!(after_stale.execution_attempts[0].acknowledged_at, Some(5));
 
     store
         .finish_task_dispatch(
@@ -173,12 +187,12 @@ fn acknowledged_then_runtime_ready_enters_progress() {
             &attempt_id,
             "session-worker",
             lane,
-            6,
+            8,
         )
         .unwrap();
     let task = store.show_task(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
-    assert_eq!(task.status_label, None);
+    assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(
         task.execution_attempts.last().unwrap().acknowledged_at,
         Some(5)

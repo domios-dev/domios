@@ -204,6 +204,26 @@ impl PlanStore {
         attempt_id: &str,
         now_ms: u64,
     ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
+        let current_task = self.read_task_for_verification(plan_id, task_id)?;
+        let current_attempt = current_task
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == attempt_id)
+            .ok_or(PlanError::TaskNotFound)?;
+        if current_attempt.executor_tab_id != tab_id || current_attempt.closed_at.is_some() {
+            return Err(Self::task_readback_error(
+                "task_dispatch_ack",
+                "attempt no longer owns the acknowledging tab",
+            ));
+        }
+        if current_attempt.acknowledged_at.is_some() {
+            let attempt = current_attempt.clone();
+            return Ok(super::task_attempts::TaskAttemptCreated {
+                plan_id: plan_id.to_string(),
+                task_id: current_task.id,
+                attempt,
+            });
+        }
         let mut acknowledged = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
             let task_index = plan
@@ -223,9 +243,7 @@ impl PlanStore {
                     "attempt no longer owns the acknowledging tab",
                 ));
             }
-            if attempt.session_id.is_some()
-                && plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress
-            {
+            if plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress {
                 super::mutations::validate_task_status_transition(
                     plan,
                     &plan.tasks[task_index].id,
@@ -237,16 +255,11 @@ impl PlanStore {
             let task = &mut plan.tasks[task_index];
             let attempt = &mut task.execution_attempts[attempt_index];
             attempt.acknowledged_at.get_or_insert(now_ms);
-            if attempt.session_id.is_some() {
-                if task.status != crate::plan::TaskStatus::InProgress {
-                    task.status_changed_at = now_ms;
-                }
-                task.status = crate::plan::TaskStatus::InProgress;
-                task.status_label = attempt
-                    .competition_group_id
-                    .as_ref()
-                    .map(|_| "competitive".to_string());
+            if task.status != crate::plan::TaskStatus::InProgress {
+                task.status_changed_at = now_ms;
             }
+            task.status = crate::plan::TaskStatus::InProgress;
+            task.status_label = Some("acknowledged".to_string());
             task.updated_at = now_ms;
             acknowledged = Some(attempt.clone());
             Ok(())
@@ -261,15 +274,10 @@ impl PlanStore {
                 .iter()
                 .find(|candidate| candidate.id == attempt_id)
                 .ok_or_else(|| Self::task_readback_error("task_dispatch_ack", "attempt missing"))?;
-            let expected_label = persisted
-                .competition_group_id
-                .as_ref()
-                .map(|_| "competitive");
             if persisted.executor_tab_id != tab_id
                 || persisted.acknowledged_at != attempt.acknowledged_at
-                || (persisted.session_id.is_some()
-                    && (task.status != crate::plan::TaskStatus::InProgress
-                        || task.status_label.as_deref() != expected_label))
+                || task.status != crate::plan::TaskStatus::InProgress
+                || task.status_label.as_deref() != Some("acknowledged")
             {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
@@ -378,9 +386,7 @@ impl PlanStore {
                     task.status_changed_at = now_ms;
                 }
                 task.status = crate::plan::TaskStatus::InProgress;
-                if attempt.competition_group_id.is_none() {
-                    task.status_label = None;
-                }
+                task.status_label = Some("acknowledged".into());
             } else if attempt.competition_group_id.is_none() {
                 task.status_label = Some("awaiting_worker_ack".into());
             }

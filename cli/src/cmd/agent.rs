@@ -663,7 +663,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(value) if json => {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 }
-                Ok(_) => println!("acknowledged"),
+                Ok(value) => match render_agent_ack(&value) {
+                    Ok(message) => println!("{message}"),
+                    Err(error) => {
+                        eprintln!("ACK NOT ACCEPTED: {error}");
+                        std::process::exit(1);
+                    }
+                },
                 Err(error) => {
                     eprintln!("ACK NOT ACCEPTED: {error}");
                     std::process::exit(1);
@@ -1024,6 +1030,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
         }
     }
+}
+
+fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
+    let task_id = value
+        .get("task_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "daemon response omitted task identity".to_string())?;
+    let attempt_id = value
+        .get("attempt_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "daemon response omitted attempt identity".to_string())?;
+    Ok(format!(
+        "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
+    ))
 }
 
 fn print_agent_mutation_response(resp: reqwest::blocking::Response) {

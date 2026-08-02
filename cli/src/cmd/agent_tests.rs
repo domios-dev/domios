@@ -176,3 +176,16 @@ fn failed_agent_transition_response_is_not_reported_as_success() {
     .unwrap_err();
     assert_eq!(error, "transition rolled back");
 }
+
+#[test]
+fn agent_ack_prints_task_and_attempt() {
+    let response = serde_json::json!({
+        "task_id": "task_demo",
+        "attempt_id": "attempt_demo",
+    });
+
+    assert_eq!(
+        render_agent_ack(&response).unwrap(),
+        "ACKNOWLEDGED — task task_demo, attempt attempt_demo. Continue work."
+    );
+}
