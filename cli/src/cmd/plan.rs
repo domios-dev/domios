@@ -223,6 +223,7 @@ fn run_plan(
                 "title": title,
                 "owner": owner_from_env(),
             });
+            inject_trusted_session(&mut params);
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
@@ -640,18 +641,20 @@ fn run_plan(
 
         PlanAction::Approve { plan_id } => {
             crate::cmd::plan_doctor::assert_quality_ready(client, &plan_id)?;
+            let mut params = json!({ "plan_id": plan_id, "mode": "approved" });
+            inject_trusted_session(&mut params);
             call(
                 client,
                 "plan.mode.set",
-                json!({ "plan_id": plan_id, "mode": "approved" }),
+                params,
             )
         }
 
-        PlanAction::Unapprove { plan_id } => call(
-            client,
-            "plan.mode.set",
-            json!({ "plan_id": plan_id, "mode": "planning" }),
-        ),
+        PlanAction::Unapprove { plan_id } => {
+            let mut params = json!({ "plan_id": plan_id, "mode": "planning" });
+            inject_trusted_session(&mut params);
+            call(client, "plan.mode.set", params)
+        }
 
         PlanAction::PlanningState {
             plan_id,
@@ -666,14 +669,15 @@ fn run_plan(
             if let Some(n) = note {
                 params["note"] = json!(n);
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.planning.set", params)
         }
 
-        PlanAction::Mode { plan_id, set } => call(
-            client,
-            "plan.mode.set",
-            json!({ "plan_id": plan_id, "mode": set }),
-        ),
+        PlanAction::Mode { plan_id, set } => {
+            let mut params = json!({ "plan_id": plan_id, "mode": set });
+            inject_trusted_session(&mut params);
+            call(client, "plan.mode.set", params)
+        }
 
         PlanAction::Pause { plan_id, reason } => call(
             client,
@@ -769,11 +773,9 @@ fn run_plan(
 
         PlanAction::Ingest { plan_id, markdown } => {
             let markdown = read_path_or_stdin(&markdown)?;
-            call(
-                client,
-                "plan.ingest",
-                json!({ "plan_id": plan_id, "markdown": markdown }),
-            )
+            let mut params = json!({ "plan_id": plan_id, "markdown": markdown });
+            inject_trusted_session(&mut params);
+            call(client, "plan.ingest", params)
         }
 
         PlanAction::Handoff { action } => {

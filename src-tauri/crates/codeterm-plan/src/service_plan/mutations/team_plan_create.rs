@@ -24,7 +24,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms)
+        self.create_plan_for_team_in_mode(title, project_path, owner, None, team_id, kinds, now_ms)
     }
 
     pub fn create_first_plan_for_team(
@@ -36,7 +36,28 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms)
+        self.create_plan_for_team_in_mode(title, project_path, owner, None, team_id, kinds, now_ms)
+    }
+
+    pub fn create_first_plan_for_team_with_planner(
+        &self,
+        title: String,
+        project_path: String,
+        owner: OrchestratorRef,
+        planner: PlannerRef,
+        team_id: String,
+        kinds: Vec<MilestoneKind>,
+        now_ms: u64,
+    ) -> Result<Plan, PlanError> {
+        self.create_plan_for_team_in_mode(
+            title,
+            project_path,
+            owner,
+            Some(planner),
+            team_id,
+            kinds,
+            now_ms,
+        )
     }
 
     fn create_plan_for_team_in_mode(
@@ -44,6 +65,7 @@ impl PlanStore {
         title: String,
         project_path: String,
         owner: OrchestratorRef,
+        planner: Option<PlannerRef>,
         team_id: String,
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
@@ -82,6 +104,7 @@ impl PlanStore {
             plan.id = self.mint_id("pl");
         }
         plan.team_id = Some(team_id);
+        plan.planner = planner;
         plan.milestone_kinds = kinds;
         if let Err(error) = self.save_in_writer(&mut plan, now_ms) {
             self.plans.write().remove(&plan.id);

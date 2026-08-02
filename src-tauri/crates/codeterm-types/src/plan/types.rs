@@ -821,7 +821,7 @@ impl Plan {
     }
 
     /// Single source of truth for whether execution (non-planning) tasks may be
-    /// created. planning_state is authoritative going forward; an Approved/Execution
+    /// dispatched. planning_state is authoritative going forward; an Approved/Execution
     /// lifecycle mode bridges plans predating planning_state. Complete never unlocks.
     pub fn execution_tasks_unlocked(&self) -> bool {
         !matches!(self.mode, PlanMode::Complete | PlanMode::Paused)

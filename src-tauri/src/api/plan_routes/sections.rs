@@ -32,6 +32,13 @@ pub async fn section_add(
     Json(body): Json<SectionAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     let sid = state
         .svc
         .plan_store
@@ -97,6 +104,20 @@ pub async fn section_update(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    state
+        .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    state
+        .svc
         .plan_store
         .update_section(
             &id,
@@ -119,6 +140,13 @@ pub async fn section_rm(
     Path((id, sid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     state
         .svc
         .plan_store
