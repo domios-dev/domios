@@ -124,6 +124,14 @@ fn spawnable_chatbackend_manifest(id: &str) -> String {
     )
 }
 
+fn capabilityless_manifest(id: &str) -> String {
+    use crate::js_runtime::host_api::HOST_API_VERSION;
+    format!(
+        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+            "capabilities":{{}},"entry":"plugin.js"}}"#
+    )
+}
+
 fn chatbackend_with_model(model: &str) -> String {
     format!(
         r#"module.exports.default = {{
@@ -529,6 +537,104 @@ fn chatbackend_model_refresh_is_provider_scoped_and_event_driven() {
         "foreign-model"
     );
     assert_eq!(watcher.contribution_event_count(), 4);
+}
+
+#[test]
+fn chatbackend_disable_deregisters_registry_and_model_snapshot() {
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        caps.clone(),
+    );
+    let dir = root.path().join("disable-chatbackend");
+    let manifest_path = dir.join("plugin.json");
+    write(
+        &manifest_path,
+        &spawnable_chatbackend_manifest("disable-chatbackend"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        &chatbackend_with_model("stale-model"),
+    );
+    watcher.tick();
+    assert!(caps.chatbackend.contains("disable-chatbackend"));
+    assert_eq!(watcher.contribution_event_count(), 1);
+
+    let prior_mtime = std::fs::metadata(&manifest_path)
+        .unwrap()
+        .modified()
+        .unwrap();
+    write(
+        &manifest_path,
+        &capabilityless_manifest("disable-chatbackend"),
+    );
+    set_mtime(&manifest_path, prior_mtime + Duration::from_secs(2));
+    watcher.tick();
+
+    assert!(!caps.chatbackend.contains("disable-chatbackend"));
+    assert!(
+        crate::model_catalog::registered_snapshot("disable-chatbackend")
+            .models
+            .is_empty()
+    );
+    assert_eq!(
+        watcher.contribution_event_count(),
+        2,
+        "disabling a visible chatBackend emits the provider contribution inverse"
+    );
+}
+
+#[test]
+fn chatbackend_spawnable_true_to_false_emits_contribution_inverse() {
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        caps.clone(),
+    );
+    let dir = root.path().join("hide-chatbackend");
+    let manifest_path = dir.join("plugin.json");
+    write(
+        &manifest_path,
+        &spawnable_chatbackend_manifest("hide-chatbackend"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        &chatbackend_with_model("still-registered"),
+    );
+    watcher.tick();
+    assert!(caps
+        .chatbackend
+        .get("hide-chatbackend")
+        .unwrap()
+        .spawnable());
+    assert_eq!(watcher.contribution_event_count(), 1);
+
+    let prior_mtime = std::fs::metadata(&manifest_path)
+        .unwrap()
+        .modified()
+        .unwrap();
+    write(
+        &manifest_path,
+        &capability_manifest_for("hide-chatbackend", "chatBackend"),
+    );
+    set_mtime(&manifest_path, prior_mtime + Duration::from_secs(2));
+    watcher.tick();
+
+    let backend = caps.chatbackend.get("hide-chatbackend").unwrap();
+    assert!(!backend.spawnable());
+    assert_eq!(
+        backend.describe().available_models[0].id,
+        "still-registered"
+    );
+    assert_eq!(
+        watcher.contribution_event_count(),
+        2,
+        "spawnable true-to-false emits the removal-side provider event"
+    );
 }
 
 #[test]
