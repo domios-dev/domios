@@ -300,6 +300,16 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub acknowledged_at: Option<u64>,
     #[serde(default)]
+    pub continuation_epoch: u32,
+    #[serde(default)]
+    pub continuation_review_round: Option<u32>,
+    #[serde(default)]
+    pub continuation_state: Option<String>,
+    #[serde(default)]
+    pub continuation_milestone_id: Option<String>,
+    #[serde(default)]
+    pub continuation_delivered_at: Option<u64>,
+    #[serde(default)]
     pub reported_at: Option<u64>,
     #[serde(default)]
     pub reviewed_at: Option<u64>,
