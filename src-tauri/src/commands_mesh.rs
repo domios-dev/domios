@@ -418,7 +418,12 @@ pub async fn ordinary_tabs_list(
     .cloned()
     .unwrap_or_default();
     Ok(serde_json::Value::Array(
-        crate::service::remote_tabs::ordinary_tab_projection(mesh.inner(), local).await,
+        crate::service::remote_tabs::ordinary_tab_projection(
+            mesh.inner(),
+            svc.remote_workers.as_ref(),
+            local,
+        )
+        .await,
     ))
 }
 
@@ -450,7 +455,8 @@ pub async fn mesh_remote_tab_action(
     if suffix.starts_with("/pty/") {
         let owner = crate::api::mesh_routes::remote_tabs::parse_remote_tab_owner(&ordinary_tab_id)
             .map_err(str::to_string)?;
-        let encoded_tab = crate::api::mesh_routes::remote_tabs::encode_remote_tab_component(&owner.tab_id);
+        let encoded_tab =
+            crate::api::mesh_routes::remote_tabs::encode_remote_tab_component(&owner.tab_id);
         let inspect = crate::mesh::types::RelayCommand {
             method: "GET".into(),
             path: format!("/api/tabs/inspect?tab_ids={encoded_tab}"),
@@ -475,7 +481,10 @@ pub async fn mesh_remote_tab_action(
             "/pty/resize" => format!("/api/pty/{pty_id}/resize"),
             "/pty/claim-resize" => format!("/api/tabs/{encoded_tab}/resize-owner"),
             suffix if suffix.starts_with("/pty/read") => {
-                format!("/api/pty/{pty_id}/read{}", suffix.trim_start_matches("/pty/read"))
+                format!(
+                    "/api/pty/{pty_id}/read{}",
+                    suffix.trim_start_matches("/pty/read")
+                )
             }
             _ => return Err("unsupported remote PTY action".into()),
         };
@@ -492,7 +501,9 @@ pub async fn mesh_remote_tab_action(
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
     let response = client.send_relay(&command).await?;
     if !response.ok {
-        return Err(response.error.unwrap_or_else(|| "remote tab unavailable".into()));
+        return Err(response
+            .error
+            .unwrap_or_else(|| "remote tab unavailable".into()));
     }
     Ok(response.data.unwrap_or(serde_json::Value::Null))
 }

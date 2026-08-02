@@ -9,7 +9,9 @@ pub enum OrdinaryTabKey {
 
 impl OrdinaryTabKey {
     pub fn local(tab_id: impl Into<String>) -> Self {
-        Self::Local { tab_id: tab_id.into() }
+        Self::Local {
+            tab_id: tab_id.into(),
+        }
     }
 
     pub fn remote(peer_id: impl Into<String>, tab_id: impl Into<String>) -> Self {
@@ -35,6 +37,7 @@ pub struct RemotePeerProjection {
     pub reachable: bool,
     pub availability: &'static str,
     pub tabs: Vec<serde_json::Value>,
+    pub controllers: std::collections::HashMap<String, String>,
 }
 
 pub fn merge_ordinary_tab_projection(
@@ -44,11 +47,21 @@ pub fn merge_ordinary_tab_projection(
     let mut projected = local.to_vec();
     for peer in peers.iter().filter(|peer| peer.authenticated) {
         for source in &peer.tabs {
-            let Some(tab_id) = source.get("id").and_then(serde_json::Value::as_str) else { continue };
+            let Some(tab_id) = source.get("id").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let Some(controller_id) = peer.controllers.get(tab_id) else {
+                continue;
+            };
             let mut tab = source.clone();
-            let Some(object) = tab.as_object_mut() else { continue };
+            let Some(object) = tab.as_object_mut() else {
+                continue;
+            };
             let ordinary_id = OrdinaryTabKey::remote(&peer.peer_id, tab_id).ordinary_id();
-            let remote_pty_id = object.get("pty_id").cloned().unwrap_or(serde_json::Value::Null);
+            let remote_pty_id = object
+                .get("pty_id")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             object.insert("id".into(), serde_json::json!(ordinary_id));
             object.insert("tab_id".into(), serde_json::json!(ordinary_id));
             object.insert("remote_pty_id".into(), remote_pty_id);
@@ -59,15 +72,31 @@ pub fn merge_ordinary_tab_projection(
             object.insert("remote_peer_id".into(), serde_json::json!(peer.peer_id));
             object.insert("remote_peer_name".into(), serde_json::json!(peer.peer_name));
             object.insert("remote_peer".into(), serde_json::json!(peer.peer_name));
-            object.insert("remote_availability".into(), serde_json::json!(peer.availability));
-            for field in ["parent_tab_id", "spawned_by_tab_id"] {
-                if let Some(value) = object.get(field).and_then(serde_json::Value::as_str).map(str::to_string) {
-                    object.insert(field.into(), serde_json::json!(OrdinaryTabKey::remote(&peer.peer_id, value).ordinary_id()));
-                }
-            }
-            for field in ["workspace_id", "team_id"] {
-                if let Some(value) = object.get(field).and_then(serde_json::Value::as_str).map(str::to_string) {
-                    object.insert(field.into(), serde_json::json!(format!("mesh:{}/{}", peer.peer_id, value)));
+            object.insert(
+                "remote_availability".into(),
+                serde_json::json!(peer.availability),
+            );
+            object.insert("parent_tab_id".into(), serde_json::json!(controller_id));
+            object.insert("spawned_by_tab_id".into(), serde_json::json!(controller_id));
+            if let Some(controller) = local.iter().find(|candidate| {
+                candidate.get("id").and_then(serde_json::Value::as_str)
+                    == Some(controller_id.as_str())
+            }) {
+                object.insert(
+                    "remote_controller_title".into(),
+                    controller
+                        .get("title")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!(controller_id)),
+                );
+                for field in ["workspace_id", "team_id"] {
+                    object.insert(
+                        field.into(),
+                        controller
+                            .get(field)
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
+                    );
                 }
             }
             projected.push(tab);
@@ -79,14 +108,17 @@ pub fn merge_ordinary_tab_projection(
 type RemoteTabCache = std::collections::HashMap<String, Vec<serde_json::Value>>;
 
 fn cache() -> &'static std::sync::Mutex<RemoteTabCache> {
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<RemoteTabCache>> = std::sync::OnceLock::new();
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<RemoteTabCache>> =
+        std::sync::OnceLock::new();
     CACHE.get_or_init(|| std::sync::Mutex::new(RemoteTabCache::new()))
 }
 
 pub async fn ordinary_tab_projection(
     mesh: &crate::MeshStateHandle,
+    remote_workers: &crate::service::remote_workers::RemoteWorkerRegistry,
     local: Vec<serde_json::Value>,
 ) -> Vec<serde_json::Value> {
+    let registered = remote_workers.snapshot();
     let peers = {
         let manager = mesh.lock();
         manager
@@ -102,11 +134,29 @@ pub async fn ordinary_tab_projection(
             })
             .collect::<Vec<_>>()
     };
-    let paired_ids = peers.iter().map(|(id, _, _, _)| id.clone()).collect::<std::collections::HashSet<_>>();
-    cache().lock().unwrap().retain(|peer, _| paired_ids.contains(peer));
+    let paired_ids = peers
+        .iter()
+        .map(|(id, _, _, _)| id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    cache()
+        .lock()
+        .unwrap()
+        .retain(|peer, _| paired_ids.contains(peer));
     let mut remote = Vec::new();
     for (peer_id, peer_name, online, client) in peers {
-        let mut fetched = None;
+        let controllers = registered
+            .iter()
+            .flat_map(|(controller, workers)| {
+                workers.iter().filter_map(|worker| {
+                    (worker.peer == peer_id || worker.peer == peer_name)
+                        .then(|| (worker.remote_tab.clone(), controller.clone()))
+                })
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        if controllers.is_empty() {
+            continue;
+        }
+        let mut fetched: Option<Vec<serde_json::Value>> = None;
         if online {
             if let Some(client) = client {
                 let command = crate::mesh::types::RelayCommand {
@@ -117,16 +167,32 @@ pub async fn ordinary_tab_projection(
                 };
                 if let Ok(response) = client.send_relay(&command).await {
                     if response.ok {
-                        fetched = response.data.and_then(|value| value.as_array().cloned());
+                        fetched = response
+                            .data
+                            .and_then(|value| value.as_array().cloned())
+                            .map(|tabs| {
+                                tabs.into_iter()
+                                    .filter(|tab| {
+                                        tab.get("id")
+                                            .and_then(serde_json::Value::as_str)
+                                            .is_some_and(|id| controllers.contains_key(id))
+                                    })
+                                    .collect()
+                            });
                     }
                 }
             }
         }
         if let Some(tabs) = fetched.as_ref() {
-            cache().lock().unwrap().insert(peer_id.clone(), tabs.clone());
+            cache()
+                .lock()
+                .unwrap()
+                .insert(peer_id.clone(), tabs.clone());
         }
         let fetched_ok = fetched.is_some();
-        let tabs = fetched.or_else(|| cache().lock().unwrap().get(&peer_id).cloned()).unwrap_or_default();
+        let tabs = fetched
+            .or_else(|| cache().lock().unwrap().get(&peer_id).cloned())
+            .unwrap_or_default();
         if tabs.is_empty() {
             continue;
         }
@@ -135,8 +201,15 @@ pub async fn ordinary_tab_projection(
             peer_name,
             authenticated: true,
             reachable: online && fetched_ok,
-            availability: if !online { "reconnecting" } else if fetched_ok { "available" } else { "unavailable" },
+            availability: if !online {
+                "reconnecting"
+            } else if fetched_ok {
+                "available"
+            } else {
+                "unavailable"
+            },
             tabs,
+            controllers,
         });
     }
     merge_ordinary_tab_projection(&local, &remote)

@@ -98,7 +98,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ...workspace,
         tabs: [
           ...workspace.tabs.filter((id) => !state.tabs[id]?.remote_peer_id),
-          ...(index === 0 ? remoteIds : []),
+          ...remoteIds.filter((id) => {
+            const targetWorkspace = action.tabs[id]?.workspace_id;
+            return targetWorkspace ? targetWorkspace === workspace.id : index === 0;
+          }),
         ],
       }));
       return { ...state, workspaces, tabs: { ...localTabs, ...action.tabs } };
