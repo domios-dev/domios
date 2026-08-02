@@ -1,15 +1,15 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
 do not edit it by hand. Conventions: target tabs use `--tab`; `--json` is
 a global flag on every command.
 
-**Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
+**Planning?** Read `codeterm docs ORCHESTRATION --section durable-model` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION --section durable-model` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
@@ -374,11 +374,12 @@ Read one embedded CodeTerm document in full
 
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)
+Read embedded CodeTerm documentation. `codeterm docs` lists documents. For a long sectioned document, `codeterm docs <name>` prints a compact section index; `--section <slug>` returns one complete structural section and `--full` returns the byte-exact complete document. `--head <lines>` is an intentionally incomplete diagnostic excerpt, never an instruction-read workflow. Names and section slugs are case-insensitive
 
-- `--full` — Print the complete document even inside a CodeTerm tab
-- `--head` — Print at most N lines
+- `--full` — Print the byte-exact complete document in one call
+- `--head` — Print the first N source lines as a labelled incomplete diagnostic excerpt
 - `<name>` — Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs
+- `--section` — Print one complete level-2 section, selected by normalized heading slug
 
 #### `codeterm effort`
 

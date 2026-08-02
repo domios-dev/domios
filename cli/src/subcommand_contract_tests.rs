@@ -207,6 +207,62 @@ fn top_level_docs_parse() {
 }
 
 #[test]
+fn docs_section_parser_accepts_case_insensitive_slug() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "docs",
+        "ORCHESTRATION",
+        "--section",
+        "DISPATCH-CONTRACT",
+    ])
+    .expect("section selector parses");
+
+    match parsed.command {
+        Commands::Docs {
+            name,
+            section,
+            full,
+            head,
+        } => {
+            assert_eq!(name.as_deref(), Some("ORCHESTRATION"));
+            assert_eq!(section.as_deref(), Some("DISPATCH-CONTRACT"));
+            assert!(!full);
+            assert_eq!(head, None);
+        }
+        _ => panic!("expected docs"),
+    }
+}
+
+#[test]
+fn docs_section_parser_rejects_blank_and_conflicting_selectors() {
+    for args in [
+        vec!["codeterm", "docs", "ORCHESTRATION", "--section", ""],
+        vec!["codeterm", "docs", "--section", "the-loop"],
+        vec![
+            "codeterm",
+            "docs",
+            "ORCHESTRATION",
+            "--section",
+            "the-loop",
+            "--full",
+        ],
+        vec![
+            "codeterm",
+            "docs",
+            "ORCHESTRATION",
+            "--section",
+            "the-loop",
+            "--head",
+            "12",
+        ],
+    ] {
+        let error = Cli::try_parse_from(args).expect_err("selector must be rejected");
+        let message = error.to_string();
+        assert!(message.contains("--section") || message.contains("section slug"));
+    }
+}
+
+#[test]
 fn top_level_doc_parse() {
     let parsed =
         DocsOnly::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");

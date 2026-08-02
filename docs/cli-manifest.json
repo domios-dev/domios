@@ -1504,7 +1504,7 @@
     },
     {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
+      "about": "Read embedded CodeTerm documentation. `codeterm docs` lists documents. For a long sectioned document, `codeterm docs <name>` prints a compact section index; `--section <slug>` returns one complete structural section and `--full` returns the byte-exact complete document. `--head <lines>` is an intentionally incomplete diagnostic excerpt, never an instruction-read workflow. Names and section slugs are case-insensitive",
       "aliases": [],
       "args": [
         {
@@ -1512,15 +1512,15 @@
           "positional": false,
           "value_name": "FULL",
           "default": null,
-          "help": "Print the complete document even inside a CodeTerm tab",
+          "help": "Print the byte-exact complete document in one call",
           "aliases": []
         },
         {
           "name": "head",
           "positional": false,
-          "value_name": "HEAD",
+          "value_name": "LINES",
           "default": null,
-          "help": "Print at most N lines",
+          "help": "Print the first N source lines as a labelled incomplete diagnostic excerpt",
           "aliases": []
         },
         {
@@ -1529,6 +1529,14 @@
           "value_name": "NAME",
           "default": null,
           "help": "Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs",
+          "aliases": []
+        },
+        {
+          "name": "section",
+          "positional": false,
+          "value_name": "SLUG",
+          "default": null,
+          "help": "Print one complete level-2 section, selected by normalized heading slug",
           "aliases": []
         }
       ],

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Deterministic contract and mutation fixtures for bounce-unwinding prompts."""
+"""Deterministic prompt-contract and embedded-doc reading fixtures."""
 
 import json
+import re
 import sys
 from hashlib import sha256
 from pathlib import Path
@@ -12,6 +13,9 @@ FIXTURES = json.loads(
     Path(__file__).with_name("protocol-fixtures.json").read_text(encoding="utf-8")
 )
 CONTRACT = ROOT / "src-tauri/prompts/bounce_unwinding_contract.md"
+ORCHESTRATION_DOC = ROOT / "docs/ORCHESTRATION.md"
+
+
 def record_output(record, fields):
     return "\n".join(f"{field}: {record[field]}" for field in fields)
 
@@ -62,6 +66,7 @@ def assert_prompt_contract():
     assert "`codeterm orchestrator learn`" in schema
     assert "`codeterm plan retrospective <plan> --body \"...\"`" in schema
 
+
 def controlled_mutations(fixtures, fields):
     accepted = fixtures[0]["record"]
     weakened = dict(accepted, **{"Baseline oracle": "cargo test loop_engine"})
@@ -89,6 +94,53 @@ def controlled_mutations(fixtures, fields):
         raise AssertionError("unbounded-budget mutation was accepted")
 
 
+def section_slugs(document):
+    slugs = set()
+    for line in document.splitlines():
+        if not line.startswith("## "):
+            continue
+        slug = re.sub(
+            r"[^\w]+", "-", line[3:].casefold(), flags=re.UNICODE
+        ).strip("-")
+        slugs.add(slug)
+    return slugs
+
+
+def validate_docs_reading_response(fixture, response, available_slugs):
+    expected = (
+        f"codeterm docs {fixture['document']} "
+        f"--section {fixture['expected_section']}"
+    )
+    assert fixture["question"].strip(), "docs-reading fixture needs a question"
+    assert fixture["expected_section"] in available_slugs, "fixture section slug drifted"
+    assert response == expected, "dispatch question did not choose the exact complete section"
+    assert sha256(response.encode()).hexdigest() == fixture["expected_output_sha256"], (
+        "docs-reading expected output drifted"
+    )
+    assert response.count("codeterm docs ") == 1, "docs read must be one invocation"
+    assert "--head" not in response, "required instruction read used an incomplete excerpt"
+    assert "--full" not in response, "named dispatch section must not trigger a blanket full read"
+
+
+def assert_docs_reading_contract():
+    fixtures = FIXTURES["docs_reading_fixtures"]
+    assert [fixture["id"] for fixture in fixtures] == ["D1"]
+    slugs = section_slugs(ORCHESTRATION_DOC.read_text(encoding="utf-8"))
+    for fixture in fixtures:
+        validate_docs_reading_response(fixture, fixture["response"], slugs)
+
+    preview_retry = (
+        "codeterm docs ORCHESTRATION\n"
+        "codeterm docs ORCHESTRATION --full"
+    )
+    try:
+        validate_docs_reading_response(fixtures[0], preview_retry, slugs)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("preview-then-full mutation was accepted")
+
+
 def main():
     fields = FIXTURES["required_fields"]
     fixtures = FIXTURES["fixtures"]
@@ -106,7 +158,8 @@ def main():
     assert_baseline_immutable(fixtures[7]["record"], fixtures[0]["record"])
     assert_followup_is_bounded(fixtures[3]["record"], set())
     controlled_mutations(fixtures, fields)
-    print("prompt-contract F1-F10 exact records and mutation negatives passed")
+    assert_docs_reading_contract()
+    print("prompt-contract F1-F10 records, D1 docs read, and mutation negatives passed")
 
 
 if __name__ == "__main__":
