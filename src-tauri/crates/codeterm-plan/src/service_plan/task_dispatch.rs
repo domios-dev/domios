@@ -3,6 +3,59 @@ use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
 impl PlanStore {
+    pub fn mark_worker_startup_deadline(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        final_deadline: bool,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let current = self.read_task_for_verification(plan_id, task_id)?;
+        let owns_startup = current.assigned_tab_id.as_deref() == Some(tab_id)
+            && current.execution_attempts.iter().any(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.acknowledged_at.is_none()
+            });
+        if !owns_startup {
+            return Ok(false);
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(task) = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            else {
+                return Ok(false);
+            };
+            let owns_startup = task.execution_attempts.iter().any(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.acknowledged_at.is_none()
+            });
+            if !owns_startup || task.assigned_tab_id.as_deref() != Some(tab_id) {
+                return Ok(false);
+            }
+            if final_deadline {
+                super::task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms);
+                super::mutations::clear_task_assignment(task);
+                if task.status == crate::plan::TaskStatus::InProgress {
+                    task.status = crate::plan::TaskStatus::Pending;
+                    task.status_changed_at = now_ms;
+                }
+                task.status_label = Some("startup_failed".into());
+            } else {
+                task.status_label = Some("startup_unbound".into());
+            }
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn begin_task_dispatch(
         &self,
