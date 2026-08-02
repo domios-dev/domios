@@ -400,7 +400,7 @@ mod tests {
             "NEVER GUESS IDS",
             "\"REMEMBER\" → SAVE NOW",
             "Facts change → save the new one",
-            "Temporal facts → graph, not flat",
+            "TEMPORAL FACTS REQUIRE THE GRAPH",
             "Past conversation → `codeterm sessions search`",
             "codeterm mem skill new <slug>",
         ] {
