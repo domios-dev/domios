@@ -342,6 +342,39 @@ const HTTP_MAP: Record<string, Mapper> = {
 
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
+  mesh_peer_tabs_list: (a) => webJson("POST", "/api/mesh/relay-to", {
+    target_peer_id: s(a, "instanceId") ?? s(a, "instance_id"),
+    method: "GET",
+    path: "/api/tabs?all_workspaces=true",
+    body: null,
+  }).then((response: unknown) => {
+    const relay = response as { ok?: boolean; data?: unknown; error?: string | null };
+    if (!relay.ok) throw new Error(relay.error ?? "Remote tabs unavailable");
+    return relay.data;
+  }),
+  mesh_remote_tab_action: (a) => {
+    const peer = s(a, "peerId") ?? s(a, "peer_id");
+    const ordinary = s(a, "ordinaryTabId") ?? s(a, "ordinary_tab_id");
+    const prefix = `mesh:${peer}/`;
+    if (!ordinary.startsWith(prefix) || ordinary.slice(prefix.length).includes("/")) {
+      return Promise.reject(new Error("Remote tab owner mismatch"));
+    }
+    const remoteTab = ordinary.slice(prefix.length);
+    const suffix = s(a, "suffix");
+    const path = suffix === "/inspect"
+      ? `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`
+      : `/api/tabs/${enc(remoteTab)}${suffix}`;
+    return webJson("POST", "/api/mesh/relay-to", {
+      target_peer_id: peer,
+      method: s(a, "method"),
+      path,
+      body: a.body ?? null,
+    }).then((response: unknown) => {
+      const relay = response as { ok?: boolean; data?: unknown; error?: string | null };
+      if (!relay.ok) throw new Error(relay.error ?? "Remote tab unavailable");
+      return relay.data;
+    });
+  },
   mesh_peer_services_list: (a) =>
     webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
   mesh_peer_service_delete: (a) =>

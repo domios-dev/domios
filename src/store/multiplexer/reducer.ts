@@ -41,7 +41,8 @@ export type Action =
   | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null }
   | { type: "REMOVE_PENDING_CLOSE"; tabIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
-  | { type: "RESET_GENERATION" };
+  | { type: "RESET_GENERATION" }
+  | { type: "SET_REMOTE_TABS"; tabs: Record<string, Tab> };
 
 /**
  * Merge a fresh `tab_statuses` snapshot into the known map, then drop the
@@ -82,6 +83,20 @@ function addPendingCloses(current: string[], tabIds: string[]): string[] {
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
+    case "SET_REMOTE_TABS": {
+      const localTabs = Object.fromEntries(
+        Object.entries(state.tabs).filter(([, tab]) => !tab.remote_peer_id),
+      );
+      const remoteIds = Object.keys(action.tabs);
+      const workspaces = state.workspaces.map((workspace, index) => ({
+        ...workspace,
+        tabs: [
+          ...workspace.tabs.filter((id) => !state.tabs[id]?.remote_peer_id),
+          ...(index === 0 ? remoteIds : []),
+        ],
+      }));
+      return { ...state, workspaces, tabs: { ...localTabs, ...action.tabs } };
+    }
     case "RESET_PEER_CONTEXT":
       return {
         ...state,

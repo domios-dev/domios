@@ -99,7 +99,10 @@ export function remoteTabSubtitle(tab: Tab, roleShield: string | null): string |
   const role = roleShield
     ? roleShield.charAt(0) + roleShield.slice(1).toLowerCase()
     : null;
-  return role ? `${role} · @${peer}` : `@${peer}`;
+  const base = role ? `${role} · @${peer}` : `@${peer}`;
+  if (tab.remote_availability === "reconnecting") return `${base} · Reconnecting`;
+  if (tab.remote_availability === "unavailable") return `${base} · Unavailable`;
+  return base;
 }
 
 function TabSubline({ subtitle }: { subtitle: string | null }) {

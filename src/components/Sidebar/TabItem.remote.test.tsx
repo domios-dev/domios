@@ -21,6 +21,8 @@ describe("remote tab subtitle", () => {
     expect(remoteTabSubtitle(remote("Manager", "planner"), "PLANNER")).toBe("Planner · @ROG");
     expect(remoteTabSubtitle(remote("Orchestrator"), "ORCHESTRATOR")).toBe("Orchestrator · @ROG");
     expect(remoteTabSubtitle(remote(), null)).toBe("@ROG");
+    expect(remoteTabSubtitle({ ...remote(), remote_availability: "reconnecting" }, null))
+      .toBe("@ROG · Reconnecting");
   });
 
   it("leaves local subtitle byte-for-byte unchanged", () => {
