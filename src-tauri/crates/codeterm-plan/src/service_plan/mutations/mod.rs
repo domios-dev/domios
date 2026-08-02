@@ -295,10 +295,8 @@ pub(crate) fn finalize_task_done(
     }
     task.status = TaskStatus::Done;
     crate::service_plan::qa::normalize_task_review_fields(task);
-    let assigned = task.assigned_tab_id.clone();
-    crate::service_plan::task_attempts::mark_task_assignment_closed(
-        task,
-        assigned.as_deref(),
+    crate::service_plan::task_attempts::close_all_live_attempts(
+        &mut task.execution_attempts,
         now_ms,
     );
     clear_task_assignment(task);

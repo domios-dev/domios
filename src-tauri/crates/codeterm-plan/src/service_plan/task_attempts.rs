@@ -445,6 +445,17 @@ pub fn mark_task_assignment_closed(task: &mut Task, tab: Option<&str>, now_ms: u
     close_live_attempts_for_optional_tab(&mut task.execution_attempts, tab, now_ms)
 }
 
+pub fn close_all_live_attempts(attempts: &mut [TaskExecutionAttempt], now_ms: u64) -> usize {
+    let mut closed = 0;
+    for attempt in attempts {
+        if attempt.closed_at.is_none() {
+            attempt.closed_at = Some(now_ms);
+            closed += 1;
+        }
+    }
+    closed
+}
+
 pub fn close_live_attempts_for_optional_tab(
     attempts: &mut [TaskExecutionAttempt],
     tab: Option<&str>,
