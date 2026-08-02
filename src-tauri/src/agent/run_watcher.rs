@@ -487,7 +487,7 @@ fn screen_is_bare_shell(text: &str) -> bool {
 fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     let (provider, session_id) = {
         let mut mux = svc.mux.write();
-        let tab = mux.get_tab_mut(tab_id);
+        let mut tab = mux.get_tab_mut(tab_id);
         if let Some(tab) = tab.as_deref_mut() {
             tab.auto_approve = false;
         }

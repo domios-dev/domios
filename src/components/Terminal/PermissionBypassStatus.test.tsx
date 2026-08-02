@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../../test/standaloneTest";
 import { PermissionBypassStatus } from "./PermissionBypassStatus";
 
 describe("PermissionBypassStatus", () => {
@@ -14,3 +14,5 @@ describe("PermissionBypassStatus", () => {
     expect(bypassed).toContain("Permission bypass");
   });
 });
+
+finish();

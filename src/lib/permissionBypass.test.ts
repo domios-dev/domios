@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../test/standaloneTest";
 import {
   durablePermissionBypassPreference,
   rememberedPermissionBypass,
@@ -31,3 +31,5 @@ describe("permission bypass preference", () => {
     });
   });
 });
+
+finish();
