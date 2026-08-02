@@ -190,6 +190,26 @@ fn delivery_is_unknown(error: &str) -> bool {
     error.starts_with("submit_unconfirmed:")
 }
 
+fn public_agent_input_readiness(
+    tab: &crate::multiplexer::types::Tab,
+) -> Option<Result<(), String>> {
+    if tab.agent_type.is_none() {
+        return Some(Ok(()));
+    }
+    match tab.boot_stage {
+        Some(codeterm_types::pty::BootStage::AgentReady)
+            if !crate::service::boot_stage::blocking_prompt_owns_input(tab) =>
+        {
+            Some(Ok(()))
+        }
+        Some(codeterm_types::pty::BootStage::SpawnFailed) => Some(Err(tab
+            .boot_failure_reason
+            .clone()
+            .unwrap_or_else(|| "agent launch failed".to_string()))),
+        _ => None,
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct AuthenticatedPtyDelivery {
     pub(crate) pty_id: String,
@@ -375,6 +395,11 @@ impl ServiceContext {
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
+        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(90))
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            })?;
         let pty_id = match self.resolve_pty_id(tab_id) {
             Ok(pty_id) => pty_id,
             Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
@@ -538,6 +563,32 @@ impl ServiceContext {
                 tab_id
             ))
         }
+    }
+
+    fn await_public_agent_input_ready_blocking(
+        &self,
+        tab_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let inspect = || {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return Some(Err(format!("Tab {tab_id} no longer exists")));
+            };
+            public_agent_input_readiness(tab)
+        };
+        let mut observed = inspect();
+        let completed =
+            crate::service::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
+                observed = inspect();
+                observed.is_some()
+            });
+        if completed {
+            return observed.expect("completed public input readiness");
+        }
+        Err(format!(
+            "Agent in Tab {tab_id} did not reach AgentReady within {timeout:?}"
+        ))
     }
 
     /// Windows ConPTY: a write before the prompt renders races the first byte and
