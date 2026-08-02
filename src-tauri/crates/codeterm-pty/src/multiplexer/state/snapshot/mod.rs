@@ -379,6 +379,7 @@ impl MultiplexerState {
                         .and_then(|identity| identity.reported_session_binding_nonce.clone()),
                     shell_integration_nonce: None,
                     role: parsed_role,
+                    machine_agent_identity: None,
                     role_profile: role_profile.clone(),
                     team_id: team_id.clone(),
                     watcher: watcher.clone(),
