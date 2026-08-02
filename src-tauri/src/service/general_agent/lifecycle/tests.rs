@@ -211,6 +211,19 @@ fn provider_with_native_system_prompt_receives_only_bootstrap_turn() {
     assert_eq!(message, "bootstrap task");
 }
 
+#[test]
+fn general_agent_resume_defaults_to_provider_permissions() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::plugin::agent_claude::ClaudeProvider::new(),
+    ));
+
+    let command = super::build_general_agent_resume_command(&registry, "claude", "session-1")
+        .expect("resume command");
+
+    assert!(!command.contains("--dangerously-skip-permissions"));
+}
+
 fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
     let mut mux = MultiplexerState::empty();
     super::super::workspace::ensure_general_workspace(&mut mux, true);

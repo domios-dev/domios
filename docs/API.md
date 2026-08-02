@@ -48,9 +48,13 @@ cors_allow_origins = ["https://console.example"]
 ```
 
 Authenticated config readback includes `api_listener.active`,
-`api_listener.configured`, `authenticated`, and the effective CORS origins so a
-client can distinguish persisted intent from the socket currently owned by the
-listener. Listener rebind/recovery retains the generation behavior below.
+`api_listener.configured`, and `api_listener.restart_required`. Both policy
+objects disclose `enabled`, address, CORS, and allowlisted origins; configured
+state also discloses whether authentication is configured. Full readback and
+exact `api.enabled`, `api.cors`, and `api.cors_allow_origins` queries include
+this listener truth, so a config write never masquerades as a runtime rebind.
+Listener rebind/recovery retains the generation behavior below. `localhost`,
+`::1`, and `[::1]` canonicalize to valid socket and callback URL forms.
 
 ### Endpoints
 
@@ -1424,4 +1428,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 104 -->
+<!-- revision: 105 -->

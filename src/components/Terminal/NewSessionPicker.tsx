@@ -20,6 +20,10 @@ import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { Button } from "../shared/Button";
+import {
+  durablePermissionBypassPreference,
+  rememberedPermissionBypass,
+} from "../../lib/permissionBypass";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -247,11 +251,10 @@ export function NewSessionPicker({
     }
     const provider = visibleProviders.find((candidate) => candidate.id === choice.providerId);
     const providerConfig = agentsConfig?.[choice.providerId];
-    const remembered = providerConfig?.spawn_skip_permissions_remembered === true;
-    const saved = providerConfig?.spawn_skip_permissions === true;
+    const saved = rememberedPermissionBypass(providerConfig);
     if (provider?.supports_permission_bypass) {
       setSkipPermissions(saved);
-      setRememberPermissionChoice(remembered);
+      setRememberPermissionChoice(saved);
       setPermissionModalProviderId(choice.providerId);
       return;
     }
@@ -260,10 +263,10 @@ export function NewSessionPicker({
 
   const handlePermissionConfirm = useCallback(() => {
     if (!permissionModalProviderId) return;
-    void setProviderSettings(permissionModalProviderId, {
-      spawn_skip_permissions: skipPermissions,
-      spawn_skip_permissions_remembered: rememberPermissionChoice,
-    });
+    void setProviderSettings(
+      permissionModalProviderId,
+      durablePermissionBypassPreference(skipPermissions, rememberPermissionChoice),
+    );
     setPermissionModalProviderId(null);
     void runSingleSpawn(skipPermissions);
   }, [permissionModalProviderId, rememberPermissionChoice, runSingleSpawn, skipPermissions]);

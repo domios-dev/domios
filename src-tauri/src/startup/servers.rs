@@ -137,6 +137,17 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             }
         };
         if api_config.enabled && listener_allowed {
+            let bind_addr = crate::config::canonical_api_bind_addr(&api_config)
+                .expect("validated API host must have a canonical socket address");
+            states.rest_api.set_runtime_policy(super::RestApiRuntimePolicy {
+                enabled: true,
+                cors: api_config.cors,
+                cors_allow_origins: if api_config.cors {
+                    api_config.cors_allow_origins.clone()
+                } else {
+                    Vec::new()
+                },
+            });
             let api_state = api::routes::AppState {
                 svc: service_state.clone(),
                 cron: cron_state.clone(),
@@ -153,13 +164,10 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 web_dist: resolve_web_dist(app.path().resource_dir().ok()),
             };
             let router = api::routes::create_router(api_state);
-            let host = api_config.host.clone();
             let port = api_config.port;
-            if !crate::config::api_host_is_loopback(&host) {
+            if !bind_addr.ip().is_loopback() {
                 log::warn!(
-                    "[api] explicit non-loopback listener {}:{} exposes authenticated control to the network",
-                    host,
-                    port
+                    "[api] explicit non-loopback listener {bind_addr} exposes authenticated control to the network"
                 );
             }
             std::env::set_var("CODETERM_API_PORT", port.to_string());
@@ -182,8 +190,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                             init_started.elapsed().as_millis()
                         );
                     }
-                    let bind_addr = format!("{}:{}", host, port);
-                    super::rest_api::start(control, bind_addr, router).await;
+                    super::rest_api::start(control, bind_addr.to_string(), router).await;
                 });
             });
         }

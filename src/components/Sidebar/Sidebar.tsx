@@ -42,6 +42,10 @@ import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorks
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
+import {
+  durablePermissionBypassPreference,
+  rememberedPermissionBypass,
+} from "../../lib/permissionBypass";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -149,11 +153,10 @@ export function Sidebar({
     const descriptor = providers.find((provider) => provider.id === agentId);
     const providerConfig = agentsConfig?.[agentId];
     const supportsBypass = descriptor?.supports_permission_bypass === true;
-    const remembered = providerConfig?.spawn_skip_permissions_remembered === true;
-    const saved = supportsBypass && providerConfig?.spawn_skip_permissions === true;
+    const saved = supportsBypass && rememberedPermissionBypass(providerConfig);
     const openPermissionReview = (selectedFolder: string) => {
       setSkipPermissions(saved);
-      setRememberPermissionChoice(remembered);
+      setRememberPermissionChoice(saved);
       setAgentSpawnModal({ folder: selectedFolder, agentId, workspaceId });
     };
     let folder: string | null = workspaceCwd;
@@ -195,10 +198,10 @@ export function Sidebar({
 
   const handlePermissionConfirm = useCallback(() => {
     if (!agentSpawnModal) return;
-    void setProviderSettings(agentSpawnModal.agentId, {
-      spawn_skip_permissions: skipPermissions,
-      spawn_skip_permissions_remembered: rememberPermissionChoice,
-    });
+    void setProviderSettings(
+      agentSpawnModal.agentId,
+      durablePermissionBypassPreference(skipPermissions, rememberPermissionChoice),
+    );
     spawnAgentTab(
       agentSpawnModal.workspaceId,
       agentSpawnModal.agentId,

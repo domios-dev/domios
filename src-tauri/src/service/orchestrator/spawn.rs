@@ -440,17 +440,20 @@ impl ServiceContext {
             }
         }
 
-        let visible_user = self.mux.read().get_tab(&tab_id).is_some_and(|tab| {
-            !tab.hidden && tab.audience != crate::multiplexer::types::TabAudience::Automation
-        });
-        let permission_bypass = visible_user
-            && params.permission_bypass_requested()
-            && self
-                .agent_registry
-                .with_provider(&agent_cmd, |provider| {
-                    !provider.auto_approve_flags().is_empty()
-                })
-                .unwrap_or(false);
+        let permission_bypass = self
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .map(|tab| {
+                crate::service::permission_policy::permission_bypass_allowed(
+                    &self.agent_registry,
+                    &agent_cmd,
+                    params.permission_bypass_requested(),
+                    tab.hidden,
+                    tab.audience,
+                )
+            })
+            .unwrap_or(false);
         params.skip_permissions = Some(permission_bypass);
         {
             let mut mux = self.mux.write();

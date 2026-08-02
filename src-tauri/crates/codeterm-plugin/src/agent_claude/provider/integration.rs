@@ -33,6 +33,13 @@ fn backup_path(path: &std::path::Path) -> std::path::PathBuf {
     ))
 }
 
+fn backup_state_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_file_name(format!(
+        "{}.codeterm-backup-state",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("settings.json")
+    ))
+}
+
 fn write_json_atomic(path: &std::path::Path, json: &Json) -> Result<(), String> {
     let pretty = serde_json::to_string_pretty(json).map_err(|e| e.to_string())?;
     let temporary = path.with_extension("json.codeterm-tmp");
@@ -212,30 +219,28 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
     )
 }
 
-fn install_integration_at(
+pub(crate) fn install_integration_at(
     path: &std::path::Path,
     options: &IntegrationInstallOptions,
 ) -> Result<(), String> {
     if !options.consent {
         return Err("provider integration installation requires explicit local-user consent".into());
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-
     let existed = path.exists();
     let original = if existed {
         std::fs::read_to_string(path).map_err(|e| e.to_string())?
     } else {
-        "{}".into()
+        String::new()
     };
     let mut json: Json = if existed {
-        let content = original.clone();
-        serde_json::from_str(&content)
+        serde_json::from_str(&original)
             .map_err(|e| format!("Failed to parse settings.json: {}", e))?
     } else {
         serde_json::json!({})
     };
+    if !json.is_object() {
+        return Err("settings.json must contain a JSON object".into());
+    }
 
     let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
     let notify_cmd = hook_command(
@@ -340,11 +345,12 @@ fn install_integration_at(
         .unwrap()
         .push(session_start_hook);
 
-    let backup = backup_path(path);
-    if !backup.exists() {
-        std::fs::write(backup, if existed { original } else { String::new() })
-            .map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    std::fs::write(backup_path(path), original).map_err(|e| e.to_string())?;
+    std::fs::write(backup_state_path(path), if existed { "present" } else { "absent" })
+        .map_err(|e| e.to_string())?;
     write_json_atomic(path, &json)?;
     log::info!("[agent-claude] hooks installed at {:?}", path);
     Ok(())
@@ -380,11 +386,14 @@ pub fn uninstall_integration() -> Result<(), String> {
     Ok(())
 }
 
-fn restore_integration_at(path: &std::path::Path) -> Result<(), String> {
+pub(crate) fn restore_integration_at(path: &std::path::Path) -> Result<(), String> {
     let backup = backup_path(&path);
     let original = std::fs::read(&backup)
         .map_err(|error| format!("No recoverable integration backup at {}: {error}", backup.display()))?;
-    if original.is_empty() {
+    let was_absent = std::fs::read_to_string(backup_state_path(path))
+        .map(|state| state == "absent")
+        .unwrap_or_else(|_| original.is_empty());
+    if was_absent {
         if path.exists() {
             std::fs::remove_file(&path).map_err(|error| error.to_string())?;
         }
