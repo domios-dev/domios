@@ -142,14 +142,65 @@ jobs:
             esac
             curl --fail --silent --show-error --location --head "$url" >/dev/null
           done
+          jq -n --arg version "$VER" --arg sha "$GITHUB_SHA" \
+            '{version: $version, source_sha: $sha, public_mirror_verified: true}' \
+            > "$RUNNER_TEMP/issue-closure-boundary.json"
+          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
+            --repo rollacode/codeterm-releases --clobber
 
       - name: Resolve included private PR public issues
         run: |
           CURRENT="release-${{ steps.ver.outputs.ver }}"
-          PREVIOUS=$(git tag --merged "$GITHUB_SHA" --list 'release-*' --sort=-version:refname \
-            | grep -v -x "$CURRENT" | head -1)
-          if [ -n "$PREVIOUS" ]; then
-            RANGE="$PREVIOUS..$GITHUB_SHA"
+          printf '[]' > "$RUNNER_TEMP/release-history.json"
+          for trigger in $(git tag --merged "$GITHUB_SHA" --list 'release-*' --sort=-version:refname \
+            | grep -v -x "$CURRENT"); do
+            version="${trigger#release-}"
+            tag="v$version"
+            sha=$(git rev-parse "$trigger^{commit}")
+            private_published=false
+            public_published=false
+            mirror_verified=false
+            private=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json isDraft,publishedAt,assets 2>/dev/null || true)
+            private_marker=false
+            if [ -n "$private" ] \
+              && [ "$(printf '%s' "$private" | jq -r .isDraft)" = false ] \
+              && [ "$(printf '%s' "$private" | jq -r .publishedAt)" != null ]; then
+              private_published=true
+              if printf '%s' "$private" \
+                | jq -e '.assets | any(.name == "issue-closure-boundary.json")' >/dev/null; then
+                private_marker=true
+              fi
+            fi
+            public=$(gh release view "$tag" --repo rollacode/codeterm-releases \
+              --json isDraft,publishedAt,assets 2>/dev/null || true)
+            if [ -n "$public" ] \
+              && [ "$(printf '%s' "$public" | jq -r .isDraft)" = false ] \
+              && [ "$(printf '%s' "$public" | jq -r .publishedAt)" != null ]; then
+              public_published=true
+              if [ "$private_marker" = true ] \
+                && printf '%s' "$public" \
+                  | jq -e '.assets
+                    | (any(.name == "latest.json")
+                       and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
+                mirror_verified=true
+              fi
+            fi
+            jq --arg version "$version" --arg sha "$sha" \
+              --argjson private "$private_published" \
+              --argjson public "$public_published" \
+              --argjson mirror "$mirror_verified" \
+              '. + [{version: $version, sha: $sha, private_published: $private,
+                      public_published: $public, mirror_verified: $mirror}]' \
+              "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
+            mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
+          done
+          START=$(python scripts/release_issue_contract.py range-start \
+            --releases-file "$RUNNER_TEMP/release-history.json")
+          if [ -n "$START" ]; then
+            RANGE="$START..$GITHUB_SHA"
           else
             RANGE="$GITHUB_SHA"
           fi
