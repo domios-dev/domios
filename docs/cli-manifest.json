@@ -6380,7 +6380,7 @@
         },
         {
           "name": "planning-state",
-          "about": "Advance planner-owned planning state: drafting | structure_ready | approved",
+          "about": "Return a draft to drafting; approval uses `plan approve`",
           "aliases": [],
           "args": [
             {
@@ -6412,7 +6412,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Planner tab id advancing the state (records author as planner; omit = user)",
+              "help": "Deprecated author label retained for draft reset records",
               "aliases": []
             }
           ],
@@ -7681,6 +7681,14 @@
                   "name": "destination",
                   "positional": false,
                   "value_name": "DESTINATION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "execution-intent",
+                  "positional": false,
+                  "value_name": "EXECUTION_INTENT",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -10776,6 +10784,14 @@
               "name": "criterion",
               "positional": false,
               "value_name": "CRITERION",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "execution-intent",
+              "positional": false,
+              "value_name": "EXECUTION_INTENT",
               "default": null,
               "help": null,
               "aliases": []
