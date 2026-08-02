@@ -312,7 +312,6 @@ impl ServiceContext {
         // Persisted as the JSONL `_meta` header so a restored tab can re-open from the same config.
         let history_meta = config.clone();
 
-        // Tab shows instantly with an empty session id; openSession runs in the background.
         {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
@@ -353,7 +352,14 @@ impl ServiceContext {
             self.emit_state_changed();
         }
 
-        self.chatbackend_launch_async(plugin_id, tab_id.clone(), config, history_meta);
+        if let Err(error) = self.chatbackend_launch(plugin_id, tab_id.clone(), config, history_meta)
+        {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            if emit_state_change {
+                self.emit_state_changed();
+            }
+            return Err(error);
+        }
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
@@ -368,86 +374,65 @@ impl ServiceContext {
         })
     }
 
-    /// Background launch: open the plugin session, stamp its id onto the backing,
-    /// publish models, start the poll loop. On openSession failure the tab is
-    /// torn down so a bad config leaves no dangling empty tab.
-    pub(crate) fn chatbackend_launch_async(
+    /// Opens and binds the provider session before spawn success is reported.
+    /// Polling remains asynchronous after the tab has a durable session identity.
+    pub(crate) fn chatbackend_launch(
         &self,
         plugin_id: String,
         tab_id: String,
         config: serde_json::Value,
         history_meta: serde_json::Value,
-    ) {
-        let svc = self.clone();
-        spawn_bg(async move {
-            let (open_svc, open_plugin, open_tab, open_cfg) =
-                (svc.clone(), plugin_id.clone(), tab_id.clone(), config);
-            let session_id = match tokio::task::spawn_blocking(move || {
-                open_svc.chatbackend_open_session(&open_plugin, &open_tab, open_cfg)
-            })
-            .await
-            {
-                Ok(Ok(s)) => s,
-                Ok(Err(e)) => {
-                    log::warn!(
-                        "[spawn.chatbackend] openSession failed for {}: {}",
-                        tab_id,
-                        e
-                    );
-                    let _ = svc.mux.write().close_tab(&tab_id);
-                    svc.emit_state_changed();
-                    svc.create_notification(
-                        format!("Failed to open {} session", plugin_id),
-                        Some(e),
-                        Some("error"),
-                    );
-                    return;
-                }
-                Err(e) => {
-                    log::warn!("[spawn.chatbackend] openSession task join error: {}", e);
-                    let _ = svc.mux.write().close_tab(&tab_id);
-                    svc.emit_state_changed();
-                    return;
-                }
-            };
-
-            {
-                let mut mux = svc.mux.write();
-                if let Some(tab) = mux.get_tab_mut(&tab_id) {
-                    if let TabBacking::ChatBackend {
-                        session_id: sid, ..
-                    } = &mut tab.backing
-                    {
-                        *sid = session_id.clone();
-                    }
-                }
-            }
-            if let Err(error) =
-                svc.bind_in_process_chatbackend_session(&tab_id, &plugin_id, &session_id)
-            {
+    ) -> Result<(), String> {
+        let session_id = self
+            .chatbackend_open_session(&plugin_id, &tab_id, config)
+            .map_err(|error| {
                 log::warn!(
-                    "[spawn.chatbackend] failed to bind provider session for {}: {}",
+                    "[spawn.chatbackend] openSession failed for {}: {}",
                     tab_id,
                     error
                 );
-                let _ = svc.chatbackend_close(&plugin_id, &session_id);
-                let _ = svc.mux.write().close_tab(&tab_id);
-                svc.emit_state_changed();
-                return;
+                error
+            })?;
+
+        let bind_backing = {
+            let mut mux = self.mux.write();
+            match mux.get_tab_mut(&tab_id) {
+                Some(tab) => match &mut tab.backing {
+                    TabBacking::ChatBackend {
+                        session_id: bound_session,
+                        ..
+                    } => {
+                        *bound_session = session_id.clone();
+                        Ok(())
+                    }
+                    _ => Err("chatBackend Tab backing changed during openSession".to_string()),
+                },
+                None => Err("chatBackend Tab disappeared during openSession".to_string()),
             }
-            svc.emit_state_changed();
+        };
+        if let Err(error) = bind_backing {
+            let _ = self.chatbackend_close(&plugin_id, &session_id);
+            return Err(error);
+        }
+        if let Err(error) =
+            self.bind_in_process_chatbackend_session(&tab_id, &plugin_id, &session_id)
+        {
+            let _ = self.chatbackend_close(&plugin_id, &session_id);
+            return Err(error);
+        }
+        self.emit_state_changed();
 
-            log::info!(
-                "[spawn.chatbackend] Tab {} backed by plugin '{}' session '{}'",
-                tab_id,
-                plugin_id,
-                session_id
-            );
+        log::info!(
+            "[spawn.chatbackend] Tab {} backed by plugin '{}' session '{}'",
+            tab_id,
+            plugin_id,
+            session_id
+        );
 
-            let replay_tab = tab_id.clone();
-            svc.spawn_chatbackend_poll_loop(tab_id, plugin_id, session_id, history_meta);
-            svc.schedule_planner_replay(&replay_tab);
-        });
+        let replay_tab = tab_id.clone();
+        self.spawn_chatbackend_poll_loop(tab_id, plugin_id, session_id, history_meta);
+        self.schedule_planner_replay(&replay_tab);
+        Ok(())
     }
 
     /// Background loop: poll the plugin and emit new transcript on
