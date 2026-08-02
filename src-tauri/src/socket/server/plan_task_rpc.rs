@@ -233,9 +233,12 @@ pub(super) fn dispatch(
 
         "task.take" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
+            let (plan_id, task_id) = svc
+                .authorize_task_execution_action(&task_id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
             let tab_id = get_string_param(params, "caller_tab_id")?;
             let role = tab_role(svc, &tab_id);
-            let plan_id = store
+            store
                 .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
@@ -244,7 +247,10 @@ pub(super) fn dispatch(
 
         "task.drop" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
-            let plan_id = store
+            let (plan_id, task_id) = svc
+                .authorize_task_execution_action(&task_id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+            store
                 .set_task_assignment(&task_id, None, None, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);

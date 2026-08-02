@@ -171,10 +171,17 @@ pub async fn take(
             Json(json!({ "error": "X-CodeTerm-Tab-Id is required" })),
         )
     })?;
-    let plan_id = state
+    let (plan_id, task_id) = state
+        .svc
+        .authorize_task_execution_action(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| (StatusCode::FORBIDDEN, Json(json!({ "error": message }))))?;
+    state
         .svc
         .plan_store
-        .set_task_assignment(&id, Some(&tab_id), tab_role(&state, &tab_id), epoch_ms())
+        .set_task_assignment(&task_id, Some(&tab_id), tab_role(&state, &tab_id), epoch_ms())
         .map_err(plan_err)?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -182,15 +189,26 @@ pub async fn take(
         json!({ "plan_id": plan_id }),
     );
     Ok(Json(
-        json!({ "ok": true, "plan_id": plan_id, "task_id": id }),
+        json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
 }
 
-pub async fn drop_task(State(state): State<AppState>, Path(id): Path<String>) -> TaskRouteResult {
-    let plan_id = state
+pub async fn drop_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> TaskRouteResult {
+    let (plan_id, task_id) = state
+        .svc
+        .authorize_task_execution_action(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| (StatusCode::FORBIDDEN, Json(json!({ "error": message }))))?;
+    state
         .svc
         .plan_store
-        .set_task_assignment(&id, None, None, epoch_ms())
+        .set_task_assignment(&task_id, None, None, epoch_ms())
         .map_err(plan_err)?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -198,7 +216,7 @@ pub async fn drop_task(State(state): State<AppState>, Path(id): Path<String>) ->
         json!({ "plan_id": plan_id }),
     );
     Ok(Json(
-        json!({ "ok": true, "plan_id": plan_id, "task_id": id }),
+        json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
 }
 
