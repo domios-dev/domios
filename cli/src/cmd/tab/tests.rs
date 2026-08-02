@@ -90,23 +90,22 @@ fn render_tree_groups_by_workspace_and_nests_children() {
 
 #[test]
 fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
-    let mut tabs = vec![json!({
+    let tabs = vec![json!({
         "id":"shared-tab", "title":"Local", "workspace_name":"CodeTerm", "workspace_id":"ws"
     }), json!({
         "id":"orch", "title":"Dumas", "role":"Orchestrator", "workspace_name":"CodeTerm", "workspace_id":"ws"
+    }), json!({
+        "id":"mesh:peer-a/shared-tab", "remote_tab_id":"shared-tab", "title":"A", "role":"Manager", "role_profile":"planner", "remote_peer_name":"A"
+    }), json!({
+        "id":"mesh:peer-b/shared-tab", "remote_tab_id":"shared-tab", "title":"B", "role":"Orchestrator", "remote_peer_name":"B"
     })];
-    merge_remote_peer_tabs(&mut tabs, "peer-a", "A", &json!([
-        {"id":"shared-tab", "title":"A", "role":"Manager", "role_profile":"planner", "workspace_id":"remote"}
-    ]));
-    merge_remote_peer_tabs(&mut tabs, "peer-b", "B", &json!([
-        {"id":"shared-tab", "title":"B", "role":"Orchestrator", "workspace_id":"remote"}
-    ]));
 
     let ids: Vec<_> = tabs.iter().map(|tab| sfield(tab, "id")).collect();
     assert_eq!(ids, ["shared-tab", "orch", "mesh:peer-a/shared-tab", "mesh:peer-b/shared-tab"]);
     assert_eq!(sfield(&tabs[2], "remote_tab_id"), "shared-tab");
     assert_eq!(sfield(&tabs[2], "role_profile"), "planner");
-    assert_eq!(sfield(&tabs[2], "remote_peer"), "A");
+    assert_eq!(sfield(&tabs[2], "remote_peer_name"), "A");
+    assert_eq!(ordinary_tab_list_path(&tab_list_params(None, true, false, None)), "/api/tabs?all_workspaces=true");
 }
 
 #[test]

@@ -620,6 +620,8 @@ pub struct RelayStreamQuery {
     pub path: String,
     #[serde(default)]
     pub since: Option<String>,
+    #[serde(default)]
+    pub tab: Option<String>,
 }
 
 /// `GET /api/mesh/relay-stream?peer=<id>&path=<streamable>&since=<cursor>` —
@@ -643,6 +645,13 @@ pub async fn mesh_relay_stream(
     }
     // so a raw append needs no percent-encoding.
     let mut path = q.path.clone();
+    if let Some(ordinary_id) = q.tab.as_deref() {
+        let owner = super::remote_tabs::validate_remote_stream_owner(&q.peer, ordinary_id, bare)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+        path = format!("{bare}?tab_id={}", owner.tab_id);
+    } else if bare == "/api/output/stream" {
+        return Err((StatusCode::BAD_REQUEST, "remote tab stream requires composite tab".into()));
+    }
     if let Some(since) = q.since.as_deref().filter(|s| !s.is_empty()) {
         let sep = if path.contains('?') { '&' } else { '?' };
         path = format!("{path}{sep}since={since}");
@@ -655,6 +664,9 @@ pub async fn mesh_relay_stream(
             .paired_peers
             .get(&q.peer)
             .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?;
+        if !peer.online {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, "remote tab unavailable".into()));
+        }
         if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,

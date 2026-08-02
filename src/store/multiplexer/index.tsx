@@ -37,9 +37,8 @@ import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
-import { mergeOrdinaryTabProjection, type RemoteTabPeer } from "./remoteTabProjection";
-import type { MeshPeersResponse, Tab } from "../../lib/types";
-import { requireRemoteTabRoute, relayRemoteTabAction } from "../../lib/remoteTabRoute";
+import type { Tab } from "../../lib/types";
+import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 
 export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
@@ -47,21 +46,6 @@ export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
 const MUX_EVENT_RENEW_MS = 10_000;
-
-function normalizeRemoteTab(value: unknown): Tab {
-  const raw = value as Partial<Tab> & { tab_id?: string; tab_title?: string };
-  const id = String(raw.id ?? raw.tab_id ?? "");
-  return {
-    ...raw,
-    id,
-    title: String(raw.title ?? raw.tab_title ?? id),
-    pty_id: raw.pty_id ?? id,
-    tab_type: raw.tab_type ?? "Terminal",
-    cwd: raw.cwd ?? null,
-    team_id: null,
-    parent_tab_id: null,
-  };
-}
 
 /** True when the web boot path paints sync cached mux state before reconcile. */
 export function webBootHasSyncCache(): boolean {
@@ -198,38 +182,19 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => mountWebLifecycle(), []);
 
+  const refreshRemoteProjection = useCallback(async () => {
+    const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
+    const remote = remoteTabsFromOrdinaryProjection(ordinary);
+    dispatch({ type: "SET_REMOTE_TABS", tabs: remote });
+  }, []);
+
   useEffect(() => {
     let active = true;
-    const cachedTabs = new Map<string, Tab[]>();
     const refreshRemoteTabs = async () => {
-      const response = await invoke<MeshPeersResponse>("mesh_list_peers");
-      const peers: RemoteTabPeer[] = [];
-      for (const peer of response.paired ?? []) {
-        let remoteTabs = cachedTabs.get(peer.instance_id) ?? [];
-        let fetched = false;
-        if (peer.online) {
-          try {
-            const listed = await invoke<unknown[]>("mesh_peer_tabs_list", { instanceId: peer.instance_id });
-            remoteTabs = listed.map((raw) => normalizeRemoteTab(raw));
-            cachedTabs.set(peer.instance_id, remoteTabs);
-            fetched = true;
-          } catch {
-            remoteTabs = cachedTabs.get(peer.instance_id) ?? [];
-          }
-        }
-        peers.push({
-          id: peer.instance_id,
-          name: peer.instance_name,
-          authenticated: true,
-          reachable: peer.online && fetched,
-          reconnecting: !peer.online && remoteTabs.length > 0,
-          unavailable: peer.online && !fetched && remoteTabs.length > 0,
-          tabs: remoteTabs,
-        });
-      }
+      const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
       if (!active) return;
-      const projected = mergeOrdinaryTabProjection({}, peers);
-      dispatch({ type: "SET_REMOTE_TABS", tabs: projected });
+      const remote = remoteTabsFromOrdinaryProjection(ordinary);
+      dispatch({ type: "SET_REMOTE_TABS", tabs: remote });
     };
     void refreshRemoteTabs().catch(() => undefined);
     let unlisten: (() => void) | undefined;
@@ -663,28 +628,32 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const { workspaces } = stateRef.current;
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws?.tabs.includes(tabId)) return;
+      const remote = stateRef.current.tabs[tabId];
+      if (remote?.remote_peer_id && remote.remote_availability !== "available") return;
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
       // Refresh only after the close is acknowledged; on rejection the tab
       // still lives, so drop its tombstone and restore from authoritative state.
       guardedInvoke("mux_close_tab", { workspaceId, tabId })
-        .then(() => refreshFromBackend())
+        .then(() => {
+          if (stateRef.current.tabs[tabId]?.remote_peer_id) void refreshRemoteProjection();
+          else refreshFromBackend();
+        })
         .catch(() => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
           refreshFromBackend();
         });
     },
-    [refreshFromBackend, guardedInvoke],
+    [refreshFromBackend, refreshRemoteProjection, guardedInvoke],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
     const remote = stateRef.current.tabs[tabId];
     if (remote?.remote_peer_id) {
-      let route;
-      try { route = requireRemoteTabRoute(remote); } catch { return; }
+      if (remote.remote_availability !== "available") return;
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
       dispatch({ type: "SET_FOCUSED_TAB", tabId });
-      void relayRemoteTabAction(route, "POST", "/focus").catch(() => undefined);
+      void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
       return;
     }
     pendingTabSwitchRef.current[workspaceId] = { tabId };
@@ -725,14 +694,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     // Optimistic local update for snappy click feedback.
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
     // Backend re-emits `tab-focused` and keeps `focused_tab_id` authoritative.
-    const remote = stateRef.current.tabs[tabId];
-    if (remote?.remote_peer_id) {
-      try {
-        void relayRemoteTabAction(requireRemoteTabRoute(remote), "POST", "/focus").catch(() => undefined);
-      } catch {}
-    } else {
-      guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => {});
-    }
+    guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => {});
   }, [guardedInvoke]);
 
   const setTabPty = useCallback((tabId: string, ptyId: string) => {
@@ -806,6 +768,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const setTabTitle = useCallback((workspaceId: string, tabId: string, title: string) => {
     const workspace = stateRef.current.workspaces.find((ws) => ws.id === workspaceId);
     if (!workspace?.tabs.includes(tabId)) return;
+    const remote = stateRef.current.tabs[tabId];
+    if (remote?.remote_peer_id && remote.remote_availability !== "available") return;
     dispatch({ type: "SET_TAB_TITLE", tabId, title, level: TitleLevel.User });
   }, []);
 

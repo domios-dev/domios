@@ -24,6 +24,7 @@
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
+import { parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
 
 export interface TabOutputSink {
   onOutput(text: string): void;
@@ -241,6 +242,8 @@ function ensureStarted(): void {
  * resume from the tracked offset (xterm is keep-alive, scrollback persists).
  */
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => void {
+  const remote = parseCompositeTabId(tabId);
+  if (remote) return subscribeRemoteTabOutput(remote.ordinaryTabId, remote.peerId, sink);
   let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
@@ -256,6 +259,48 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => vo
   return () => {
     set!.delete(sink);
   };
+}
+
+function subscribeRemoteTabOutput(
+  ordinaryTabId: string,
+  peerId: string,
+  sink: TabOutputSink,
+): () => void {
+  const abort = new AbortController();
+  const params = new URLSearchParams({
+    peer: peerId,
+    path: "/api/output/stream",
+    tab: ordinaryTabId,
+  });
+  const transport = remoteTabTransportHttp();
+  void fetch(`${transport.base}/api/mesh/relay-stream?${params.toString()}`, {
+    headers: transport.token ? { Authorization: `Bearer ${transport.token}` } : {},
+    signal: abort.signal,
+  }).then(async (response) => {
+    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (!abort.signal.aborted) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = frame.split("\n").find((line) => line.startsWith("data:"));
+        if (data) {
+          const message = JSON.parse(data.slice(5).trim()) as OutputFrame;
+          if (typeof message.output === "string") sink.onOutput(message.output);
+          else if (message.truncated && typeof message.from === "number") sink.onTruncated(message.from);
+          else if (message.ended) sink.onEnded();
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+  }).catch(() => undefined);
+  return () => abort.abort();
 }
 
 /** Force an immediate reconnect keeping all offsets (wake-from-sleep resume):

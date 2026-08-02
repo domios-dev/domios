@@ -5,7 +5,6 @@ import type {
   Tab,
   TabStatus,
   ProviderDescriptor,
-  RemoteWorkersByOrchestrator,
   Team,
   Workspace,
 } from "../../lib/types";
@@ -69,7 +68,6 @@ export interface SidebarWorkspaceTabsProps {
   planIndex: PlanIndexEntry[];
   plans: Plan[];
   activeWork: ActiveWorkSnapshot | null;
-  remoteWorkers: RemoteWorkersByOrchestrator;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   closingTabIds: Set<string>;
@@ -108,7 +106,6 @@ export function SidebarWorkspaceTabs({
   planIndex,
   plans,
   activeWork,
-  remoteWorkers: _remoteWorkers,
   providers,
   providersLoading,
   closingTabIds,

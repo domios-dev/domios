@@ -1,6 +1,7 @@
 import { invoke } from "./bridge";
 import { uid } from "./uid";
 import { IS_WEB } from "./webApi";
+import { parseCompositeTabId } from "./remoteTabTransport";
 
 const CLIENT_ID_KEY = "codeterm.client_id.v1";
 
@@ -35,6 +36,9 @@ export async function claimResizeOwner(
   rows: number,
   force = false,
 ): Promise<ResizeOwner> {
+  if (parseCompositeTabId(tabId)) {
+    return { tab_id: tabId, pty_id: ptyId, client_id: clientId, cols, rows, updated_at: Date.now() };
+  }
   return invoke<ResizeOwner>("claim_resize_owner", {
     tabId,
     ptyId,

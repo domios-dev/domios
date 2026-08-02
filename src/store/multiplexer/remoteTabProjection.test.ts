@@ -1,33 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Tab } from "../../lib/types";
-import { mergeOrdinaryTabProjection } from "./remoteTabProjection";
+import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 
-const tab = (id: string, title: string): Tab => ({
-  id, title, pty_id: id, tab_type: "Terminal", cwd: null,
+const tab = (id: string, remote = false): Tab => ({
+  id, title: id, pty_id: id, tab_type: "Terminal", cwd: null,
+  ...(remote ? { remote_peer_id: "peer", remote_tab_id: "shared-tab", remote_availability: "available" as const } : {}),
 });
 
-describe("ordinary remote tab projection", () => {
-  it("merges only reachable authenticated peers with peer-scoped identity", () => {
-    const projection = mergeOrdinaryTabProjection(
-      { "shared-tab": tab("shared-tab", "Local") },
-      [
-        { id: "a", name: "ROG", authenticated: true, reachable: true, tabs: [tab("shared-tab", "A")] },
-        { id: "b", name: "Mac", authenticated: true, reachable: true, tabs: [tab("shared-tab", "B")] },
-        { id: "unpaired", name: "No", authenticated: false, reachable: true, tabs: [tab("ghost", "Ghost")] },
-        { id: "offline", name: "No", authenticated: true, reachable: false, tabs: [tab("ghost", "Ghost")] },
-      ],
-    );
-
-    expect(Object.keys(projection)).toEqual([
-      "shared-tab", "mesh:a/shared-tab", "mesh:b/shared-tab",
-    ]);
-    expect(projection["mesh:a/shared-tab"].remote_tab_id).toBe("shared-tab");
-  });
-
-  it("preserves a reconnecting row without claiming availability", () => {
-    const projection = mergeOrdinaryTabProjection({}, [
-      { id: "a", name: "ROG", authenticated: true, reachable: false, reconnecting: true, tabs: [tab("one", "One")] },
-    ]);
-    expect(projection["mesh:a/one"].remote_availability).toBe("reconnecting");
+describe("authoritative ordinary tab projection", () => {
+  it("preserves native order and only selects native-projected remotes", () => {
+    const tabs = [tab("local"), tab("mesh:peer/shared-tab", true)];
+    expect(Object.keys(remoteTabsFromOrdinaryProjection(tabs))).toEqual(["mesh:peer/shared-tab"]);
   });
 });

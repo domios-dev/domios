@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Tab } from "../../lib/types";
-import { RemoteTabUnavailable } from "./RemoteTabSurface";
+import { RemoteTabUnavailable } from "./RemoteTabUnavailable";
 
 const tab: Tab = {
   id: "mesh:peer/one", title: "One", pty_id: "one", tab_type: "Terminal", cwd: null,

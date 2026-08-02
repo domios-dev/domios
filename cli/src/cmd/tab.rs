@@ -19,16 +19,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     .or_else(|| caller_workspace_id(client, caller_tab_id.as_deref()))
             };
             let params = tab_list_params(workspace_id, all_workspaces, agents, caller_tab_id);
-            match client.call("tab.list", Some(params)) {
+            match fetch_ordinary_tabs(&params) {
                 Ok(value) => {
                     let Some(arr) = value.as_array() else {
                         handle_result(json, Ok(value));
                         return;
                     };
-                    let mut list = arr.clone();
-                    if let Err(error) = append_ordinary_remote_tabs(&mut list) {
-                        eprintln!("warning: remote tabs unavailable: {error}");
-                    }
+                    let list = arr.clone();
                     if json {
                         print_json(&serde_json::Value::Array(list));
                     } else if list.is_empty() {
@@ -206,12 +203,23 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             handle_result(json, result);
         }
         TabAction::Close { id } => {
+            if let Some((peer, tab)) = parse_remote_tab_id(&id) {
+                let data = relay_tab_json(&peer, "POST", &format!("/api/tabs/{tab}/close"), None);
+                handle_result(json, Ok(data));
+                return;
+            }
             let mut params = serde_json::json!({ "tab_id": id });
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = client.call("tab.close", Some(params));
             handle_result(json, result);
         }
         TabAction::Rename { tab, title } => {
+            if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+                let body = serde_json::json!({ "title": title }).to_string();
+                let data = relay_tab_json(&peer, "POST", &format!("/api/tabs/{remote_tab}/rename"), Some(&body));
+                handle_result(json, Ok(data));
+                return;
+            }
             let tab_id = resolve_tab(client, tab);
             let result = client.call(
                 "tab.rename",
@@ -476,6 +484,7 @@ fn tab_list_params(
         "workspace_id": workspace_id,
         "caller_tab_id": caller_tab_id,
         "focused_workspace": focused_workspace,
+        "all_workspaces": all_workspaces,
         "agents_only": agents_only,
     })
 }
@@ -498,6 +507,35 @@ fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -
         .map(str::to_string)
 }
 
+fn ordinary_tab_list_path(params: &serde_json::Value) -> String {
+    let mut query = vec![];
+    if let Some(workspace) = params.get("workspace_id").and_then(serde_json::Value::as_str) {
+        query.push(format!("workspace_id={workspace}"));
+    }
+    if params.get("all_workspaces").and_then(serde_json::Value::as_bool) == Some(true) {
+        query.push("all_workspaces=true".into());
+    }
+    if params.get("agents_only").and_then(serde_json::Value::as_bool) == Some(true) {
+        query.push("agents=true".into());
+    }
+    format!("/api/tabs?{}", query.join("&"))
+}
+
+fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let (base, token) = read_api_config();
+    let http = build_http(&token).map_err(|error| error.to_string())?;
+    let response = http
+        .get(format!("{base}{}", ordinary_tab_list_path(params)))
+        .send()
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    let text = response.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {text}", status.as_u16()));
+    }
+    serde_json::from_str(&text).map_err(|error| error.to_string())
+}
+
 fn parse_remote_tab_id(value: &str) -> Option<(String, String)> {
     let (peer, tab) = value.strip_prefix("mesh:")?.split_once('/')?;
     if peer.is_empty() || tab.is_empty() || tab.contains('/') {
@@ -518,76 +556,6 @@ fn relay_tab_json(
         std::process::exit(1);
     });
     crate::mesh_cli::mesh_relay_fetch_json(&http, &base, &token, peer, method, path, body)
-}
-
-fn append_ordinary_remote_tabs(tabs: &mut Vec<serde_json::Value>) -> Result<(), String> {
-    let (base, token) = read_api_config();
-    let http = build_http(&token).map_err(|error| error.to_string())?;
-    let peers: serde_json::Value = http
-        .get(format!("{base}/api/mesh/peers"))
-        .send()
-        .map_err(|error| error.to_string())?
-        .json()
-        .map_err(|error| error.to_string())?;
-    for peer in peers
-        .get("paired")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|peer| peer.get("online").and_then(serde_json::Value::as_bool) == Some(true))
-    {
-        let peer_id = sfield(peer, "instance_id");
-        if peer_id.is_empty() {
-            continue;
-        }
-        let response = http
-            .post(format!("{base}/api/mesh/relay-to"))
-            .json(&serde_json::json!({
-                "target_peer_id": peer_id,
-                "method": "GET",
-                "path": "/api/tabs?all_workspaces=true",
-                "body": null,
-            }))
-            .send();
-        let Ok(response) = response else { continue };
-        let Ok(envelope) = response.json::<serde_json::Value>() else { continue };
-        if envelope.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
-            continue;
-        }
-        if let Some(remote) = envelope.get("data") {
-            merge_remote_peer_tabs(tabs, peer_id, sfield(peer, "instance_name"), remote);
-        }
-    }
-    Ok(())
-}
-
-fn merge_remote_peer_tabs(
-    tabs: &mut Vec<serde_json::Value>,
-    peer_id: &str,
-    peer_name: &str,
-    remote: &serde_json::Value,
-) {
-    let Some(remote_tabs) = remote.as_array() else { return };
-    for source in remote_tabs {
-        let tab_id = sfield(source, "id");
-        if tab_id.is_empty() {
-            continue;
-        }
-        let mut tab = source.clone();
-        let Some(object) = tab.as_object_mut() else { continue };
-        let ordinary_id = format!("mesh:{peer_id}/{tab_id}");
-        object.insert("id".into(), serde_json::json!(ordinary_id));
-        object.insert("tab_id".into(), serde_json::json!(ordinary_id));
-        object.insert("remote_tab_id".into(), serde_json::json!(tab_id));
-        object.insert("remote_peer".into(), serde_json::json!(peer_name));
-        object.insert("remote_peer_id".into(), serde_json::json!(peer_id));
-        if let Some(parent) = object.get("parent_tab_id").and_then(|value| value.as_str()).map(str::to_string) {
-            object.insert("parent_tab_id".into(), serde_json::json!(format!("mesh:{peer_id}/{parent}")));
-        }
-        let workspace_id = object.get("workspace_id").and_then(|value| value.as_str()).unwrap_or_default();
-        object.insert("workspace_id".into(), serde_json::json!(format!("mesh:{peer_id}/{workspace_id}")));
-        tabs.push(tab);
-    }
 }
 
 fn handle_tab_capture(
