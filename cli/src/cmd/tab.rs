@@ -514,16 +514,26 @@ fn merge_remote_workers(tabs: &mut Vec<serde_json::Value>, registry: &serde_json
             if remote_tab.is_empty() {
                 continue;
             }
+            let peer = sfield(worker, "peer");
+            if peer.is_empty() {
+                continue;
+            }
+            let role = match sfield(worker, "role") {
+                "" => "Worker",
+                role => role,
+            };
+            let ordinary_id = format!("mesh:{peer}/{remote_tab}");
             remote.push(serde_json::json!({
-                "id": remote_tab,
-                "tab_id": remote_tab,
+                "id": ordinary_id,
+                "tab_id": ordinary_id,
+                "remote_tab_id": remote_tab,
                 "title": sfield(worker, "title"),
                 "parent_tab_id": orchestrator,
                 "workspace_name": workspace_name,
                 "workspace_id": workspace_id,
                 "agent_session_model": sfield(worker, "model"),
-                "role": "Worker",
-                "remote_peer": sfield(worker, "peer"),
+                "role": role,
+                "remote_peer": peer,
                 "remote": true,
             }));
         }
