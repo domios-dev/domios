@@ -27,5 +27,35 @@ impl OrdinaryTabKey {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct RemotePeerProjection {
+    pub peer_id: String,
+    pub peer_name: String,
+    pub authenticated: bool,
+    pub reachable: bool,
+    pub tabs: Vec<serde_json::Value>,
+}
+
+pub fn merge_ordinary_tab_projection(
+    local: &[serde_json::Value],
+    peers: &[RemotePeerProjection],
+) -> Vec<serde_json::Value> {
+    let mut projected = local.to_vec();
+    for peer in peers.iter().filter(|peer| peer.authenticated && peer.reachable) {
+        for source in &peer.tabs {
+            let Some(tab_id) = source.get("id").and_then(serde_json::Value::as_str) else { continue };
+            let mut tab = source.clone();
+            let Some(object) = tab.as_object_mut() else { continue };
+            let ordinary_id = OrdinaryTabKey::remote(&peer.peer_id, tab_id).ordinary_id();
+            object.insert("id".into(), serde_json::json!(ordinary_id));
+            object.insert("remote_tab_id".into(), serde_json::json!(tab_id));
+            object.insert("remote_peer_id".into(), serde_json::json!(peer.peer_id));
+            object.insert("remote_peer_name".into(), serde_json::json!(peer.peer_name));
+            projected.push(tab);
+        }
+    }
+    projected
+}
+
 #[cfg(test)]
 mod tests;

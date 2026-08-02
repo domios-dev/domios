@@ -19,6 +19,7 @@ mod tests;
 pub use auth::sign_request;
 pub use parse::parse_ip_port;
 pub use relay::mesh_relay_cmd;
+pub(crate) use relay::mesh_relay_fetch_json;
 
 #[derive(Subcommand)]
 pub enum MeshAction {

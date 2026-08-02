@@ -89,64 +89,24 @@ fn render_tree_groups_by_workspace_and_nests_children() {
 }
 
 #[test]
-fn tab_list_merges_remote_workers_into_their_team() {
-    let mut tabs = vec![json!({
-        "id":"orch",
-        "title":"Dumas",
-        "role":"Orchestrator",
-        "workspace_name":"CodeTerm",
-        "workspace_id":"ws"
-    })];
-    merge_remote_workers(
-        &mut tabs,
-        &json!({
-            "orch": [{
-                "peer":"Mac-Air",
-                "remote_tab":"remote1",
-                "title":"Release 1.7.8",
-                "model":"gpt-5.6-sol"
-            }],
-            "other-orchestrator": [{
-                "peer":"eight",
-                "remote_tab":"hidden",
-                "title":"Other team"
-            }]
-        }),
-    );
-
-    let out = render_tab_tree(&tabs);
-    assert!(
-        out.contains("Dumas") && out.contains("[orchestrator]"),
-        "{out}"
-    );
-    assert!(
-        out.contains("Release 1.7.8") && out.contains("[worker @Mac-Air]"),
-        "{out}"
-    );
-    assert!(
-        !out.contains("Other team"),
-        "foreign team leaked into scoped list: {out}"
-    );
-}
-
-#[test]
 fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
     let mut tabs = vec![json!({
         "id":"shared-tab", "title":"Local", "workspace_name":"CodeTerm", "workspace_id":"ws"
     }), json!({
         "id":"orch", "title":"Dumas", "role":"Orchestrator", "workspace_name":"CodeTerm", "workspace_id":"ws"
     })];
-    merge_remote_workers(&mut tabs, &json!({
-        "orch": [
-            {"peer":"peer-a", "remote_tab":"shared-tab", "title":"A", "role":"Planner"},
-            {"peer":"peer-b", "remote_tab":"shared-tab", "title":"B", "role":"Orchestrator"}
-        ]
-    }));
+    merge_remote_peer_tabs(&mut tabs, "peer-a", "A", &json!([
+        {"id":"shared-tab", "title":"A", "role":"Manager", "role_profile":"planner", "workspace_id":"remote"}
+    ]));
+    merge_remote_peer_tabs(&mut tabs, "peer-b", "B", &json!([
+        {"id":"shared-tab", "title":"B", "role":"Orchestrator", "workspace_id":"remote"}
+    ]));
 
     let ids: Vec<_> = tabs.iter().map(|tab| sfield(tab, "id")).collect();
     assert_eq!(ids, ["shared-tab", "orch", "mesh:peer-a/shared-tab", "mesh:peer-b/shared-tab"]);
     assert_eq!(sfield(&tabs[2], "remote_tab_id"), "shared-tab");
-    assert_eq!(sfield(&tabs[2], "role"), "Planner");
+    assert_eq!(sfield(&tabs[2], "role_profile"), "planner");
+    assert_eq!(sfield(&tabs[2], "remote_peer"), "A");
 }
 
 #[test]

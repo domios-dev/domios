@@ -14,7 +14,6 @@ import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
-import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
@@ -109,7 +108,7 @@ export function SidebarWorkspaceTabs({
   planIndex,
   plans,
   activeWork,
-  remoteWorkers,
+  remoteWorkers: _remoteWorkers,
   providers,
   providersLoading,
   closingTabIds,
@@ -274,12 +273,7 @@ export function SidebarWorkspaceTabs({
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
-    const orchestratorIds = managers
-      .filter((member) => member.tab.role === "Orchestrator")
-      .map((member) => member.tab.id);
-    const teamRemoteWorkers = orchestratorIds.flatMap((id) => remoteWorkers[id] ?? []);
     const workingLocal = workers.filter((member) => tabStatuses[member.tab.id] === "Working").length;
-    const workingRemote = teamRemoteWorkers.filter((worker) => worker.status === "working").length;
     const team = teamById.get(teamId) ?? {
       id: teamId,
       name: null,
@@ -302,20 +296,13 @@ export function SidebarWorkspaceTabs({
             {managers.map((member) => renderMemberRow(member, managerItems))}
           </SortableContext>
         }
-        workerCount={workers.length + teamRemoteWorkers.length}
-        workingWorkerCount={workingLocal + workingRemote}
+        workerCount={workers.length}
+        workingWorkerCount={workingLocal}
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
               {workers.map((member) => renderMemberRow(member, workerItems))}
             </SortableContext>
-            {teamRemoteWorkers.map((worker) => (
-              <RemoteWorkerRow
-                key={`${worker.peer}/${worker.remote_tab}`}
-                worker={worker}
-                depth={0}
-              />
-            ))}
           </>
         }
         terminalCount={terminals.length}

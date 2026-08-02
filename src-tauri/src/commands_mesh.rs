@@ -399,6 +399,54 @@ pub async fn mesh_peer_services_list(
     fetch_peer_services_view(mesh.inner(), &instance_id).await
 }
 
+#[tauri::command]
+pub async fn mesh_peer_tabs_list(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request(
+        mesh.inner(),
+        &instance_id,
+        PeerMethod::Get,
+        "/api/tabs?all_workspaces=true",
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mesh_remote_tab_action(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    ordinary_tab_id: String,
+    peer_id: String,
+    method: String,
+    suffix: String,
+    #[allow(unused_variables)] body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let (client, connected) = {
+        let manager = mesh.lock();
+        let connected = manager
+            .paired_peers
+            .get(&peer_id)
+            .is_some_and(|peer| peer.online);
+        (manager.client_for(&peer_id), connected)
+    };
+    let mut command = crate::api::mesh_routes::remote_tabs::route_remote_tab_action(
+        &ordinary_tab_id,
+        &peer_id,
+        connected,
+        &method,
+        &suffix,
+    )
+    .map_err(str::to_string)?;
+    command.body = body.unwrap_or(serde_json::Value::Null);
+    let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
+    let response = client.send_relay(&command).await?;
+    if !response.ok {
+        return Err(response.error.unwrap_or_else(|| "remote tab unavailable".into()));
+    }
+    Ok(response.data.unwrap_or(serde_json::Value::Null))
+}
+
 /// Shared implementation behind the Tauri command and the web-mirror HTTP
 /// route (`GET /api/mesh/peers/{id}/services`).
 pub async fn fetch_peer_services_view(
