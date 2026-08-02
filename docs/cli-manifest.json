@@ -240,6 +240,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the report body from a relative file in the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "kind",
               "positional": false,
               "value_name": "KIND",
@@ -440,6 +448,14 @@
               "aliases": []
             },
             {
+              "name": "execution-intent",
+              "positional": false,
+              "value_name": "EXECUTION_INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "interval",
               "positional": false,
               "value_name": "INTERVAL",
@@ -509,6 +525,14 @@
               "value_name": "PRESET",
               "default": null,
               "help": "Select a chatBackend shell preset. Omit to use the plugin default preset",
+              "aliases": []
+            },
+            {
+              "name": "provider-reserve-pct",
+              "positional": false,
+              "value_name": "PROVIDER_RESERVE_PCT",
+              "default": "5",
+              "help": null,
               "aliases": []
             },
             {
@@ -756,6 +780,14 @@
               "value_name": "FILENAME",
               "default": null,
               "help": "Override filename for document uploads",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the text body from the current agent tab's pad",
               "aliases": []
             },
             {
@@ -1350,6 +1382,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read text from a relative file in the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "stdin",
               "positional": false,
               "value_name": "STDIN",
@@ -1421,6 +1461,14 @@
               "value_name": "PATH",
               "default": null,
               "help": "Read replacement text from a file",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read replacement text from the current agent tab's pad",
               "aliases": []
             },
             {
@@ -4468,6 +4516,28 @@
       ]
     },
     {
+      "name": "pad",
+      "about": "Inspect the current agent tab's private ephemeral filesystem pad",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List relative regular files in the current agent tab's pad",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "path",
+          "about": "Print the current agent tab's private ephemeral pad path",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "paste",
       "about": "Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)",
       "aliases": [],
@@ -4513,7 +4583,7 @@
               "name": "body",
               "positional": true,
               "value_name": "BODY",
-              "default": "",
+              "default": null,
               "help": "Body (positional). Omit and use --from-file or --from-stdin",
               "aliases": []
             },
@@ -4531,6 +4601,14 @@
               "value_name": "PATH",
               "default": null,
               "help": "Read body from a file instead",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a relative file in the current agent tab's pad",
               "aliases": []
             },
             {
@@ -7889,6 +7967,30 @@
               "subcommands": []
             },
             {
+              "name": "adopt-checkpoint",
+              "about": "Adopt a sealed handoff checkpoint into this authenticated Worker tab",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "assign",
               "about": "Assign a task to a tab (exports CODETERM_TASK_ID to that tab)",
               "aliases": [],
@@ -8086,6 +8188,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "execution-intent",
+                  "positional": false,
+                  "value_name": "EXECUTION_INTENT",
+                  "default": null,
+                  "help": "Explicit task intent used by provider reserve policy",
+                  "aliases": []
+                },
+                {
                   "name": "model",
                   "positional": false,
                   "value_name": "MODEL",
@@ -8107,6 +8217,14 @@
                   "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "provider-reserve-pct",
+                  "positional": false,
+                  "value_name": "PROVIDER_RESERVE_PCT",
+                  "default": "5",
+                  "help": "Minimum remaining provider allowance for mutating work",
                   "aliases": []
                 },
                 {
@@ -9271,6 +9389,14 @@
           "aliases": []
         },
         {
+          "name": "from-pad",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Read the report body from a relative file in the current agent tab's pad",
+          "aliases": []
+        },
+        {
           "name": "kind",
           "positional": false,
           "value_name": "KIND",
@@ -9396,6 +9522,14 @@
           "value_name": "PATH",
           "default": null,
           "help": "Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting",
+          "aliases": []
+        },
+        {
+          "name": "from-pad",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Read text from a relative file in the current agent tab's pad",
           "aliases": []
         },
         {
