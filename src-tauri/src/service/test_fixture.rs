@@ -103,6 +103,7 @@ impl ServiceFixture {
             bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
             bridge_supervisor: Arc::new(crate::bridge::supervisor::BridgeSupervisor::new()),
             restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+            provider_updates: Default::default(),
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),
             delayed_send: crate::delayed_send::DelayedSendQueue::open(
                 temp.path().join("delayed-send.json"),

@@ -790,6 +790,11 @@ export interface ProviderDescriptor {
   /// Provider-declared in-agent context-compaction command. Consumed
   /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
   compact_command?: string | null;
+  self_update?: {
+    inSession: boolean;
+    restartRequired: boolean;
+    completionSignal?: "provider_classification" | null;
+  } | null;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

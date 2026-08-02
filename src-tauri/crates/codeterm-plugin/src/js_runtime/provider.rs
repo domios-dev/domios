@@ -875,6 +875,17 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.compact.as_deref()
     }
 
+    fn provider_self_update_capability(
+        &self,
+    ) -> Option<provider::ProviderSelfUpdateCapability> {
+        if !self.has_js("providerSelfUpdateCapability") {
+            return self
+                .native()
+                .and_then(|native| native.provider_self_update_capability());
+        }
+        self.try_call("providerSelfUpdateCapability", &[])
+    }
+
     fn fresh_context_command(&self) -> Option<&str> {
         self.manifest.commands.fresh_context.as_deref()
     }

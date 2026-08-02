@@ -315,6 +315,21 @@ pub enum SystemPromptDelivery {
     External,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSelfUpdateCapability {
+    pub in_session: bool,
+    pub restart_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_signal: Option<ProviderUpdateCompletionSignal>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderUpdateCompletionSignal {
+    ProviderClassification,
+}
+
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
 ///
@@ -377,6 +392,8 @@ pub struct ProviderDescriptor {
     /// provider-id literal. Absent means no compact capability (mode-B fallback).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_update: Option<ProviderSelfUpdateCapability>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
@@ -429,7 +446,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 10;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 12;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -804,6 +821,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn provider_self_update_capability(&self) -> Option<ProviderSelfUpdateCapability> {
+        None
+    }
+
     /// In-agent command that starts a fresh context in the same tab, if supported.
     fn fresh_context_command(&self) -> Option<&str> {
         None
@@ -1000,6 +1021,7 @@ pub trait AgentProvider: Send + Sync {
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
+            self_update: self.provider_self_update_capability(),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),

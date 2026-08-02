@@ -20,6 +20,7 @@ import { CommandPalette, buildDefaultCommands } from "./components/CommandPalett
 import { RecoveryStatusBanner } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
+import { ProviderUpdatePromptLayer } from "./components/ProviderUpdatePromptLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
@@ -726,6 +727,7 @@ function AppInner() {
       <NavigationBackBar onBack={handleBackToMemory} />
 
       <UpdateProgressLayer />
+      <ProviderUpdatePromptLayer />
     </div>
   );
 }
