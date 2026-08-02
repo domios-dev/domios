@@ -6,6 +6,7 @@ import { MessageBubble } from "../MessageBubble";
 import { decodeCliMessageText, normalizeMessageText } from "./messageText";
 import { CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS, DISPATCH_READY_REPORT } from "./inboundReportFixtures.testdata";
 import { mountInboundReportCardHarness } from "./InboundReportCard.browserHarness";
+import { parseCoordinationReport } from "./coordinationReport";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({ window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node })) {
@@ -124,6 +125,11 @@ async function renderCoordination(content: string, id: string) {
 }
 
 const coordination = await renderCoordination(DISPATCH_READY_REPORT, "coordination-ready");
+const parsedCoordination = parseCoordinationReport(DISPATCH_READY_REPORT);
+if (parsedCoordination?.diagnostics !== DISPATCH_READY_REPORT) throw new Error("parser changed untouched coordination diagnostics");
+if (parseCoordinationReport(`Authored introduction\n${DISPATCH_READY_REPORT}`)) throw new Error("JSON-looking authored prose was misclassified as a coordination envelope");
+if (parseCoordinationReport(`status: Done\n${DISPATCH_READY_REPORT.split("\n").slice(1).join("\n")}`)) throw new Error("authored report with a JSON body was misclassified as a coordination envelope");
+if (parseCoordinationReport('task: pl_one/task_one\n{"kind":"worker_ack","plan_id":"pl_one","task_id":"task_one","state":"arbitrary"}')) throw new Error("unsupported worker_ack envelope was accepted");
 const collapsed = coordination.cardHost.querySelector('[data-testid="chat-coordination-report"]');
 if (!collapsed) throw new Error("dispatch_ready coordination card missing");
 for (const visible of ["Dispatch ready", "Kay", "pl_kddub3/task_ii7zgs", "Awaiting worker acknowledgement"]) {
@@ -134,8 +140,14 @@ for (const hidden of ["attempt_ts4pkq", "019f6c2f", "codeterm-worktrees", "canon
 }
 const detailsToggle = coordination.cardHost.querySelector('button[aria-label="Show coordination Details"]') as HTMLButtonElement | null;
 if (!detailsToggle) throw new Error("coordination Details disclosure is not accessible");
+if (detailsToggle.getAttribute("aria-expanded") !== "false") throw new Error("collapsed coordination disclosure state is missing");
+const detailsRegionId = detailsToggle.getAttribute("aria-controls");
+if (detailsRegionId !== "chat-details-coordination-ready") throw new Error("coordination Details target id is not stable");
 await act(async () => detailsToggle.click());
 const details = coordination.cardHost.querySelector('[data-testid="chat-coordination-details"]');
+const controlledRegion = coordination.cardHost.querySelector(`#${detailsRegionId}`);
+if (!controlledRegion || detailsToggle.getAttribute("aria-expanded") !== "true" || !controlledRegion.contains(details)) throw new Error("expanded coordination disclosure relationship is broken");
+if (controlledRegion.getAttribute("role") !== "region") throw new Error("coordination Details target lacks region semantics");
 if (details?.textContent !== `DetailsCopy${DISPATCH_READY_REPORT}`) throw new Error("expanded coordination diagnostics are not exact");
 if (details.querySelector("script")) throw new Error("coordination diagnostics executed markup instead of escaping it");
 let copied = "";
@@ -149,11 +161,12 @@ coordination.cardHost.remove();
 
 for (const fixture of [
   { id: "ack", json: { kind: "worker_ack", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", attempt_id: "secret-attempt", state: "in_progress" }, event: "Worker acknowledged", state: "in progress" },
-  { id: "failed", json: { kind: "dispatch_startup_failed", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", stage: "session", error: "No session" }, event: "Worker startup failed", state: "No session" },
+  { id: "failed", json: { kind: "dispatch_startup_failed", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", stage: "session", error: "No session with C:\\secret\\lane" }, event: "Worker startup failed", state: "Retry required" },
 ]) {
   const rendered = await renderCoordination(`task: pl_one/task_one\n${JSON.stringify(fixture.json)}`, fixture.id);
   if (!rendered.cardHost.textContent?.includes(fixture.event) || !rendered.cardHost.textContent.includes(fixture.state)) throw new Error(`${fixture.id} summary regression`);
   if (rendered.cardHost.textContent.includes("secret-tab")) throw new Error(`${fixture.id} leaked internal ids while collapsed`);
+  if (rendered.cardHost.textContent.includes("secret\\lane")) throw new Error(`${fixture.id} leaked arbitrary error text while collapsed`);
   await act(async () => rendered.cardRoot.unmount());
   rendered.cardHost.remove();
 }

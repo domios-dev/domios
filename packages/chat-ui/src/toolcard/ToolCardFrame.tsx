@@ -35,6 +35,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     ? "color-mix(in srgb, var(--ct-red) 6%, var(--ct-surface))"
     : expanded || variant === "codeterm" ? "var(--ct-surface)" : "color-mix(in srgb, var(--ct-surface) 60%, transparent)";
   const label = title === undefined ? visual.label : title;
+  const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   return (
     <div
@@ -47,6 +48,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
+          aria-expanded={expanded}
+          aria-controls={detailsId}
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
@@ -76,6 +79,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       {isCommand && commandVisible && command}
       {expanded && (
         <div
+          id={detailsId}
+          role="region"
+          aria-label={disclosureLabel ?? "Tool details"}
           className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
           style={{ borderColor: "var(--ct-border)" }}
         >
