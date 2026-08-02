@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
   ChatSetupState,
-  ChatSetupStatusLine,
   chatSetupSubject,
   chatSetupStageLabel,
   chatSetupView,
@@ -99,22 +98,6 @@ async function main() {
     assert(host.querySelectorAll('[data-testid="chat-launch-ticks"] i').length === 8, "static reduced-motion tick marks are present");
   });
 
-  await test("history can keep rendering while the compact boot status remains visible", async () => {
-    const host = await render(
-      <ChatSetupStatusLine tab={tab("pty_spawned")} providerName="Codex" />,
-    );
-    const status = host.querySelector('[data-testid="chat-setup-status-line"]');
-    assert(status, "compact status rendered");
-    assert(status.textContent?.includes("Spawn accepted"), "real boot stage is shown");
-  });
-
-  await test("compact boot status disappears when the provider is ready", async () => {
-    const host = await render(
-      <ChatSetupStatusLine tab={tab("agent_ready")} providerName="Codex" />,
-    );
-    assert(!host.querySelector('[data-testid="chat-setup-status-line"]'), "ready status hidden");
-  });
-
   await test("failed launch remains a neutral provider loader", async () => {
     const p = tab("spawn_failed", "SYSTEM REMINDER: secret launch details");
     const host = await render(
@@ -125,13 +108,6 @@ async function main() {
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failure card is rendered");
     assert(!host.textContent?.includes("could not"), "no failure copy is rendered");
     assert(!host.textContent?.includes("SYSTEM REMINDER"), "raw failure detail is hidden");
-  });
-
-  await test("chat loading uses the compact line after content exists", async () => {
-    const host = await render(
-      <ChatSetupStatusLine tab={tab("agent_ready")} providerName="Codex" chatLoading />,
-    );
-    assert(host.querySelector('[data-testid="chat-setup-status-line"]')?.textContent === "Loading chat…", "neutral loading line rendered");
   });
 
   await test("ready overlaps the transcript only through its opacity transition", async () => {

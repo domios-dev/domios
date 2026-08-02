@@ -132,31 +132,6 @@ function LaunchGlyph({ providerName, iconSvg, iconColor, iconHint }: LaunchGlyph
   );
 }
 
-export function ChatSetupStatusLine({
-  tab,
-  providerName,
-  chatLoading = false,
-}: {
-  tab: Tab | null | undefined;
-  providerName: string;
-  chatLoading?: boolean;
-}) {
-  if (!chatLoading && chatSetupView(tab).kind !== "starting") return null;
-  const label = chatLoading && chatSetupView(tab).kind === "none"
-    ? "Loading chat…"
-    : chatSetupStageLabel(tab?.boot_stage, chatSetupSubject(tab, providerName));
-  return (
-    <div
-      className="flex shrink-0 items-center border-t px-3 py-1.5 text-[11px]"
-      data-testid="chat-setup-status-line"
-      style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
-      aria-live="polite"
-    >
-      {label}
-    </div>
-  );
-}
-
 export function ChatSetupState({
   tab,
   view,

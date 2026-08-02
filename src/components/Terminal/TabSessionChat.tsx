@@ -24,7 +24,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
-import { AgentStateIndicator, shouldRenderAgentStateIndicator } from "./AgentStateIndicator";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
@@ -32,12 +32,10 @@ import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagn
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
-import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupState";
+import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
-import { useStreamPreview } from "./useStreamPreview";
-import { StreamPreviewFloat } from "./StreamPreviewFloat";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 
@@ -113,7 +111,6 @@ export function TabSessionChat({
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
-  const [longIdle, setLongIdle] = useState(false);
 
   const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace } = useMultiplexer();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
@@ -130,7 +127,6 @@ export function TabSessionChat({
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
   const backendState = tab?.agent_state ?? null;
-  const [waitingGeneration, setWaitingGeneration] = useState<number | null>(null);
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
@@ -185,16 +181,18 @@ export function TabSessionChat({
 
   const {
     scrollRef,
-    contentRef: scrollContentRef,
     showScrollDown,
     scrollToBottom,
     followSend: rawFollowSentMessage,
+    prepareForHistoryPrepend,
     handleScroll,
   } = useChatScroll({
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
     messageCount: enrichedMessages.length,
+    contentVersion: enrichedMessages,
+    prependVersion: enrichedMessages[0]?.msg.id ?? null,
     followTailRef: chatFollowTailRef,
     onModeChange: (mode) => setHistoryReading(mode === "detached"),
   });
@@ -442,23 +440,9 @@ export function TabSessionChat({
     return next;
   }, [renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
 
-  useEffect(() => {
-    if (backendState?.state === "working" || pendingPrompt) {
-      setLongIdle(false);
-      return;
-    }
-    const id = window.setTimeout(() => setLongIdle(true), 90_000);
-    return () => window.clearTimeout(id);
-  }, [backendState?.state, pendingPrompt]);
-
   // The key covers every admission input (incl. late-arriving options/submit),
   // so the effect re-observes exactly when the admission decision can change.
   const admissionKey = admissionDependencyKey(
-    pendingPrompt,
-    backendState?.state ?? null,
-    backendState?.subtype ?? null,
-  );
-  const inputRequestAdmission = deriveInputRequestAdmission(
     pendingPrompt,
     backendState?.state ?? null,
     backendState?.subtype ?? null,
@@ -469,7 +453,7 @@ export function TabSessionChat({
       backendState?.state ?? null,
       backendState?.subtype ?? null,
     );
-    const generation = waitingQuestionTracker.observeAndNotify(
+    waitingQuestionTracker.observeAndNotify(
       tabId,
       agentSessionId,
       backendState?.state ?? null,
@@ -488,7 +472,6 @@ export function TabSessionChat({
           },
         ),
     );
-    setWaitingGeneration(generation);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentSessionId, tabId, admissionKey]);
 
@@ -499,31 +482,14 @@ export function TabSessionChat({
       state: kind,
       subtype: backendState?.subtype,
       status_line: backendState?.status_line,
-      last_turn_summary: backendState?.last_turn_summary,
       phase: backendState?.phase,
-      elapsed_ms: backendState?.elapsed_ms,
-      longIdle: kind === "idle" && longIdle,
     };
   }, [
     backendState?.state,
     backendState?.status_line,
-    backendState?.last_turn_summary,
     backendState?.phase,
-    backendState?.elapsed_ms,
     backendState?.subtype,
-    longIdle,
   ]);
-
-  const canonicalContents = useMemo(
-    () => enrichedMessages.slice(-20).map((entry) => entry.msg.content ?? ""),
-    [enrichedMessages],
-  );
-  const streamPreview = useStreamPreview(
-    tabId,
-    isActive && !effectiveChatBackend,
-    liveAgentState.state === "working",
-    canonicalContents,
-  );
 
   const composerModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
@@ -545,16 +511,24 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  const agentStateIndicatorVisible = !inlinePrompt && shouldRenderAgentStateIndicator(
-    liveAgentState.state,
-    renderedEnrichedMessages.length > 0,
-    inputRequestAdmission.notificationReady,
-  );
+  const statusRowState: AgentState = useMemo(() => {
+    if (error) return { state: "idle", status_line: "Chat unavailable" };
+    if (loading || recovering) return { state: "working", status_line: "Loading chat…" };
+    if (bootSetupView.kind === "starting") {
+      return {
+        state: "working",
+        status_line: chatSetupStageLabel(
+          tab?.boot_stage,
+          chatSetupSubject(tab, provider?.displayName ?? "the agent"),
+        ),
+      };
+    }
+    return liveAgentState;
+  }, [bootSetupView.kind, error, liveAgentState, loading, provider?.displayName, recovering, tab]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
-    && !inlinePrompt
-    && !agentStateIndicatorVisible;
+    && !inlinePrompt;
 
   return (
     <div
@@ -604,7 +578,7 @@ export function TabSessionChat({
         aria-label="Conversation"
         aria-live="polite"
       >
-        <div ref={scrollContentRef}>
+        <div>
         {touchMode && (
           <div
             aria-hidden="true"
@@ -617,7 +591,10 @@ export function TabSessionChat({
             <button
               type="button"
               data-testid="chat-load-older"
-              onClick={() => void loadOlder()}
+              onClick={() => {
+                prepareForHistoryPrepend();
+                void loadOlder();
+              }}
               disabled={backfillLoading}
               className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
               style={{
@@ -674,26 +651,7 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
-        {agentStateIndicatorVisible && (
-          // with the message text instead of the far-left container edge.
-          <div className="w-full max-w-4xl min-w-0 mx-auto">
-            <AgentStateIndicator
-              state={liveAgentState}
-              questionGeneration={waitingGeneration}
-              providerName={provider?.displayName ?? null}
-              model={workingModelBadge}
-              onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
-              onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
-              onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-            />
-          </div>
-        )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
-        {!effectiveChatBackend && (
-          <StreamPreviewFloat
-            rows={streamPreview}
-          />
-        )}
         </div>
       </div>
       {(showScrollDown || hiddenNewerCount > 0) && (
@@ -725,13 +683,14 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      {renderedEnrichedMessages.length > 0 && (chatLoading || bootSetupView.kind === "starting") && (
-        <ChatSetupStatusLine
-          tab={tab}
-          providerName={provider?.displayName ?? "the agent"}
-          chatLoading={chatLoading}
-        />
-      )}
+      <AgentStateIndicator
+        state={statusRowState}
+        model={workingModelBadge}
+        className="w-full border-t"
+        onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+        onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+        onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+      />
       <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
