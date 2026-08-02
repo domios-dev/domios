@@ -210,8 +210,14 @@ delivery error. The real load owner is the session parser; the bounded 4 MiB
 tail and blocking-worker route keep it off the four REST runtime workers.
 Neither the fixtures nor the oracle address production port 7685.
 
+## Plugin test launcher troubleshooting
+
+`npm run test:plugins` uses the repository launcher, which selects Git Bash on
+Windows and `bash` elsewhere. If it reports that Git Bash is missing, install
+Git for Windows at its standard location and rerun the same command.
+
 ## Related documents
 
 End-to-end and cross-platform verification: `codeterm docs E2E-TESTING`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

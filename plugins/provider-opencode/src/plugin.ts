@@ -156,6 +156,7 @@ const plugin: PluginModule = {
         : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
     }
     parts.push("opencode");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
@@ -184,9 +185,8 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    // Resume uses the normal TUI path; permission rules come from saved session config.
-    void skipPermissions;
     const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
     return parts.join(" ");
   },
 
