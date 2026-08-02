@@ -163,6 +163,78 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     assert_eq!(bw.task().status, TaskStatus::InReview);
 }
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn task_gate_rejection_still_delivers_report_once() {
+    let bw = seed_bound_worker();
+    let svc = &bw.fx.service;
+    let mut plan = svc.plan_store.get(&bw.plan_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == bw.task_id)
+        .unwrap();
+    task.review_round = 4;
+    let before_status = task.status.clone();
+    svc.plan_store.save(&mut plan, 4).unwrap();
+    svc.gateway.require_worker_report(&bw.worker);
+
+    let result = svc
+        .submit_report(
+            &bw.worker,
+            "EXACT_REPORT_PAYLOAD",
+            ReportDetails {
+                status: Some(ReportStatus::InReview),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .expect("task policy cannot reject report delivery");
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.rejected_task_transition.is_some());
+    assert_eq!(bw.task().status, before_status);
+    assert_eq!(bw.report_count(), 1);
+    let delivered = bw.reports_json();
+    assert!(delivered.contains("REPORT RECEIVED — TASK TRANSITION REJECTED"));
+    assert!(delivered.contains("EXACT_REPORT_PAYLOAD"));
+    assert!(!svc.gateway.worker_report_required(&bw.worker));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn worker_done_policy_cannot_suppress_report_delivery() {
+    let bw = seed_bound_worker();
+    let svc = &bw.fx.service;
+
+    let result = svc
+        .submit_report(
+            &bw.worker,
+            "WORKER_DONE_PAYLOAD",
+            ReportDetails {
+                status: Some(ReportStatus::Done),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .expect("reported status policy cannot reject report delivery");
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.rejected_task_transition.is_some());
+    assert_eq!(bw.report_count(), 1);
+    assert!(bw.reports_json().contains("WORKER_DONE_PAYLOAD"));
+}
+
 /// A genuinely unreported turn still produces one provider-stop handoff.
 /// The resulting Partial must reach the orchestrator's report store.
 #[test]

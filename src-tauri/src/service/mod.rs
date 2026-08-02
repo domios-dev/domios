@@ -729,6 +729,14 @@ pub struct ReportResult {
     /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
     pub notices: Vec<String>,
     pub persisted_task: Option<(String, String)>,
+    pub rejected_task_transition: Option<RejectedTaskTransition>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RejectedTaskTransition {
+    pub plan_id: Option<String>,
+    pub task_id: Option<String>,
+    pub cause: String,
 }
 
 /// Helper: extract optional string from JSON value.
