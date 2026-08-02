@@ -14,7 +14,7 @@ describe("remote tab routing", () => {
       remote_availability: "available",
     })).toEqual({ peerId: "peer-a", tabId: "same" });
     expect(remoteTabStreamPath({ peerId: "peer-a", tabId: "same" }))
-      .toContain("peer=peer-a&path=%2Fapi%2Foutput%2Fstream");
+      .toContain("peer=peer-a&path=%2Fapi%2Foutput%2Fstream&tab=mesh%3Apeer-a%2Fsame");
   });
 
   it("never falls back to a colliding local tab", () => {

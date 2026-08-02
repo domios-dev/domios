@@ -27,7 +27,8 @@ fn ordinary_tab_projection_merges_only_reachable_authenticated_peers() {
         peer_name: id.to_uppercase(),
         authenticated,
         reachable,
-        tabs: vec![serde_json::json!({"id":"shared-tab", "title":id})],
+        availability: "available",
+        tabs: reachable.then(|| serde_json::json!({"id":"shared-tab", "title":id})).into_iter().collect(),
     };
     let projected = merge_ordinary_tab_projection(
         &[serde_json::json!({"id":"shared-tab", "title":"local"})],

@@ -229,7 +229,6 @@ function Projection() {
         planIndex={index.index}
         plans={full.plans}
         activeWork={null}
-        remoteWorkers={{}}
         providers={[]}
         closingTabIds={new Set()}
         appearingTabIds={new Set()}

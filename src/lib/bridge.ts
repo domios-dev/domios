@@ -22,6 +22,8 @@ import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
+import { hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
+import { subscribeRemoteTabEvent } from "./remoteTabEvents";
 
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
@@ -342,17 +344,8 @@ const HTTP_MAP: Record<string, Mapper> = {
 
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
-  mesh_peer_tabs_list: (a) => webJson("POST", "/api/mesh/relay-to", {
-    target_peer_id: s(a, "instanceId") ?? s(a, "instance_id"),
-    method: "GET",
-    path: "/api/tabs?all_workspaces=true",
-    body: null,
-  }).then((response: unknown) => {
-    const relay = response as { ok?: boolean; data?: unknown; error?: string | null };
-    if (!relay.ok) throw new Error(relay.error ?? "Remote tabs unavailable");
-    return relay.data;
-  }),
-  mesh_remote_tab_action: (a) => {
+  ordinary_tabs_list: () => webJson("GET", "/api/tabs?all_workspaces=true"),
+  mesh_remote_tab_action: async (a) => {
     const peer = s(a, "peerId") ?? s(a, "peer_id");
     const ordinary = s(a, "ordinaryTabId") ?? s(a, "ordinary_tab_id");
     const prefix = `mesh:${peer}/`;
@@ -361,9 +354,23 @@ const HTTP_MAP: Record<string, Mapper> = {
     }
     const remoteTab = ordinary.slice(prefix.length);
     const suffix = s(a, "suffix");
-    const path = suffix === "/inspect"
+    let path = suffix === "/inspect"
       ? `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`
       : `/api/tabs/${enc(remoteTab)}${suffix}`;
+    if (suffix.startsWith("/pty/")) {
+      const inspected = await webJson<{ ok?: boolean; data?: Array<{ pty_id?: string }> }>("POST", "/api/mesh/relay-to", {
+        target_peer_id: peer,
+        method: "GET",
+        path: `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`,
+        body: null,
+      });
+      const ptyId = inspected.ok ? inspected.data?.[0]?.pty_id : null;
+      if (!ptyId) throw new Error("Remote tab PTY unavailable");
+      if (suffix === "/pty/write") path = `/api/pty/${enc(ptyId)}/write`;
+      else if (suffix === "/pty/resize") path = `/api/pty/${enc(ptyId)}/resize`;
+      else if (suffix.startsWith("/pty/read")) path = `/api/pty/${enc(ptyId)}/read${suffix.slice("/pty/read".length)}`;
+      else throw new Error("Unsupported remote PTY action");
+    }
     return webJson("POST", "/api/mesh/relay-to", {
       target_peer_id: peer,
       method: s(a, "method"),
@@ -695,9 +702,22 @@ if (typeof PerformanceObserver !== "undefined") {
 export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
   const t0 = performance.now();
   try {
-    return invokeForTest
-      ? await invokeForTest<T>(cmd, args)
-      : await invokeRaw<T>(cmd, args);
+    if (invokeForTest) return await invokeForTest<T>(cmd, args);
+    const remote = remoteTransportCall(cmd, args);
+    if (remote) {
+      const value = await invokeRaw<unknown>("mesh_remote_tab_action", {
+        ordinaryTabId: remote.ordinaryTabId,
+        peerId: remote.peerId,
+        method: remote.method,
+        suffix: remote.suffix,
+        body: remote.body,
+      });
+      return (remote.select ? remote.select(value) : value) as T;
+    }
+    if (hasCompositeTabArgument(args)) {
+      throw new Error(`Remote tab action "${cmd}" is unavailable; local fallback is forbidden`);
+    }
+    return await invokeRaw<T>(cmd, args);
   } catch (err) {
     if (isCommandNotFoundError(err)) {
       checkBuildMismatch().catch(() => {});
@@ -764,6 +784,8 @@ export async function listen<T>(
     }
     handler(e);
   };
+  const remote = subscribeRemoteTabEvent(event, counted);
+  if (remote) return remote;
   if (listenForTest) return listenForTest(event, counted);
   if (!IS_WEB) {
     return tauriListen<T>(event, counted);

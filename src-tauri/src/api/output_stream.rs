@@ -28,6 +28,7 @@ const TICK: Duration = Duration::from_millis(200);
 #[derive(Deserialize)]
 pub(crate) struct OutputStreamQuery {
     since: Option<String>,
+    tab_id: Option<String>,
 }
 
 /// Decoded `?since` cursor: the boot namespace + per-tab resume offsets.
@@ -109,9 +110,16 @@ struct Tracked {
 fn seed_initial(
     svc: &ServiceState,
     cursor: Option<Cursor>,
+    tab_id: Option<&str>,
 ) -> (Option<serde_json::Value>, HashMap<String, Tracked>) {
     let boot = svc.events.boot_id().to_string();
-    let live: Vec<(String, String)> = svc.mux.read().pty_backed_tabs();
+    let live: Vec<(String, String)> = svc
+        .mux
+        .read()
+        .pty_backed_tabs()
+        .into_iter()
+        .filter(|(id, _)| tab_id.is_none_or(|wanted| wanted == id))
+        .collect();
     let buf = svc.output_buf.lock();
     let mut tracked = HashMap::new();
     let mut boot_frame = None;
@@ -151,8 +159,18 @@ fn seed_initial(
 /// One blocking sweep across every PTY-backed tab. Pure sync — safe for
 /// `spawn_blocking`; locks are acquired in order mux > output_buf >
 /// agent_tracker and each is dropped before the next, none held across `.await`.
-fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serde_json::Value> {
-    let live: HashMap<String, String> = svc.mux.read().pty_backed_tabs().into_iter().collect();
+fn sweep(
+    svc: &ServiceState,
+    tracked: &mut HashMap<String, Tracked>,
+    tab_id: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let live: HashMap<String, String> = svc
+        .mux
+        .read()
+        .pty_backed_tabs()
+        .into_iter()
+        .filter(|(id, _)| tab_id.is_none_or(|wanted| wanted == id))
+        .collect();
     // Disposed tabs (gone from mux) are dropped silently.
     tracked.retain(|tab, _| live.contains_key(tab));
     // Tabs created mid-stream full-replay from the start of the retained ring.
@@ -226,11 +244,15 @@ pub async fn output_stream(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let cursor = q.since.as_deref().and_then(parse_cursor);
+    let tab_id = q.tab_id;
 
     let stream = async_stream::stream! {
         let svc0 = svc.clone();
         let (boot_frame, mut tracked) =
-            match tokio::task::spawn_blocking(move || seed_initial(&svc0, cursor)).await {
+            match tokio::task::spawn_blocking({
+                let tab_id = tab_id.clone();
+                move || seed_initial(&svc0, cursor, tab_id.as_deref())
+            }).await {
                 Ok(v) => v,
                 Err(_) => return,
             };
@@ -239,9 +261,10 @@ pub async fn output_stream(
         }
         loop {
             let svc1 = svc.clone();
+            let tab_id = tab_id.clone();
             let mut owned = std::mem::take(&mut tracked);
             let result = tokio::task::spawn_blocking(move || {
-                let frames = sweep(&svc1, &mut owned);
+                let frames = sweep(&svc1, &mut owned, tab_id.as_deref());
                 (frames, owned)
             })
             .await;

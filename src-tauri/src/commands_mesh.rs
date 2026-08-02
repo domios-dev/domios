@@ -400,17 +400,26 @@ pub async fn mesh_peer_services_list(
 }
 
 #[tauri::command]
-pub async fn mesh_peer_tabs_list(
+pub async fn ordinary_tabs_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
-    instance_id: String,
+    svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    peer_authed_request(
-        mesh.inner(),
-        &instance_id,
-        PeerMethod::Get,
-        "/api/tabs?all_workspaces=true",
-    )
-    .await
+    let local = crate::dispatch::dispatch(
+        &crate::dispatch::Command::TabSummary {
+            workspace_id: None,
+            caller_tab_id: None,
+            focused_workspace: false,
+            agents_only: false,
+        },
+        svc.as_ref(),
+    )?
+    .into_json()
+    .as_array()
+    .cloned()
+    .unwrap_or_default();
+    Ok(serde_json::Value::Array(
+        crate::service::remote_tabs::ordinary_tab_projection(mesh.inner(), local).await,
+    ))
 }
 
 #[tauri::command]
@@ -438,6 +447,37 @@ pub async fn mesh_remote_tab_action(
         &suffix,
     )
     .map_err(str::to_string)?;
+    if suffix.starts_with("/pty/") {
+        let owner = crate::api::mesh_routes::remote_tabs::parse_remote_tab_owner(&ordinary_tab_id)
+            .map_err(str::to_string)?;
+        let inspect = crate::mesh::types::RelayCommand {
+            method: "GET".into(),
+            path: format!("/api/tabs/inspect?tab_ids={}", owner.tab_id),
+            body: serde_json::Value::Null,
+            delivery_id: None,
+        };
+        let inspected = client
+            .as_ref()
+            .ok_or_else(|| "remote tab unavailable".to_string())?
+            .send_relay(&inspect)
+            .await?;
+        let pty_id = inspected
+            .data
+            .as_ref()
+            .and_then(serde_json::Value::as_array)
+            .and_then(|tabs| tabs.first())
+            .and_then(|tab| tab.get("pty_id"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "remote tab PTY unavailable".to_string())?;
+        command.path = match suffix.as_str() {
+            "/pty/write" => format!("/api/pty/{pty_id}/write"),
+            "/pty/resize" => format!("/api/pty/{pty_id}/resize"),
+            suffix if suffix.starts_with("/pty/read") => {
+                format!("/api/pty/{pty_id}/read{}", suffix.trim_start_matches("/pty/read"))
+            }
+            _ => return Err("unsupported remote PTY action".into()),
+        };
+    }
     command.body = body.unwrap_or(serde_json::Value::Null);
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
     let response = client.send_relay(&command).await?;

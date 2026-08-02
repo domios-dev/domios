@@ -49,5 +49,6 @@ export function remoteTabActionRequest(
 }
 
 export function remoteTabStreamPath(route: RemoteTabRoute): string {
-  return `/api/mesh/relay-stream?peer=${encodeURIComponent(route.peerId)}&path=${encodeURIComponent("/api/output/stream")}`;
+  const ordinary = `mesh:${route.peerId}/${route.tabId}`;
+  return `/api/mesh/relay-stream?peer=${encodeURIComponent(route.peerId)}&path=${encodeURIComponent("/api/output/stream")}&tab=${encodeURIComponent(ordinary)}`;
 }
