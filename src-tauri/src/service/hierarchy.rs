@@ -502,6 +502,41 @@ impl ServiceContext {
                         "the report resolved a plan but no exact task",
                     )
                 })?;
+                let reporter_is_plan_owner = self
+                    .plan_store
+                    .owner_of(plan_id)
+                    .and_then(|owner| owner.tab_id)
+                    .as_deref()
+                    == Some(tab_id);
+                if !reporter_is_plan_owner {
+                    if let Some(detail) = self.plan_store.show_task(task_id) {
+                        let owner_epoch = detail.task.interruption.owner_epoch;
+                        if owner_epoch > 0 {
+                            let session_id = from_ref.session_id.as_deref().ok_or_else(|| {
+                                report_persistence::report_persistence_incident(
+                                    tab_id,
+                                    plan_id,
+                                    Some(task_id),
+                                    "owner-epoch report requires the exact authenticated session",
+                                )
+                            })?;
+                            self.verify_task_owner_session(
+                                task_id,
+                                tab_id,
+                                session_id,
+                                owner_epoch,
+                            )
+                            .map_err(|error| {
+                                report_persistence::report_persistence_incident(
+                                    tab_id,
+                                    plan_id,
+                                    Some(task_id),
+                                    &error,
+                                )
+                            })?;
+                        }
+                    }
+                }
                 persist_local_task_report(
                     &self.plan_store,
                     tab_id,

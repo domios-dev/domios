@@ -91,6 +91,67 @@ fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<()
     })
 }
 
+fn verify_owner_epoch_for_task_mutation(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+) -> Result<(), JsonRpcError> {
+    if matches!(
+        method,
+        "task.list"
+            | "task.show"
+            | "plan.task.attempts"
+            | "plan.task.attempt.show"
+            | "plan.task.adopt_checkpoint"
+            | "plan.task.add"
+    ) {
+        return Ok(());
+    }
+    let Some(caller_tab_id) = params
+        .as_ref()
+        .and_then(|value| value.get("caller_tab_id"))
+        .and_then(Value::as_str)
+    else {
+        return Ok(());
+    };
+    let Ok((plan_id, task_id)) = plan_refs::resolve_task(&svc.plan_store, params) else {
+        return Ok(());
+    };
+    if svc
+        .plan_store
+        .owner_of(&plan_id)
+        .and_then(|owner| owner.tab_id)
+        .as_deref()
+        == Some(caller_tab_id)
+    {
+        return Ok(());
+    }
+    let detail = svc
+        .plan_store
+        .show_task(&task_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    let owner_epoch = detail.task.interruption.owner_epoch;
+    if owner_epoch == 0 {
+        return Ok(());
+    }
+    let session_id = svc
+        .mux
+        .read()
+        .get_tab(caller_tab_id)
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| JsonRpcError {
+            code: -32603,
+            message: "task mutation requires the exact authenticated owner session".into(),
+            data: None,
+        })?;
+    svc.verify_task_owner_session(&task_id, caller_tab_id, &session_id, owner_epoch)
+        .map_err(|error| JsonRpcError {
+            code: -32603,
+            message: error,
+            data: None,
+        })
+}
+
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
@@ -108,6 +169,7 @@ pub(super) fn handles(method: &str) -> bool {
             | "plan.task.attempts"
             | "plan.task.attempt.show"
             | "plan.task.respawn"
+            | "plan.task.adopt_checkpoint"
             | "plan.task.compete"
             | "plan.task.judge"
             | "plan.task.rm"
@@ -123,7 +185,40 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
     let store = &svc.plan_store;
+    verify_owner_epoch_for_task_mutation(method, params, svc)?;
     match method {
+        "plan.task.adopt_checkpoint" => {
+            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
+            let tab_id = get_string_param(params, "caller_tab_id")?;
+            let session_id = svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+                .ok_or_else(|| JsonRpcError {
+                    code: -32603,
+                    message: "adoption caller has no authenticated session".into(),
+                    data: None,
+                })?;
+            let (owner_epoch, attempt_id) = svc
+                .adopt_worker_checkpoint_sync(&task_id, &tab_id, &session_id, now)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            emit_plan_changed(app, &plan_id);
+            Ok(json!({
+                "ok": true,
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "owner_epoch": owner_epoch,
+                "tab_id": tab_id,
+                "session_id": session_id,
+                "state": "awaiting_worker_ack"
+            }))
+        }
         "task.list" => {
             let caller = p
                 .and_then(|x| x.get("caller_tab_id"))

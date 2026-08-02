@@ -132,6 +132,45 @@ fn exhaustion_after_dirty_edit_recovers_handoff_required() {
 }
 
 #[test]
+fn restart_preserves_handoff_projection_and_interrupted_attempt_ledger() {
+    let (dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .interrupt_task_attempt(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            "forced_context_reset",
+            checkpoint(&task_id, &attempt_id),
+            5,
+        )
+        .unwrap();
+    drop(store);
+    let reopened = PlanStore::new_for_test(dir.path());
+    let plan = reopened.get(&plan_id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(
+        crate::service_plan::state::task_projection(&plan, task).presentation,
+        crate::service_plan::TaskPresentation::HandoffRequired
+    );
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.interruption.reason.as_deref(), Some("forced_context_reset"));
+    assert_eq!(
+        attempt.interruption.checkpoint_digest,
+        task.interruption
+            .checkpoint
+            .as_ref()
+            .map(|checkpoint| checkpoint.diff_sha256.clone())
+    );
+}
+
+#[test]
 fn takeover_epoch_fences_exhausted_owner() {
     let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
     let sealed = checkpoint(&task_id, &attempt_id);

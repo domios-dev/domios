@@ -745,6 +745,20 @@ pub(super) fn run_task(
             println!("Respawned worker Tab {tab} (attempt {attempt_id})");
             Ok(None)
         }
+        PlanTaskAction::AdoptCheckpoint { plan_id, task_id } => {
+            let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
+            maybe_inject_caller_tab(&mut params);
+            let val = call(client, "plan.task.adopt_checkpoint", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            println!(
+                "Adopted checkpoint as owner epoch {} (attempt {}). Run codeterm agent ack.",
+                val.get("owner_epoch").and_then(|value| value.as_u64()).unwrap_or(0),
+                val.get("attempt_id").and_then(|value| value.as_str()).unwrap_or("?")
+            );
+            Ok(None)
+        }
         PlanTaskAction::Link {
             plan_id,
             task_id,
