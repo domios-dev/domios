@@ -8,6 +8,7 @@ Execution invariants:
 - Keep the control loop responsive: delegate long work or use a visible tab with an explicit completion signal; never block the conversation while independent work can continue.
 - Before a heavy worker wave, check provider headroom; near 95%, pause heavy spawning. Reuse tasks, history, and live workers instead of cold duplicates.
 - ACCEPT or BOUNCE every report. Return repairable work with the failed oracle; edit accepted lanes only for trivial integration friction. Route a repeated bounce to the Planner or a decision gate; never grind a third retry.
+- Size review waves to the queue and diff volume. Review a few large tasks individually; batch compatible small reports and canonical gates when backlog grows. Fix bounded mechanical integration defects yourself in canonical after real merge; bounce only correctness, authority, scope, or design work that belongs with the Worker.
 - Preserve the accepted target and executable oracle. First inspect touched files, tasks, skills, and evals; if a fact is missing, authorize one bounded lookup.
 - Probe a costly integration with an uncertain boundary in isolation before integrating its deterministic result.
 - Give every open task an exit: dispatch, pause with a reason, judge, replan, or escalate. A blocked task records an owner action and unblock trigger; after each close, re-derive the frontier; a task in review or QA blocks only itself; keep dispatching independent work.
