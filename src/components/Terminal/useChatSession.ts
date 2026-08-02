@@ -1,4 +1,14 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   reduceToolEvents,
@@ -16,7 +26,25 @@ import {
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
-import { chatWindowRange, slideChatWindowOlder } from "./chatWindow";
+import {
+  CHAT_WINDOW_SIZE,
+  CHAT_WINDOW_STEP,
+  chatPredecessorRange,
+  chatWindowRange,
+  mergeRetainedChatLive,
+  prependRetainedChatHistory,
+  refillRetainedChatHistory,
+  retainChatSnapshotTail,
+  seekRetainedChatPredecessor,
+  slideChatWindowOlder,
+  timelineItemKey,
+} from "./chatWindow";
+import { useChatHistoryRetention } from "./useChatHistoryRetention";
+import {
+  mergeSnapshotWindow,
+  replaceSnapshotWindow,
+  withPreservedClientOrder,
+} from "./chatHistoryMerge";
 import {
   canAdoptTranscriptAuthority,
   newChatSubscriptionId,
@@ -25,6 +53,7 @@ import {
 } from "./chatSessionAuthority";
 
 const BACKFILL_PAGE_MAX_BYTES = 256 * 1024;
+const MAX_RETAINED_OPTIMISTIC_MESSAGES = 16;
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
 const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
 
@@ -307,65 +336,6 @@ function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
   }));
 }
 
-function withPreservedClientOrder(
-  messages: ChatMessage[],
-  previous: ChatMessage[],
-  nextOrder: () => number,
-  sourceSessionId: string | null = null,
-): ChatMessage[] {
-  const orders = new Map(previous.map((message) => [message.id, message.clientOrder]));
-  return messages.map((message) => {
-    const clientOrder = message.clientOrder ?? orders.get(message.id) ?? nextOrder();
-    const sessionId = message.sourceSessionId ?? sourceSessionId ?? undefined;
-    if (message.clientOrder === clientOrder && message.sourceSessionId === sessionId) return message;
-    return { ...message, clientOrder, sourceSessionId: sessionId };
-  });
-}
-
-/** Same-attach resync (rotation/retry/onResync): previous is live history, not
- *  eviction debris, so union it with the fresh snapshot. */
-function mergeSnapshotWindow(
-  previous: ChatMessage[],
-  snapshot: ChatMessage[],
-  nextOrder: () => number,
-  sourceSessionId: string | null,
-): ChatMessage[] {
-  const freshSnapshot = withPreservedClientOrder(
-    snapshot,
-    previous,
-    nextOrder,
-    sourceSessionId,
-  );
-  if (freshSnapshot.some((message) => message.systemSubtype === "context_epoch_boundary")) {
-    const currentSessionDeltas = previous.filter(
-      (message) => message.sourceSessionId === sourceSessionId,
-    );
-    return mergeById(freshSnapshot, currentSessionDeltas);
-  }
-  return mergeById(previous, freshSnapshot);
-}
-
-/** Fresh listener attach (mount/reactivation): previous is a stale bounded
- *  window, so drop it and keep only deltas that raced in since this request. */
-function replaceSnapshotWindow(
-  previous: ChatMessage[],
-  snapshot: ChatMessage[],
-  requestOrder: number,
-  nextOrder: () => number,
-  sourceSessionId: string | null,
-): ChatMessage[] {
-  const liveSinceRequest = previous.filter(
-    (message) => message.clientOrder != null && message.clientOrder >= requestOrder,
-  );
-  const freshSnapshot = withPreservedClientOrder(
-    snapshot,
-    previous,
-    nextOrder,
-    sourceSessionId,
-  );
-  return mergeById(freshSnapshot, liveSinceRequest);
-}
-
 const MS_EPOCH_FLOOR = 1e12;
 function timestampMs(ts: string | undefined): number | null {
   if (!ts) return null;
@@ -386,6 +356,7 @@ export function useChatSession({
   active = true,
   diagnosticSink,
   allowUnboundAuthority = false,
+  followTailRef: suppliedFollowTailRef,
 }: {
   tabId: string;
   agentSessionId: string | null;
@@ -396,9 +367,17 @@ export function useChatSession({
   diagnosticSink?: ChatSessionDiagnosticSink;
   /** Plugin chatBackend tabs have tab-owned backing without a PTY session id. */
   allowUnboundAuthority?: boolean;
+  followTailRef?: MutableRefObject<boolean>;
 }) {
-  const [structured, setStructured] = useState<ChatMessage[] | null>(null);
-  const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(null);
+  const {
+    followTailRef,
+    initialCachedWindow,
+    retainedHistory,
+    setRetainedHistory,
+    setRetainedStructured,
+    updateWindowAnchor,
+    windowAnchorKey,
+  } = useChatHistoryRetention({ tabId, agentSessionId, suppliedFollowTailRef });
   const [backfillCursor, setBackfillCursor] = useState<number | null>(null);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -442,10 +421,12 @@ export function useChatSession({
   const recoveryDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rotationQueuedRef = useRef(false);
   const backfillInFlightRef = useRef(false);
+  const backfillPageAnchorRef = useRef<string | null>(null);
   /** Backfilled pages get negative descending seq so equal-second boundary
    *  timestamps still sort before the snapshot (snapshot seq is 0-based). */
   const backfillSeqBaseRef = useRef(0);
   const pendingRevealRef = useRef(false);
+  const pendingSnapshotModeRef = useRef<"latest" | "older" | null>(null);
   const nextClientOrder = useCallback(() => {
     const value = nextClientOrderRef.current;
     nextClientOrderRef.current += 1;
@@ -564,10 +545,16 @@ export function useChatSession({
     let unlistenTest: (() => void) | null = null;
     if (knownTabIdRef.current !== tabId) {
       knownTabIdRef.current = tabId;
-      nextClientOrderRef.current = 0;
+      nextClientOrderRef.current = initialCachedWindow?.history.messages.reduce(
+        (next, message) => Math.max(next, (message.clientOrder ?? -1) + 1),
+        0,
+      ) ?? 0;
       backfillSeqBaseRef.current = 0;
-      setStructured(null);
-      setWindowAnchorKey(null);
+      backfillPageAnchorRef.current = null;
+      if (!initialCachedWindow) {
+        setRetainedHistory(null);
+        updateWindowAnchor(null);
+      }
       setBackfillCursor(null);
       setLoading(true);
     }
@@ -607,7 +594,7 @@ export function useChatSession({
             if (ev.payload.source_session_id != null) {
               attachmentSourceSessionIdRef.current = ev.payload.source_session_id;
             }
-            applyChatMsgEvent(ev.payload, tabId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
+            applyChatMsgEvent(ev.payload, tabId, setRetainedStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -617,7 +604,7 @@ export function useChatSession({
           return;
         }
         emitDiagnostic({ edge: "listener_owned", tabId });
-        unlistenTest = listenForTestChatReplies(tabId, setStructured, nextClientOrder);
+        unlistenTest = listenForTestChatReplies(tabId, setRetainedStructured, nextClientOrder);
         setListenerReady(true);
         setAttachmentState("idle");
       } catch (e) {
@@ -642,10 +629,13 @@ export function useChatSession({
     active,
     clearRecoveryDeadline,
     emitDiagnostic,
+    initialCachedWindow,
     markAttached,
     nextClientOrder,
-    tabId,
     releaseActiveSubscription,
+    setRetainedStructured,
+    tabId,
+    updateWindowAnchor,
   ]);
 
   useEffect(() => {
@@ -749,27 +739,50 @@ export function useChatSession({
           return;
         }
         markAttached();
-        setBackfillCursor(res.start_offset != null && res.start_offset > 0 ? res.start_offset : null);
         const isFreshAttach = snapshotLifecycleRef.current !== lifecycle;
         snapshotLifecycleRef.current = lifecycle;
-        setStructured((prev) =>
-          isFreshAttach
+        const snapshotMode = pendingSnapshotModeRef.current;
+        pendingSnapshotModeRef.current = null;
+        const snapshotBackfillCursor = res.start_offset != null && res.start_offset > 0
+          ? res.start_offset
+          : null;
+        const snapshotRange = chatPredecessorRange(res.start_offset ?? 0, res.offset);
+        if (snapshotMode !== "older" && followTailRef.current) {
+          backfillPageAnchorRef.current = null;
+          setBackfillCursor(snapshotBackfillCursor);
+        }
+        setRetainedHistory((previous) => {
+          const previousMessages = previous?.messages ?? [];
+          const snapshot = res.messages ?? [];
+          if (snapshotMode === "older" && previous) {
+            const refilled = refillRetainedChatHistory(previous, snapshot);
+            if (refilled.messages !== previous.messages) pendingRevealRef.current = true;
+            return refilled === previous ? previous : { ...refilled, predecessorRange: snapshotRange };
+          }
+          const merged = isFreshAttach
             ? replaceSnapshotWindow(
-                prev ?? [],
-                res.messages ?? [],
+                previousMessages,
+                snapshot,
                 requestOrder,
                 nextClientOrder,
                 res.source_session_id,
               )
             : mergeSnapshotWindow(
-                prev ?? [],
-                res.messages ?? [],
+                previousMessages,
+                snapshot,
                 nextClientOrder,
                 res.source_session_id,
-              ),
-        );
+              );
+          if (snapshotMode === "latest" || !previous || followTailRef.current) {
+            return retainChatSnapshotTail(merged, undefined, snapshotRange);
+          }
+          return mergeRetainedChatLive(previous, merged, followTailRef.current);
+        });
+        if (snapshotMode != null) setBackfillLoading(false);
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
+        pendingSnapshotModeRef.current = null;
+        setBackfillLoading(false);
         const msg = e instanceof Error ? e.message : String(e);
         clearRecoveryDeadline();
         setAttachmentState("failed");
@@ -788,6 +801,7 @@ export function useChatSession({
     attachGeneration,
     clearRecoveryDeadline,
     emitDiagnostic,
+    followTailRef,
     listenerReady,
     markAttached,
     nextClientOrder,
@@ -858,6 +872,8 @@ export function useChatSession({
     if (error?.includes("chat_send_raw")) setError(null);
   }, [error]);
 
+  const structured = retainedHistory?.messages ?? null;
+
   useLayoutEffect(() => {
     if (structured == null) return;
     emitDiagnostic({
@@ -910,19 +926,33 @@ export function useChatSession({
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(() => {
     const visible = allTimelineItems.slice(windowRange.start, windowRange.end);
-    return enrichTimelineItems(visible, enrichmentCacheRef.current);
+    const enriched = enrichTimelineItems(visible, enrichmentCacheRef.current);
+    return enriched.length <= CHAT_WINDOW_SIZE ? enriched : enriched.slice(-CHAT_WINDOW_SIZE);
   }, [allTimelineItems, windowRange]);
 
-  const hiddenMessageCount = windowRange.start;
-  const hiddenNewerCount = Math.max(0, allTimelineItems.length - windowRange.end);
-  const canBackfillOlder = backfillCursor != null && backfillCursor > 0;
+  const hiddenMessageCount = (retainedHistory?.omittedOlder ?? 0) + windowRange.start;
+  const hiddenNewerCount = (retainedHistory?.omittedNewer ?? 0)
+    + Math.max(0, allTimelineItems.length - windowRange.end);
+  const durableBackfillCursor = retainedHistory?.predecessorRange?.startOffset ?? backfillCursor;
+  const canBackfillOlder = durableBackfillCursor != null && durableBackfillCursor > 0;
 
   const loadOlder = useCallback(async () => {
-    if (hiddenMessageCount > 0) {
-      setWindowAnchorKey((prev) => slideChatWindowOlder(allTimelineItems, prev));
+    followTailRef.current = false;
+    if (windowRange.start > 0) {
+      updateWindowAnchor((previous) => slideChatWindowOlder(allTimelineItems, previous));
       return;
     }
-    const cursor = backfillCursor;
+    const predecessorRange = retainedHistory?.predecessorRange;
+    const seekingRetainedBoundary = (retainedHistory?.omittedOlder ?? 0) > 0 && predecessorRange != null;
+    if ((retainedHistory?.omittedOlder ?? 0) > 0 && !seekingRetainedBoundary) {
+      pendingSnapshotModeRef.current = "older";
+      setBackfillLoading(true);
+      requestAttach();
+      return;
+    }
+    const cursor = seekingRetainedBoundary
+      ? predecessorRange?.seekBeforeOffset
+      : durableBackfillCursor;
     if (cursor == null || cursor <= 0 || backfillInFlightRef.current) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGenerationRef.current;
@@ -949,11 +979,29 @@ export function useChatSession({
       ) {
         return;
       }
-      // Progress guard: a page that cannot move the cursor toward 0 ends paging.
-      const nextCursor = res.start_offset > 0 && res.start_offset < cursor ? res.start_offset : null;
-      setBackfillCursor(nextCursor);
       const parsed = res.messages ?? [];
-      if (parsed.length === 0) return;
+      const nextCursor = res.start_offset > 0 && res.start_offset < cursor ? res.start_offset : null;
+      if (parsed.length === 0) {
+        if (seekingRetainedBoundary) {
+          setRetainedHistory((previous) => (
+            previous ? seekRetainedChatPredecessor(previous, [], res.start_offset).history : previous
+          ));
+          return;
+        }
+        backfillPageAnchorRef.current = null;
+        setBackfillCursor(nextCursor);
+        setRetainedHistory((previous) => {
+          if (!previous?.predecessorRange) return previous;
+          return {
+            ...previous,
+            predecessorRange: {
+              ...previous.predecessorRange,
+              startOffset: nextCursor ?? 0,
+            },
+          };
+        });
+        return;
+      }
       const seqBase = backfillSeqBaseRef.current - parsed.length;
       backfillSeqBaseRef.current = seqBase;
       const stamped = parsed.map((m, index) => ({
@@ -961,34 +1009,89 @@ export function useChatSession({
         seq: seqBase + index,
         sourceSessionId: m.sourceSessionId ?? res.source_session_id ?? undefined,
       }));
+      if (seekingRetainedBoundary) {
+        setRetainedHistory((previous) => {
+          if (!previous) return previous;
+          const result = seekRetainedChatPredecessor(previous, stamped, res.start_offset);
+          if (result.prepended) pendingRevealRef.current = true;
+          return result.history;
+        });
+        return;
+      }
+      const priorAnchor = backfillPageAnchorRef.current;
+      const priorAnchorIndex = priorAnchor == null
+        ? stamped.length
+        : stamped.findIndex((message) => message.id === priorAnchor);
+      const pageEnd = priorAnchorIndex < 0 ? stamped.length : priorAnchorIndex;
+      const pageStart = Math.max(0, pageEnd - CHAT_WINDOW_STEP);
+      const selected = stamped.slice(pageStart, pageEnd);
+      backfillPageAnchorRef.current = pageStart > 0 ? selected[0]?.id ?? null : null;
+      setBackfillCursor(pageStart > 0 ? cursor : nextCursor);
+      if (selected.length === 0) return;
       pendingRevealRef.current = true;
-      // Backfill goes on the prev side: existing ids win the dedupe and
-      // equal-timestamp boundary ties keep the older page first.
-      setStructured((prev) => mergeById(stamped, prev ?? []));
+      setRetainedHistory((previous) => {
+        if (!previous) return retainChatSnapshotTail(selected);
+        const prepended = prependRetainedChatHistory(previous, selected);
+        if (!prepended.predecessorRange) return prepended;
+        return {
+          ...prepended,
+          predecessorRange: {
+            ...prepended.predecessorRange,
+            startOffset: pageStart > 0 ? cursor : nextCursor ?? 0,
+          },
+        };
+      });
     } catch (e) {
       onErrorRef.current?.(e instanceof Error ? e.message : String(e));
     } finally {
       backfillInFlightRef.current = false;
       setBackfillLoading(false);
     }
-  }, [hiddenMessageCount, allTimelineItems, backfillCursor, tabId]);
+  }, [
+    allTimelineItems,
+    backfillCursor,
+    followTailRef,
+    requestAttach,
+    durableBackfillCursor,
+    retainedHistory,
+    tabId,
+    updateWindowAnchor,
+    windowRange.start,
+  ]);
 
   // Reveal a merged backfill page as soon as it lands in the timeline —
   // state-change driven, never timer driven.
   useLayoutEffect(() => {
     if (!pendingRevealRef.current) return;
     pendingRevealRef.current = false;
-    setWindowAnchorKey((prev) => slideChatWindowOlder(allTimelineItems, prev));
-  }, [allTimelineItems]);
+    updateWindowAnchor((previous) => slideChatWindowOlder(allTimelineItems, previous));
+  }, [allTimelineItems, updateWindowAnchor]);
 
   const showLatest = useCallback(() => {
-    setWindowAnchorKey(null);
-  }, []);
+    followTailRef.current = true;
+    updateWindowAnchor(null);
+    if ((retainedHistory?.omittedNewer ?? 0) <= 0 || pendingSnapshotModeRef.current === "latest") return;
+    pendingSnapshotModeRef.current = "latest";
+    requestAttach();
+  }, [followTailRef, requestAttach, retainedHistory?.omittedNewer, updateWindowAnchor]);
+
+  const setHistoryReading = useCallback((reading: boolean) => {
+    if (!reading) {
+      showLatest();
+      return;
+    }
+    followTailRef.current = false;
+    updateWindowAnchor((previous) => {
+      if (previous != null) return previous;
+      const item = allTimelineItems[windowRange.end - 1];
+      return item ? timelineItemKey(item) : null;
+    });
+  }, [allTimelineItems, followTailRef, showLatest, updateWindowAnchor, windowRange.end]);
 
   const addOptimistic = useCallback((content: string) => {
     const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    setOptimistic((prev) => [
-      ...prev,
+    setOptimistic((previous) => [
+      ...previous.slice(-(MAX_RETAINED_OPTIMISTIC_MESSAGES - 1)),
       {
         id,
         type: "user",
@@ -1040,6 +1143,7 @@ export function useChatSession({
     backfillLoading,
     loadOlder,
     showLatest,
+    setHistoryReading,
     addOptimistic,
     updateOptimistic,
   };
