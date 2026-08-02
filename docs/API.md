@@ -1,7 +1,7 @@
 # CodeTerm API Reference
 
 CodeTerm exposes three APIs for agent integration:
-1. **REST API** — HTTP on port 7685 (configurable, binds to 0.0.0.0 by default)
+1. **REST API** — authenticated HTTP on port 7685 (configurable, loopback by default)
 2. **Socket API** — JSON-RPC v2 over named pipe (Windows) / Unix socket
 3. **CLI** — `codeterm.exe` command-line tool
 
@@ -20,14 +20,41 @@ of the public contract; see `src-tauri/src/api/web_routes.rs` and the route
 registration in `src-tauri/src/api/routes.rs` when auditing those surfaces.
 
 ### Authentication
-Optional Bearer token. Set in config:
+CodeTerm generates and persists a Bearer token on first load. Control endpoints
+require it even on loopback. The small public health/pairing allowlist is
+documented by the router and does not grant local control.
+
+Default configuration:
 ```toml
 [api]
-host = "0.0.0.0"
+host = "127.0.0.1"
+allow_network = false
 port = 7685
-token = "your-secret-token"
+cors = false
 ```
 Then: `Authorization: Bearer your-secret-token`
+
+Non-loopback binds require an explicitly configured host and a non-empty token;
+unsafe changes are rejected before the active listener is mutated. CORS is
+allowlist-only:
+
+```toml
+[api]
+host = "192.0.2.10"
+allow_network = true
+token = "replace-with-a-long-local-secret"
+cors = true
+cors_allow_origins = ["https://console.example"]
+```
+
+Authenticated config readback includes `api_listener.active`,
+`api_listener.configured`, and `api_listener.restart_required`. Both policy
+objects disclose `enabled`, address, CORS, and allowlisted origins; configured
+state also discloses whether authentication is configured. Full readback and
+exact `api.enabled`, `api.cors`, and `api.cors_allow_origins` queries include
+this listener truth, so a config write never masquerades as a runtime rebind.
+Listener rebind/recovery retains the generation behavior below. `localhost`,
+`::1`, and `[::1]` canonicalize to valid socket and callback URL forms.
 
 ### Endpoints
 
@@ -565,9 +592,9 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 |--------|------|------|-------------|
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
-| GET | `/api/setup/hooks` | — | Check Claude hooks status |
-| POST | `/api/setup/hooks/install` | — | Install Claude hooks |
-| POST | `/api/setup/hooks/uninstall` | — | Uninstall Claude hooks |
+| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status |
+| POST | `/api/setup/hooks/install` | `?provider=<id>` | Returns `403`; global installation requires the review-and-consent action in local Settings |
+| POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 
 #### Services
 
@@ -795,7 +822,7 @@ Response:
   "provider": "claude",
   "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "cwd": "/Users/me/code/foo",
-  "resume_command": "claude --resume 0193e1a4-... --dangerously-skip-permissions"
+  "resume_command": "claude --resume 0193e1a4-..."
 }
 ```
 
@@ -994,11 +1021,12 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
   "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
   "workspace_id": "b4e2c8d1", // optional, defaults to active workspace
+  "skip_permissions": false,   // explicit visible-user trust expansion; defaults false
   "audience": "automation"     // optional: suppress user bells for bench/probe tabs
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
+All fields are optional. `agent` defaults to `"claude"`. Provider permissions and sandboxing remain enabled unless a visible user explicitly sends `skip_permissions: true`; the provider maps that capability to its own flag. `audience: "automation"` always forces the bypass off, even when a workspace remembers a visible-user preference. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -1400,4 +1428,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 103 -->
+<!-- revision: 105 -->

@@ -440,10 +440,27 @@ impl ServiceContext {
             }
         }
 
-        if params.skip_permissions.unwrap_or(true) {
+        let permission_bypass_authorization = self
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .map(|tab| {
+                crate::service::permission_policy::authorize_permission_bypass(
+                    &self.agent_registry,
+                    &agent_cmd,
+                    params.permission_bypass_selected(),
+                    tab.hidden,
+                    tab.audience,
+                )
+            })
+            .flatten();
+        let permission_bypass = permission_bypass_authorization.is_some();
+        params.skip_permissions = Some(permission_bypass);
+        params.permission_bypass_authorization = permission_bypass_authorization;
+        {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
-                tab.auto_approve = true;
+                tab.auto_approve = permission_bypass;
             }
         }
 

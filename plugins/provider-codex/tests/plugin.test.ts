@@ -806,7 +806,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     },
   });
   const p = loadCodexWithHost(host);
-  const res = p.installIntegration(7686);
+  const res = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
   assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
   const cmd = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? "");
   assert(
@@ -821,6 +821,161 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     "Windows session_start removes the tab-scoped profile after Codex loads it",
     writtenScript,
   );
+}
+
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const original = '{"foreign":{"keep":true},"hooks":{"SessionStart":[{"hooks":[{"command":"user-hook"}]}]}}';
+  const files = new Map<string, string>([[hooksPath, original]]);
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "linux",
+    fs: {
+      fileExists: (path: string) => files.has(path),
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => {
+        const value = files.get(path);
+        return value ? JSON.parse(value) : null;
+      },
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+      removeFile: (path: string) => files.delete(path),
+    },
+  }));
+  const denied = p.installIntegration(7686, { consent: false });
+  assert(denied.ok === false && files.size === 1, "integration writes nothing before consent");
+  const installed = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  assert(installed.ok === true, "consented integration install succeeds");
+  eq(files.get(hooksPath + ".codeterm-backup"), original, "backup preserves original bytes");
+  const merged = JSON.parse(files.get(hooksPath) || "{}");
+  assert(merged.foreign.keep === true, "install preserves foreign configuration");
+  assert(merged.hooks.SessionStart.some((entry: any) => entry.hooks?.[0]?.command === "user-hook"), "install preserves foreign hooks");
+  assert(p.uninstallIntegration().ok === true, "uninstall succeeds");
+  const uninstalled = JSON.parse(files.get(hooksPath) || "{}");
+  assert(uninstalled.hooks.SessionStart.some((entry: any) => entry.hooks?.[0]?.command === "user-hook"), "uninstall preserves foreign hooks");
+  assert(p.restoreIntegration().ok === true, "restore succeeds");
+  eq(files.get(hooksPath), original, "restore reproduces original bytes");
+}
+
+for (const [name, fixture] of [
+  ["malformed", "{not-json"],
+  ["non-object", "[]"],
+  ["empty", ""],
+] as const) {
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const files = new Map<string, string>([[hooksPath, fixture]]);
+  let writes = 0;
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "linux",
+    fs: {
+      fileExists: (path: string) => files.has(path),
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: () => null,
+      writeFile: () => { writes += 1; return true; },
+      writeJson: () => { writes += 1; return true; },
+      removeFile: () => false,
+    },
+  }));
+  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  assert(result.ok === false, `${name} hooks JSON is rejected`);
+  eq(writes, 0, `${name} rejection has no side effects`);
+  eq(files.get(hooksPath), fixture, `${name} input bytes remain unchanged`);
+}
+
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
+  const ownershipPath = configPath + ".codeterm-hook-trust-owned";
+  const trustHeader = `[hooks.state."${hooksPath}:session_start:owned"]`;
+  const files = new Map<string, string>([
+    [hooksPath, "{}"],
+    [configPath, `${trustHeader}\nenabled = false\nforeign = "before"\n`],
+  ]);
+  const host = baseHost({
+    platform: () => "linux",
+    fs: {
+      fileExists: (path: string) => files.has(path),
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => {
+        const value = files.get(path);
+        return value === undefined ? null : JSON.parse(value);
+      },
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+      removeFile: (path: string) => files.delete(path),
+    },
+  });
+  const p = loadCodexWithHost(host);
+  assert(p.installIntegration(7686, { consent: true }).ok === true, "owned trust install succeeds");
+  assert(files.get(configPath)?.includes("enabled = true") === true, "install expands matching trust");
+  eq(files.get(ownershipPath), hooksPath, "owned trust expansion is recorded");
+  files.set(configPath, `${files.get(configPath)}foreign_after = "preserve"\n`);
+  assert(p.uninstallIntegration().ok === true, "owned trust uninstall succeeds");
+  const after = files.get(configPath) || "";
+  assert(after.includes("enabled = false"), "uninstall revokes only CodeTerm-owned trust");
+  assert(after.includes('foreign_after = "preserve"'), "uninstall preserves later foreign config edits");
+  assert(!files.has(ownershipPath), "owned trust marker is removed after revocation");
+}
+
+{
+  const hooksPath = "/tmp/home\\.codex\\hooks.json";
+  const configPath = "/tmp/home\\.codex\\config.toml";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const ownershipPath = configPath + ".codeterm-hook-trust-owned";
+  const initial = new Map<string, string>([
+    [hooksPath, '{"foreign":"hooks"}'],
+    [configPath, `[hooks.state."${hooksPath}:session_start:owned"]\nenabled = false\nforeign = "config"\n`],
+    [scriptPath, "# foreign script\r\n"],
+    [ownershipPath, "foreign ownership bytes"],
+    [hooksPath + ".codeterm-backup", "prior hooks backup"],
+    [configPath + ".codeterm-backup", "prior config backup"],
+    [scriptPath + ".codeterm-backup", "prior script backup"],
+  ]);
+  for (let failAt = 1; failAt <= 9; failAt++) {
+    const files = new Map(initial);
+    let writeAttempt = 0;
+    const write = (path: string, value: string) => {
+      writeAttempt += 1;
+      if (writeAttempt === failAt) return false;
+      files.set(path, value);
+      return true;
+    };
+    const p = loadCodexWithHost(baseHost({
+      platform: () => "windows",
+      fs: {
+        fileExists: (path: string) => files.has(path),
+        readFile: (path: string) => files.get(path) ?? null,
+        readJson: (path: string) => JSON.parse(files.get(path) || "{}"),
+        writeFile: write,
+        writeJson: (path: string, value: unknown) => write(path, JSON.stringify(value)),
+        removeFile: (path: string) => files.delete(path),
+      },
+    }));
+    const result = p.installIntegration(7686, { consent: true });
+    assert(result.ok === false, `Codex install fails at write ${failAt}`);
+    eq([...files.entries()].sort(), [...initial.entries()].sort(), `write ${failAt} restores every exact prior byte`);
+  }
+}
+
+{
+  const hooksPath = "/tmp/home\\.codex\\hooks.json";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const files = new Map<string, string>([
+    [hooksPath, '{"hooks":{"SessionStart":[]}}'],
+    [scriptPath, "# user-owned replacement\nWrite-Host foreign\n"],
+  ]);
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: (path: string) => files.has(path),
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => JSON.parse(files.get(path) || "{}"),
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+      removeFile: (path: string) => files.delete(path),
+    },
+  }));
+  assert(p.uninstallIntegration().ok === true, "uninstall with foreign replacement succeeds");
+  assert(files.has(scriptPath), "uninstall preserves a script that no longer proves CodeTerm ownership");
 }
 
 {
@@ -879,7 +1034,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
 }
 
-// startup reinstalls it; a hook carrying it is current.
+// Startup remains read-only; a hook carrying the binding nonce is current.
 {
   const sessionStartHook = (cmd: string) =>
     baseHost({
@@ -952,10 +1107,10 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   assert(status.session_start_hook === false, "disabled Codex hook trust makes integration unhealthy");
   assert(status.hook_trust_enabled === false, "disabled Codex hook trust is surfaced explicitly");
 
-  const repaired = p.ensureIntegrationOnStartup(7686);
-  assert(repaired.ok === true, "ensureIntegrationOnStartup repairs disabled hook trust");
-  assert(config.indexOf("enabled = true") !== -1, "disabled hook trust is re-enabled in config.toml");
-  assert(p.checkIntegration().session_start_hook === true, "re-enabled hook trust makes integration healthy");
+  const checked = p.ensureIntegrationOnStartup(7686);
+  assert(checked.ok === true && checked.changed === false, "startup integration check performs no write");
+  assert(config.indexOf("enabled = false") !== -1, "startup preserves disabled hook trust without consent");
+  assert(p.checkIntegration().session_start_hook === false, "read-only startup leaves explicit user state unchanged");
 }
 
 {

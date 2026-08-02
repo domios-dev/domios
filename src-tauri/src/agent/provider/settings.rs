@@ -216,10 +216,10 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
             },
             SettingField::Toggle {
                 key: "resume_skip_permissions".into(),
-                label: "Skip permission prompts when resuming".into(),
-                default: true,
+                label: "Bypass provider permissions when resuming".into(),
+                default: false,
                 description: Some(format!(
-                    "Relaunches resumed sessions with {skip_flag} so they don't re-ask for tool approvals."
+                    "Explicitly relaunches visible resumed sessions with the provider capability {skip_flag}. Automation never inherits this choice."
                 )),
             },
             SettingField::When {
@@ -227,7 +227,7 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
                 equals: serde_json::Value::Bool(true),
                 then: vec![SettingField::Info {
                     title: None,
-                    body: "The agent runs without asking before each tool use. Convenient for resume, but it can edit files and run commands unattended."
+                    body: "This expands trust: the provider may edit files and run commands without asking. The active choice is visible in tab/session inspection."
                         .into(),
                     level: NoteLevel::Warn,
                 }],

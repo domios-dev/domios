@@ -1193,7 +1193,7 @@ var plugin = {
   checkIntegration() {
     const path = codexHooksPath();
     if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "hook trust"] };
     }
     const json = host.fs.readJson(path);
     if (!json) {
@@ -1219,26 +1219,80 @@ var plugin = {
       hooks_installed: current && trustOk,
       session_start_hook: current && trustOk,
       hook_trust_state: trustState,
-      hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null
+      hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null,
+      target: path,
+      backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["SessionStart hook", "hook trust"]
     };
   },
-  installIntegration(apiPort) {
+  installIntegration(apiPort, options) {
+    if (!options || options.consent !== true) return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     const path = codexHooksPath();
     if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-    const json = host.fs.fileExists(path) ? host.fs.readJson(path) || {} : {};
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
-    if (!Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = [];
+    const hooksExisted = host.fs.fileExists(path);
+    const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+    if (hooksExisted && typeof originalHooksValue !== "string") return { ok: false, error: "could not read existing hooks JSON at " + path };
+    const originalHooks = typeof originalHooksValue === "string" ? originalHooksValue : "";
+    let parsedHooks = {};
+    if (hooksExisted) {
+      try {
+        parsedHooks = JSON.parse(originalHooks);
+      } catch (_) {
+        return { ok: false, error: "existing hooks JSON is malformed at " + path };
+      }
+    }
+    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) return { ok: false, error: "existing hooks JSON must contain an object at " + path };
+    const json = parsedHooks;
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
+    if (json.hooks?.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) return { ok: false, error: "hooks.SessionStart is not an array" };
+    const configPath = codexConfigPath();
+    const configExisted = !!configPath && host.fs.fileExists(configPath);
+    const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+    if (configExisted && typeof originalConfigValue !== "string") return { ok: false, error: "could not read existing Codex config at " + configPath };
+    const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
+    const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
+    const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+    if (scriptExisted && typeof originalScriptValue !== "string") return { ok: false, error: "could not read existing hook script at " + scriptPath };
+    const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
+    const ownershipPath = codexHookTrustOwnershipPath();
+    const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
+    if (ownershipPath && !ownershipSnapshot) return { ok: false, error: "could not read existing Codex trust ownership record" };
+    const artifactPaths = [
+      path + ".codeterm-backup",
+      path + ".codeterm-backup-state",
+      ...configPath && configExisted ? [configPath + ".codeterm-backup"] : [],
+      ...scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []
+    ];
+    const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
+    if (artifactSnapshots.some((snapshot) => snapshot === null)) return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
+    const rollbackSnapshots = [
+      { path, existed: hooksExisted, bytes: originalHooks },
+      ...configPath ? [{ path: configPath, existed: configExisted, bytes: originalConfig }] : [],
+      ...scriptPath ? [{ path: scriptPath, existed: scriptExisted, bytes: originalScript }] : [],
+      ...ownershipSnapshot ? [ownershipSnapshot] : [],
+      ...artifactSnapshots
+    ];
+    const fail = (error) => {
+      const restored = restoreIntegrationFiles(rollbackSnapshots);
+      return { ok: false, error: restored ? error : error + "; exact rollback failed" };
+    };
+    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks) || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) return fail("could not write recoverable backup for " + path);
+    if (configPath && configExisted && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) return fail("could not write recoverable backup for " + configPath);
+    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript) || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) return fail("could not write recoverable backup for " + scriptPath);
+    if (!json.hooks) json.hooks = {};
+    if (json.hooks.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) return { ok: false, error: "hooks.SessionStart is not an array" };
+    if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
     json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
     const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     const port = apiPort | 0;
-    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const cmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true";
-    const scriptPath = codexWindowsHookScriptPath();
+    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+    const cmd = guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" ' + "-H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
     const commandWindows = scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"' : cmd;
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
-      return { ok: false, error: "writeFile failed for " + scriptPath };
+      return fail("writeFile failed for " + scriptPath);
     }
     json.hooks.SessionStart.push({
       matcher: "startup|resume|clear|compact",
@@ -1253,28 +1307,72 @@ var plugin = {
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       const trust = enableExistingCodexHookTrust(path);
+      if (trust.write_failed) return fail("could not enable existing Codex hook trust");
+      if (trust.changed) {
+        if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
+          return fail("could not record owned Codex hook trust expansion");
+        }
+      }
       host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
-      return { ok: true, hook_trust_state: trust };
+      return { ok: true, hook_trust_state: trust.state };
     }
-    return { ok: false, error: "writeJson failed for " + path };
+    return fail("writeJson failed for " + path);
   },
   uninstallIntegration() {
     const path = codexHooksPath();
-    if (!path || !host.fs.fileExists(path)) return { ok: true };
-    const json = host.fs.readJson(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    if (Array.isArray(json.hooks.SessionStart)) {
-      json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+    if (!path) return { ok: true };
+    let hooksOk = true;
+    if (host.fs.fileExists(path)) {
+      const json = host.fs.readJson(path);
+      if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: false, error: "could not safely read hooks JSON at " + path };
+      if (Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      hooksOk = host.fs.writeJson(path, json);
     }
-    const ok = host.fs.writeJson(path, json);
+    const ownershipPath = codexHookTrustOwnershipPath();
+    if (ownershipPath && host.fs.fileExists(ownershipPath)) {
+      const ownedTarget = host.fs.readFile(ownershipPath);
+      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) host.fs.removeFile(ownershipPath);
+    }
     const scriptPath = codexWindowsHookScriptPath();
-    if (scriptPath && host.fs.fileExists(scriptPath)) host.fs.removeFile(scriptPath);
-    return ok ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) host.fs.removeFile(scriptPath);
+    return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+  },
+  restoreIntegration() {
+    const path = codexHooksPath();
+    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const hooks = host.fs.readFile(backup);
+    if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
+    const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+    if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
+      if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
+    } else if (!host.fs.writeFile(path, hooks)) {
+      return { ok: false, error: "restore failed for " + path };
+    }
+    const config = codexConfigPath();
+    if (config && host.fs.fileExists(config + ".codeterm-backup")) {
+      const original = host.fs.readFile(config + ".codeterm-backup");
+      if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+      const ownershipPath = codexHookTrustOwnershipPath();
+      if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
+    }
+    const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    if (script && host.fs.fileExists(script + ".codeterm-backup")) {
+      const original = host.fs.readFile(script + ".codeterm-backup");
+      if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
+      const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+      if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
+        if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
+      } else if (!host.fs.writeFile(script, original)) {
+        return { ok: false, error: "restore failed for " + script };
+      }
+    }
+    return { ok: true };
   },
   ensureIntegrationOnStartup(apiPort) {
-    const status = this.checkIntegration();
-    if (status && status.hooks_installed) return { ok: true };
-    return this.installIntegration(apiPort);
+    void apiPort;
+    return { ok: true, changed: false };
   },
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
@@ -1454,15 +1552,32 @@ function codexWindowsHookScriptPath() {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
 }
+function codexHookTrustOwnershipPath() {
+  const config = codexConfigPath();
+  return config ? config + ".codeterm-hook-trust-owned" : null;
+}
+function captureIntegrationFile(path) {
+  const existed = host.fs.fileExists(path);
+  const bytes = existed ? host.fs.readFile(path) : "";
+  return typeof bytes === "string" ? { path, existed, bytes } : null;
+}
+function restoreIntegrationFiles(snapshots) {
+  let restored = true;
+  for (let i = snapshots.length - 1; i >= 0; i--) {
+    const snapshot = snapshots[i];
+    const ok = snapshot.existed ? host.fs.writeFile(snapshot.path, snapshot.bytes) : !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+    restored = ok && restored;
+  }
+  return restored;
+}
 function codexWindowsHookScript(apiPort) {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$tab = $env:CODETERM_TAB_ID",
-    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
-    '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
-    '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
+    "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
+    '$base = $env:CODETERM_API_URL.TrimEnd("/")',
     "$headers = @{",
     '  "Content-Type" = "application/json"',
     '  "X-CodeTerm-Agent-Provider" = "codex"',
@@ -1470,9 +1585,7 @@ function codexWindowsHookScript(apiPort) {
     "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
     '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
     "}",
-    "if ($env:CODETERM_API_TOKEN) {",
-    '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
-    "}",
+    '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
     "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
@@ -1496,6 +1609,10 @@ function isCodetermCodexHook(entry) {
   }
   return false;
 }
+function isOwnedCodexWindowsHookScript(path) {
+  const text = host.fs.readFile(path);
+  return typeof text === "string" && text === codexWindowsHookScript(0);
+}
 function codexHookTrustState(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
@@ -1509,18 +1626,32 @@ function codexHookTrustState(hooksPath) {
 }
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
   const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return "missing";
+  if (!text) return { state: "missing", changed: false, write_failed: false };
   const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  if (!span) return "missing";
+  if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    return codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    const state = codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next) ? "enabled" : "unknown";
+  return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
+}
+function disableOwnedCodexHookTrust(hooksPath) {
+  const cfg = codexConfigPath();
+  if (!cfg || !host.fs.fileExists(cfg)) return true;
+  const text = host.fs.readFile(cfg);
+  if (typeof text !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  if (!span) return true;
+  const block = text.substring(span.start, span.end);
+  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
+  if (nextBlock === block) return true;
+  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  return host.fs.writeFile(cfg, next);
 }
 function findCodexHookTrustBlock(text, hooksPath) {
   const span = findCodexHookTrustBlockSpan(text, hooksPath);

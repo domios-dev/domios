@@ -35,10 +35,12 @@ export function defaultConfig(): AppConfig {
   },
   api: {
     enabled: true,
-    host: "0.0.0.0",
+    host: "127.0.0.1",
+    allow_network: false,
     port: 7685,
     token: null,
-    cors: true,
+    cors: false,
+    cors_allow_origins: [],
   },
   agents: {},
   general_agent: {

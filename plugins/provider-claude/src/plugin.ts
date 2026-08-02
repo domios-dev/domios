@@ -602,6 +602,9 @@ const plugin: PluginModule = {
         stop_hook: false,
         precompact_hook: false,
         session_start_hook: false,
+        target: path || "~/.claude/settings.json",
+        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
+        proposed_changes: ["Notification", "Stop", "SessionStart"],
       };
     }
     const json = host.fs.readJson<ClaudeSettings>(path);
@@ -656,22 +659,51 @@ const plugin: PluginModule = {
     const ss = sessionStartCurrent();
     return {
       settings_exists: true,
-      hooks_installed: n && s && pc && ss,
+      hooks_installed: n && s && ss,
       notification_hook: n,
       stop_hook: s,
       precompact_hook: pc,
       session_start_hook: ss,
+      target: path,
+      backup_exists: host.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["Notification", "Stop", "SessionStart"],
     };
   },
 
-  installIntegration(_apiPort: number): unknown {
+  installIntegration(
+    _apiPort: number,
+    options?: { consent?: boolean; precompact_memory_export?: boolean },
+  ): unknown {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const m = manifest();
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
 
-    const json = (host.fileExists(path) ? (host.fs.readJson<ClaudeSettings>(path) || {}) : {}) as ClaudeSettings;
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
+    const existed = host.fileExists(path);
+    const originalValue = existed ? host.fs.readFile(path) : null;
+    if (existed && typeof originalValue !== "string") {
+      return { ok: false, error: "could not read existing settings JSON at " + path };
+    }
+    const original = typeof originalValue === "string" ? originalValue : "";
+    let parsed: unknown = {};
+    if (existed) {
+      try {
+        parsed = JSON.parse(original);
+      } catch (_) {
+        return { ok: false, error: "existing settings JSON is malformed at " + path };
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    }
+    const json = parsed as ClaudeSettings;
+    if (json.hooks !== undefined && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    if (!json.hooks) json.hooks = {};
 
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
     const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
@@ -705,19 +737,34 @@ const plugin: PluginModule = {
     const newHooks: Record<string, HookEntry> = {
       Notification:  newEntry("permission_prompt", notifyCmd, 5000),
       Stop:          newEntry("", stopCmd, 5000),
-      PreCompact:    newEntry("", precompactCmd, 10000),
       SessionStart:  newEntry("", sessionStartCmd, 5000),
     };
+    if (options.precompact_memory_export === true) {
+      newHooks.PreCompact = newEntry("", precompactCmd, 10000);
+    }
 
     // Remove existing codeterm hooks before appending to avoid stale leftovers.
     const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (!Array.isArray(json.hooks[k])) json.hooks[k] = [];
-      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
-      json.hooks[k].push(newHooks[k]);
+      if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
+        return { ok: false, error: "hooks." + k + " is not an array" };
+      }
+      const existing = Array.isArray(json.hooks[k])
+        ? json.hooks[k].filter((entry) => !isCodetermHook(entry))
+        : [];
+      if (newHooks[k]) {
+        existing.push(newHooks[k]);
+        json.hooks[k] = existing;
+      } else if (Array.isArray(json.hooks[k])) {
+        json.hooks[k] = existing;
+      }
     }
 
+    if (!host.fs.writeFile(path + ".codeterm-backup", original)
+      || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) {
+      return { ok: false, error: "could not write recoverable backup for " + path };
+    }
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       host.log("info", "[claude-plugin] hooks installed at " + path);
@@ -731,14 +778,34 @@ const plugin: PluginModule = {
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
     if (!path || !host.fileExists(path)) return { ok: true };
-    const json = host.fs.readJson<ClaudeSettings>(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    // Uninstall removes Notification + Stop only; keeps PreCompact + SessionStart.
-    const keys = ["Notification", "Stop"];
+    const original = host.fs.readFile(path);
+    if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(original);
+    } catch (_) {
+      return { ok: false, error: "existing settings JSON is malformed at " + path };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    }
+    const json = parsed as ClaudeSettings;
+    if (json.hooks === undefined) return { ok: true };
+    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (!Array.isArray(json.hooks[k])) continue;
-      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
+        return { ok: false, error: "hooks." + k + " is not an array" };
+      }
+    }
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (Array.isArray(json.hooks[k])) {
+        json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      }
     }
     const ok = host.fs.writeJson(path, json);
     if (ok) {
@@ -746,6 +813,23 @@ const plugin: PluginModule = {
       return { ok: true };
     }
     return { ok: false, error: "writeJson failed for " + path };
+  },
+
+  restoreIntegration(): unknown {
+    const m = manifest();
+    const path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path) return { ok: false, error: "could not expand settingsPath" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const original = host.fs.readFile(backup);
+    if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
+    const state = host.fs.readFile(path + ".codeterm-backup-state");
+    const wasAbsent = state === "absent" || (typeof state !== "string" && original === "");
+    if (wasAbsent) return !host.fileExists(path) || host.removeFile(path)
+      ? { ok: true }
+      : { ok: false, error: "restore failed for " + path };
+    return host.fs.writeFile(path, original) ? { ok: true } : { ok: false, error: "restore failed for " + path };
   },
 
   // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.

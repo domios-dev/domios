@@ -234,6 +234,7 @@ pub fn spawn_headless_worker(
             use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
             let spec = SpawnTabSpec {
                 visibility: TabVisibility::Hidden,
+                audience: crate::multiplexer::types::TabAudience::Automation,
                 title: Some(format!("mem:{}", intent_title)),
                 description: None,
                 command: TabCommand::Agent(AgentSpawnSpec {
@@ -246,7 +247,7 @@ pub fn spawn_headless_worker(
                     },
                     task: Some(task),
                     worker_id: Some(worker_id_blocking.clone()),
-                    auto_approve: true,
+                    auto_approve: false,
                     spawned_by: Some(spawned_by_for_spawn),
                     ..Default::default()
                 }),

@@ -420,8 +420,7 @@ function AppInner() {
           if (!folder) return;
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (wsId) {
-            const skipPerms = configRef.current.agents?.claude?.spawn_skip_permissions === true;
-            spawnClaudeTab(wsId, skipPerms, folder);
+            spawnClaudeTab(wsId, false, folder);
           }
         },
       }),

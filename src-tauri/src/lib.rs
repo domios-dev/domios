@@ -305,6 +305,7 @@ pub fn run() {
             commands::check_provider_integration,
             commands::install_provider_integration,
             commands::uninstall_provider_integration,
+            commands::restore_provider_integration,
             commands::check_provider_rule,
             commands::install_provider_rule,
             session::save_session,

@@ -106,7 +106,7 @@ pub struct AgentSpawnSpec {
     pub role_profile: Option<String>,
     #[serde(default)]
     pub can_spawn: Option<bool>,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub auto_approve: bool,
     #[serde(default)]
     pub report_target_tab_id: Option<String>,
@@ -124,10 +124,6 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default)]
     pub activate: Option<bool>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
@@ -260,7 +256,6 @@ impl ServiceContext {
             TabCommand::Agent(a) => a.clone(),
             _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
         };
-
         if let Some(ref role_str) = agent.role {
             ServiceContext::parse_role(role_str)?;
         }
@@ -271,6 +266,15 @@ impl ServiceContext {
         } else {
             agent.provider.clone()
         };
+        let permission_bypass_authorization =
+            super::permission_policy::authorize_permission_bypass(
+                &self.agent_registry,
+                &agent_cmd,
+                agent.auto_approve,
+                spec.visibility == TabVisibility::Hidden,
+                spec.audience,
+            );
+        let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
@@ -364,10 +368,8 @@ impl ServiceContext {
                     tab.worker_id = Some(wid.clone());
                 }
             }
-            if agent.auto_approve {
-                if let Some(tab) = mux.get_tab_mut(&result) {
-                    tab.auto_approve = true;
-                }
+            if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.auto_approve = permission_bypass;
             }
             if default_chat_view {
                 if let Some(tab) = mux.get_tab_mut(&result) {
@@ -464,6 +466,8 @@ impl ServiceContext {
             });
 
         let mut legacy_params = spec.to_agent_params()?;
+        legacy_params.skip_permissions = Some(permission_bypass);
+        legacy_params.permission_bypass_authorization = permission_bypass_authorization;
         legacy_params.model = launch_model;
         legacy_params.structured_prompt_server =
             crate::service::structured_prompt::ensure_for_spawn(
@@ -796,9 +800,7 @@ impl ServiceContext {
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }
-                if agent.auto_approve {
-                    tab.auto_approve = true;
-                }
+                tab.auto_approve = false;
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
@@ -1004,7 +1006,7 @@ impl ServiceContext {
                 } else {
                     Some(model_args)
                 },
-                skip_permissions: true,
+                skip_permissions: false,
                 session_id: launch_session_id,
                 structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                     &svc_outer,
@@ -1021,7 +1023,7 @@ impl ServiceContext {
                         p.build_launch_command(&launch_params),
                     )
                 })
-                .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
+                .unwrap_or_else(|| provider.clone());
             crate::service::launch_diagnostics::log_launch(
                 crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn,
                 &tab_id_outer,

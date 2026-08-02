@@ -260,6 +260,7 @@ pub async fn spawn_agent(
         report_target_tab_id: body.report_to.or(body.report_target_tab_id),
         report_target_mesh_peer: body.origin_peer,
         skip_permissions: body.skip_permissions,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: body.spawned_by_tab_id,
         model: body.model,
         planned_model: None,

@@ -18,14 +18,70 @@ fn api_bind_disclosure(
     state: &AppState,
     cfg: &crate::config::schema::AppConfig,
 ) -> Option<serde_json::Value> {
+    let configured = crate::config::canonical_api_bind_addr(&cfg.api)
+        .ok()?
+        .to_string();
     let pending = state
         .rest_api
-        .pending_bind(&format!("{}:{}", cfg.api.host, cfg.api.port))?;
+        .pending_bind(&configured)?;
     Some(serde_json::json!({
         "restart_required": true,
         "live": pending.live,
         "configured": pending.configured,
     }))
+}
+
+fn api_listener_disclosure(
+    state: &AppState,
+    cfg: &crate::config::schema::AppConfig,
+) -> serde_json::Value {
+    api_listener_value(
+        state.rest_api.bound_addr(),
+        state.rest_api.runtime_policy(),
+        cfg,
+    )
+}
+
+fn api_listener_value(
+    active_address: Option<std::net::SocketAddr>,
+    active_policy: crate::startup::RestApiRuntimePolicy,
+    cfg: &crate::config::schema::AppConfig,
+) -> serde_json::Value {
+    let active_enabled = active_address.is_some() && active_policy.enabled;
+    let configured_address = crate::config::canonical_api_bind_addr(&cfg.api)
+        .map(|address| address.to_string())
+        .unwrap_or_else(|_| format!("{}:{}", cfg.api.host, cfg.api.port));
+    let configured_origins = if cfg.api.cors {
+        cfg.api.cors_allow_origins.clone()
+    } else {
+        Vec::new()
+    };
+    let active_address_text = active_address.map(|address| address.to_string());
+    let restart_required = active_enabled != cfg.api.enabled
+        || (cfg.api.enabled
+            && (active_address_text.as_deref() != Some(configured_address.as_str())
+                || active_policy.cors != cfg.api.cors
+                || active_policy.cors_allow_origins != configured_origins));
+    serde_json::json!({
+        "active": {
+            "enabled": active_enabled,
+            "address": active_address_text,
+            "cors": active_enabled && active_policy.cors,
+            "cors_allow_origins": if active_enabled && active_policy.cors {
+                active_policy.cors_allow_origins
+            } else {
+                Vec::<String>::new()
+            },
+        },
+        "configured": {
+            "enabled": cfg.api.enabled,
+            "address": configured_address,
+            "cors": cfg.api.cors,
+            "cors_allow_origins": configured_origins,
+            "authenticated": cfg.api.token.as_ref().is_some_and(|token| !token.is_empty()),
+        },
+        "restart_required": restart_required,
+    })
 }
 
 fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
@@ -51,11 +107,17 @@ pub async fn get_config_api(
             "Config serialization failed",
         )
     })?;
-    let full = redact_rest_config(full);
+    let mut full = redact_rest_config(full);
+    if let Some(object) = full.as_object_mut() {
+        object.insert("api_listener".into(), api_listener_disclosure(&state, &cfg));
+    }
     match q.key {
         Some(key) => {
             let val = dot_get(&full, &key).ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
             let mut answer = serde_json::json!({ "key": &key, "value": val });
+            if api_query_includes_listener(&key) {
+                answer["api_listener"] = api_listener_disclosure(&state, &cfg);
+            }
             if matches!(key.as_str(), "api.host" | "api.port") {
                 if let Some(bind) = api_bind_disclosure(&state, &cfg) {
                     answer["api_bind"] = bind;
@@ -65,6 +127,10 @@ pub async fn get_config_api(
         }
         None => Ok(Json(full)),
     }
+}
+
+fn api_query_includes_listener(key: &str) -> bool {
+    key == "api" || key.starts_with("api.")
 }
 
 #[derive(Deserialize)]
@@ -107,6 +173,8 @@ pub async fn patch_config_api(
     let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
     new_cfg.api.token = cfg.api.token.clone();
+    crate::config::validate_api_trust_boundary(&new_cfg.api)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Unsafe API listener configuration"))?;
 
     // builtin fresh (clients send the old colors along with the new name).
     let current_theme_name = state.config.lock().theme.name.clone();
@@ -181,6 +249,7 @@ pub async fn patch_config_api(
     }
 
     let mut applied = serde_json::json!({ "ok": true });
+    applied["api_listener"] = api_listener_disclosure(&state, &new_cfg);
     if let Some(bind) = api_bind_disclosure(&state, &new_cfg) {
         log::warn!(
             "[api] config stores {} but the live listener holds {} — restart to apply",
@@ -255,7 +324,7 @@ pub async fn bridge_send_api(
 
 #[cfg(test)]
 mod tests {
-    use super::redact_rest_config;
+    use super::{api_listener_value, api_query_includes_listener, redact_rest_config};
 
     #[test]
     fn rest_config_never_serializes_api_token() {
@@ -267,5 +336,42 @@ mod tests {
         assert_eq!(redacted["api"]["token"], serde_json::Value::Null);
         assert_eq!(redacted["api"]["host"], "0.0.0.0");
         assert_eq!(redacted["mesh"]["enabled"], true);
+    }
+
+    #[test]
+    fn api_listener_readback_preserves_active_policy_until_restart() {
+        let mut cfg = crate::config::schema::AppConfig::default();
+        cfg.api.enabled = true;
+        cfg.api.host = "localhost".into();
+        cfg.api.port = 7686;
+        cfg.api.cors = true;
+        cfg.api.cors_allow_origins = vec!["https://configured.example".into()];
+        let active = crate::startup::RestApiRuntimePolicy {
+            enabled: true,
+            cors: false,
+            cors_allow_origins: Vec::new(),
+        };
+
+        let disclosure = api_listener_value(
+            Some("127.0.0.1:7686".parse().unwrap()),
+            active,
+            &cfg,
+        );
+        assert_eq!(disclosure["active"]["cors"], false);
+        assert_eq!(disclosure["active"]["cors_allow_origins"], serde_json::json!([]));
+        assert_eq!(disclosure["configured"]["cors"], true);
+        assert_eq!(
+            disclosure["configured"]["cors_allow_origins"],
+            serde_json::json!(["https://configured.example"])
+        );
+        assert_eq!(disclosure["restart_required"], true);
+    }
+
+    #[test]
+    fn exact_api_runtime_queries_include_listener_truth() {
+        for key in ["api", "api.enabled", "api.cors", "api.cors_allow_origins"] {
+            assert!(api_query_includes_listener(key), "missing listener truth for {key}");
+        }
+        assert!(!api_query_includes_listener("theme.name"));
     }
 }

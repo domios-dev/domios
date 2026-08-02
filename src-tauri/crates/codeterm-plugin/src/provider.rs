@@ -114,6 +114,13 @@ pub struct AgentLaunchParams {
     pub structured_prompt_server: Option<StructuredPromptServer>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntegrationInstallOptions {
+    pub consent: bool,
+    #[serde(default)]
+    pub precompact_memory_export: bool,
+}
+
 /// A provider-owned response for its directory trust prompt. Core only asks
 /// for this after the spawn edge has attested the exact created directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -368,6 +375,9 @@ pub struct ProviderDescriptor {
     pub notifications_schema: Vec<SettingField>,
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
+    /// Provider supplies its own explicit permission/sandbox bypass flags.
+    #[serde(default)]
+    pub supports_permission_bypass: bool,
     /// CLI binary name the provider expects on PATH (e.g. `claude`, `codex`,
     /// `opencode`). When present, the frontend renders an "Installation"
     /// section that polls `which <binary>` and offers an Install button.
@@ -446,7 +456,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 12;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 13;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -901,7 +911,14 @@ pub trait AgentProvider: Send + Sync {
 
     /// Install CodeTerm's notification integration. `api_port` is the local
     /// CodeTerm HTTP port that callbacks should target. Default no-op.
-    fn install_integration(&self, _api_port: u16) -> Result<(), String> {
+    fn install_integration(
+        &self,
+        _api_port: u16,
+        options: &IntegrationInstallOptions,
+    ) -> Result<(), String> {
+        if !options.consent {
+            return Err("provider integration installation requires explicit local-user consent".into());
+        }
         Ok(())
     }
 
@@ -909,8 +926,11 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    /// Idempotent auto-install on startup. Called once per registered
-    /// provider during boot. Default no-op.
+    fn restore_integration(&self) -> Result<(), String> {
+        Err("provider integration has no recoverable backup".into())
+    }
+
+    /// Startup checks are read-only; global provider config is never repaired implicitly.
     fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
     // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.
@@ -1016,6 +1036,7 @@ pub trait AgentProvider: Send + Sync {
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
+            supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),

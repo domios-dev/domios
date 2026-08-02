@@ -23,6 +23,7 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         depth: 0,
         chat_view: Some(true),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -328,7 +329,7 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 }
 
 #[test]
-fn pty_tab_round_trips_without_chatbackend_fields() {
+fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
         tab_id: "p2".into(),
@@ -350,7 +351,8 @@ fn pty_tab_round_trips_without_chatbackend_fields() {
         can_spawn: false,
         depth: 0,
         chat_view: Some(false),
-        auto_approve: false,
+        auto_approve: true,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -365,6 +367,42 @@ fn pty_tab_round_trips_without_chatbackend_fields() {
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let tab = state.tabs.get("p2").expect("Tab restored");
     assert_eq!(tab.backing, TabBacking::Pty);
+    assert!(!tab.auto_approve, "snapshot trust never authorizes a resumed launch");
+}
+
+#[test]
+fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).expect("initial tab");
+    tab.agent_type = Some("claude".into());
+    tab.agent_session_id = Some("automation-session".into());
+    tab.audience = TabAudience::Automation;
+    tab.auto_approve = true;
+
+    let snapshot = state.to_session_snapshot();
+    match &snapshot.workspaces[0].tabs[0].split_tree {
+        SplitNodeSnapshot::Leaf { audience, .. } => {
+            assert_eq!(*audience, TabAudience::Automation);
+        }
+        _ => panic!("expected a leaf"),
+    }
+    let persisted: SessionSnapshot =
+        serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&persisted);
+    let restored_tab = restored.get_tab(&tab_id).expect("restored automation tab");
+    assert_eq!(restored_tab.audience, TabAudience::Automation);
+    assert!(!restored_tab.auto_approve, "restored automation remains sandboxed");
+
+    let mut legacy_json = serde_json::to_value(persisted).unwrap();
+    legacy_json["workspaces"][0]["tabs"][0]["split_tree"]
+        .as_object_mut()
+        .unwrap()
+        .remove("audience");
+    let legacy_snapshot: SessionSnapshot = serde_json::from_value(legacy_json).unwrap();
+    let legacy_restored = MultiplexerState::from_session_snapshot(&legacy_snapshot);
+    let legacy_tab = legacy_restored.get_tab(&tab_id).expect("legacy automation tab");
+    assert_eq!(legacy_tab.audience, TabAudience::Automation);
+    assert!(!legacy_tab.auto_approve, "missing audience must fail closed");
 }
 
 #[test]
@@ -390,6 +428,7 @@ fn tab_description_round_trips_through_snapshot() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -450,6 +489,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -499,6 +539,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -794,6 +835,7 @@ fn spawned_by_round_trips_through_snapshot() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,

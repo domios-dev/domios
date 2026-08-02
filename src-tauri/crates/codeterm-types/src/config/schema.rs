@@ -123,16 +123,19 @@ pub struct ProviderConfig {
 pub struct ApiConfig {
     pub enabled: bool,
     pub host: String,
+    pub allow_network: bool,
     pub port: u16,
     pub token: Option<String>,
     pub cors: bool,
+    pub cors_allow_origins: Vec<String>,
 }
 
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            host: "0.0.0.0".to_string(),
+            host: "127.0.0.1".to_string(),
+            allow_network: false,
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
                 .ok()
@@ -141,7 +144,8 @@ impl Default for ApiConfig {
             #[cfg(not(debug_assertions))]
             port: 7685,
             token: None,
-            cors: true,
+            cors: false,
+            cors_allow_origins: Vec::new(),
         }
     }
 }
@@ -321,7 +325,7 @@ impl Default for AgentConfig {
             poll_interval_ms: 500,
             idle_timeout_s: 2,
             resume_sessions: true,
-            resume_skip_permissions: true,
+            resume_skip_permissions: false,
         }
     }
 }

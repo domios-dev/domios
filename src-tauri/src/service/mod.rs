@@ -40,6 +40,7 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
+pub(crate) mod permission_policy;
 pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;

@@ -1044,8 +1044,15 @@ impl AgentProvider for JsProvider {
             .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
     }
 
-    fn install_integration(&self, api_port: u16) -> Result<(), String> {
-        self.try_call_result("installIntegration", &[json!(api_port)])
+    fn install_integration(
+        &self,
+        api_port: u16,
+        options: &crate::provider::IntegrationInstallOptions,
+    ) -> Result<(), String> {
+        if !options.consent {
+            return Err("provider integration installation requires explicit local-user consent".into());
+        }
+        self.try_call_result("installIntegration", &[json!(api_port), json!(options)])
             .unwrap_or(Ok(()))
     }
 
@@ -1054,26 +1061,14 @@ impl AgentProvider for JsProvider {
             .unwrap_or(Ok(()))
     }
 
+    fn restore_integration(&self) -> Result<(), String> {
+        self.try_call_result("restoreIntegration", &[])
+            .unwrap_or_else(|| Err("provider integration has no recoverable backup".into()))
+    }
+
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        // failed hook install must not block startup.
-        if let Some(r) = self.try_call_result("ensureIntegrationOnStartup", &[json!(api_port)]) {
-            let _ = r;
-            return;
-        }
-        let installed = self
-            .check_integration()
-            .get("hooks_installed")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false);
-        if installed {
-            return;
-        }
-        if let Err(e) = self.install_integration(api_port) {
-            log::warn!(
-                "[js-plugin {}] auto-install integration failed: {e}",
-                self.manifest.id
-            );
-        }
+        let _ = api_port;
+        let _ = self.check_integration();
     }
 }
 

@@ -78,17 +78,6 @@ pub fn start_general_agent(
     let provider_name = &general_config.agent_provider;
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
-    if let Err(error) =
-        crate::commands::install_provider_integration_for_launch(&svc.agent_registry, provider_name)
-    {
-        log::error!(
-            "[general-agent] Provider integration is not ready for {}: {}",
-            provider_name,
-            error
-        );
-        return;
-    }
-
     // Regenerate AGENT.md in a background thread.
     // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
     {
@@ -291,7 +280,7 @@ pub fn start_general_agent(
         let mut m = mux.write();
         let d = m.link_pty(&tab_id, pty_id.clone());
         if let Some(tab) = m.get_tab_mut(&tab_id) {
-            tab.auto_approve = true;
+            tab.auto_approve = false;
         }
         d
     };
@@ -360,11 +349,7 @@ pub fn start_general_agent(
     let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match svc
-            .agent_registry
-            .with_provider(provider_name, |p| p.build_resume_command(sid, true))
-            .flatten()
-        {
+        match build_general_agent_resume_command(&svc.agent_registry, provider_name, sid) {
             Some(cmd) => cmd,
             None => {
                 log::error!(
@@ -429,7 +414,7 @@ pub fn start_general_agent(
             task: (!fallback).then_some(system_prompt.clone()),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: None,
-            skip_permissions: true,
+            skip_permissions: false,
             session_id: pre_session_id,
             structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                 svc,
@@ -761,6 +746,16 @@ fn terminate_pty_before_relaunch(
     screen_state.lock().remove(pty_id);
     crate::service::stream_preview::remove(pty_id);
     Ok(())
+}
+
+fn build_general_agent_resume_command(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    session_id: &str,
+) -> Option<String> {
+    registry
+        .with_provider(provider, |p| p.build_resume_command(session_id, false))
+        .flatten()
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {
