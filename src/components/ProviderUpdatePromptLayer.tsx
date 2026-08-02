@@ -6,6 +6,7 @@ type ProviderUpdateStatus =
   | "declined"
   | "deferred"
   | "installing"
+  | "completed"
   | "restarted"
   | "failed";
 
@@ -81,8 +82,9 @@ export function ProviderUpdatePromptLayer() {
   );
 
   if (!prompt || IS_WEB) return null;
-  const terminal = prompt.status === "declined" || prompt.status === "restarted" || prompt.status === "failed";
-  const canChoose = prompt.status === "awaiting_consent" || prompt.status === "deferred";
+  const terminal = prompt.status === "declined" || prompt.status === "completed" || prompt.status === "restarted" || prompt.status === "failed";
+  const canDismiss = terminal || prompt.status === "deferred" || prompt.status === "installing";
+  const canChoose = prompt.status === "awaiting_consent";
 
   return (
     <div
@@ -102,7 +104,7 @@ export function ProviderUpdatePromptLayer() {
           </p>
         )}
         <div className="mt-5 flex justify-end gap-2">
-          {terminal && (
+          {canDismiss && (
             <button type="button" onClick={dismiss} className="rounded border border-[var(--ct-border-default)] px-3 py-1.5 text-sm">
               Dismiss
             </button>

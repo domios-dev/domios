@@ -33,6 +33,7 @@ pub enum ReactorDecision {
     /// High-confidence, non-auth, actionable verdict — execute it.
     Act(TabStateAction),
     ProviderUpdate(ProviderUpdatePromptAction),
+    ProviderUpdateCompleted,
 }
 
 /// Pure decision: gate on parked status, confidence threshold, and the auth guard. No side effects, no locks.
@@ -64,6 +65,9 @@ pub fn decide(
             Some(action) => ReactorDecision::ProviderUpdate(action),
             None => ReactorDecision::Surface(c.action.as_ref().and_then(|a| a.surface.clone())),
         };
+    }
+    if c.state == TabState::ProviderUpdateCompleted {
+        return ReactorDecision::ProviderUpdateCompleted;
     }
     match &c.action {
         Some(action) => ReactorDecision::Act(action.clone()),
@@ -183,6 +187,9 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
             keys_to_writes(&action.install_keys),
             keys_to_writes(&action.decline_keys),
         ),
+        ReactorDecision::ProviderUpdateCompleted => {
+            svc.handle_provider_update_completed(&tab_id, pty_id)
+        }
     }
 }
 

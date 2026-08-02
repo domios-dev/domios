@@ -793,6 +793,7 @@ export interface ProviderDescriptor {
   self_update?: {
     inSession: boolean;
     restartRequired: boolean;
+    completionSignal?: "provider_classification" | null;
   } | null;
 }
 

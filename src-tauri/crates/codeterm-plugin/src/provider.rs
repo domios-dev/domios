@@ -320,6 +320,14 @@ pub enum SystemPromptDelivery {
 pub struct ProviderSelfUpdateCapability {
     pub in_session: bool,
     pub restart_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_signal: Option<ProviderUpdateCompletionSignal>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderUpdateCompletionSignal {
+    ProviderClassification,
 }
 
 /// Wire format describing one agent provider to the frontend.
@@ -438,7 +446,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 11;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 12;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]

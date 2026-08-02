@@ -374,6 +374,9 @@ impl AgentProvider for ClassifyNativeStub {
         Some(crate::provider::ProviderSelfUpdateCapability {
             in_session: true,
             restart_required: true,
+            completion_signal: Some(
+                crate::provider::ProviderUpdateCompletionSignal::ProviderClassification,
+            ),
         })
     }
 }
@@ -427,7 +430,7 @@ fn provider_update_policy_has_native_js_capability_parity() {
         r#"
             module.exports.default = {
                 providerSelfUpdateCapability() {
-                    return { inSession: true, restartRequired: true };
+                    return { inSession: true, restartRequired: true, completionSignal: 'provider_classification' };
                 }
             };
         "#,

@@ -139,6 +139,15 @@ fn unknown_keys_are_skipped_not_injected() {
 }
 
 #[test]
+fn provider_update_completion_is_a_structural_event() {
+    let c = classification(TabState::ProviderUpdateCompleted, 1.0, None);
+    assert_eq!(
+        decide(TabStatus::Idle, Some(&c)),
+        ReactorDecision::ProviderUpdateCompleted
+    );
+}
+
+#[test]
 fn rfc3339_reset_time_parses_to_epoch_ms() {
     // The +03:00 offset is honored: same instant as 13:20:00 UTC.
     let ms = parse_iso_to_ms("2026-06-19T16:20:00+03:00").expect("parse");
