@@ -247,7 +247,6 @@ pub fn spawn_headless_worker(
                     },
                     task: Some(task),
                     worker_id: Some(worker_id_blocking.clone()),
-                    auto_approve: false,
                     spawned_by: Some(spawned_by_for_spawn),
                     ..Default::default()
                 }),

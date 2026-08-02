@@ -36,6 +36,9 @@ fn restart_response_reports_observed_transition_legs() {
     assert_eq!(body["agent_ready"], true);
     assert_eq!(body["old_pty_id"], "pty-old");
     assert_eq!(body["new_pty_id"], "pty-new");
+    assert_eq!(body["full_access"], true);
+    assert!(body.get("permission_profile").is_none());
+    assert!(body.get("auto_approve").is_none());
     assert!(body.get("restarting").is_none());
 }
 

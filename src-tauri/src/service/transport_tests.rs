@@ -131,20 +131,11 @@ fn atomic_spawn_params_deserialize_camel_case() {
         "agentId": "claude",
         "workspaceId": "ws1",
         "cwd": "/tmp",
-        "skipPermissions": false,
     }))
     .expect("camelCase params deserialize");
     assert_eq!(p.agent_id, "claude");
     assert_eq!(p.workspace_id.as_deref(), Some("ws1"));
     assert_eq!(p.cwd.as_deref(), Some("/tmp"));
-    assert!(!p.skip_permissions);
-}
-
-#[test]
-fn atomic_spawn_params_skip_permissions_defaults_false() {
-    let p: AtomicSpawnParams =
-        serde_json::from_value(serde_json::json!({ "agentId": "claude" })).unwrap();
-    assert!(!p.skip_permissions, "omitted bypass must preserve provider permissions");
 }
 
 #[test]

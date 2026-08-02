@@ -1039,18 +1039,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             .get("session_action")
                             .and_then(|v| v.as_str())
                             .unwrap_or("fresh");
-                        let profile = val
-                            .get("permission_profile")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("sandboxed");
+                        let full_access = val
+                            .get("full_access")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
                         let sid = val.get("session_id").and_then(|v| v.as_str());
                         let session = match (action, sid) {
                             ("resume", Some(s)) => format!("resume {}", s),
                             _ => "fresh session".to_string(),
                         };
                         println!(
-                            "Restarting Tab {}: {}, profile={} (same Tab id, same session unless stale)",
-                            tab_id, session, profile
+                            "Restarting Tab {}: {}, full access={} (same Tab id, same session unless stale)",
+                            tab_id,
+                            session,
+                            if full_access { "on" } else { "off" }
                         );
                     }
                 }

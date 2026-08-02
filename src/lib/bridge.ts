@@ -533,6 +533,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {
       provider_id: s(a, "providerId") ?? s(a, "provider_id"),
+      full_access: a.fullAccess === true || a.full_access === true,
     }),
   save_temp_file: async (a) => {
     const resp = await webJson<{ path?: string }>("POST", "/api/attachments/temp-file", {

@@ -109,8 +109,6 @@ pub struct AgentSpawnSpec {
     #[serde(default)]
     pub can_spawn: Option<bool>,
     #[serde(default)]
-    pub auto_approve: bool,
-    #[serde(default)]
     pub report_target_tab_id: Option<String>,
     #[serde(default)]
     pub worker_id: Option<String>,
@@ -205,9 +203,11 @@ impl ServiceContext {
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (TabVisibility::Visible, TabCommand::ChatBackend { .. }) => {
+                super::permission_policy::configured_full_access()?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
             (TabVisibility::Hidden, TabCommand::ChatBackend { .. }) => {
+                super::permission_policy::configured_full_access()?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
@@ -269,13 +269,10 @@ impl ServiceContext {
             agent.provider.clone()
         };
         let permission_bypass_authorization =
-            super::permission_policy::authorize_permission_bypass(
+            super::permission_policy::configured_permission_bypass(
                 &self.agent_registry,
                 &agent_cmd,
-                agent.auto_approve,
-                spec.visibility == TabVisibility::Hidden,
-                spec.audience,
-            );
+            )?;
         let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
@@ -770,6 +767,12 @@ impl ServiceContext {
             return Err("AgentSpawnSpec.provider is required for hidden spawns".into());
         }
         self.require_agent_provider_ready(&agent.provider)?;
+        let permission_bypass_authorization =
+            super::permission_policy::configured_permission_bypass(
+                &self.agent_registry,
+                &agent.provider,
+            )?;
+        let permission_bypass = permission_bypass_authorization.is_some();
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent.provider)?;
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
@@ -816,7 +819,7 @@ impl ServiceContext {
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }
-                tab.auto_approve = false;
+                tab.auto_approve = permission_bypass;
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
@@ -1038,7 +1041,7 @@ impl ServiceContext {
                 } else {
                     Some(model_args)
                 },
-                skip_permissions: false,
+                skip_permissions: permission_bypass,
                 session_id: launch_session_id,
                 structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                     &svc_outer,

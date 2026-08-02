@@ -528,16 +528,13 @@ pub fn mux_set_claude_session_id(
 pub fn build_agent_launch_command(
     svc: State<'_, ServiceState>,
     agent_id: String,
-    skip_permissions: bool,
 ) -> Result<String, String> {
     svc.require_agent_provider_ready(&agent_id)?;
-    let permission_bypass = crate::service::permission_policy::permission_bypass_allowed(
+    let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
         &svc.agent_registry,
         &agent_id,
-        skip_permissions,
-        false,
-        crate::multiplexer::types::TabAudience::User,
-    );
+    )?
+    .is_some();
     let model_args = crate::service::spawn::resolve_fresh_agent_model(
         &svc.agent_registry,
         &agent_id,

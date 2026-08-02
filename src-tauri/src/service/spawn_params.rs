@@ -82,7 +82,6 @@ impl SpawnTabSpec {
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
-                auto_approve: params.permission_bypass_selected(),
                 report_target_tab_id: params.report_target_tab_id.clone(),
                 worker_id: None,
                 extra_env: task_launch_env,
@@ -151,7 +150,7 @@ impl SpawnTabSpec {
             // AgentSpawnSpec (sync/local spawn path) carries no remote target;
             // mesh workers spawn via the async HTTP path which sets it directly.
             report_target_mesh_peer: None,
-            skip_permissions: Some(agent.auto_approve),
+            skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
             model: agent.model.clone(),

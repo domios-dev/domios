@@ -81,7 +81,6 @@ pub(crate) struct SpawnAgentBody {
     /// token (never client-supplied). Present ⇒ this spawn was relayed across the
     /// mesh and the worker should report back to `report_to` on that peer.
     origin_peer: Option<String>,
-    skip_permissions: Option<bool>,
     /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID).
     /// Recorded on the spawned tab for report routing fallback.
     spawned_by_tab_id: Option<String>,
@@ -264,7 +263,7 @@ pub async fn spawn_agent(
         skip_orchestrator_onboarding: None,
         report_target_tab_id: body.report_to.or(body.report_target_tab_id),
         report_target_mesh_peer: body.origin_peer,
-        skip_permissions: body.skip_permissions,
+        skip_permissions: None,
         permission_bypass_authorization: None,
         spawned_by_tab_id: body.spawned_by_tab_id,
         model: body.model,
@@ -665,8 +664,7 @@ fn agent_restart_response(
         "session_id": outcome.session_id,
         "session_was_stale": outcome.session_was_stale,
         "session_action": outcome.session_action(),
-        "auto_approve": outcome.auto_approve,
-        "permission_profile": outcome.permission_profile(),
+        "full_access": outcome.auto_approve,
         "force": outcome.force,
     })
 }
@@ -924,6 +922,7 @@ pub async fn restart_general_agent_tab(
 #[derive(serde::Deserialize)]
 pub struct CompleteFirstRunBody {
     pub provider_id: String,
+    pub full_access: bool,
 }
 
 /// Web-mirror twin of `complete_general_agent_first_run`.
@@ -939,6 +938,7 @@ pub async fn complete_general_agent_first_run(
         &state.config,
         &app,
         &body.provider_id,
+        body.full_access,
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
