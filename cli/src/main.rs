@@ -148,6 +148,7 @@ pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
     ThemeAction, WebAction, WorkspaceAction,
 };
+pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
@@ -475,10 +476,16 @@ fn main_impl() {
             return;
         }
 
+        Commands::Pad { action } => {
+            cmd::pad::handle_pad(cli.json, action);
+            return;
+        }
+
         Commands::SendText {
             tab,
             text,
             from_file,
+            from_pad,
             stdin,
             actions,
             delay,
@@ -490,6 +497,7 @@ fn main_impl() {
                 tab,
                 text,
                 from_file,
+                from_pad,
                 stdin,
                 actions,
                 delay,
