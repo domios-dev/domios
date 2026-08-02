@@ -11397,7 +11397,7 @@
               "positional": false,
               "value_name": "PATH",
               "default": null,
-              "help": "Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing",
+              "help": "Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network",
               "aliases": []
             },
             {
