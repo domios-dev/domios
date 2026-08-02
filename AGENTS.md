@@ -41,7 +41,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
-./build.sh worktree-check   # isolated lane-safe cargo check while shared dev runs
+./build.sh worktree-check   # canonical-only integration compile check
 ./build.sh test-one app NAME # one focused capped app test (pty/cli also supported)
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
@@ -54,17 +54,17 @@ Choose the operation before running a command: shared development is `docs/BUILD
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. The canonical checkout owns heavy builds and broad gates.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Every build, test, dev run, and executable gate runs only from the canonical integration checkout under Orchestrator authority.
 
-Run shared dev, broad gates, and release checks from the canonical checkout as a team operating rule. Build scripts must not enforce ownership by branch name: lanes may run focused checks or isolated dev when needed, while the machine build gateway serializes heavy work.
+Isolated Worker lanes are source-only. They may inspect, edit, statically review, and commit owned source, but they never invoke `build.ps1`/`build.sh`, Cargo, project tests, dev servers, packaging, or validation gates, including focused checks. Workers author coverage and report exact deferred commands. After a real ancestry-preserving merge, the Orchestrator runs those commands in canonical. The only exception is a Worker assigned to canonical and given explicit permission for the exact gate.
 
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
-While foreground dev owns the gateway, use `worktree-check` for an isolated
-compile check and `test-one` for a focused test. Never hand-compose a private
-`CARGO_TARGET_DIR` or wait behind dev.
+If foreground dev owns the gateway, canonical QA reports the conflict and waits
+for an explicit integration decision. Never move the check into a lane, compose
+a private `CARGO_TARGET_DIR`, or wait behind dev.
 
 Use `./build.sh help` and the named build operations. Do not hand-compose Cargo manifests, packages, profiles, or gateway commands when a build operation already owns that intent.
 
@@ -72,7 +72,7 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
-- Use focused capped tests; a 90s timeout is a defect signal, not a reason to raise the cap.
+- In canonical QA, use focused capped tests; a 90s timeout is a defect signal, not a reason to raise the cap.
 - Reclaim stale targets with `cargo sweep --time 2` between efforts.
 
 ## Lane integration preserves ancestry
@@ -302,4 +302,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
