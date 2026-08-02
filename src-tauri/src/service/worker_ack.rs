@@ -137,7 +137,8 @@ impl ServiceContext {
                 .iter()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .is_some_and(|task| {
-                    task.assigned_tab_id.as_deref() == Some(tab_id)
+                    task.status == crate::plan::TaskStatus::Pending
+                        && task.assigned_tab_id.as_deref() == Some(tab_id)
                         && task
                             .execution_attempts
                             .iter()
