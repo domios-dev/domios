@@ -46,7 +46,12 @@ pub async fn list_tabs(
     }
     let local = local.as_array().cloned().unwrap_or_default();
     Ok(Json(serde_json::Value::Array(
-        crate::service::remote_tabs::ordinary_tab_projection(&state.mesh, local).await,
+        crate::service::remote_tabs::ordinary_tab_projection(
+            &state.mesh,
+            state.svc.remote_workers.as_ref(),
+            local,
+        )
+        .await,
     )))
 }
 
