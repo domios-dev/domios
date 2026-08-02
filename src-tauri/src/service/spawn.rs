@@ -266,15 +266,13 @@ impl ServiceContext {
         } else {
             agent.provider.clone()
         };
-        let permission_bypass = spec.visibility == TabVisibility::Visible
-            && spec.audience != crate::multiplexer::types::TabAudience::Automation
-            && agent.auto_approve
-            && self
-                .agent_registry
-                .with_provider(&agent_cmd, |provider| {
-                    !provider.auto_approve_flags().is_empty()
-                })
-                .unwrap_or(false);
+        let permission_bypass = super::permission_policy::permission_bypass_allowed(
+            &self.agent_registry,
+            &agent_cmd,
+            agent.auto_approve,
+            spec.visibility == TabVisibility::Hidden,
+            spec.audience,
+        );
 
         self.require_agent_provider_ready(&agent_cmd)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;

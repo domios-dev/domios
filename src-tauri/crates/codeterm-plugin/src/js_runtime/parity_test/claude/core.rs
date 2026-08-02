@@ -292,6 +292,65 @@ fn integration_install_preserves_unrelated_settings_fields() {
 }
 
 #[test]
+fn integration_rejects_malformed_non_object_and_empty_json_without_side_effects() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for (name, fixture) in [
+        ("malformed", "{not-json"),
+        ("array", "[]"),
+        ("null", "null"),
+        ("empty", ""),
+    ] {
+        let native_dir = tempfile::tempdir().unwrap();
+        let native_settings = native_dir.path().join("settings.json");
+        std::fs::write(&native_settings, fixture).unwrap();
+        let native_result = crate::agent_claude::provider::integration::install_integration_at(
+            &native_settings,
+            &integration_options(false),
+        );
+        assert!(native_result.is_err(), "native accepted {name}");
+        assert_eq!(std::fs::read_to_string(&native_settings).unwrap(), fixture);
+        assert!(!native_dir.path().join("settings.json.codeterm-backup").exists());
+
+        let js_dir = tempfile::tempdir().unwrap();
+        let js_settings = js_dir.path().join("settings.json");
+        std::fs::write(&js_settings, fixture).unwrap();
+        let js = claude_in_temp(&js_dir.path().join("rule.md"), &js_settings);
+        let js_result = js.install_integration(7686, &integration_options(false));
+        assert!(js_result.is_err(), "JS accepted {name}");
+        assert_eq!(std::fs::read_to_string(&js_settings).unwrap(), fixture);
+        assert!(!js_dir.path().join("settings.json.codeterm-backup").exists());
+    }
+}
+
+#[test]
+fn integration_backup_and_restore_preserve_exact_bytes_in_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let original = "{\n  \"foreign\": true,\n  \"hooks\": {}\n}\n";
+    for use_js in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("settings.json");
+        std::fs::write(&settings, original).unwrap();
+        if use_js {
+            let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
+            provider.install_integration(7686, &integration_options(false)).unwrap();
+            provider.restore_integration().unwrap();
+        } else {
+            crate::agent_claude::provider::integration::install_integration_at(
+                &settings,
+                &integration_options(false),
+            )
+            .unwrap();
+            crate::agent_claude::provider::integration::restore_integration_at(&settings).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), original);
+    }
+}
+
+#[test]
 fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
     if require_plugins().is_none() {
         return;

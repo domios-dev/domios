@@ -128,7 +128,7 @@ pub async fn resume_session_api(
         .svc
         .agent_registry
         .with_provider(&meta.provider, |p| {
-            p.build_resume_command(&meta.session_id, true)
+            p.build_resume_command(&meta.session_id, false)
         })
         .flatten();
 

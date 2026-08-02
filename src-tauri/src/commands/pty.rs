@@ -221,9 +221,12 @@ pub async fn spawn_pty_core(
         let tab_model = restore.model;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
-        let visible_user = svc.mux.read().get_tab(pid).is_some_and(|tab| {
-            !tab.hidden && tab.audience != crate::multiplexer::types::TabAudience::Automation
-        });
+        let (tab_hidden, tab_audience) = svc
+            .mux
+            .read()
+            .get_tab(pid)
+            .map(|tab| (tab.hidden, tab.audience))
+            .unwrap_or((true, crate::multiplexer::types::TabAudience::Automation));
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
@@ -257,14 +260,13 @@ pub async fn spawn_pty_core(
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
-                let skip_perms = visible_user
-                    && pc.resume_skip_permissions.unwrap_or(false)
-                    && svc
-                        .agent_registry
-                        .with_provider(&provider_id, |provider| {
-                            !provider.auto_approve_flags().is_empty()
-                        })
-                        .unwrap_or(false);
+                let skip_perms = crate::service::permission_policy::permission_bypass_allowed(
+                    &svc.agent_registry,
+                    &provider_id,
+                    pc.resume_skip_permissions.unwrap_or(false),
+                    tab_hidden,
+                    tab_audience,
+                );
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
@@ -427,14 +429,13 @@ pub async fn spawn_pty_core(
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
             let pc = crate::config::provider_config(&provider_id);
-            let skip_perms = visible_user
-                && pc.resume_skip_permissions.unwrap_or(false)
-                && svc
-                    .agent_registry
-                    .with_provider(&provider_id, |provider| {
-                        !provider.auto_approve_flags().is_empty()
-                    })
-                    .unwrap_or(false);
+            let skip_perms = crate::service::permission_policy::permission_bypass_allowed(
+                &svc.agent_registry,
+                &provider_id,
+                pc.resume_skip_permissions.unwrap_or(false),
+                tab_hidden,
+                tab_audience,
+            );
             if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
                 tab.auto_approve = skip_perms;
             }

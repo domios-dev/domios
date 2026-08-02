@@ -354,11 +354,7 @@ pub fn start_general_agent(
     let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match svc
-            .agent_registry
-            .with_provider(provider_name, |p| p.build_resume_command(sid, true))
-            .flatten()
-        {
+        match build_general_agent_resume_command(&svc.agent_registry, provider_name, sid) {
             Some(cmd) => cmd,
             None => {
                 log::error!(
@@ -755,6 +751,16 @@ fn terminate_pty_before_relaunch(
     screen_state.lock().remove(pty_id);
     crate::service::stream_preview::remove(pty_id);
     Ok(())
+}
+
+fn build_general_agent_resume_command(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    session_id: &str,
+) -> Option<String> {
+    registry
+        .with_provider(provider, |p| p.build_resume_command(session_id, false))
+        .flatten()
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {

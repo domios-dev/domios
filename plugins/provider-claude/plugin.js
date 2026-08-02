@@ -1521,8 +1521,19 @@ var plugin = {
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
     const existed = host.fileExists(path);
-    const original = existed ? String(host.fs.readFile(path) || "{}") : "{}";
-    const json = host.fileExists(path) ? host.fs.readJson(path) || {} : {};
+    const originalValue = existed ? host.fs.readFile(path) : null;
+    if (existed && typeof originalValue !== "string") return { ok: false, error: "could not read existing settings JSON at " + path };
+    const original = typeof originalValue === "string" ? originalValue : "";
+    let parsed = {};
+    if (existed) {
+      try {
+        parsed = JSON.parse(original);
+      } catch (_) {
+        return { ok: false, error: "existing settings JSON is malformed at " + path };
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    const json = parsed;
     if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
     if (!json.hooks) json.hooks = {};
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
@@ -1562,7 +1573,7 @@ var plugin = {
         json.hooks[k] = existing;
       }
     }
-    if (!host.fileExists(path + ".codeterm-backup") && !host.fs.writeFile(path + ".codeterm-backup", existed ? original : "")) return { ok: false, error: "could not write recoverable backup for " + path };
+    if (!host.fs.writeFile(path + ".codeterm-backup", original) || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) return { ok: false, error: "could not write recoverable backup for " + path };
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       host.log("info", "[claude-plugin] hooks installed at " + path);
@@ -1597,7 +1608,9 @@ var plugin = {
     if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
     const original = host.fs.readFile(backup);
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
-    if (original === "") return !host.fileExists(path) || host.removeFile(path) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+    const state = host.fs.readFile(path + ".codeterm-backup-state");
+    const wasAbsent = state === "absent" || typeof state !== "string" && original === "";
+    if (wasAbsent) return !host.fileExists(path) || host.removeFile(path) ? { ok: true } : { ok: false, error: "restore failed for " + path };
     return host.fs.writeFile(path, original) ? { ok: true } : { ok: false, error: "restore failed for " + path };
   },
   // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.

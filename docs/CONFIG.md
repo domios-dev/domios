@@ -114,13 +114,17 @@ network exposure and is rejected unless `allow_network = true` and the
 persisted config has a non-empty Bearer token. CORS is closed unless `cors = true` and every allowed HTTP(S)
 origin is named in `cors_allow_origins`; `*` is never accepted. Authenticated
 `GET /api/config` redacts the token and reports both the configured address and
-the listener the process actually owns.
+the listener policy the process actually owns. `localhost`, `::1`, and `[::1]`
+are canonicalized to bindable loopback socket addresses; other hostnames are
+rejected in favor of an explicit numeric address.
 
 Provider permission bypass is also fail-closed. Fresh and resumed agents keep
 provider permissions/sandboxing unless a visible spawn explicitly selects the
 bypass capability. A remembered choice is stored under that provider's
-`[agents.<id>]` section and remains visible through tab/session inspection;
-hidden probes and other automation always run sandboxed.
+`[agents.<id>]` section only when both Bypass and Remember are selected.
+Launching without Remember clears both durable fields. The effective state is
+shown from the tab/session's `auto_approve` value; hidden probes and other
+automation always run sandboxed, including crash recovery and restart.
 
 ## Config API
 
@@ -490,4 +494,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

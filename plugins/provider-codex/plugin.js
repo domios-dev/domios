@@ -1230,18 +1230,34 @@ var plugin = {
     const path = codexHooksPath();
     if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
     const hooksExisted = host.fs.fileExists(path);
-    const originalHooks = hooksExisted ? String(host.fs.readFile(path) || "{}") : "{}";
+    const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+    if (hooksExisted && typeof originalHooksValue !== "string") return { ok: false, error: "could not read existing hooks JSON at " + path };
+    const originalHooks = typeof originalHooksValue === "string" ? originalHooksValue : "";
+    let parsedHooks = {};
+    if (hooksExisted) {
+      try {
+        parsedHooks = JSON.parse(originalHooks);
+      } catch (_) {
+        return { ok: false, error: "existing hooks JSON is malformed at " + path };
+      }
+    }
+    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) return { ok: false, error: "existing hooks JSON must contain an object at " + path };
+    const json = parsedHooks;
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
+    if (json.hooks?.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) return { ok: false, error: "hooks.SessionStart is not an array" };
     const configPath = codexConfigPath();
     const configExisted = !!configPath && host.fs.fileExists(configPath);
-    const originalConfig = configPath && configExisted ? String(host.fs.readFile(configPath) || "") : "";
+    const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+    if (configExisted && typeof originalConfigValue !== "string") return { ok: false, error: "could not read existing Codex config at " + configPath };
+    const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
     const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
     const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
-    const originalScript = scriptExisted && scriptPath ? String(host.fs.readFile(scriptPath) || "") : "";
-    if (!host.fs.fileExists(path + ".codeterm-backup") && !host.fs.writeFile(path + ".codeterm-backup", hooksExisted ? originalHooks : "")) return { ok: false, error: "could not write recoverable backup for " + path };
-    if (configPath && configExisted && !host.fs.fileExists(configPath + ".codeterm-backup") && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) return { ok: false, error: "could not write recoverable backup for " + configPath };
-    if (scriptPath && !host.fs.fileExists(scriptPath + ".codeterm-backup") && !host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript)) return { ok: false, error: "could not write recoverable backup for " + scriptPath };
-    const json = host.fs.fileExists(path) ? host.fs.readJson(path) || {} : {};
-    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
+    const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+    if (scriptExisted && typeof originalScriptValue !== "string") return { ok: false, error: "could not read existing hook script at " + scriptPath };
+    const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
+    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks) || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) return { ok: false, error: "could not write recoverable backup for " + path };
+    if (configPath && configExisted && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) return { ok: false, error: "could not write recoverable backup for " + configPath };
+    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript) || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) return { ok: false, error: "could not write recoverable backup for " + scriptPath };
     if (!json.hooks) json.hooks = {};
     if (json.hooks.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) return { ok: false, error: "hooks.SessionStart is not an array" };
     if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
@@ -1269,23 +1285,36 @@ var plugin = {
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       const trust = enableExistingCodexHookTrust(path);
+      if (trust.changed) {
+        const ownershipPath = codexHookTrustOwnershipPath();
+        if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
+          disableOwnedCodexHookTrust(path);
+          return { ok: false, error: "could not record owned Codex hook trust expansion" };
+        }
+      }
       host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
-      return { ok: true, hook_trust_state: trust };
+      return { ok: true, hook_trust_state: trust.state };
     }
     return { ok: false, error: "writeJson failed for " + path };
   },
   uninstallIntegration() {
     const path = codexHooksPath();
-    if (!path || !host.fs.fileExists(path)) return { ok: true };
-    const json = host.fs.readJson(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    if (Array.isArray(json.hooks.SessionStart)) {
-      json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+    if (!path) return { ok: true };
+    let hooksOk = true;
+    if (host.fs.fileExists(path)) {
+      const json = host.fs.readJson(path);
+      if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: false, error: "could not safely read hooks JSON at " + path };
+      if (Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      hooksOk = host.fs.writeJson(path, json);
     }
-    const ok = host.fs.writeJson(path, json);
+    const ownershipPath = codexHookTrustOwnershipPath();
+    if (ownershipPath && host.fs.fileExists(ownershipPath)) {
+      const ownedTarget = host.fs.readFile(ownershipPath);
+      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) host.fs.removeFile(ownershipPath);
+    }
     const scriptPath = codexWindowsHookScriptPath();
-    if (scriptPath && host.fs.fileExists(scriptPath)) host.fs.removeFile(scriptPath);
-    return ok ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) host.fs.removeFile(scriptPath);
+    return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
   },
   restoreIntegration() {
     const path = codexHooksPath();
@@ -1294,7 +1323,8 @@ var plugin = {
     if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
     const hooks = host.fs.readFile(backup);
     if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
-    if (hooks === "") {
+    const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+    if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
       if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
     } else if (!host.fs.writeFile(path, hooks)) {
       return { ok: false, error: "restore failed for " + path };
@@ -1303,12 +1333,15 @@ var plugin = {
     if (config && host.fs.fileExists(config + ".codeterm-backup")) {
       const original = host.fs.readFile(config + ".codeterm-backup");
       if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+      const ownershipPath = codexHookTrustOwnershipPath();
+      if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
     }
     const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
     if (script && host.fs.fileExists(script + ".codeterm-backup")) {
       const original = host.fs.readFile(script + ".codeterm-backup");
       if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
-      if (original === "") {
+      const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+      if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
         if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
       } else if (!host.fs.writeFile(script, original)) {
         return { ok: false, error: "restore failed for " + script };
@@ -1498,6 +1531,10 @@ function codexWindowsHookScriptPath() {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
 }
+function codexHookTrustOwnershipPath() {
+  const config = codexConfigPath();
+  return config ? config + ".codeterm-hook-trust-owned" : null;
+}
 function codexWindowsHookScript(apiPort) {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
@@ -1537,6 +1574,10 @@ function isCodetermCodexHook(entry) {
   }
   return false;
 }
+function isOwnedCodexWindowsHookScript(path) {
+  const text = host.fs.readFile(path);
+  return typeof text === "string" && text === codexWindowsHookScript(0);
+}
 function codexHookTrustState(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
@@ -1550,18 +1591,32 @@ function codexHookTrustState(hooksPath) {
 }
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false };
   const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return "missing";
+  if (!text) return { state: "missing", changed: false };
   const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  if (!span) return "missing";
+  if (!span) return { state: "missing", changed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    return codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    const state = codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    return { state, changed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next) ? "enabled" : "unknown";
+  return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true } : { state: "unknown", changed: false };
+}
+function disableOwnedCodexHookTrust(hooksPath) {
+  const cfg = codexConfigPath();
+  if (!cfg || !host.fs.fileExists(cfg)) return true;
+  const text = host.fs.readFile(cfg);
+  if (typeof text !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  if (!span) return true;
+  const block = text.substring(span.start, span.end);
+  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
+  if (nextBlock === block) return true;
+  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  return host.fs.writeFile(cfg, next);
 }
 function findCodexHookTrustBlock(text, hooksPath) {
   const span = findCodexHookTrustBlockSpan(text, hooksPath);

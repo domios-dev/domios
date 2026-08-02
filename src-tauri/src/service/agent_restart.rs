@@ -311,12 +311,13 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<TabRestartSnapshot, AgentRestartError> {
-        let mux = self.mux.write();
+        let mut mux = self.mux.write();
         let resolved = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
         let tab = mux
             .get_tab(&resolved)
+            .cloned()
             .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
 
         let provider = tab
@@ -339,13 +340,24 @@ impl ServiceContext {
             )));
         }
 
+        let auto_approve = crate::service::permission_policy::permission_bypass_allowed(
+            &self.agent_registry,
+            &provider,
+            tab.auto_approve,
+            tab.hidden,
+            tab.audience,
+        );
+        if let Some(live_tab) = mux.get_tab_mut(&resolved) {
+            live_tab.auto_approve = auto_approve;
+        }
+
         Ok(TabRestartSnapshot {
             tab_id: resolved,
             pty_id,
             provider,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
-            auto_approve: tab.auto_approve,
+            auto_approve,
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
         })
@@ -535,7 +547,13 @@ fn build_relaunch_command(
     launch_task: Option<&str>,
 ) -> Option<String> {
     let provider = &snap.provider;
-    let auto_approve = snap.auto_approve;
+    let auto_approve = crate::service::permission_policy::permission_bypass_allowed(
+        &svc.agent_registry,
+        provider,
+        snap.auto_approve,
+        false,
+        crate::multiplexer::types::TabAudience::User,
+    );
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
     let structured_prompt_server = svc

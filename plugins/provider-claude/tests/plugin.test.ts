@@ -442,6 +442,63 @@ for (const [label, fetchImpl] of [
   eq(p.discoverModels(), null, `discoverModels returns null on ${label} — never the manifest fallback`);
 }
 
+console.log("\n--- integration consent and exact-byte transactions ---\n");
+
+for (const [name, fixture] of [
+  ["malformed", "{not-json"],
+  ["non-object", "[]"],
+  ["empty", ""],
+] as const) {
+  const settingsPath = "/tmp/.claude/settings.json";
+  const files = new Map<string, string>([[settingsPath, fixture]]);
+  let writes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: () => null,
+      writeFile: () => { writes += 1; return true; },
+      writeJson: () => { writes += 1; return true; },
+    },
+  }));
+  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  assert(result.ok === false, `${name} Claude settings JSON is rejected`);
+  eq(writes, 0, `${name} rejection has no side effects`);
+  eq(files.get(settingsPath), fixture, `${name} Claude input bytes remain unchanged`);
+}
+
+{
+  const settingsPath = "/tmp/.claude/settings.json";
+  const original = '{\n  "foreign": true,\n  "hooks": {"Stop": []}\n}\n';
+  const files = new Map<string, string>([[settingsPath, original]]);
+  const host = baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => {
+        const value = files.get(path);
+        return value === undefined ? null : JSON.parse(value);
+      },
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+    },
+  });
+  const p = loadClaudeWithHost(host);
+  const denied = p.installIntegration(7686, { consent: false });
+  assert(denied.ok === false && files.size === 1, "Claude integration writes nothing before consent");
+  assert(p.installIntegration(7686, { consent: true, precompact_memory_export: false }).ok === true, "Claude consented install succeeds");
+  eq(files.get(settingsPath + ".codeterm-backup"), original, "Claude backup preserves exact original bytes");
+  const installed = JSON.parse(files.get(settingsPath) || "{}");
+  assert(installed.foreign === true, "Claude install preserves foreign settings");
+  assert(!installed.hooks.PreCompact, "Claude PreCompact export remains separately opt-in");
+  assert(p.restoreIntegration().ok === true, "Claude restore succeeds");
+  eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
+}
+
 console.log("\n--- Windows task launch shape ---\n");
 {
   const p = loadClaudeWithHost(baseHost({

@@ -217,6 +217,48 @@ fn build_relaunch_preserves_permission_profile() {
 }
 
 #[test]
+fn agent_restart_revalidates_visible_audience_and_provider_capability() {
+    let registry = registry_with_claude();
+    let visible = crate::service::permission_policy::permission_bypass_allowed(
+        &registry,
+        "claude",
+        true,
+        false,
+        crate::multiplexer::types::TabAudience::User,
+    );
+    let hidden = crate::service::permission_policy::permission_bypass_allowed(
+        &registry,
+        "claude",
+        true,
+        true,
+        crate::multiplexer::types::TabAudience::User,
+    );
+    let automation = crate::service::permission_policy::permission_bypass_allowed(
+        &registry,
+        "claude",
+        true,
+        false,
+        crate::multiplexer::types::TabAudience::Automation,
+    );
+
+    assert!(visible);
+    assert!(!hidden);
+    assert!(!automation);
+    let command = build_relaunch_command_with_registry(
+        &registry,
+        "claude",
+        Some("sid"),
+        hidden,
+        true,
+        None,
+        None,
+        None,
+    )
+    .expect("resume command");
+    assert!(!command.contains("--dangerously-skip-permissions"));
+}
+
+#[test]
 fn build_relaunch_drops_resume_without_session_id() {
     let registry = registry_with_claude();
     let command = build_relaunch_command_with_registry(
