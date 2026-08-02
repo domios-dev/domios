@@ -6,7 +6,7 @@ import {
 } from "./prompt";
 import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
-import { unwrapShellCommand } from "./execWrapper";
+import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import {
   classifyCodexTabState,
@@ -746,8 +746,16 @@ const plugin: PluginModule = {
     return classifyCodexTabState(snapshot, host.unixNowMs());
   },
 
-  providerSelfUpdateCapability(): { inSession: boolean; restartRequired: boolean } {
-    return { inSession: true, restartRequired: true };
+  providerSelfUpdateCapability(): {
+    inSession: boolean;
+    restartRequired: boolean;
+    completionSignal: "provider_classification";
+  } {
+    return {
+      inSession: true,
+      restartRequired: true,
+      completionSignal: "provider_classification",
+    };
   },
 };
 
@@ -795,9 +803,11 @@ interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
   const shell = raw ? unwrapShellCommand(raw) : null;
   const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
   const edits = patch ? patchEdits(patch) : [];
+  if (script) return { tool_kind: script.kind, tool_summary: script.summary, tool_detail: script.detail };
   if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
   if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
   if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };

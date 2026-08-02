@@ -96,6 +96,92 @@ fn pending_delivery(state: PendingDeliveryState, active_attempt: bool) -> Pendin
 }
 
 #[test]
+fn runner_completion_requires_an_install_submission_and_is_claimed_once() {
+    let registry = ProviderUpdateRegistry::default();
+    let prompt_id = "prompt-runner".to_string();
+    registry.insert(PendingProviderUpdate {
+        view: ProviderUpdatePromptView {
+            prompt_id: prompt_id.clone(),
+            tab_id: "source-tab".into(),
+            provider_name: "Provider".into(),
+            restart_required: true,
+            status: ProviderUpdateStatus::Installing,
+            message: "Installing".into(),
+        },
+        provider_id: "provider-fixture".into(),
+        pty_id: "source-pty".into(),
+        capability: capability(true),
+        install_writes: Vec::new(),
+        decline_writes: Vec::new(),
+        consent: Some(RecordedConsent {
+            prompt_id: prompt_id.clone(),
+        }),
+        phase: ProviderUpdatePhase::Installing,
+        waiter_started: false,
+        runner_tab_id: None,
+        runner_pty_id: None,
+        install_submitted: false,
+    });
+    assert!(registry.bind_runner(&prompt_id, "runner-tab".into(), "runner-pty".into()));
+    assert!(registry
+        .claim_completion("runner-tab", "runner-pty")
+        .is_none());
+    assert!(registry
+        .claim_runner_prompt(
+            &prompt_id,
+            "runner-tab",
+            "runner-pty",
+            vec![b"install".to_vec()],
+        )
+        .is_some());
+    assert!(registry
+        .claim_completion("runner-tab", "runner-pty")
+        .is_some());
+    assert!(registry
+        .claim_completion("runner-tab", "runner-pty")
+        .is_none());
+}
+
+#[test]
+fn runner_timeout_is_claimed_once() {
+    let registry = ProviderUpdateRegistry::default();
+    let prompt_id = "prompt-timeout".to_string();
+    registry.insert(PendingProviderUpdate {
+        view: ProviderUpdatePromptView {
+            prompt_id: prompt_id.clone(),
+            tab_id: "source-tab".into(),
+            provider_name: "Provider".into(),
+            restart_required: true,
+            status: ProviderUpdateStatus::Installing,
+            message: "Installing".into(),
+        },
+        provider_id: "provider-fixture".into(),
+        pty_id: "source-pty".into(),
+        capability: capability(true),
+        install_writes: Vec::new(),
+        decline_writes: Vec::new(),
+        consent: Some(RecordedConsent {
+            prompt_id: prompt_id.clone(),
+        }),
+        phase: ProviderUpdatePhase::Installing,
+        waiter_started: false,
+        runner_tab_id: Some("runner-tab".into()),
+        runner_pty_id: Some("runner-pty".into()),
+        install_submitted: true,
+    });
+
+    assert!(registry
+        .claim_runner_timeout(&prompt_id, "runner-tab")
+        .is_some());
+    assert!(registry
+        .claim_runner_timeout(&prompt_id, "runner-tab")
+        .is_none());
+    assert!(registry
+        .claim_completion("runner-tab", "runner-pty")
+        .is_none());
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
 fn unauthorized_provider_update_is_visible_and_declined() {
     let (fixture, tab_id, receiver) = fixture(TabAudience::Automation);
@@ -147,49 +233,49 @@ fn terminal_provider_update_is_listed_until_acknowledged() {
 #[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
 fn provider_update_acknowledgement_is_exact_and_terminal_only() {
-    let (fixture, tab_id, receiver) = fixture(TabAudience::User);
-    handle_prompt(&fixture.service, &tab_id, true);
-    let first = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
-    handle_prompt(&fixture.service, &tab_id, true);
-    let second = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    let (user_fixture, tab_id, receiver) = fixture(TabAudience::User);
+    handle_prompt(&user_fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
 
-    assert!(fixture
+    assert!(user_fixture
         .service
-        .acknowledge_provider_update_prompt(&first.prompt_id)
+        .acknowledge_provider_update_prompt(&prompt.prompt_id)
         .is_err());
-    fixture
+    user_fixture
         .service
         .mux
         .write()
         .get_tab_mut(&tab_id)
         .unwrap()
         .pending_delivery = Some(pending_delivery(PendingDeliveryState::Pending, false));
-    fixture
+    user_fixture
         .service
-        .respond_provider_update_prompt(&first.prompt_id, true)
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
         .unwrap();
     await_status(&receiver, ProviderUpdateStatus::Deferred);
-    assert!(fixture
+    assert!(user_fixture
         .service
-        .acknowledge_provider_update_prompt(&first.prompt_id)
+        .acknowledge_provider_update_prompt(&prompt.prompt_id)
         .is_err());
 
-    fixture
+    let (terminal_fixture, terminal_tab_id, terminal_receiver) = fixture(TabAudience::Automation);
+    handle_prompt(&terminal_fixture.service, &terminal_tab_id, true);
+    let terminal = await_status(&terminal_receiver, ProviderUpdateStatus::Declined);
+    assert!(terminal_fixture
         .service
-        .respond_provider_update_prompt(&second.prompt_id, false)
-        .unwrap();
-    await_status(&receiver, ProviderUpdateStatus::Declined);
-    fixture
-        .service
-        .acknowledge_provider_update_prompt(&second.prompt_id)
-        .unwrap();
-    assert!(fixture
-        .service
-        .acknowledge_provider_update_prompt(&second.prompt_id)
+        .acknowledge_provider_update_prompt("different-prompt")
         .is_err());
-    let remaining = fixture.service.list_provider_update_prompts();
+    terminal_fixture
+        .service
+        .acknowledge_provider_update_prompt(&terminal.prompt_id)
+        .unwrap();
+    assert!(terminal_fixture
+        .service
+        .acknowledge_provider_update_prompt(&terminal.prompt_id)
+        .is_err());
+    let remaining = user_fixture.service.list_provider_update_prompts();
     assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].prompt_id, first.prompt_id);
+    assert_eq!(remaining[0].prompt_id, prompt.prompt_id);
     assert_eq!(remaining[0].status, ProviderUpdateStatus::Deferred);
 }
 
@@ -266,14 +352,14 @@ fn provider_without_completion_signal_never_claims_restart() {
         .service
         .respond_provider_update_prompt(&prompt.prompt_id, true)
         .unwrap();
-    await_effect(
-        &receiver,
-        |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"),
-    );
     let unavailable = await_status(&receiver, ProviderUpdateStatus::CompletionUnavailable);
     assert!(unavailable
         .message
         .contains("does not declare an observable completion signal"));
+    assert!(!receiver.try_iter().any(|effect| matches!(
+        effect,
+        ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"
+    )));
     assert!(fixture
         .service
         .list_provider_update_prompts()

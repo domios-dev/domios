@@ -148,6 +148,28 @@ fn provider_update_completion_is_a_structural_event() {
 }
 
 #[test]
+fn hidden_update_runner_completes_only_after_install_leaves_the_prompt() {
+    let prompt = classification(TabState::UpdatePrompt, 1.0, None);
+    let shell = classification(TabState::Working, 0.0, None);
+    assert!(!runner_update_completed(
+        TabStatus::Idle,
+        Some(&prompt),
+        true
+    ));
+    assert!(!runner_update_completed(
+        TabStatus::Working,
+        Some(&shell),
+        true
+    ));
+    assert!(!runner_update_completed(
+        TabStatus::Idle,
+        Some(&shell),
+        false
+    ));
+    assert!(runner_update_completed(TabStatus::Idle, Some(&shell), true));
+}
+
+#[test]
 fn rfc3339_reset_time_parses_to_epoch_ms() {
     // The +03:00 offset is honored: same instant as 13:20:00 UTC.
     let ms = parse_iso_to_ms("2026-06-19T16:20:00+03:00").expect("parse");
