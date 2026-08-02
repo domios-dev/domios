@@ -135,6 +135,10 @@ pub struct SpawnAgentParams {
     pub report_target_mesh_peer: Option<String>,
     /// Explicit trust expansion for a visible user spawn. Omitted means sandboxed.
     pub skip_permissions: Option<bool>,
+    /// Host-only proof that the selected bypass passed centralized policy.
+    #[serde(default, skip)]
+    pub(crate) permission_bypass_authorization:
+        Option<crate::service::permission_policy::PermissionBypassAuthorization>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
@@ -168,9 +172,16 @@ pub struct SpawnAgentParams {
 }
 
 impl SpawnAgentParams {
-    pub(crate) fn permission_bypass_requested(&self) -> bool {
-        self.audience != crate::multiplexer::types::TabAudience::Automation
-            && self.skip_permissions == Some(true)
+    pub(crate) fn permission_bypass_selected(&self) -> bool {
+        self.skip_permissions == Some(true)
+    }
+
+    pub(crate) fn permission_bypass_requested(&self, provider_id: &str) -> bool {
+        self.skip_permissions == Some(true)
+            && self
+                .permission_bypass_authorization
+                .as_ref()
+                .is_some_and(|authorization| authorization.authorizes(provider_id, self.audience))
     }
 }
 

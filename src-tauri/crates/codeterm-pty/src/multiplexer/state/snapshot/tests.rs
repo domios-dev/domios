@@ -328,7 +328,7 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 }
 
 #[test]
-fn pty_tab_round_trips_without_chatbackend_fields() {
+fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
         tab_id: "p2".into(),
@@ -350,7 +350,7 @@ fn pty_tab_round_trips_without_chatbackend_fields() {
         can_spawn: false,
         depth: 0,
         chat_view: Some(false),
-        auto_approve: false,
+        auto_approve: true,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -365,6 +365,7 @@ fn pty_tab_round_trips_without_chatbackend_fields() {
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let tab = state.tabs.get("p2").expect("Tab restored");
     assert_eq!(tab.backing, TabBacking::Pty);
+    assert!(!tab.auto_approve, "snapshot trust never authorizes a resumed launch");
 }
 
 #[test]
