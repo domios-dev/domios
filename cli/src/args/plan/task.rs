@@ -59,7 +59,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
         )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -73,7 +73,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name, e.g. Hopper, Dijkstra, Lamport"
+            help = "Executor persona name, e.g. Alex, Emma, Leo"
         )]
         personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -159,7 +159,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
         )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -173,7 +173,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name, e.g. Hopper, Dijkstra, Lamport"
+            help = "Executor persona name, e.g. Alex, Emma, Leo"
         )]
         personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]

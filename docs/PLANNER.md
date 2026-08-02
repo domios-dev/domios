@@ -127,7 +127,7 @@ Every task you cut carries three deliberate fields. They are not decoration —
 they shape how the worker approaches the job. Never leave them empty.
 
 - `--personality <name>` — the executor persona (a named character, e.g.
-  `Hopper`, `Dijkstra`, `Lamport`). Gives the worker a consistent character and
+  `Alex`, `Emma`, `Leo`). Gives the worker a consistent character and
   makes lanes legible in the UI.
 - `--executor-role <role>` — the specialization (e.g. `rust-backend-dev`,
   `frontend-dev`, `docs-sync`). Scopes what surface they own.
@@ -135,11 +135,11 @@ they shape how the worker approaches the job. Never leave them empty.
   principles. Say who the worker IS, what EXACTLY they do on this task, and
   their personal RED LINE (what counts as failing it). Write it as "You are …":
 
-  > `You are Dijkstra, a domain-algorithm engineer obsessed with provable
+  > `You are Alex, a domain-algorithm engineer obsessed with provable
   > correctness. Property tests come BEFORE implementation; the contract is the
   > spec. Red line: a lock claim without a test is not proof.`
 
-  > `You are Hopper. You repoint the 6 reports.py endpoints and DELETE the
+  > `You are Emma. You repoint the 6 reports.py endpoints and DELETE the
   > raw-scan paths — leaving them alive is failing the task.`
 
   personality = character, executor-role = specialization, role-guidance =
@@ -171,4 +171,4 @@ they shape how the worker approaches the job. Never leave them empty.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 9 -->
+<!-- revision: 10 -->
