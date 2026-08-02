@@ -960,8 +960,7 @@ export function useChatSession({
   }, [allTimelineItems, windowRange]);
 
   const hiddenMessageCount = (retainedHistory?.omittedOlder ?? 0) + windowRange.start;
-  const hiddenNewerCount = (retainedHistory?.omittedNewer ?? 0)
-    + Math.max(0, allTimelineItems.length - windowRange.end);
+  const hiddenNewerCount = Math.max(0, allTimelineItems.length - windowRange.end);
   const durableBackfillCursor = retainedHistory?.predecessorRange?.startOffset ?? backfillCursor;
   const canBackfillOlder = durableBackfillCursor != null && durableBackfillCursor > 0;
 
@@ -1099,10 +1098,12 @@ export function useChatSession({
   const showLatest = useCallback(() => {
     followTailRef.current = true;
     updateWindowAnchor(null);
-    if ((retainedHistory?.omittedNewer ?? 0) <= 0 || pendingSnapshotModeRef.current === "latest") return;
-    pendingSnapshotModeRef.current = "latest";
-    requestAttach();
-  }, [followTailRef, requestAttach, retainedHistory?.omittedNewer, updateWindowAnchor]);
+    setRetainedHistory((previous) => (
+      previous
+        ? mergeRetainedChatLive(previous, previous.messages, true)
+        : previous
+    ));
+  }, [followTailRef, setRetainedHistory, updateWindowAnchor]);
 
   const setHistoryReading = useCallback((reading: boolean) => {
     if (!reading) {
