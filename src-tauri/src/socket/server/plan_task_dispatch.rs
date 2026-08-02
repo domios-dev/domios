@@ -385,6 +385,7 @@ fn worker_ack_timeout_event(
         tab_id,
         attempt_id,
         spawn_command,
+        None,
     )
 }
 

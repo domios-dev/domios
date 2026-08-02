@@ -156,28 +156,75 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
         .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane.clone(), 4)
         .unwrap();
 
-    let ack = store
-        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 5)
+    let mut blocked_plan = store.get(&plan.id).unwrap();
+    let blocked_task = blocked_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(ack.attempt.acknowledged_at, Some(5));
+    blocked_task.status = TaskStatus::Blocked;
+    blocked_task.status_label = Some("dependency".into());
+    store.save(&mut blocked_plan, 5).unwrap();
+    assert!(store
+        .acknowledge_task_attempt(&plan.id, &task_id, "tab-worker", &attempt_id, 6)
+        .is_err());
+    let still_blocked = store.show_task(&task_id).unwrap().task;
+    assert_eq!(still_blocked.status, TaskStatus::Blocked);
+    assert_eq!(still_blocked.execution_attempts[0].acknowledged_at, None);
+
+    let mut reassigned_plan = store.get(&plan.id).unwrap();
+    let reassigned_task = reassigned_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    reassigned_task.status = TaskStatus::Pending;
+    reassigned_task.status_label = Some("starting".into());
+    reassigned_task.assigned_tab_id = Some("replacement-tab".into());
+    reassigned_task.lane.tab_id = Some("replacement-tab".into());
+    store.save(&mut reassigned_plan, 7).unwrap();
+    assert!(store
+        .acknowledge_task_attempt(&plan.id, &task_id, "tab-worker", &attempt_id, 8)
+        .is_err());
+    let still_reassigned = store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        still_reassigned.assigned_tab_id.as_deref(),
+        Some("replacement-tab")
+    );
+    assert_eq!(still_reassigned.execution_attempts[0].acknowledged_at, None);
+
+    let mut restored_plan = store.get(&plan.id).unwrap();
+    let restored_task = restored_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    restored_task.assigned_tab_id = Some("tab-worker".into());
+    restored_task.lane.tab_id = Some("tab-worker".into());
+    store.save(&mut restored_plan, 9).unwrap();
+
+    let ack = store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 10)
+        .unwrap();
+    assert_eq!(ack.attempt.acknowledged_at, Some(10));
     let acknowledged = store.show_task(&task_id).unwrap().task;
     assert_eq!(acknowledged.status, TaskStatus::InProgress);
     assert_eq!(acknowledged.status_label.as_deref(), Some("acknowledged"));
     let first_changed_at = acknowledged.status_changed_at;
 
     let replay = store
-        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 6)
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 11)
         .unwrap();
-    assert_eq!(replay.attempt.acknowledged_at, Some(5));
+    assert_eq!(replay.attempt.acknowledged_at, Some(10));
     let after_replay = store.show_task(&task_id).unwrap().task;
     assert_eq!(after_replay.status_changed_at, first_changed_at);
     assert_eq!(after_replay.status_label.as_deref(), Some("acknowledged"));
     assert!(store
-        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 7)
+        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 12)
         .is_err());
     let after_stale = store.show_task(&task_id).unwrap().task;
     assert_eq!(after_stale.status_changed_at, first_changed_at);
-    assert_eq!(after_stale.execution_attempts[0].acknowledged_at, Some(5));
+    assert_eq!(after_stale.execution_attempts[0].acknowledged_at, Some(10));
 
     store
         .finish_task_dispatch(
@@ -187,7 +234,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
             &attempt_id,
             "session-worker",
             lane,
-            8,
+            13,
         )
         .unwrap();
     let task = store.show_task(&task_id).unwrap().task;
@@ -195,7 +242,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(
         task.execution_attempts.last().unwrap().acknowledged_at,
-        Some(5)
+        Some(10)
     );
 }
 
@@ -230,6 +277,16 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
     let attempt_id = store
         .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane, 4)
         .unwrap();
+    let mut with_older_attempt = store.get(&plan.id).unwrap();
+    let task = with_older_attempt
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    let mut older_attempt = task.execution_attempts[0].clone();
+    older_attempt.id = "attempt-older-same-tab".into();
+    task.execution_attempts.insert(0, older_attempt);
+    store.save(&mut with_older_attempt, 5).unwrap();
 
     assert!(store
         .mark_worker_startup_deadline(
@@ -238,7 +295,7 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
             "tab-worker",
             &attempt_id,
             false,
-            5,
+            6,
         )
         .unwrap());
     assert_eq!(
@@ -252,7 +309,7 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
             "tab-worker",
             &attempt_id,
             true,
-            6,
+            7,
         )
         .unwrap());
     assert!(!store
@@ -262,12 +319,20 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
             "tab-worker",
             &attempt_id,
             true,
-            7,
+            8,
         )
         .unwrap());
     let failed = store.show_task(&task_id).unwrap().task;
     assert_eq!(failed.status_label.as_deref(), Some("startup_failed"));
     assert_eq!(failed.assigned_tab_id, None);
     assert_eq!(failed.lane.tab_id, None);
-    assert_eq!(failed.execution_attempts[0].closed_at, Some(6));
+    assert_eq!(failed.execution_attempts[0].closed_at, None);
+    assert_eq!(failed.execution_attempts[1].closed_at, Some(7));
+    assert!(store
+        .mark_worker_startup_cleanup_failed(&plan.id, &task_id, &attempt_id, 9)
+        .unwrap());
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status_label.as_deref(),
+        Some("startup_cleanup_failed")
+    );
 }

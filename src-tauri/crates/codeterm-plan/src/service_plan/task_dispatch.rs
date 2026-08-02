@@ -14,12 +14,15 @@ impl PlanStore {
     ) -> Result<bool, PlanError> {
         let current = self.read_task_for_verification(plan_id, task_id)?;
         let owns_startup = current.assigned_tab_id.as_deref() == Some(tab_id)
-            && current.execution_attempts.iter().any(|attempt| {
-                attempt.id == attempt_id
+            && current
+                .execution_attempts
+                .iter()
+                .rfind(|attempt| attempt.closed_at.is_none())
+                .is_some_and(|attempt| {
+                    attempt.id == attempt_id
                     && attempt.executor_tab_id == tab_id
-                    && attempt.closed_at.is_none()
                     && attempt.acknowledged_at.is_none()
-            });
+                });
         if !owns_startup {
             return Ok(false);
         }
@@ -31,17 +34,25 @@ impl PlanStore {
             else {
                 return Ok(false);
             };
-            let owns_startup = task.execution_attempts.iter().any(|attempt| {
-                attempt.id == attempt_id
+            let owns_startup = task
+                .execution_attempts
+                .iter()
+                .rfind(|attempt| attempt.closed_at.is_none())
+                .is_some_and(|attempt| {
+                    attempt.id == attempt_id
                     && attempt.executor_tab_id == tab_id
-                    && attempt.closed_at.is_none()
                     && attempt.acknowledged_at.is_none()
-            });
+                });
             if !owns_startup || task.assigned_tab_id.as_deref() != Some(tab_id) {
                 return Ok(false);
             }
             if final_deadline {
-                super::task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms);
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .expect("validated startup attempt must remain present");
+                attempt.closed_at = Some(now_ms);
                 super::mutations::clear_task_assignment(task);
                 if task.status == crate::plan::TaskStatus::InProgress {
                     task.status = crate::plan::TaskStatus::Pending;
@@ -51,6 +62,30 @@ impl PlanStore {
             } else {
                 task.status_label = Some("startup_unbound".into());
             }
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
+    pub fn mark_worker_startup_cleanup_failed(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
+                return Ok(false);
+            };
+            let fenced_attempt_is_current = task.assigned_tab_id.is_none()
+                && task.execution_attempts.last().is_some_and(|attempt| {
+                    attempt.id == attempt_id && attempt.closed_at.is_some()
+                });
+            if !fenced_attempt_is_current {
+                return Ok(false);
+            }
+            task.status_label = Some("startup_cleanup_failed".into());
             task.updated_at = now_ms;
             Ok(true)
         })
@@ -263,19 +298,41 @@ impl PlanStore {
             .iter()
             .find(|attempt| attempt.id == attempt_id)
             .ok_or(PlanError::TaskNotFound)?;
-        if current_attempt.executor_tab_id != tab_id || current_attempt.closed_at.is_some() {
+        let current_live_attempt = current_task
+            .execution_attempts
+            .iter()
+            .rfind(|attempt| attempt.closed_at.is_none());
+        let owns_current_binding = current_task.assigned_tab_id.as_deref() == Some(tab_id)
+            && current_live_attempt.is_some_and(|attempt| {
+                attempt.id == attempt_id && attempt.executor_tab_id == tab_id
+            });
+        if !owns_current_binding || current_attempt.closed_at.is_some() {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "attempt no longer owns the acknowledging tab",
             ));
         }
         if current_attempt.acknowledged_at.is_some() {
+            if current_task.status != crate::plan::TaskStatus::InProgress
+                || current_task.status_label.as_deref() != Some("acknowledged")
+            {
+                return Err(Self::task_readback_error(
+                    "task_dispatch_ack",
+                    "acknowledged attempt no longer owns an acknowledged task",
+                ));
+            }
             let attempt = current_attempt.clone();
             return Ok(super::task_attempts::TaskAttemptCreated {
                 plan_id: plan_id.to_string(),
                 task_id: current_task.id,
                 attempt,
             });
+        }
+        if current_task.status != crate::plan::TaskStatus::Pending {
+            return Err(Self::task_readback_error(
+                "task_dispatch_ack",
+                "only a pending startup assignment can be acknowledged",
+            ));
         }
         let mut acknowledged = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
@@ -290,21 +347,31 @@ impl PlanStore {
                 .position(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt = &plan.tasks[task_index].execution_attempts[attempt_index];
-            if attempt.executor_tab_id != tab_id || attempt.closed_at.is_some() {
+            let owns_current_binding = plan.tasks[task_index].assigned_tab_id.as_deref()
+                == Some(tab_id)
+                && plan.tasks[task_index]
+                    .execution_attempts
+                    .iter()
+                    .rfind(|attempt| attempt.closed_at.is_none())
+                    .is_some_and(|attempt| {
+                        attempt.id == attempt_id && attempt.executor_tab_id == tab_id
+                    });
+            if !owns_current_binding
+                || attempt.closed_at.is_some()
+                || plan.tasks[task_index].status != crate::plan::TaskStatus::Pending
+            {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "attempt no longer owns the acknowledging tab",
                 ));
             }
-            if plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress {
-                super::mutations::validate_task_status_transition(
-                    plan,
-                    &plan.tasks[task_index].id,
-                    &plan.tasks[task_index].status,
-                    &crate::plan::TaskStatus::InProgress,
-                    None,
-                )?;
-            }
+            super::mutations::validate_task_status_transition(
+                plan,
+                &plan.tasks[task_index].id,
+                &plan.tasks[task_index].status,
+                &crate::plan::TaskStatus::InProgress,
+                None,
+            )?;
             let task = &mut plan.tasks[task_index];
             let attempt = &mut task.execution_attempts[attempt_index];
             attempt.acknowledged_at.get_or_insert(now_ms);
