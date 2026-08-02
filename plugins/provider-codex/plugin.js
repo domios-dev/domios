@@ -698,6 +698,183 @@ function patchEdits(patch) {
   }
 }
 
+// plugins/provider-codex/src/tabState.ts
+var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
+function classifyCodexTabState(snapshot, nowMs) {
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  if (!screen.trim()) return null;
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+  const activeChoice = parseActiveTerminalChoice(screen);
+  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
+  if (authConfidence >= CLASSIFY_THRESHOLD) {
+    return {
+      state: "waiting_on_auth",
+      confidence: authConfidence,
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+    };
+  }
+  if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
+  const update = scoreUpdatePrompt(screen);
+  if (update.confidence >= CLASSIFY_THRESHOLD && update.installKeys && update.installKeys.length > 0 && update.skipKeys && update.skipKeys.length > 0) {
+    return {
+      state: "update_prompt",
+      confidence: update.confidence,
+      action: {
+        providerUpdate: {
+          installKeys: update.installKeys,
+          declineKeys: update.skipKeys
+        }
+      }
+    };
+  }
+  const rateLimit = scoreRateLimit(screen, nowMs);
+  if (rateLimit.confidence >= CLASSIFY_THRESHOLD) {
+    const action = {};
+    const data = {};
+    if (rateLimit.resetAtMs !== null) {
+      data.resetAt = new Date(rateLimit.resetAtMs).toISOString();
+      action.delayedResume = {
+        at: new Date(rateLimit.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+        text: "continue your work",
+        thenKeys: ["enter"]
+      };
+    } else {
+      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+    }
+    return {
+      state: "rate_limited",
+      confidence: rateLimit.confidence,
+      data: rateLimit.resetAtMs !== null ? data : void 0,
+      action
+    };
+  }
+  if (activeChoice) {
+    return {
+      state: "clarifying_question",
+      confidence: 1,
+      data: { questions: [activeChoice.question] },
+      action: {
+        surface: {
+          kind: "clarifying_question",
+          payload: { questions: [activeChoice.question] }
+        }
+      }
+    };
+  }
+  const partial = rateLimit.confidence > update.confidence ? rateLimit.confidence : update.confidence;
+  if (partial > 0) return { state: "unknown", confidence: partial };
+  return { state: "working", confidence: 0 };
+}
+function navigationKeys(options, matches) {
+  if (options.length === 0) return null;
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  let targetIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (matches(options[i].label)) {
+      targetIdx = i;
+      break;
+    }
+  }
+  if (targetIdx === -1) return null;
+  const keys = [];
+  const delta = targetIdx - highlightIdx;
+  if (delta > 0) {
+    for (let i = 0; i < delta; i++) keys.push("down");
+  } else if (delta < 0) {
+    for (let i = 0; i < -delta; i++) keys.push("up");
+  }
+  keys.push("enter");
+  return keys;
+}
+function skipNavigationKeys(options) {
+  return navigationKeys(
+    options,
+    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)
+  );
+}
+function scoreUpdatePrompt(screen) {
+  const options = parseMenuOptions(screen);
+  let hasUpdateOption = false;
+  let hasSkipOption = false;
+  for (let i = 0; i < options.length; i++) {
+    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
+    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
+  }
+  const actionableMenu = hasUpdateOption && hasSkipOption;
+  let confidence = 0;
+  if (actionableMenu) confidence += 0.45;
+  if (/\b(update|version)\s+available\b/i.test(screen)) confidence += 0.2;
+  if (/\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen)) {
+    confidence += 0.15;
+  }
+  if (/press\s+enter\s+to\s+continue/i.test(screen)) confidence += 0.1;
+  if (/release\s+notes/i.test(screen)) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  return {
+    confidence,
+    skipKeys: actionableMenu ? skipNavigationKeys(options) : null,
+    installKeys: actionableMenu ? navigationKeys(options, (label) => /\bupdate\b/i.test(label)) : null
+  };
+}
+function looksBusy(screen) {
+  return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(screen) || /\bWorking[….]/.test(screen) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(screen);
+}
+function looksLikeModelPicker(screen) {
+  if (!/\bselect\s+(?:model|reasoning)\b/i.test(screen)) return false;
+  return /\bpress\s+enter\s+to\s+confirm\b/i.test(screen) && /\besc\s+to\s+go\s+back\b/i.test(screen);
+}
+function scoreRateLimit(screen, nowMs) {
+  let confidence = 0;
+  if (/\bhit your usage limit\b/i.test(screen) || /\breached your usage limit\b/i.test(screen)) {
+    confidence += 0.5;
+  }
+  if (/\btry again at\b/i.test(screen)) confidence += 0.3;
+  if (/chatgpt\.com\/codex\/settings/i.test(screen)) confidence += 0.1;
+  if (/\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen)) {
+    confidence += 0.1;
+  }
+  if (confidence > 1) confidence = 1;
+  return { confidence, resetAtMs: parseTryAgainClock(screen, nowMs) };
+}
+function parseTryAgainClock(screen, nowMs) {
+  const match = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(screen);
+  return match ? parseTodayClock(match[1], nowMs) : null;
+}
+function parseTodayClock(value, nowMs) {
+  const match = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(value.trim());
+  if (!match) return null;
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2] || "0", 10);
+  if (hour === 0 || hour > 12 || minute > 59) return null;
+  const hour24 = hour % 12 + (match[3].toLowerCase() === "pm" ? 12 : 0);
+  const now = new Date(nowMs);
+  let candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, minute, 0, 0);
+  if (candidate.getTime() <= nowMs) {
+    candidate = new Date(candidate.getTime() + 24 * 3600 * 1e3);
+  }
+  return candidate.getTime();
+}
+function scoreAuthPrompt(screen) {
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(screen)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(screen)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(screen)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(screen)) score += 0.6;
+  if (/\bapi key\b/i.test(screen)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(screen)) score += 0.6;
+  if (/\bauthorization code\b/i.test(screen)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(screen)) score += 0.6;
+  return score > 1 ? 1 : score;
+}
+
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
@@ -1213,202 +1390,12 @@ var plugin = {
     return out;
   },
   classifyTabState(snapshot) {
-    const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
-    if (!screen.trim()) return null;
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
-    const activeChoice = parseActiveTerminalChoice(screen);
-    const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
-    if (authConfidence >= CLASSIFY_THRESHOLD) {
-      return {
-        state: "waiting_on_auth",
-        confidence: authConfidence,
-        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
-      };
-    }
-    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
-    const upd = scoreUpdatePrompt(screen);
-    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.installKeys && upd.installKeys.length > 0 && upd.skipKeys && upd.skipKeys.length > 0) {
-      return {
-        state: "update_prompt",
-        confidence: upd.confidence,
-        action: {
-          providerUpdate: {
-            installKeys: upd.installKeys,
-            declineKeys: upd.skipKeys
-          }
-        }
-      };
-    }
-    const rl = scoreRateLimit(screen, host.unixNowMs());
-    if (rl.confidence >= CLASSIFY_THRESHOLD) {
-      const action = {};
-      const data = {};
-      if (rl.resetAtMs !== null) {
-        data.resetAt = new Date(rl.resetAtMs).toISOString();
-        action.delayedResume = {
-          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
-          text: "continue your work",
-          thenKeys: ["enter"]
-        };
-      } else {
-        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
-      }
-      return {
-        state: "rate_limited",
-        confidence: rl.confidence,
-        data: rl.resetAtMs !== null ? data : void 0,
-        action
-      };
-    }
-    if (activeChoice) {
-      return {
-        state: "clarifying_question",
-        confidence: 1,
-        data: { questions: [activeChoice.question] },
-        action: {
-          surface: {
-            kind: "clarifying_question",
-            payload: { questions: [activeChoice.question] }
-          }
-        }
-      };
-    }
-    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
-    if (partial > 0) return { state: "unknown", confidence: partial };
-    return { state: "working", confidence: 0 };
+    return classifyCodexTabState(snapshot, host.unixNowMs());
   },
   providerSelfUpdateCapability() {
     return { inSession: true, restartRequired: true };
   }
 };
-var CLASSIFY_THRESHOLD = 0.8;
-var RESUME_BUFFER_MS = 60 * 1e3;
-function navigationKeys(options, matches) {
-  if (options.length === 0) return null;
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  let targetIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    const label = options[i].label;
-    if (matches(label)) {
-      targetIdx = i;
-      break;
-    }
-  }
-  if (targetIdx === -1) return null;
-  const keys = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
-  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
-  keys.push("enter");
-  return keys;
-}
-function skipNavigationKeys(options) {
-  return navigationKeys(
-    options,
-    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)
-  );
-}
-function scoreUpdatePrompt(screen) {
-  const options = parseMenuOptions(screen);
-  let hasUpdateOption = false;
-  let hasSkipOption = false;
-  for (let i = 0; i < options.length; i++) {
-    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
-    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
-  }
-  const sigUpdateSkipMenu = hasUpdateOption && hasSkipOption;
-  const sigAvailable = /\b(update|version)\s+available\b/i.test(screen);
-  const sigVersionArrow = /\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen);
-  const sigPressEnter = /press\s+enter\s+to\s+continue/i.test(screen);
-  const sigReleaseNotes = /release\s+notes/i.test(screen);
-  let confidence = 0;
-  if (sigUpdateSkipMenu) confidence += 0.45;
-  if (sigAvailable) confidence += 0.2;
-  if (sigVersionArrow) confidence += 0.15;
-  if (sigPressEnter) confidence += 0.1;
-  if (sigReleaseNotes) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
-  const installKeys = sigUpdateSkipMenu ? navigationKeys(options, (label) => /\bupdate\b/i.test(label)) : null;
-  return { confidence, installKeys, skipKeys };
-}
-function looksBusy(screen) {
-  const s = String(screen || "");
-  return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
-}
-function looksLikeModelPicker(screen) {
-  const s = String(screen || "");
-  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
-  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
-}
-function scoreRateLimit(screen, nowMs) {
-  const s = String(screen || "");
-  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s);
-  const sigTryAgain = /\btry again at\b/i.test(s);
-  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);
-  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);
-  let confidence = 0;
-  if (sigHitLimit) confidence += 0.5;
-  if (sigTryAgain) confidence += 0.3;
-  if (sigSettingsLink) confidence += 0.1;
-  if (sigResetClock) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const resetAtMs = parseTryAgainClock(s, nowMs);
-  return { confidence, resetAtMs };
-}
-function parseTryAgainClock(screen, nowMs) {
-  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
-  if (!m) return null;
-  return codexParseTodayClock(m[1], nowMs);
-}
-function codexParseHMmAmPm(s) {
-  s = String(s || "").trim().toLowerCase();
-  let pm;
-  if (s.slice(-2) === "pm") pm = true;
-  else if (s.slice(-2) === "am") pm = false;
-  else return null;
-  const stripped = s.slice(0, -2).trim();
-  let hh, mm;
-  const idx = stripped.indexOf(":");
-  if (idx !== -1) {
-    hh = parseInt(stripped.slice(0, idx).trim(), 10);
-    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
-  } else {
-    hh = parseInt(stripped, 10);
-    mm = 0;
-  }
-  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
-  return { hh, mm, pm };
-}
-function codexParseTodayClock(s, nowMs) {
-  const t = codexParseHMmAmPm(s);
-  if (!t) return null;
-  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
-  return cand.getTime();
-}
-function scoreAuthPrompt(screen) {
-  const s = String(screen || "");
-  let score = 0;
-  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
-  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
-  if (/\bapi key\b/i.test(s)) score += 0.6;
-  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
-  if (/\bauthorization code\b/i.test(s)) score += 0.6;
-  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
-  return score > 1 ? 1 : score;
-}
 function nestedApplyPatch(raw) {
   const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
   if (!call) return null;

@@ -16,6 +16,8 @@ pub enum TabState {
     WaitingOnAuth,
     /// A CLI self-update / version prompt parked on a default we may not want.
     UpdatePrompt,
+    /// The provider structurally observed its authorized update complete.
+    ProviderUpdateCompleted,
     /// Provider hit a usage/rate limit; may carry a reset time for a resume.
     RateLimited,
     /// Agent is asking the user a question that needs surfacing (not answering).

@@ -107,6 +107,7 @@ fn provider_descriptor_round_trip() {
             self_update: Some(ProviderSelfUpdateCapability {
                 in_session: true,
                 restart_required: true,
+                completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
             }),
             supports_stop: true,
             supports_chat_ui: true,
@@ -178,6 +179,7 @@ impl AgentProvider for NativeProviderUpdateFixture {
         Some(ProviderSelfUpdateCapability {
             in_session: true,
             restart_required: true,
+            completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
         })
     }
 }
@@ -200,7 +202,7 @@ fn provider_update_policy_has_native_js_capability_parity() {
         serde_json::from_str(manifest_json).expect("manifest parses");
     let vm = codeterm_plugin::js_runtime::PluginVm::from_source_with(
         "provider-update-fixture",
-        "module.exports.default = { providerSelfUpdateCapability() { return { inSession: true, restartRequired: true }; } };".to_string(),
+        "module.exports.default = { providerSelfUpdateCapability() { return { inSession: true, restartRequired: true, completionSignal: 'provider_classification' }; } };".to_string(),
         Some(manifest_json.to_string()),
     )
     .expect("fixture vm");
