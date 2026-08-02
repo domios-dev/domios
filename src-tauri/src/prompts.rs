@@ -283,9 +283,9 @@ mod tests {
 
     #[test]
     fn orchestration_prompts_separate_capability_from_mode() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("You coordinate Teams; you never join one"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("remaining outside their role and plan bindings"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Until then, stay the machine-level General Agent"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("YOU COORDINATE TEAMS; YOU NEVER JOIN ONE"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("TEAM EXECUTION AUTHORITY IS FORBIDDEN"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("machine-level General Agent outside Team hierarchy"));
         assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
         assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
@@ -463,8 +463,12 @@ mod tests {
 
     #[test]
     fn general_agent_routes_project_work_to_workspaces() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Machine scope, not project scope"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("spawn or reuse an orchestrator there"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("TEAM COORDINATION IS MANDATORY"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("codeterm team list"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("--role Orchestrator --workspace"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("MACHINE CONTROL REMAINS YOUR AUTHORITY"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("REMEMBER REQUEST PIPELINE IS ORDERED AND IMMEDIATE"));
+        assert!(!GENERAL_AGENT_TEMPLATE.contains("**"));
     }
 
     #[test]
