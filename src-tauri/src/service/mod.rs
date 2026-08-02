@@ -52,6 +52,7 @@ pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
 pub mod remote_workers;
+pub mod remote_tabs;
 mod role_identity;
 mod role_profile;
 pub mod session_persist;

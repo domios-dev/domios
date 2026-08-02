@@ -89,44 +89,23 @@ fn render_tree_groups_by_workspace_and_nests_children() {
 }
 
 #[test]
-fn tab_list_merges_remote_workers_into_their_team() {
-    let mut tabs = vec![json!({
-        "id":"orch",
-        "title":"Dumas",
-        "role":"Orchestrator",
-        "workspace_name":"CodeTerm",
-        "workspace_id":"ws"
+fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
+    let tabs = vec![json!({
+        "id":"shared-tab", "title":"Local", "workspace_name":"CodeTerm", "workspace_id":"ws"
+    }), json!({
+        "id":"orch", "title":"Dumas", "role":"Orchestrator", "workspace_name":"CodeTerm", "workspace_id":"ws"
+    }), json!({
+        "id":"mesh:peer-a/shared-tab", "remote_tab_id":"shared-tab", "title":"A", "role":"Manager", "role_profile":"planner", "remote_peer_name":"A"
+    }), json!({
+        "id":"mesh:peer-b/shared-tab", "remote_tab_id":"shared-tab", "title":"B", "role":"Orchestrator", "remote_peer_name":"B"
     })];
-    merge_remote_workers(
-        &mut tabs,
-        &json!({
-            "orch": [{
-                "peer":"Mac-Air",
-                "remote_tab":"remote1",
-                "title":"Release 1.7.8",
-                "model":"gpt-5.6-sol"
-            }],
-            "other-orchestrator": [{
-                "peer":"eight",
-                "remote_tab":"hidden",
-                "title":"Other team"
-            }]
-        }),
-    );
 
-    let out = render_tab_tree(&tabs);
-    assert!(
-        out.contains("Dumas") && out.contains("[orchestrator]"),
-        "{out}"
-    );
-    assert!(
-        out.contains("Release 1.7.8") && out.contains("[worker @Mac-Air]"),
-        "{out}"
-    );
-    assert!(
-        !out.contains("Other team"),
-        "foreign team leaked into scoped list: {out}"
-    );
+    let ids: Vec<_> = tabs.iter().map(|tab| sfield(tab, "id")).collect();
+    assert_eq!(ids, ["shared-tab", "orch", "mesh:peer-a/shared-tab", "mesh:peer-b/shared-tab"]);
+    assert_eq!(sfield(&tabs[2], "remote_tab_id"), "shared-tab");
+    assert_eq!(sfield(&tabs[2], "role_profile"), "planner");
+    assert_eq!(sfield(&tabs[2], "remote_peer_name"), "A");
+    assert_eq!(ordinary_tab_list_path(&tab_list_params(None, true, false, None)), "/api/tabs?all_workspaces=true");
 }
 
 #[test]
@@ -342,4 +321,61 @@ fn human_row_collapses_when_tab_title_equals_tab_title() {
     let row = format_tab_row(&p);
     // No "(Main)" duplicate — single label only.
     assert!(!row.contains("(Main)"), "duplicate label in row: {}", row);
+}
+
+#[test]
+fn inspect_rejects_mixed_and_multi_peer_owners() {
+    let mixed = vec!["local".into(), "mesh:peer/remote".into()];
+    assert!(super::remote_inspect_target(&mixed).unwrap_err().contains("mixed"));
+    let peers = vec!["mesh:a/one".into(), "mesh:b/two".into()];
+    assert!(super::remote_inspect_target(&peers).unwrap_err().contains("multi-peer"));
+}
+
+#[test]
+fn composite_parser_rejects_rest_and_whitespace_delimiters() {
+    for id in ["mesh:p/a b", "mesh:p/a?b", "mesh:p/a&b", "mesh:p/a#b"] {
+        assert!(super::parse_remote_tab_id(id).is_none(), "accepted {id}");
+    }
+}
+
+#[test]
+fn malformed_remote_targets_never_classify_as_local() {
+    for id in ["mesh:p/a b", "mesh:p/a?b", "mesh:p/a&b", "mesh:p/a#b", "mesh:/tab"] {
+        assert_eq!(super::classify_remote_tab_id(id), super::RemoteTabTarget::Invalid);
+    }
+    assert_eq!(super::classify_remote_tab_id("local"), super::RemoteTabTarget::Local);
+}
+
+#[test]
+fn every_tab_action_rejects_malformed_remote_before_local_transport() {
+    use crate::args::misc::TabCaptureAction;
+    let bad = || Some("mesh:peer/bad?tab".to_string());
+    let actions = vec![
+        TabAction::Inspect { tabs: vec![bad().unwrap()], tab: vec![] },
+        TabAction::Focus { id: bad(), tab: None },
+        TabAction::Close { id: bad(), tab: None },
+        TabAction::Rename { tab: bad(), title: "x".into() },
+        TabAction::Describe { tab: bad(), summary: "x".into() },
+        TabAction::GetText { tab: bad(), formatted: false },
+        TabAction::Exec { tab: bad(), command: "x".into(), timeout: 1 },
+        TabAction::Status { tab: bad() },
+        TabAction::Stop { tab: bad() },
+        TabAction::Chat { tab: bad(), since: 0 },
+        TabAction::Capture { action: TabCaptureAction::Start { tab: bad(), out: "x.cast".into() } },
+        TabAction::Capture { action: TabCaptureAction::Stop { tab: bad() } },
+    ];
+    for action in &actions {
+        assert!(
+            validate_user_tab_selectors(action).is_err(),
+            "malformed mesh selector passed production transport preflight",
+        );
+    }
+}
+
+#[test]
+fn remote_chat_path_percent_encodes_unicode_selector() {
+    assert_eq!(
+        remote_tab_chat_path("таб:one", 9),
+        "/api/tabs/%D1%82%D0%B0%D0%B1%3Aone/chat?since=9",
+    );
 }

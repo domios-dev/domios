@@ -24,6 +24,8 @@
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
+import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import { publishRemoteTransportState } from "./remoteTabTransportState";
 
 export interface TabOutputSink {
   onOutput(text: string): void;
@@ -241,6 +243,11 @@ function ensureStarted(): void {
  * resume from the tracked offset (xterm is keep-alive, scrollback persists).
  */
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => void {
+  if (classifyTabTarget(tabId).kind === "invalid-remote") {
+    throw new Error(`Invalid remote tab id "${tabId}"; local output fallback is forbidden`);
+  }
+  const remote = parseCompositeTabId(tabId);
+  if (remote) return subscribeRemoteTabOutput(remote.ordinaryTabId, remote.peerId, sink);
   let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
@@ -256,6 +263,127 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => vo
   return () => {
     set!.delete(sink);
   };
+}
+
+function subscribeRemoteTabOutput(
+  ordinaryTabId: string,
+  peerId: string,
+  sink: TabOutputSink,
+): () => void {
+  let set = remoteSinks.get(ordinaryTabId);
+  if (!set) { set = new Set(); remoteSinks.set(ordinaryTabId, set); }
+  set.add(sink);
+  startRemoteTabOutput(ordinaryTabId, peerId);
+  return () => {
+    set!.delete(sink);
+    if (set!.size === 0) { remoteSinks.delete(ordinaryTabId); remoteControllers.get(ordinaryTabId)?.abort(); }
+  };
+}
+
+const remoteSinks = new Map<string, Set<TabOutputSink>>();
+const remoteControllers = new Map<string, AbortController>();
+const remoteCursors = new Map<string, { peerId: string; boot?: string; offset: number }>();
+const remoteGenerations = new Map<string, number>();
+const remoteSettlements = new Map<string, Map<number, { promise: Promise<void>; resolve: () => void }>>();
+
+export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number): string {
+  const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: offset } });
+  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
+  const previous = remoteControllers.get(ordinaryTabId);
+  if (previous && !previous.signal.aborted) return;
+  if (!remoteCursors.has(ordinaryTabId)) remoteCursors.set(ordinaryTabId, { peerId, offset: 0 });
+  const abort = new AbortController();
+  const generation = (remoteGenerations.get(ordinaryTabId) ?? 0) + 1;
+  remoteGenerations.set(ordinaryTabId, generation);
+  let settle!: () => void;
+  const settlement = new Promise<void>((resolve) => { settle = resolve; });
+  const byGeneration = remoteSettlements.get(ordinaryTabId) ?? new Map();
+  byGeneration.set(generation, { promise: settlement, resolve: settle });
+  remoteSettlements.set(ordinaryTabId, byGeneration);
+  remoteControllers.set(ordinaryTabId, abort);
+  const params = new URLSearchParams({
+    peer: peerId,
+    path: "/api/output/stream",
+    tab: ordinaryTabId,
+  });
+  const cursor = remoteCursors.get(ordinaryTabId);
+  const remoteTabId = ordinaryTabId.slice(ordinaryTabId.indexOf("/") + 1);
+  if (cursor?.boot) {
+    params.set("since", remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset));
+  }
+  const transport = remoteTabTransportHttp();
+  void fetch(`${transport.base}/api/mesh/relay-stream?${params.toString()}`, {
+    headers: transport.token ? { Authorization: `Bearer ${transport.token}` } : {},
+    signal: abort.signal,
+  }).then(async (response) => {
+    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (!abort.signal.aborted) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = frame.split("\n").find((line) => line.startsWith("data:"));
+        if (data) {
+          const message = JSON.parse(data.slice(5).trim()) as OutputFrame;
+          if (message.tab_id && message.tab_id !== remoteTabId) {
+            boundary = buffer.indexOf("\n\n");
+            continue;
+          }
+          const current = remoteCursors.get(ordinaryTabId) ?? { peerId, offset: 0 };
+          if (message.boot) current.boot = message.boot;
+          if (typeof message.offset === "number") current.offset = message.offset;
+          remoteCursors.set(ordinaryTabId, current);
+          if (message.tab_id === remoteTabId) publishRemoteTransportState(ordinaryTabId, "available");
+          for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
+            if (typeof message.output === "string") target.onOutput(message.output);
+            else if (message.truncated && typeof message.from === "number") target.onTruncated(message.from);
+            else if (message.ended) target.onEnded();
+          }
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+    if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "reconnecting");
+  }).catch(() => { if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "unavailable"); })
+    .finally(() => {
+      if (remoteGenerations.get(ordinaryTabId) === generation) remoteControllers.delete(ordinaryTabId);
+      const settlements = remoteSettlements.get(ordinaryTabId);
+      const settled = settlements?.get(generation);
+      settlements?.delete(generation);
+      if (settlements?.size === 0) remoteSettlements.delete(ordinaryTabId);
+      settled?.resolve();
+    });
+}
+
+export function resumeRemoteOutputStreams(): void {
+  for (const [ordinaryTabId] of remoteSinks) {
+    const cursor = remoteCursors.get(ordinaryTabId);
+    if (cursor) {
+      remoteControllers.get(ordinaryTabId)?.abort();
+      startRemoteTabOutput(ordinaryTabId, cursor.peerId);
+    }
+  }
+}
+
+export function remoteOutputSubscriptionGeneration(ordinaryTabId: string): number {
+  return remoteGenerations.get(ordinaryTabId) ?? 0;
+}
+
+export function remoteOutputSubscriptionSnapshot(ordinaryTabId: string): { generation: number; hasController: boolean } {
+  return { generation: remoteGenerations.get(ordinaryTabId) ?? 0, hasController: remoteControllers.has(ordinaryTabId) };
+}
+
+export function waitForRemoteOutputGenerationSettlement(ordinaryTabId: string, generation: number): Promise<void> {
+  return remoteSettlements.get(ordinaryTabId)?.get(generation)?.promise ?? Promise.resolve();
 }
 
 /** Force an immediate reconnect keeping all offsets (wake-from-sleep resume):

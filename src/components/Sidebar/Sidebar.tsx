@@ -16,7 +16,6 @@ import { OrchestrationCreate, type OrchestrationCreateResult } from "./Orchestra
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
-import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
   SidebarDnd,
   sortByOrder,
@@ -134,7 +133,6 @@ export function Sidebar({
     () => selectActiveWork(fullPlans.plans, state.tabs),
     [fullPlans.plans, state.tabs],
   );
-  const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
   const claudeConfig = agentsConfig?.claude;
   const claudeSkipRemembered = claudeConfig?.spawn_skip_permissions_remembered === true;
@@ -585,7 +583,6 @@ export function Sidebar({
                       planIndex={planIndex}
                       plans={fullPlans.plans}
                       activeWork={activeWork}
-                      remoteWorkers={remoteWorkers}
                       providers={visibleProviders}
                       providersLoading={providersLoading}
                       closingTabIds={new Set(closingTabs.keys())}
@@ -741,7 +738,6 @@ export function Sidebar({
                           planIndex={planIndex}
                           plans={fullPlans.plans}
                           activeWork={activeWork}
-                          remoteWorkers={remoteWorkers}
                           providers={visibleProviders}
                           providersLoading={providersLoading}
                           closingTabIds={new Set(closingTabs.keys())}

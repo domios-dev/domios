@@ -132,7 +132,6 @@ async function renderSidebar({
           planIndex={nextPlanIndex}
           plans={nextPlans}
           activeWork={null}
-          remoteWorkers={{}}
           providers={providers}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
@@ -857,7 +856,6 @@ test("clicking a team worker activates it", async () => {
           planIndex={[]}
           plans={[]}
           activeWork={null}
-          remoteWorkers={{}}
           providers={[]}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
