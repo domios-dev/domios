@@ -249,6 +249,17 @@ fn show_skill(
 ) -> Result<Option<Value>, String> {
     let mut params = plan_rpc_params(plan);
     params["slug"] = json!(slug);
+    if let (Ok(tab_id), Ok(session_id), Ok(session_binding_nonce), Ok(task_id)) = (
+        std::env::var("CODETERM_TAB_ID"),
+        std::env::var("CODETERM_SESSION_ID"),
+        std::env::var("CODETERM_SESSION_BINDING_NONCE"),
+        std::env::var("CODETERM_TASK_ID"),
+    ) {
+        params["caller_tab_id"] = json!(tab_id);
+        params["caller_session_id"] = json!(session_id);
+        params["session_binding_nonce"] = json!(session_binding_nonce);
+        params["task_id"] = json!(task_id);
+    }
     let response = call(client, "plan.skills.show", params)?;
     if json {
         return Ok(Some(response));
