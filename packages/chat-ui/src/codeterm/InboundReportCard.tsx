@@ -6,6 +6,8 @@ import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { decodeCliMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
+import { CoordinationReportCard } from "./CoordinationReportCard";
+import { parseCoordinationReport } from "./coordinationReport";
 
 interface ReportField {
   label: string;
@@ -70,9 +72,24 @@ function taskObject(task: string | undefined): string {
 }
 
 export function InboundReportCard({ message, sender, expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale }: Props) {
+  const coordination = parseCoordinationReport(message.content);
+  if (coordination) {
+    return (
+      <CoordinationReportCard
+        descriptor={coordination}
+        message={message}
+        sender={sender}
+        expanded={expanded}
+        onToggle={onToggle}
+        onFocusTab={onFocusTab}
+        onOpenPlan={onOpenPlan}
+        resolvePlanRef={resolvePlanRef}
+      />
+    );
+  }
   const descriptor = parseInboundReport(message.content);
   const failed = /^(?:blocked|error|failed)$/i.test(descriptor.status ?? "");
-  const chips = [descriptor.status, descriptor.sha].filter((value): value is string => Boolean(value));
+  const chips = [descriptor.status].filter((value): value is string => Boolean(value));
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
   return (
@@ -87,6 +104,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       visual={{ glyph: MessageSquareText, color: "var(--ct-magenta)", label: "report" }}
       chips={chips}
       onFocusTab={onFocusTab}
+      disclosureLabel="report Details"
     >
       <div className={`grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
         {descriptor.fields.length > 0 && (

@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { InboundReportCard, parseInboundReport } from "./InboundReportCard";
 import { MessageBubble } from "../MessageBubble";
 import { decodeCliMessageText, normalizeMessageText } from "./messageText";
-import { CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS } from "./inboundReportFixtures.testdata";
+import { CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS, DISPATCH_READY_REPORT } from "./inboundReportFixtures.testdata";
 import { mountInboundReportCardHarness } from "./InboundReportCard.browserHarness";
 
 const window = new Window({ url: "http://localhost/" });
@@ -40,11 +40,17 @@ await act(async () => curieRoot.render(
     message={{ id: "report-curie", type: "user", content: CURIE_PARTIAL_REPORT, fromLabel: "Curie", fromTab: "02d1339c", inboundKind: "report" }}
   />,
 ));
-if (!curieHost.querySelector('[data-testid="chat-inbound-report-body"]')) throw new Error("report card renders no body element");
 for (const marker of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
-  if (!curieHost.textContent?.includes(marker)) throw new Error(`report card dropped body line: ${JSON.stringify(marker)}`);
+  if (curieHost.textContent?.includes(marker)) throw new Error(`collapsed partial report leaked body line: ${JSON.stringify(marker)}`);
 }
 if (!curieHost.textContent?.includes("Partial")) throw new Error("report card dropped the status chip");
+const curieDetails = curieHost.querySelector('button[aria-label="Show report Details"]') as HTMLButtonElement | null;
+if (!curieDetails) throw new Error("partial report Details disclosure missing");
+await act(async () => curieDetails.click());
+if (!curieHost.querySelector('[data-testid="chat-inbound-report-body"]')) throw new Error("expanded report card renders no body element");
+for (const marker of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
+  if (!curieHost.textContent?.includes(marker)) throw new Error(`expanded report card dropped body line: ${JSON.stringify(marker)}`);
+}
 await act(async () => curieRoot.unmount());
 curieHost.remove();
 
@@ -56,6 +62,9 @@ await act(async () => { harnessRoot = mountInboundReportCardHarness(harnessHost)
 for (const variant of ["local", "mesh"]) {
   const card = harnessHost.querySelector(`[data-testid="report-variant-${variant}"] [data-testid="chat-inbound-report"]`);
   if (!card) throw new Error(`harness ${variant} report card missing`);
+  const toggle = card.querySelector('button[aria-label="Show report Details"]') as HTMLButtonElement | null;
+  if (!toggle) throw new Error(`harness ${variant} report Details missing`);
+  await act(async () => toggle.click());
   const body = card.querySelector('[data-testid="chat-inbound-report-body"]');
   if (!body?.textContent?.includes("REPORT NOT SENT")) throw new Error(`harness ${variant} report body missing`);
   if (!card.textContent?.includes("Partial")) throw new Error(`harness ${variant} status chip missing`);
@@ -96,9 +105,64 @@ await act(async () => dispatchRoot.render(
 ));
 if (!dispatchHost.querySelector('[data-testid="chat-inbound-report"]')) throw new Error("MessageBubble report dispatch regression");
 if (dispatchHost.querySelector('[data-testid="chat-cross-tab-bubble"]')) throw new Error("MessageBubble routed report through generic bubble");
-if (!dispatchHost.textContent?.includes("Added provider matrix")) throw new Error("inbound report must be expanded by default");
+if (dispatchHost.textContent?.includes("Added provider matrix") || dispatchHost.textContent?.includes("1e096cba6")) throw new Error("in_review report leaked diagnostics while collapsed");
+const reportDetails = dispatchHost.querySelector('button[aria-label="Show report Details"]') as HTMLButtonElement | null;
+if (!reportDetails) throw new Error("in_review report Details disclosure missing");
+await act(async () => reportDetails.click());
+if (!dispatchHost.textContent?.includes("Added provider matrix") || !dispatchHost.textContent?.includes("1e096cba6")) throw new Error("in_review report lost expanded diagnostics");
 await act(async () => dispatchRoot.unmount());
 dispatchHost.remove();
+
+async function renderCoordination(content: string, id: string) {
+  const cardHost = document.createElement("div");
+  document.body.append(cardHost);
+  const cardRoot = createRoot(cardHost);
+  await act(async () => cardRoot.render(
+    <MessageBubble message={{ id, type: "user", content, fromLabel: "Kay", fromTab: "4fe93c04", inboundKind: "report" }} />,
+  ));
+  return { cardHost, cardRoot };
+}
+
+const coordination = await renderCoordination(DISPATCH_READY_REPORT, "coordination-ready");
+const collapsed = coordination.cardHost.querySelector('[data-testid="chat-coordination-report"]');
+if (!collapsed) throw new Error("dispatch_ready coordination card missing");
+for (const visible of ["Dispatch ready", "Kay", "pl_kddub3/task_ii7zgs", "Awaiting worker acknowledgement"]) {
+  if (!collapsed.textContent?.includes(visible)) throw new Error(`collapsed coordination summary missing ${JSON.stringify(visible)}`);
+}
+for (const hidden of ["attempt_ts4pkq", "019f6c2f", "codeterm-worktrees", "canonical_project_path", "{\"attempt_id\""]) {
+  if (collapsed.textContent?.includes(hidden)) throw new Error(`collapsed coordination card leaked ${JSON.stringify(hidden)}`);
+}
+const detailsToggle = coordination.cardHost.querySelector('button[aria-label="Show coordination Details"]') as HTMLButtonElement | null;
+if (!detailsToggle) throw new Error("coordination Details disclosure is not accessible");
+await act(async () => detailsToggle.click());
+const details = coordination.cardHost.querySelector('[data-testid="chat-coordination-details"]');
+if (details?.textContent !== `DetailsCopy${DISPATCH_READY_REPORT}`) throw new Error("expanded coordination diagnostics are not exact");
+if (details.querySelector("script")) throw new Error("coordination diagnostics executed markup instead of escaping it");
+let copied = "";
+Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { copied = value; } } });
+const copyButton = details.querySelector('button[aria-label="Copy coordination diagnostics"]') as HTMLButtonElement | null;
+if (!copyButton) throw new Error("coordination diagnostics copy action missing");
+await act(async () => copyButton.click());
+if (copied !== DISPATCH_READY_REPORT) throw new Error("coordination diagnostics copy lost fidelity");
+await act(async () => coordination.cardRoot.unmount());
+coordination.cardHost.remove();
+
+for (const fixture of [
+  { id: "ack", json: { kind: "worker_ack", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", attempt_id: "secret-attempt", state: "in_progress" }, event: "Worker acknowledged", state: "in progress" },
+  { id: "failed", json: { kind: "dispatch_startup_failed", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", stage: "session", error: "No session" }, event: "Worker startup failed", state: "No session" },
+]) {
+  const rendered = await renderCoordination(`task: pl_one/task_one\n${JSON.stringify(fixture.json)}`, fixture.id);
+  if (!rendered.cardHost.textContent?.includes(fixture.event) || !rendered.cardHost.textContent.includes(fixture.state)) throw new Error(`${fixture.id} summary regression`);
+  if (rendered.cardHost.textContent.includes("secret-tab")) throw new Error(`${fixture.id} leaked internal ids while collapsed`);
+  await act(async () => rendered.cardRoot.unmount());
+  rendered.cardHost.remove();
+}
+
+const proseReport = await renderCoordination("status: Done\nOrdinary Worker prose with pl_one/task_one stays readable.", "ordinary-prose");
+if (proseReport.cardHost.querySelector('[data-testid="chat-coordination-report"]')) throw new Error("ordinary authored report misclassified as coordination JSON");
+if (!proseReport.cardHost.textContent?.includes("Ordinary Worker prose with pl_one/task_one stays readable.")) throw new Error("ordinary authored report prose changed");
+await act(async () => proseReport.cardRoot.unmount());
+proseReport.cardHost.remove();
 
 const sendMessage = { id: "send-1", type: "tool_call" as const, content: "", toolKind: "codeterm" as const, toolSummary: 'codeterm send --tab e3fa0754 "hello\\nHugo"', toolDetail: 'codeterm send --tab e3fa0754 "hello\\nHugo"' };
 const sendHost = document.createElement("div");
