@@ -45,6 +45,7 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     role_guidance: Option<String>,
     executor_role: Option<String>,
     intent: Option<String>,
+    execution_intent: crate::plan::TaskExecutionIntent,
     parent_task_id: Option<String>,
     pub(in crate::service_plan) depends_on: Vec<String>,
     assigned_tab_id: Option<String>,
@@ -93,6 +94,7 @@ impl PlanStore {
             role_guidance: task.role_guidance.clone(),
             executor_role: task.executor_role.clone(),
             intent: task.intent.clone(),
+            execution_intent: task.execution_intent,
             parent_task_id: task.parent_task_id.clone(),
             depends_on: task.depends_on.clone(),
             assigned_tab_id: task.assigned_tab_id.clone(),
@@ -248,6 +250,9 @@ impl PlanStore {
         }
         if task.intent != expected.intent {
             return Err(fail("intent"));
+        }
+        if task.execution_intent != expected.execution_intent {
+            return Err(fail("execution_intent"));
         }
         if task.parent_task_id != expected.parent_task_id {
             return Err(fail("parent_task_id"));

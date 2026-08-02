@@ -1083,6 +1083,7 @@ mod tests {
         assert!(p.tasks[0].review_evidence.is_empty());
         assert_eq!(p.tasks[0].review_override, None);
         assert!(p.tasks[0].review_audit.is_empty());
+        assert!(p.tasks[0].execution_intent.requires_repository());
     }
 
     #[test]
@@ -1147,6 +1148,7 @@ mod tests {
             executor_role: None,
             competition: None,
             intent: None,
+            execution_intent: Default::default(),
             parent_task_id: None,
             depends_on: vec![],
             assigned_tab_id: None,
