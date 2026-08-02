@@ -353,6 +353,10 @@ impl ServiceContext {
             self.emit_state_changed();
         }
 
+        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+        })?;
+
         self.chatbackend_launch_async(plugin_id, tab_id.clone(), config, history_meta);
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
@@ -394,8 +398,7 @@ impl ServiceContext {
                         tab_id,
                         e
                     );
-                    let _ = svc.mux.write().close_tab(&tab_id);
-                    svc.emit_state_changed();
+                    let _ = svc.close_tab(&tab_id);
                     svc.create_notification(
                         format!("Failed to open {} session", plugin_id),
                         Some(e),
@@ -405,8 +408,7 @@ impl ServiceContext {
                 }
                 Err(e) => {
                     log::warn!("[spawn.chatbackend] openSession task join error: {}", e);
-                    let _ = svc.mux.write().close_tab(&tab_id);
-                    svc.emit_state_changed();
+                    let _ = svc.close_tab(&tab_id);
                     return;
                 }
             };
@@ -431,8 +433,7 @@ impl ServiceContext {
                     error
                 );
                 let _ = svc.chatbackend_close(&plugin_id, &session_id);
-                let _ = svc.mux.write().close_tab(&tab_id);
-                svc.emit_state_changed();
+                let _ = svc.close_tab(&tab_id);
                 return;
             }
             svc.emit_state_changed();

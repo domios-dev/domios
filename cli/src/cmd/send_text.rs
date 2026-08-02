@@ -126,6 +126,7 @@ pub fn handle_send_text(
     tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
+    from_pad: Option<String>,
     from_stdin: bool,
     actions: Option<String>,
     delay: Option<String>,
@@ -137,13 +138,13 @@ pub fn handle_send_text(
             std::process::exit(2);
         }
         crate::cmd::delayed::queue_from_send(
-            client, json, tab, text, from_file, from_stdin, delay, at,
+            client, json, tab, text, from_file, from_pad, from_stdin, delay, at,
         );
         return;
     }
     let mut stdin = std::io::stdin();
     let (resolved_text, source) =
-        match resolve_send_text_input(text, from_file, from_stdin, &mut stdin) {
+        match resolve_send_text_input(text, from_file, from_pad, from_stdin, &mut stdin) {
             Ok(value) => value,
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -424,9 +425,13 @@ fn send_actions_via_http(
 pub fn resolve_send_text_input<R: std::io::Read>(
     text: Option<String>,
     from_file: Option<String>,
+    from_pad: Option<String>,
     from_stdin: bool,
     stdin: &mut R,
 ) -> Result<(String, &'static str), String> {
+    if let Some(path) = from_pad {
+        return crate::cmd::payload_source::read_from_pad(&path).map(|s| (s, "--from-pad"));
+    }
     if from_stdin {
         let mut buf = String::new();
         stdin
@@ -541,7 +546,7 @@ mod tests {
     fn stdin_resolution_preserves_quotes_and_trailing_newline() {
         let input = "it's got 'quotes' and \"doubles\"\nsecond line\n";
         let mut stdin = input.as_bytes();
-        let (text, source) = resolve_send_text_input(None, None, true, &mut stdin).unwrap();
+        let (text, source) = resolve_send_text_input(None, None, None, true, &mut stdin).unwrap();
         assert_eq!(source, "--stdin");
         assert_eq!(text, input);
     }

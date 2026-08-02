@@ -20,6 +20,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
         }
         BridgeAction::Send {
             text,
+            from_pad,
             raw_text,
             service,
             to,
@@ -36,6 +37,8 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
                 "type": r#type,
                 "append": append,
             });
+            let text = from_pad.map(|path| crate::cmd::payload_source::read_from_pad(&path)
+                .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1) })).or(text);
             if let Some(t) = text {
                 params["text"] = serde_json::Value::String(bridge_text(t, raw_text));
             }

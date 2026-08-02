@@ -44,6 +44,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     text: &Option<String>,
     tab: &Option<String>,
     from_file: &Option<String>,
+    from_pad: &Option<String>,
     from_stdin: bool,
     actions: &Option<String>,
     stdin: &mut R,
@@ -51,7 +52,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     let p = tab.as_deref().unwrap_or("general");
     let source = std::env::var("CODETERM_TAB_ID").unwrap_or_else(|_| "unknown".to_string());
     let (body_text, input_source) =
-        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
+        match resolve_send_text_input(text.clone(), from_file.clone(), from_pad.clone(), from_stdin, stdin) {
             Ok(value) => value,
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -94,6 +95,7 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     text: &Option<String>,
     tab: &Option<String>,
     from_file: &Option<String>,
+    from_pad: &Option<String>,
     from_stdin: bool,
     delay: &Option<String>,
     at: &Option<String>,
@@ -101,7 +103,7 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
     let (body_text, input_source) =
-        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
+        match resolve_send_text_input(text.clone(), from_file.clone(), from_pad.clone(), from_stdin, stdin) {
             Ok(value) => value,
             Err(e) => {
                 eprintln!("Error: {}", e);

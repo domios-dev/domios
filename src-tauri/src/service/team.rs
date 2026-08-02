@@ -216,6 +216,9 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        for tab_id in &cleanup.member_tab_ids {
+            self.revoke_agent_pad(tab_id)?;
+        }
         self.delete_team_crons(team_id);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
