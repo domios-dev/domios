@@ -6,6 +6,7 @@ type ProviderUpdateStatus =
   | "declined"
   | "deferred"
   | "installing"
+  | "completion_unavailable"
   | "completed"
   | "restarted"
   | "failed";
@@ -52,9 +53,24 @@ export function ProviderUpdatePromptLayer() {
   }, []);
 
   const prompt = prompts[0];
-  const dismiss = useCallback(() => {
+  const dismiss = useCallback(async () => {
     if (!prompt) return;
-    setPrompts((current) => current.filter((item) => item.prompt_id !== prompt.prompt_id));
+    setSubmitting(true);
+    try {
+      await invoke("acknowledge_provider_update_prompt", {
+        promptId: prompt.prompt_id,
+      });
+      setPrompts((current) => current.filter((item) => item.prompt_id !== prompt.prompt_id));
+    } catch (error) {
+      setPrompts((current) =>
+        upsert(current, {
+          ...prompt,
+          message: `Unable to dismiss: ${String(error)}`,
+        }),
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }, [prompt]);
   const respond = useCallback(
     async (accept: boolean) => {
@@ -65,7 +81,6 @@ export function ProviderUpdatePromptLayer() {
           promptId: prompt.prompt_id,
           accept,
         });
-        if (!accept) dismiss();
       } catch (error) {
         setPrompts((current) =>
           upsert(current, {
@@ -78,12 +93,17 @@ export function ProviderUpdatePromptLayer() {
         setSubmitting(false);
       }
     },
-    [dismiss, prompt],
+    [prompt],
   );
 
   if (!prompt || IS_WEB) return null;
-  const terminal = prompt.status === "declined" || prompt.status === "completed" || prompt.status === "restarted" || prompt.status === "failed";
-  const canDismiss = terminal || prompt.status === "deferred" || prompt.status === "installing";
+  const terminal =
+    prompt.status === "declined" ||
+    prompt.status === "completion_unavailable" ||
+    prompt.status === "completed" ||
+    prompt.status === "restarted" ||
+    prompt.status === "failed";
+  const canDismiss = terminal;
   const canChoose = prompt.status === "awaiting_consent";
 
   return (
@@ -105,7 +125,12 @@ export function ProviderUpdatePromptLayer() {
         )}
         <div className="mt-5 flex justify-end gap-2">
           {canDismiss && (
-            <button type="button" onClick={dismiss} className="rounded border border-[var(--ct-border-default)] px-3 py-1.5 text-sm">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void dismiss()}
+              className="rounded border border-[var(--ct-border-default)] px-3 py-1.5 text-sm disabled:opacity-50"
+            >
               Dismiss
             </button>
           )}

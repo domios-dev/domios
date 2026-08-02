@@ -188,6 +188,17 @@ pub async fn respond_provider_update_prompt(
         .map_err(|error| format!("provider update worker failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn acknowledge_provider_update_prompt(
+    svc: State<'_, ServiceState>,
+    prompt_id: String,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || svc.acknowledge_provider_update_prompt(&prompt_id))
+        .await
+        .map_err(|error| format!("provider update worker failed: {error}"))?
+}
+
 /// Probe for a CLI binary. Used by the per-provider Installation card in
 /// Settings → Agents to render the install/missing badge. Checks the process
 /// PATH plus platform fallback dirs because GUI apps often inherit a minimal

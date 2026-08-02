@@ -119,6 +119,82 @@ fn unauthorized_provider_update_is_visible_and_declined() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn terminal_provider_update_is_listed_until_acknowledged() {
+    let (fixture, tab_id, receiver) = fixture(TabAudience::Automation);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::Declined);
+
+    assert!(fixture
+        .service
+        .list_provider_update_prompts()
+        .iter()
+        .any(|view| view.prompt_id == prompt.prompt_id));
+    fixture
+        .service
+        .acknowledge_provider_update_prompt(&prompt.prompt_id)
+        .unwrap();
+    assert!(!fixture
+        .service
+        .list_provider_update_prompts()
+        .iter()
+        .any(|view| view.prompt_id == prompt.prompt_id));
+    assert!(fixture
+        .service
+        .acknowledge_provider_update_prompt(&prompt.prompt_id)
+        .is_err());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn provider_update_acknowledgement_is_exact_and_terminal_only() {
+    let (fixture, tab_id, receiver) = fixture(TabAudience::User);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let first = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let second = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+
+    assert!(fixture
+        .service
+        .acknowledge_provider_update_prompt(&first.prompt_id)
+        .is_err());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .pending_delivery = Some(pending_delivery(PendingDeliveryState::Pending, false));
+    fixture
+        .service
+        .respond_provider_update_prompt(&first.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Deferred);
+    assert!(fixture
+        .service
+        .acknowledge_provider_update_prompt(&first.prompt_id)
+        .is_err());
+
+    fixture
+        .service
+        .respond_provider_update_prompt(&second.prompt_id, false)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Declined);
+    fixture
+        .service
+        .acknowledge_provider_update_prompt(&second.prompt_id)
+        .unwrap();
+    assert!(fixture
+        .service
+        .acknowledge_provider_update_prompt(&second.prompt_id)
+        .is_err());
+    let remaining = fixture.service.list_provider_update_prompts();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].prompt_id, first.prompt_id);
+    assert_eq!(remaining[0].status, ProviderUpdateStatus::Deferred);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
 fn authorized_provider_update_restarts_after_delivery_resolution() {
     for (state, active_attempt) in [
         (PendingDeliveryState::Pending, false),
@@ -194,10 +270,25 @@ fn provider_without_completion_signal_never_claims_restart() {
         &receiver,
         |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"),
     );
-    let installing = await_status(&receiver, ProviderUpdateStatus::Installing);
-    assert!(installing
+    let unavailable = await_status(&receiver, ProviderUpdateStatus::CompletionUnavailable);
+    assert!(unavailable
         .message
         .contains("does not declare an observable completion signal"));
+    assert!(fixture
+        .service
+        .list_provider_update_prompts()
+        .iter()
+        .any(|view| view.prompt_id == prompt.prompt_id
+            && view.status == ProviderUpdateStatus::CompletionUnavailable));
+    fixture
+        .service
+        .acknowledge_provider_update_prompt(&prompt.prompt_id)
+        .unwrap();
+    assert!(!fixture
+        .service
+        .list_provider_update_prompts()
+        .iter()
+        .any(|view| view.prompt_id == prompt.prompt_id));
     fixture
         .service
         .handle_provider_update_completed(&tab_id, "pty-update");
