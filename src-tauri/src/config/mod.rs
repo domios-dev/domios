@@ -63,7 +63,6 @@ resume_sessions = true
 [api]
 enabled = true
 host = "127.0.0.1"
-allow_network = false
 port = 7685
 # token = "your-secret-token"
 cors = false
@@ -137,9 +136,9 @@ pub fn api_host_is_loopback(host: &str) -> bool {
 pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String> {
     let bind = canonical_api_bind_addr(api)?;
     let has_token = api.token.as_ref().is_some_and(|token| !token.trim().is_empty());
-    if !bind.ip().is_loopback() && (!api.allow_network || !has_token) {
+    if !bind.ip().is_loopback() && !has_token {
         return Err(format!(
-            "non-loopback API host '{}' requires api.allow_network = true and an explicit bearer token",
+            "non-loopback API host '{}' requires an explicit bearer token",
             api.host
         ));
     }
@@ -499,7 +498,6 @@ mod tests {
         assert_eq!(config.terminal.scrollback, 10000);
         assert!(config.api.enabled);
         assert_eq!(config.api.host, "127.0.0.1");
-        assert!(!config.api.allow_network);
         assert!(!config.api.cors);
         assert_eq!(config.api.port, 7685);
     }
@@ -539,11 +537,9 @@ mod tests {
 
         let mut unsafe_remote = schema::ApiConfig::default();
         unsafe_remote.host = "0.0.0.0".into();
-        unsafe_remote.allow_network = false;
         unsafe_remote.token = None;
         assert!(validate_api_trust_boundary(&unsafe_remote).is_err());
 
-        unsafe_remote.allow_network = true;
         unsafe_remote.token = Some("explicit-network-token".into());
         assert!(validate_api_trust_boundary(&unsafe_remote).is_ok());
 

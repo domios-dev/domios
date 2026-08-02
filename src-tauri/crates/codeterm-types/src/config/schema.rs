@@ -120,7 +120,6 @@ pub struct ProviderConfig {
 pub struct ApiConfig {
     pub enabled: bool,
     pub host: String,
-    pub allow_network: bool,
     pub port: u16,
     pub token: Option<String>,
     pub cors: bool,
@@ -132,7 +131,6 @@ impl Default for ApiConfig {
         Self {
             enabled: true,
             host: "127.0.0.1".to_string(),
-            allow_network: false,
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
                 .ok()

@@ -36,7 +36,6 @@ export function defaultConfig(): AppConfig {
   api: {
     enabled: true,
     host: "127.0.0.1",
-    allow_network: false,
     port: 7685,
     token: null,
     cors: false,

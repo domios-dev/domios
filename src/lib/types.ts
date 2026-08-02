@@ -487,7 +487,6 @@ export interface AgentConfig {
 export interface ApiConfig {
   enabled: boolean;
   host: string;
-  allow_network?: boolean;
   port: number;
   token: string | null;
   cors: boolean;
