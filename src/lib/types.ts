@@ -145,6 +145,7 @@ export interface TabBootStageEvent {
 
 export interface Tab {
   id: string;
+  workspace_id?: string | null;
   /** Per-group sibling ordinal within the owning workspace or hierarchy. */
   sort_order?: number;
   pty_id: string | null;
@@ -211,6 +212,7 @@ export interface Tab {
   remote_peer_name?: string;
   remote_tab_id?: string;
   remote_availability?: "available" | "reconnecting" | "unavailable";
+  remote_controller_title?: string;
 }
 
 export interface MultiplexerState {

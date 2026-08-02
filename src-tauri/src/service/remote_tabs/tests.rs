@@ -16,7 +16,10 @@ fn remote_tab_identity_is_peer_and_tab_scoped() {
 
     for key in keys {
         let encoded = serde_json::to_string(&key).unwrap();
-        assert_eq!(serde_json::from_str::<OrdinaryTabKey>(&encoded).unwrap(), key);
+        assert_eq!(
+            serde_json::from_str::<OrdinaryTabKey>(&encoded).unwrap(),
+            key
+        );
     }
 }
 
@@ -28,7 +31,11 @@ fn ordinary_tab_projection_merges_only_reachable_authenticated_peers() {
         authenticated,
         reachable,
         availability: "available",
-        tabs: reachable.then(|| serde_json::json!({"id":"shared-tab", "title":id})).into_iter().collect(),
+        tabs: reachable
+            .then(|| serde_json::json!({"id":"shared-tab", "title":id}))
+            .into_iter()
+            .collect(),
+        controllers: std::collections::HashMap::from([("shared-tab".into(), "controller".into())]),
     };
     let projected = merge_ordinary_tab_projection(
         &[serde_json::json!({"id":"shared-tab", "title":"local"})],
@@ -43,5 +50,64 @@ fn ordinary_tab_projection_merges_only_reachable_authenticated_peers() {
         .iter()
         .filter_map(|tab| tab.get("id").and_then(serde_json::Value::as_str))
         .collect();
-    assert_eq!(ids, ["shared-tab", "mesh:a/shared-tab", "mesh:b/shared-tab"]);
+    assert_eq!(
+        ids,
+        ["shared-tab", "mesh:a/shared-tab", "mesh:b/shared-tab"]
+    );
+}
+
+#[test]
+fn remote_projection_uses_the_local_controller_context() {
+    let projected = merge_ordinary_tab_projection(
+        &[serde_json::json!({
+            "id": "controller",
+            "title": "Coordinator",
+            "workspace_id": "workspace-a",
+            "team_id": "team-a"
+        })],
+        &[RemotePeerProjection {
+            peer_id: "peer-a".into(),
+            peer_name: "REMOTE".into(),
+            authenticated: true,
+            reachable: true,
+            availability: "available",
+            tabs: vec![serde_json::json!({
+                "id": "worker",
+                "workspace_id": "remote-workspace",
+                "team_id": "remote-team",
+                "parent_tab_id": "remote-parent"
+            })],
+            controllers: std::collections::HashMap::from([("worker".into(), "controller".into())]),
+        }],
+    );
+    let remote = &projected[1];
+    assert_eq!(remote["parent_tab_id"], "controller");
+    assert_eq!(remote["spawned_by_tab_id"], "controller");
+    assert_eq!(remote["workspace_id"], "workspace-a");
+    assert_eq!(remote["team_id"], "team-a");
+    assert_eq!(remote["remote_controller_title"], "Coordinator");
+}
+
+#[test]
+fn remote_projection_excludes_tabs_without_a_local_controller() {
+    let projected = merge_ordinary_tab_projection(
+        &[],
+        &[RemotePeerProjection {
+            peer_id: "peer-a".into(),
+            peer_name: "REMOTE".into(),
+            authenticated: true,
+            reachable: true,
+            availability: "available",
+            tabs: vec![
+                serde_json::json!({"id": "owned"}),
+                serde_json::json!({"id": "foreign"}),
+            ],
+            controllers: std::collections::HashMap::from([("owned".into(), "controller".into())]),
+        }],
+    );
+    let ids = projected
+        .iter()
+        .filter_map(|tab| tab.get("id").and_then(serde_json::Value::as_str))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["mesh:peer-a/owned"]);
 }

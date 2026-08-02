@@ -226,6 +226,24 @@ test("peer switch reset removes every old-peer Tab and selection immediately", (
   assert(reset.generation === -1, "new peer snapshot cannot be rejected by old peer generation");
 });
 
+test("SET_REMOTE_TABS places a remote tab in its controller workspace", () => {
+  const workspaceA = { id: "workspace-a", tabs: [], active_tab_id: null } as unknown as Workspace;
+  const workspaceB = { id: "workspace-b", tabs: [], active_tab_id: null } as unknown as Workspace;
+  const remote = {
+    id: "mesh:peer/worker",
+    title: "Worker",
+    remote_peer_id: "peer",
+    remote_tab_id: "worker",
+    workspace_id: "workspace-b",
+  } as unknown as Tab;
+  const next = reducer(
+    { ...base(), workspaces: [workspaceA, workspaceB] },
+    { type: "SET_REMOTE_TABS", tabs: { [remote.id]: remote } },
+  );
+  assert(next.workspaces[0].tabs.length === 0, "unrelated first workspace stays unchanged");
+  assert(next.workspaces[1].tabs[0] === remote.id, "remote tab follows its controller workspace");
+});
+
 test("SET_STATE seeds tabStatuses from the snapshot (reload hydration)", () => {
   const withStatus = { ...snap(5, "w-new"), tab_statuses: { "p-1": "Waiting" as const } };
   const next = reducer(base(), { type: "SET_STATE", state: withStatus });
