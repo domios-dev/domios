@@ -115,6 +115,8 @@ pub struct SpawnAgentParams {
     pub task_id: Option<String>,
     #[serde(default, skip)]
     pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
+    #[serde(default, skip)]
+    pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
     pub execution_intent: Option<crate::plan::ExecutionIntent>,

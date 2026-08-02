@@ -139,6 +139,7 @@ impl SpawnTabSpec {
             starter_prompt,
             task_id: None,
             task_launch_authority: None,
+            plan_skill_manifest: None,
             plan_task: None,
             execution_intent: None,
             provider_reserve_pct: None,

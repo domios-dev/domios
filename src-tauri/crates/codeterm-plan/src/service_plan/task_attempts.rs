@@ -59,6 +59,7 @@ pub struct TaskRespawnDraft {
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
+    pub plan_skill_manifest: Vec<crate::plan::PlanSkillManifestEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +77,7 @@ pub struct TaskCompeteDraft {
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
+    pub plan_skill_manifest: Vec<crate::plan::PlanSkillManifestEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -202,6 +204,7 @@ fn build_prompt(
     provider: &str,
     model: Option<&str>,
     report_command: &str,
+    manifest: &[crate::plan::PlanSkillManifestEntry],
 ) -> String {
     let identity =
         super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
@@ -212,6 +215,7 @@ fn build_prompt(
         "Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
     );
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
+    out.push_str(&super::task_brief::render_plan_skill_manifest(plan_id, manifest));
     out.push_str(&format!("Task name: {}\n", task.name));
     out.push_str(&format!("Provider/model preference: {provider}"));
     if let Some(model) = model {
@@ -296,6 +300,7 @@ fn build_compete_prompt(
     lane: u32,
     model_label: &str,
     report_command: &str,
+    manifest: &[crate::plan::PlanSkillManifestEntry],
 ) -> String {
     let identity =
         super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
@@ -303,6 +308,7 @@ fn build_compete_prompt(
     out.push_str(crate::service_plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
     out.push_str("\n\n");
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
+    out.push_str(&super::task_brief::render_plan_skill_manifest(plan_id, manifest));
     out.push_str(&format!(
         "Competition group: {group_id}\nAttempt lane: {lane}\n"
     ));
@@ -557,10 +563,14 @@ impl PlanStore {
         tab_id: &str,
         title: Option<&str>,
         session_id: Option<&str>,
+        session_binding_nonce: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let title = title.map(str::trim).filter(|value| !value.is_empty());
         let session_id = session_id.map(str::trim).filter(|value| !value.is_empty());
+        let session_binding_nonce = session_binding_nonce
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         self.with_plan(plan_id, now_ms, |plan| {
             let task = plan
                 .tasks
@@ -575,6 +585,83 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             attempt.executor_title = title.map(str::to_string);
             attempt.session_id = session_id.map(str::to_string);
+            attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    pub fn record_plan_skill_load(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        slug: &str,
+        content_digest: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.assigned_tab_id.as_deref() != Some(tab_id) {
+                return Err(PlanError::Io("plan skill caller is not the assigned Worker".into()));
+            }
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .rev()
+                .find(|attempt| attempt.executor_tab_id == tab_id && attempt.closed_at.is_none())
+                .ok_or_else(|| PlanError::Io("plan skill caller has no current attempt".into()))?;
+            if attempt.session_id.as_deref() != Some(session_id)
+                || attempt.session_binding_nonce.as_deref() != Some(session_binding_nonce)
+            {
+                return Err(PlanError::Io("plan skill caller binding is stale".into()));
+            }
+            let announced = attempt
+                .plan_skill_manifest
+                .iter()
+                .find(|entry| entry.slug == slug && entry.content_digest == content_digest)
+                .ok_or_else(|| PlanError::Io("plan skill was not announced with this digest".into()))?;
+            if attempt.loaded_plan_skills.iter().any(|evidence| {
+                evidence.slug == announced.slug && evidence.content_digest == announced.content_digest
+            }) {
+                return Ok(());
+            }
+            attempt.loaded_plan_skills.push(crate::plan::LoadedPlanSkillEvidence {
+                slug: announced.slug.clone(),
+                content_digest: announced.content_digest.clone(),
+                loaded_at: now_ms,
+            });
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    pub fn set_attempt_plan_skill_manifest(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        manifest: Vec<crate::plan::PlanSkillManifestEntry>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id && attempt.closed_at.is_none())
+                .ok_or(PlanError::TaskNotFound)?;
+            attempt.plan_skill_manifest = manifest;
             task.updated_at = now_ms;
             Ok(())
         })
@@ -614,6 +701,7 @@ impl PlanStore {
             .max(2);
         let group_id = crate::plan::ids::short_id("compete");
         let report_command = task_report_command(plan_id, &task.id);
+        let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
         let cwd = task
             .lane
             .worktree_path
@@ -643,6 +731,7 @@ impl PlanStore {
                 lane,
                 &model_label,
                 &report_command,
+                &manifest,
             );
             drafts.push(TaskCompeteDraft {
                 plan_id: plan.id.clone(),
@@ -661,6 +750,7 @@ impl PlanStore {
                 cwd: cwd.clone(),
                 task_prompt,
                 report_command: report_command.clone(),
+                plan_skill_manifest: manifest.clone(),
             });
         }
         Ok(drafts)
@@ -715,6 +805,7 @@ impl PlanStore {
             &provider,
             model.as_deref(),
             &report_command,
+            &source.plan_skill_manifest,
         );
         Ok(attempt_view(&plan.id, task, source, Some(prompt)))
     }
@@ -742,6 +833,7 @@ impl PlanStore {
             .unwrap_or_else(|| "claude".into());
         let model = request.model.or(source.model.clone()).or(task_model);
         let report_command = task_report_command(plan_id, &task.id);
+        let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
         let explicit_title = request.title.is_some();
         let cwd = source
             .worktree_path
@@ -755,6 +847,7 @@ impl PlanStore {
             &provider,
             model.as_deref(),
             &report_command,
+            &manifest,
         );
         Ok(TaskRespawnDraft {
             plan_id: plan.id,
@@ -773,6 +866,7 @@ impl PlanStore {
             cwd,
             task_prompt,
             report_command,
+            plan_skill_manifest: manifest,
         })
     }
 
@@ -811,6 +905,7 @@ impl PlanStore {
             attempt.model = draft.model.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
+            attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
             record_noncompetitive_replacement_attempt(
                 &mut task.execution_attempts,
                 attempt.clone(),
@@ -859,6 +954,7 @@ impl PlanStore {
             attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.competition_group_id = Some(draft.competition_group_id.clone());
             attempt.competition_lane = Some(draft.lane);
+            attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
             task.execution_attempts.push(attempt.clone());
             created = Some(attempt);
             Ok(())
@@ -952,6 +1048,8 @@ impl PlanStore {
                     message: Some(message.into()),
                     status: status.map(report_status_key),
                     reporter_tab_id,
+                    plan_skill_manifest: attempt.plan_skill_manifest.clone(),
+                    loaded_plan_skills: attempt.loaded_plan_skills.clone(),
                     ..Default::default()
                 });
                 attempt.reported_at = Some(now_ms);
@@ -1081,6 +1179,8 @@ impl PlanStore {
                     test_result: report.test_result,
                     skipped: report.skipped,
                     attachments: vec![],
+                    plan_skill_manifest: attempt.plan_skill_manifest.clone(),
+                    loaded_plan_skills: attempt.loaded_plan_skills.clone(),
                 });
                 attempt.reported_at = Some(now_ms);
             }
