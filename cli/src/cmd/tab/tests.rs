@@ -130,6 +130,26 @@ fn tab_list_merges_remote_workers_into_their_team() {
 }
 
 #[test]
+fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
+    let mut tabs = vec![json!({
+        "id":"shared-tab", "title":"Local", "workspace_name":"CodeTerm", "workspace_id":"ws"
+    }), json!({
+        "id":"orch", "title":"Dumas", "role":"Orchestrator", "workspace_name":"CodeTerm", "workspace_id":"ws"
+    })];
+    merge_remote_workers(&mut tabs, &json!({
+        "orch": [
+            {"peer":"peer-a", "remote_tab":"shared-tab", "title":"A", "role":"Planner"},
+            {"peer":"peer-b", "remote_tab":"shared-tab", "title":"B", "role":"Orchestrator"}
+        ]
+    }));
+
+    let ids: Vec<_> = tabs.iter().map(|tab| sfield(tab, "id")).collect();
+    assert_eq!(ids, ["shared-tab", "orch", "mesh:peer-a/shared-tab", "mesh:peer-b/shared-tab"]);
+    assert_eq!(sfield(&tabs[2], "remote_tab_id"), "shared-tab");
+    assert_eq!(sfield(&tabs[2], "role"), "Planner");
+}
+
+#[test]
 fn render_tree_falls_back_to_agent_type_without_model() {
     let tabs = vec![
         json!({"id":"eeee","tab_title":"plain","workspace_name":"W","workspace_id":"w"}),

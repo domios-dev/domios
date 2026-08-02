@@ -93,14 +93,23 @@ function TabWorkingActivity() {
   );
 }
 
-function TabSubline({ roleShield }: { roleShield: string | null }) {
-  if (!roleShield) return null;
+export function remoteTabSubtitle(tab: Tab, roleShield: string | null): string | null {
+  const peer = tab.remote_peer_name?.trim();
+  if (!peer) return roleShield;
+  const role = roleShield
+    ? roleShield.charAt(0) + roleShield.slice(1).toLowerCase()
+    : null;
+  return role ? `${role} · @${peer}` : `@${peer}`;
+}
+
+function TabSubline({ subtitle }: { subtitle: string | null }) {
+  if (!subtitle) return null;
   return (
     <span
       data-testid="tab-subline"
       className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
     >
-      <RoleBadge label={roleShield} className="shrink-0" />
+      <RoleBadge label={subtitle} className="shrink-0" />
     </span>
   );
 }
@@ -137,6 +146,7 @@ function TabItemInner({
   const tabModel = tab.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const roleShield = roleShieldLabel(tab);
+  const subtitle = remoteTabSubtitle(tab, roleShield);
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
@@ -296,7 +306,7 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
-        aria-label={`Open tab ${displayTitle}`}
+        aria-label={`Open tab ${displayTitle}${tab.remote_peer_name ? ` @${tab.remote_peer_name}` : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
@@ -341,7 +351,7 @@ function TabItemInner({
                 {collapsedSummary}
               </span>
             ) : (
-              <TabSubline roleShield={roleShield} />
+              <TabSubline subtitle={subtitle} />
             )}
         </span>
         {/* Connected services */}
