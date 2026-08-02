@@ -13,12 +13,18 @@ pub fn handle_paste(json: bool, action: PasteAction) {
         PasteAction::Put {
             body,
             from_file,
+            from_pad,
             from_stdin,
             ttl,
             content_type,
             pop,
         } => {
-            let resolved_body = if from_stdin {
+            let resolved_body = if let Some(path) = from_pad {
+                crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                })
+            } else if from_stdin {
                 read_stdin_or_die("--from-stdin")
             } else if let Some(path) = from_file {
                 match std::fs::read_to_string(&path) {
@@ -29,7 +35,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                     }
                 }
             } else {
-                body
+                body.unwrap_or_default()
             };
             if resolved_body.trim().is_empty() {
                 eprintln!("Error: paste body is empty (positional, --from-file, and --from-stdin all yielded nothing).");

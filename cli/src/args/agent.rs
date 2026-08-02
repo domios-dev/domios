@@ -70,6 +70,9 @@ pub struct ReportArgs {
     /// Markdown document to append to the report milestone
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
+    /// Read the report body from a relative file in the current agent tab's pad
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["message", "text", "doc"])]
+    pub from_pad: Option<String>,
     /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
     #[arg(long = "tab", value_name = "TAB")]
     pub tab: Option<String>,

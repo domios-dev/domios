@@ -211,10 +211,66 @@ impl PlanStore {
         task_id: &str,
         tab_id: &str,
         executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        intent: crate::plan::ExecutionIntent,
+        allowance: Option<crate::plan::ProviderAllowance>,
+        provider: Option<&str>,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            intent,
+            allowance,
+            provider,
+            None,
+            now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_task_dispatch_with_reserved_attempt(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        intent: crate::plan::ExecutionIntent,
+        allowance: Option<crate::plan::ProviderAllowance>,
+        provider: Option<&str>,
+        attempt_id: &str,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            intent,
+            allowance,
+            provider,
+            Some(attempt_id),
+            now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn begin_task_dispatch_with_policy_inner(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
         mut lane: crate::plan::TaskLaneMetadata,
         intent: crate::plan::ExecutionIntent,
         allowance: Option<crate::plan::ProviderAllowance>,
         provider: Option<&str>,
+        reserved_attempt_id: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
@@ -245,11 +301,12 @@ impl PlanStore {
             task.assigned_tab_id = Some(tab_id.to_string());
             task.taken_by_role = Some("worker".into());
             task.peer = None;
-            let mut attempt = super::task_attempts::new_assignment_attempt(
+            let mut attempt = super::task_attempts::new_assignment_attempt_with_id(
                 task,
                 tab_id,
                 None,
                 Some("worker"),
+                reserved_attempt_id,
                 now_ms,
             );
             attempt.executor_title = Some(executor_title.to_string());
@@ -325,6 +382,7 @@ impl PlanStore {
         tab_id: &str,
         attempt_id: &str,
         session_id: &str,
+        session_binding_nonce: &str,
         mut lane: crate::plan::TaskLaneMetadata,
         now_ms: u64,
     ) -> Result<(), PlanError> {
@@ -369,6 +427,7 @@ impl PlanStore {
                 ));
             }
             attempt.session_id = Some(session_id.to_string());
+            attempt.session_binding_nonce = Some(session_binding_nonce.to_string());
             task.interruption.owner_session_id = Some(session_id.to_string());
             task.interruption.owner_tab_id = Some(tab_id.to_string());
             task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
@@ -404,6 +463,7 @@ impl PlanStore {
             if !ready_state
                 || task.assigned_tab_id.as_deref() != Some(tab_id)
                 || attempt.session_id.as_deref() != Some(session_id)
+                || attempt.session_binding_nonce.as_deref() != Some(session_binding_nonce)
                 || attempt.worktree_path != task.lane.worktree_path
                 || attempt.branch != task.lane.branch
                 || attempt.base != task.lane.base

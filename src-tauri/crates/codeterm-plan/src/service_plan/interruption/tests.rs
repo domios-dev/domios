@@ -79,6 +79,7 @@ fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             "old-tab",
             &attempt_id,
             "old-session",
+            "old-nonce",
             TaskLaneMetadata::default(),
             4,
         )

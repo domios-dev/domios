@@ -1,6 +1,8 @@
 use super::external_refs::ExternalRef;
 use super::execution::TaskExecutionIntent;
-use super::{AttemptContinuationState, AttemptInterruptionState, TaskInterruptionState};
+use super::{
+    TaskCompetitionMetadata, TaskExecutionAttempt, TaskInterruptionState, TaskLaneMetadata,
+};
 use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -205,124 +207,6 @@ pub struct PlannerRequest {
     pub delivered_to_session_id: Option<String>,
     #[serde(default)]
     pub delivered_with_binding_nonce: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskLaneMetadata {
-    #[serde(default)]
-    pub tab_id: Option<String>,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-    #[serde(default)]
-    pub workspace_name: Option<String>,
-    #[serde(default)]
-    pub worktree_path: Option<String>,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub base: Option<String>,
-    #[serde(default)]
-    pub destination: Option<String>,
-    #[serde(default)]
-    pub cleanup_status: Option<String>,
-    #[serde(default)]
-    pub cleanup_hints: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskCompetitionMetadata {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub attempts: Option<u32>,
-    #[serde(default)]
-    pub models: Vec<String>,
-    #[serde(default)]
-    pub judge_hint: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskExecutionReportSnapshot {
-    pub id: String,
-    #[serde(default)]
-    pub message: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub sha: Option<String>,
-    /// Tab that submitted a proxy report; None means the executor reported.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reporter_tab_id: Option<String>,
-    #[serde(default)]
-    pub changed_files: Vec<String>,
-    #[serde(default)]
-    pub test_cmd: Option<String>,
-    #[serde(default)]
-    pub test_result: Option<String>,
-    #[serde(default)]
-    pub skipped: Option<String>,
-    #[serde(default)]
-    pub attachments: Vec<AttachmentRef>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskExecutionAttempt {
-    pub id: String,
-    pub executor_tab_id: String,
-    #[serde(default)]
-    pub executor_title: Option<String>,
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub agent_type: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub parent_tab_id: Option<String>,
-    #[serde(default)]
-    pub orchestrator_tab_id: Option<String>,
-    #[serde(default)]
-    pub mesh_peer: Option<String>,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub worktree_path: Option<String>,
-    #[serde(default)]
-    pub base: Option<String>,
-    #[serde(default)]
-    pub destination: Option<String>,
-    #[serde(default)]
-    pub report: Option<TaskExecutionReportSnapshot>,
-    #[serde(default)]
-    pub assigned_at: Option<u64>,
-    #[serde(default)]
-    pub acknowledged_at: Option<u64>,
-    #[serde(default)]
-    pub continuation: AttemptContinuationState,
-    #[serde(default)]
-    pub interruption: AttemptInterruptionState,
-    #[serde(default)]
-    pub reported_at: Option<u64>,
-    #[serde(default)]
-    pub reviewed_at: Option<u64>,
-    #[serde(default)]
-    pub closed_at: Option<u64>,
-    #[serde(default)]
-    pub competition_group_id: Option<String>,
-    #[serde(default)]
-    pub competition_lane: Option<u32>,
-    #[serde(default)]
-    pub judge_verdict: Option<String>,
-    #[serde(default)]
-    pub judge_reason: Option<String>,
-    #[serde(default)]
-    pub judged_at: Option<u64>,
-    #[serde(default)]
-    pub winner: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

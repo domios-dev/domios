@@ -249,6 +249,27 @@ fn show_skill(
 ) -> Result<Option<Value>, String> {
     let mut params = plan_rpc_params(plan);
     params["slug"] = json!(slug);
+    let binding = [
+        std::env::var("CODETERM_TAB_ID").ok(),
+        std::env::var("CODETERM_SESSION_ID").ok(),
+        std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+        std::env::var("CODETERM_TASK_ID").ok(),
+    ]
+    .map(|value| value.filter(|value| !value.trim().is_empty()));
+    if binding.iter().any(Option::is_some) && binding.iter().any(Option::is_none) {
+        return Err("task-bound plan skill show requires complete tab/session/nonce/task identity".into());
+    }
+    if let [Some(tab_id), Some(session_id), Some(session_binding_nonce), Some(task_id)] = binding {
+        params["caller_tab_id"] = json!(tab_id);
+        params["caller_session_id"] = json!(session_id);
+        params["session_binding_nonce"] = json!(session_binding_nonce);
+        params["task_id"] = json!(task_id);
+        if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
+            if !attempt_id.trim().is_empty() {
+                params["attempt_id"] = json!(attempt_id);
+            }
+        }
+    }
     let response = call(client, "plan.skills.show", params)?;
     if json {
         return Ok(Some(response));

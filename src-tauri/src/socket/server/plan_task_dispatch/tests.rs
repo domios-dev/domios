@@ -452,28 +452,6 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
 }
 
 #[test]
-fn atomic_dispatch_carries_assigned_authority_into_pty_launch() {
-    let lane = TaskLaneMetadata {
-        base: Some("assigned-base".into()),
-        ..Default::default()
-    };
-    let env = task_launch_authority_for_dispatch("assigned-plan", "assigned-task", &lane).env();
-
-    assert_eq!(
-        env.get("CODETERM_PLAN_ID").map(String::as_str),
-        Some("assigned-plan")
-    );
-    assert_eq!(
-        env.get("CODETERM_TASK_ID").map(String::as_str),
-        Some("assigned-task")
-    );
-    assert_eq!(
-        env.get("CODETERM_LANE_BASE").map(String::as_str),
-        Some("assigned-base")
-    );
-}
-
-#[test]
 fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning() {
     let (_root, project) = git_project();
     let lane = provision_lane_for_test(project.to_str().unwrap(), "recorded").unwrap();

@@ -292,6 +292,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            interruption: Default::default(),
             pause_reason: None,
             personality: None,
             personality_provenance: None,

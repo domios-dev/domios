@@ -175,6 +175,7 @@ fn production_adoption_binds_exact_authenticated_session_and_epoch() {
             "old-tab",
             &attempt_id,
             "old-session",
+            "old-nonce",
             lane,
             4,
         )

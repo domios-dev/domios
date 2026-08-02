@@ -324,6 +324,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
+        interruption: Default::default(),
         pause_reason: None,
         personality: None,
         personality_provenance: None,
@@ -604,6 +605,36 @@ fn close_task_sets_done_and_optional_milestone() {
 }
 
 #[test]
+fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
+    store
+        .with_plan(&id, 25, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
+            task.execution_attempts.push(crate::plan::TaskExecutionAttempt {
+                id: "attempt-vanished".into(),
+                executor_tab_id: "tab-vanished".into(),
+                assigned_at: Some(10),
+                acknowledged_at: Some(11),
+                ..Default::default()
+            });
+            Ok(())
+        })
+        .unwrap();
+
+    store
+        .close_task(&id, &tid, None, AgentRef::from_tab("w"), 30)
+        .unwrap();
+
+    let plan = store.get(&id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == tid).unwrap();
+    assert!(task
+        .execution_attempts
+        .iter()
+        .all(|attempt| attempt.closed_at == Some(30)));
+}
+
+#[test]
 fn closed_task_assignment_is_not_indexed_or_bound() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
@@ -647,7 +678,7 @@ fn tab_gone_cleanup_clears_lane_tab() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
 
-    assert!(store.flag_tab_gone(&id, &tid, 30).unwrap());
+    assert!(store.flag_tab_gone(&id, &tid, "tab-live", 30).unwrap());
 
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();

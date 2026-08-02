@@ -88,10 +88,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Capabilities => {
             unsupported("capabilities is socket-only; run it on the target machine")
         }
+        Commands::Pad { .. } => unsupported("pad is caller-local and cannot target a mesh peer"),
         Commands::SendText {
             text,
             tab,
             from_file,
+            from_pad,
             stdin: use_stdin,
             actions,
             delay,
@@ -99,9 +101,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             } else {
-                send_text_to_api(text, tab, from_file, *use_stdin, actions, &mut stdin)
+                send_text_to_api(text, tab, from_file, from_pad, *use_stdin, actions, &mut stdin)
             }
         }
         Commands::Delayed { action } => match action {
@@ -119,10 +121,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 delay,
                 at,
                 from_file,
+                from_pad,
                 stdin: use_stdin,
             } => {
                 let mut stdin = std::io::stdin();
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             }
             crate::DelayedAction::Edit {
                 id,
@@ -130,13 +133,15 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 delay,
                 at,
                 from_file,
+                from_pad,
                 stdin: use_stdin,
             } => {
                 let mut body = serde_json::Map::new();
-                if text.is_some() || from_file.is_some() || *use_stdin {
+                if text.is_some() || from_file.is_some() || from_pad.is_some() || *use_stdin {
                     match resolve_send_text_input(
                         text.clone(),
                         from_file.clone(),
+                        from_pad.clone(),
                         *use_stdin,
                         &mut std::io::stdin(),
                     ) {
@@ -376,12 +381,17 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::PasteAction::Put {
                 body,
                 from_file,
+                from_pad,
                 from_stdin,
                 ttl,
                 content_type,
                 pop,
             } => {
-                let resolved = if *from_stdin {
+                let resolved = if let Some(path) = from_pad {
+                    crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
+                        eprintln!("Error: {e}"); std::process::exit(1)
+                    })
+                } else if *from_stdin {
                     use std::io::Read;
                     let mut buf = String::new();
                     if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
@@ -400,7 +410,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                         }
                     }
                 } else {
-                    body.clone()
+                    body.clone().unwrap_or_default()
                 };
                 if resolved.trim().is_empty() {
                     eprintln!("Error: paste put (mesh) body is empty");
@@ -790,6 +800,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::BridgeAction::Send {
                 text,
+                from_pad,
                 raw_text,
                 to,
                 append,
@@ -799,9 +810,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 "/api/bridge/send".into(),
                 Some(
                     serde_json::json!({
-                        "text": text
-                            .as_ref()
-                            .map(|text| crate::cmd::bridge::bridge_text(text.clone(), *raw_text)),
+                        "text": from_pad.as_ref().map(|path| crate::cmd::payload_source::read_from_pad(path)
+                            .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1) }))
+                            .or_else(|| text.clone())
+                            .map(|text| crate::cmd::bridge::bridge_text(text, *raw_text)),
                         "chat_id": to,
                         "append": append,
                     })

@@ -1117,6 +1117,7 @@ mod tests {
             cwd: dir.path().display().to_string(),
             task_prompt: "prompt".into(),
             report_command: "report".into(),
+            plan_skill_manifest: vec![],
         };
         let created = store
             .record_task_respawn_attempt(
