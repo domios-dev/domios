@@ -94,13 +94,20 @@ export function chatActivationRestoreTarget(
 }
 
 const persistedChatScrollStates = new Map<string, ChatScrollState>();
+const MAX_PERSISTED_CHAT_SCROLL_STATES = 32;
 
 export function getPersistedChatScrollState(key: string): ChatScrollState | null {
   return persistedChatScrollStates.get(key) ?? null;
 }
 
 export function setPersistedChatScrollState(key: string, state: ChatScrollState): void {
+  persistedChatScrollStates.delete(key);
   persistedChatScrollStates.set(key, state);
+  while (persistedChatScrollStates.size > MAX_PERSISTED_CHAT_SCROLL_STATES) {
+    const oldest = persistedChatScrollStates.keys().next().value;
+    if (oldest == null) break;
+    persistedChatScrollStates.delete(oldest);
+  }
 }
 
 export function clearPersistedChatScrollState(key: string): void {

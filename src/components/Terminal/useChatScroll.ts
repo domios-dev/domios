@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type RefObject,
+} from "react";
 import {
   captureChatScrollAnchor,
   chatActivationRestoreTarget,
@@ -41,6 +49,8 @@ export interface UseChatScrollOptions {
   active: boolean;
   loading: boolean;
   messageCount: number;
+  followTailRef?: MutableRefObject<boolean>;
+  onModeChange?: (mode: ChatViewportMode) => void;
 }
 
 export interface UseChatScrollResult {
@@ -62,18 +72,29 @@ export interface UseChatScrollResult {
  * full remount (Tabs genuinely unmount on tab switch) by re-resolving the
  * anchor element's new position rather than re-deriving a scrollTop delta.
  */
-export function useChatScroll({ sessionKey, active, loading, messageCount }: UseChatScrollOptions): UseChatScrollResult {
+export function useChatScroll({
+  sessionKey,
+  active,
+  loading,
+  messageCount,
+  followTailRef,
+  onModeChange,
+}: UseChatScrollOptions): UseChatScrollResult {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   const sessionKeyRef = useRef(sessionKey);
   const modeRef = useRef<ChatViewportMode>(getPersistedChatScrollState(sessionKey)?.mode ?? "pinned");
   const anchorRef = useRef<ChatScrollAnchor | null>(getPersistedChatScrollState(sessionKey)?.anchor ?? null);
+  const onModeChangeRef = useRef(onModeChange);
+  onModeChangeRef.current = onModeChange;
+  if (followTailRef) followTailRef.current = modeRef.current === "pinned";
   if (sessionKeyRef.current !== sessionKey) {
     sessionKeyRef.current = sessionKey;
     const persisted = getPersistedChatScrollState(sessionKey);
     modeRef.current = persisted?.mode ?? "pinned";
     anchorRef.current = persisted?.anchor ?? null;
+    if (followTailRef) followTailRef.current = modeRef.current === "pinned";
   }
 
   const authoredScrollTopRef = useRef<number | null>(null);
@@ -97,12 +118,15 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const changed = modeRef.current !== "pinned";
     modeRef.current = "pinned";
+    if (followTailRef) followTailRef.current = true;
     anchorRef.current = null;
     writeScrollTop(el, el.scrollHeight);
     persist();
+    if (changed) onModeChangeRef.current?.("pinned");
     setShowScrollDown(false);
-  }, [persist, writeScrollTop]);
+  }, [followTailRef, persist, writeScrollTop]);
 
   const followSend = useCallback(() => {
     const wasPinned = modeRef.current === "pinned";
@@ -120,8 +144,10 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     const authoredScrollTop = authoredScrollTopRef.current;
     authoredScrollTopRef.current = null;
     if (authoredScrollTop != null && Math.abs(authoredScrollTop - el.scrollTop) <= 0.5) return;
+    const previousMode = modeRef.current;
     const nextMode = nextChatViewportMode(el);
     modeRef.current = nextMode;
+    if (followTailRef) followTailRef.current = nextMode === "pinned";
     if (nextMode === "detached") {
       const content = contentRef.current;
       anchorRef.current = content ? captureChatScrollAnchor(el, collectAnchorCandidates(content)) : null;
@@ -129,8 +155,9 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
       anchorRef.current = null;
     }
     persist();
+    if (previousMode !== nextMode) onModeChangeRef.current?.(nextMode);
     setShowScrollDown(nextMode === "detached" && dist > SHOW_SCROLL_DOWN_THRESHOLD_PX);
-  }, [persist]);
+  }, [followTailRef, persist]);
 
   // Must run synchronously inside the ResizeObserver callback: RO delivers
   // after layout but before paint, so the write lands in the same frame.
@@ -179,15 +206,18 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     if (target.mode === "anchor" && content) {
       const resolved = resolveChatScrollTopForAnchor(target.anchor, findAnchorOffsetTop(content, target.anchor.elementId));
       if (resolved != null) {
+        const changed = modeRef.current !== "detached";
         modeRef.current = "detached";
+        if (followTailRef) followTailRef.current = false;
         anchorRef.current = target.anchor;
         writeScrollTop(el, resolved);
         persist();
+        if (changed) onModeChangeRef.current?.("detached");
         return;
       }
     }
     scrollToBottom();
-  }, [persist, scrollToBottom, writeScrollTop]);
+  }, [followTailRef, persist, scrollToBottom, writeScrollTop]);
 
   useLayoutEffect(() => {
     if (!shouldRestoreChatViewport(active, loading, messageCount, sessionKey, lastRestoredKeyRef.current)) return;
