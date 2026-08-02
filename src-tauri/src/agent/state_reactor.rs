@@ -84,6 +84,16 @@ pub fn action_to_writes(action: &TabStateAction) -> Vec<Vec<u8>> {
         .unwrap_or_default()
 }
 
+fn runner_update_completed(
+    status: TabStatus,
+    classification: Option<&TabStateClassification>,
+    install_submitted: bool,
+) -> bool {
+    install_submitted
+        && status == TabStatus::Idle
+        && classification.is_none_or(|value| value.state != TabState::UpdatePrompt)
+}
+
 fn keys_to_writes(keys: &[String]) -> Vec<Vec<u8>> {
     keys.iter()
         .filter_map(|key| super::keys::action_key_bytes(key))
@@ -175,6 +185,15 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
             )
         })
         .unwrap_or((None, None));
+
+    if runner_update_completed(
+        status,
+        classification.as_ref(),
+        svc.provider_update_runner_is_installing(&tab_id, pty_id),
+    ) {
+        svc.handle_provider_update_completed(&tab_id, pty_id);
+        return;
+    }
 
     match decide(status, classification.as_ref()) {
         ReactorDecision::Ignore => {}

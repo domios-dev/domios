@@ -118,6 +118,9 @@ struct PendingProviderUpdate {
     consent: Option<RecordedConsent>,
     phase: ProviderUpdatePhase,
     waiter_started: bool,
+    runner_tab_id: Option<String>,
+    runner_pty_id: Option<String>,
+    install_submitted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,6 +165,14 @@ impl ProviderUpdateRegistry {
         self.entries
             .lock()
             .insert(entry.view.prompt_id.clone(), entry);
+    }
+
+    fn has_open_source(&self, tab_id: &str, provider_id: &str) -> bool {
+        self.entries.lock().values().any(|entry| {
+            entry.view.tab_id == tab_id
+                && entry.provider_id == provider_id
+                && entry.phase != ProviderUpdatePhase::Terminal
+        })
     }
 
     fn get(&self, prompt_id: &str) -> Option<PendingProviderUpdate> {
@@ -249,14 +260,62 @@ impl ProviderUpdateRegistry {
     fn claim_completion(&self, tab_id: &str, pty_id: &str) -> Option<PendingProviderUpdate> {
         let mut entries = self.entries.lock();
         let entry = entries.values_mut().find(|entry| {
-            entry.view.tab_id == tab_id
-                && entry.pty_id == pty_id
+            entry.runner_tab_id.as_deref() == Some(tab_id)
+                && entry.runner_pty_id.as_deref() == Some(pty_id)
                 && entry.phase == ProviderUpdatePhase::Installing
+                && entry.install_submitted
                 && entry
                     .capability
                     .and_then(|capability| capability.completion_signal)
                     == Some(ProviderUpdateCompletionSignal::ProviderClassification)
         })?;
+        entry.phase = ProviderUpdatePhase::Completing;
+        Some(entry.clone())
+    }
+
+    fn bind_runner(&self, prompt_id: &str, tab_id: String, pty_id: String) -> bool {
+        let mut entries = self.entries.lock();
+        let Some(entry) = entries.get_mut(prompt_id) else {
+            return false;
+        };
+        if entry.phase != ProviderUpdatePhase::Installing {
+            return false;
+        }
+        entry.runner_tab_id = Some(tab_id);
+        entry.runner_pty_id = Some(pty_id);
+        true
+    }
+
+    fn claim_runner_prompt(
+        &self,
+        prompt_id: &str,
+        tab_id: &str,
+        pty_id: &str,
+        install_writes: Vec<Vec<u8>>,
+    ) -> Option<PendingProviderUpdate> {
+        let mut entries = self.entries.lock();
+        let entry = entries.get_mut(prompt_id)?;
+        if entry.phase != ProviderUpdatePhase::Installing
+            || entry.runner_tab_id.as_deref() != Some(tab_id)
+        {
+            return None;
+        }
+        entry.runner_pty_id = Some(pty_id.to_string());
+        entry.install_writes = install_writes;
+        entry.install_submitted = true;
+        let mut runner = entry.clone();
+        runner.pty_id = pty_id.to_string();
+        Some(runner)
+    }
+
+    fn claim_runner_timeout(&self, prompt_id: &str, tab_id: &str) -> Option<PendingProviderUpdate> {
+        let mut entries = self.entries.lock();
+        let entry = entries.get_mut(prompt_id)?;
+        if entry.phase != ProviderUpdatePhase::Installing
+            || entry.runner_tab_id.as_deref() != Some(tab_id)
+        {
+            return None;
+        }
         entry.phase = ProviderUpdatePhase::Completing;
         Some(entry.clone())
     }
@@ -300,6 +359,22 @@ impl ServiceContext {
         let Some((pty_id, principal, work)) = self.provider_update_context(tab_id) else {
             return;
         };
+        if let Some(prompt_id) = self.provider_update_runner_prompt_id(tab_id) {
+            if let Some(entry) = self.provider_updates.claim_runner_prompt(
+                &prompt_id,
+                tab_id,
+                &pty_id,
+                install_writes,
+            ) {
+                if let Err(error) = self.write_provider_update_keys(&entry, &entry.install_writes) {
+                    self.fail_provider_update(entry, &error);
+                }
+            }
+            return;
+        }
+        if self.provider_updates.has_open_source(tab_id, provider_id) {
+            return;
+        }
         let provider_name = self
             .agent_registry
             .with_provider(provider_id, |provider| provider.display_name().to_string())
@@ -338,13 +413,24 @@ impl ServiceContext {
                 ProviderUpdatePhase::Terminal
             },
             waiter_started: false,
+            runner_tab_id: None,
+            runner_pty_id: None,
+            install_submitted: false,
         };
         self.provider_updates.insert(entry.clone());
         self.emit_provider_update(&entry.view);
+        if matches!(decision, PolicyDecision::AwaitConsent) {
+            self.create_provider_update_notification(
+                prompt_id,
+                &entry.view.provider_name,
+                entry.view.message.clone(),
+                tab_id.to_string(),
+            );
+        }
+        if let Err(error) = self.write_provider_update_keys(&entry, &entry.decline_writes) {
+            self.fail_provider_update(entry.clone(), &error);
+        }
         if matches!(decision, PolicyDecision::Decline(_)) {
-            if let Err(error) = self.write_provider_update_keys(&entry, &entry.decline_writes) {
-                self.fail_provider_update(entry.clone(), &error);
-            }
             log::warn!(
                 "[provider-update] declined tab={} provider={} reason={}",
                 tab_id,
@@ -381,8 +467,8 @@ impl ServiceContext {
         };
         match claimed {
             ClaimedResponse::Decline(entry, reason) => {
+                self.resolve_provider_update_notification(prompt_id);
                 self.emit_provider_update(&entry.view);
-                self.write_provider_update_keys(&entry, &entry.decline_writes)?;
                 log::info!(
                     "[provider-update] prompt consumed decision=decline prompt={} tab={} provider={} reason={:?}",
                     prompt_id,
@@ -392,6 +478,7 @@ impl ServiceContext {
                 );
             }
             ClaimedResponse::Accept(entry) => {
+                self.resolve_provider_update_notification(prompt_id);
                 log::info!(
                     "[provider-update] prompt consumed authority=local_interactive prompt={} tab={} provider={}",
                     prompt_id,
@@ -447,7 +534,6 @@ impl ServiceContext {
                     return Ok(true);
                 };
                 self.emit_provider_update(&entry.view);
-                self.write_provider_update_keys(&entry, &entry.install_writes)?;
                 if entry
                     .capability
                     .and_then(|capability| capability.completion_signal)
@@ -461,7 +547,9 @@ impl ServiceContext {
                     );
                     entry.view.status = ProviderUpdateStatus::CompletionUnavailable;
                     self.emit_provider_update(&entry.view);
+                    return Ok(true);
                 }
+                self.start_provider_update_runner(&entry)?;
                 Ok(true)
             }
             PolicyDecision::Decline(reason) => {
@@ -519,17 +607,23 @@ impl ServiceContext {
         let restart_required = entry
             .capability
             .is_some_and(|capability| capability.restart_required);
-        if restart_required {
-            if let Err(error) = self.restart_after_provider_update(&entry) {
-                self.fail_provider_update(entry, &error);
-                return;
+        let (restarted, deferred) = if restart_required {
+            match self.restart_after_provider_update(&entry) {
+                Ok(result) => result,
+                Err(error) => {
+                    self.fail_provider_update(entry, &error);
+                    return;
+                }
             }
-        }
+        } else {
+            (0, 0)
+        };
         let (status, message) = if restart_required {
             (
                 ProviderUpdateStatus::Restarted,
-                "Update completion was observed and the provider session reached readiness on its new PTY."
-                    .to_string(),
+                format!(
+                    "Update completed. Restarted {restarted} idle session(s); left {deferred} active session(s) running."
+                ),
             )
         } else {
             (
@@ -543,6 +637,15 @@ impl ServiceContext {
         view.status = status;
         view.message = message;
         self.emit_provider_update(&view);
+    }
+
+    pub(crate) fn provider_update_runner_is_installing(&self, tab_id: &str, pty_id: &str) -> bool {
+        self.provider_updates.entries.lock().values().any(|entry| {
+            entry.phase == ProviderUpdatePhase::Installing
+                && entry.install_submitted
+                && entry.runner_tab_id.as_deref() == Some(tab_id)
+                && entry.runner_pty_id.as_deref() == Some(pty_id)
+        })
     }
 
     fn provider_update_context(
@@ -608,22 +711,133 @@ impl ServiceContext {
         crate::api::events::emit_everywhere(&self.app_handle, "provider-update-prompt", view);
     }
 
-    fn restart_after_provider_update(&self, entry: &PendingProviderUpdate) -> Result<(), String> {
+    fn restart_after_provider_update(
+        &self,
+        entry: &PendingProviderUpdate,
+    ) -> Result<(usize, usize), String> {
         #[cfg(test)]
         if self.provider_updates.probe.lock().is_some() {
             self.provider_updates
                 .record(ProviderUpdateTestEffect::Restarted {
                     tab_id: entry.view.tab_id.clone(),
                 });
+            return Ok((1, 0));
+        }
+        if let Some(runner_tab_id) = entry.runner_tab_id.as_deref() {
+            self.close_tab(runner_tab_id)?;
+        }
+        let candidates: Vec<String> = {
+            let mux = self.mux.read();
+            mux.list_workspaces()
+                .iter()
+                .flat_map(|workspace| workspace.tab_ids.iter())
+                .filter_map(|tab_id| mux.get_tab(tab_id))
+                .filter(|tab| {
+                    !tab.hidden && tab.agent_type.as_deref() == Some(entry.provider_id.as_str())
+                })
+                .map(|tab| tab.id.clone())
+                .collect()
+        };
+        let mut restarted = 0;
+        let mut deferred = 0;
+        for tab_id in candidates {
+            let restart_safe = self
+                .provider_update_context(&tab_id)
+                .is_some_and(|(_, _, work)| work.restart_safe());
+            if !restart_safe {
+                deferred += 1;
+                continue;
+            }
+            self.agent_restart_observed(
+                &tab_id,
+                false,
+                crate::service::agent_restart::DEFAULT_GRACE_SECS,
+            )
+            .map_err(|error| format!("provider restart failed for {tab_id}: {error:?}"))?;
+            restarted += 1;
+        }
+        Ok((restarted, deferred))
+    }
+
+    fn start_provider_update_runner(&self, entry: &PendingProviderUpdate) -> Result<(), String> {
+        #[cfg(test)]
+        if self.provider_updates.probe.lock().is_some() {
+            self.provider_updates.bind_runner(
+                &entry.view.prompt_id,
+                entry.view.tab_id.clone(),
+                entry.pty_id.clone(),
+            );
+            let runner = self
+                .provider_updates
+                .claim_runner_prompt(
+                    &entry.view.prompt_id,
+                    &entry.view.tab_id,
+                    &entry.pty_id,
+                    entry.install_writes.clone(),
+                )
+                .ok_or_else(|| "Provider update test runner was not claimed".to_string())?;
+            self.write_provider_update_keys(&runner, &runner.install_writes)?;
             return Ok(());
         }
-        self.agent_restart_observed(
-            &entry.view.tab_id,
-            false,
-            crate::service::agent_restart::DEFAULT_GRACE_SECS,
-        )
-        .map(|_| ())
-        .map_err(|error| format!("provider restart failed: {error:?}"))
+        let (workspace_id, cwd) = {
+            let mux = self.mux.read();
+            let tab = mux
+                .get_tab(&entry.view.tab_id)
+                .ok_or_else(|| "Provider update source tab disappeared".to_string())?;
+            (mux.find_workspace_for_tab(&tab.id), tab.cwd.clone())
+        };
+        let handle = self.spawn_tab(crate::service::spawn::SpawnTabSpec {
+            workspace_id,
+            cwd,
+            title: Some(format!("{} updater", entry.view.provider_name)),
+            description: Some(format!("codeterm:provider-update:{}", entry.view.prompt_id)),
+            visibility: crate::service::spawn::TabVisibility::Hidden,
+            audience: TabAudience::Automation,
+            command: crate::service::spawn::TabCommand::Agent(
+                crate::service::spawn::AgentSpawnSpec {
+                    provider: entry.provider_id.clone(),
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        })?;
+        let pty_id = handle
+            .pty_id
+            .ok_or_else(|| "Provider update runner has no PTY".to_string())?;
+        if !self
+            .provider_updates
+            .bind_runner(&entry.view.prompt_id, handle.tab_id.clone(), pty_id)
+        {
+            let _ = self.close_tab(&handle.tab_id);
+            return Err("Provider update authority expired before runner launch".into());
+        }
+        let svc = self.clone();
+        let prompt_id = entry.view.prompt_id.clone();
+        let runner_tab_id = handle.tab_id;
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(120));
+            let Some(timed_out) = svc
+                .provider_updates
+                .claim_runner_timeout(&prompt_id, &runner_tab_id)
+            else {
+                return;
+            };
+            let _ = svc.close_tab(&runner_tab_id);
+            svc.fail_provider_update(
+                timed_out,
+                "Provider update runner did not complete within 120 seconds",
+            );
+        });
+        Ok(())
+    }
+
+    fn provider_update_runner_prompt_id(&self, tab_id: &str) -> Option<String> {
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.description.as_deref())
+            .and_then(|description| description.strip_prefix("codeterm:provider-update:"))
+            .map(str::to_string)
     }
 
     fn fail_provider_update(&self, mut entry: PendingProviderUpdate, message: &str) {

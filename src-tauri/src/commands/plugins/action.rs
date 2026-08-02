@@ -185,12 +185,9 @@ pub(crate) fn run_action(
                 .ok_or("remove requires pluginId")?;
             crate::config::cleanup_removed_plugin_config(plugin_id)?;
         }
-        if action.kind == "refresh-channel" {
-            // Explicit refresh: recompute the channel diff synchronously and cache it now,
-            // while any just-added local channel source is still present. Otherwise the
-            // diff is served stale and the background refetch only lands later (possibly
-            // after a volatile source is gone), so a freshly-added local channel never
-            // reaches a served snapshot. Passive snapshot GETs keep the background path.
+        // Action responses are authoritative UI state. Recompute before snapshotting so
+        // install/update/remove and channel actions cannot return their pre-action drift.
+        if action_refreshes_catalog(&action.kind) {
             super::snapshot::refresh_channel_diff_now();
         }
         build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))
@@ -201,6 +198,19 @@ pub(crate) fn run_action(
         .finish(&activity.id, result.as_ref().err().cloned());
     crate::plugin::activity::emit_plugin_activity(svc, &finished);
     result
+}
+
+fn action_refreshes_catalog(kind: &str) -> bool {
+    matches!(
+        kind,
+        "install"
+            | "update"
+            | "update-system"
+            | "remove"
+            | "refresh-channel"
+            | "add-channel"
+            | "remove-channel"
+    )
 }
 
 struct PluginActionActivity {
@@ -466,6 +476,25 @@ mod tests {
             plugin_action_args(&action).unwrap(),
             vec!["plugin", "update", "demo", "--json"]
         );
+    }
+
+    #[test]
+    fn every_supported_action_refreshes_the_returned_catalog() {
+        for kind in [
+            "install",
+            "update",
+            "update-system",
+            "remove",
+            "refresh-channel",
+            "add-channel",
+            "remove-channel",
+        ] {
+            assert!(
+                action_refreshes_catalog(kind),
+                "{kind} returned stale drift"
+            );
+        }
+        assert!(!action_refreshes_catalog("unknown"));
     }
 
     #[test]
