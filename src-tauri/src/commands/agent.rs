@@ -169,6 +169,36 @@ pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> 
     })
 }
 
+#[tauri::command]
+pub fn list_provider_update_prompts(
+    svc: State<'_, ServiceState>,
+) -> Vec<crate::service::provider_update::ProviderUpdatePromptView> {
+    svc.list_provider_update_prompts()
+}
+
+#[tauri::command]
+pub async fn respond_provider_update_prompt(
+    svc: State<'_, ServiceState>,
+    prompt_id: String,
+    accept: bool,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || svc.respond_provider_update_prompt(&prompt_id, accept))
+        .await
+        .map_err(|error| format!("provider update worker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn acknowledge_provider_update_prompt(
+    svc: State<'_, ServiceState>,
+    prompt_id: String,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || svc.acknowledge_provider_update_prompt(&prompt_id))
+        .await
+        .map_err(|error| format!("provider update worker failed: {error}"))?
+}
+
 /// Probe for a CLI binary. Used by the per-provider Installation card in
 /// Settings → Agents to render the install/missing badge. Checks the process
 /// PATH plus platform fallback dirs because GUI apps often inherit a minimal

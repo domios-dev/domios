@@ -315,6 +315,7 @@ fn classify_tab_state_fixture() -> crate::tab_state::TabStateClassification {
             keys: Some(vec!["down".into(), "enter".into()]),
             delayed_resume: None,
             surface: None,
+            provider_update: None,
         }),
     }
 }
@@ -366,6 +367,18 @@ impl AgentProvider for ClassifyNativeStub {
     ) -> Option<crate::tab_state::TabStateClassification> {
         Some(classify_tab_state_fixture())
     }
+
+    fn provider_self_update_capability(
+        &self,
+    ) -> Option<crate::provider::ProviderSelfUpdateCapability> {
+        Some(crate::provider::ProviderSelfUpdateCapability {
+            in_session: true,
+            restart_required: true,
+            completion_signal: Some(
+                crate::provider::ProviderUpdateCompletionSignal::ProviderClassification,
+            ),
+        })
+    }
 }
 
 #[test]
@@ -407,6 +420,26 @@ fn classify_tab_state_unimplemented_matches_native_default_none() {
     let snap = classify_tab_state_snapshot();
     assert_eq!(native_default.classify_tab_state(&snap), None);
     assert_eq!(js.classify_tab_state(&snap), None);
+}
+
+#[test]
+fn provider_update_policy_has_native_js_capability_parity() {
+    let native = ClassifyNativeStub;
+    let js = load_inline_js(
+        "provider-update-fixture",
+        r#"
+            module.exports.default = {
+                providerSelfUpdateCapability() {
+                    return { inSession: true, restartRequired: true, completionSignal: 'provider_classification' };
+                }
+            };
+        "#,
+    );
+    assert_eq!(
+        js.provider_self_update_capability(),
+        native.provider_self_update_capability()
+    );
+    assert_eq!(js.describe().self_update, native.describe().self_update);
 }
 
 #[test]

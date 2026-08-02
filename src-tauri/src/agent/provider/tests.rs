@@ -1,4 +1,6 @@
 use super::*;
+use std::path::PathBuf;
+use std::time::Duration;
 
 #[test]
 fn usage_tracking_section_defaults_on() {
@@ -102,6 +104,11 @@ fn provider_descriptor_round_trip() {
             model_switch_format: Some("/model {model}".into()),
             fresh_context_command: Some("/new".into()),
             compact_command: Some("/compact".into()),
+            self_update: Some(ProviderSelfUpdateCapability {
+                in_session: true,
+                restart_required: true,
+                completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
+            }),
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
@@ -120,6 +127,93 @@ fn provider_descriptor_round_trip() {
     let json = serde_json::to_string(&original).expect("serialize");
     let decoded: ProviderDescriptor = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(original, decoded, "round-trip must be lossless");
+}
+
+struct NativeProviderUpdateFixture;
+
+#[async_trait::async_trait]
+impl AgentProvider for NativeProviderUpdateFixture {
+    fn id(&self) -> &str {
+        "provider-update-fixture"
+    }
+
+    fn display_name(&self) -> &str {
+        "Provider Update Fixture"
+    }
+
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        String::new()
+    }
+
+    fn readiness_strategy(&self) -> ReadinessStrategy {
+        ReadinessStrategy::FixedDelay {
+            duration: std::time::Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> TaskDelivery {
+        TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    fn provider_self_update_capability(&self) -> Option<ProviderSelfUpdateCapability> {
+        Some(ProviderSelfUpdateCapability {
+            in_session: true,
+            restart_required: true,
+            completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
+        })
+    }
+}
+
+#[test]
+fn provider_update_policy_has_native_js_capability_parity() {
+    use std::sync::Arc;
+
+    let manifest_json = r#"{
+        "id":"provider-update-fixture",
+        "version":"0.1.0",
+        "displayName":"Provider Update Fixture",
+        "spawn":{
+            "readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+            "taskDelivery":"pty_input",
+            "verifySubmit":{"kind":"none"}
+        }
+    }"#;
+    let manifest: codeterm_plugin::js_runtime::PluginManifest =
+        serde_json::from_str(manifest_json).expect("manifest parses");
+    let vm = codeterm_plugin::js_runtime::PluginVm::from_source_with(
+        "provider-update-fixture",
+        "module.exports.default = { providerSelfUpdateCapability() { return { inSession: true, restartRequired: true, completionSignal: 'provider_classification' }; } };".to_string(),
+        Some(manifest_json.to_string()),
+    )
+    .expect("fixture vm");
+    let js = codeterm_plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm));
+    let native = NativeProviderUpdateFixture;
+
+    assert_eq!(
+        js.provider_self_update_capability(),
+        native.provider_self_update_capability()
+    );
+    assert_eq!(js.describe().self_update, native.describe().self_update);
 }
 
 #[test]
