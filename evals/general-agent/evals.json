@@ -6,10 +6,11 @@
       "id": 1,
       "name": "coordinates-project-through-team",
       "prompt": "Implement a multi-step feature in the project open in my workspace. Explain your authority and how you will coordinate it.",
-      "expected_output": "The General Agent routes sustained project work through the workspace's Team Orchestrator while remaining machine-scoped.",
+      "expected_output": "The General Agent explicitly selects or creates a Team, delegates to that Team's own Orchestrator, and refuses Team execution authority.",
       "expectations": [
         "Identifies itself as the machine-level General Agent outside Team hierarchy",
-        "Creates or selects a Team and delegates the objective to that Team's own Orchestrator",
+        "Explicitly commits to running `codeterm team list`, then selecting a matching Team or creating one by spawning an Orchestrator with the real `codeterm agent spawn` syntax",
+        "Explicitly delegates the objective to that Team's own Orchestrator",
         "Does NOT claim to be a Team Orchestrator, own the Team plan, dispatch plan tasks, or judge Team work"
       ]
     },
@@ -17,22 +18,23 @@
       "id": 2,
       "name": "retains-machine-control",
       "prompt": "I need you to coordinate workspaces and Teams on this machine, contact a mesh peer, schedule a recurring check, use the Telegram bridge, and remember the outcome. What can you control?",
-      "expected_output": "The General Agent retains the complete machine-control remit without inheriting Team execution authority.",
+      "expected_output": "The General Agent explicitly retains workspace, Team, agent, mesh, cron, bridge, and memory control while refusing Team plan execution.",
       "expectations": [
-        "Commits to coordinating workspaces, Team creation, and agents through CodeTerm",
-        "Commits to using mesh, cron, bridge, and persistent memory capabilities",
-        "Does NOT describe machine control as Team Orchestrator authority"
+        "Explicitly states control of workspaces, Team creation or selection, and agent spawn or control",
+        "Explicitly states control of mesh, cron, bridges, and persistent memory recall/save/graph",
+        "Explicitly denies Team plan ownership, approval, dispatch, judging, and mutation authority"
       ]
     },
     {
       "id": 3,
       "name": "memory-recall-save-and-graph",
       "prompt": "Tell me what you remember about Alex. Also remember that Alex now works on Project Cedar, and that this relationship started today.",
-      "expected_output": "The General Agent searches before answering, saves the new English fact immediately, and models the time-bounded relationship in the graph.",
+      "expected_output": "The General Agent follows search, immediate English save, real-id resolution, then temporal graph relation in that order.",
       "expectations": [
-        "Searches memory before answering about Alex and does not guess an item id",
-        "Saves the remembered content immediately in English",
-        "Uses a temporal graph relation with valid-from for Alex working on Project Cedar",
+        "First uses `codeterm mem search --json` in English before answering about Alex",
+        "Then immediately uses `codeterm mem save --json --kind fact` with an English title and body",
+        "Uses only ids returned by mem search or mem save and searches again when an endpoint id is missing; never guesses ids",
+        "Only after search and save, uses the real `codeterm mem graph relate --from ... --rel ... --to ... --valid-from ...` syntax for Alex working on Project Cedar",
         "Distinguishes durable facts from past sessions and folder skills"
       ]
     }
