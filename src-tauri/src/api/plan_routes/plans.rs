@@ -42,6 +42,10 @@ pub(crate) struct CreatePlanBody {
     pub(crate) kinds: Option<String>,
     #[serde(default)]
     pub(crate) from_spec: Option<String>,
+    #[serde(default)]
+    pub(crate) session_id: Option<String>,
+    #[serde(default)]
+    pub(crate) session_binding_nonce: Option<String>,
 }
 
 fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -86,10 +90,15 @@ pub async fn create(
     let from_spec = body.from_spec.filter(|s| !s.trim().is_empty());
     let outcome = state
         .svc
-        .create_first_plan_for_orchestrator(
+        .create_first_plan_for_caller(
             body.title,
             project,
             owner,
+            crate::service::FirstPlanCaller {
+                tab_id: crate::api::tab_routes::caller_tab_header(&headers),
+                session_id: body.session_id,
+                binding_nonce: body.session_binding_nonce,
+            },
             kinds,
             from_spec.clone(),
             now,

@@ -134,10 +134,24 @@ pub(super) fn dispatch(
                 .map(str::to_string);
             let owner = owner_from_params(body);
             let outcome = svc
-                .create_first_plan_for_orchestrator(
+                .create_first_plan_for_caller(
                     title,
                     project,
                     owner,
+                    crate::service::FirstPlanCaller {
+                        tab_id: body
+                            .get("caller_tab_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        session_id: body
+                            .get("session_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        binding_nonce: body
+                            .get("session_binding_nonce")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                    },
                     kinds,
                     from_spec.clone(),
                     now,
