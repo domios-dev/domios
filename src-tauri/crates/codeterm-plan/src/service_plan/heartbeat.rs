@@ -313,7 +313,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> Stri
     format!(
         "STATE-RECONCILIATION:\n\
          - This tab owns an execution-mode plan with unfinished work; do not pause while open tasks remain.\n\
-         - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
+         - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION --section the-loop` first.\n\
          - Worker reports are pushed into this tab automatically; judge each incoming report without polling an inbox.\n\
          - Read the compact plan-owned status with `{status}`.\n\
          - Use `codeterm orchestrator inspect --plan {plan_id} --json` only when a specific discrepancy requires full report bodies or raw lane state.\n\

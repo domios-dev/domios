@@ -32,6 +32,25 @@ use super::team::TeamAction;
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
+fn parse_doc_section(value: &str) -> Result<String, String> {
+    if !value.chars().any(char::is_alphanumeric) {
+        Err("section slug must contain a letter or number".to_string())
+    } else {
+        Ok(value.to_string())
+    }
+}
+
+fn parse_doc_head(value: &str) -> Result<usize, String> {
+    let lines = value
+        .parse::<usize>()
+        .map_err(|_| "head line count must be a positive integer".to_string())?;
+    if lines == 0 {
+        Err("head line count must be greater than zero".to_string())
+    } else {
+        Ok(lines)
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "codeterm",
@@ -337,23 +356,39 @@ pub enum Commands {
         action: SystemAction,
     },
 
-    /// Read embedded CodeTerm documentation. Docs are bundled into the
-    /// CLI binary at compile time so agents can request them on demand
-    /// without bloating the system prompt. `codeterm docs` lists, `codeterm
-    /// docs <name>` prints a bounded preview inside CodeTerm tabs; pass
-    /// --full for the complete doc. Names are case-insensitive and match the
-    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
+    /// Read embedded CodeTerm documentation. `codeterm docs` lists documents.
+    /// For a long sectioned document, `codeterm docs <name>` prints a compact
+    /// section index; `--section <slug>` returns one complete structural section
+    /// and `--full` returns the byte-exact complete document. `--head <lines>` is
+    /// an intentionally incomplete diagnostic excerpt, never an instruction-read
+    /// workflow. Names and section slugs are case-insensitive.
     Docs {
         /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
         name: Option<String>,
 
-        /// Print the complete document even inside a CodeTerm tab.
-        #[arg(long, conflicts_with = "head")]
+        /// Print the byte-exact complete document in one call.
+        #[arg(long, requires = "name", conflicts_with_all = ["head", "section"])]
         full: bool,
 
-        /// Print at most N lines.
-        #[arg(long)]
+        /// Print the first N source lines as a labelled incomplete diagnostic excerpt.
+        #[arg(
+            long,
+            value_name = "LINES",
+            value_parser = parse_doc_head,
+            requires = "name",
+            conflicts_with = "section"
+        )]
         head: Option<usize>,
+
+        /// Print one complete level-2 section, selected by normalized heading slug.
+        #[arg(
+            long,
+            value_name = "SLUG",
+            value_parser = parse_doc_section,
+            requires = "name",
+            conflicts_with_all = ["full", "head"]
+        )]
+        section: Option<String>,
     },
 
     /// Read one embedded CodeTerm document in full.

@@ -33,7 +33,7 @@ impl FirstPlanTeamOutcome {
             return;
         }
         let reminder = format!(
-            "Name this Team: codeterm team rename {} <name>; then read codeterm docs ORCHESTRATION.",
+            "Name this Team: codeterm team rename {} <name>; then read codeterm docs ORCHESTRATION --section durable-model.",
             self.team_id
         );
         if let Some(hints) = response

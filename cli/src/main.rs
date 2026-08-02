@@ -381,7 +381,12 @@ fn main_impl() {
     // `docs` / `doc` read embedded markdown — no daemon dependency.
     if matches!(cli.command, Commands::Docs { .. } | Commands::Doc { .. }) {
         match cli.command {
-            Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),
+            Commands::Docs {
+                name,
+                full,
+                head,
+                section,
+            } => cmd::docs::handle(name, full, head, section),
             Commands::Doc { name } => cmd::docs::handle_doc(name),
             _ => unreachable!(),
         }
