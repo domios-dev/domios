@@ -76,7 +76,13 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
-    let permission_bypass = general_agent_permission_bypass(&svc.agent_registry, provider_name);
+    let permission_bypass = match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!("[general-agent] Start blocked: {error}");
+            return;
+        }
+    };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
     // Regenerate AGENT.md in a background thread.
@@ -787,9 +793,9 @@ fn build_general_agent_resume_command(
 fn general_agent_permission_bypass(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
-) -> bool {
-    crate::service::permission_policy::authorize_permission_bypass(registry, provider, true)
-        .is_some()
+) -> Result<bool, String> {
+    crate::service::permission_policy::configured_permission_bypass(registry, provider)
+        .map(|authorization| authorization.is_some())
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {
