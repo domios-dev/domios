@@ -292,6 +292,7 @@ pub(super) fn run_task(
             personality,
             intent,
             intent_file,
+            execution_intent,
             parent,
             depends_on,
             assign_tab,
@@ -371,6 +372,9 @@ pub(super) fn run_task(
             }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
+            }
+            if let Some(execution_intent) = execution_intent {
+                params["execution_intent"] = json!(execution_intent);
             }
             if let Some(p) = parent {
                 params["parent"] = json!(p);

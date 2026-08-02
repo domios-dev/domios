@@ -16,6 +16,21 @@ use crate::service::{
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+fn execution_intent_field(
+    p: Option<&Value>,
+) -> Result<crate::plan::TaskExecutionIntent, JsonRpcError> {
+    p.and_then(|value| value.get("execution_intent"))
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map(|intent| intent.unwrap_or_default())
+        .map_err(|error| JsonRpcError {
+            code: -32602,
+            message: format!("invalid execution_intent: {error}"),
+            data: Some(json!({ "type": "invalid_execution_intent" })),
+        })
+}
+
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
     let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
     else {
@@ -278,6 +293,7 @@ pub(super) fn dispatch(
                             .get("intent")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
+                        execution_intent: execution_intent_field(Some(body))?,
                         competition: super::plan_competition::metadata_field(p)?,
                         depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_tab_id: assign_tab.clone(),
@@ -406,6 +422,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        execution_intent: execution_intent_field(p)?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
                             .and_then(|v| v.as_str())
@@ -905,8 +922,7 @@ mod tests {
             assert!(error.message.contains("external_refs"), "{}", error.message);
             assert_eq!(error.data.as_ref().unwrap()["key"], key);
             assert_eq!(
-                after,
-                before,
+                after, before,
                 "rejected key {key} changed the full task record"
             );
         }

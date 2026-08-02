@@ -1,4 +1,5 @@
 use super::external_refs::ExternalRef;
+use super::execution::TaskExecutionIntent;
 use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -592,6 +593,8 @@ pub struct Task {
     #[serde(default)]
     pub competition: Option<TaskCompetitionMetadata>,
     pub intent: Option<String>,
+    #[serde(default)]
+    pub execution_intent: TaskExecutionIntent,
     #[serde(default)]
     pub parent_task_id: Option<String>,
     #[serde(default, alias = "dependency_task_ids")]
