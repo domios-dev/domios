@@ -81,6 +81,7 @@ Send a report to your parent in the hierarchy
 - `--branch` — Git branch the work landed on
 - `--changed-files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
+- `--from-pad` — Read the report body from a relative file in the current agent tab's pad
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--plan` — Plan id to append this report to (if available)
@@ -118,6 +119,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--charter-file` — Read watcher charter text from a file
 - `--cwd` — Working directory
 - `--description` — Short tab description (max 200 chars)
+- `--execution-intent`
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
@@ -127,6 +129,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--provider-reserve-pct`
 - `--reasoning-effort` — Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
@@ -180,6 +183,7 @@ Send a message to Telegram or other service
 - `--caption` — Caption for media (alternative to positional text)
 - `--file` — File path for media types
 - `--filename` — Override filename for document uploads
+- `--from-pad` — Read the text body from the current agent tab's pad
 - `--raw-text` — Preserve literal escape sequences instead of decoding \n into a newline
 - `--service` — Target service
 - `<text>` — Message text (also used as caption for media types)
@@ -333,6 +337,7 @@ Queue a delayed message
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from-file` — Read text from a file instead of the positional arg
+- `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
@@ -350,6 +355,7 @@ Edit a queued or failed delayed message
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from-file` — Read replacement text from a file
+- `--from-pad` — Read replacement text from the current agent tab's pad
 - `<id>` — Delayed message ID
 - `--stdin` — Read replacement text from stdin
 - `--text` — Replacement text
@@ -1203,6 +1209,18 @@ Show a compact orchestration summary
 - `--plan`
 - `--tab`
 
+#### `codeterm pad`
+
+Inspect the current agent tab's private ephemeral filesystem pad
+
+#### `codeterm pad list`
+
+List relative regular files in the current agent tab's pad
+
+#### `codeterm pad path`
+
+Print the current agent tab's private ephemeral pad path
+
 #### `codeterm paste`
 
 Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)
@@ -1225,6 +1243,7 @@ Stash a payload. Body from positional / --from-file / stdin
 - `<body>` — Body (positional). Omit and use --from-file or --from-stdin
 - `--content-type` — MIME hint (default text/plain)
 - `--from-file` — Read body from a file instead
+- `--from-pad` — Read body from a relative file in the current agent tab's pad
 - `--from-stdin` — Read body from stdin
 - `--pop` — One-shot — paste self-deletes after first fetch
 - `--ttl` — TTL — e.g. "30m", "1h", "24h". Default 1h. Max 24h
@@ -2046,6 +2065,13 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--workspace-name`
 - `--worktree`
 
+#### `codeterm plan task adopt-checkpoint`
+
+Adopt a sealed handoff checkpoint into this authenticated Worker tab
+
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan task assign`
 
 Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
@@ -2094,9 +2120,11 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 
 - `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
 - `--cwd`
+- `--execution-intent` — Explicit task intent used by provider reserve policy
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
+- `--provider-reserve-pct` — Minimum remaining provider allowance for mutating work
 - `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
@@ -2357,6 +2385,7 @@ Report worker progress to the owning orchestrator or plan
 - `--branch` — Git branch the work landed on
 - `--changed-files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
+- `--from-pad` — Read the report body from a relative file in the current agent tab's pad
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--plan` — Plan id to append this report to (if available)
@@ -2377,6 +2406,7 @@ Send text to a tab (default: current tab)
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
+- `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
