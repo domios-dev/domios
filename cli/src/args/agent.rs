@@ -297,6 +297,14 @@ pub enum AgentAction {
         /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
+        #[arg(
+            long = "execution-intent",
+            value_parser = ["read_only", "mutating"],
+            requires = "plan_task"
+        )]
+        execution_intent: Option<String>,
+        #[arg(long = "provider-reserve-pct", default_value_t = 5.0)]
+        provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its interactive
         /// prompts never raise user-visible Input-needed notifications.
         #[arg(long = "non-user-facing")]

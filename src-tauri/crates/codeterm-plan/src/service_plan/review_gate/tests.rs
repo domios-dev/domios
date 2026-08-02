@@ -563,8 +563,8 @@ fn review_bounce_transition_keeps_task_attempt_epoch_atomic() {
     assert_eq!(awaiting.execution_attempts.len(), before.execution_attempts.len());
     assert_eq!(continuation.attempt_id, before.execution_attempts[0].id);
     assert_eq!(awaiting.execution_attempts[0].acknowledged_at, before.execution_attempts[0].acknowledged_at);
-    assert_eq!(awaiting.execution_attempts[0].continuation_epoch, 1);
-    assert_eq!(awaiting.execution_attempts[0].continuation_review_round, Some(1));
+    assert_eq!(awaiting.execution_attempts[0].continuation.epoch, 1);
+    assert_eq!(awaiting.execution_attempts[0].continuation.review_round, Some(1));
 }
 
 #[test]
@@ -583,7 +583,7 @@ fn review_bounce_replay_is_idempotent_for_same_review_round() {
     assert_eq!(first.continuation, replay.continuation);
     let task = store.show_task(&task_id).unwrap().task;
     assert_eq!(task.review_evidence.len(), 1);
-    assert_eq!(task.execution_attempts[0].continuation_epoch, 1);
+    assert_eq!(task.execution_attempts[0].continuation.epoch, 1);
 }
 
 #[test]

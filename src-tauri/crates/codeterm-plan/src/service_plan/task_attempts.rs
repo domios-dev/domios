@@ -965,6 +965,13 @@ impl PlanStore {
             if plan.tasks[task_index].assigned_tab_id.as_deref() != Some(reporter_tab) {
                 return Ok(false);
             }
+            let interruption = &plan.tasks[task_index].interruption;
+            if interruption.handoff_required
+                || (interruption.owner_epoch > 0
+                    && interruption.owner_tab_id.as_deref() != Some(reporter_tab))
+            {
+                return Ok(false);
+            }
             if plan.tasks[task_index]
                 .execution_attempts
                 .iter()
@@ -1009,11 +1016,15 @@ impl PlanStore {
                 canvas: Default::default(),
                 attachments: vec![],
             });
+            let owner_epoch = task.interruption.owner_epoch;
             if let Some(attempt) = task
                 .execution_attempts
                 .iter_mut()
                 .rposition(|attempt| {
-                    attempt.executor_tab_id == reporter_tab && attempt.closed_at.is_none()
+                    attempt.executor_tab_id == reporter_tab
+                        && attempt.closed_at.is_none()
+                        && (owner_epoch == 0
+                            || attempt.interruption.owner_epoch == owner_epoch)
                 })
                 .map(|index| &mut task.execution_attempts[index])
             {

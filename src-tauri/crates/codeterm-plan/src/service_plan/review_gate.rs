@@ -578,14 +578,14 @@ impl PlanStore {
                 let attempt_index = exact_review_continuation_attempt(&p.tasks[idx])
                     .ok_or(PlanError::TaskNotFound)?;
                 let attempt = &p.tasks[idx].execution_attempts[attempt_index];
-                if attempt.continuation_review_round != Some(p.tasks[idx].review_round) {
+                if attempt.continuation.review_round != Some(p.tasks[idx].review_round) {
                     return Err(PlanError::TaskNotFound);
                 }
                 result = Some(ReviewTransitionResult {
                     plan_id: p.id.clone(),
                     task_id: p.tasks[idx].id.clone(),
                     milestone_id: attempt
-                        .continuation_milestone_id
+                        .continuation.milestone_id
                         .clone()
                         .ok_or(PlanError::TaskNotFound)?,
                     task_name: p.tasks[idx].name.clone(),
@@ -597,10 +597,10 @@ impl PlanStore {
                         attempt_id: attempt.id.clone(),
                         executor_tab_id: attempt.executor_tab_id.clone(),
                         session_id: attempt.session_id.clone().ok_or(PlanError::TaskNotFound)?,
-                        epoch: attempt.continuation_epoch,
+                        epoch: attempt.continuation.epoch,
                         review_round: p.tasks[idx].review_round,
                         state: attempt
-                            .continuation_state
+                            .continuation.state
                             .clone()
                             .unwrap_or_else(|| "awaiting_continuation".into()),
                     }),
@@ -624,11 +624,11 @@ impl PlanStore {
                 });
                 task.review_round += 1;
                 let attempt = &mut task.execution_attempts[attempt_index];
-                attempt.continuation_epoch += 1;
-                attempt.continuation_review_round = Some(task.review_round);
-                attempt.continuation_state = Some("awaiting_continuation".into());
-                attempt.continuation_milestone_id = Some(mid.clone());
-                attempt.continuation_delivered_at = None;
+                attempt.continuation.epoch += 1;
+                attempt.continuation.review_round = Some(task.review_round);
+                attempt.continuation.state = Some("awaiting_continuation".into());
+                attempt.continuation.milestone_id = Some(mid.clone());
+                attempt.continuation.delivered_at = None;
                 task.status = TaskStatus::InReview;
                 task.review_stage = ReviewStage::Review;
                 task.qa_state = None;
@@ -660,7 +660,7 @@ impl PlanStore {
                         attempt_id: attempt.id.clone(),
                         executor_tab_id: attempt.executor_tab_id.clone(),
                         session_id: attempt.session_id.clone().unwrap_or_default(),
-                        epoch: attempt.continuation_epoch,
+                        epoch: attempt.continuation.epoch,
                         review_round: p.tasks[idx].review_round,
                         state: "awaiting_continuation".into(),
                     }),
@@ -687,17 +687,17 @@ impl PlanStore {
             let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
                 attempt.id == attempt_id
                     && attempt.closed_at.is_none()
-                    && attempt.continuation_epoch == epoch
+                    && attempt.continuation.epoch == epoch
             }) else {
                 return Ok(false);
             };
             if task.status != TaskStatus::InReview
                 || task.status_label.as_deref() != Some("awaiting_continuation")
-                || attempt.continuation_state.as_deref() != Some("awaiting_continuation")
+                || attempt.continuation.state.as_deref() != Some("awaiting_continuation")
             {
                 return Ok(false);
             }
-            attempt.continuation_state = Some("continuation_delivering".into());
+            attempt.continuation.state = Some("continuation_delivering".into());
             task.updated_at = now_ms;
             Ok(true)
         })
@@ -721,19 +721,19 @@ impl PlanStore {
             let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
                 attempt.id == attempt_id
                     && attempt.closed_at.is_none()
-                    && attempt.continuation_epoch == epoch
-                    && attempt.continuation_state.as_deref() == Some("continuation_delivering")
+                    && attempt.continuation.epoch == epoch
+                    && attempt.continuation.state.as_deref() == Some("continuation_delivering")
             }) else {
                 return Ok(false);
             };
             if delivered {
-                attempt.continuation_state = Some("continued".into());
-                attempt.continuation_delivered_at = Some(now_ms);
+                attempt.continuation.state = Some("continued".into());
+                attempt.continuation.delivered_at = Some(now_ms);
                 task.status = TaskStatus::InProgress;
                 task.status_label = Some("review bounced".into());
                 task.status_changed_at = now_ms;
             } else {
-                attempt.continuation_state = Some("bounce_continuation_failed".into());
+                attempt.continuation.state = Some("bounce_continuation_failed".into());
                 task.status = TaskStatus::InReview;
                 task.status_label = Some("bounce_continuation_failed".into());
             }

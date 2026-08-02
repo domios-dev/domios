@@ -701,6 +701,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             max_actions,
             bound_task,
             plan_task,
+            execution_intent,
+            provider_reserve_pct,
             non_user_facing,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
@@ -829,6 +831,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
+            }
+            if let Some(intent) = execution_intent {
+                body["execution_intent"] = serde_json::json!(intent);
+                body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
             }
             if non_user_facing {
                 body["audience"] = serde_json::json!("automation");

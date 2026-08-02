@@ -1,12 +1,14 @@
 pub mod external_refs;
 pub mod gates;
 pub mod ids;
+pub mod interruption;
 pub mod planning_state;
 pub mod review;
 pub mod types;
 
 pub use external_refs::*;
 pub use gates::{DecisionGate, GateAnswer, GateStatus, STALE_GATE_MS};
+pub use interruption::*;
 pub use planning_state::{PlanningAuthor, PlanningState, PlanningTransition};
 pub use review::*;
 pub use types::*;

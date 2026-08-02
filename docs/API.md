@@ -913,6 +913,8 @@ Explicitly closes every Team member through the Team cascade path, removes the T
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
 | POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
+Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch also requires fresh provider-allowance telemetry at or above `provider_reserve_pct` (default 5); the daemon applies this preflight before provisioning a lane or changing task state. Interrupted mutating attempts project `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
+
 ### Keep-Awake (GET/POST /api/keepawake*)
 
 Prevents the machine from sleeping (and optionally from dimming the display) while long-running agents are working. Global machine state, not tab- or workspace-scoped. All three endpoints require the standard Bearer token.
@@ -1400,4 +1402,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 103 -->
+<!-- revision: 104 -->

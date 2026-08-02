@@ -115,6 +115,8 @@ pub struct SpawnAgentParams {
     pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
+    pub execution_intent: Option<crate::plan::ExecutionIntent>,
+    pub provider_reserve_pct: Option<f32>,
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split tab (even with parent).
     pub force_tab: Option<bool>,

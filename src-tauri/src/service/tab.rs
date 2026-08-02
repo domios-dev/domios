@@ -347,6 +347,10 @@ impl ServiceContext {
             "[agent-lifecycle] cleared Tab identity after explicit exit: {}",
             tab_id
         );
+        self.signal_worker_interruption(
+            tab_id,
+            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
+        );
         self.clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
