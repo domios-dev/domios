@@ -605,6 +605,7 @@ pub(super) fn run_task(
             if let Some(p) = mesh {
                 params["peer"] = json!(p);
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.task.assign", params).map(Some)
         }
         PlanTaskAction::Dispatch {
@@ -725,6 +726,7 @@ pub(super) fn run_task(
             if let Some(title) = title {
                 params["title"] = json!(title);
             }
+            inject_trusted_session(&mut params);
             let val = call(client, "plan.task.respawn", params)?;
             if json {
                 return Ok(Some(val));

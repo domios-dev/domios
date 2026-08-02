@@ -45,7 +45,10 @@ pub(super) fn dispatch(
                         )
                         .map_err(plan_rpc_err)?
                 }
-                PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => svc
+                PlanMode::Execution => svc
+                    .enter_execution_mode(&id, &caller(params), epoch_ms())
+                    .map_err(authority_error)?,
+                PlanMode::Paused | PlanMode::Complete => svc
                     .plan_store
                     .set_mode(&id, mode, epoch_ms())
                     .map_err(plan_rpc_err)?,

@@ -805,7 +805,15 @@ pub async fn mode_set(
             )
             .map_err(plan_err)?
         }
-        PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => state
+        PlanMode::Execution => state
+            .svc
+            .enter_execution_mode(
+                &id,
+                &crate::api::tab_routes::authenticated_plan_caller(&headers),
+                now,
+            )
+            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?,
+        PlanMode::Paused | PlanMode::Complete => state
             .svc
             .plan_store
             .set_mode(&id, mode, now)
