@@ -52,7 +52,6 @@ import {
   type ChatAttachmentState,
 } from "./chatSessionAuthority";
 import { advanceChatCursor, classifyChatCursor } from "./chatLiveCursor";
-import { useChatLiveRecovery } from "./useChatLiveRecovery";
 
 const BACKFILL_PAGE_MAX_BYTES = 256 * 1024;
 const MAX_RETAINED_OPTIMISTIC_MESSAGES = 16;
@@ -885,8 +884,6 @@ export function useChatSession({
     if (!active) return;
     return onResync(requestAttach);
   }, [active, requestAttach]);
-
-  useChatLiveRecovery(active, requestRecoveryAttach);
 
   useEffect(() => {
     const handleReattached = (event: Event) => {

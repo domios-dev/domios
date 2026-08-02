@@ -184,6 +184,18 @@ fn long_quiescent_unknown_layout_does_not_stay_working_forever() {
     );
 }
 
+#[test]
+fn authentication_prose_without_provider_prompt_is_not_a_question() {
+    let screen = lines(&[
+        "Authentication required is an example error message.",
+        "The UI may say Sign in to continue.",
+        "› Continue editing",
+    ]);
+    let verdict = classify_state(&quiescent_input(&screen), working());
+    assert_eq!(verdict.state, TimelineState::Idle);
+    assert_eq!(verdict.subtype, None);
+}
+
 // Idle promptly once Working grace has elapsed (structural, not the 5s timeout).
 #[test]
 fn cursor_composer_arrow_returns_idle_promptly() {
