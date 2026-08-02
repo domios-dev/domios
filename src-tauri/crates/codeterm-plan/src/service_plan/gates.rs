@@ -587,6 +587,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            interruption: Default::default(),
             attachments: vec![],
         });
         let findings = gate_doctor_findings(&plan, 1_000);

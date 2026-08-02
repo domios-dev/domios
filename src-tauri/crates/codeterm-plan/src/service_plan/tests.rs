@@ -324,6 +324,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
+        interruption: Default::default(),
         pause_reason: None,
         personality: None,
         personality_provenance: None,
@@ -647,7 +648,7 @@ fn tab_gone_cleanup_clears_lane_tab() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
 
-    assert!(store.flag_tab_gone(&id, &tid, 30).unwrap());
+    assert!(store.flag_tab_gone(&id, &tid, "tab-live", 30).unwrap());
 
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();

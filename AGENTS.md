@@ -43,6 +43,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh worktree-check   # canonical-only integration compile check
 ./build.sh test-one app NAME # one focused capped app test (pty/cli also supported)
+./build.sh test-one plan NAME # one focused capped codeterm-plan test
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh verify           # check + unit tests + source-size gate
@@ -302,4 +303,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

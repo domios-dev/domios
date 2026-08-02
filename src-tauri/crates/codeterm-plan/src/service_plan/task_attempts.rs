@@ -8,6 +8,8 @@ use codeterm_types::agent::ReportStatus;
 
 use super::{PlanError, PlanStore};
 
+mod plan_skill_evidence;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
     pub attempt_id: String,
@@ -387,9 +389,20 @@ pub fn new_assignment_attempt(
     role: Option<&str>,
     now_ms: u64,
 ) -> TaskExecutionAttempt {
+    new_assignment_attempt_with_id(task, tab_id, peer, role, None, now_ms)
+}
+
+pub fn new_assignment_attempt_with_id(
+    task: &Task,
+    tab_id: &str,
+    peer: Option<&str>,
+    role: Option<&str>,
+    attempt_id: Option<&str>,
+    now_ms: u64,
+) -> TaskExecutionAttempt {
     let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
-        id: gen_attempt_id(),
+        id: attempt_id.map(str::to_string).unwrap_or_else(gen_attempt_id),
         executor_tab_id: tab_id.to_string(),
         provider,
         agent_type: provider_name_from_model(task.model.as_deref()),
@@ -586,82 +599,6 @@ impl PlanStore {
             attempt.executor_title = title.map(str::to_string);
             attempt.session_id = session_id.map(str::to_string);
             attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
-            task.updated_at = now_ms;
-            Ok(())
-        })
-    }
-
-    pub fn record_plan_skill_load(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        session_id: &str,
-        session_binding_nonce: &str,
-        slug: &str,
-        content_digest: &str,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if task.assigned_tab_id.as_deref() != Some(tab_id) {
-                return Err(PlanError::Io("plan skill caller is not the assigned Worker".into()));
-            }
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .rev()
-                .find(|attempt| attempt.executor_tab_id == tab_id && attempt.closed_at.is_none())
-                .ok_or_else(|| PlanError::Io("plan skill caller has no current attempt".into()))?;
-            if attempt.session_id.as_deref() != Some(session_id)
-                || attempt.session_binding_nonce.as_deref() != Some(session_binding_nonce)
-            {
-                return Err(PlanError::Io("plan skill caller binding is stale".into()));
-            }
-            let announced = attempt
-                .plan_skill_manifest
-                .iter()
-                .find(|entry| entry.slug == slug && entry.content_digest == content_digest)
-                .ok_or_else(|| PlanError::Io("plan skill was not announced with this digest".into()))?;
-            if attempt.loaded_plan_skills.iter().any(|evidence| {
-                evidence.slug == announced.slug && evidence.content_digest == announced.content_digest
-            }) {
-                return Ok(());
-            }
-            attempt.loaded_plan_skills.push(crate::plan::LoadedPlanSkillEvidence {
-                slug: announced.slug.clone(),
-                content_digest: announced.content_digest.clone(),
-                loaded_at: now_ms,
-            });
-            task.updated_at = now_ms;
-            Ok(())
-        })
-    }
-
-    pub fn set_attempt_plan_skill_manifest(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        attempt_id: &str,
-        manifest: Vec<crate::plan::PlanSkillManifestEntry>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-                .ok_or(PlanError::TaskNotFound)?;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id && attempt.closed_at.is_none())
-                .ok_or(PlanError::TaskNotFound)?;
-            attempt.plan_skill_manifest = manifest;
             task.updated_at = now_ms;
             Ok(())
         })
