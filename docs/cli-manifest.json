@@ -556,7 +556,7 @@
               "positional": false,
               "value_name": "PATH",
               "default": null,
-              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task",
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task",
               "aliases": []
             },
             {
@@ -861,7 +861,7 @@
     },
     {
       "name": "capabilities",
-      "about": "List all available API methods",
+      "about": "List CLI commands and clearly marked RPC-only/internal methods",
       "aliases": [],
       "args": [],
       "subcommands": []
@@ -6522,7 +6522,7 @@
                   "positional": false,
                   "value_name": "NOTE",
                   "default": null,
-                  "help": null,
+                  "help": "Claim note. Required with --claim.",
                   "aliases": []
                 },
                 {
@@ -10417,7 +10417,15 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID",
+              "help": "Temporary positional alias for the tab id. Prefer --tab.",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID to close.",
               "aliases": []
             }
           ],
@@ -10505,7 +10513,15 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID",
+              "help": "Temporary positional alias for the tab id. Prefer --tab.",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID to focus.",
               "aliases": []
             }
           ],
@@ -10541,11 +10557,19 @@
           "aliases": [],
           "args": [
             {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "One or more tab ids to inspect. Repeat the flag for multiple tabs.",
+              "aliases": []
+            },
+            {
               "name": "tabs",
               "positional": true,
               "value_name": "TABS",
               "default": null,
-              "help": "One or more tab ids to inspect",
+              "help": "Temporary positional aliases for tab ids. Prefer --tab.",
               "aliases": []
             }
           ],

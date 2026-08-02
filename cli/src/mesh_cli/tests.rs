@@ -544,6 +544,17 @@ fn remote_worker_forget_body_matches_registry_delete_contract() {
 }
 
 #[test]
+fn canonical_tab_close_preserves_remote_worker_cleanup_route() {
+    let mut action = TabAction::Close {
+        id: None,
+        tab: Some("tab_remote".into()),
+    };
+    crate::args::misc::normalize_required_tab_selector(&mut action).unwrap();
+    let command = Commands::Tab { action };
+    assert_eq!(super::remote_close_tab_id(&command), Some("tab_remote"));
+}
+
+#[test]
 fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
     // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.

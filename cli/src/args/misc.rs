@@ -207,6 +207,32 @@ pub enum TabAction {
     },
 }
 
+pub fn normalize_required_tab_selector(action: &mut TabAction) -> Result<(), String> {
+    let (command, id, tab) = match action {
+        TabAction::Focus { id, tab } => ("focus", id, tab),
+        TabAction::Close { id, tab } => ("close", id, tab),
+        _ => return Ok(()),
+    };
+    let selector = tab
+        .take()
+        .or_else(|| id.take())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("tab {command} requires --tab <ID>"))?;
+    *id = Some(selector);
+    Ok(())
+}
+
+pub fn required_tab_selector<'a>(
+    id: &'a Option<String>,
+    tab: &'a Option<String>,
+    command: &str,
+) -> Result<&'a str, String> {
+    tab.as_deref()
+        .or(id.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("tab {command} requires --tab <ID>"))
+}
+
 /// Dev-only PTY capture tap (asciicast v2). Used to build agent-state fixtures.
 #[derive(Subcommand)]
 pub enum TabCaptureAction {

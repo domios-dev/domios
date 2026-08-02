@@ -195,18 +195,20 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Focus { id, tab } => {
-            let id = tab.or(id).unwrap_or_else(|| {
-                eprintln!("Error: tab focus requires --tab <ID>");
-                std::process::exit(2);
-            });
+            let id = crate::args::misc::required_tab_selector(&id, &tab, "focus")
+                .unwrap_or_else(|error| {
+                    eprintln!("Error: {error}");
+                    std::process::exit(2);
+                });
             let result = client.call("tab.focus", Some(serde_json::json!({ "tab_id": id })));
             handle_result(json, result);
         }
         TabAction::Close { id, tab } => {
-            let id = tab.or(id).unwrap_or_else(|| {
-                eprintln!("Error: tab close requires --tab <ID>");
-                std::process::exit(2);
-            });
+            let id = crate::args::misc::required_tab_selector(&id, &tab, "close")
+                .unwrap_or_else(|error| {
+                    eprintln!("Error: {error}");
+                    std::process::exit(2);
+                });
             let mut params = serde_json::json!({ "tab_id": id });
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = client.call("tab.close", Some(params));

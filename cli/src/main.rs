@@ -171,7 +171,7 @@ fn main() {
 fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
     hydrate_tab_task_binding_env(&args);
-    let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
+    let mut cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
             println!(
                 "✗ dash-leading free text was parsed as a flag.\nfix: use --field=value or --field-file PATH, for example --body='- note' or --body-file notes.md."
@@ -180,6 +180,12 @@ fn main_impl() {
         }
         e.exit()
     });
+    if let Commands::Tab { action } = &mut cli.command {
+        if let Err(error) = args::misc::normalize_required_tab_selector(action) {
+            eprintln!("Error: {error}");
+            std::process::exit(2);
+        }
+    }
 
     if let Commands::Plan {
         action: PlanAction::Delete { plan_id, yes },
