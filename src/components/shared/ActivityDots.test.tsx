@@ -38,6 +38,11 @@ async function run() {
   await act(async () => root.render(<ActivityDots size="micro" />));
   assert.equal(host.querySelector(".activity-dots--micro")?.children.length, 1, "micro renders one breathing dot");
 
+  await act(async () => root.render(<ActivityDots size="micro" variant="workspace-badge" />));
+  const workspaceBadgeDots = host.querySelector(".activity-dots--workspace-badge");
+  assert(workspaceBadgeDots, "workspace badge variant renders");
+  assert.equal(workspaceBadgeDots.children.length, 2, "workspace badge variant renders exactly two dots");
+
   const css = readFileSync(new URL("../../styles/agent-state.css", import.meta.url), "utf8");
   const microRule = css.match(/\.activity-dots--micro\s*\{([^}]*)\}/s);
   assert(microRule, "micro geometry rule exists");
@@ -51,6 +56,11 @@ async function run() {
     reducedMotion,
     /\.activity-dots i\s*\{[^}]*animation:\s*none !important;[^}]*opacity:\s*0\.85;[^}]*transform:\s*scale\(1\);/s,
     "reduced motion keeps the static dot cue",
+  );
+  assert.doesNotMatch(
+    css.match(/\.activity-dots--(?:accent|thinking|muted|on-accent)\s*\{[^}]*\}/gs)?.join("\n") ?? "",
+    /#[\da-f]{3,8}\b|\brgb\(|\b(?:white|black)\b/i,
+    "ActivityDots tones derive exclusively from theme tokens",
   );
   const phaseDots = css.match(/\.ct-phase-dots\s*\{([^}]*)\}/s);
   assert(phaseDots, "legacy phase dots rule exists");
@@ -73,10 +83,11 @@ async function run() {
   const workspaceCardSource = readFileSync(new URL("../Sidebar/WorkspaceCardGrid.tsx", import.meta.url), "utf8");
   assert.match(
     workspaceCardSource,
-    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="on-accent" \/>/,
-    "workspace-card badge selects the shared on-accent tone",
+    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="on-accent" variant="workspace-badge" \/>/,
+    "workspace-card badge selects the shared two-dot on-accent variant",
   );
-  assert.match(css, /\.activity-dots--on-accent\s*\{\s*color:\s*var\(--ct-on-accent, #fff\);\s*\}/);
+  assert.match(css, /\.activity-dots--on-accent\s*\{\s*color:\s*var\(--ct-on-accent\);\s*\}/);
+  assert.match(css, /\.activity-dots--thinking\s*\{\s*color:\s*color-mix\(in srgb, var\(--ct-magenta\) 72%, var\(--ct-fg\)\);\s*\}/);
   assert.doesNotMatch(workspaceCardSource, /tone="muted"/, "filled workspace bubble never mixes toward page foreground");
   assert.doesNotMatch(
     globalsCss,
@@ -101,8 +112,9 @@ async function run() {
   const badgeHeight = px(workspaceBadgeRule[1], "height");
   const microSize = px(microRule[1], "--activity-dot-size");
   const microJump = px(microRule[1], "--activity-dot-jump");
-  assert(microSize <= badgeWidth, "shared micro dot fits the workspace badge width");
+  assert((microSize * 2) + 1.25 <= badgeWidth, "two shared micro dots and their gap fit the workspace badge width");
   assert(microSize + microJump <= badgeHeight, "shared micro jump fits the workspace badge height");
+  assert.match(workspaceBadgeRule[1], /box-sizing:\s*border-box;[^}]*padding-bottom:\s*1px;/s, "pill reserves room for the landing squash");
   assert(badgeTop + badgeHeight < (cardHeight - initialsHeight) / 2, "workspace badge stays above centered initials");
   const cubeRules = [".sidebar-workspace-card {", ".sidebar-workspace-card[data-selected=\"true\"]", ".sidebar-workspace-card-select:hover"];
   for (const rule of cubeRules) assert(globalsCss.includes(rule), `cube-grid surface ${rule} remains owned by globals`);
