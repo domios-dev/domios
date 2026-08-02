@@ -201,6 +201,7 @@ pub fn run() {
             commands::restart_agent_tab,
             commands::list_provider_update_prompts,
             commands::respond_provider_update_prompt,
+            commands::acknowledge_provider_update_prompt,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,

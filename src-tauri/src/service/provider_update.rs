@@ -91,6 +91,7 @@ pub enum ProviderUpdateStatus {
     Declined,
     Deferred,
     Installing,
+    CompletionUnavailable,
     Completed,
     Restarted,
     Failed,
@@ -167,6 +168,18 @@ impl ProviderUpdateRegistry {
         self.entries.lock().get(prompt_id).cloned()
     }
 
+    fn acknowledge_terminal(&self, prompt_id: &str) -> Result<(), String> {
+        let mut entries = self.entries.lock();
+        let entry = entries
+            .get(prompt_id)
+            .ok_or_else(|| "Provider update prompt is no longer active".to_string())?;
+        if entry.phase != ProviderUpdatePhase::Terminal {
+            return Err("Only terminal provider update prompts can be acknowledged".to_string());
+        }
+        entries.remove(prompt_id);
+        Ok(())
+    }
+
     fn claim_response(
         &self,
         prompt_id: &str,
@@ -196,10 +209,6 @@ impl ProviderUpdateRegistry {
             prompt_id: prompt_id.to_string(),
         });
         Ok(ClaimedResponse::Accept(entry.clone()))
-    }
-
-    fn remove(&self, prompt_id: &str) -> Option<PendingProviderUpdate> {
-        self.entries.lock().remove(prompt_id)
     }
 
     fn defer(&self, prompt_id: &str, message: String) -> Option<PendingProviderUpdate> {
@@ -397,6 +406,10 @@ impl ServiceContext {
         Ok(())
     }
 
+    pub fn acknowledge_provider_update_prompt(&self, prompt_id: &str) -> Result<(), String> {
+        self.provider_updates.acknowledge_terminal(prompt_id)
+    }
+
     fn try_execute_provider_update(&self, prompt_id: &str) -> Result<bool, String> {
         let entry = match self.provider_updates.get(prompt_id) {
             Some(entry) => entry,
@@ -440,20 +453,27 @@ impl ServiceContext {
                     .and_then(|capability| capability.completion_signal)
                     .is_none()
                 {
-                    entry.view.message = "Update started, but this provider does not declare an observable completion signal; session restart is deferred.".to_string();
+                    entry.view.message = "Update started, but this provider does not declare an observable completion signal; CodeTerm will not restart this session.".to_string();
                     self.provider_updates.finish(
                         entry.clone(),
-                        ProviderUpdateStatus::Installing,
+                        ProviderUpdateStatus::CompletionUnavailable,
                         entry.view.message.clone(),
                     );
+                    entry.view.status = ProviderUpdateStatus::CompletionUnavailable;
                     self.emit_provider_update(&entry.view);
                 }
                 Ok(true)
             }
             PolicyDecision::Decline(reason) => {
-                let mut entry = self.provider_updates.remove(prompt_id).unwrap_or(entry);
+                let message = format!("Update declined: {}.", decline_reason_text(reason));
+                self.provider_updates.finish(
+                    entry.clone(),
+                    ProviderUpdateStatus::Declined,
+                    message.clone(),
+                );
+                let mut entry = entry;
                 entry.view.status = ProviderUpdateStatus::Declined;
-                entry.view.message = format!("Update declined: {}.", decline_reason_text(reason));
+                entry.view.message = message;
                 self.emit_provider_update(&entry.view);
                 self.write_provider_update_keys(&entry, &entry.decline_writes)?;
                 Ok(true)
@@ -607,7 +627,11 @@ impl ServiceContext {
     }
 
     fn fail_provider_update(&self, mut entry: PendingProviderUpdate, message: &str) {
-        self.provider_updates.remove(&entry.view.prompt_id);
+        self.provider_updates.finish(
+            entry.clone(),
+            ProviderUpdateStatus::Failed,
+            message.to_string(),
+        );
         entry.view.status = ProviderUpdateStatus::Failed;
         entry.view.message = message.to_string();
         self.emit_provider_update(&entry.view);
