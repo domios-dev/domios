@@ -294,13 +294,14 @@ mod tests {
         for path in [PROMPT_PATH, SKILL_PATH] {
             let text = std::fs::read_to_string(path).expect("read agent instruction source");
             assert!(
-                !text.contains("codeterm tab "),
+                !text.contains("codeterm pane "),
                 "{path} teaches the removed legacy command namespace"
             );
             assert!(
-                !text.contains(" --tab "),
-                "{path} teaches the removed `--tab` flag"
+                !text.contains(" --pane "),
+                "{path} teaches the removed `--pane` flag"
             );
+            assert!(text.contains("codeterm tab "), "{path} omits the canonical tab namespace");
         }
     }
 
