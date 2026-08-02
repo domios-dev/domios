@@ -18,6 +18,8 @@ pub struct ReportDetails {
     #[serde(default)]
     pub task_id: Option<String>,
     #[serde(default)]
+    pub owner_epoch: Option<u64>,
+    #[serde(default)]
     pub status: Option<ReportStatus>,
     #[serde(default)]
     pub branch: Option<String>,
@@ -504,6 +506,7 @@ mod tests {
         let details = ReportDetails {
             plan_id: Some("pl_structured".to_string()),
             task_id: Some("task_structured".to_string()),
+            owner_epoch: Some(2),
             status: Some(ReportStatus::Partial),
             branch: Some("orch-p2-structured-report".to_string()),
             sha: Some("deadbeef".to_string()),
@@ -634,6 +637,7 @@ mod tests {
         let details = ReportDetails {
             plan_id: Some("pl_1".to_string()),
             task_id: Some("task_1".to_string()),
+            owner_epoch: Some(2),
             status: Some(ReportStatus::Done),
             branch: Some("feature-x".to_string()),
             sha: Some("abc123".to_string()),

@@ -48,6 +48,14 @@ pub(super) fn persist_authorized_local_task_report(
         if let Some(detail) = svc.plan_store.show_task(task_id) {
             let owner_epoch = detail.task.interruption.owner_epoch;
             if owner_epoch > 0 {
+                if details.owner_epoch != Some(owner_epoch) {
+                    return Err(report_persistence_incident(
+                        tab_id,
+                        plan_id,
+                        Some(task_id),
+                        "owner-epoch report is missing or stale",
+                    ));
+                }
                 let session_id = from.session_id.as_deref().ok_or_else(|| {
                     report_persistence_incident(
                         tab_id,

@@ -30,6 +30,17 @@ pub fn provider_allowance_preflight(
 }
 
 impl PlanStore {
+    fn attempt_is_active_for_interruption(
+        task_status: &TaskStatus,
+        attempt: &crate::plan::TaskExecutionAttempt,
+    ) -> bool {
+        attempt.reported_at.is_none()
+            || (*task_status == TaskStatus::InProgress
+                && attempt.continuation.epoch > 0
+                && attempt.continuation.state.as_deref() == Some("continued")
+                && attempt.continuation.delivered_at.is_some())
+    }
+
     pub fn record_dispatch_policy(
         &self,
         plan_id: &str,
@@ -46,6 +57,7 @@ impl PlanStore {
                 .iter_mut()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            let task_status = task.status.clone();
             let attempt = task
                 .execution_attempts
                 .iter_mut()
@@ -92,7 +104,7 @@ impl PlanStore {
                 .find(|attempt| attempt.id == attempt_id)
                 .filter(|attempt| {
                     attempt.closed_at.is_none()
-                        && attempt.reported_at.is_none()
+                        && Self::attempt_is_active_for_interruption(&task_status, attempt)
                         && attempt.executor_tab_id == owner_tab_id
                         && attempt.session_id.as_deref() == Some(owner_session_id)
                         && attempt.interruption.owner_epoch == owner_epoch

@@ -232,6 +232,29 @@ pub(super) fn dispatch(
     }
 
     let prefix = method.split(['.', ':']).next().unwrap_or("");
+    if params
+        .as_ref()
+        .is_some_and(|value| value.get("task_id").is_some())
+        && matches!(
+            method,
+            "task.take"
+                | "task.drop"
+                | "plan.task.update"
+                | "plan.task.attach"
+                | "plan.task.close"
+                | "plan.task.pause"
+                | "plan.task.resume"
+                | "plan.task.assign"
+                | "plan.task.dispatch"
+                | "plan.task.respawn"
+                | "plan.task.compete"
+                | "plan.task.judge"
+                | "plan.task.rm"
+                | "plan.task.link"
+        )
+    {
+        plan_task_rpc::verify_owner_epoch_for_task_mutation(method, &params, svc)?;
+    }
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
         "team" => team::dispatch(method, &params, mux, svc),

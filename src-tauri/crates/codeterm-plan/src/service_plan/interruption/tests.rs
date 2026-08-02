@@ -206,3 +206,91 @@ fn takeover_epoch_fences_exhausted_owner() {
         .verify_task_owner_epoch(&task_id, "new-tab", "new-session", 2)
         .is_ok());
 }
+
+#[test]
+fn dispatch_persists_resolved_provider_on_exact_attempt() {
+    let (_dir, store, plan_id, task_id, _) = bound_store();
+    store.revert_task_dispatch(&plan_id, &task_id, 5).unwrap();
+    let attempt_id = store
+        .begin_task_dispatch_with_policy(
+            &plan_id,
+            &task_id,
+            "provider-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            Some(allowance(90.0, 6)),
+            Some("codex"),
+            6,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
+}
+
+#[test]
+fn continued_review_attempt_is_interruptible_but_undelivered_epoch_is_not() {
+    let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .with_plan(&plan_id, 5, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            task.status = TaskStatus::InProgress;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .unwrap();
+            attempt.reported_at = Some(4);
+            attempt.continuation.epoch = 1;
+            attempt.continuation.state = Some("continued".into());
+            attempt.continuation.delivered_at = Some(5);
+            Ok(())
+        })
+        .unwrap();
+    assert!(store
+        .begin_task_interruption(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            "provider_exhausted",
+            6,
+        )
+        .is_ok());
+
+    let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .with_plan(&plan_id, 5, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .unwrap();
+            attempt.reported_at = Some(4);
+            attempt.continuation.epoch = 1;
+            attempt.continuation.state = Some("awaiting_continuation".into());
+            Ok(())
+        })
+        .unwrap();
+    assert!(store
+        .begin_task_interruption(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            "provider_exhausted",
+            6,
+        )
+        .is_err());
+}

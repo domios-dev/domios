@@ -558,6 +558,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(ref t) = task {
                 body["task_id"] = serde_json::json!(t);
             }
+            if let (Some(ref p), Some(ref t)) = (&plan, &task) {
+                let shown = client.call_detailed(
+                    "task.show",
+                    Some(serde_json::json!({ "plan_id": p, "task_id": t })),
+                );
+                if let Ok(shown) = shown {
+                    if let Some(epoch) = shown
+                        .get("task")
+                        .unwrap_or(&shown)
+                        .get("interruption")
+                        .and_then(|value| value.get("owner_epoch"))
+                        .and_then(|value| value.as_u64())
+                    {
+                        body["owner_epoch"] = serde_json::json!(epoch);
+                    }
+                }
+            }
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
             }

@@ -8,6 +8,17 @@ use tauri::Emitter;
 
 const CHECKPOINT_ARTIFACT_MAX_BYTES: usize = 4 * 1024 * 1024;
 
+fn attempt_is_active_for_interruption(
+    task_status: &crate::plan::TaskStatus,
+    attempt: &crate::plan::TaskExecutionAttempt,
+) -> bool {
+    attempt.reported_at.is_none()
+        || (*task_status == crate::plan::TaskStatus::InProgress
+            && attempt.continuation.epoch > 0
+            && attempt.continuation.state.as_deref() == Some("continued")
+            && attempt.continuation.delivered_at.is_some())
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -93,13 +104,15 @@ impl super::ServiceContext {
             .list_full()
             .into_iter()
             .flat_map(|plan| plan.tasks)
-            .flat_map(|task| task.execution_attempts)
-            .filter(|attempt| {
-                attempt.closed_at.is_none()
-                    && attempt.reported_at.is_none()
-                    && attempt.provider.as_deref() == Some(provider)
+            .flat_map(|task| {
+                let status = task.status;
+                task.execution_attempts.into_iter().filter_map(move |attempt| {
+                    (attempt.closed_at.is_none()
+                        && attempt.provider.as_deref() == Some(provider)
+                        && attempt_is_active_for_interruption(&status, &attempt))
+                    .then_some(attempt.executor_tab_id)
+                })
             })
-            .map(|attempt| attempt.executor_tab_id)
             .collect::<std::collections::HashSet<_>>();
         tabs.iter()
             .filter(|tab_id| {
@@ -137,7 +150,7 @@ impl super::ServiceContext {
                 let attempt = task.execution_attempts.iter().find(|attempt| {
                     attempt.executor_tab_id == tab_id
                         && attempt.closed_at.is_none()
-                        && attempt.reported_at.is_none()
+                        && attempt_is_active_for_interruption(&task.status, attempt)
                         && attempt.interruption.owner_epoch == owner.owner_epoch
                 })?;
                 Some(WorkerInterruptionRequest {
