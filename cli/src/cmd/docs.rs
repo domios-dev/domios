@@ -313,6 +313,13 @@ struct Heading<'a> {
     start: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct FenceMarker {
+    character: char,
+    length: usize,
+    remainder_is_whitespace: bool,
+}
+
 fn document_sections(body: &str) -> Vec<DocSection> {
     let headings = markdown_headings(body);
     headings
@@ -339,37 +346,49 @@ fn document_sections(body: &str) -> Vec<DocSection> {
 fn markdown_headings(body: &str) -> Vec<Heading<'_>> {
     let mut headings = Vec::new();
     let mut offset = 0;
-    let mut fence: Option<(char, usize)> = None;
+    let mut fence: Option<FenceMarker> = None;
     for line_with_ending in body.split_inclusive('\n') {
         let line = line_with_ending.trim_end_matches(['\r', '\n']);
-        if let Some(marker) = fence_marker(line) {
-            match fence {
-                Some(open) if marker.0 == open.0 && marker.1 >= open.1 => fence = None,
-                None => fence = Some(marker),
-                _ => {}
+        if let Some(open) = fence {
+            if fence_marker(line).is_some_and(|candidate| {
+                candidate.character == open.character
+                    && candidate.length >= open.length
+                    && candidate.remainder_is_whitespace
+            }) {
+                fence = None;
             }
-        } else if fence.is_none() {
-            if let Some((level, title)) = atx_heading(line) {
-                headings.push(Heading {
-                    level,
-                    title,
-                    start: offset,
-                });
-            }
+        } else if let Some(marker) = fence_marker(line) {
+            fence = Some(marker);
+        } else if let Some((level, title)) = atx_heading(line) {
+            headings.push(Heading {
+                level,
+                title,
+                start: offset,
+            });
         }
         offset += line_with_ending.len();
     }
     headings
 }
 
-fn fence_marker(line: &str) -> Option<(char, usize)> {
-    let trimmed = line.trim_start();
+fn fence_marker(line: &str) -> Option<FenceMarker> {
+    let indentation = line.bytes().take_while(|byte| *byte == b' ').count();
+    if indentation > 3 {
+        return None;
+    }
+    let trimmed = &line[indentation..];
     let marker = trimmed.chars().next()?;
     if !matches!(marker, '`' | '~') {
         return None;
     }
     let count = trimmed.chars().take_while(|character| *character == marker).count();
-    (count >= 3).then_some((marker, count))
+    (count >= 3).then(|| FenceMarker {
+        character: marker,
+        length: count,
+        remainder_is_whitespace: trimmed[count..]
+            .chars()
+            .all(|character| matches!(character, ' ' | '\t')),
+    })
 }
 
 fn atx_heading(line: &str) -> Option<(usize, &str)> {
@@ -552,6 +571,25 @@ mod tests {
         assert_eq!(sections[0].slug, "one");
         assert_eq!(&body[sections[0].start..sections[0].end], "## One\nlead\n```bash\n# not a title\n## not a section\n```\n### Child\nchild\n");
         assert_eq!(sections[1].slug, "two");
+    }
+
+    #[test]
+    fn structural_parser_rejects_marker_text_and_overindented_fence_closers() {
+        let body = "# Fixture\n\n## One\nlead\n```text\n```not-a-close\n## hidden after backticks\n    ```\n## hidden after indented backticks\n   ```\nafter backticks\n~~~text\n~~~not-a-close\n## hidden after tildes\n    ~~~\n## hidden after indented tildes\n  ~~~\ntail\n## Two\nend\n";
+        let sections = document_sections(body);
+        let expected_start = body.find("## One").unwrap();
+        let expected_end = body.find("## Two").unwrap();
+
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].slug, "one");
+        assert_eq!(
+            &body[sections[0].start..sections[0].end],
+            &body[expected_start..expected_end]
+        );
+        assert_eq!(sections[1].slug, "two");
+        assert!(!sections
+            .iter()
+            .any(|section| section.slug.starts_with("hidden-")));
     }
 
     #[test]
