@@ -5,6 +5,36 @@ use crate::service::plan::interruption::TaskMutationAuthority;
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
+pub(super) fn authorize_draft_mutation(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: Option<&Value>,
+) -> Result<(), JsonRpcError> {
+    svc.authorize_draft_structure_mutation(
+        plan_id,
+        &crate::service::AuthenticatedPlanCaller {
+            tab_id: params
+                .and_then(|value| value.get("caller_tab_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            session_id: params
+                .and_then(|value| value.get("session_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            binding_nonce: params
+                .and_then(|value| value.get("session_binding_nonce"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+    )
+    .map(|_| ())
+    .map_err(|message| JsonRpcError {
+        code: -32003,
+        message,
+        data: Some(serde_json::json!({ "type": "plan_draft_authorization_required" })),
+    })
+}
+
 pub(super) fn verify_owner_epoch_for_task_mutation(
     method: &str,
     params: &Option<Value>,

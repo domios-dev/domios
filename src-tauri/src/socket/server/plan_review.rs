@@ -381,20 +381,20 @@ mod tests {
             )
             .unwrap();
         store.assign_task(&plan.id, &task_id, "worker", None, 3).unwrap();
-        let mut attempt_id = String::new();
-        store
-            .with_plan(&plan.id, 4, |plan| {
-                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-                task.status = crate::plan::TaskStatus::InReview;
-                let attempt = task.execution_attempts.last_mut().unwrap();
-                attempt_id = attempt.id.clone();
-                attempt.session_id = Some("worker-session".into());
-                attempt.acknowledged_at = Some(3);
-                attempt.reported_at = Some(4);
-                attempt.report = Some(Default::default());
-                Ok(())
-            })
+        let mut stored = store.get(&plan.id).unwrap();
+        let task = stored
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
             .unwrap();
+        task.status = crate::plan::TaskStatus::InReview;
+        let attempt = task.execution_attempts.last_mut().unwrap();
+        let attempt_id = attempt.id.clone();
+        attempt.session_id = Some("worker-session".into());
+        attempt.acknowledged_at = Some(3);
+        attempt.reported_at = Some(4);
+        attempt.report = Some(Default::default());
+        store.save(&mut stored, 4).unwrap();
         (dir, store, plan.id, task_id, attempt_id)
     }
 
@@ -526,13 +526,14 @@ mod tests {
     #[test]
     fn review_bounce_fences_stale_rebound_replacement_and_competition_attempts() {
         let (_dir, store, plan_id, task_id, _attempt_id) = continuation_store();
-        store
-            .with_plan(&plan_id, 5, |plan| {
-                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-                task.assigned_tab_id = Some("replacement".into());
-                Ok(())
-            })
+        let mut plan = store.get(&plan_id).unwrap();
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
             .unwrap();
+        task.assigned_tab_id = Some("replacement".into());
+        store.save(&mut plan, 5).unwrap();
         let before = store.show_task(&task_id).unwrap().task;
         assert!(store
             .bounce_review(

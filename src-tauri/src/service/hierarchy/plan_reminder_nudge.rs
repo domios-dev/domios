@@ -380,6 +380,7 @@ fn aged_task_status_text(
     task: Option<&crate::plan::Task>,
 ) -> String {
     match item.presentation {
+        TaskPresentation::HandoffRequired => "handoff required".into(),
         TaskPresentation::ActionablePending => "actionable pending".into(),
         TaskPresentation::WaitingOnDependencies => {
             let waits = item
@@ -505,6 +506,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             pause_reason: None,
+            interruption: Default::default(),
             personality: None,
             personality_provenance: None,
             attachments: vec![],
