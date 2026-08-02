@@ -306,6 +306,10 @@ async function main(): Promise<void> {
     anchoredAfter && anchoredAfter.offsetTop - view().scroll.scrollTop === anchoredOffset,
     "detached arrivals preserve the exact pixel anchor",
   );
+  assert(
+    view().history.messages.at(-1)?.id === "m-1500",
+    "detached arrivals always retain the newest live tail",
+  );
 
   const streamingNode = anchoredAfter;
   const streamingId = streamingNode.dataset.messageId!;
@@ -329,8 +333,8 @@ async function main(): Promise<void> {
   const refillId = refillAnchor.dataset.messageId!;
   await act(async () => view().loadOlder());
   assert(
-    view().history.messages.length <= CHAT_RETAINED_MESSAGE_LIMIT,
-    "older refill respects the retained hard bound",
+    view().history.messages.at(-1)?.id === "m-1500",
+    "older refill never evicts the newest live tail",
   );
   assert(
     document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE,
