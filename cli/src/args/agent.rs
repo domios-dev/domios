@@ -249,8 +249,8 @@ pub enum AgentAction {
         #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         /// Read the task body from a file (or `-` for stdin) instead of --task.
-        /// Bypasses the caller's shell, so backticks / $(...) in the body are
-        /// never evaluated. Mutually exclusive with --task.
+        /// Relative paths resolve from --cwd. Content bypasses the caller's shell
+        /// and remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
         /// Extra args for the agent

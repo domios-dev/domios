@@ -323,8 +323,18 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         TabOnly::try_parse_from(["tab", "inspect", "tab_1", "tab_2"]).expect("tab inspect parses");
     assert!(matches!(
         inspected.action,
-        TabAction::Inspect { tabs } if tabs == ["tab_1", "tab_2"]
+        TabAction::Inspect { tabs, tab } if tabs == ["tab_1", "tab_2"] && tab.is_empty()
     ));
+    let canonical = TabOnly::try_parse_from([
+        "tab", "inspect", "--tab", "tab_1", "--tab", "tab_2",
+    ])
+    .expect("canonical tab selectors parse");
+    assert!(matches!(
+        canonical.action,
+        TabAction::Inspect { tabs, tab } if tabs.is_empty() && tab == ["tab_1", "tab_2"]
+    ));
+    assert!(TabOnly::try_parse_from(["tab", "focus", "--tab", "tab_1"]).is_ok());
+    assert!(TabOnly::try_parse_from(["tab", "close", "--tab", "tab_1"]).is_ok());
     let all = TabOnly::try_parse_from(["tab", "list", "--all-workspaces"])
         .expect("all-workspaces tab list parses");
     assert!(matches!(

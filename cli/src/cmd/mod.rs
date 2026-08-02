@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod bridge;
+pub mod capabilities;
 pub mod cron;
 pub mod delayed;
 pub mod docs;

@@ -303,6 +303,7 @@ mod tests {
             heartbeat: Default::default(),
             open_lanes: vec![],
             lanes: vec![],
+            lane_history_count: 0,
             blocked_lanes: vec![],
             live_agents: vec![],
             recent_strides: vec![],

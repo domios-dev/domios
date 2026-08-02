@@ -401,7 +401,21 @@ fn main_impl() {
     let result = match cli.command {
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
-        Commands::Capabilities => client.call("system.capabilities", None),
+        Commands::Capabilities => {
+            let result = client.call("system.capabilities", None);
+            if cli.json {
+                result
+            } else {
+                match result {
+                    Ok(value) => print!("{}", cmd::capabilities::render(&value)),
+                    Err(error) => {
+                        eprintln!("Error: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+        }
 
         Commands::Workspace { action } => {
             match cmd::local_io::handle_workspace_action(&mut client, action, cli.json) {
