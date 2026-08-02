@@ -33,8 +33,9 @@ pub struct ReasoningEffortProvenance {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved: Option<String>,
     /// Runtime-confirmed effort. `None` until the provider reports it.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub actual: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_source: Option<String>,
 }
 
 impl ReasoningEffortProvenance {
@@ -43,6 +44,7 @@ impl ReasoningEffortProvenance {
             && self.requested.is_none()
             && self.resolved.is_none()
             && self.actual.is_none()
+            && self.actual_source.is_none()
     }
 }
 

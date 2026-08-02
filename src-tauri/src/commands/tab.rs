@@ -317,7 +317,7 @@ pub fn chat_start_core(
             subscription_id: None,
         });
     }
-    let (provider_id, cwd, session_id, mux_ms) = {
+    let (provider_id, cwd, session_id, context_epoch_archives, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.write();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
@@ -370,8 +370,19 @@ pub fn chat_start_core(
                 subscription_id: None,
             });
         };
-        (provider, cwd, sid, t.elapsed().as_millis())
+        (
+            provider,
+            cwd,
+            sid,
+            tab.context_epoch_archives.clone(),
+            t.elapsed().as_millis(),
+        )
     };
+    let archived_messages = super::context_epochs::materialize_archived_context_epochs(
+        svc,
+        &context_epoch_archives,
+    );
+    let archive_available = !archived_messages.is_empty();
 
     let session_binding_nonce = svc
         .mux
@@ -422,12 +433,14 @@ pub fn chat_start_core(
                 handle,
             );
         }
+        let mut messages = archived_messages;
+        messages.extend(delta.messages);
         return Ok(ChatStartResult {
             text: String::new(),
             start_offset: 0,
             offset: 0,
             pending: false,
-            messages: Some(prepend_pending_greeting(svc, &tab_id, delta.messages)),
+            messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
             cursor,
             source_session_id: Some(session_id.clone()),
             session_binding_nonce: session_binding_nonce.clone(),
@@ -478,8 +491,8 @@ pub fn chat_start_core(
             text: String::new(),
             start_offset: 0,
             offset: 0,
-            pending: true,
-            messages: None,
+            pending: !archive_available,
+            messages: archive_available.then_some(archived_messages),
             cursor: None,
             source_session_id: Some(session_id.clone()),
             session_binding_nonce: session_binding_nonce.clone(),
@@ -499,8 +512,9 @@ pub fn chat_start_core(
     let (total, tailer_start_offset, bytes_read) = (snap.total, snap.total, snap.bytes_read);
     // Backfill cursor: >0 means the bounded snapshot truncated older history.
     let snapshot_start = snap.start_offset;
-    let messages = snap.messages;
-    let msg_count = messages.len();
+    let msg_count = snap.messages.len();
+    let mut messages = archived_messages;
+    messages.extend(snap.messages);
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();

@@ -9,6 +9,7 @@ pub struct DirCompletion {
 mod agent;
 mod clipboard;
 mod completions;
+mod context_epochs;
 mod cron;
 mod delayed_send;
 mod hooks;

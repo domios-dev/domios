@@ -479,6 +479,7 @@ impl ServiceContext {
                         false
                     } else if let Some(p) = mux.get_tab_mut(tab_id) {
                         if p.agent_type.as_deref() == Some(agent_id) {
+                            p.archive_context_epoch(agent_id, current);
                             p.agent_session_id = Some(new_sid.clone());
                             clear_runtime_model_evidence(p);
                             true
@@ -498,6 +499,12 @@ impl ServiceContext {
                         agent_id,
                     );
                     self.emit_state_changed();
+                    if let Err(error) = super::session_persist::persist_session_after_mutation(
+                        self,
+                        super::session_persist::SessionPersistUrgency::Prompt,
+                    ) {
+                        log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+                    }
                 }
             }
         }
@@ -507,6 +514,7 @@ impl ServiceContext {
             mux.get_tab(tab_id).and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
+        self.refresh_session_reasoning_effort_once(tab_id, agent_id, &cwd, &sid);
         let (
             current_model,
             planned_model,
@@ -996,6 +1004,7 @@ pub(crate) fn clear_runtime_model_evidence(tab: &mut crate::multiplexer::types::
     if let Some(fallback) = tab.model_fallback.as_mut() {
         fallback.actual_model = None;
     }
+    super::reasoning_effort::clear_runtime_evidence(tab);
 }
 
 fn runtime_model_update_matches_session(

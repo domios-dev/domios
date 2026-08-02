@@ -424,6 +424,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   }
 
   if (message.type === "system" || message.type === "local_command") {
+    if (message.systemSubtype === "context_epoch_boundary") {
+      return (
+        <div
+          role="separator"
+          aria-label={message.content}
+          data-testid="chat-context-epoch-divider"
+          data-context-epoch={message.contextEpoch}
+          className="mb-3 flex w-full max-w-4xl min-w-0 items-center gap-3 mx-auto"
+          style={{ color: "var(--ct-muted-fg)" }}
+        >
+          <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
+          <span className="max-w-[70%] text-center text-[11px]">{message.content}</span>
+          <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
+        </div>
+      );
+    }
     const label = message.tagName || message.systemSubtype || "system";
     const isCaveat = message.tagName === "local-command-caveat";
     const isSkillContext = message.systemSubtype === "skill_context";

@@ -414,6 +414,7 @@ impl ServiceContext {
                 provider_resolved_model: p.agent_provider_resolved_model.clone(),
                 fallback: p.model_fallback.clone(),
                 mismatch: p.model_identity_mismatch.clone(),
+                reasoning_effort: p.reasoning_effort_identity.clone(),
             });
             let from_ref = tab.map_or_else(
                 || AgentRef::from_tab(tab_id),

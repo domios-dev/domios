@@ -1214,6 +1214,31 @@ var plugin = {
     }
     return null;
   },
+  detectSessionReasoningEffort(cwd, sessionId) {
+    const path = claudeSessionFilePath(cwd, sessionId);
+    if (!path || !host.fs.fileExists(path)) return null;
+    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!contents) return null;
+    const supported = { low: true, medium: true, high: true, xhigh: true, max: true };
+    const lines = contents.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]) continue;
+      let value;
+      try {
+        value = JSON.parse(lines[i]);
+      } catch (_) {
+        continue;
+      }
+      const message = value.message && typeof value.message === "object" ? value.message : null;
+      const metadata = message && message.metadata && typeof message.metadata === "object" ? message.metadata : null;
+      const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message && message.effort, message && message.reasoning_effort, metadata && metadata.effort];
+      for (let j = 0; j < candidates.length; j++) {
+        const effort = typeof candidates[j] === "string" ? candidates[j].trim() : "";
+        if (supported[effort]) return effort;
+      }
+    }
+    return null;
+  },
   // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
   // the registered manifest seed and must never be persisted as a live snapshot.
   discoverModels() {

@@ -168,6 +168,18 @@ export interface Tab {
   session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
+  reasoning_effort_identity?: {
+    planned?: string | null;
+    requested?: string | null;
+    resolved?: string | null;
+    actual: string | null;
+    actual_source?: "session-owned" | "provider-default-unverified" | null;
+  };
+  context_epoch_archives?: Array<{
+    provider: string;
+    cwd: string;
+    session_id: string;
+  }>;
   role?: AgentRole | null;
   machine_agent_identity?: "general_agent" | null;
   role_profile?: string | null;

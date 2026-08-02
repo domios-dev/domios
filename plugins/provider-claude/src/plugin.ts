@@ -336,6 +336,32 @@ const plugin: PluginModule = {
     return null;
   },
 
+  detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
+    const path = claudeSessionFilePath(cwd, sessionId);
+    if (!path || !host.fs.fileExists(path)) return null;
+    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!contents) return null;
+    const supported: Record<string, boolean> = { low: true, medium: true, high: true, xhigh: true, max: true };
+    const lines = contents.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]) continue;
+      let value: Record<string, unknown>;
+      try { value = JSON.parse(lines[i]) as Record<string, unknown>; } catch (_) { continue; }
+      const message = value.message && typeof value.message === "object"
+        ? value.message as Record<string, unknown>
+        : null;
+      const metadata = message?.metadata && typeof message.metadata === "object"
+        ? message.metadata as Record<string, unknown>
+        : null;
+      const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message?.effort, message?.reasoning_effort, metadata?.effort];
+      for (let j = 0; j < candidates.length; j++) {
+        const effort = typeof candidates[j] === "string" ? candidates[j].trim() : "";
+        if (supported[effort]) return effort;
+      }
+    }
+    return null;
+  },
+
   // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
   // the registered manifest seed and must never be persisted as a live snapshot.
   discoverModels() {

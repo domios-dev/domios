@@ -155,6 +155,8 @@ impl MultiplexerState {
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
                     agent_state: p.agent_state.clone(),
                     boot_stage: p.boot_stage,
+                    reasoning_effort: p.reasoning_effort_identity.clone(),
+                    context_epochs: p.context_epoch_archives.clone(),
                 }),
                 role: tab.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 role_profile: tab.and_then(|p| p.role_profile.clone()),
@@ -377,6 +379,12 @@ impl MultiplexerState {
                     agent_provider_resolved_model: agent_provider_resolved_model.clone(),
                     model_fallback: model_fallback.clone(),
                     model_identity_mismatch: model_identity_mismatch.clone(),
+                    reasoning_effort_identity: restored_identity
+                        .map(|identity| identity.reasoning_effort.clone())
+                        .unwrap_or_default(),
+                    context_epoch_archives: restored_identity
+                        .map(|identity| identity.context_epochs.clone())
+                        .unwrap_or_default(),
                     session_binding_nonce: restored_identity
                         .and_then(|identity| identity.session_binding_nonce.clone()),
                     reported_session_binding_nonce: restored_identity
