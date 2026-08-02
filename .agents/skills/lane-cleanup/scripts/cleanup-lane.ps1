@@ -78,8 +78,11 @@ if (Test-Path -LiteralPath $lane) {
 }
 
 if ($Branch) {
-    git -C $canonical branch -d $Branch
-    Assert-Success "Delete merged branch $Branch"
+    git -C $canonical show-ref --verify --quiet "refs/heads/$Branch"
+    if ($LASTEXITCODE -eq 0) {
+        git -C $canonical branch -d $Branch
+        Assert-Success "Delete merged branch $Branch"
+    }
 }
 
 if ($PlanId -and $TaskId) {
