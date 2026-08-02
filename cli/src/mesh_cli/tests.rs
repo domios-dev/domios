@@ -526,6 +526,7 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     let inspect = Commands::Tab {
         action: TabAction::Inspect {
             tabs: vec!["tab_1".into(), "tab_2".into()],
+            tab: vec![],
         },
     };
     let (method, path, body) = cli_command_to_api(&inspect);
@@ -540,6 +541,17 @@ fn remote_worker_forget_body_matches_registry_delete_contract() {
     assert_eq!(body["peer"], "ROG");
     assert_eq!(body["remote_tab"], "tab_1");
     assert!(body.get("orchestrator_tab").is_none());
+}
+
+#[test]
+fn canonical_tab_close_preserves_remote_worker_cleanup_route() {
+    let mut action = TabAction::Close {
+        id: None,
+        tab: Some("tab_remote".into()),
+    };
+    crate::args::misc::normalize_required_tab_selector(&mut action).unwrap();
+    let command = Commands::Tab { action };
+    assert_eq!(super::remote_close_tab_id(&command), Some("tab_remote"));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -132,7 +132,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
-- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
+- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
@@ -206,7 +206,7 @@ Focus the open canvas on a task, tab, or plan
 
 #### `codeterm capabilities`
 
-List all available API methods
+List CLI commands and clearly marked RPC-only/internal methods
 
 #### `codeterm cli-manifest`
 
@@ -1746,7 +1746,7 @@ Show the next queued QA task, claim it, or record a group's full-gate regression
 
 - `--claim`
 - `--group` — Record ONE group-scoped regression working point instead of claiming a task
-- `--note`
+- `--note` — Claim note. Required with --claim.
 - `<plan_id>`
 
 #### `codeterm plan qa override`
@@ -2639,7 +2639,8 @@ Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 Close a tab by ID
 
-- `<id>` — Tab ID
+- `<id>` — Temporary positional alias for the tab id. Prefer --tab.
+- `--tab` — Tab ID to close.
 
 #### `codeterm tab current`
 
@@ -2666,7 +2667,8 @@ Execute a command in a tab and return output
 
 Focus a tab by ID
 
-- `<id>` — Tab ID
+- `<id>` — Temporary positional alias for the tab id. Prefer --tab.
+- `--tab` — Tab ID to focus.
 
 #### `codeterm tab get-text`
 
@@ -2679,7 +2681,8 @@ Get visible terminal text of a tab (what the user sees)
 
 Show the full daemon tab payload for one or more explicit tab ids
 
-- `<tabs>` — One or more tab ids to inspect
+- `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs.
+- `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab.
 
 #### `codeterm tab list`
 

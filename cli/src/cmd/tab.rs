@@ -44,7 +44,12 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 other => handle_result(json, other),
             }
         }
-        TabAction::Inspect { tabs } => {
+        TabAction::Inspect { mut tabs, tab } => {
+            tabs.extend(tab);
+            if tabs.is_empty() {
+                eprintln!("Error: tab inspect requires --tab <ID>");
+                std::process::exit(2);
+            }
             let result = client.call("tab.inspect", Some(serde_json::json!({ "tab_ids": tabs })));
             handle_result(json, result);
         }
@@ -189,11 +194,21 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
             }
         }
-        TabAction::Focus { id } => {
+        TabAction::Focus { id, tab } => {
+            let id = crate::args::misc::required_tab_selector(&id, &tab, "focus")
+                .unwrap_or_else(|error| {
+                    eprintln!("Error: {error}");
+                    std::process::exit(2);
+                });
             let result = client.call("tab.focus", Some(serde_json::json!({ "tab_id": id })));
             handle_result(json, result);
         }
-        TabAction::Close { id } => {
+        TabAction::Close { id, tab } => {
+            let id = crate::args::misc::required_tab_selector(&id, &tab, "close")
+                .unwrap_or_else(|error| {
+                    eprintln!("Error: {error}");
+                    std::process::exit(2);
+                });
             let mut params = serde_json::json!({ "tab_id": id });
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = client.call("tab.close", Some(params));
