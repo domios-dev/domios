@@ -561,19 +561,6 @@ fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
         ],
     ) {
         Some(QuestionSubtype::RateLimit)
-    } else if contains_any(
-        &text,
-        &[
-            "please log in",
-            "please sign in",
-            "you are not logged in",
-            "not signed in",
-            "authentication required",
-            "log in to continue",
-            "sign in to continue",
-        ],
-    ) {
-        Some(QuestionSubtype::Auth)
     } else {
         None
     }

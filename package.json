@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test:unit": "node scripts/run-ts-unit-tests.mjs",
-    "test:plugins": "bash scripts/plugin-tests.sh",
+    "test:plugins": "node scripts/run-plugin-tests.mjs",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:plugin-ui": "node scripts/build-plugin-ui.mjs",
     "check:plugin-bundles": "node scripts/check-plugin-bundles.mjs",

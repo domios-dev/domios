@@ -185,11 +185,18 @@ pub async fn resume_session_api(
         ),
     ))?;
 
+    let permission_bypass_authorization =
+        crate::service::permission_policy::configured_permission_bypass(
+            &state.svc.agent_registry,
+            &meta.provider,
+        )
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let permission_bypass = permission_bypass_authorization.is_some();
     let resume_cmd_preview = state
         .svc
         .agent_registry
         .with_provider(&meta.provider, |p| {
-            p.build_resume_command(&meta.session_id, false)
+            p.build_resume_command(&meta.session_id, permission_bypass)
         })
         .flatten();
 
@@ -329,8 +336,8 @@ pub async fn resume_session_api(
         skip_orchestrator_onboarding: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
-        skip_permissions: Some(false),
-        permission_bypass_authorization: None,
+        skip_permissions: Some(permission_bypass),
+        permission_bypass_authorization,
         spawned_by_tab_id: None,
         model: body.model.clone(),
         planned_model: None,

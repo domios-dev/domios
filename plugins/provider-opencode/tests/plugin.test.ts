@@ -191,6 +191,16 @@ console.log("\n--- discoverModels ---\n");
     "opencode --session Q(windows:sess 2)",
     "buildResumeCommand quotes --session with quoteFor(platform)",
   );
+  eq(
+    p.buildLaunchCommand({ skipPermissions: true }),
+    "opencode --dangerously-skip-permissions",
+    "buildLaunchCommand applies the centralized full-access policy",
+  );
+  eq(
+    p.buildResumeCommand("sess 2", true),
+    "opencode --session Q(windows:sess 2) --dangerously-skip-permissions",
+    "buildResumeCommand applies the centralized full-access policy",
+  );
 }
 
 {

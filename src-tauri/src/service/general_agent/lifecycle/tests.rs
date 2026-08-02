@@ -238,7 +238,12 @@ fn general_agent_launch_uses_capability_backed_permission_bypass() {
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
-    let permission_bypass = super::general_agent_permission_bypass(&registry, "claude");
+    let permission_bypass = crate::service::permission_policy::authorize_permission_bypass(
+        &registry,
+        "claude",
+        true,
+    )
+    .is_some();
     let command = super::build_general_agent_resume_command(
         &registry,
         "claude",
@@ -249,10 +254,12 @@ fn general_agent_launch_uses_capability_backed_permission_bypass() {
 
     assert!(permission_bypass);
     assert!(command.contains("--dangerously-skip-permissions"));
-    assert!(!super::general_agent_permission_bypass(
+    assert!(crate::service::permission_policy::authorize_permission_bypass(
         &registry,
-        "missing-provider"
-    ));
+        "missing-provider",
+        true,
+    )
+    .is_none());
 }
 
 fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {

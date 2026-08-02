@@ -1,7 +1,7 @@
 import type { NormalizedChatMessage, TimelineItem } from "@codeterm/chat-core";
 
-/** The UI renders at most 220 rows and retains at most 440 source messages;
- * durable transcript recovery stays owned by chat_start/chat_backfill. */
+/** The UI renders at most 220 rows. Tail-follow mode retains 440 source
+ * messages; detached reading retains its anchor plus every live arrival. */
 export const CHAT_WINDOW_SIZE = 220;
 export const CHAT_WINDOW_STEP = 160;
 export const CHAT_RETAINED_MESSAGE_LIMIT = CHAT_WINDOW_SIZE * 2;
@@ -22,7 +22,6 @@ export function chatPredecessorRange(startOffset: number, endOffset: number): Ch
 export interface RetainedChatHistory {
   messages: NormalizedChatMessage[];
   omittedOlder: number;
-  omittedNewer: number;
   predecessorRange: ChatPredecessorRange | null;
 }
 
@@ -103,7 +102,6 @@ export function retainChatSnapshotTail(
   return {
     messages: messages.slice(start),
     omittedOlder: start,
-    omittedNewer: 0,
     predecessorRange,
   };
 }
@@ -119,7 +117,6 @@ export function mergeRetainedChatLive(
     return {
       messages: merged.slice(start),
       omittedOlder: retained.omittedOlder + start,
-      omittedNewer: 0,
       predecessorRange: start > 0 ? null : retained.predecessorRange,
     };
   }
@@ -128,11 +125,9 @@ export function mergeRetainedChatLive(
   const retainedIds = new Set(retained.messages.map((message) => message.id));
   const updated = retained.messages.map((message) => mergedById.get(message.id) ?? message);
   const additions = merged.filter((message) => !retainedIds.has(message.id));
-  const accepted = additions.slice(0, Math.max(0, limit - updated.length));
   return {
-    messages: [...updated, ...accepted],
+    messages: [...updated, ...additions],
     omittedOlder: retained.omittedOlder,
-    omittedNewer: retained.omittedNewer + additions.length - accepted.length,
     predecessorRange: retained.predecessorRange,
   };
 }
@@ -140,17 +135,13 @@ export function mergeRetainedChatLive(
 export function prependRetainedChatHistory(
   retained: RetainedChatHistory,
   older: readonly NormalizedChatMessage[],
-  limit: number = CHAT_RETAINED_MESSAGE_LIMIT,
   step: number = CHAT_WINDOW_STEP,
 ): RetainedChatHistory {
   const retainedIds = new Set(retained.messages.map((message) => message.id));
   const uniqueOlder = older.filter((message) => !retainedIds.has(message.id)).slice(-step);
-  const keepExisting = Math.max(0, limit - uniqueOlder.length);
-  const kept = retained.messages.slice(0, keepExisting);
   return {
-    messages: [...uniqueOlder, ...kept],
+    messages: [...uniqueOlder, ...retained.messages],
     omittedOlder: Math.max(0, retained.omittedOlder - uniqueOlder.length),
-    omittedNewer: retained.omittedNewer + retained.messages.length - kept.length,
     predecessorRange: retained.predecessorRange,
   };
 }
@@ -167,7 +158,7 @@ export function refillRetainedChatHistory(
   if (oldestIndex < 0) return retained;
   if (oldestIndex === 0) return { ...retained, omittedOlder: 0 };
   const older = snapshot.slice(Math.max(0, oldestIndex - step), oldestIndex);
-  const refilled = prependRetainedChatHistory(retained, older, limit, step);
+  const refilled = prependRetainedChatHistory(retained, older, step);
   return {
     ...refilled,
     omittedOlder: Math.max(0, oldestIndex - older.length),
@@ -230,7 +221,7 @@ export function seekRetainedChatPredecessor(
   }
   const pageWindowStart = boundaryIndex - available;
   const older = page.slice(pageWindowStart, boundaryIndex);
-  const history = prependRetainedChatHistory(retained, older, CHAT_RETAINED_MESSAGE_LIMIT, step);
+  const history = prependRetainedChatHistory(retained, older, step);
   return {
     history: {
       ...history,
