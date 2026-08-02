@@ -125,6 +125,11 @@
   --activity-dot-gap: 1.25px;
   --activity-dot-jump: 1.25px;
 }
+.activity-dots--workspace-badge {
+  --activity-dot-size: 2px;
+  --activity-dot-gap: 1px;
+  --activity-dot-jump: 0.75px;
+}
 .activity-dots--small {
   --activity-dot-size: 3px;
   --activity-dot-gap: 2px;
