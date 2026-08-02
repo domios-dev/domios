@@ -103,8 +103,12 @@ struct Tracked {
     ended: bool,
 }
 
-/// Seed initial per-tab offsets (blocking buffer read). Absent cursor ⇒ tail
-/// all; boot-match ⇒ resume known tabs at their offset and full-replay tabs
+fn tab_is_in_scope(candidate: &str, requested: Option<&str>) -> bool {
+    requested.is_none_or(|wanted| wanted == candidate)
+}
+
+/// Seed initial per-tab offsets (blocking buffer read). A tab-scoped stream
+/// starts at zero; boot-match resumes known tabs and full-replays new tabs
 /// created during the gap; boot mismatch ⇒ a `boot-changed` frame then tail all
 /// (the client full-resyncs via `mux_get_state`).
 fn seed_initial(
@@ -118,7 +122,7 @@ fn seed_initial(
         .read()
         .pty_backed_tabs()
         .into_iter()
-        .filter(|(id, _)| tab_id.is_none_or(|wanted| wanted == id))
+        .filter(|(id, _)| tab_is_in_scope(id, tab_id))
         .collect();
     let buf = svc.output_buf.lock();
     let mut tracked = HashMap::new();
@@ -131,8 +135,9 @@ fn seed_initial(
     match cursor {
         None => {
             for (tab, pty) in &live {
-                tracked.insert(tab.clone(), tail(pty));
+                tracked.insert(tab.clone(), if tab_id.is_some() { Tracked { offset: 0, ended: false } } else { tail(pty) });
             }
+            if tab_id.is_some() { boot_frame = Some(serde_json::json!({ "boot": boot })); }
         }
         Some(c) if c.boot == boot => {
             for (tab, _pty) in &live {
@@ -169,7 +174,7 @@ fn sweep(
         .read()
         .pty_backed_tabs()
         .into_iter()
-        .filter(|(id, _)| tab_id.is_none_or(|wanted| wanted == id))
+        .filter(|(id, _)| tab_is_in_scope(id, tab_id))
         .collect();
     // Disposed tabs (gone from mux) are dropped silently.
     tracked.retain(|tab, _| live.contains_key(tab));

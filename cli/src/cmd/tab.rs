@@ -42,12 +42,15 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Inspect { tabs } => {
-            if tabs.len() == 1 {
-                if let Some((peer, tab)) = parse_remote_tab_id(&tabs[0]) {
-                    let data = relay_tab_json(&peer, "GET", &format!("/api/tabs/inspect?tab_ids={tab}"), None);
+            match remote_inspect_target(&tabs) {
+                Ok(Some((peer, remote_tabs))) => {
+                    let ids = remote_tabs.join(",");
+                    let data = relay_tab_json(&peer, "GET", &format!("/api/tabs/inspect?tab_ids={ids}"), None);
                     handle_result(json, Ok(data));
                     return;
                 }
+                Err(error) => { handle_result(json, Err(error)); return; }
+                Ok(None) => {}
             }
             let result = client.call("tab.inspect", Some(serde_json::json!({ "tab_ids": tabs })));
             handle_result(json, result);
@@ -538,10 +541,29 @@ fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, 
 
 fn parse_remote_tab_id(value: &str) -> Option<(String, String)> {
     let (peer, tab) = value.strip_prefix("mesh:")?.split_once('/')?;
-    if peer.is_empty() || tab.is_empty() || tab.contains('/') {
+    if peer.is_empty() || tab.is_empty() || tab.contains('/') || value.chars().any(|c| c.is_whitespace() || matches!(c, '?' | '&' | '#')) {
         return None;
     }
     Some((peer.to_string(), tab.to_string()))
+}
+
+fn remote_inspect_target(tabs: &[String]) -> Result<Option<(String, Vec<String>)>, String> {
+    let mut remote = Vec::new();
+    let mut local = false;
+    for value in tabs {
+        match parse_remote_tab_id(value) {
+            Some(identity) => remote.push(identity),
+            None if value.starts_with("mesh:") => return Err(format!("invalid remote tab id: {value}")),
+            None => local = true,
+        }
+    }
+    if remote.is_empty() { return Ok(None); }
+    if local { return Err("mixed local and remote inspection is unsupported".into()); }
+    let peer = remote[0].0.clone();
+    if remote.iter().any(|(owner, _)| owner != &peer) {
+        return Err("multi-peer remote inspection is unsupported".into());
+    }
+    Ok(Some((peer, remote.into_iter().map(|(_, tab)| tab).collect())))
 }
 
 fn relay_tab_json(
