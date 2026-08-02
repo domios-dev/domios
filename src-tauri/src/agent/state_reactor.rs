@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use super::status::TabStatus;
 use super::tab_state::{
-    Surface, TabState, TabStateAction, TabStateClassification, TabStateSnapshot,
+    ProviderUpdatePromptAction, Surface, TabState, TabStateAction, TabStateClassification,
+    TabStateSnapshot,
 };
 use crate::service::ServiceState;
 
@@ -31,6 +32,7 @@ pub enum ReactorDecision {
     Surface(Option<Surface>),
     /// High-confidence, non-auth, actionable verdict — execute it.
     Act(TabStateAction),
+    ProviderUpdate(ProviderUpdatePromptAction),
 }
 
 /// Pure decision: gate on parked status, confidence threshold, and the auth guard. No side effects, no locks.
@@ -53,6 +55,16 @@ pub fn decide(
     if c.state == TabState::WaitingOnAuth {
         return ReactorDecision::Surface(c.action.as_ref().and_then(|a| a.surface.clone()));
     }
+    if c.state == TabState::UpdatePrompt {
+        return match c
+            .action
+            .as_ref()
+            .and_then(|action| action.provider_update.clone())
+        {
+            Some(action) => ReactorDecision::ProviderUpdate(action),
+            None => ReactorDecision::Surface(c.action.as_ref().and_then(|a| a.surface.clone())),
+        };
+    }
     match &c.action {
         Some(action) => ReactorDecision::Act(action.clone()),
         None => ReactorDecision::Ignore,
@@ -63,13 +75,15 @@ pub fn decide(
 pub fn action_to_writes(action: &TabStateAction) -> Vec<Vec<u8>> {
     action
         .keys
-        .as_ref()
-        .map(|keys| {
-            keys.iter()
-                .filter_map(|k| super::keys::action_key_bytes(k))
-                .collect()
-        })
+        .as_deref()
+        .map(keys_to_writes)
         .unwrap_or_default()
+}
+
+fn keys_to_writes(keys: &[String]) -> Vec<Vec<u8>> {
+    keys.iter()
+        .filter_map(|key| super::keys::action_key_bytes(key))
+        .collect()
 }
 
 /// Start the background reactor loop on its own thread: sweeps tracked tabs,
@@ -148,15 +162,27 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
     };
 
     // Ask the tab's OWN provider. No lock held across this call.
-    let classification: Option<TabStateClassification> = svc
+    let (classification, update_capability) = svc
         .agent_registry
-        .with_provider(&agent_type, |p| p.classify_tab_state(&snapshot))
-        .flatten();
+        .with_provider(&agent_type, |provider| {
+            (
+                provider.classify_tab_state(&snapshot),
+                provider.describe().self_update,
+            )
+        })
+        .unwrap_or((None, None));
 
     match decide(status, classification.as_ref()) {
         ReactorDecision::Ignore => {}
         ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
         ReactorDecision::Act(action) => execute_action(svc, &tab_id, action),
+        ReactorDecision::ProviderUpdate(action) => svc.handle_provider_update_prompt(
+            &tab_id,
+            &agent_type,
+            update_capability,
+            keys_to_writes(&action.install_keys),
+            keys_to_writes(&action.decline_keys),
+        ),
     }
 }
 

@@ -44,6 +44,7 @@ pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;
 pub mod plugin_host;
+pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
@@ -189,6 +190,7 @@ pub struct ServiceContext {
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
     /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
+    pub provider_updates: provider_update::ProviderUpdateRegistry,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
     pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,

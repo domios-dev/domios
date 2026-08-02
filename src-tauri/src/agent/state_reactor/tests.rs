@@ -22,6 +22,7 @@ fn keys_action(keys: &[&str]) -> TabStateAction {
         keys: Some(keys.iter().map(|k| k.to_string()).collect()),
         delayed_resume: None,
         surface: None,
+        provider_update: None,
     }
 }
 
@@ -72,6 +73,7 @@ fn waiting_on_auth_is_never_auto_acted_surface_only() {
         keys: Some(vec!["enter".to_string()]),
         delayed_resume: None,
         surface: Some(surface.clone()),
+        provider_update: None,
     };
     let c = classification(TabState::WaitingOnAuth, 0.99, Some(action));
     assert_eq!(
@@ -93,11 +95,7 @@ fn waiting_on_auth_with_no_surface_still_surfaces() {
 #[test]
 fn high_confidence_keys_action_is_executed() {
     let action = keys_action(&["down", "enter"]);
-    let c = classification(
-        TabState::UpdatePrompt,
-        GLOBAL_THRESHOLD,
-        Some(action.clone()),
-    );
+    let c = classification(TabState::IdleStuck, GLOBAL_THRESHOLD, Some(action.clone()));
     assert_eq!(
         decide(TabStatus::Idle, Some(&c)),
         ReactorDecision::Act(action)
@@ -110,7 +108,7 @@ fn high_confidence_action_with_keys_dispatches_key_injection_bytes() {
     let action = keys_action(&["down", "enter"]);
     let ReactorDecision::Act(decided) = decide(
         TabStatus::Waiting,
-        Some(&classification(TabState::UpdatePrompt, 0.95, Some(action))),
+        Some(&classification(TabState::IdleStuck, 0.95, Some(action))),
     ) else {
         panic!("expected Act decision");
     };
@@ -128,6 +126,7 @@ fn action_with_no_keys_produces_no_writes() {
             then_keys: None,
         }),
         surface: None,
+        provider_update: None,
     };
     assert!(action_to_writes(&action).is_empty());
 }
