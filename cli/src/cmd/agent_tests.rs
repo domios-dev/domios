@@ -93,6 +93,7 @@ fn task_file_round_trips_shell_metacharacters_byte_exact() {
     let resolved = resolve_spawn_task(
         None,
         Some(path.to_string_lossy().into_owned()),
+        None,
         &mut &b""[..],
     )
     .unwrap();
@@ -119,7 +120,7 @@ fn tab_description_validation_accepts_200_and_rejects_201() {
 fn task_file_dash_reads_stdin_byte_exact() {
     let body = "stdin `backticks` and $(date) survive\n";
     let mut stdin = body.as_bytes();
-    let resolved = resolve_spawn_task(None, Some("-".to_string()), &mut stdin).unwrap();
+    let resolved = resolve_spawn_task(None, Some("-".to_string()), None, &mut stdin).unwrap();
     assert_eq!(resolved, Some(body.to_string()));
 }
 
@@ -144,6 +145,7 @@ fn task_and_task_file_together_is_an_error() {
     let err = resolve_spawn_task(
         Some("inline".to_string()),
         Some("-".to_string()),
+        None,
         &mut &b""[..],
     )
     .unwrap_err();
@@ -156,6 +158,7 @@ fn missing_task_file_reports_unreadable() {
     let err = resolve_spawn_task(
         None,
         Some(path.to_string_lossy().into_owned()),
+        None,
         &mut &b""[..],
     )
     .unwrap_err();
@@ -164,7 +167,40 @@ fn missing_task_file_reports_unreadable() {
 
 #[test]
 fn neither_task_nor_task_file_is_none() {
-    assert_eq!(resolve_spawn_task(None, None, &mut &b""[..]).unwrap(), None);
+    assert_eq!(resolve_spawn_task(None, None, None, &mut &b""[..]).unwrap(), None);
+}
+
+#[test]
+fn relative_task_file_resolves_from_spawn_cwd() {
+    let base = std::env::temp_dir().join(format!("ct-task-cwd-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(base.join("brief.txt"), "cwd-relative body\n").unwrap();
+
+    let resolved = resolve_spawn_task(
+        None,
+        Some("brief.txt".into()),
+        Some(base.to_str().unwrap()),
+        &mut &b""[..],
+    )
+    .unwrap();
+
+    std::fs::remove_dir_all(&base).ok();
+    assert_eq!(resolved.as_deref(), Some("cwd-relative body\n"));
+}
+
+#[test]
+fn missing_relative_task_file_reports_requested_path_base_and_resolution() {
+    let base = std::env::temp_dir().join(format!("ct-task-cwd-{}", uuid::Uuid::new_v4()));
+    let err = resolve_spawn_task(
+        None,
+        Some("missing.txt".into()),
+        Some(base.to_str().unwrap()),
+        &mut &b""[..],
+    )
+    .unwrap_err();
+    assert!(err.contains("missing.txt"));
+    assert!(err.contains(&base.display().to_string()));
+    assert!(err.contains(&base.join("missing.txt").display().to_string()));
 }
 
 #[test]

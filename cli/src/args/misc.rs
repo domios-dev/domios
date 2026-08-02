@@ -64,9 +64,12 @@ pub enum TabAction {
     },
     /// Show the full daemon tab payload for one or more explicit tab ids.
     Inspect {
-        /// One or more tab ids to inspect.
-        #[arg(required = true, num_args = 1..)]
+        /// Temporary positional aliases for tab ids. Prefer --tab.
+        #[arg(num_args = 0..)]
         tabs: Vec<String>,
+        /// One or more tab ids to inspect. Repeat the flag for multiple tabs.
+        #[arg(long = "tab", value_name = "ID", action = clap::ArgAction::Append)]
+        tab: Vec<String>,
     },
     /// Plain shell tab. For an AI tab use `codeterm agent spawn` instead.
     New {
@@ -109,13 +112,21 @@ pub enum TabAction {
     },
     /// Focus a tab by ID
     Focus {
-        /// Tab ID
-        id: String,
+        /// Temporary positional alias for the tab id. Prefer --tab.
+        #[arg(conflicts_with = "tab")]
+        id: Option<String>,
+        /// Tab ID to focus.
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
     },
     /// Close a tab by ID
     Close {
-        /// Tab ID
-        id: String,
+        /// Temporary positional alias for the tab id. Prefer --tab.
+        #[arg(conflicts_with = "tab")]
+        id: Option<String>,
+        /// Tab ID to close.
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
     },
     /// Rename a tab (default: current tab)
     Rename {

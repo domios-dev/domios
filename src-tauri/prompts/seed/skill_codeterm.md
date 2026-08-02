@@ -3,7 +3,7 @@
 Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system power.
 
 - `codeterm tab list` — always use this plain compact view for interactive discovery/cleanup; `(self)` marks your tab
-- `codeterm tab inspect <id>` — full details for one selected tab; never write or run whole-list JSON interactively
+- `codeterm tab inspect --tab ID` — full details for one selected tab; never write or run whole-list JSON interactively
 - `codeterm send "..." --tab ID` — type into a tab
 - `codeterm tab stop [--tab ID]` — interrupt the agent's current generation (doesn't close the tab)
 - `codeterm agent spawn claude --task "..."` — spawn a child tab you own (parent = you, automatic)
@@ -15,3 +15,4 @@ Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system 
 - `codeterm keepawake start --duration-secs N [--display]` / `stop` / `status` — prevent sleep cross-platform (do NOT call `caffeinate`, `powercfg`, `systemd-inhibit`)
 
 Always use the CLI from inside CodeTerm via Bash. Do not curl the REST API directly.
+Use `$CODETERM_TAB_ID` when a command needs the current tab's identity; do not use pane-era names.

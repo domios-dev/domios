@@ -249,7 +249,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         return;
     }
     if let Commands::Tab {
-        action: super::TabAction::Close { id },
+        action: super::TabAction::Close { id: Some(id), tab: None },
     } = &cli.command
     {
         relay::mesh_close_tab_and_forget_remote_worker(&http, &base, &token, target, id, cli.json);

@@ -526,6 +526,7 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     let inspect = Commands::Tab {
         action: TabAction::Inspect {
             tabs: vec!["tab_1".into(), "tab_2".into()],
+            tab: vec![],
         },
     };
     let (method, path, body) = cli_command_to_api(&inspect);

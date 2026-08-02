@@ -93,8 +93,15 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
     if rows.is_empty() {
         return if stale_only {
             "no stale lanes\n".to_string()
+        } else if val
+            .get("lane_history_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > 0
+        {
+            "all registered lanes are closed\n".to_string()
         } else {
-            "no open lanes\n".to_string()
+            "no lanes have been registered\n".to_string()
         };
     }
 
@@ -202,7 +209,11 @@ mod tests {
     fn empty_lanes_report_gracefully() {
         assert_eq!(
             render_lanes(&json!({"lanes": []}), false),
-            "no open lanes\n"
+            "no lanes have been registered\n"
+        );
+        assert_eq!(
+            render_lanes(&json!({"lanes": [], "lane_history_count": 2}), false),
+            "all registered lanes are closed\n"
         );
         assert_eq!(render_lanes(&json!({}), true), "no stale lanes\n");
     }

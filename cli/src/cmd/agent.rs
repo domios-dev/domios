@@ -13,6 +13,7 @@ use std::io::Read;
 pub fn resolve_spawn_task<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
+    spawn_cwd: Option<&str>,
     stdin: &mut R,
 ) -> Result<Option<String>, String> {
     match (task, task_file) {
@@ -26,9 +27,24 @@ pub fn resolve_spawn_task<R: Read>(
                     .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
                 Ok(Some(buf))
             } else {
-                std::fs::read_to_string(&path)
+                let requested = std::path::Path::new(&path);
+                let base = spawn_cwd
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                let resolved = if requested.is_absolute() {
+                    requested.to_path_buf()
+                } else {
+                    base.join(requested)
+                };
+                std::fs::read_to_string(&resolved)
                     .map(Some)
-                    .map_err(|e| format!("failed to read --task-file {}: {}", path, e))
+                    .map_err(|e| {
+                        format!(
+                            "failed to read --task-file {path} (resolved from {} as {}): {e}",
+                            base.display(),
+                            resolved.display()
+                        )
+                    })
             }
         }
         (None, None) => Ok(None),
@@ -704,7 +720,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 eprintln!("Error: --workspace is required when spawning --role Orchestrator");
                 std::process::exit(1);
             }
-            let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
+            let task = match resolve_spawn_task(task, task_file, cwd.as_deref(), &mut std::io::stdin()) {
                 Ok(t) => t,
                 Err(e) => {
                     eprintln!("Error: {}", e);

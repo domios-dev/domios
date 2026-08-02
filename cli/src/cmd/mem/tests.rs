@@ -1,5 +1,23 @@
 use super::transport::mem_unavailable_message;
 use crate::{Cli, Commands, MemAction};
+use serde_json::json;
+
+#[test]
+fn mem_search_human_output_is_compact_and_bounded() {
+    let value = json!([
+        {"item": {"id": "mem_1", "title": "First", "kind": "fact", "summary": "short summary", "body": "ignored"}, "score": 0.8754},
+        {"item": {"id": "mem_2", "title": "Second", "kind": "note", "body": "line one\nline two"}, "score": 0.5},
+        {"item": {"id": "mem_3", "title": "Third", "kind": "skill", "body": "x".repeat(140)}, "score": 0.125}
+    ]);
+
+    let out = super::render_search_hits(&value);
+
+    assert_eq!(out.lines().count(), 3);
+    assert!(out.contains("mem_1 | First | fact | 0.875 | short summary"));
+    assert!(out.contains("mem_2 | Second | note | 0.500 | line one line two"));
+    assert!(out.lines().nth(2).unwrap().ends_with('…'));
+    assert!(!out.contains("{\"item\""));
+}
 use clap::Parser;
 
 #[test]

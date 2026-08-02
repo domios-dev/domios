@@ -198,6 +198,7 @@ pub struct PlanStateSnapshot {
     pub heartbeat: HeartbeatSnapshot,
     pub open_lanes: Vec<OpenLane>,
     pub lanes: Vec<lane_rows::LaneRow>,
+    pub lane_history_count: usize,
     pub blocked_lanes: Vec<OpenLane>,
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
@@ -226,16 +227,12 @@ fn task_counts(plan: &Plan) -> TaskCounts {
     c
 }
 
-// Completion over non-cancelled, non-paused tasks: both are out of active scope.
+// Completion uses the same all-task denominator exposed beside the percentage.
 fn percent_done(counts: &TaskCounts) -> f64 {
-    let denom = counts
-        .total
-        .saturating_sub(counts.cancelled)
-        .saturating_sub(counts.paused);
-    if denom == 0 {
+    if counts.total == 0 {
         0.0
     } else {
-        counts.done as f64 / denom as f64
+        counts.done as f64 / counts.total as f64
     }
 }
 
@@ -503,6 +500,17 @@ pub fn build_plan_state_snapshot(
                 && task.qa_state == Some(QaState::Queued)
         })
         .count();
+    let lane_history_count = plan
+        .tasks
+        .iter()
+        .filter(|task| {
+            !task.execution_attempts.is_empty()
+                || task.assigned_tab_id.is_some()
+                || task.lane.tab_id.is_some()
+                || task.lane.branch.is_some()
+                || task.lane.worktree_path.is_some()
+        })
+        .count();
     let qa_running = plan.tasks.iter().find(|task| {
         task.status == TaskStatus::InReview
             && task.review_stage == ReviewStage::Qa
@@ -581,6 +589,7 @@ pub fn build_plan_state_snapshot(
         },
         open_lanes,
         lanes,
+        lane_history_count,
         blocked_lanes,
         live_agents,
         recent_strides: recent_strides(plan),
