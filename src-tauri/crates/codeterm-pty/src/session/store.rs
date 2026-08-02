@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+fn legacy_snapshot_audience() -> crate::multiplexer::types::TabAudience {
+    crate::multiplexer::types::TabAudience::Automation
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub version: String,
@@ -125,6 +129,9 @@ pub enum SplitNodeSnapshot {
         /// behaviour instead of silently dropping back to prompting.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
+        /// Missing legacy audience fails closed as automation.
+        #[serde(default = "legacy_snapshot_audience")]
+        audience: crate::multiplexer::types::TabAudience,
         /// Model family on the live session. Persisted so resume re-applies it
         /// instead of dropping the tab to the provider default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
