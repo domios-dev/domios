@@ -112,6 +112,7 @@ export function TabSessionChat({
   const touchMode = useTouchOptimizedUi();
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
+  const chatFollowTailRef = useRef(true);
   const [longIdle, setLongIdle] = useState(false);
 
   const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace } = useMultiplexer();
@@ -163,6 +164,7 @@ export function TabSessionChat({
     backfillLoading,
     loadOlder,
     showLatest,
+    setHistoryReading,
     addOptimistic,
     updateOptimistic,
   } = useChatSession({
@@ -173,6 +175,7 @@ export function TabSessionChat({
     active: isActive,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
+    followTailRef: chatFollowTailRef,
   });
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const chatLoading = loading || recovering || error != null;
@@ -192,6 +195,8 @@ export function TabSessionChat({
     active: isActive,
     loading,
     messageCount: enrichedMessages.length,
+    followTailRef: chatFollowTailRef,
+    onModeChange: (mode) => setHistoryReading(mode === "detached"),
   });
 
   // Sending or jumping to latest must leave history-browsing mode first, or the
