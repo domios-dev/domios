@@ -226,7 +226,7 @@ impl MeshSpawnFailure {
             println!("{}", serde_json::to_string_pretty(&self.to_json()).unwrap());
         } else {
             eprintln!(
-                "Error: mesh spawn on '{}' failed: {}\nhint: {}",
+                "Error: mesh request to '{}' failed: {}\nhint: {}",
                 self.peer, self.reason, self.retry_hint
             );
         }
