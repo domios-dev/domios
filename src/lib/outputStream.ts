@@ -284,6 +284,7 @@ const remoteSinks = new Map<string, Set<TabOutputSink>>();
 const remoteControllers = new Map<string, AbortController>();
 const remoteCursors = new Map<string, { peerId: string; boot?: string; offset: number }>();
 const remoteGenerations = new Map<string, number>();
+const remoteSettlements = new Map<string, Map<number, { promise: Promise<void>; resolve: () => void }>>();
 
 export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number): string {
   const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: offset } });
@@ -297,6 +298,11 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
   const abort = new AbortController();
   const generation = (remoteGenerations.get(ordinaryTabId) ?? 0) + 1;
   remoteGenerations.set(ordinaryTabId, generation);
+  let settle!: () => void;
+  const settlement = new Promise<void>((resolve) => { settle = resolve; });
+  const byGeneration = remoteSettlements.get(ordinaryTabId) ?? new Map();
+  byGeneration.set(generation, { promise: settlement, resolve: settle });
+  remoteSettlements.set(ordinaryTabId, byGeneration);
   remoteControllers.set(ordinaryTabId, abort);
   const params = new URLSearchParams({
     peer: peerId,
@@ -350,6 +356,7 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
   }).catch(() => { if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "unavailable"); })
     .finally(() => {
       if (remoteGenerations.get(ordinaryTabId) === generation) remoteControllers.delete(ordinaryTabId);
+      remoteSettlements.get(ordinaryTabId)?.get(generation)?.resolve();
     });
 }
 
@@ -365,6 +372,14 @@ export function resumeRemoteOutputStreams(): void {
 
 export function remoteOutputSubscriptionGeneration(ordinaryTabId: string): number {
   return remoteGenerations.get(ordinaryTabId) ?? 0;
+}
+
+export function remoteOutputSubscriptionSnapshot(ordinaryTabId: string): { generation: number; hasController: boolean } {
+  return { generation: remoteGenerations.get(ordinaryTabId) ?? 0, hasController: remoteControllers.has(ordinaryTabId) };
+}
+
+export function waitForRemoteOutputGenerationSettlement(ordinaryTabId: string, generation: number): Promise<void> {
+  return remoteSettlements.get(ordinaryTabId)?.get(generation)?.promise ?? Promise.resolve();
 }
 
 /** Force an immediate reconnect keeping all offsets (wake-from-sleep resume):
