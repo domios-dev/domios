@@ -254,6 +254,7 @@ pub async fn spawn_agent(
         starter_prompt,
         task_id: body.task_id,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: body.plan_task,
         execution_intent: body.execution_intent,
         provider_reserve_pct: body.provider_reserve_pct,
