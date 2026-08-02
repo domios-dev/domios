@@ -175,9 +175,12 @@ export function TabSessionChat({
   });
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const chatLoading = loading || recovering || error != null;
-  const setupView = chatLoading && enrichedMessages.length === 0
-    ? { kind: "starting", label: "Starting" } as const
-    : bootSetupView;
+  const hasTranscript = enrichedMessages.length > 0;
+  const setupView = hasTranscript
+    ? { kind: "none" } as const
+    : chatLoading
+      ? { kind: "starting", label: "Starting" } as const
+      : bootSetupView;
 
   const {
     scrollRef,
@@ -514,7 +517,7 @@ export function TabSessionChat({
   const statusRowState: AgentState = useMemo(() => {
     if (error) return { state: "idle", status_line: "Chat unavailable" };
     if (loading || recovering) return { state: "working", status_line: "Loading chat…" };
-    if (bootSetupView.kind === "starting") {
+    if (!hasTranscript && bootSetupView.kind === "starting") {
       return {
         state: "working",
         status_line: chatSetupStageLabel(
@@ -524,7 +527,7 @@ export function TabSessionChat({
       };
     }
     return liveAgentState;
-  }, [bootSetupView.kind, error, liveAgentState, loading, provider?.displayName, recovering, tab]);
+  }, [bootSetupView.kind, error, hasTranscript, liveAgentState, loading, provider?.displayName, recovering, tab]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
