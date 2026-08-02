@@ -28,20 +28,18 @@ Default configuration:
 ```toml
 [api]
 host = "127.0.0.1"
-allow_network = false
 port = 7685
 cors = false
 ```
 Then: `Authorization: Bearer your-secret-token`
 
 Non-loopback binds require an explicitly configured host and a non-empty token;
-unsafe changes are rejected before the active listener is mutated. CORS is
-allowlist-only:
+remote requests are accepted only while Mesh is enabled. Turning Mesh off blocks
+all remote HTTP access while preserving localhost access. CORS is allowlist-only:
 
 ```toml
 [api]
 host = "192.0.2.10"
-allow_network = true
 token = "replace-with-a-long-local-secret"
 cors = true
 cors_allow_origins = ["https://console.example"]
@@ -237,4 +235,4 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 107 -->
+<!-- revision: 108 -->

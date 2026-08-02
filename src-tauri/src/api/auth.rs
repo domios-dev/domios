@@ -1,9 +1,10 @@
 use axum::{
-    extract::{Request, State as AxumState},
+    extract::{ConnectInfo, Request, State as AxumState},
     http::{Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use std::net::SocketAddr;
 
 use super::routes::AppState;
 use super::access_policy::check_access;
@@ -48,6 +49,10 @@ const PUBLIC_PATHS: &[&str] = &[
 fn peer_protocol_allowed(version: u16, path: &str) -> bool {
     version == crate::mesh::types::RELAY_PROTOCOL_VERSION
         || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
+}
+
+fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bool {
+    mesh_enabled || address.is_none_or(|address| address.ip().is_loopback())
 }
 
 /// Paths whose handler does its OWN authentication (a mesh-signed token, not the
@@ -148,6 +153,19 @@ pub async fn auth_middleware(
 ) -> Response {
     let path = req.uri().path().to_string();
     let method = req.method().clone();
+
+    let remote_address = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(address)| *address);
+    if !remote_network_allowed(state.config.lock().mesh.enabled, remote_address) {
+        log::warn!("[auth] Rejecting remote {} {} — mesh disabled", method, path);
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Mesh networking is disabled",
+        )
+            .into_response();
+    }
 
     // /api/mesh/enabled (the local on/off switch — it MUST stay reachable to turn mesh back on; still token-gated, peers rejected below).
     if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" && path != "/api/mesh/enabled" {
@@ -410,6 +428,17 @@ mod tests {
             PUBLIC_PATHS.contains(&"/api/providers"),
             "plugin verification needs unauthenticated provider liveness checks"
         );
+    }
+
+    #[test]
+    fn remote_network_follows_mesh_toggle() {
+        let local = "127.0.0.1:7685".parse().unwrap();
+        let remote = "192.0.2.10:7685".parse().unwrap();
+
+        assert!(remote_network_allowed(false, None));
+        assert!(remote_network_allowed(false, Some(local)));
+        assert!(!remote_network_allowed(false, Some(remote)));
+        assert!(remote_network_allowed(true, Some(remote)));
     }
 
     #[test]

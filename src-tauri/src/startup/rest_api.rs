@@ -675,7 +675,12 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         control.listener_bound(generation, local_addr);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let mut server = Box::pin(
-            axum::serve(listener, router.clone())
+            axum::serve(
+                listener,
+                router
+                    .clone()
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
                 .with_graceful_shutdown(async {
                     let _ = shutdown_rx.await;
                 })

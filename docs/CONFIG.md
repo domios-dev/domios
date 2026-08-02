@@ -77,7 +77,6 @@ full_access = true
 [api]
 enabled = true
 host = "127.0.0.1"
-allow_network = false
 port = 7685
 # Auto-generated on first load; every local control request uses Bearer auth.
 # token = "your-secret-token"
@@ -109,9 +108,10 @@ server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaul
 persist_master_password = false              # Save master password in OS keychain on unlock (auto-unlock after restart). Off by default.
 ```
 
-The API listens only on loopback by default. A non-loopback `host` is an explicit
-network exposure and is rejected unless `allow_network = true` and the
-persisted config has a non-empty Bearer token. CORS is closed unless `cors = true` and every allowed HTTP(S)
+The API listens only on loopback by default. A non-loopback `host` requires a
+non-empty Bearer token. The existing Mesh switch is the only network-access
+control: Mesh off rejects every remote request while localhost remains available;
+Mesh on permits authenticated remote access. CORS is closed unless `cors = true` and every allowed HTTP(S)
 origin is named in `cors_allow_origins`; `*` is never accepted. Authenticated
 `GET /api/config` redacts the token and reports both the configured address and
 the listener policy the process actually owns. `localhost`, `::1`, and `[::1]`
@@ -175,4 +175,4 @@ Settings UI: Settings > Agents > General Agent section (enable, auto-restart tog
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->
