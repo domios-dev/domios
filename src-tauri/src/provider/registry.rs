@@ -23,8 +23,8 @@ impl ProviderRegistry {
 
     /// Every provider as a transport-tagged descriptor. Chat backends are
     /// filtered to user-spawnable ones (bare `chatBackend: true` is hidden).
-    /// Callers must run this on a blocking thread because plugin catalog
-    /// getters may perform I/O.
+    /// Chat backend descriptors are lifecycle snapshots; this path never calls
+    /// into a plugin VM.
     pub fn describe_all(&self) -> Vec<ProviderDescriptor> {
         let mut out = self.agents.list_descriptors();
         let mut ids = self.chat_backends.ids();
@@ -36,20 +36,9 @@ impl ProviderRegistry {
             if !backend.spawnable() {
                 continue;
             }
-            let mut descriptor = backend.describe();
-            match backend.list_models() {
-                Ok(models) => descriptor.available_models = models,
-                Err(error) => {
-                    log::warn!("[provider.registry] model catalog unavailable for {id}: {error}")
-                }
+            if let Some(descriptor) = self.chat_backends.descriptor(&id) {
+                out.push(descriptor);
             }
-            match backend.list_presets() {
-                Ok(presets) => descriptor.presets = presets,
-                Err(error) => {
-                    log::warn!("[provider.registry] preset catalog unavailable for {id}: {error}")
-                }
-            }
-            out.push(descriptor);
         }
         out
     }

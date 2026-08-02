@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    chatbackend_provider::{ChatBackendError, ChatBackendProvider},
+    chatbackend_provider::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry},
     provider::{AgentLaunchParams, AgentProvider, ModelInfo},
 };
 
@@ -238,6 +238,172 @@ fn chatbackend_session_config_descriptor_native_js_parity() {
         js.describe().system_prompt_delivery,
         native.describe().system_prompt_delivery
     );
+}
+
+struct ModelCapabilityNativeStub {
+    outcome: Result<Vec<ModelInfo>, String>,
+}
+
+impl ChatBackendProvider for ModelCapabilityNativeStub {
+    fn id(&self) -> &str {
+        "chatbackend-model-parity-fixture"
+    }
+
+    fn display_name(&self) -> &str {
+        "Model parity fixture"
+    }
+
+    fn spawnable(&self) -> bool {
+        true
+    }
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        unreachable!("model parity does not open a session")
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        unreachable!("model parity does not send messages")
+    }
+
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<codeterm_types::agent::chat_types::StructuredChat, ChatBackendError> {
+        unreachable!("model parity does not poll sessions")
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        unreachable!("model parity does not close sessions")
+    }
+
+    fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+        self.outcome.clone().map_err(ChatBackendError::Call)
+    }
+}
+
+fn model_capability_fixture() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "sentinel-a".into(),
+            display_name: "Sentinel A".into(),
+            description: Some("ready".into()),
+            available: Some(true),
+        },
+        ModelInfo {
+            id: "sentinel-b".into(),
+            display_name: "Sentinel B".into(),
+            description: Some("offline".into()),
+            available: Some(false),
+        },
+    ]
+}
+
+fn js_model_capability(source: &str) -> super::JsChatBackend {
+    use std::sync::Arc;
+
+    let manifest_json = r#"{
+        "id":"chatbackend-model-parity-fixture",
+        "version":"0.1.0",
+        "displayName":"Model parity fixture",
+        "capabilities":{"chatBackend":{"spawnable":true}}
+    }"#;
+    let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(
+        "chatbackend-model-parity-fixture",
+        source.into(),
+        Some(manifest_json.into()),
+    )
+    .unwrap();
+    super::JsChatBackend::from_manifest(Arc::new(vm), &manifest)
+}
+
+#[test]
+fn native_and_js_chatbackend_model_capability_are_identical() {
+    use std::sync::Arc;
+
+    let native_registry = ChatBackendRegistry::new();
+    native_registry.register(
+        "chatbackend-model-parity-fixture",
+        Arc::new(ModelCapabilityNativeStub {
+            outcome: Ok(model_capability_fixture()),
+        }),
+    );
+    let native = native_registry
+        .descriptor("chatbackend-model-parity-fixture")
+        .unwrap();
+
+    let js_registry = ChatBackendRegistry::new();
+    js_registry.register(
+        "chatbackend-model-parity-fixture",
+        Arc::new(js_model_capability(
+            r#"module.exports.default = {
+                listModels() { return [
+                    { id: "sentinel-a", displayName: "Sentinel A", description: "ready", available: true },
+                    { id: "sentinel-b", displayName: "Sentinel B", description: "offline", available: false }
+                ]; }
+            };"#,
+        )),
+    );
+    let js = js_registry
+        .descriptor("chatbackend-model-parity-fixture")
+        .unwrap();
+
+    assert_eq!(native.available_models, js.available_models);
+    assert_eq!(native.available_models, model_capability_fixture());
+    assert_eq!(native.default_model, None);
+    assert_eq!(js.default_model, None);
+
+    let native_missing = ChatBackendRegistry::new();
+    native_missing.register(
+        "chatbackend-model-parity-fixture",
+        Arc::new(ModelCapabilityNativeStub {
+            outcome: Ok(Vec::new()),
+        }),
+    );
+    let js_missing = ChatBackendRegistry::new();
+    js_missing.register(
+        "chatbackend-model-parity-fixture",
+        Arc::new(js_model_capability("module.exports.default = {};")),
+    );
+    assert_eq!(
+        native_missing
+            .descriptor("chatbackend-model-parity-fixture")
+            .unwrap()
+            .available_models,
+        js_missing
+            .descriptor("chatbackend-model-parity-fixture")
+            .unwrap()
+            .available_models
+    );
+
+    let long_error = "native failure ".repeat(40);
+    let native_error = ChatBackendRegistry::new();
+    native_error.register(
+        "chatbackend-model-parity-fixture",
+        Arc::new(ModelCapabilityNativeStub {
+            outcome: Err(long_error),
+        }),
+    );
+    let js_error = ChatBackendRegistry::new();
+    js_error.register(
+        "chatbackend-model-parity-fixture",
+        Arc::new(js_model_capability(
+            r#"module.exports.default = {
+                listModels() { throw new Error("js failure ".repeat(80)); }
+            };"#,
+        )),
+    );
+    for registry in [&native_error, &js_error] {
+        assert!(registry
+            .descriptor("chatbackend-model-parity-fixture")
+            .unwrap()
+            .available_models
+            .is_empty());
+        assert!(registry
+            .model_capability_error("chatbackend-model-parity-fixture")
+            .is_some_and(|error| error.chars().count() <= 256));
+    }
 }
 
 #[tokio::test]

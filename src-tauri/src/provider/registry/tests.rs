@@ -88,7 +88,7 @@ fn registry() -> (
 }
 
 #[test]
-fn describe_all_tags_chat_backend_transport_and_filters_spawnable() {
+fn chatbackend_list_models_populates_descriptor_catalog() {
     let (reg, model_list_calls, _) = registry();
     let descs = reg.describe_all();
 
@@ -97,8 +97,13 @@ fn describe_all_tags_chat_backend_transport_and_filters_spawnable() {
         .find(|d| d.id == "shell")
         .expect("spawnable listed");
     assert_eq!(shell.transport, ProviderTransport::ChatBackend);
-    assert_eq!(model_list_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        model_list_calls.load(Ordering::SeqCst),
+        1,
+        "registration resolves list_models exactly once"
+    );
     assert_eq!(shell.available_models[0].id, "qwen");
+    assert_eq!(shell.default_model, None);
     assert_eq!(shell.presets[0].id, "p1");
     assert!(shell.supports_chat_ui);
     assert!(
@@ -108,7 +113,7 @@ fn describe_all_tags_chat_backend_transport_and_filters_spawnable() {
 }
 
 #[test]
-fn describe_all_reflects_plugin_catalog_changes_without_reregistering() {
+fn describe_all_reads_registration_snapshot_until_provider_refresh() {
     let (reg, model_list_calls, models) = registry();
     assert_eq!(reg.describe_all()[0].available_models[0].id, "qwen");
 
@@ -118,6 +123,23 @@ fn describe_all_reflects_plugin_catalog_changes_without_reregistering() {
         description: None,
         available: None,
     }];
+
+    assert_eq!(
+        reg.describe_all()[0].available_models[0].id,
+        "qwen",
+        "descriptor reads must not invoke the live capability"
+    );
+    assert_eq!(model_list_calls.load(Ordering::SeqCst), 1);
+
+    reg.chat_backends.register(
+        "shell",
+        Arc::new(Shell {
+            id: "shell",
+            spawnable: true,
+            model_list_calls: model_list_calls.clone(),
+            models,
+        }),
+    );
 
     assert_eq!(reg.describe_all()[0].available_models[0].id, "llama");
     assert_eq!(model_list_calls.load(Ordering::SeqCst), 2);
