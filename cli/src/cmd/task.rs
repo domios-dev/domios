@@ -169,6 +169,7 @@ fn run_task(
             body_file,
             intent,
             intent_file,
+            execution_intent,
             assign_tab,
         } => {
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -214,6 +215,9 @@ fn run_task(
             }
             if let Some(i) = resolve_text(intent, intent_file)? {
                 params["intent"] = json!(i);
+            }
+            if let Some(execution_intent) = execution_intent {
+                params["execution_intent"] = json!(execution_intent);
             }
             if let Some(tab) = assign_tab {
                 params["assign_tab"] = json!(tab);

@@ -216,6 +216,8 @@ pub struct AddTaskBody {
     correctness: Option<String>,
     body: Option<String>,
     intent: Option<String>,
+    #[serde(default)]
+    execution_intent: crate::plan::TaskExecutionIntent,
     assign_tab: Option<String>,
     owner: Option<OrchestratorRef>,
 }
@@ -258,6 +260,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 body: body.body.unwrap_or_default(),
                 competition: None,
                 intent: body.intent,
+                execution_intent: body.execution_intent,
                 assigned_tab_id: body.assign_tab,
                 ..Default::default()
             },

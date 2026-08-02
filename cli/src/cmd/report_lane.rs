@@ -159,6 +159,23 @@ mod tests {
 
         assert_eq!(scope.worktree_path.as_deref(), Some(Path::new("/lanes/a")));
         assert_eq!(scope.base.as_deref(), Some("base-a"));
+        assert!(scope.requires_repository);
+    }
+
+    #[test]
+    fn only_explicit_nonrepository_intent_skips_repository_guards() {
+        let nonrepo = task_readiness_scope_from_task(
+            &json!({ "execution_intent": "non_repository" }),
+            "tab-a",
+        );
+        let malformed = task_readiness_scope_from_task(
+            &json!({ "execution_intent": "read_only" }),
+            "tab-a",
+        );
+
+        assert!(!nonrepo.requires_repository);
+        assert!(malformed.requires_repository);
+        assert!(TaskReadinessScope::default().requires_repository);
     }
 
     #[test]
@@ -323,6 +340,7 @@ mod tests {
         let task_scope = TaskReadinessScope {
             worktree_path: Some(lane),
             base: Some("stale-task-base".into()),
+            requires_repository: true,
         };
 
         let (_, reported, _) = crate::cmd::report_guard::enrich_ready_report(
