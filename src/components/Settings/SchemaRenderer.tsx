@@ -77,7 +77,6 @@ export function SchemaRenderer({
 function globalToggleFallback(key: string, config: AppConfig, agentNamespace: boolean): boolean | undefined {
   if (!agentNamespace) return undefined;
   if (key === "resume_sessions") return config.agent?.resume_sessions;
-  if (key === "resume_skip_permissions") return config.agent?.resume_skip_permissions;
   return undefined;
 }
 

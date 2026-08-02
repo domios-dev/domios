@@ -207,7 +207,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             model,
             task: Some(task_text),
             role: role.map(|s| s.to_string()),
-            auto_approve: false,
             report_target_tab_id: report_target_tab_id.map(str::to_string),
             spawned_by: Some(format!("cron:{}", job_id)),
             ..Default::default()

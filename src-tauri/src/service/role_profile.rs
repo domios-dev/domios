@@ -54,7 +54,7 @@ impl SpawnAgentParams {
                 .or_else(|| json_str(params, "report_target_tab_id")),
             report_target_mesh_peer: json_str(params, "origin_peer")
                 .or_else(|| json_str(params, "report_target_mesh_peer")),
-            skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
+            skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: json_str(params, "spawned_by_tab_id"),
             model: json_str(params, "model"),

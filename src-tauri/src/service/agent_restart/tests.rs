@@ -165,16 +165,7 @@ fn session_action_fresh_when_stale_or_missing() {
 }
 
 #[test]
-fn permission_profile_reflects_auto_approve() {
-    assert_eq!(outcome(None, false, true).permission_profile(), "yolo");
-    assert_eq!(
-        outcome(None, false, false).permission_profile(),
-        "sandboxed"
-    );
-}
-
-#[test]
-fn build_relaunch_preserves_permission_profile() {
+fn build_relaunch_uses_resolved_full_access() {
     let registry = registry_with_claude();
     let resume = build_relaunch_command_with_registry(
         &registry,
@@ -202,7 +193,7 @@ fn build_relaunch_preserves_permission_profile() {
     .expect("fresh command");
     assert!(fresh.contains("--dangerously-skip-permissions"));
 
-    let sandboxed = build_relaunch_command_with_registry(
+    let restricted = build_relaunch_command_with_registry(
         &registry,
         "claude",
         Some("sid"),
@@ -212,38 +203,29 @@ fn build_relaunch_preserves_permission_profile() {
         None,
         None,
     )
-    .expect("sandboxed resume command");
-    assert!(!sandboxed.contains("--dangerously-skip-permissions"));
+    .expect("restricted resume command");
+    assert!(!restricted.contains("--dangerously-skip-permissions"));
 }
 
 #[test]
-fn agent_restart_revalidates_visible_audience_and_provider_capability() {
+fn agent_restart_access_does_not_depend_on_tab_class() {
     let registry = registry_with_claude();
-    let visible = crate::service::permission_policy::permission_bypass_allowed(
-        &registry,
-        "claude",
-        true,
-        false,
-        crate::multiplexer::types::TabAudience::User,
-    );
-    let hidden = crate::service::permission_policy::permission_bypass_allowed(
-        &registry,
-        "claude",
-        true,
-        true,
-        crate::multiplexer::types::TabAudience::User,
-    );
-    let automation = crate::service::permission_policy::permission_bypass_allowed(
-        &registry,
-        "claude",
-        true,
-        false,
-        crate::multiplexer::types::TabAudience::Automation,
-    );
+    let visible = crate::service::permission_policy::authorize_permission_bypass(
+        &registry, "claude", true,
+    )
+    .is_some();
+    let hidden = crate::service::permission_policy::authorize_permission_bypass(
+        &registry, "claude", true,
+    )
+    .is_some();
+    let automation = crate::service::permission_policy::authorize_permission_bypass(
+        &registry, "claude", true,
+    )
+    .is_some();
 
     assert!(visible);
-    assert!(!hidden);
-    assert!(!automation);
+    assert!(hidden);
+    assert!(automation);
     let command = build_relaunch_command_with_registry(
         &registry,
         "claude",
@@ -255,7 +237,7 @@ fn agent_restart_revalidates_visible_audience_and_provider_capability() {
         None,
     )
     .expect("resume command");
-    assert!(!command.contains("--dangerously-skip-permissions"));
+    assert!(command.contains("--dangerously-skip-permissions"));
 }
 
 #[test]

@@ -571,7 +571,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
     agentId: string,
-    skipPermissions: boolean,
     cwd?: string,
     model?: string,
   ): Promise<SpawnedTab | null> => {
@@ -582,7 +581,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           agent: agentId,
           workspace_id: workspaceId,
           cwd,
-          skip_permissions: skipPermissions,
           model,
           activate: true,
         });
@@ -599,7 +597,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, skipPermissions, model },
+        params: { agentId, workspaceId, cwd, model },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
@@ -621,8 +619,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState, notifySpawnFailure]);
 
   // from the descriptor registry rather than hardcoding a vendor id.
-  const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
-    spawnAgentTab(workspaceId, defaultSpawnProviderId(), skipPermissions, cwd);
+  const spawnClaudeTab = useCallback(async (workspaceId: string, cwd?: string) => {
+    spawnAgentTab(workspaceId, defaultSpawnProviderId(), cwd);
   }, [spawnAgentTab]);
 
   const createOrchestrationPair = useCallback(

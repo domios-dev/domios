@@ -503,7 +503,14 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
         );
         return;
     };
-    let cmd = hidden_recovery_resume_command(&svc.agent_registry, &provider, &sid);
+    let full_access = crate::service::permission_policy::configured_permission_bypass(
+        &svc.agent_registry,
+        &provider,
+    )
+    .ok()
+    .flatten()
+    .is_some();
+    let cmd = hidden_recovery_resume_command(&svc.agent_registry, &provider, &sid, full_access);
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
         return;
@@ -517,9 +524,12 @@ fn hidden_recovery_resume_command(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
     session_id: &str,
+    full_access: bool,
 ) -> Option<String> {
     registry
-        .with_provider(provider, |p| p.build_resume_command(session_id, false))
+        .with_provider(provider, |p| {
+            p.build_resume_command(session_id, full_access)
+        })
         .flatten()
 }
 
@@ -878,15 +888,18 @@ mod tests {
     }
 
     #[test]
-    fn hidden_agent_crash_recovery_is_sandboxed() {
+    fn hidden_agent_crash_recovery_uses_global_access_choice() {
         let registry = crate::agent::registry::AgentRegistry::new();
         registry.register_provider(Box::new(
             crate::plugin::agent_claude::ClaudeProvider::new(),
         ));
 
-        let command = hidden_recovery_resume_command(&registry, "claude", "session-1")
+        let full_access = hidden_recovery_resume_command(&registry, "claude", "session-1", true)
+            .expect("resume command");
+        let restricted = hidden_recovery_resume_command(&registry, "claude", "session-1", false)
             .expect("resume command");
 
-        assert!(!command.contains("--dangerously-skip-permissions"));
+        assert!(full_access.contains("--dangerously-skip-permissions"));
+        assert!(!restricted.contains("--dangerously-skip-permissions"));
     }
 }

@@ -48,7 +48,6 @@ pub fn agent_spec(provider: &str) -> SpawnTabSpec {
         visibility: TabVisibility::Visible,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: provider.into(),
-            auto_approve: true,
             ..Default::default()
         }),
         ..Default::default()
@@ -532,23 +531,6 @@ fn resume_agent_model_does_not_inject_default() {
 }
 
 #[test]
-fn agent_auto_approve_defaults_false_via_serde() {
-    let json = r#"{"provider": "claude"}"#;
-    let agent: AgentSpawnSpec = serde_json::from_str(json).unwrap();
-    assert!(!agent.auto_approve);
-}
-
-#[test]
-fn agent_auto_approve_defaults_false_via_struct() {
-    let agent = AgentSpawnSpec {
-        provider: "claude".into(),
-        auto_approve: false,
-        ..Default::default()
-    };
-    assert!(!agent.auto_approve);
-}
-
-#[test]
 fn shell_spec_roundtrips_json() {
     let spec = SpawnTabSpec {
         title: Some("scratch".into()),
@@ -571,7 +553,6 @@ fn agent_spec_roundtrips_json() {
             task: Some("hello".into()),
             role: Some("Worker".into()),
             can_spawn: Some(false),
-            auto_approve: true,
             worker_id: Some("w-123".into()),
             ..Default::default()
         }),
@@ -587,7 +568,6 @@ fn agent_spec_roundtrips_json() {
             assert_eq!(a.task.as_deref(), Some("hello"));
             assert_eq!(a.role.as_deref(), Some("Worker"));
             assert_eq!(a.worker_id.as_deref(), Some("w-123"));
-            assert!(a.auto_approve);
         }
         _ => panic!("expected Agent"),
     }

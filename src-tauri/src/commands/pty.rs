@@ -221,12 +221,6 @@ pub async fn spawn_pty_core(
         let tab_model = restore.model;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
-        let (tab_hidden, tab_audience) = svc
-            .mux
-            .read()
-            .get_tab(pid)
-            .map(|tab| (tab.hidden, tab.audience))
-            .unwrap_or((true, crate::multiplexer::types::TabAudience::Automation));
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
@@ -258,15 +252,14 @@ pub async fn spawn_pty_core(
 
                 // Build resume command from provider and global fallback config.
                 let pc = crate::config::provider_config(&provider_id);
-                let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
-                let skip_perms = crate::service::permission_policy::permission_bypass_allowed(
+                let skip_perms = crate::service::permission_policy::configured_permission_bypass(
                     &svc.agent_registry,
                     &provider_id,
-                    pc.resume_skip_permissions.unwrap_or(false),
-                    tab_hidden,
-                    tab_audience,
-                );
+                )
+                .ok()
+                .flatten()
+                .is_some();
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
@@ -428,15 +421,13 @@ pub async fn spawn_pty_core(
 
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
-            let pc = crate::config::provider_config(&provider_id);
             let permission_bypass_authorization =
-                crate::service::permission_policy::authorize_permission_bypass(
+                crate::service::permission_policy::configured_permission_bypass(
                     &svc.agent_registry,
                     &provider_id,
-                    pc.resume_skip_permissions.unwrap_or(false),
-                    tab_hidden,
-                    tab_audience,
-                );
+                )
+                .ok()
+                .flatten();
             let skip_perms = permission_bypass_authorization.is_some();
             if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
                 tab.auto_approve = skip_perms;

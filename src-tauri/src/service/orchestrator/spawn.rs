@@ -459,20 +459,11 @@ impl ServiceContext {
             }
         }
 
-        let permission_bypass_authorization = self
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .map(|tab| {
-                crate::service::permission_policy::authorize_permission_bypass(
-                    &self.agent_registry,
-                    &agent_cmd,
-                    params.permission_bypass_selected(),
-                    tab.hidden,
-                    tab.audience,
-                )
-            })
-            .flatten();
+        let permission_bypass_authorization =
+            crate::service::permission_policy::configured_permission_bypass(
+                &self.agent_registry,
+                &agent_cmd,
+            )?;
         let permission_bypass = permission_bypass_authorization.is_some();
         params.skip_permissions = Some(permission_bypass);
         params.permission_bypass_authorization = permission_bypass_authorization;

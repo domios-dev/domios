@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 import { ProviderCard, ProviderInstallPanel, providerInstallSortKey } from "./ProviderCard";
@@ -15,6 +15,7 @@ interface AgentProviderPickerProps {
   providers: ProviderDescriptor[];
   confirmLabel?: string;
   busy?: boolean;
+  children?: ReactNode;
   onConfirm: (providerId: string) => void;
 }
 
@@ -23,6 +24,7 @@ export function AgentProviderPicker({
   providers,
   confirmLabel = "Confirm",
   busy,
+  children,
   onConfirm,
 }: AgentProviderPickerProps) {
   const { installedByBinary, state, refresh } = useProviderAvailability(providers);
@@ -104,6 +106,8 @@ export function AgentProviderPicker({
             ))}
           </div>
         )}
+
+        {anyInstalled && children}
 
         {anyInstalled && (
           <div className="flex justify-center">
