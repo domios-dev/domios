@@ -7,7 +7,8 @@ interface Props {
   message: ChatMessage;
   testId: string;
   title: string;
-  summary: ReactNode;
+  summary: string;
+  presentationSummary?: ReactNode;
   chips?: string[];
   status?: ToolEvent["status"];
   visual: ToolKindVisual;
@@ -18,8 +19,8 @@ interface Props {
   disclosureLabel?: string;
 }
 
-export function InboundActivityCard({ message, testId, title, summary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel }: Props) {
-  const event: ToolEvent = {
+export function inboundActivityEvent(message: ChatMessage, summary: string, status: ToolEvent["status"]): ToolEvent {
+  return {
     id: message.id,
     phase: "result",
     status,
@@ -27,6 +28,10 @@ export function InboundActivityCard({ message, testId, title, summary, chips = [
     summary,
     message,
   };
+}
+
+export function InboundActivityCard({ message, testId, title, summary, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel }: Props) {
+  const event = inboundActivityEvent(message, summary, status);
 
   return (
     <ToolCardFrame
@@ -35,7 +40,7 @@ export function InboundActivityCard({ message, testId, title, summary, chips = [
       expanded={expanded}
       onToggle={onToggle}
       title={title}
-      summary={summary}
+      summary={presentationSummary ?? summary}
       variant="codeterm"
       visualOverride={visual}
       disclosureLabel={disclosureLabel}

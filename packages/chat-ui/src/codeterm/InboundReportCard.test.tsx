@@ -7,6 +7,7 @@ import { decodeCliMessageText, normalizeMessageText } from "./messageText";
 import { CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS, DISPATCH_READY_REPORT } from "./inboundReportFixtures.testdata";
 import { mountInboundReportCardHarness } from "./InboundReportCard.browserHarness";
 import { parseCoordinationReport } from "./coordinationReport";
+import { inboundActivityEvent } from "./InboundActivityCard";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({ window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node })) {
@@ -125,6 +126,8 @@ async function renderCoordination(content: string, id: string) {
 }
 
 const coordination = await renderCoordination(DISPATCH_READY_REPORT, "coordination-ready");
+const eventSummaryFixture = inboundActivityEvent({ id: "summary-type", type: "user", content: "" }, "pl_one/task_one", "success");
+if (typeof eventSummaryFixture.summary !== "string" || eventSummaryFixture.summary !== "pl_one/task_one") throw new Error("inbound ToolEvent summary is not string-typed data");
 const parsedCoordination = parseCoordinationReport(DISPATCH_READY_REPORT);
 if (parsedCoordination?.diagnostics !== DISPATCH_READY_REPORT) throw new Error("parser changed untouched coordination diagnostics");
 if (parseCoordinationReport(`Authored introduction\n${DISPATCH_READY_REPORT}`)) throw new Error("JSON-looking authored prose was misclassified as a coordination envelope");
@@ -143,10 +146,12 @@ if (!detailsToggle) throw new Error("coordination Details disclosure is not acce
 if (detailsToggle.getAttribute("aria-expanded") !== "false") throw new Error("collapsed coordination disclosure state is missing");
 const detailsRegionId = detailsToggle.getAttribute("aria-controls");
 if (detailsRegionId !== "chat-details-coordination-ready") throw new Error("coordination Details target id is not stable");
+const collapsedRegion = coordination.cardHost.querySelector(`#${detailsRegionId}`) as HTMLElement | null;
+if (!collapsedRegion || !collapsedRegion.hidden) throw new Error("collapsed aria-controls does not resolve to a hidden Details region");
 await act(async () => detailsToggle.click());
 const details = coordination.cardHost.querySelector('[data-testid="chat-coordination-details"]');
 const controlledRegion = coordination.cardHost.querySelector(`#${detailsRegionId}`);
-if (!controlledRegion || detailsToggle.getAttribute("aria-expanded") !== "true" || !controlledRegion.contains(details)) throw new Error("expanded coordination disclosure relationship is broken");
+if (!controlledRegion || controlledRegion !== collapsedRegion || collapsedRegion.hidden || detailsToggle.getAttribute("aria-expanded") !== "true" || !controlledRegion.contains(details)) throw new Error("expanded coordination disclosure relationship is broken");
 if (controlledRegion.getAttribute("role") !== "region") throw new Error("coordination Details target lacks region semantics");
 if (details?.textContent !== `DetailsCopy${DISPATCH_READY_REPORT}`) throw new Error("expanded coordination diagnostics are not exact");
 if (details.querySelector("script")) throw new Error("coordination diagnostics executed markup instead of escaping it");

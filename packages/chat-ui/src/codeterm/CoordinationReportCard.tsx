@@ -36,7 +36,8 @@ export function CoordinationReportCard({ descriptor, message, sender, expanded, 
       expanded={expanded}
       onToggle={onToggle}
       title={descriptor.event}
-      summary={<LinkedText text={task} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />}
+      summary={task}
+      presentationSummary={<LinkedText text={task} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />}
       visual={{ glyph: RadioTower, color: failed ? "var(--ct-red)" : "var(--ct-accent)", label: "coordination" }}
       chips={[worker, descriptor.state]}
       onFocusTab={onFocusTab}

@@ -77,17 +77,16 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       {isCommand && commandVisible && command}
-      {expanded && (
-        <div
-          id={detailsId}
-          role="region"
-          aria-label={disclosureLabel ?? "Tool details"}
-          className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
-          style={{ borderColor: "var(--ct-border)" }}
-        >
-          {children}
-        </div>
-      )}
+      <div
+        id={detailsId}
+        role="region"
+        aria-label={disclosureLabel ?? "Tool details"}
+        hidden={!expanded}
+        className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
+        style={{ borderColor: "var(--ct-border)" }}
+      >
+        {expanded ? children : null}
+      </div>
     </div>
   );
 }
