@@ -91,6 +91,9 @@ fn bind_worker_task_to_tab(
     tab_id: &str,
     title: &str,
     session_id: Option<&str>,
+    intent: crate::plan::ExecutionIntent,
+    allowance: Option<crate::plan::ProviderAllowance>,
+    provider: Option<&str>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
     let resolved = store
@@ -104,7 +107,17 @@ fn bind_worker_task_to_tab(
         .task
         .lane;
     let attempt_id = store
-        .begin_task_dispatch(&plan_id, &task_id, tab_id, title, lane.clone(), now_ms)
+        .begin_task_dispatch_with_policy(
+            &plan_id,
+            &task_id,
+            tab_id,
+            title,
+            lane.clone(),
+            intent,
+            allowance,
+            provider,
+            now_ms,
+        )
         .map_err(|error| error.to_string())?;
     if let Some(session_id) = session_id {
         if let Err(error) = store.finish_task_dispatch(
@@ -141,10 +154,24 @@ fn bind_worker_plan_task_transaction(
     tab_id: &str,
     title: &str,
     session_id: Option<&str>,
+    intent: crate::plan::ExecutionIntent,
+    allowance: Option<crate::plan::ProviderAllowance>,
+    provider: Option<&str>,
     now_ms: u64,
     close_tab: impl FnOnce(),
 ) -> Result<WorkerTaskBinding, String> {
-    match bind_worker_task_to_tab(store, plan_id, task_ref, tab_id, title, session_id, now_ms) {
+    match bind_worker_task_to_tab(
+        store,
+        plan_id,
+        task_ref,
+        tab_id,
+        title,
+        session_id,
+        intent,
+        allowance,
+        provider,
+        now_ms,
+    ) {
         Ok(binding) => Ok(binding),
         Err(e) => {
             close_tab();
@@ -162,7 +189,18 @@ impl ServiceContext {
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
             return Ok(());
         };
-        preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)
+        preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)?;
+        let intent = params.execution_intent.as_ref().ok_or_else(|| {
+            "plan-task spawn requires explicit execution_intent read_only or mutating".to_string()
+        })?;
+        let now_ms = epoch_ms();
+        let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
+        crate::service::plan::interruption::provider_allowance_preflight(
+            intent,
+            allowance.as_ref(),
+            now_ms,
+        )
+        .map_err(|error| error.to_string())
     }
 
     pub(crate) fn prepare_worker_plan_task_spawn(
@@ -196,6 +234,11 @@ impl ServiceContext {
             tab_id,
             &title,
             session_id.as_deref(),
+            params.execution_intent.clone().ok_or_else(|| {
+                "plan-task spawn requires explicit execution_intent".to_string()
+            })?,
+            self.provider_allowance_for_spawn(params, now_ms)?,
+            params.agent.as_deref(),
             now_ms,
             || {
                 let _ = self.close_tab(tab_id);
@@ -211,6 +254,46 @@ impl ServiceContext {
             }),
         );
         Ok(())
+    }
+
+    fn provider_allowance_for_spawn(
+        &self,
+        params: &SpawnAgentParams,
+        now_ms: u64,
+    ) -> Result<Option<crate::plan::ProviderAllowance>, String> {
+        if params.execution_intent != Some(crate::plan::ExecutionIntent::Mutating) {
+            return Ok(None);
+        }
+        let provider = params
+            .agent
+            .clone()
+            .unwrap_or_else(crate::config::default_agent_provider);
+        let capability = self
+            .agent_registry
+            .with_provider(&provider, |provider| {
+                provider.provider_allowance_capability()
+            })
+            .flatten()
+            .ok_or_else(|| "selected provider has no mutation allowance capability".to_string())?;
+        let snapshot = self
+            .usage_store
+            .get_latest(&provider, None)?
+            .ok_or_else(|| "provider allowance telemetry is unknown".to_string())?;
+        let allowance = crate::plan::ProviderAllowance {
+            remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
+            observed_at: snapshot.captured_at.max(0) as u64,
+            stale_after_ms: capability.telemetry_max_age_ms,
+            reserve_pct: params
+                .provider_reserve_pct
+                .unwrap_or(capability.default_reserve_pct),
+        };
+        crate::service::plan::interruption::provider_allowance_preflight(
+            &crate::plan::ExecutionIntent::Mutating,
+            Some(&allowance),
+            now_ms,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(Some(allowance))
     }
 }
 
@@ -264,6 +347,9 @@ mod tests {
             "tab-worker",
             "Ada",
             Some("session-worker"),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
             10,
         )
         .unwrap();
@@ -294,6 +380,8 @@ mod tests {
             role: Some("Worker".into()),
             plan_id: Some(plan_id.clone()),
             plan_task: Some("spawn-bind".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            provider_reserve_pct: None,
             task: Some("Check the adjacent caller concern.".into()),
             ..Default::default()
         };
@@ -341,6 +429,8 @@ mod tests {
         let err = validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Orchestrator".into()),
             plan_task: Some("spawn-bind".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            provider_reserve_pct: None,
             ..Default::default()
         })
         .unwrap_err();
@@ -416,6 +506,9 @@ mod tests {
             "tab-worker",
             "Ada",
             None,
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
             10,
         )
         .unwrap_err();
@@ -439,6 +532,9 @@ mod tests {
             "tab-worker",
             "Ada",
             Some("session-worker"),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
             10,
         )
         .unwrap();
@@ -467,6 +563,9 @@ mod tests {
             "spawn-bind",
             "tab-worker",
             "Ada",
+            None,
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
             None,
             10,
             || tab_closed = true,

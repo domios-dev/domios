@@ -460,6 +460,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 max_actions,
                 bound_task,
                 plan_task,
+                execution_intent,
+                provider_reserve_pct,
                 non_user_facing,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
@@ -570,6 +572,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(pt) = plan_task {
                     body["plan_task"] = serde_json::json!(pt);
+                }
+                if let Some(intent) = execution_intent {
+                    body["execution_intent"] = serde_json::json!(intent);
+                    body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
                 }
                 if *non_user_facing {
                     body["audience"] = serde_json::json!("automation");

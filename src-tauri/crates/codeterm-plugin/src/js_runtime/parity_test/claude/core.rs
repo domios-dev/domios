@@ -677,6 +677,18 @@ fn usage_parser_waits_for_complete_reset_blocks_in_both_implementations() {
     }
 }
 
+#[test]
+fn provider_allowance_capability_matches_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    assert_eq!(
+        native.provider_allowance_capability(),
+        js.provider_allowance_capability()
+    );
+}
+
 /// #163: the tailer reads `session_jsonl_path`, so it must resolve to the
 /// canonical project dir the agent actually writes to. Claude canonicalizes
 /// the cwd (symlinks resolved) before encoding; if the host hands the JS

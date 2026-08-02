@@ -1,5 +1,6 @@
 use super::external_refs::ExternalRef;
 use super::execution::TaskExecutionIntent;
+use super::{AttemptContinuationState, AttemptInterruptionState, TaskInterruptionState};
 use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -300,6 +301,10 @@ pub struct TaskExecutionAttempt {
     pub assigned_at: Option<u64>,
     #[serde(default)]
     pub acknowledged_at: Option<u64>,
+    #[serde(default)]
+    pub continuation: AttemptContinuationState,
+    #[serde(default)]
+    pub interruption: AttemptInterruptionState,
     #[serde(default)]
     pub reported_at: Option<u64>,
     #[serde(default)]
@@ -615,6 +620,8 @@ pub struct Task {
     pub execution_attempts: Vec<TaskExecutionAttempt>,
     #[serde(default)]
     pub pause_reason: Option<String>,
+    #[serde(default)]
+    pub interruption: TaskInterruptionState,
     #[serde(default)]
     pub attachments: Vec<AttachmentRef>,
 }

@@ -301,6 +301,18 @@ pub enum PlanTaskAction {
         workspace: Option<String>,
         #[arg(long)]
         cwd: Option<String>,
+        #[arg(
+            long = "execution-intent",
+            value_parser = ["read_only", "mutating"],
+            help = "Explicit task intent used by provider reserve policy"
+        )]
+        execution_intent: String,
+        #[arg(
+            long = "provider-reserve-pct",
+            default_value_t = 5.0,
+            help = "Minimum remaining provider allowance for mutating work"
+        )]
+        provider_reserve_pct: f32,
     },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },
@@ -333,6 +345,11 @@ pub enum PlanTaskAction {
         workspace: Option<String>,
         #[arg(long)]
         title: Option<String>,
+    },
+    /// Adopt a sealed handoff checkpoint into this authenticated Worker tab
+    AdoptCheckpoint {
+        plan_id: String,
+        task_id: String,
     },
     /// Link a task to one or more plan sections (CSV)
     Link {

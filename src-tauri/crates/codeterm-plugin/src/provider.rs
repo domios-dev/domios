@@ -455,6 +455,12 @@ pub enum ProviderTrust {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ProviderAllowanceCapability {
+    pub default_reserve_pct: f32,
+    pub telemetry_max_age_ms: u64,
+}
+
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
 pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 13;
 
@@ -556,6 +562,13 @@ pub trait AgentProvider: Send + Sync {
     }
     fn usage_parser(&self) -> Option<&dyn crate::usage_parser::UsageParser> {
         None
+    }
+
+    fn provider_allowance_capability(&self) -> Option<ProviderAllowanceCapability> {
+        self.usage_parser().is_some().then_some(ProviderAllowanceCapability {
+            default_reserve_pct: 5.0,
+            telemetry_max_age_ms: 15 * 60 * 1_000,
+        })
     }
 
     fn usage_probe_command(&self) -> Option<&str> {

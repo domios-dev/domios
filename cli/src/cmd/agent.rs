@@ -581,8 +581,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             let mut body = serde_json::json!({
                 "tab_id": tab_id,
+                "caller_tab_id": tab_id,
                 "message": message,
             });
+            if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
+                body["caller_session_id"] = serde_json::json!(session_id);
+            }
+            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+                body["session_binding_nonce"] = serde_json::json!(nonce);
+            }
             if let Some(k) = kind {
                 body["kind"] = serde_json::json!(k);
             }
@@ -591,6 +598,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(ref t) = task {
                 body["task_id"] = serde_json::json!(t);
+            }
+            if let (Some(ref p), Some(ref t)) = (&plan, &task) {
+                let shown = client.call_detailed(
+                    "task.show",
+                    Some(serde_json::json!({ "plan_id": p, "task_id": t })),
+                );
+                if let Ok(shown) = shown {
+                    if let Some(epoch) = shown
+                        .get("task")
+                        .unwrap_or(&shown)
+                        .get("interruption")
+                        .and_then(|value| value.get("owner_epoch"))
+                        .and_then(|value| value.as_u64())
+                    {
+                        body["owner_epoch"] = serde_json::json!(epoch);
+                    }
+                }
             }
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
@@ -697,7 +721,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(value) if json => {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 }
-                Ok(_) => println!("acknowledged"),
+                Ok(value) => match render_agent_ack(&value) {
+                    Ok(message) => println!("{message}"),
+                    Err(error) => {
+                        eprintln!("ACK NOT ACCEPTED: {error}");
+                        std::process::exit(1);
+                    }
+                },
                 Err(error) => {
                     eprintln!("ACK NOT ACCEPTED: {error}");
                     std::process::exit(1);
@@ -729,6 +759,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             max_actions,
             bound_task,
             plan_task,
+            execution_intent,
+            provider_reserve_pct,
             non_user_facing,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
@@ -857,6 +889,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
+            }
+            if let Some(intent) = execution_intent {
+                body["execution_intent"] = serde_json::json!(intent);
+                body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
             }
             if non_user_facing {
                 body["audience"] = serde_json::json!("automation");
@@ -1058,6 +1094,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
         }
     }
+}
+
+fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
+    let task_id = value
+        .get("task_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "daemon response omitted task identity".to_string())?;
+    let attempt_id = value
+        .get("attempt_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "daemon response omitted attempt identity".to_string())?;
+    Ok(format!(
+        "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
+    ))
 }
 
 fn print_agent_mutation_response(resp: reqwest::blocking::Response) {

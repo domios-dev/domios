@@ -1116,7 +1116,7 @@ fn brief_includes_body_acceptance_and_task_authority() {
 }
 
 #[test]
-fn launched_worker_prompt_orders_task_identity_before_context_and_commands() {
+fn worker_prompt_places_ack_before_assignment_work() {
     let t = task(json!({
         "id": "task_prompt_order",
         "name": "Repair prompt order",
@@ -1154,9 +1154,10 @@ fn launched_worker_prompt_orders_task_identity_before_context_and_commands() {
         .find("load the provider skill named `codeterm`")
         .unwrap();
 
-    assert!(identity < context && context < body);
+    assert!(identity < context && context < ack && ack < body);
     assert!(body < intent && intent < correctness);
-    assert!(correctness < ack && ack < report && report < fallback);
+    assert!(correctness < report && report < fallback);
+    assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
     assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
 

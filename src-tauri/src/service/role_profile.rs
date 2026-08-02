@@ -37,6 +37,14 @@ impl SpawnAgentParams {
             task_id: json_str(params, "task_id"),
             task_launch_authority: None,
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
+            execution_intent: params
+                .get("execution_intent")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok()),
+            provider_reserve_pct: params
+                .get("provider_reserve_pct")
+                .and_then(|value| value.as_f64())
+                .map(|value| value as f32),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
             existing_tab_id: json_str(params, "existing_tab_id"),

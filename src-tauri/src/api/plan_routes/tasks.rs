@@ -350,6 +350,7 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     task_update_core(&state.svc, &headers, &id, &tid, body)
 }
 
@@ -556,12 +557,29 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
-    state
-        .svc
-        .plan_store
-        .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
-        .map_err(plan_err)?;
+    let owner_epoch = state.svc.plan_store.show_task(&tid)
+        .map(|detail| detail.task.interruption.owner_epoch).unwrap_or(0);
+    if owner_epoch > 0 {
+        let authority = rest_task_mutation_authority(&headers)?;
+        let mux = state.svc.mux.read();
+        if !mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+                && tab.reported_session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+        }) {
+            return Err(text_err(axum::http::StatusCode::CONFLICT, "task mutation caller rebound"));
+        }
+        state.svc.plan_store.close_task_authorized(
+            &id, &tid, body.result.as_deref(), from, &authority, epoch_ms(),
+        ).map_err(plan_err)?;
+        drop(mux);
+    } else {
+        state.svc.plan_store.close_task(
+            &id, &tid, body.result.as_deref(), from, epoch_ms(),
+        ).map_err(plan_err)?;
+    }
     emit_plan_changed(&state, &id);
     let mut resp = serde_json::json!({ "ok": true });
     if let Some(plan) = state.svc.plan_store.get(&id) {
@@ -600,18 +618,35 @@ pub async fn task_assign(
             &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    state
-        .svc
-        .plan_store
-        .assign_task_with_role(
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    let owner_epoch = state.svc.plan_store.show_task(&tid)
+        .map(|detail| detail.task.interruption.owner_epoch).unwrap_or(0);
+    if owner_epoch > 0 {
+        let authority = rest_task_mutation_authority(&headers)?;
+        let mux = state.svc.mux.read();
+        if !mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+                && tab.reported_session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+        }) {
+            return Err(text_err(axum::http::StatusCode::CONFLICT, "task mutation caller rebound"));
+        }
+        state.svc.plan_store.assign_task_with_role_authorized(
             &id,
             &tid,
             &body.tab,
             body.peer.as_deref(),
             planner_role_for_tab(&state, &body.tab),
+            &authority,
             epoch_ms(),
-        )
-        .map_err(plan_err)?;
+        ).map_err(plan_err)?;
+        drop(mux);
+    } else {
+        state.svc.plan_store.assign_task_with_role(
+            &id, &tid, &body.tab, body.peer.as_deref(),
+            planner_role_for_tab(&state, &body.tab), epoch_ms(),
+        ).map_err(plan_err)?;
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -652,6 +687,141 @@ pub async fn task_attempt_show(
     })))
 }
 
+fn rest_task_mutation_authority(
+    headers: &HeaderMap,
+) -> Result<crate::service::plan::interruption::TaskMutationAuthority, (axum::http::StatusCode, Json<Value>)> {
+    let required = |name: &'static str| {
+        headers.get(name).and_then(|value| value.to_str().ok())
+            .filter(|value| !value.trim().is_empty()).map(str::to_string)
+            .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, format!("missing {name}")))
+    };
+    Ok(crate::service::plan::interruption::TaskMutationAuthority {
+        tab_id: required("X-CodeTerm-Tab-Id")?,
+        session_id: required("X-CodeTerm-Session-Id")?,
+        session_binding_nonce: required("X-CodeTerm-Session-Binding-Nonce")?,
+        owner_epoch: headers.get("X-CodeTerm-Owner-Epoch")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch"))?,
+    })
+}
+
+fn verify_task_mutation_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+    plan_id: &str,
+    task_id: &str,
+) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(task_id)
+        .filter(|detail| detail.plan_id == plan_id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    if detail.task.interruption.owner_epoch == 0 {
+        return Ok(());
+    }
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, "missing Worker tab id"))?;
+    let session_id = headers
+        .get("X-CodeTerm-Session-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, "missing Worker session id"))?;
+    let nonce = headers
+        .get("X-CodeTerm-Session-Binding-Nonce")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, "missing session binding nonce"))?;
+    let caller_epoch = headers
+        .get("X-CodeTerm-Owner-Epoch")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch"))?;
+    if detail.task.interruption.owner_epoch != caller_epoch {
+        return Err(text_err(
+            axum::http::StatusCode::CONFLICT,
+            "task mutation owner epoch is stale",
+        ));
+    }
+    let binding_matches = state.svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(session_id)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+    });
+    if !binding_matches {
+        return Err(text_err(
+            axum::http::StatusCode::CONFLICT,
+            "task mutation caller binding is stale or rebound",
+        ));
+    }
+    let orchestrator = state
+        .svc
+        .plan_store
+        .owner_of(plan_id)
+        .is_some_and(|owner| {
+            owner.tab_id.as_deref() == Some(tab_id)
+                && owner.session_id.as_deref() == Some(session_id)
+        });
+    if orchestrator {
+        return Ok(());
+    }
+    state
+        .svc
+        .verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
+}
+
+pub async fn task_adopt_checkpoint(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::BAD_REQUEST, "missing Worker tab id"))?;
+    let session_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::CONFLICT,
+                "adoption caller has no authenticated session",
+            )
+        })?;
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .filter(|detail| detail.plan_id == id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    let (owner_epoch, attempt_id) = state
+        .svc
+        .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
+        .await
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "attempt_id": attempt_id,
+        "owner_epoch": owner_epoch,
+        "tab_id": tab_id,
+        "session_id": session_id,
+        "state": "awaiting_worker_ack"
+    })))
+}
+
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -666,6 +836,7 @@ pub async fn task_respawn(
             &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     let draft = state
         .svc
         .plan_store
@@ -736,6 +907,7 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     state
         .svc
         .authorize_draft_structure_mutation(
