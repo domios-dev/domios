@@ -1,4 +1,3 @@
-use crate::multiplexer::types::AgentRole;
 use crate::plan::{PlanMode, PlanningAuthor, PlanningState, PlannerRef};
 use serde_json::Value;
 use crate::service::plan::PlanError;
@@ -58,7 +57,7 @@ impl ServiceContext {
                 .session_id
                 .as_deref()
                 .is_none_or(|expected| Some(expected) == session_id)
-            && tab.role == Some(AgentRole::Orchestrator);
+            && tab.has_team_orchestrator_authority();
         if owner {
             return Ok(PlanningAuthor::User);
         }
@@ -176,6 +175,7 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
 mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
     use crate::plan::{OrchestratorRef, Plan, PlanMode, PlannerRef, TaskStatus};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;

@@ -169,6 +169,7 @@ export interface Tab {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   role?: AgentRole | null;
+  machine_agent_identity?: "general_agent" | null;
   role_profile?: string | null;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;

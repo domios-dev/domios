@@ -14,6 +14,7 @@
 pub(crate) mod binding_wait;
 pub mod blocker;
 mod first_run;
+pub mod identity;
 mod instructions;
 pub(crate) mod launch_lock;
 mod lifecycle;
