@@ -1,4 +1,6 @@
-use crate::{build_http, mesh_cli, read_api_config, MeshAction, MeshPeerAction};
+use crate::{
+    build_http, client::SocketClient, mesh_cli, read_api_config, MeshAction, MeshPeerAction,
+};
 
 fn handle_resp(resp: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
     let status = resp.status();
@@ -11,7 +13,7 @@ fn handle_resp(resp: reqwest::blocking::Response) -> Result<serde_json::Value, S
     }
 }
 
-pub fn handle_mesh(json: bool, action: MeshAction) {
+pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
     let (base, token) = read_api_config();
     let http = match build_http(&token) {
         Ok(c) => c,
@@ -22,16 +24,8 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
     };
     match action {
         MeshAction::Status => {
-            match http
-                .get(format!("{}/api/mesh/status", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .send()
-            {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+            match client.call("mesh.status", None) {
+                Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
@@ -62,16 +56,8 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
             }
         }
         MeshAction::Peers => {
-            match http
-                .get(format!("{}/api/mesh/peers", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .send()
-            {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+            match client.call("mesh.peers", None) {
+                Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {

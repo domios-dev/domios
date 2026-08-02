@@ -52,15 +52,7 @@ pub(crate) fn resolve_peer_url(
     token: &Option<String>,
     target: &str,
 ) -> Option<String> {
-    let peers_resp = http
-        .get(format!("{}/api/mesh/peers", base))
-        .header(
-            "Authorization",
-            format!("Bearer {}", token.as_deref().unwrap_or("")),
-        )
-        .send()
-        .ok()
-        .and_then(|r| r.json::<serde_json::Value>().ok())?;
+    let peers_resp = fetch_peers(http, base, token);
     let paired = peers_resp.get("paired").and_then(|v| v.as_array())?;
     let peer = paired.iter().find(|p| {
         p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
@@ -454,6 +446,9 @@ pub(crate) fn mesh_relay_invoke(
 }
 
 pub(crate) fn peer_api_url(peer: &serde_json::Value) -> Option<String> {
+    if let Some(url) = peer_tailscale_https_url(peer) {
+        return Some(url);
+    }
     let port = peer
         .get("api_port")
         .and_then(|v| v.as_u64())
@@ -461,14 +456,68 @@ pub(crate) fn peer_api_url(peer: &serde_json::Value) -> Option<String> {
     let addresses = peer.get("addresses").and_then(|v| v.as_array())?;
     let ip = addresses
         .iter()
-        .filter_map(|addr| addr.get("ip").and_then(|v| v.as_str()))
-        .find(|ip| !is_loopback_ip(ip))?;
+        .find(|address| {
+            address.get("is_tailscale").and_then(|value| value.as_bool()) == Some(true)
+                && address
+                    .get("ip")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(is_tailscale_ip)
+        })
+        .or_else(|| {
+            addresses.iter().find(|address| {
+                address
+                    .get("ip")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|ip| !is_loopback_ip(ip))
+            })
+        })?
+        .get("ip")?
+        .as_str()?;
     Some(format!("http://{}:{}", format_host(ip), port))
+}
+
+fn peer_tailscale_https_url(peer: &serde_json::Value) -> Option<String> {
+    peer.get("web_ui")?
+        .get("endpoints")?
+        .as_array()?
+        .iter()
+        .find_map(|endpoint| {
+            if endpoint.get("transport").and_then(|value| value.as_str())
+                != Some("tailscale_https")
+            {
+                return None;
+            }
+            let host = endpoint.get("host")?.as_str()?.to_ascii_lowercase();
+            let port = endpoint.get("port")?.as_u64()?;
+            let valid = port > 0
+                && port <= u16::MAX as u64
+                && host.len() <= 253
+                && host.ends_with(".ts.net")
+                && host
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'));
+            valid.then(|| {
+                if port == 443 {
+                    format!("https://{host}")
+                } else {
+                    format!("https://{host}:{port}")
+                }
+            })
+        })
 }
 
 fn is_loopback_ip(ip: &str) -> bool {
     ip.parse::<std::net::IpAddr>()
         .map(|addr| addr.is_loopback())
+        .unwrap_or(false)
+}
+
+fn is_tailscale_ip(ip: &str) -> bool {
+    ip.parse::<std::net::Ipv4Addr>()
+        .map(|address| {
+            let octets = address.octets();
+            octets[0] == 100 && (64..128).contains(&octets[1])
+        })
         .unwrap_or(false)
 }
 
@@ -697,7 +746,14 @@ fn fetch_peers(
         .send()
         .ok()
         .and_then(|r| r.json::<serde_json::Value>().ok())
+        .or_else(fetch_peers_via_socket)
         .unwrap_or(serde_json::json!({}))
+}
+
+fn fetch_peers_via_socket() -> Option<serde_json::Value> {
+    let socket = crate::client::discover_socket().ok()?;
+    let mut client = crate::client::SocketClient::connect(&socket).ok()?;
+    client.call("mesh.peers", None).ok()
 }
 
 fn find_peer<'a>(peers_json: &'a serde_json::Value, target: &str) -> Option<&'a serde_json::Value> {
@@ -719,6 +775,72 @@ mod mesh_spawn_failure_tests {
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+
+    #[test]
+    fn peer_api_url_prefers_verified_tailscale_https() {
+        let peer = serde_json::json!({
+            "api_port": 7685,
+            "addresses": [{"ip": "100.64.10.1"}],
+            "web_ui": {
+                "protocol_version": 1,
+                "endpoints": [{
+                    "transport": "tailscale_https",
+                    "host": "blackstar.example.ts.net",
+                    "port": 443
+                }]
+            }
+        });
+
+        assert_eq!(
+            peer_api_url(&peer).as_deref(),
+            Some("https://blackstar.example.ts.net")
+        );
+    }
+
+    #[test]
+    fn peer_api_url_rejects_untrusted_https_host_and_uses_ip() {
+        let peer = serde_json::json!({
+            "api_port": 7685,
+            "addresses": [{"ip": "100.64.10.1"}],
+            "web_ui": {
+                "protocol_version": 1,
+                "endpoints": [{
+                    "transport": "tailscale_https",
+                    "host": "attacker.example.com",
+                    "port": 443
+                }]
+            }
+        });
+
+        assert_eq!(
+            peer_api_url(&peer).as_deref(),
+            Some("http://100.64.10.1:7685")
+        );
+    }
+
+    #[test]
+    fn peer_api_url_prefers_tailscale_http_then_lan() {
+        let peer = serde_json::json!({
+            "api_port": 7685,
+            "addresses": [
+                {"ip": "192.168.1.50", "is_tailscale": false},
+                {"ip": "100.64.10.1", "is_tailscale": true}
+            ]
+        });
+        assert_eq!(
+            peer_api_url(&peer).as_deref(),
+            Some("http://100.64.10.1:7685")
+        );
+
+        let lan_only = serde_json::json!({
+            "api_port": 7685,
+            "addresses": [{"ip": "192.168.1.50", "is_tailscale": false}]
+        });
+        assert_eq!(
+            peer_api_url(&lan_only).as_deref(),
+            Some("http://192.168.1.50:7685")
+        );
+    }
 
     #[test]
     fn classify_bare_status_text_body_carries_a_non_empty_reason() {

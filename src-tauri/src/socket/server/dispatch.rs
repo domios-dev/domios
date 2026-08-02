@@ -1,4 +1,5 @@
 use super::*;
+use tauri::Manager;
 
 pub(super) fn dispatch(
     method: &str,
@@ -45,6 +46,8 @@ pub(super) fn dispatch(
                 "notification.create",
                 "notification.list",
                 "notification.clear",
+                "mesh.status",
+                "mesh.peers",
                 "agent.list",
                 "agent.hierarchy",
                 "agent.spawn",
@@ -217,6 +220,25 @@ pub(super) fn dispatch(
                 // Credential-bearing mem.secret.* stays on bearer-authenticated HTTP.
             ];
             return Ok(serde_json::json!({ "methods": methods }));
+        }
+        "mesh.status" => {
+            let mesh = app.state::<crate::MeshStateHandle>();
+            let manager = mesh.lock();
+            return serde_json::to_value(manager.status()).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            });
+        }
+        "mesh.peers" => {
+            let mesh = app.state::<crate::MeshStateHandle>();
+            let mut manager = mesh.lock();
+            manager.cleanup_expired_requests();
+            return serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            });
         }
         #[cfg(debug_assertions)]
         "debug.crash" => {
