@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
+    "hint: orchestrating? read `codeterm docs ORCHESTRATION --section the-loop`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 const ORCHESTRATION_REMINDER_STATE: &str = "orchestration-hint-count";
 

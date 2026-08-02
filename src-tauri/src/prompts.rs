@@ -124,7 +124,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+First read `codeterm docs PLANNER --full` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -136,7 +136,7 @@ pub fn planner_onboarding_task_no_plan(
 ) -> String {
     format!(
         "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). No plan exists yet; the Orchestrator's first goal/plan create will bind you to that plan. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+First read `codeterm docs PLANNER --full` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -289,6 +289,124 @@ mod tests {
         assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
         assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
+    }
+
+    #[test]
+    fn orchestration_guidance_never_prescribes_incomplete_doc_preview() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+        const PLAN_EDITING_DOC: &str = include_str!("../../docs/PLAN-EDITING.md");
+        let surfaces = [
+            ORCHESTRATOR_ONBOARDING,
+            PLANNER_SUFFIX,
+            CODETERM_CLI,
+            ORCHESTRATION_DOC,
+            PLANNER_DOC,
+            PLAN_EDITING_DOC,
+        ];
+
+        for surface in surfaces {
+            assert!(
+                !surface.contains("codeterm docs ORCHESTRATION --head"),
+                "orchestration instructions must not prescribe --head"
+            );
+            assert!(
+                !surface.contains("preview, then") && !surface.contains("preview then call"),
+                "instruction reads must not prescribe a preview/retry sequence"
+            );
+        }
+    }
+
+    #[test]
+    fn selected_instruction_references_are_complete_or_section_scoped() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+        const PLAN_EDITING_DOC: &str = include_str!("../../docs/PLAN-EDITING.md");
+        let surfaces = [
+            ORCHESTRATOR_ONBOARDING,
+            PLANNER_SUFFIX,
+            CODETERM_CLI,
+            ORCHESTRATION_DOC,
+            PLANNER_DOC,
+            PLAN_EDITING_DOC,
+        ];
+        let invariant = "An agent reads selected instruction material completely or does not select it;";
+
+        assert_eq!(
+            surfaces
+                .iter()
+                .map(|surface| surface.matches(invariant).count())
+                .sum::<usize>(),
+            1,
+            "the complete-or-not-selected invariant must have one canonical authored home"
+        );
+
+        for surface in surfaces {
+            for fragment in surface.split('`') {
+                let command = fragment.trim();
+                if !command.starts_with("codeterm docs ") || command.contains("<TOPIC>") {
+                    continue;
+                }
+                let document = command
+                    .strip_prefix("codeterm docs ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .unwrap_or_default();
+                let selected_instruction = [
+                    "ORCHESTRATION",
+                    "PLANNER",
+                    "PLAN-EDITING",
+                    "LANES",
+                    "BOUNCE",
+                    "TEST-AUTHORING",
+                ]
+                .contains(&document);
+                if !selected_instruction {
+                    continue;
+                }
+                assert!(
+                    command.contains(" --section ") || command.ends_with(" --full"),
+                    "instruction reference is neither complete nor section-scoped: {command}"
+                );
+            }
+        }
+
+        for (document, body) in [
+            ("ORCHESTRATION", ORCHESTRATION_DOC),
+            ("PLANNER", PLANNER_DOC),
+        ] {
+            let slugs: std::collections::HashSet<String> = body
+                .lines()
+                .filter_map(|line| line.strip_prefix("## "))
+                .map(|heading| {
+                    heading
+                        .chars()
+                        .map(|character| {
+                            if character.is_ascii_alphanumeric() {
+                                character.to_ascii_lowercase()
+                            } else {
+                                '-'
+                            }
+                        })
+                        .collect::<String>()
+                        .split('-')
+                        .filter(|part| !part.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("-")
+                })
+                .collect();
+            let needle = format!("codeterm docs {document} --section ");
+            for surface in surfaces {
+                for fragment in surface.split('`') {
+                    let command = fragment.trim();
+                    if let Some(slug) = command.strip_prefix(&needle) {
+                        assert!(
+                            slugs.contains(slug),
+                            "{document} instruction names an unknown section slug: {slug}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

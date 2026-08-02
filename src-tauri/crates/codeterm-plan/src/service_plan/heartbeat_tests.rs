@@ -250,7 +250,7 @@ fn heartbeat_resolves_for_owner_tab_at_send_time() {
     assert!(before.contains("codeterm plan task close"));
     assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
     assert!(before.contains("Heartbeat is derived automatically"));
-    assert!(before.contains("codeterm docs ORCHESTRATION"));
+    assert!(before.contains("codeterm docs ORCHESTRATION --section the-loop"));
     assert!(!before.contains("Re-arm exactly one heartbeat"));
     assert!(before.ends_with("continue"));
 
@@ -322,7 +322,7 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
     assert!(text.contains("<codeterm-role-identity"));
     assert!(text.contains("STATE-RECONCILIATION"));
     assert!(text.contains("execution-mode plan with unfinished work"));
-    assert!(text.contains("codeterm docs ORCHESTRATION"));
+    assert!(text.contains("codeterm docs ORCHESTRATION --section the-loop"));
     assert!(text.contains("Reconcile live tabs against the plan"));
     assert!(text.contains("codeterm plan task close"));
     assert!(text.contains("codeterm plan task update"));
@@ -355,7 +355,7 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
     assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));
     assert!(text.contains("Heartbeat is derived automatically"));
-    assert!(text.contains("codeterm docs ORCHESTRATION"));
+    assert!(text.contains("codeterm docs ORCHESTRATION --section the-loop"));
     assert!(!text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(!text.contains("Current focus:"));
     assert!(text.contains("Plan reminder: this tab owns unfinished execution-plan work."));

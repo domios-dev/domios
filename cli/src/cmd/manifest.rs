@@ -273,6 +273,25 @@ mod tests {
     }
 
     #[test]
+    fn docs_help_teaches_index_section_and_full_without_preview_retry() {
+        let mut docs = Cli::command()
+            .find_subcommand_mut("docs")
+            .expect("docs command exists")
+            .clone();
+        let help = docs.render_long_help().to_string().to_lowercase();
+
+        assert!(help.contains("compact section index"));
+        assert!(help.contains("--section <slug>"));
+        assert!(help.contains("one complete structural section"));
+        assert!(help.contains("--full"));
+        assert!(help.contains("byte-exact complete document"));
+        assert!(help.contains("--head <lines>"));
+        assert!(help.contains("incomplete diagnostic excerpt"));
+        assert!(!help.contains("preview"));
+        assert!(!help.contains("then call --full"));
+    }
+
+    #[test]
     fn chat_ui_command_paths_are_fresh() {
         let committed =
             std::fs::read_to_string(COMMAND_PATHS_PATH).expect("commandPaths.ts missing");

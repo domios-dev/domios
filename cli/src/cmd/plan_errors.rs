@@ -94,7 +94,7 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
         "task_creation_requires_approval" => Some(format!(
             "✗ this plan is still in planning mode.\n\
 finish planning before generating execution tasks:\n\
-  codeterm docs ORCHESTRATION\n\
+  codeterm docs ORCHESTRATION --section planning-ownership\n\
   codeterm plan state {plan_id}\n\
   codeterm plan doctor {plan_id} --kind quality\n\
   codeterm plan approve {plan_id}\n\
@@ -103,7 +103,7 @@ then retry the task add. If you intentionally need a draft task, pass `--force`.
         "heartbeat_requires_execution" => Some(format!(
             "✗ heartbeat is derived automatically from execution state.\n\
 Use spec/plan sections for plan rules or mem for durable preferences:\n\
-  codeterm docs ORCHESTRATION\n\
+  codeterm docs ORCHESTRATION --section heartbeat\n\
   codeterm plan state {plan_id}\n\
   codeterm mem save-preference --scope global --title \"CodeTerm planner preference\" \"<preference>\""
         )),
