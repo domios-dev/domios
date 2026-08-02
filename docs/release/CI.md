@@ -96,6 +96,27 @@ no entry for a platform that hasn't been built yet.
 | `APPLE_TEAM_ID`              | macOS               | 10-char Apple Developer team ID. |
 | `APPLE_SIGNING_IDENTITY`     | macOS               | `Developer ID Application: …` Common Name. |
 
+## Public issue validation and release closure
+
+`.github/workflows/ready-for-release.yml` validates private PR bodies. The only accepted public
+issue declaration is an exact line of the form
+`Public-Issue: rollacode/codeterm-releases#N`; `scripts/release_issue_contract.py` owns parsing and
+normalization. The workflow rejects duplicate, malformed, wrong-repository, prose, and closing-
+keyword references, verifies every declared issue through `GH_RELEASE_TOKEN`, and renders the
+normalized references in the check summary.
+
+The tag-driven `.github/workflows/release.yml` has a serialized publication boundary:
+
+1. Build and publish the private archive and public mirror.
+2. Verify the matching public release, `latest.json`, version, and every version-pinned asset URL.
+3. Resolve private PRs contained in the release range and union their validated declarations.
+4. Close only still-open issues in `rollacode/codeterm-releases`, commenting `Released in vX.Y.Z`
+   and the declaring private PR URL.
+
+Only step 4 mutates issue state. It cannot run after a queued, cancelled, skipped, failed, or
+mirror-unverified release. Reruns skip closed issues. All cross-repository operations use
+`secrets.GH_RELEASE_TOKEN`; workflow `permissions` remain read-only for the private repository.
+
 ## Apple notarization disabled (TODO)
 
 The macOS workflow currently builds and **codesigns** bundles but does
@@ -134,4 +155,4 @@ To unblock notarization:
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
