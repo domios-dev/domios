@@ -1,5 +1,5 @@
 use super::*;
-use crate::multiplexer::types::{AgentRole, TabBacking, TabType};
+use crate::multiplexer::types::{AgentRole, TabAudience, TabBacking, TabType};
 
 #[test]
 fn test_new_state_has_default_workspace() {
@@ -880,6 +880,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         depth: 0,
                         chat_view: None,
                         auto_approve: false,
+                        audience: TabAudience::User,
                         agent_session_model: None,
                         agent_planned_model: None,
                         agent_requested_model: None,
@@ -951,6 +952,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     depth: 0,
                     chat_view: None,
                     auto_approve: false,
+                    audience: TabAudience::User,
                     agent_session_model: None,
                     agent_planned_model: None,
                     agent_requested_model: None,
@@ -1027,6 +1029,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     depth: 0,
                     chat_view: None,
                     auto_approve: false,
+                    audience: TabAudience::User,
                     agent_session_model: None,
                     agent_planned_model: None,
                     agent_requested_model: None,
