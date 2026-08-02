@@ -56,6 +56,9 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
+    if params.planned_reasoning_effort.is_none() {
+        params.planned_reasoning_effort = params.reasoning_effort.clone();
+    }
     params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
         plan_id: resolved.plan_id.clone(),
         task_id: resolved.task_id.clone(),
@@ -313,6 +316,24 @@ mod tests {
         let ack = prompt.find("codeterm agent ack").unwrap();
         assert!(body < supplemental);
         assert!(supplemental < ack);
+    }
+
+    #[test]
+    fn direct_plan_task_spawn_records_host_owned_effort_intent() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, _) = store_with_task(dir.path());
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_id: Some(plan_id),
+            plan_task: Some("spawn-bind".into()),
+            reasoning_effort: Some("high".into()),
+            ..Default::default()
+        };
+
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+
+        assert_eq!(params.planned_reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(params.reasoning_effort.as_deref(), Some("high"));
     }
 
     #[test]

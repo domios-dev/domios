@@ -333,6 +333,7 @@ pub async fn resume_session_api(
         spawned_by_tab_id: None,
         model: body.model.clone(),
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,

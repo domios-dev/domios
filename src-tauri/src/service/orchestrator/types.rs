@@ -147,6 +147,9 @@ pub struct SpawnAgentParams {
     pub model: Option<String>,
     /// Plan/task routing model before a launch-time model override.
     pub planned_model: Option<String>,
+    /// Host-owned plan-task dispatch intent. Generic spawn payloads cannot set it.
+    #[serde(default, skip_deserializing)]
+    pub(crate) planned_reasoning_effort: Option<String>,
     /// Explicitly requested reasoning effort. Capability-validated against the
     /// provider before launch; an unsupported value is rejected structurally
     /// (no silent downgrade). Provider maps it to launch flags via

@@ -90,6 +90,8 @@ pub struct AgentSpawnSpec {
     pub planned_model: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub(crate) planned_reasoning_effort: Option<String>,
     #[serde(default)]
     pub reasoning_effort: Option<String>,
     #[serde(default)]
@@ -433,7 +435,7 @@ impl ServiceContext {
             persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
             super::reasoning_effort::persist_launch_identity(
                 tab,
-                None,
+                agent.planned_reasoning_effort.as_deref(),
                 agent.reasoning_effort.as_deref(),
             );
         }
@@ -816,7 +818,7 @@ impl ServiceContext {
                 );
                 super::reasoning_effort::persist_launch_identity(
                     tab,
-                    None,
+                    agent.planned_reasoning_effort.as_deref(),
                     agent.reasoning_effort.as_deref(),
                 );
                 if let Some(ref rtid) = agent.report_target_tab_id {

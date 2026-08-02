@@ -53,6 +53,14 @@ fn nonrepo_team_runs_noncode_workers_without_git_probe() {
 }
 
 #[test]
+fn dispatch_effort_becomes_host_owned_plan_intent() {
+    let params = json!({ "reasoning_effort": "high" });
+    let (planned, requested) = super::dispatch_reasoning_effort(Some(&params));
+    assert_eq!(planned.as_deref(), Some("high"));
+    assert_eq!(requested.as_deref(), Some("high"));
+}
+
+#[test]
 fn repository_mutation_in_nonrepo_fails_checkout_required_before_spawn() {
     let error = checkout_required("ordinary folder is not a checkout");
     assert_eq!(error.code, -32012);
