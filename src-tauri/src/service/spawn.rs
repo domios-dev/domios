@@ -706,8 +706,15 @@ impl ServiceContext {
 
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
-                .map(|(id, _)| id)?
+            match pty.spawn(None, resolved_cwd, 120, 40, env_vars) {
+                Ok((id, _)) => id,
+                Err(error) => {
+                    drop(pty);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                    return Err(error);
+                }
+            }
         };
         if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
@@ -850,6 +857,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
+        let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+        })?;
+        env_vars.insert("CODETERM_PAD_DIR".into(), agent_pad.env_value());
         env_vars.insert(
             "CODETERM_SESSION_BINDING_NONCE".into(),
             self.ensure_session_binding_nonce(&tab_id),
@@ -888,8 +899,15 @@ impl ServiceContext {
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
-                .map(|(id, _)| id)?
+            match pty.spawn(None, resolved_cwd, 120, 40, env_vars) {
+                Ok((id, _)) => id,
+                Err(error) => {
+                    drop(pty);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                    return Err(error);
+                }
+            }
         };
 
         if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {

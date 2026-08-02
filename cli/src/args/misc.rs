@@ -262,11 +262,14 @@ pub enum PasteAction {
     /// Stash a payload. Body from positional / --from-file / stdin.
     Put {
         /// Body (positional). Omit and use --from-file or --from-stdin.
-        #[arg(default_value = "", allow_hyphen_values = true)]
-        body: String,
+        #[arg(allow_hyphen_values = true)]
+        body: Option<String>,
         /// Read body from a file instead.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+        /// Read body from a relative file in the current agent tab's pad.
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["body", "from_file", "from_stdin"])]
+        from_pad: Option<String>,
         /// Read body from stdin.
         #[arg(long)]
         from_stdin: bool,
@@ -366,6 +369,9 @@ pub enum BridgeAction {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
+        /// Read the text body from the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with = "text")]
+        from_pad: Option<String>,
         /// Preserve literal escape sequences instead of decoding \n into a newline
         #[arg(long)]
         raw_text: bool,

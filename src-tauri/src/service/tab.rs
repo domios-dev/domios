@@ -149,6 +149,7 @@ impl ServiceContext {
         let pty_ids = self.mux.write().close_tab(tab_id)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.revoke_agent_pad(tab_id)?;
         self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
