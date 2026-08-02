@@ -108,6 +108,10 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
 }
 
 function stripReplyHint(payload: string): string {
+  const instructionStart = payload.lastIndexOf("\n[to reply, run: codeterm send ");
+  if (instructionStart >= 0 && payload.endsWith("]")) {
+    return payload.slice(0, instructionStart).trimEnd();
+  }
   const start = payload.lastIndexOf("\n-=-codeterm:reply");
   if (start < 0) return payload;
   const marker = parseMarker(payload.slice(start + 1));
