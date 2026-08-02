@@ -343,12 +343,26 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &TabCtx) {
         );
         return;
     }
+    let permission_bypass = match crate::service::permission_policy::configured_permission_bypass(
+        &svc.agent_registry,
+        &ctx.agent_type,
+    ) {
+        Ok(authorization) => authorization.is_some(),
+        Err(error) => {
+            log::warn!(
+                "[refresh] tab={} cannot resolve agent access: {}",
+                short(&ctx.tab_id),
+                error
+            );
+            return;
+        }
+    };
     let can_resume = provider
         .as_ref()
         .and_then(|p| {
             ctx.session_id
                 .as_deref()
-                .and_then(|s| p.build_resume_command(s, false))
+                .and_then(|s| p.build_resume_command(s, permission_bypass))
         })
         .is_some();
     if can_resume {

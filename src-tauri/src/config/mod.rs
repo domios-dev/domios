@@ -142,9 +142,6 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
             api.host
         ));
     }
-    if api.cors && api.cors_allow_origins.is_empty() {
-        return Err("api.cors requires at least one api.cors_allow_origins entry".into());
-    }
     if api.cors_allow_origins.iter().any(|origin| {
         origin == "*"
             || !(origin.starts_with("http://") || origin.starts_with("https://"))
@@ -549,8 +546,12 @@ mod tests {
         unsafe_remote.token = Some("explicit-network-token".into());
         assert!(validate_api_trust_boundary(&unsafe_remote).is_ok());
 
-        let mut permissive_cors = schema::ApiConfig::default();
-        permissive_cors.cors = true;
+        let mut permissive_cors = schema::ApiConfig {
+            cors: true,
+            ..schema::ApiConfig::default()
+        };
+        assert!(validate_api_trust_boundary(&permissive_cors).is_ok());
+
         permissive_cors.cors_allow_origins = vec!["*".into()];
         assert!(validate_api_trust_boundary(&permissive_cors).is_err());
     }

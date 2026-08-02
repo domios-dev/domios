@@ -335,8 +335,7 @@ impl ServiceContext {
             &self.agent_registry,
             &provider,
         )
-        .ok()
-        .flatten()
+        .map_err(AgentRestartError::BadRequest)?
         .is_some();
         if let Some(live_tab) = mux.get_tab_mut(&resolved) {
             live_tab.auto_approve = auto_approve;
@@ -542,13 +541,16 @@ fn build_relaunch_command(
     launch_task: Option<&str>,
 ) -> Option<String> {
     let provider = &snap.provider;
-    let auto_approve = crate::service::permission_policy::configured_permission_bypass(
+    let auto_approve = match crate::service::permission_policy::configured_permission_bypass(
         &svc.agent_registry,
         provider,
-    )
-    .ok()
-    .flatten()
-    .is_some();
+    ) {
+        Ok(authorization) => authorization.is_some(),
+        Err(error) => {
+            log::error!("[agent-restart] refusing policy downgrade for provider={provider}: {error}");
+            return None;
+        }
+    };
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
     let structured_prompt_server = svc

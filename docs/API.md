@@ -62,6 +62,9 @@ this listener truth, so a config write never masquerades as a runtime rebind.
 Listener rebind/recovery retains the generation behavior below. `localhost`,
 `::1`, and `[::1]` canonicalize to valid socket and callback URL forms.
 
+An empty CORS allowlist permits no cross-origin browser requests and never
+disables the API listener. `*` and malformed origins are rejected.
+
 ### Endpoints
 
 #### System
