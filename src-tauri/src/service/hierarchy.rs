@@ -16,9 +16,7 @@ pub use status::TabStatusInfo;
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
 };
-use report_persistence::{
-    persist_authorized_local_task_report, rejected_report_delivery_message,
-};
+use report_persistence::{persist_authorized_local_task_report, rejected_report_delivery_message};
 
 use super::{RejectedTaskTransition, ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
@@ -401,38 +399,32 @@ impl ServiceContext {
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
         let mut notices: Vec<String> = Vec::new();
-        let (eff_plan_id, eff_task_id) = match resolve_plan_ctx(
-            &self.plan_store,
-            tab_id,
-            plan_id,
-            task_id,
-            &mut notices,
-        ) {
-            Ok(context) => context,
-            Err(cause) => {
-                task_transition_refusal = Some(match task_transition_refusal {
-                    Some(existing) => format!("{existing}\n{cause}"),
-                    None => cause,
-                });
-                let fallback_plan = plan_id
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
-                    .map(str::to_string);
-                let fallback_task = task_id
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_string);
-                (fallback_plan, fallback_task)
-            }
-        };
+        let (eff_plan_id, eff_task_id) =
+            match resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices) {
+                Ok(context) => context,
+                Err(cause) => {
+                    task_transition_refusal = Some(match task_transition_refusal {
+                        Some(existing) => format!("{existing}\n{cause}"),
+                        None => cause,
+                    });
+                    let fallback_plan = plan_id
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
+                        .map(str::to_string);
+                    let fallback_task = task_id
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_string);
+                    (fallback_plan, fallback_task)
+                }
+            };
         let mut persisted_task = None;
-        let mut rejected_task_transition = task_transition_refusal.map(|cause| {
-            RejectedTaskTransition {
+        let mut rejected_task_transition =
+            task_transition_refusal.map(|cause| RejectedTaskTransition {
                 plan_id: eff_plan_id.clone(),
                 task_id: eff_task_id.clone(),
                 cause,
-            }
-        });
+            });
 
         let (from_title, default_target_opt, model_identity, from_ref) = {
             let mux = self.mux.read();
@@ -530,28 +522,31 @@ impl ServiceContext {
 
         if let Some(ref plan_id) = eff_plan_id {
             if !homed_to_remote && !foreign && rejected_task_transition.is_none() {
-                let persistence = eff_task_id.as_deref().ok_or_else(|| {
-                    report_persistence::report_persistence_incident(
-                        tab_id,
-                        plan_id,
-                        None,
-                        "the report resolved a plan but no exact task",
-                    )
-                }).and_then(|task_id| {
-                    persist_authorized_local_task_report(
-                        self,
-                        tab_id,
-                        plan_id,
-                        task_id,
-                        &from_ref,
-                        message,
-                        &details,
-                        task_status,
-                        milestone_kind,
-                        epoch_ms(),
-                    )
-                    .map(|()| task_id.to_string())
-                });
+                let persistence = eff_task_id
+                    .as_deref()
+                    .ok_or_else(|| {
+                        report_persistence::report_persistence_incident(
+                            tab_id,
+                            plan_id,
+                            None,
+                            "the report resolved a plan but no exact task",
+                        )
+                    })
+                    .and_then(|task_id| {
+                        persist_authorized_local_task_report(
+                            self,
+                            tab_id,
+                            plan_id,
+                            task_id,
+                            &from_ref,
+                            message,
+                            &details,
+                            task_status,
+                            milestone_kind,
+                            epoch_ms(),
+                        )
+                        .map(|()| task_id.to_string())
+                    });
                 match persistence {
                     Ok(task_id) => {
                         persisted_task = Some((plan_id.clone(), task_id));

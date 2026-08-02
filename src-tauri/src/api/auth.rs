@@ -6,8 +6,8 @@ use axum::{
 };
 use std::net::SocketAddr;
 
-use super::routes::AppState;
 use super::access_policy::check_access;
+use super::routes::AppState;
 use crate::mesh::types::AccessLevel;
 
 #[derive(Clone, Debug)]
@@ -38,7 +38,6 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
 
 const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
-    "/api/providers",
     "/api/mesh/ping",
     "/api/mesh/pair/request",
     "/api/mesh/pair/accept",
@@ -159,7 +158,11 @@ pub async fn auth_middleware(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| *address);
     if !remote_network_allowed(state.config.lock().mesh.enabled, remote_address) {
-        log::warn!("[auth] Rejecting remote {} {} — mesh disabled", method, path);
+        log::warn!(
+            "[auth] Rejecting remote {} {} — mesh disabled",
+            method,
+            path
+        );
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             "Mesh networking is disabled",
@@ -424,10 +427,7 @@ mod tests {
         for p in PUBLIC_PATHS {
             assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
         }
-        assert!(
-            PUBLIC_PATHS.contains(&"/api/providers"),
-            "plugin verification needs unauthenticated provider liveness checks"
-        );
+        assert!(!PUBLIC_PATHS.contains(&"/api/providers"));
     }
 
     #[test]

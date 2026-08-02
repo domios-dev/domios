@@ -56,17 +56,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     let app_handle = app.handle().clone();
     let frontend_readiness_generation = super::arm_frontend_readiness();
 
-    if let Err(e) = socket::server::SocketServer::start(
-        states.mux.clone(),
-        states.pty.clone(),
-        states.notif.clone(),
-        app_handle.clone(),
-        states.output_buffer.clone(),
-        service_state.clone(),
-    ) {
-        log::error!("Failed to start socket server: {}", e);
-    }
-
     // e2e suite can time-travel; release builds never do.
     let test_clock: Option<Arc<cron::clock::MockClock>> =
         if cfg!(debug_assertions) && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1") {
@@ -109,6 +98,18 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     app.manage(cron_wake.clone());
     cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
 
+    tauri::async_runtime::block_on(async {
+        let init_started = std::time::Instant::now();
+        if let Err(error) = service_state.secrets.read().await.init().await {
+            log::warn!("[secrets] init failed: {error}");
+        } else {
+            log::info!(
+                "[secrets] init done in {}ms",
+                init_started.elapsed().as_millis()
+            );
+        }
+    });
+
     {
         let svc = service_state.clone();
         std::thread::spawn(move || loop {
@@ -129,6 +130,33 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 
     {
         let api_config = states.config.lock().api.clone();
+        let api_state = api::routes::AppState {
+            svc: service_state.clone(),
+            cron: cron_state.clone(),
+            cron_wake: cron_wake.clone(),
+            api_port: api_config.port,
+            update_state: states.update.clone(),
+            config: states.config.clone(),
+            mesh: states.mesh.clone(),
+            keepawake: states.keepawake.clone(),
+            resize_owner: states.resize_owner.clone(),
+            rest_api: states.rest_api.clone(),
+            test_clock: test_clock.clone(),
+            events: states.event_broadcaster.clone(),
+            web_dist: resolve_web_dist(app.path().resource_dir().ok()),
+        };
+        let router = api::routes::create_router(api_state);
+        app.manage(api::routes::LocalApiRouter(router.clone()));
+        if let Err(e) = socket::server::SocketServer::start(
+            states.mux.clone(),
+            states.pty.clone(),
+            states.notif.clone(),
+            app_handle.clone(),
+            states.output_buffer.clone(),
+            service_state.clone(),
+        ) {
+            log::error!("Failed to start socket server: {}", e);
+        }
         let listener_allowed = match crate::config::validate_api_trust_boundary(&api_config) {
             Ok(()) => true,
             Err(error) => {
@@ -139,31 +167,17 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         if api_config.enabled && listener_allowed {
             let bind_addr = crate::config::canonical_api_bind_addr(&api_config)
                 .expect("validated API host must have a canonical socket address");
-            states.rest_api.set_runtime_policy(super::RestApiRuntimePolicy {
-                enabled: true,
-                cors: api_config.cors,
-                cors_allow_origins: if api_config.cors {
-                    api_config.cors_allow_origins.clone()
-                } else {
-                    Vec::new()
-                },
-            });
-            let api_state = api::routes::AppState {
-                svc: service_state.clone(),
-                cron: cron_state.clone(),
-                cron_wake: cron_wake.clone(),
-                api_port: api_config.port,
-                update_state: states.update.clone(),
-                config: states.config.clone(),
-                mesh: states.mesh.clone(),
-                keepawake: states.keepawake.clone(),
-                resize_owner: states.resize_owner.clone(),
-                rest_api: states.rest_api.clone(),
-                test_clock: test_clock.clone(),
-                events: states.event_broadcaster.clone(),
-                web_dist: resolve_web_dist(app.path().resource_dir().ok()),
-            };
-            let router = api::routes::create_router(api_state);
+            states
+                .rest_api
+                .set_runtime_policy(super::RestApiRuntimePolicy {
+                    enabled: true,
+                    cors: api_config.cors,
+                    cors_allow_origins: if api_config.cors {
+                        api_config.cors_allow_origins.clone()
+                    } else {
+                        Vec::new()
+                    },
+                });
             let port = api_config.port;
             if !bind_addr.ip().is_loopback() {
                 log::warn!(
@@ -171,8 +185,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 );
             }
             std::env::set_var("CODETERM_API_PORT", port.to_string());
-            // accepts connections. Without this gate, /api/secrets/status would briefly serve a stale "Locked" while init was still running on a parallel task.
-            let secrets_for_init = service_state.secrets.clone();
             let control = states.rest_api.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
@@ -181,15 +193,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                     .build()
                     .expect("Failed to create Tokio runtime for REST API");
                 rt.block_on(async move {
-                    let init_started = std::time::Instant::now();
-                    if let Err(e) = secrets_for_init.read().await.init().await {
-                        log::warn!("[secrets] init failed: {}", e);
-                    } else {
-                        log::info!(
-                            "[secrets] init done in {}ms",
-                            init_started.elapsed().as_millis()
-                        );
-                    }
                     super::rest_api::start(control, bind_addr.to_string(), router).await;
                 });
             });

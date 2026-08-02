@@ -72,9 +72,10 @@ impl ServiceContext {
                     let changed = tab.agent_state.as_ref() != Some(&idle_state)
                         || tab.pending_prompt.is_some();
                     tab.agent_state = Some(idle_state);
-                    let cleared = tab.pending_prompt.take().and_then(|old| {
-                        Some((tab.agent_session_id.clone()?, old.question))
-                    });
+                    let cleared = tab
+                        .pending_prompt
+                        .take()
+                        .and_then(|old| Some((tab.agent_session_id.clone()?, old.question)));
                     (changed, cleared)
                 }
                 _ => (false, None),
@@ -879,9 +880,8 @@ fn decide_agent_output_lifecycle(
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{
-        decide_agent_output_lifecycle, screen_ends_in_shell_prompt,
-        should_detect_unbound_session, should_heuristically_detect_session,
-        AgentOutputLifecycleDecision,
+        decide_agent_output_lifecycle, screen_ends_in_shell_prompt, should_detect_unbound_session,
+        should_heuristically_detect_session, AgentOutputLifecycleDecision,
     };
 
     #[test]

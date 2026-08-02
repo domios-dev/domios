@@ -423,10 +423,7 @@ mod tests {
                 digest: digest.clone()
             })
         );
-        assert!(events
-            .0
-            .lock()
-            .contains(&("confirmed".into(), digest)));
+        assert!(events.0.lock().contains(&("confirmed".into(), digest)));
     }
 
     #[test]

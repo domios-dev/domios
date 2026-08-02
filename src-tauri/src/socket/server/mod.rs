@@ -11,6 +11,7 @@ mod bridge;
 mod canvas;
 mod cron;
 mod dispatch;
+mod local_api;
 mod mem;
 mod notification;
 mod orchestration;
@@ -36,8 +37,8 @@ mod plan_refs;
 mod plan_review;
 mod plan_role_helpers;
 mod plan_skills_rpc;
-mod plan_task_dispatch;
 mod plan_task_authority;
+mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 mod services;
@@ -54,6 +55,9 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
+
+#[cfg(target_os = "linux")]
+use interprocess::os::unix::local_socket::ListenerOptionsExt as UnixListenerOptionsExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
@@ -231,6 +235,9 @@ impl SocketServer {
 
         let opts = ListenerOptions::new().name(name);
 
+        #[cfg(target_os = "linux")]
+        let opts = opts.mode(0o600);
+
         let listener = opts
             .create_sync()
             .map_err(|e| format!("Failed to create socket listener: {}", e))?;
@@ -241,6 +248,11 @@ impl SocketServer {
             for conn in listener.incoming() {
                 match conn {
                     Ok(stream) => {
+                        if !peer_is_current_user(&stream) {
+                            log::warn!("Rejected local socket client owned by another OS user");
+                            continue;
+                        }
+
                         #[cfg(target_os = "windows")]
                         let stream = WindowsBlockingPipe::from(stream);
 
@@ -272,6 +284,96 @@ impl SocketServer {
 
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn peer_is_current_user(stream: &interprocess::local_socket::Stream) -> bool {
+    stream
+        .peer_creds()
+        .ok()
+        .and_then(|credentials| credentials.euid())
+        .is_some_and(|euid| euid == unsafe { libc::geteuid() })
+}
+
+#[cfg(target_os = "windows")]
+fn peer_is_current_user(stream: &interprocess::local_socket::Stream) -> bool {
+    let peer_pid = match stream
+        .peer_creds()
+        .ok()
+        .and_then(|credentials| credentials.pid())
+    {
+        Some(pid) => pid,
+        None => return false,
+    };
+    windows_process_user_sid(Some(peer_pid))
+        .and_then(|peer| windows_process_user_sid(None).map(|current| (peer, current)))
+        .is_ok_and(|(peer, current)| unsafe {
+            windows_sys::Win32::Security::EqualSid(
+                peer.as_ptr().cast_mut().cast(),
+                current.as_ptr().cast_mut().cast(),
+            ) != 0
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn windows_process_user_sid(pid: Option<u32>) -> io::Result<Vec<u8>> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER},
+        System::Threading::{
+            GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+        },
+    };
+
+    let process = match pid {
+        Some(pid) => unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) },
+        None => unsafe { GetCurrentProcess() },
+    };
+    if process.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut token: HANDLE = std::ptr::null_mut();
+    let opened = unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) };
+    if pid.is_some() {
+        unsafe { CloseHandle(process) };
+    }
+    if opened == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut size = 0;
+    unsafe {
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut size);
+    }
+    let mut token_info = vec![0u8; size as usize];
+    let read = unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            token_info.as_mut_ptr().cast(),
+            size,
+            &mut size,
+        )
+    };
+    unsafe { CloseHandle(token) };
+    if read == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let user = unsafe { &*(token_info.as_ptr().cast::<TOKEN_USER>()) };
+    let sid_len = unsafe { windows_sys::Win32::Security::GetLengthSid(user.User.Sid) };
+    if sid_len == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut sid = vec![0u8; sid_len as usize];
+    let copied = unsafe {
+        windows_sys::Win32::Security::CopySid(sid_len, sid.as_mut_ptr().cast(), user.User.Sid)
+    };
+    if copied == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(sid)
 }
 
 #[cfg(target_os = "windows")]

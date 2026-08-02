@@ -21,9 +21,7 @@ fn api_bind_disclosure(
     let configured = crate::config::canonical_api_bind_addr(&cfg.api)
         .ok()?
         .to_string();
-    let pending = state
-        .rest_api
-        .pending_bind(&configured)?;
+    let pending = state.rest_api.pending_bind(&configured)?;
     Some(serde_json::json!({
         "restart_required": true,
         "live": pending.live,
@@ -352,13 +350,12 @@ mod tests {
             cors_allow_origins: Vec::new(),
         };
 
-        let disclosure = api_listener_value(
-            Some("127.0.0.1:7686".parse().unwrap()),
-            active,
-            &cfg,
-        );
+        let disclosure = api_listener_value(Some("127.0.0.1:7686".parse().unwrap()), active, &cfg);
         assert_eq!(disclosure["active"]["cors"], false);
-        assert_eq!(disclosure["active"]["cors_allow_origins"], serde_json::json!([]));
+        assert_eq!(
+            disclosure["active"]["cors_allow_origins"],
+            serde_json::json!([])
+        );
         assert_eq!(disclosure["configured"]["cors"], true);
         assert_eq!(
             disclosure["configured"]["cors_allow_origins"],
@@ -370,7 +367,10 @@ mod tests {
     #[test]
     fn exact_api_runtime_queries_include_listener_truth() {
         for key in ["api", "api.enabled", "api.cors", "api.cors_allow_origins"] {
-            assert!(api_query_includes_listener(key), "missing listener truth for {key}");
+            assert!(
+                api_query_includes_listener(key),
+                "missing listener truth for {key}"
+            );
         }
         assert!(!api_query_includes_listener("theme.name"));
     }

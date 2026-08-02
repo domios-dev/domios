@@ -890,9 +890,7 @@ mod tests {
     #[test]
     fn hidden_agent_crash_recovery_uses_global_access_choice() {
         let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(
-            crate::plugin::agent_claude::ClaudeProvider::new(),
-        ));
+        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
         let full_access = hidden_recovery_resume_command(&registry, "claude", "session-1", true)
             .expect("resume command");

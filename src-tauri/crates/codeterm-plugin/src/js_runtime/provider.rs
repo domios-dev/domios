@@ -883,9 +883,7 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.compact.as_deref()
     }
 
-    fn provider_self_update_capability(
-        &self,
-    ) -> Option<provider::ProviderSelfUpdateCapability> {
+    fn provider_self_update_capability(&self) -> Option<provider::ProviderSelfUpdateCapability> {
         if !self.has_js("providerSelfUpdateCapability") {
             return self
                 .native()
@@ -1058,7 +1056,9 @@ impl AgentProvider for JsProvider {
         options: &crate::provider::IntegrationInstallOptions,
     ) -> Result<(), String> {
         if !options.consent {
-            return Err("provider integration installation requires explicit local-user consent".into());
+            return Err(
+                "provider integration installation requires explicit local-user consent".into(),
+            );
         }
         self.try_call_result("installIntegration", &[json!(api_port), json!(options)])
             .unwrap_or(Ok(()))

@@ -514,7 +514,10 @@ fn pty_env_prefers_the_configured_codeterm_cli() {
     apply_pty_env(&mut cmd, &assigned);
 
     let paths: Vec<_> = std::env::split_paths(cmd.get_env("PATH").unwrap()).collect();
-    assert_eq!(paths.first().map(std::path::PathBuf::as_path), Some(expected));
+    assert_eq!(
+        paths.first().map(std::path::PathBuf::as_path),
+        Some(expected)
+    );
 }
 
 /// `launch_agent_in_background` relies on `write` returning `Err("PTY not

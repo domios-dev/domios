@@ -135,9 +135,21 @@ fn seed_initial(
     match cursor {
         None => {
             for (tab, pty) in &live {
-                tracked.insert(tab.clone(), if tab_id.is_some() { Tracked { offset: 0, ended: false } } else { tail(pty) });
+                tracked.insert(
+                    tab.clone(),
+                    if tab_id.is_some() {
+                        Tracked {
+                            offset: 0,
+                            ended: false,
+                        }
+                    } else {
+                        tail(pty)
+                    },
+                );
             }
-            if tab_id.is_some() { boot_frame = Some(serde_json::json!({ "boot": boot })); }
+            if tab_id.is_some() {
+                boot_frame = Some(serde_json::json!({ "boot": boot }));
+            }
         }
         Some(c) if c.boot == boot => {
             for (tab, _pty) in &live {

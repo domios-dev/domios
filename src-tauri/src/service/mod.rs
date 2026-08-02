@@ -41,11 +41,11 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
-pub(crate) mod permission_policy;
 pub(crate) mod pending_delivery_payloads;
+pub(crate) mod permission_policy;
 pub mod plan;
-mod plan_reconcile;
 mod plan_authority;
+mod plan_reconcile;
 pub mod plugin_host;
 pub mod provider_update;
 pub(crate) mod pty_activation;
@@ -53,11 +53,11 @@ pub mod pty_io;
 pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
-pub mod remote_workers;
+mod reasoning_effort;
 pub mod remote_tabs;
+pub mod remote_workers;
 mod role_identity;
 mod role_profile;
-mod reasoning_effort;
 pub mod session_persist;
 pub mod smart_add;
 pub mod spawn;
@@ -93,8 +93,8 @@ pub mod transport;
 pub mod watcher;
 pub mod web_access;
 pub(crate) mod worker_ack;
-pub(crate) mod worker_interruption;
 mod worker_identity;
+pub(crate) mod worker_interruption;
 mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
@@ -122,9 +122,6 @@ pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
 pub(crate) use hierarchy::{FirstPlanCaller, FirstPlanTeamError};
-pub(crate) use plan_authority::{
-    ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
-};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
@@ -140,6 +137,9 @@ pub(crate) use orchestrator::{
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
+};
+pub(crate) use plan_authority::{
+    ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
 };
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};

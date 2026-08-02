@@ -206,14 +206,12 @@ pub fn session_resume_section(description: &str, _skip_flag: &str) -> SettingFie
     SettingField::Section {
         title: "Session Resume".into(),
         description: Some(description.into()),
-        fields: vec![
-            SettingField::Toggle {
-                key: "resume_sessions".into(),
-                label: "Resume previous sessions".into(),
-                default: true,
-                description: None,
-            },
-        ],
+        fields: vec![SettingField::Toggle {
+            key: "resume_sessions".into(),
+            label: "Resume previous sessions".into(),
+            default: true,
+            description: None,
+        }],
     }
 }
 

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use serde::Deserialize;
 
-use crate::{build_http, read_api_config, read_mesh_signed_token};
+use crate::{build_local_api, local_api::LocalApiClient, read_api_config};
 
 pub struct MigrateArgs {
     pub to: String,
@@ -48,16 +48,16 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         std::process::exit(EXIT_USAGE);
     }
 
-    let (base, token) = read_api_config();
-    let http = match build_http(&token) {
+    let (base, _) = read_api_config();
+    let api = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
+            eprintln!("Error: failed to connect to local API: {}", e);
             std::process::exit(1);
         }
     };
 
-    let source_state = match get_bridge_state_local(&http, &base, &args.service) {
+    let source_state = match get_bridge_state_local(&api, &base, &args.service) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Error: bridge subsystem not available locally: {}", e);
@@ -79,29 +79,21 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         return;
     }
 
-    let (peer_url, target_id) = match resolve_paired_peer(&http, &base, &token, &args.to) {
-        Ok(v) => v,
+    let target_id = match resolve_paired_peer(&api, &base, &args.to) {
+        Ok(id) => id,
         Err(e) => {
             eprintln!("{}", e);
             std::process::exit(EXIT_TARGET_MISCONFIG);
         }
     };
 
-    let signed = match read_mesh_signed_token() {
-        Some(t) => t,
-        None => {
-            eprintln!("Error: cannot sign mesh request — no local mesh identity.");
-            std::process::exit(1);
-        }
-    };
-
-    if let Err(e) = relay_get(&http, &peer_url, &signed, "/api/health") {
+    if let Err(e) = relay_get(&target_id, "/api/health") {
         eprintln!("Error: target {} unreachable: {}", args.to, e);
         std::process::exit(EXIT_TARGET_MISCONFIG);
     }
     log_step(json, "preflight", &format!("target {} reachable", args.to));
 
-    let target_state = match relay_get_state(&http, &peer_url, &signed, &args.service) {
+    let target_state = match relay_get_state(&target_id, &args.service) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Error: target {} bridge state unavailable: {}", args.to, e);
@@ -129,7 +121,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
     }
 
     if let Err(e) = patch_config_local(
-        &http,
+        &api,
         &base,
         "integrations.telegram_enabled",
         serde_json::json!(false),
@@ -145,7 +137,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
 
     let stop_started = Instant::now();
     let stop_resp = post_local(
-        &http,
+        &api,
         &base,
         "/api/bridge/stop",
         &serde_json::json!({"service": args.service, "timeout_ms": 30000}),
@@ -163,9 +155,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
     log_step(json, "stop", &format!("released in {}ms", released_ms));
 
     if let Err(e) = relay_patch_config(
-        &http,
-        &peer_url,
-        &signed,
+        &target_id,
         "integrations.telegram_enabled",
         serde_json::json!(true),
     ) {
@@ -179,9 +169,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
 
     let claim_started = Instant::now();
     let claim_resp = relay_post(
-        &http,
-        &peer_url,
-        &signed,
+        &target_id,
         "/api/bridge/start",
         &serde_json::json!({
             "service": args.service,
@@ -206,7 +194,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             eprintln!("--no-rollback set: leaving source disabled.");
             std::process::exit(1);
         }
-        match rollback(&http, &base, &args.service, args.claim_timeout_ms) {
+        match rollback(&api, &base, &args.service, args.claim_timeout_ms) {
             Ok(()) => {
                 eprintln!("Rollback: succeeded (source is active again)");
                 std::process::exit(1);
@@ -223,8 +211,8 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         &format!("target claimed lock in {}ms", claim_ms),
     );
 
-    let verify_local = get_bridge_state_local(&http, &base, &args.service);
-    let verify_target = relay_get_state(&http, &peer_url, &signed, &args.service);
+    let verify_local = get_bridge_state_local(&api, &base, &args.service);
+    let verify_target = relay_get_state(&target_id, &args.service);
     let local_inactive = verify_local.as_ref().map(|s| !s.active).unwrap_or(false);
     let target_active = verify_target.as_ref().map(|s| s.active).unwrap_or(false);
     if !local_inactive || !target_active {
@@ -235,7 +223,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         if args.no_rollback {
             std::process::exit(1);
         }
-        match rollback(&http, &base, &args.service, args.claim_timeout_ms) {
+        match rollback(&api, &base, &args.service, args.claim_timeout_ms) {
             Ok(()) => {
                 eprintln!("Rollback: succeeded");
                 std::process::exit(1);
@@ -256,7 +244,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
                 args.to, source_name
             ),
         });
-        if let Err(e) = relay_post(&http, &peer_url, &signed, "/api/bridge/announce", &payload) {
+        if let Err(e) = relay_post(&target_id, "/api/bridge/announce", &payload) {
             eprintln!("Warning: announce failed (non-fatal): {}", e);
         } else {
             log_step(json, "announce", "queued sentinel message on target");
@@ -285,13 +273,13 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
 }
 
 fn rollback(
-    http: &reqwest::blocking::Client,
+    api: &LocalApiClient,
     base: &str,
     service: &str,
     claim_timeout_ms: u64,
 ) -> Result<(), String> {
     if let Err(e) = patch_config_local(
-        http,
+        api,
         base,
         "integrations.telegram_enabled",
         serde_json::json!(true),
@@ -299,7 +287,7 @@ fn rollback(
         return Err(format!("config re-enable: {}", e));
     }
     post_local(
-        http,
+        api,
         base,
         "/api/bridge/start",
         &serde_json::json!({
@@ -374,29 +362,21 @@ pub fn check_already_migrated(source: &BridgeState, target: &BridgeState) -> boo
 }
 
 fn get_bridge_state_local(
-    http: &reqwest::blocking::Client,
+    api: &LocalApiClient,
     base: &str,
     service: &str,
 ) -> Result<BridgeState, String> {
     let url = format!("{}/api/bridge/state?service={}", base, service);
-    let resp = http.get(&url).send().map_err(|e| e.to_string())?;
+    let resp = api.get(&url).send().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status().as_u16()));
     }
     resp.json::<BridgeState>().map_err(|e| e.to_string())
 }
 
-fn resolve_paired_peer(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
-    target: &str,
-) -> Result<(String, String), String> {
-    let mut req = http.get(format!("{}/api/mesh/peers", base));
-    if let Some(t) = token {
-        req = req.header("Authorization", format!("Bearer {}", t));
-    }
-    let val: serde_json::Value = req
+fn resolve_paired_peer(api: &LocalApiClient, base: &str, target: &str) -> Result<String, String> {
+    let val: serde_json::Value = api
+        .get(format!("{}/api/mesh/peers", base))
         .send()
         .map_err(|e| e.to_string())?
         .json()
@@ -420,32 +400,21 @@ fn resolve_paired_peer(
             names.join(", ")
         ));
     };
-    let ip = peer
-        .get("addresses")
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|a| a.get("ip"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("127.0.0.1");
-    let port = peer
-        .get("api_port")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(7685);
     let id = peer
         .get("instance_id")
         .and_then(|v| v.as_str())
         .unwrap_or(target)
         .to_string();
-    Ok((format!("http://{}:{}", ip, port), id))
+    Ok(id)
 }
 
 fn post_local(
-    http: &reqwest::blocking::Client,
+    api: &LocalApiClient,
     base: &str,
     path: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let resp = http
+    let resp = api
         .post(format!("{}{}", base, path))
         .json(body)
         .send()
@@ -462,13 +431,13 @@ fn post_local(
 }
 
 fn patch_config_local(
-    http: &reqwest::blocking::Client,
+    api: &LocalApiClient,
     base: &str,
     key: &str,
     value: serde_json::Value,
 ) -> Result<(), String> {
     let body = serde_json::json!({"key": key, "value": value});
-    let resp = http
+    let resp = api
         .patch(format!("{}/api/config", base))
         .json(&body)
         .send()
@@ -480,107 +449,40 @@ fn patch_config_local(
     }
 }
 
-fn relay_envelope(method: &str, path: &str, body: serde_json::Value) -> serde_json::Value {
-    serde_json::json!({"method": method, "path": path, "body": body})
-}
-
 fn relay_send(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed: &str,
-    envelope: serde_json::Value,
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    let resp = http
-        .post(format!("{}/api/mesh/relay", peer_url))
-        .header("Authorization", format!("Bearer {}", signed))
-        .json(&envelope)
-        .send()
-        .map_err(|e| e.to_string())?;
-    let status = resp.status();
-    let bytes = resp.bytes().map_err(|e| e.to_string())?;
-    let val: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
-    if !status.is_success() {
-        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]);
-        return Err(format!("HTTP {}: {}", status.as_u16(), preview.trim()));
-    }
-    if let Some(ok) = val.get("ok").and_then(|v| v.as_bool()) {
-        if !ok {
-            let err = val
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("relay returned ok=false");
-            return Err(err.to_string());
-        }
-    }
-    if let Some(inner_status) = val.get("status").and_then(|v| v.as_u64()) {
-        if !(200..300).contains(&inner_status) {
-            let err = val
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("relay inner status non-2xx");
-            return Err(format!("inner HTTP {}: {}", inner_status, err));
-        }
-    }
-    Ok(val.get("data").cloned().unwrap_or(val))
+    let body = body.map(serde_json::Value::to_string);
+    crate::mesh_cli::mesh_relay_invoke_result(target, method, path, body.as_deref())
+        .map_err(|error| error.to_string())
 }
 
-fn relay_get(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed: &str,
-    path: &str,
-) -> Result<serde_json::Value, String> {
-    relay_send(
-        http,
-        peer_url,
-        signed,
-        relay_envelope("GET", path, serde_json::Value::Null),
-    )
+fn relay_get(target: &str, path: &str) -> Result<serde_json::Value, String> {
+    relay_send(target, "GET", path, None)
 }
 
 fn relay_post(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed: &str,
+    target: &str,
     path: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    relay_send(
-        http,
-        peer_url,
-        signed,
-        relay_envelope("POST", path, body.clone()),
-    )
+    relay_send(target, "POST", path, Some(body))
 }
 
 fn relay_patch_config(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed: &str,
+    target: &str,
     key: &str,
     value: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let body = serde_json::json!({"key": key, "value": value});
-    relay_send(
-        http,
-        peer_url,
-        signed,
-        relay_envelope("PATCH", "/api/config", body),
-    )
+    relay_send(target, "PATCH", "/api/config", Some(&body))
 }
 
-fn relay_get_state(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed: &str,
-    service: &str,
-) -> Result<BridgeState, String> {
-    let val = relay_get(
-        http,
-        peer_url,
-        signed,
-        &format!("/api/bridge/state?service={}", service),
-    )?;
+fn relay_get_state(target: &str, service: &str) -> Result<BridgeState, String> {
+    let val = relay_get(target, &format!("/api/bridge/state?service={}", service))?;
     serde_json::from_value::<BridgeState>(val).map_err(|e| e.to_string())
 }
 

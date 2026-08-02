@@ -6,8 +6,8 @@ use axum::{
     Json,
 };
 
-use crate::api::routes::{check_auth, AppState};
 use crate::api::access_policy::check_access;
+use crate::api::routes::{check_auth, AppState};
 
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
@@ -650,7 +650,10 @@ pub async fn mesh_relay_stream(
             .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
         path = format!("{bare}?tab_id={}", owner.tab_id);
     } else if bare == "/api/output/stream" {
-        return Err((StatusCode::BAD_REQUEST, "remote tab stream requires composite tab".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "remote tab stream requires composite tab".into(),
+        ));
     }
     if let Some(since) = q.since.as_deref().filter(|s| !s.is_empty()) {
         let sep = if path.contains('?') { '&' } else { '?' };
@@ -665,12 +668,18 @@ pub async fn mesh_relay_stream(
             .get(&q.peer)
             .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?;
         if !peer.online {
-            return Err((StatusCode::SERVICE_UNAVAILABLE, "remote tab unavailable".into()));
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "remote tab unavailable".into(),
+            ));
         }
         if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
-                format!("Peer {} uses an incompatible Mesh relay protocol", peer.instance_name),
+                format!(
+                    "Peer {} uses an incompatible Mesh relay protocol",
+                    peer.instance_name
+                ),
             ));
         }
         mesh.client_for(&q.peer)
@@ -1050,5 +1059,4 @@ mod tests {
         assert!(!is_relay_asset_path("tabs/abc/ui/x"));
         assert!(!is_relay_asset_path("plugins/git/ui/../../../etc/passwd"));
     }
-
 }

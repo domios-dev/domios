@@ -126,7 +126,6 @@ fn exec_empty_command_appends_cr() {
     assert_eq!(apply_exec_enter(""), "\r");
 }
 
-
 /// send is always fire-and-forget — the `verify` field was removed in #101
 /// because TUI agents intercept input and don't echo per-character, making
 /// verification unreliable (especially over mesh). Deserialization must

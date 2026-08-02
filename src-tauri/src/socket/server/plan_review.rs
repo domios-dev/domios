@@ -278,35 +278,39 @@ pub(super) fn dispatch(
                                 .flatten()
                         })
                     };
-                    let delivery = binding_nonce.as_deref().ok_or_else(|| {
-                        "authenticated Worker continuation binding is unavailable".to_string()
-                    }).and_then(|nonce| {
-                        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(
-                            "review-bounce",
-                        )
-                        .id(Some(format!(
-                            "{}:{}:{}",
-                            continuation.attempt_id,
-                            continuation.review_round,
-                            continuation.epoch
-                        )));
-                        crate::service::messenger::Messenger::deliver_planner_session(
-                            svc,
-                            &continuation.executor_tab_id,
-                            &continuation.session_id,
-                            nonce,
-                            envelope,
-                            note(p),
-                            format!(
-                                "review-bounce:{}:{}:{}:{}",
-                                plan_id,
-                                task_id,
-                                continuation.attempt_id,
-                                continuation.review_round
-                            ),
-                        )
-                        .map(|_| ())
-                    });
+                    let delivery = binding_nonce
+                        .as_deref()
+                        .ok_or_else(|| {
+                            "authenticated Worker continuation binding is unavailable".to_string()
+                        })
+                        .and_then(|nonce| {
+                            let envelope =
+                                crate::service::messenger::MessageEnvelope::codeterm_reminder(
+                                    "review-bounce",
+                                )
+                                .id(Some(format!(
+                                    "{}:{}:{}",
+                                    continuation.attempt_id,
+                                    continuation.review_round,
+                                    continuation.epoch
+                                )));
+                            crate::service::messenger::Messenger::deliver_planner_session(
+                                svc,
+                                &continuation.executor_tab_id,
+                                &continuation.session_id,
+                                nonce,
+                                envelope,
+                                note(p),
+                                format!(
+                                    "review-bounce:{}:{}:{}:{}",
+                                    plan_id,
+                                    task_id,
+                                    continuation.attempt_id,
+                                    continuation.review_round
+                                ),
+                            )
+                            .map(|_| ())
+                        });
                     let delivered = delivery.is_ok();
                     store
                         .finish_review_continuation(
@@ -380,7 +384,9 @@ mod tests {
                 2,
             )
             .unwrap();
-        store.assign_task(&plan.id, &task_id, "worker", None, 3).unwrap();
+        store
+            .assign_task(&plan.id, &task_id, "worker", None, 3)
+            .unwrap();
         let mut stored = store.get(&plan.id).unwrap();
         let task = stored
             .tasks
@@ -489,9 +495,15 @@ mod tests {
             .unwrap());
         let after = store.show_task(&task_id).unwrap().task;
         assert_eq!(after.status, crate::plan::TaskStatus::InProgress);
-        assert_eq!(after.execution_attempts.len(), before.execution_attempts.len());
+        assert_eq!(
+            after.execution_attempts.len(),
+            before.execution_attempts.len()
+        );
         assert_eq!(after.execution_attempts[0].acknowledged_at, Some(3));
-        assert_eq!(after.execution_attempts[0].continuation.delivered_at, Some(8));
+        assert_eq!(
+            after.execution_attempts[0].continuation.delivered_at,
+            Some(8)
+        );
     }
 
     #[test]
@@ -516,7 +528,10 @@ mod tests {
             .unwrap());
         let failed = store.show_task(&task_id).unwrap().task;
         assert_eq!(failed.status, crate::plan::TaskStatus::InReview);
-        assert_eq!(failed.status_label.as_deref(), Some("bounce_continuation_failed"));
+        assert_eq!(
+            failed.status_label.as_deref(),
+            Some("bounce_continuation_failed")
+        );
         assert_eq!(
             failed.execution_attempts[0].continuation.state.as_deref(),
             Some("bounce_continuation_failed")

@@ -1012,16 +1012,16 @@ pub(super) fn dispatch(
             ));
         }
     };
-    if let Err(error) = store.set_attempt_plan_skill_manifest(
-        &plan_id,
-        &task_id,
-        &attempt_id,
-        manifest,
-        now,
-    ) {
+    if let Err(error) =
+        store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
+    {
         let cleanup = rollback_failed_dispatch(
             provisioned_lane,
-            || store.revert_task_dispatch(&plan_id, &task_id, now).map_err(|error| error.to_string()),
+            || {
+                store
+                    .revert_task_dispatch(&plan_id, &task_id, now)
+                    .map_err(|error| error.to_string())
+            },
             || close_tab_if_present(svc, &tab_id),
         );
         return Err(dispatch_failed(

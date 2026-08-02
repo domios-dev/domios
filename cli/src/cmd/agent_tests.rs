@@ -167,7 +167,10 @@ fn missing_task_file_reports_unreadable() {
 
 #[test]
 fn neither_task_nor_task_file_is_none() {
-    assert_eq!(resolve_spawn_task(None, None, None, &mut &b""[..]).unwrap(), None);
+    assert_eq!(
+        resolve_spawn_task(None, None, None, &mut &b""[..]).unwrap(),
+        None
+    );
 }
 
 #[test]

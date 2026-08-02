@@ -168,7 +168,10 @@ fn irrelevant_status_transition_does_not_acknowledge_or_spin_submission() {
 fn submit(transport: &QuietScreenAfterTurnTransition) -> Result<InjectionResult, InjectionError> {
     run(transport, PAYLOAD, true, tui(), opts()).and_then(|result| {
         let elapsed = result.elapsed;
-        let tail = transport.observe().map(|state| state.tail).unwrap_or_default();
+        let tail = transport
+            .observe()
+            .map(|state| state.tail)
+            .unwrap_or_default();
         result.require_submission(true, elapsed, tail)
     })
 }

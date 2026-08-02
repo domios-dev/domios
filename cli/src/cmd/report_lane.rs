@@ -47,9 +47,7 @@ fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessSc
             .and_then(|record| nonempty(record.get("worktree_path")))
             .map(PathBuf::from),
         base: record.and_then(|record| nonempty(record.get("base"))),
-        requires_repository: task
-            .get("execution_intent")
-            .and_then(Value::as_str)
+        requires_repository: task.get("execution_intent").and_then(Value::as_str)
             != Some("non_repository"),
     }
 }
@@ -168,10 +166,8 @@ mod tests {
             &json!({ "execution_intent": "non_repository" }),
             "tab-a",
         );
-        let malformed = task_readiness_scope_from_task(
-            &json!({ "execution_intent": "read_only" }),
-            "tab-a",
-        );
+        let malformed =
+            task_readiness_scope_from_task(&json!({ "execution_intent": "read_only" }), "tab-a");
 
         assert!(!nonrepo.requires_repository);
         assert!(malformed.requires_repository);

@@ -1,7 +1,7 @@
 use super::{classify_remote_tab_id, relay_tab_json, RemoteTabTarget};
 use crate::client::SocketClient;
 use crate::cmd::print::handle_result;
-use crate::{build_http, read_api_config, resolve_tab};
+use crate::{build_local_api, read_api_config, resolve_tab};
 
 pub(super) fn handle_tab_capture(
     client: &mut SocketClient,
@@ -38,8 +38,8 @@ pub(super) fn handle_tab_capture(
         }
         _ => {}
     }
-    let (api_url, api_token) = read_api_config();
-    let http = match build_http(&api_token) {
+    let (api_url, _) = read_api_config();
+    let http = match build_local_api() {
         Ok(client) => client,
         Err(error) => {
             eprintln!("Error: failed to build HTTP client: {error}");

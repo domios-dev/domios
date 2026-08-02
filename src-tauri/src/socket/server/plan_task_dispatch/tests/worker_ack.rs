@@ -339,38 +339,22 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
     store.save(&mut with_older_attempt, 5).unwrap();
 
     assert!(store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            &attempt_id,
-            false,
-            6,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, false, 6,)
         .unwrap());
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status_label.as_deref(),
+        store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .status_label
+            .as_deref(),
         Some("startup_unbound")
     );
     assert!(store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            &attempt_id,
-            true,
-            7,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 7,)
         .unwrap());
     assert!(!store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            &attempt_id,
-            true,
-            8,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 8,)
         .unwrap());
     let failed = store.show_task(&task_id).unwrap().task;
     assert_eq!(failed.status_label.as_deref(), Some("startup_failed"));
@@ -382,7 +366,12 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
         .mark_worker_startup_cleanup_failed(&plan.id, &task_id, &attempt_id, 9)
         .unwrap());
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status_label.as_deref(),
+        store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .status_label
+            .as_deref(),
         Some("startup_cleanup_failed")
     );
 }
@@ -429,24 +418,10 @@ fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
     store.save(&mut blocked_plan, 5).unwrap();
 
     assert!(!store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            &attempt_id,
-            false,
-            6,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, false, 6,)
         .unwrap());
     assert!(!store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            "tab-worker",
-            &attempt_id,
-            true,
-            7,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 7,)
         .unwrap());
     let unchanged = store.show_task(&task_id).unwrap().task;
     assert_eq!(unchanged.status, TaskStatus::Blocked);
@@ -522,7 +497,10 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
             .unwrap();
         attempts.push((tab_id, created.attempt.id));
     }
-    assert_eq!(store.show_task(&task_id).unwrap().task.assigned_tab_id, None);
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.assigned_tab_id,
+        None
+    );
 
     store
         .acknowledge_task_attempt(&plan.id, &task_id, &attempts[0].0, &attempts[0].1, 20)
@@ -562,14 +540,7 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
         Some("session-2"),
     ));
     assert!(!store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            &attempts[2].0,
-            &attempts[2].1,
-            true,
-            23,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, &attempts[2].0, &attempts[2].1, true, 23,)
         .unwrap());
 
     let mut resumed_plan = store.get(&plan.id).unwrap();
@@ -582,14 +553,7 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
     task.status_label = Some("competitive".into());
     store.save(&mut resumed_plan, 24).unwrap();
     assert!(store
-        .mark_worker_startup_deadline(
-            &plan.id,
-            &task_id,
-            &attempts[2].0,
-            &attempts[2].1,
-            true,
-            25,
-        )
+        .mark_worker_startup_deadline(&plan.id, &task_id, &attempts[2].0, &attempts[2].1, true, 25,)
         .unwrap());
     let task = store.show_task(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);

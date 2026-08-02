@@ -71,7 +71,11 @@ fn dispatch(
     store.assign_task(plan_id, task_id, tab, None, now)?;
     set_status(store, plan_id, task_id, "in_progress", now)?;
     store.with_plan(plan_id, now, |plan| {
-        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
         let attempt = task.execution_attempts.last_mut().unwrap();
         attempt.session_id = Some(format!("session-{tab}"));
         attempt.acknowledged_at = Some(now);
@@ -559,12 +563,24 @@ fn review_bounce_transition_keeps_task_attempt_epoch_atomic() {
     let awaiting = store.show_task(&task_id).unwrap().task;
     let continuation = result.continuation.unwrap();
     assert_eq!(awaiting.status, TaskStatus::InReview);
-    assert_eq!(awaiting.status_label.as_deref(), Some("awaiting_continuation"));
-    assert_eq!(awaiting.execution_attempts.len(), before.execution_attempts.len());
+    assert_eq!(
+        awaiting.status_label.as_deref(),
+        Some("awaiting_continuation")
+    );
+    assert_eq!(
+        awaiting.execution_attempts.len(),
+        before.execution_attempts.len()
+    );
     assert_eq!(continuation.attempt_id, before.execution_attempts[0].id);
-    assert_eq!(awaiting.execution_attempts[0].acknowledged_at, before.execution_attempts[0].acknowledged_at);
+    assert_eq!(
+        awaiting.execution_attempts[0].acknowledged_at,
+        before.execution_attempts[0].acknowledged_at
+    );
     assert_eq!(awaiting.execution_attempts[0].continuation.epoch, 1);
-    assert_eq!(awaiting.execution_attempts[0].continuation.review_round, Some(1));
+    assert_eq!(
+        awaiting.execution_attempts[0].continuation.review_round,
+        Some(1)
+    );
 }
 
 #[test]
@@ -574,10 +590,26 @@ fn review_bounce_replay_is_idempotent_for_same_review_round() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     let first = store
-        .bounce_review(&plan_id, &task_id, "fix", true, true, AgentRef::from_tab("reviewer"), 5)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "fix",
+            true,
+            true,
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
         .unwrap();
     let replay = store
-        .bounce_review(&plan_id, &task_id, "fix", true, true, AgentRef::from_tab("reviewer"), 6)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "fix",
+            true,
+            true,
+            AgentRef::from_tab("reviewer"),
+            6,
+        )
         .unwrap();
     assert_eq!(first.milestone_id, replay.milestone_id);
     assert_eq!(first.continuation, replay.continuation);

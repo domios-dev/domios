@@ -419,7 +419,10 @@ mod tests {
             Some("assigned-task")
         );
         assert_eq!(
-            agent.extra_env.get("CODETERM_ATTEMPT_ID").map(String::as_str),
+            agent
+                .extra_env
+                .get("CODETERM_ATTEMPT_ID")
+                .map(String::as_str),
             Some("attempt-assigned")
         );
         assert_eq!(

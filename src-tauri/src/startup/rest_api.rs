@@ -681,10 +681,10 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                     .clone()
                     .into_make_service_with_connect_info::<SocketAddr>(),
             )
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .into_future(),
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .into_future(),
         );
         let health = prove_health(local_addr);
         tokio::pin!(health);

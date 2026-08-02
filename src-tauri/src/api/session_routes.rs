@@ -195,16 +195,12 @@ pub async fn resume_session_api(
 
     let persisted_identity =
         persisted_resume_identity(&state, &meta.provider, &meta.session_id).await;
-    let identity = restorable_identity(persisted_identity, |parent| {
-        state
-            .svc
-            .mux
-            .read()
-            .get_tab(parent)
-            .is_some_and(|tab| {
+    let identity =
+        restorable_identity(persisted_identity, |parent| {
+            state.svc.mux.read().get_tab(parent).is_some_and(|tab| {
                 tab.role == Some(crate::multiplexer::types::AgentRole::Orchestrator)
             })
-    });
+        });
 
     // both spawn.
     {
@@ -217,28 +213,30 @@ pub async fn resume_session_api(
                 .iter()
                 .find_map(|w| w.tabs.contains(&tab_id).then(|| w.id.clone()))
                 .unwrap_or_default();
-            let live_identity = mux.get_tab(&tab_id).and_then(|tab| {
-                let binding_is_authoritative = tab.session_binding_nonce.is_some()
-                    && tab.session_binding_nonce == tab.reported_session_binding_nonce;
-                let role = binding_is_authoritative.then_some(tab)?.role?;
-                Some(serde_json::json!({
-                    "status": "restored",
-                    "role": format!("{role:?}"),
-                    "role_profile": tab.role_profile.clone(),
-                    "parent_tab_id": tab.parent_tab_id.clone(),
-                    "can_spawn": tab.can_spawn,
-                }))
-            })
-            .unwrap_or_else(|| {
-                serde_json::json!({
-                    "status": "roleless",
-                    "role": null,
-                    "role_profile": null,
-                    "parent_tab_id": null,
-                    "can_spawn": false,
-                    "actions": roleless_actions(&tab_id),
+            let live_identity = mux
+                .get_tab(&tab_id)
+                .and_then(|tab| {
+                    let binding_is_authoritative = tab.session_binding_nonce.is_some()
+                        && tab.session_binding_nonce == tab.reported_session_binding_nonce;
+                    let role = binding_is_authoritative.then_some(tab)?.role?;
+                    Some(serde_json::json!({
+                        "status": "restored",
+                        "role": format!("{role:?}"),
+                        "role_profile": tab.role_profile.clone(),
+                        "parent_tab_id": tab.parent_tab_id.clone(),
+                        "can_spawn": tab.can_spawn,
+                    }))
                 })
-            });
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "status": "roleless",
+                        "role": null,
+                        "role_profile": null,
+                        "parent_tab_id": null,
+                        "can_spawn": false,
+                        "actions": roleless_actions(&tab_id),
+                    })
+                });
             return Ok(Json(serde_json::json!({
                 "tab_id": tab_id,
                 "workspace_id": ws_id,

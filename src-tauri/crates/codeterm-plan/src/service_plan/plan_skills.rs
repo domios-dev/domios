@@ -463,8 +463,9 @@ pub fn list_plan_skills(
     Ok(plan_skill_manifest(store, plan_id)?
         .into_iter()
         .map(|entry| {
-            let md = std::fs::read_to_string(plan_dir.join("skills").join(&entry.slug).join("SKILL.md"))
-                .unwrap_or_default();
+            let md =
+                std::fs::read_to_string(plan_dir.join("skills").join(&entry.slug).join("SKILL.md"))
+                    .unwrap_or_default();
             let (_, _, check) = parse_frontmatter(&md);
             PlanSkillSummary {
                 slug: entry.slug,
@@ -519,8 +520,14 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let skills = temp.path().join("skills");
         for (slug, body) in [
-            ("alpha", "---\ntitle: Alpha\ndescription: First purpose.\n---\n\n# Alpha\n"),
-            ("beta", "---\ntitle: Beta\ndescription: Discarded.\n---\n\n# Beta\n"),
+            (
+                "alpha",
+                "---\ntitle: Alpha\ndescription: First purpose.\n---\n\n# Alpha\n",
+            ),
+            (
+                "beta",
+                "---\ntitle: Beta\ndescription: Discarded.\n---\n\n# Beta\n",
+            ),
         ] {
             std::fs::create_dir_all(skills.join(slug)).unwrap();
             std::fs::write(skills.join(slug).join("SKILL.md"), body).unwrap();

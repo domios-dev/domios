@@ -198,7 +198,9 @@ impl PlanStore {
             || checkpoint.attempt_id != attempt_id
             || checkpoint.owner_epoch != owner_epoch
         {
-            return Err(PlanError::Io("interruption checkpoint verification failed".into()));
+            return Err(PlanError::Io(
+                "interruption checkpoint verification failed".into(),
+            ));
         }
         self.with_plan(plan_id, now_ms, |plan| {
             let task = plan
@@ -210,7 +212,9 @@ impl PlanStore {
                 || task.interruption.owner_epoch != owner_epoch
                 || task.status_label.as_deref() != Some("checkpoint_sealing")
             {
-                return Err(PlanError::Io("interruption checkpoint ownership changed".into()));
+                return Err(PlanError::Io(
+                    "interruption checkpoint ownership changed".into(),
+                ));
             }
             let attempt = task
                 .execution_attempts
@@ -250,7 +254,9 @@ impl PlanStore {
                     && attempt.interruption.interrupted_at.is_some()
             });
             if !exact || !task.interruption.handoff_required {
-                return Err(PlanError::Io("interruption failure authority changed".into()));
+                return Err(PlanError::Io(
+                    "interruption failure authority changed".into(),
+                ));
             }
             task.status_label = Some("handoff_checkpoint_failed".into());
             task.updated_at = now_ms;

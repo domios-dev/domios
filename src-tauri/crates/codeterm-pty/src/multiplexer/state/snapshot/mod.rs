@@ -169,9 +169,7 @@ impl MultiplexerState {
                 depth: tab.map(|p| p.depth).unwrap_or(0),
                 chat_view: tab.map(|p| p.chat_view),
                 auto_approve: tab.map(|p| p.auto_approve).unwrap_or(false),
-                audience: tab
-                    .map(|p| p.audience)
-                    .unwrap_or(TabAudience::Automation),
+                audience: tab.map(|p| p.audience).unwrap_or(TabAudience::Automation),
                 agent_session_model: tab.and_then(|p| p.agent_session_model.clone()),
                 agent_planned_model: tab.and_then(|p| p.agent_planned_model.clone()),
                 agent_requested_model: tab.and_then(|p| p.agent_requested_model.clone()),

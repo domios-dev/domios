@@ -474,11 +474,34 @@ fn delayed_create_parses() {
 fn from_pad_parses_for_every_text_body_consumer() {
     for argv in [
         vec!["codeterm", "send", "--from-pad", "message.md"],
-        vec!["codeterm", "delayed", "create", "--delay", "5m", "--from-pad", "message.md"],
-        vec!["codeterm", "delayed", "edit", "delayed-1", "--from-pad", "message.md"],
+        vec![
+            "codeterm",
+            "delayed",
+            "create",
+            "--delay",
+            "5m",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "delayed",
+            "edit",
+            "delayed-1",
+            "--from-pad",
+            "message.md",
+        ],
         vec!["codeterm", "agent", "report", "--from-pad", "report.md"],
         vec!["codeterm", "paste", "put", "--from-pad", "message.md"],
-        vec!["codeterm", "bridge", "send", "--to", "42", "--from-pad", "message.md"],
+        vec![
+            "codeterm",
+            "bridge",
+            "send",
+            "--to",
+            "42",
+            "--from-pad",
+            "message.md",
+        ],
     ] {
         Cli::try_parse_from(argv).expect("--from-pad consumer must parse");
     }
@@ -488,12 +511,59 @@ fn from_pad_parses_for_every_text_body_consumer() {
 fn from_pad_conflicts_with_other_body_sources() {
     for argv in [
         vec!["codeterm", "send", "inline", "--from-pad", "message.md"],
-        vec!["codeterm", "send", "--from-file", "other.md", "--from-pad", "message.md"],
-        vec!["codeterm", "delayed", "create", "inline", "--delay", "5m", "--from-pad", "message.md"],
-        vec!["codeterm", "agent", "report", "inline", "--from-pad", "report.md"],
-        vec!["codeterm", "agent", "report", "--doc", "report.md", "--from-pad", "report.md"],
-        vec!["codeterm", "paste", "put", "inline", "--from-pad", "message.md"],
-        vec!["codeterm", "bridge", "send", "inline", "--to", "42", "--from-pad", "message.md"],
+        vec![
+            "codeterm",
+            "send",
+            "--from-file",
+            "other.md",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "delayed",
+            "create",
+            "inline",
+            "--delay",
+            "5m",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "agent",
+            "report",
+            "inline",
+            "--from-pad",
+            "report.md",
+        ],
+        vec![
+            "codeterm",
+            "agent",
+            "report",
+            "--doc",
+            "report.md",
+            "--from-pad",
+            "report.md",
+        ],
+        vec![
+            "codeterm",
+            "paste",
+            "put",
+            "inline",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "bridge",
+            "send",
+            "inline",
+            "--to",
+            "42",
+            "--from-pad",
+            "message.md",
+        ],
     ] {
         match Cli::try_parse_from(argv) {
             Ok(_) => panic!("--from-pad body source conflict must fail"),

@@ -1,5 +1,6 @@
 mod client;
 mod cmd;
+mod local_api;
 mod mesh_cli;
 mod stdout;
 
@@ -82,56 +83,8 @@ pub fn read_api_config() -> (String, Option<String>) {
     )
 }
 
-/// Produce a fresh Ed25519 signed token from this machine's mesh identity.
-///
-/// Distinct from `read_api_config().1`: peer auth requires the signed token
-/// regardless of `CODETERM_API_TOKEN` env override. The env token is the
-/// LOCAL plain API token — paired peers don't recognise it, so using it for
-/// outbound mesh calls produces a silent 401 with a `text/plain` body that
-/// the JSON parser swallows.
-pub fn read_mesh_signed_token() -> Option<String> {
-    let config_dir = data_root();
-    let identity_path = config_dir.join("mesh").join("identity.json");
-    let content = std::fs::read_to_string(&identity_path).ok()?;
-    let id: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let pk = id.get("private_key")?.as_str()?;
-    let iid = id.get("instance_id")?.as_str()?;
-    mesh_cli::sign_request(pk, iid).ok()
-}
-
-/// Build HTTP client with auth header
-pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, reqwest::Error> {
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(t) = token {
-        if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", t)) {
-            headers.insert(reqwest::header::AUTHORIZATION, val);
-        }
-    }
-    if let Ok(tab) = std::env::var("CODETERM_TAB_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&tab) {
-            headers.insert("X-CodeTerm-Tab-Id", v);
-        }
-    }
-    if let Ok(session) = std::env::var("CODETERM_SESSION_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&session) {
-            headers.insert("X-CodeTerm-Session-Id", v);
-        }
-    }
-    if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&nonce) {
-            headers.insert("X-CodeTerm-Binding-Nonce", v);
-        }
-    }
-    if let Ok(worker) = std::env::var("CODETERM_WORKER_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&worker) {
-            headers.insert("X-CodeTerm-Worker-Id", v);
-        }
-    }
-    reqwest::blocking::Client::builder()
-        .default_headers(headers)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
+pub fn build_local_api() -> Result<local_api::LocalApiClient, local_api::LocalApiError> {
+    local_api::LocalApiClient::connect()
 }
 
 mod args;
@@ -246,8 +199,8 @@ fn main_impl() {
 
     let json_output = cli.json;
     if let Commands::Config { ref action } = cli.command {
-        let (base_url, token) = read_api_config();
-        let http = match build_http(&token) {
+        let (base_url, _) = read_api_config();
+        let http = match build_local_api() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Error: failed to build HTTP client: {}", e);
@@ -533,8 +486,8 @@ fn main_impl() {
         },
 
         Commands::Keepawake { action } => {
-            let (base, token) = read_api_config();
-            let http = match build_http(&token) {
+            let (base, _) = read_api_config();
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -622,9 +575,11 @@ fn main_impl() {
         }
 
         Commands::Theme { action } => {
-            // Theme commands use REST API (port 7685)
-            let base = "http://127.0.0.1:7685";
-            let http = reqwest::blocking::Client::new();
+            let (base, _) = read_api_config();
+            let http = build_local_api().unwrap_or_else(|error| {
+                eprintln!("Error: failed to connect to local API: {error}");
+                std::process::exit(1);
+            });
             match action {
                 ThemeAction::List => match http.get(format!("{}/api/themes", base)).send() {
                     Ok(resp) => {
@@ -763,7 +718,7 @@ fn main_impl() {
         }
         Commands::Sessions { action } => {
             let (base_url, token) = read_api_config();
-            let http = match build_http(&token) {
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -775,7 +730,7 @@ fn main_impl() {
         }
         Commands::Usage { action } => {
             let (base_url, token) = read_api_config();
-            let http = match build_http(&token) {
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);

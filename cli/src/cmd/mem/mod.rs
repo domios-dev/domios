@@ -102,7 +102,10 @@ fn render_search_hits(value: &serde_json::Value) -> String {
         if normalized.chars().count() > SEARCH_PREVIEW_CHARS {
             preview.push('…');
         }
-        let id = item.get("id").and_then(|value| value.as_str()).unwrap_or("?");
+        let id = item
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("?");
         let title = item
             .get("title")
             .and_then(|value| value.as_str())
@@ -111,8 +114,13 @@ fn render_search_hits(value: &serde_json::Value) -> String {
             .get("kind")
             .and_then(|value| value.as_str())
             .unwrap_or("unknown");
-        let score = hit.get("score").and_then(|value| value.as_f64()).unwrap_or(0.0);
-        out.push_str(&format!("{id} | {title} | {kind} | {score:.3} | {preview}\n"));
+        let score = hit
+            .get("score")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.0);
+        out.push_str(&format!(
+            "{id} | {title} | {kind} | {score:.3} | {preview}\n"
+        ));
     }
     out
 }

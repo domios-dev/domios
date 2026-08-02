@@ -361,8 +361,17 @@ mod tests {
         assert_eq!(CODETERM_CLI.matches(RULE).count(), 1);
         let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
         assert_eq!(general.matches(RULE).count(), 1);
-        for role in [ORCHESTRATOR_ONBOARDING, ORCHESTRATOR_SUFFIX, PLANNER_SUFFIX, WORKER_SUFFIX] {
-            assert_eq!(role.matches(RULE).count(), 0, "role input duplicates shared AgentPad rule");
+        for role in [
+            ORCHESTRATOR_ONBOARDING,
+            ORCHESTRATOR_SUFFIX,
+            PLANNER_SUFFIX,
+            WORKER_SUFFIX,
+        ] {
+            assert_eq!(
+                role.matches(RULE).count(),
+                0,
+                "role input duplicates shared AgentPad rule"
+            );
             assert!(!role.contains("$(cat $CODETERM_PAD_DIR"));
         }
         assert!(RULE.contains("short scalar arguments may remain inline"));

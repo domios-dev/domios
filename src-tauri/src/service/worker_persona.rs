@@ -11,17 +11,17 @@ use super::{spawn::resolve_spawn_workspace_id, ServiceContext, SpawnAgentParams}
 const WORKER_PERSONA_POOL: &[&str] = &[
     "Aaron", "Abby", "Adam", "Alan", "Albert", "Alex", "Alice", "Amy", "Andy", "Anita", "Anna",
     "April", "Arthur", "Ava", "Bella", "Ben", "Betty", "Blake", "Bob", "Brian", "Bruce", "Carl",
-    "Carol", "Chloe", "Chris", "Clara", "Colin", "Daisy", "Daniel", "David", "Dean", "Derek", "Diana",
-    "Dylan", "Edward", "Elena", "Elise", "Ella", "Emma", "Emily", "Eric", "Ethan", "Eva", "Felix",
-    "Fiona", "Frank", "Fred", "Gary", "Gavin", "George", "Gina", "Grace", "Greg", "Hannah", "Harry",
-    "Hazel", "Helen", "Henry", "Holly", "Ian", "Irene", "Isaac", "Jack", "James", "Jane", "Jason",
-    "Jean", "Jenny", "Jesse", "Joel", "John", "Jordan", "Joy", "Julia", "Karen", "Kate", "Kevin",
-    "Lana", "Lara", "Laura", "Leah", "Leo", "Liam", "Lily", "Linda", "Lisa", "Logan", "Louis",
-    "Lucas", "Lucy", "Luke", "Mabel", "Maria", "Mark", "Martin", "Mary", "Max", "Megan", "Mia",
-    "Mike", "Molly", "Nancy", "Neil", "Nina", "Noah", "Nora", "Oliver", "Oscar", "Owen", "Pam",
-    "Patrick", "Paul", "Peter", "Rachel", "Rita", "Robert", "Robin", "Rose", "Ruby", "Ryan", "Sam",
-    "Sara", "Scott", "Simon", "Stella", "Steve", "Susan", "Ted", "Terry", "Tina", "Toby", "Tom",
-    "Tony", "Tyler", "Vera", "Victor", "Wendy", "Zoe",
+    "Carol", "Chloe", "Chris", "Clara", "Colin", "Daisy", "Daniel", "David", "Dean", "Derek",
+    "Diana", "Dylan", "Edward", "Elena", "Elise", "Ella", "Emma", "Emily", "Eric", "Ethan", "Eva",
+    "Felix", "Fiona", "Frank", "Fred", "Gary", "Gavin", "George", "Gina", "Grace", "Greg",
+    "Hannah", "Harry", "Hazel", "Helen", "Henry", "Holly", "Ian", "Irene", "Isaac", "Jack",
+    "James", "Jane", "Jason", "Jean", "Jenny", "Jesse", "Joel", "John", "Jordan", "Joy", "Julia",
+    "Karen", "Kate", "Kevin", "Lana", "Lara", "Laura", "Leah", "Leo", "Liam", "Lily", "Linda",
+    "Lisa", "Logan", "Louis", "Lucas", "Lucy", "Luke", "Mabel", "Maria", "Mark", "Martin", "Mary",
+    "Max", "Megan", "Mia", "Mike", "Molly", "Nancy", "Neil", "Nina", "Noah", "Nora", "Oliver",
+    "Oscar", "Owen", "Pam", "Patrick", "Paul", "Peter", "Rachel", "Rita", "Robert", "Robin",
+    "Rose", "Ruby", "Ryan", "Sam", "Sara", "Scott", "Simon", "Stella", "Steve", "Susan", "Ted",
+    "Terry", "Tina", "Toby", "Tom", "Tony", "Tyler", "Vera", "Victor", "Wendy", "Zoe",
 ];
 const FALLBACK_PREFIX: &str = "Worker";
 const RECENT_ATTEMPT_LIMIT: usize = 64;
@@ -507,9 +507,7 @@ mod tests {
     #[test]
     fn closing_a_renamed_worker_returns_its_persona_to_the_pool() {
         let reservations = Arc::new(Mutex::new(WorkerPersonaReservations::default()));
-        let token = reservations
-            .lock()
-            .reserve(scope(), "Vera".into());
+        let token = reservations.lock().reserve(scope(), "Vera".into());
         WorkerPersonaReservationGuard {
             reservations: reservations.clone(),
             reservation_id: Some(token.0),

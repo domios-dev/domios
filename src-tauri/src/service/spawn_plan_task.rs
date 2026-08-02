@@ -66,11 +66,8 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
-    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
-        store,
-        &resolved.plan_id,
-    )
-    .map_err(|error| error.to_string())?;
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
+        .map_err(|error| error.to_string())?;
     let brief = crate::service::plan::task_brief::render_task_brief(
         &detail.task,
         &detail.sections,
@@ -252,7 +249,10 @@ impl ServiceContext {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
             let binding = mux.get_tab(tab_id).map(|tab| {
-                (tab.agent_session_id.clone(), tab.session_binding_nonce.clone())
+                (
+                    tab.agent_session_id.clone(),
+                    tab.session_binding_nonce.clone(),
+                )
             });
             let (session_id, session_binding_nonce) = binding.unwrap_or_default();
             (title, session_id, session_binding_nonce)
@@ -265,9 +265,10 @@ impl ServiceContext {
             &title,
             session_id.as_deref(),
             session_binding_nonce.as_deref(),
-            params.execution_intent.clone().ok_or_else(|| {
-                "plan-task spawn requires explicit execution_intent".to_string()
-            })?,
+            params
+                .execution_intent
+                .clone()
+                .ok_or_else(|| "plan-task spawn requires explicit execution_intent".to_string())?,
             self.provider_allowance_for_spawn(params, now_ms)?,
             params.agent.as_deref(),
             &params
@@ -409,7 +410,10 @@ mod tests {
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
         assert_eq!(binding.plan_id, plan_id);
         assert_eq!(binding.task_id, task_id);
-        assert_eq!(task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug, "prepared");
+        assert_eq!(
+            task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug,
+            "prepared"
+        );
         assert_eq!(
             task.execution_attempts
                 .last()

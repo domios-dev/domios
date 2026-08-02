@@ -29,14 +29,18 @@ fn claude_rule_path() -> Result<std::path::PathBuf, String> {
 fn backup_path(path: &std::path::Path) -> std::path::PathBuf {
     path.with_file_name(format!(
         "{}.codeterm-backup",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("settings.json")
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("settings.json")
     ))
 }
 
 fn backup_state_path(path: &std::path::Path) -> std::path::PathBuf {
     path.with_file_name(format!(
         "{}.codeterm-backup-state",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("settings.json")
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("settings.json")
     ))
 }
 
@@ -224,7 +228,9 @@ pub(crate) fn install_integration_at(
     options: &IntegrationInstallOptions,
 ) -> Result<(), String> {
     if !options.consent {
-        return Err("provider integration installation requires explicit local-user consent".into());
+        return Err(
+            "provider integration installation requires explicit local-user consent".into(),
+        );
     }
     let existed = path.exists();
     let original = if existed {
@@ -349,8 +355,11 @@ pub(crate) fn install_integration_at(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::write(backup_path(path), original).map_err(|e| e.to_string())?;
-    std::fs::write(backup_state_path(path), if existed { "present" } else { "absent" })
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        backup_state_path(path),
+        if existed { "present" } else { "absent" },
+    )
+    .map_err(|e| e.to_string())?;
     write_json_atomic(path, &json)?;
     log::info!("[agent-claude] hooks installed at {:?}", path);
     Ok(())
@@ -377,7 +386,9 @@ pub(crate) fn uninstall_integration_at(path: &std::path::Path) -> Result<(), Str
     let Some(hooks_value) = root.get_mut("hooks") else {
         return Ok(());
     };
-    let hooks = hooks_value.as_object_mut().ok_or("hooks is not an object")?;
+    let hooks = hooks_value
+        .as_object_mut()
+        .ok_or("hooks is not an object")?;
     for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
         if hooks.get(*key).is_some_and(|value| !value.is_array()) {
             return Err(format!("hooks.{key} is not an array"));
@@ -400,8 +411,12 @@ pub fn uninstall_integration() -> Result<(), String> {
 
 pub(crate) fn restore_integration_at(path: &std::path::Path) -> Result<(), String> {
     let backup = backup_path(&path);
-    let original = std::fs::read(&backup)
-        .map_err(|error| format!("No recoverable integration backup at {}: {error}", backup.display()))?;
+    let original = std::fs::read(&backup).map_err(|error| {
+        format!(
+            "No recoverable integration backup at {}: {error}",
+            backup.display()
+        )
+    })?;
     let was_absent = std::fs::read_to_string(backup_state_path(path))
         .map(|state| state == "absent")
         .unwrap_or_else(|_| original.is_empty());
@@ -587,13 +602,20 @@ mod tests {
         assert!(!backup_path(&path).exists());
 
         install_integration_at(&path, &integration_options(false)).unwrap();
-        assert_eq!(std::fs::read_to_string(backup_path(&path)).unwrap(), original);
+        assert_eq!(
+            std::fs::read_to_string(backup_path(&path)).unwrap(),
+            original
+        );
         let standard: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(standard.pointer("/hooks/PreCompact").is_none());
         install_integration_at(&path, &integration_options(true)).unwrap();
-        assert_eq!(std::fs::read_to_string(backup_path(&path)).unwrap(), original);
-        let installed: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(backup_path(&path)).unwrap(),
+            original
+        );
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(installed.pointer("/hooks/PreCompact").is_some());
         restore_integration_at(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);

@@ -42,17 +42,22 @@ impl PlanStore {
                 .plan_skill_manifest
                 .iter()
                 .find(|entry| entry.slug == slug && entry.content_digest == content_digest)
-                .ok_or_else(|| PlanError::Io("plan skill was not announced with this digest".into()))?;
+                .ok_or_else(|| {
+                    PlanError::Io("plan skill was not announced with this digest".into())
+                })?;
             if attempt.loaded_plan_skills.iter().any(|evidence| {
-                evidence.slug == announced.slug && evidence.content_digest == announced.content_digest
+                evidence.slug == announced.slug
+                    && evidence.content_digest == announced.content_digest
             }) {
                 return Ok(());
             }
-            attempt.loaded_plan_skills.push(crate::plan::LoadedPlanSkillEvidence {
-                slug: announced.slug.clone(),
-                content_digest: announced.content_digest.clone(),
-                loaded_at: now_ms,
-            });
+            attempt
+                .loaded_plan_skills
+                .push(crate::plan::LoadedPlanSkillEvidence {
+                    slug: announced.slug.clone(),
+                    content_digest: announced.content_digest.clone(),
+                    loaded_at: now_ms,
+                });
             task.updated_at = now_ms;
             Ok(())
         })

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::{build_http, read_api_config, UpdateAction};
+use crate::{build_local_api, read_api_config, UpdateAction};
 
 const DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT: &str =
     "Check that the new version is installed, then continue the interrupted work.";
@@ -22,7 +22,7 @@ fn resolve_local_install_continuation(
     (prompt, tab)
 }
 
-fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
+fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
     let status_url = format!("{}/api/update/status", base_url);
     let started = Instant::now();
     let timeout = Duration::from_secs(300);
@@ -122,8 +122,8 @@ pub fn handle_update(
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) {
-    let (base_url, token) = read_api_config();
-    let http = match build_http(&token) {
+    let (base_url, _) = read_api_config();
+    let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: failed to build HTTP client: {}", e);

@@ -317,11 +317,11 @@ pub async fn refresh_local_addresses(mesh: &MeshState) -> bool {
     tokio::task::spawn_blocking(move || {
         refresh_local_addresses_guarded(&mesh, false, observed_generation)
     })
-        .await
-        .unwrap_or_else(|error| {
-            log::error!("[mesh/refresh] address worker failed: {error}");
-            false
-        })
+    .await
+    .unwrap_or_else(|error| {
+        log::error!("[mesh/refresh] address worker failed: {error}");
+        false
+    })
 }
 
 pub fn refresh_local_addresses_blocking(mesh: &MeshState) -> bool {

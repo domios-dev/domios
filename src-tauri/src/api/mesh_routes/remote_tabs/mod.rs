@@ -12,10 +12,13 @@ pub fn parse_remote_tab_owner(ordinary_id: &str) -> Result<RemoteTabOwner, &'sta
     let value = ordinary_id
         .strip_prefix("mesh:")
         .ok_or("remote tab identity required")?;
-    let (peer_id, tab_id) = value
-        .split_once('/')
-        .ok_or("invalid remote tab identity")?;
-    let invalid = |value: &str| value.is_empty() || value.chars().any(|c| c.is_whitespace() || "/?&#".contains(c));
+    let (peer_id, tab_id) = value.split_once('/').ok_or("invalid remote tab identity")?;
+    let invalid = |value: &str| {
+        value.is_empty()
+            || value
+                .chars()
+                .any(|c| c.is_whitespace() || "/?&#".contains(c))
+    };
     if invalid(peer_id) || invalid(tab_id) {
         return Err("invalid remote tab identity");
     }

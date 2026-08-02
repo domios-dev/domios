@@ -121,7 +121,12 @@ fn queue_message(json: bool, tab_id: &str, text: String, scheduled_at_ms: u64) {
     print_delayed_result(json, value);
 }
 
-fn required_text(text: Option<String>, from_file: Option<String>, from_pad: Option<String>, from_stdin: bool) -> String {
+fn required_text(
+    text: Option<String>,
+    from_file: Option<String>,
+    from_pad: Option<String>,
+    from_stdin: bool,
+) -> String {
     let mut stdin = std::io::stdin();
     let (text, source) = resolve_send_text_input(text, from_file, from_pad, from_stdin, &mut stdin)
         .unwrap_or_else(|e| exit_error(e));
@@ -148,16 +153,16 @@ fn optional_text(
 }
 
 fn request_json(method: &str, path: &str, body: Option<serde_json::Value>) -> serde_json::Value {
-    let (base, token) = crate::read_api_config();
-    let http = crate::build_http(&token).unwrap_or_else(|e| {
-        exit_error(format!("failed to build HTTP client: {}", e));
+    let (base, _) = crate::read_api_config();
+    let api = crate::build_local_api().unwrap_or_else(|e| {
+        exit_error(format!("failed to connect to local API: {}", e));
     });
     let url = format!("{}{}", base, path);
     let builder = match method {
-        "GET" => http.get(&url),
-        "POST" => http.post(&url),
-        "PATCH" => http.patch(&url),
-        "DELETE" => http.delete(&url),
+        "GET" => api.get(&url),
+        "POST" => api.post(&url),
+        "PATCH" => api.patch(&url),
+        "DELETE" => api.delete(&url),
         _ => exit_error(format!("unsupported method: {}", method)),
     };
     let builder = match body {

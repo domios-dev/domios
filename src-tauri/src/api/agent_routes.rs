@@ -835,15 +835,6 @@ pub async fn list_agent_providers(
     list_agent_providers_blocking(state.svc.provider_registry.clone()).await
 }
 
-/// Public provider list for local plugin verification/UI smoke checks.
-/// This exposes provider descriptors only; mutating agent routes remain
-/// authenticated.
-pub async fn list_agent_providers_public(
-    AxumState(state): AxumState<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
-}
-
 async fn list_agent_providers_blocking(
     registry: std::sync::Arc<crate::provider::ProviderRegistry>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

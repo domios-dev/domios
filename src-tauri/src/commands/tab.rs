@@ -378,10 +378,8 @@ pub fn chat_start_core(
             t.elapsed().as_millis(),
         )
     };
-    let archived_messages = super::context_epochs::materialize_archived_context_epochs(
-        svc,
-        &context_epoch_archives,
-    );
+    let archived_messages =
+        super::context_epochs::materialize_archived_context_epochs(svc, &context_epoch_archives);
     let archive_available = !archived_messages.is_empty();
 
     let session_binding_nonce = svc

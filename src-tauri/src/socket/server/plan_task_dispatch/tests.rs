@@ -3,9 +3,8 @@ use super::{
     checkout_required, complete_dispatch_transaction, dispatch_ready_event,
     dispatch_worker_identity, lane_metadata_for_dispatch, preflight_review_capacity,
     regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
-    rollback_failed_dispatch,
-    task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
-    worker_ack_timeout_event, DispatchEvidence,
+    rollback_failed_dispatch, task_launch_authority_for_dispatch, unqualified_model_error,
+    verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;

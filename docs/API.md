@@ -9,6 +9,14 @@ CodeTerm exposes three APIs for agent integration:
 
 All multiplexer operations (workspace/tab management, agent spawn, batch commands, etc.) are implemented in a single **ServiceContext** (`src-tauri/src/service.rs`). Both REST API routes and Tauri IPC commands delegate to this shared service layer, which ensures consistent behavior — PTY cleanup, event emission, hierarchy validation — regardless of the entry point. This means every operation available via REST is also available internally via Tauri commands, with identical semantics.
 
+The CLI uses the local socket for control operations. Its internal `api.request`
+JSON-RPC method dispatches an HTTP-shaped request directly through the daemon's
+Axum router without opening a TCP connection. Unix peer credentials or the
+Windows process-token SID restrict this bridge to the daemon's OS user; the
+daemon injects its own API authentication before route dispatch. Mesh commands
+also enter through this socket, while the daemon owns peer signing, endpoint
+selection, and remote transport.
+
 ## REST API
 
 Base URL: `http://<host>:7685/api`
@@ -201,7 +209,7 @@ snapshot on reactivation or event-stream resync.
 | POST | `/api/tabs/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
 | POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `reasoning_efforts` (declared launch-time effort levels — empty ⇒ no effort selector), `default_reasoning_effort`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
-| GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
+| GET | `/api/providers` | — | Authenticated provider list alias for agent/provider selectors |
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, can_spawn?, task?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?}` | One-call agent spawn (see below). `audience` accepts `user` (default) or `automation`; automation-owned prompts remain available to the harness but never raise user-visible Input-needed notifications. `description` follows the same trim/empty-clear/200-char validation as tab description. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (Tab id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
@@ -235,4 +243,4 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 108 -->
+<!-- revision: 110 -->

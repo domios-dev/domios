@@ -611,13 +611,14 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
     store
         .with_plan(&id, 25, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
-            task.execution_attempts.push(crate::plan::TaskExecutionAttempt {
-                id: "attempt-vanished".into(),
-                executor_tab_id: "tab-vanished".into(),
-                assigned_at: Some(10),
-                acknowledged_at: Some(11),
-                ..Default::default()
-            });
+            task.execution_attempts
+                .push(crate::plan::TaskExecutionAttempt {
+                    id: "attempt-vanished".into(),
+                    executor_tab_id: "tab-vanished".into(),
+                    assigned_at: Some(10),
+                    acknowledged_at: Some(11),
+                    ..Default::default()
+                });
             Ok(())
         })
         .unwrap();

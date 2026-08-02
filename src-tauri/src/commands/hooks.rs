@@ -44,7 +44,9 @@ pub fn install_provider_integration(
     precompact_memory_export: Option<bool>,
 ) -> Result<(), String> {
     if !consent {
-        return Err("Review and consent are required before changing global provider configuration".into());
+        return Err(
+            "Review and consent are required before changing global provider configuration".into(),
+        );
     }
     let port = match api_port {
         Some(port) => port,
@@ -208,6 +210,8 @@ mod tests {
 
         assert!(installed.get());
         assert!(rolled_back.get());
-        assert!(result.unwrap_err().contains("provider changes were restored"));
+        assert!(result
+            .unwrap_err()
+            .contains("provider changes were restored"));
     }
 }

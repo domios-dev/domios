@@ -4,7 +4,9 @@
 use super::super::*;
 use super::*;
 
-fn integration_options(precompact_memory_export: bool) -> crate::provider::IntegrationInstallOptions {
+fn integration_options(
+    precompact_memory_export: bool,
+) -> crate::provider::IntegrationInstallOptions {
     crate::provider::IntegrationInstallOptions {
         consent: true,
         precompact_memory_export,
@@ -274,10 +276,13 @@ fn integration_install_preserves_unrelated_settings_fields() {
     }
     let dir = tempfile::tempdir().unwrap();
     let settings = dir.path().join("settings.json");
-    let original = r#"{"theme":"dark","permissions":{"allow":["Bash"]},"hooks":{"Notification":[]}}"#;
+    let original =
+        r#"{"theme":"dark","permissions":{"allow":["Bash"]},"hooks":{"Notification":[]}}"#;
     std::fs::write(&settings, original).unwrap();
     let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
-    provider.install_integration(7686, &integration_options(true)).unwrap();
+    provider
+        .install_integration(7686, &integration_options(true))
+        .unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
     // Unrelated fields untouched.
@@ -311,7 +316,10 @@ fn integration_rejects_malformed_non_object_and_empty_json_without_side_effects(
         );
         assert!(native_result.is_err(), "native accepted {name}");
         assert_eq!(std::fs::read_to_string(&native_settings).unwrap(), fixture);
-        assert!(!native_dir.path().join("settings.json.codeterm-backup").exists());
+        assert!(!native_dir
+            .path()
+            .join("settings.json.codeterm-backup")
+            .exists());
 
         let js_dir = tempfile::tempdir().unwrap();
         let js_settings = js_dir.path().join("settings.json");
@@ -366,7 +374,9 @@ fn integration_backup_and_restore_preserve_exact_bytes_in_native_and_js() {
         std::fs::write(&settings, original).unwrap();
         if use_js {
             let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
-            provider.install_integration(7686, &integration_options(false)).unwrap();
+            provider
+                .install_integration(7686, &integration_options(false))
+                .unwrap();
             provider.restore_integration().unwrap();
         } else {
             crate::agent_claude::provider::integration::install_integration_at(
@@ -401,7 +411,9 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
         )
         .unwrap();
     let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
-    provider.install_integration(7686, &integration_options(true)).unwrap();
+    provider
+        .install_integration(7686, &integration_options(true))
+        .unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
     let arr = json["hooks"]["Notification"].as_array().unwrap();
@@ -438,7 +450,9 @@ fn integration_uninstall_removes_every_codeterm_hook() {
         &dir.path().join("rule.md"),
         &dir.path().join("settings.json"),
     );
-    provider.install_integration(7686, &integration_options(true)).unwrap();
+    provider
+        .install_integration(7686, &integration_options(true))
+        .unwrap();
     provider.uninstall_integration().unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
@@ -502,9 +516,13 @@ fn integration_install_is_identical_across_codeterm_instances() {
     let path = dir.path().join("settings.json");
     let provider = claude_in_temp(&dir.path().join("rule.md"), &path);
 
-    provider.install_integration(7685, &integration_options(true)).unwrap();
+    provider
+        .install_integration(7685, &integration_options(true))
+        .unwrap();
     let prod = std::fs::read_to_string(&path).unwrap();
-    provider.install_integration(7686, &integration_options(true)).unwrap();
+    provider
+        .install_integration(7686, &integration_options(true))
+        .unwrap();
     let dev = std::fs::read_to_string(&path).unwrap();
 
     assert_eq!(prod, dev);

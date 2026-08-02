@@ -459,9 +459,8 @@ impl PlanStore {
                 crate::service_plan::review_gate::earn_review_credit(&mut plan.review_policy);
             }
             if let Some(text) = result {
-                let milestone_id = crate::plan::ids::mint_id("ms", |candidate| {
-                    plan_contains_id(plan, candidate)
-                });
+                let milestone_id =
+                    crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
                 plan.tasks[task_index].milestones.push(Milestone {
                     id: milestone_id,
                     from,

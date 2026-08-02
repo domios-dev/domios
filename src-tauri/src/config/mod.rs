@@ -100,10 +100,7 @@ pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
         IpAddr::V4(address) => address.to_string(),
         IpAddr::V6(address) => format!("[{address}]"),
     };
-    (
-        format!("http://{host}:{}", api.port),
-        api.port.to_string(),
-    )
+    (format!("http://{host}:{}", api.port), api.port.to_string())
 }
 
 pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, String> {
@@ -135,7 +132,10 @@ pub fn api_host_is_loopback(host: &str) -> bool {
 
 pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String> {
     let bind = canonical_api_bind_addr(api)?;
-    let has_token = api.token.as_ref().is_some_and(|token| !token.trim().is_empty());
+    let has_token = api
+        .token
+        .as_ref()
+        .is_some_and(|token| !token.trim().is_empty());
     if !bind.ip().is_loopback() && !has_token {
         return Err(format!(
             "non-loopback API host '{}' requires an explicit bearer token",
@@ -150,7 +150,9 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
             || !(origin.starts_with("http://") || origin.starts_with("https://"))
             || origin.parse::<axum::http::HeaderValue>().is_err()
     }) {
-        return Err("api.cors_allow_origins must contain explicit HTTP(S) origins, never '*'".into());
+        return Err(
+            "api.cors_allow_origins must contain explicit HTTP(S) origins, never '*'".into(),
+        );
     }
     Ok(())
 }
@@ -532,7 +534,11 @@ mod tests {
         assert_eq!(config.api.host, "127.0.0.1");
         assert!(!config.api.cors);
         assert!(config.api.cors_allow_origins.is_empty());
-        assert!(config.api.token.as_ref().is_some_and(|token| !token.is_empty()));
+        assert!(config
+            .api
+            .token
+            .as_ref()
+            .is_some_and(|token| !token.is_empty()));
         assert!(validate_api_trust_boundary(&config.api).is_ok());
 
         let mut unsafe_remote = schema::ApiConfig::default();

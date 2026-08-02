@@ -84,7 +84,9 @@ fn team_jobs_keep_ownership_and_report_destination_separate() {
 #[test]
 fn protected_jobs_cannot_be_deleted() {
     let mut store = temp_store();
-    let job = store.create(make_params("system job", "workspace", "0 * * * *")).unwrap();
+    let job = store
+        .create(make_params("system job", "workspace", "0 * * * *"))
+        .unwrap();
     store.get_mut(&job.id).unwrap().protected = true;
 
     let error = store.delete(&job.id).unwrap_err();

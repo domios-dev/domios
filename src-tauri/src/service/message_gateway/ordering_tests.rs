@@ -38,8 +38,7 @@ impl BoundWorker {
     }
 
     fn reports_json(&self) -> String {
-        serde_json::to_string(&self.fx.service.report_store.lock().get(&self.orch, false))
-            .unwrap()
+        serde_json::to_string(&self.fx.service.report_store.lock().get(&self.orch, false)).unwrap()
     }
 }
 
@@ -148,9 +147,7 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     let required_after_stop = svc.gateway.worker_report_required(&bw.worker);
 
     assert!(
-        !rearmed_after_ack
-            && reports_after_stop == reports_after_accept
-            && !required_after_stop,
+        !rearmed_after_ack && reports_after_stop == reports_after_accept && !required_after_stop,
         "a non-turn-starting ack re-armed the obligation or provider-stop fabricated a \
          synthetic Partial; observed: rearmed_after_ack={rearmed_after_ack} \
          reports_after_accept={reports_after_accept} reports_after_stop={reports_after_stop} \
@@ -159,7 +156,10 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     // Immutable history: the accepted report and the task record (milestones,
     // review_audit) are byte-identical after the ack + provider-stop.
     assert_eq!(bw.reports_json(), accepted_reports);
-    assert_eq!(serde_json::to_string(&bw.task()).unwrap(), task_after_accept);
+    assert_eq!(
+        serde_json::to_string(&bw.task()).unwrap(),
+        task_after_accept
+    );
     assert_eq!(bw.task().status, TaskStatus::InReview);
 }
 

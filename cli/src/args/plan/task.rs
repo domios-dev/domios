@@ -347,10 +347,7 @@ pub enum PlanTaskAction {
         title: Option<String>,
     },
     /// Adopt a sealed handoff checkpoint into this authenticated Worker tab
-    AdoptCheckpoint {
-        plan_id: String,
-        task_id: String,
-    },
+    AdoptCheckpoint { plan_id: String, task_id: String },
     /// Link a task to one or more plan sections (CSV)
     Link {
         plan_id: String,

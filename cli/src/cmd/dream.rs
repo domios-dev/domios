@@ -97,8 +97,8 @@ fn run_diary(limit: usize) -> ! {
 /// Daemon-routed dream phase (preserves the v1.1.22 `mem dream --phase`
 /// behaviour as `mem dream run --phase`).
 fn run_dream_phase(phase: &str) -> ! {
-    let (base, token) = crate::read_api_config();
-    let http = match crate::build_http(&token) {
+    let (base, _) = crate::read_api_config();
+    let http = match crate::build_local_api() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: failed to build HTTP client: {}", e);

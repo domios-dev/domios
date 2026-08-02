@@ -35,7 +35,12 @@ pub(crate) fn persist_attempt_executor_identity_for_mux(
     let (session_id, session_binding_nonce) = mux
         .read()
         .get_tab(tab_id)
-        .map(|tab| (tab.agent_session_id.clone(), tab.session_binding_nonce.clone()))
+        .map(|tab| {
+            (
+                tab.agent_session_id.clone(),
+                tab.session_binding_nonce.clone(),
+            )
+        })
         .unwrap_or_default();
     store.update_attempt_executor_identity(
         plan_id,
