@@ -39,8 +39,8 @@ async function run() {
   const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
   assert.match(
     styles,
-    /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*14px;[^}]*height:\s*7px;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);/s,
-    "working indicator uses a theme-accent activity pill",
+    /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*16px;[^}]*height:\s*9px;[^}]*box-sizing:\s*border-box;[^}]*padding-bottom:\s*1px;[^}]*align-items:\s*flex-end;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);[^}]*color:\s*var\(--ct-on-accent\);[^}]*box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--ct-accent\) 22%, transparent\);/s,
+    "working indicator is a theme-token compact activity pill that contains the jump rhythm",
   );
   assert.deepEqual(
     Array.from({ length: 8 }, (_, index) => workspaceCardPosition(index, 3)),
@@ -89,14 +89,15 @@ async function run() {
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
   const workingDots = workingIndicator.querySelector('.activity-dots');
   assert(workingDots?.classList.contains("activity-dots--micro"), "working workspace uses micro activity dots");
+  assert(workingDots?.classList.contains("activity-dots--workspace-badge"), "working workspace uses the badge-only two-dot variant");
   assert(
     workingDots?.classList.contains("activity-dots--on-accent"),
     "working workspace uses the filled-surface contrast tone",
   );
   assert.equal(
     workingIndicator.querySelector('[aria-hidden="true"]')?.children.length,
-    1,
-    "working workspace uses the compact single-dot activity indicator",
+    2,
+    "working workspace uses exactly two compact activity dots",
   );
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
