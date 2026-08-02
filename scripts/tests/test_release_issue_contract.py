@@ -33,7 +33,15 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertEqual(empty.stdout, "")
 
     def test_invalid_fixtures_are_rejected(self):
-        for name in ("duplicate.md", "wrong-repo.md", "malformed.md", "prose.md", "closing-keyword.md"):
+        for name in (
+            "duplicate.md",
+            "wrong-repo.md",
+            "malformed.md",
+            "prose.md",
+            "closing-keyword.md",
+            "url-prose.md",
+            "closing-keyword-url.md",
+        ):
             with self.subTest(name=name):
                 result = self.run_contract("parse", "--body-file", str(FIXTURES / name))
                 self.assertNotEqual(result.returncode, 0)
@@ -47,6 +55,58 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "rollacode/codeterm-releases#17",
         ])
         self.assertNotIn("#99", result.stdout)
+
+    def test_failed_tag_does_not_advance_successful_release_range(self):
+        start = self.run_contract(
+            "range-start",
+            "--releases-file",
+            str(FIXTURES / "failed-then-successful-releases.json"),
+        )
+        self.assertEqual(start.returncode, 0, start.stderr)
+        self.assertEqual(start.stdout.strip(), "1111111111111111111111111111111111111111")
+        resolved_result = self.run_contract(
+            "resolve",
+            "--prs-file",
+            str(FIXTURES / "failed-then-successful-prs.json"),
+        )
+        self.assertEqual(resolved_result.returncode, 0, resolved_result.stderr)
+        resolved = json.loads(resolved_result.stdout)
+        self.assertEqual(
+            [issue["reference"] for issue in resolved["issues"]],
+            ["rollacode/codeterm-releases#31", "rollacode/codeterm-releases#32"],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            resolved_path = Path(directory) / "resolved.json"
+            states_path = Path(directory) / "states.json"
+            resolved_path.write_text(json.dumps(resolved), encoding="utf-8")
+            states_path.write_text(json.dumps({
+                "rollacode/codeterm-releases#31": "OPEN",
+                "rollacode/codeterm-releases#32": "OPEN",
+            }), encoding="utf-8")
+            first = self.run_contract(
+                "plan-close",
+                "--resolved-file",
+                str(resolved_path),
+                "--states-file",
+                str(states_path),
+                "--version",
+                "1.8.2",
+            )
+            self.assertEqual([action["number"] for action in json.loads(first.stdout)], [31, 32])
+            states_path.write_text(json.dumps({
+                "rollacode/codeterm-releases#31": "CLOSED",
+                "rollacode/codeterm-releases#32": "CLOSED",
+            }), encoding="utf-8")
+            second = self.run_contract(
+                "plan-close",
+                "--resolved-file",
+                str(resolved_path),
+                "--states-file",
+                str(states_path),
+                "--version",
+                "1.8.2",
+            )
+            self.assertEqual(json.loads(second.stdout), [])
 
     def test_close_plan_is_idempotent_and_has_no_mutation_command(self):
         resolved = json.loads(self.run_contract("resolve", "--prs-file", str(FIXTURES / "release-prs.json")).stdout)
