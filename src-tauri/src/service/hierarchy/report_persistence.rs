@@ -6,6 +6,7 @@ use crate::plan::AgentRef;
 use crate::service::plan::batch::{BatchOp, BatchRequest};
 use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::PlanStore;
+use crate::service::ServiceContext;
 
 pub(super) fn report_persistence_incident(
     tab_id: &str,
@@ -21,6 +22,71 @@ pub(super) fn report_persistence_incident(
          authoritative task '{target}'.\nImpact: parent delivery alone cannot prove the task \
          received this outcome.\nFallback: pass explicit --plan and --task and alert the \
          Orchestrator; no task-report success was returned.\nCause: {cause}"
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn persist_authorized_local_task_report(
+    svc: &ServiceContext,
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+    from: &AgentRef,
+    message: &str,
+    details: &ReportDetails,
+    task_status: Option<&str>,
+    milestone_kind: Option<&str>,
+    now_ms: u64,
+) -> Result<(), String> {
+    let reporter_is_plan_owner = svc
+        .plan_store
+        .owner_of(plan_id)
+        .and_then(|owner| owner.tab_id)
+        .as_deref()
+        == Some(tab_id);
+    if !reporter_is_plan_owner {
+        if let Some(detail) = svc.plan_store.show_task(task_id) {
+            let owner_epoch = detail.task.interruption.owner_epoch;
+            if owner_epoch > 0 {
+                let session_id = from.session_id.as_deref().ok_or_else(|| {
+                    report_persistence_incident(
+                        tab_id,
+                        plan_id,
+                        Some(task_id),
+                        "owner-epoch report requires the exact authenticated session",
+                    )
+                })?;
+                svc.verify_task_owner_session(task_id, tab_id, session_id, owner_epoch)
+                    .map_err(|error| {
+                        report_persistence_incident(
+                            tab_id,
+                            plan_id,
+                            Some(task_id),
+                            &error,
+                        )
+                    })?;
+            }
+        }
+    }
+    persist_local_task_report(
+        &svc.plan_store,
+        tab_id,
+        plan_id,
+        task_id,
+        from,
+        message,
+        details,
+        task_status,
+        milestone_kind,
+        now_ms,
+    )
+}
+
+pub(super) fn rejected_report_delivery_message(cause: &str, message: &str) -> String {
+    format!(
+        "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
+         The report itself was delivered and must not be resent.\n\
+         Owner action required: {cause}\n\n{message}"
     )
 }
 
