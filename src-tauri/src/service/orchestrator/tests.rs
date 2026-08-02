@@ -278,6 +278,8 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         task_id: None,
         task_launch_authority: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         agent_name: None,
         args: None,
         cwd: None,

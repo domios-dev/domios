@@ -294,6 +294,12 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                             );
                             on_success(&inner, &key);
                             emit_event(&inner.svc, &key, id);
+                            if snap.session_pct.is_some_and(|pct| pct >= 100.0)
+                                || snap.weekly_pct.is_some_and(|pct| pct >= 100.0)
+                                || snap.spend_remaining_cents.is_some_and(|remaining| remaining <= 0.0)
+                            {
+                                inner.svc.signal_provider_exhaustion(&key.provider);
+                            }
                         }
                         Err(e) => {
                             log::warn!("[usage.poller] db insert: {}", e);

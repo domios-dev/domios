@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(after.status, crate::plan::TaskStatus::InProgress);
         assert_eq!(after.execution_attempts.len(), before.execution_attempts.len());
         assert_eq!(after.execution_attempts[0].acknowledged_at, Some(3));
-        assert_eq!(after.execution_attempts[0].continuation_delivered_at, Some(8));
+        assert_eq!(after.execution_attempts[0].continuation.delivered_at, Some(8));
     }
 
     #[test]
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(failed.status, crate::plan::TaskStatus::InReview);
         assert_eq!(failed.status_label.as_deref(), Some("bounce_continuation_failed"));
         assert_eq!(
-            failed.execution_attempts[0].continuation_state.as_deref(),
+            failed.execution_attempts[0].continuation.state.as_deref(),
             Some("bounce_continuation_failed")
         );
     }

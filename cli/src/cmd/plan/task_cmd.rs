@@ -616,9 +616,15 @@ pub(super) fn run_task(
             parent,
             workspace,
             cwd,
+            execution_intent,
+            provider_reserve_pct,
         } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({ "task_id": task_ref });
+            let mut params = json!({
+                "task_id": task_ref,
+                "execution_intent": execution_intent,
+                "provider_reserve_pct": provider_reserve_pct,
+            });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }

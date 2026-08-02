@@ -333,6 +333,9 @@ fn print_task_presentation(val: &Value) {
 fn task_presentation_line(val: &Value) -> Option<String> {
     match val.get("presentation").and_then(|value| value.as_str()) {
         Some("actionable_pending") => Some("presentation: actionable pending".into()),
+        Some("handoff_required") => Some(
+            "presentation: handoff required (sealed checkpoint awaits adoption)".into(),
+        ),
         Some("waiting_on_dependencies") => {
             let dependencies = val
                 .get("dependency_waits")

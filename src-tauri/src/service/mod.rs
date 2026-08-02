@@ -88,6 +88,7 @@ pub mod transport;
 pub mod watcher;
 pub mod web_access;
 pub(crate) mod worker_ack;
+pub(crate) mod worker_interruption;
 mod worker_identity;
 mod worker_lane;
 #[cfg(test)]

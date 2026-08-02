@@ -191,6 +191,31 @@ impl PlanStore {
         mut lane: crate::plan::TaskLaneMetadata,
         now_ms: u64,
     ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            crate::plan::ExecutionIntent::Unspecified,
+            None,
+            now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_task_dispatch_with_policy(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        intent: crate::plan::ExecutionIntent,
+        allowance: Option<crate::plan::ProviderAllowance>,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
         let mut attempt_id = None;
         let mut original_status = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
@@ -226,6 +251,12 @@ impl PlanStore {
                 now_ms,
             );
             attempt.executor_title = Some(executor_title.to_string());
+            task.interruption.execution_intent = intent.clone();
+            task.interruption.allowance = allowance.clone();
+            task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
+            task.interruption.owner_tab_id = Some(tab_id.to_string());
+            task.interruption.owner_session_id = None;
+            attempt.interruption.owner_epoch = task.interruption.owner_epoch;
             attempt_id = Some(attempt.id.clone());
             super::task_attempts::record_noncompetitive_replacement_attempt(
                 &mut task.execution_attempts,
@@ -264,6 +295,10 @@ impl PlanStore {
                 || attempt.executor_tab_id != tab_id
                 || attempt.executor_title.as_deref() != Some(executor_title)
                 || attempt.session_id.is_some()
+                || task.interruption.execution_intent != intent
+                || task.interruption.allowance != allowance
+                || task.interruption.owner_tab_id.as_deref() != Some(tab_id)
+                || attempt.interruption.owner_epoch != task.interruption.owner_epoch
             {
                 return Err(Self::task_readback_error(
                     "task_dispatch_start",
@@ -328,6 +363,10 @@ impl PlanStore {
                 ));
             }
             attempt.session_id = Some(session_id.to_string());
+            task.interruption.owner_session_id = Some(session_id.to_string());
+            task.interruption.owner_tab_id = Some(tab_id.to_string());
+            task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
+            attempt.interruption.owner_epoch = task.interruption.owner_epoch;
             attempt.worktree_path = task.lane.worktree_path.clone();
             attempt.branch = task.lane.branch.clone();
             attempt.base = task.lane.base.clone();

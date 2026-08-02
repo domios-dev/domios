@@ -69,6 +69,8 @@ pub(crate) struct SpawnAgentBody {
     task_id: Option<String>,
     #[serde(alias = "plan-task")]
     plan_task: Option<String>,
+    execution_intent: Option<crate::plan::ExecutionIntent>,
+    provider_reserve_pct: Option<f32>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
     report_target_tab_id: Option<String>,
@@ -253,6 +255,8 @@ pub async fn spawn_agent(
         task_id: body.task_id,
         task_launch_authority: None,
         plan_task: body.plan_task,
+        execution_intent: body.execution_intent,
+        provider_reserve_pct: body.provider_reserve_pct,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         existing_tab_id: None,
