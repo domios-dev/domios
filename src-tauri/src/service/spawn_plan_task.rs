@@ -65,12 +65,20 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        store,
+        &resolved.plan_id,
+    )
+    .map_err(|error| error.to_string())?;
     let brief = crate::service::plan::task_brief::render_task_brief(
         &detail.task,
         &detail.sections,
         detail.task.personality.as_deref(),
         instruction.as_deref(),
+        Some(&resolved.plan_id),
+        &manifest,
     );
+    params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);
     params.plan_id = Some(resolved.plan_id);
     params.task_id = Some(resolved.task_id);
@@ -94,6 +102,7 @@ fn bind_worker_task_to_tab(
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
     let resolved = store
@@ -119,6 +128,12 @@ fn bind_worker_task_to_tab(
             now_ms,
         )
         .map_err(|error| error.to_string())?;
+    if let Err(error) =
+        store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now_ms)
+    {
+        let _ = store.revert_task_dispatch(&plan_id, &task_id, now_ms);
+        return Err(error.to_string());
+    }
     if let Some(session_id) = session_id {
         if let Err(error) = store.finish_task_dispatch(
             &plan_id,
@@ -157,6 +172,7 @@ fn bind_worker_plan_task_transaction(
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
     close_tab: impl FnOnce(),
 ) -> Result<WorkerTaskBinding, String> {
@@ -170,6 +186,7 @@ fn bind_worker_plan_task_transaction(
         intent,
         allowance,
         provider,
+        manifest,
         now_ms,
     ) {
         Ok(binding) => Ok(binding),
@@ -239,6 +256,9 @@ impl ServiceContext {
             })?,
             self.provider_allowance_for_spawn(params, now_ms)?,
             params.agent.as_deref(),
+            params.plan_skill_manifest.clone().ok_or_else(|| {
+                "plan-task spawn is missing its prepared plan skill manifest".to_string()
+            })?,
             now_ms,
             || {
                 let _ = self.close_tab(tab_id);
@@ -350,6 +370,12 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            vec![crate::plan::PlanSkillManifestEntry {
+                slug: "prepared".into(),
+                title: "Prepared".into(),
+                purpose: "Prove exact snapshot retention.".into(),
+                content_digest: "sha256:prepared".into(),
+            }],
             10,
         )
         .unwrap();
@@ -362,6 +388,7 @@ mod tests {
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
         assert_eq!(binding.plan_id, plan_id);
         assert_eq!(binding.task_id, task_id);
+        assert_eq!(task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug, "prepared");
         assert_eq!(
             task.execution_attempts
                 .last()
@@ -509,6 +536,7 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            vec![],
             10,
         )
         .unwrap_err();
@@ -535,6 +563,7 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            vec![],
             10,
         )
         .unwrap();
@@ -567,6 +596,7 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            vec![],
             10,
             || tab_closed = true,
         )

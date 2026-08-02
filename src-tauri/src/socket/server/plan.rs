@@ -65,7 +65,7 @@ pub(super) fn dispatch(
         return super::plan_task_rpc::dispatch(method, params, app, svc, now);
     }
     if super::plan_skills_rpc::handles(method) {
-        return super::plan_skills_rpc::dispatch(method, params, &svc.plan_store);
+        return super::plan_skills_rpc::dispatch(method, params, svc, now);
     }
     let p = params.as_ref();
     let store = &svc.plan_store;
