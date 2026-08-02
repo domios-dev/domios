@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_lanes_report_gracefully() {
+    fn lane_empty_states_distinguish_never_from_closed() {
         assert_eq!(
             render_lanes(&json!({"lanes": []}), false),
             "no lanes have been registered\n"
