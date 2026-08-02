@@ -138,25 +138,29 @@ fn compose_system_prompt(agent: &str) -> String {
 
 const GENERATED_START: &str = "<!-- CODETERM-GENERATED-START -->";
 const GENERATED_END: &str = "<!-- CODETERM-GENERATED-END -->";
+const LEGACY_CONTRACT_START: &str = "# CodeTerm General Agent (v";
 
-fn preserved_user_notes(existing: &str) -> String {
+fn generated_contract_bounds(existing: &str) -> Option<(usize, usize)> {
     match (existing.find(GENERATED_START), existing.find(GENERATED_END)) {
-        (Some(start), Some(end)) if start < end => {
-            let suffix = &existing[end + GENERATED_END.len()..];
-            format!("{}{}", existing[..start].trim(), suffix.trim()).trim().to_string()
+        (Some(start), Some(end)) if start < end => Some((start, end + GENERATED_END.len())),
+        _ => {
+            let start = existing.find(LEGACY_CONTRACT_START)?;
+            let memory_offset = existing[start..].find(crate::prompts::BRIDGE_MEM.trim())?;
+            let end = start + memory_offset + crate::prompts::BRIDGE_MEM.trim().len();
+            Some((start, end))
         }
-        _ => existing.trim().to_string(),
     }
 }
 
 fn generated_contract_file(existing: &str, contract: &str) -> String {
-    let notes = preserved_user_notes(existing);
     let generated = format!("{GENERATED_START}\n{contract}\n{GENERATED_END}");
-    if notes.is_empty() {
-        format!("{generated}\n")
-    } else {
-        format!("{generated}\n\n{notes}\n")
+    if let Some((start, end)) = generated_contract_bounds(existing) {
+        return format!("{}{generated}{}", &existing[..start], &existing[end..]);
     }
+    if existing.is_empty() {
+        return format!("{generated}\n");
+    }
+    format!("{generated}\n\n{existing}")
 }
 
 fn claude_import_file(existing: &str) -> String {
@@ -356,6 +360,34 @@ mod tests {
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert_eq!(agents.matches(GENERATED_START).count(), 1);
         assert_eq!(agents.matches("USER_AGENTS_NOTE").count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_unmarked_agents_md_upgrades_without_preserving_generated_contract_as_notes() {
+        let dir = std::env::temp_dir().join(format!("ga-legacy-agents-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("identity.md"), "LEGACY_IDENTITY").unwrap();
+        std::fs::write(dir.join("soul.md"), "LEGACY_SOUL").unwrap();
+        let legacy_contract = render_agent_md_at(&dir, "codex", "");
+        let prepended_notes = "USER PREFIX\r\nkeep-leading-space:  yes\n";
+        let appended_notes = "\n\nUSER SUFFIX  \r\nkeep-final-newline\n";
+        std::fs::write(
+            dir.join("AGENTS.md"),
+            format!("{prepended_notes}{legacy_contract}{appended_notes}"),
+        )
+        .unwrap();
+
+        for _ in 0..2 {
+            generate_instructions_at(&dir, "codex", None);
+            let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+            assert!(agents.starts_with(prepended_notes));
+            assert!(agents.ends_with(appended_notes));
+            assert_eq!(agents.matches(GENERATED_START).count(), 1);
+            assert_eq!(agents.matches("You are the General Agent").count(), 1);
+            assert_eq!(agents.matches("# CodeTerm CLI reference").count(), 1);
+            assert_eq!(agents.matches("# CodeTerm Memory Protocol").count(), 1);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
