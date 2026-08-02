@@ -101,6 +101,7 @@ pub(super) fn dispatch(
                 "plan.task.attempts",
                 "plan.task.attempt.show",
                 "plan.task.respawn",
+                "plan.task.adopt_checkpoint",
                 "plan.task.compete",
                 "plan.task.judge",
                 "plan.task.rm",

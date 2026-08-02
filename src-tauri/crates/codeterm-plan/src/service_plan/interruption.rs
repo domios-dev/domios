@@ -63,7 +63,7 @@ impl PlanStore {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn interrupt_task_attempt(
+    pub fn begin_task_interruption(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -72,18 +72,8 @@ impl PlanStore {
         owner_session_id: &str,
         owner_epoch: u64,
         reason: &str,
-        checkpoint: InterruptionCheckpoint,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        if checkpoint.diff_sha256 != checkpoint_digest(&checkpoint.diff_artifact)
-            || checkpoint.task_id != task_id
-            || checkpoint.attempt_id != attempt_id
-            || checkpoint.tab_id != owner_tab_id
-            || checkpoint.session_id != owner_session_id
-            || checkpoint.owner_epoch != owner_epoch
-        {
-            return Err(PlanError::Io("interruption checkpoint verification failed".into()));
-        }
         self.with_plan(plan_id, now_ms, |plan| {
             let task = plan
                 .tasks
@@ -111,16 +101,123 @@ impl PlanStore {
             attempt.closed_at = Some(now_ms);
             attempt.interruption.interrupted_at = Some(now_ms);
             attempt.interruption.reason = Some(reason.to_string());
-            attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
             task.interruption.handoff_required = true;
-            task.interruption.checkpoint = Some(checkpoint);
+            task.interruption.checkpoint = None;
             task.status = TaskStatus::Blocked;
-            task.status_label = Some("handoff_required".into());
+            task.status_label = Some("checkpoint_sealing".into());
             task.assigned_tab_id = None;
             task.lane.tab_id = None;
             task.updated_at = now_ms;
             Ok(())
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_task_interruption(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        owner_epoch: u64,
+        checkpoint: InterruptionCheckpoint,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        if checkpoint.diff_sha256 != checkpoint_digest(&checkpoint.diff_artifact)
+            || checkpoint.task_id != task_id
+            || checkpoint.attempt_id != attempt_id
+            || checkpoint.owner_epoch != owner_epoch
+        {
+            return Err(PlanError::Io("interruption checkpoint verification failed".into()));
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if !task.interruption.handoff_required
+                || task.interruption.owner_epoch != owner_epoch
+                || task.status_label.as_deref() != Some("checkpoint_sealing")
+            {
+                return Err(PlanError::Io("interruption checkpoint ownership changed".into()));
+            }
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.closed_at.is_some()
+                        && attempt.interruption.interrupted_at.is_some()
+                        && attempt.interruption.owner_epoch == owner_epoch
+                })
+                .ok_or_else(|| PlanError::Io("interrupted attempt changed".into()))?;
+            attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
+            task.interruption.checkpoint = Some(checkpoint);
+            task.status_label = Some("handoff_required".into());
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    pub fn mark_interruption_checkpoint_failed(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        owner_epoch: u64,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let exact = task.execution_attempts.iter().any(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.interruption.owner_epoch == owner_epoch
+                    && attempt.interruption.interrupted_at.is_some()
+            });
+            if !exact || !task.interruption.handoff_required {
+                return Err(PlanError::Io("interruption failure authority changed".into()));
+            }
+            task.status_label = Some("handoff_checkpoint_failed".into());
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn interrupt_task_attempt(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        owner_tab_id: &str,
+        owner_session_id: &str,
+        owner_epoch: u64,
+        reason: &str,
+        checkpoint: InterruptionCheckpoint,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.begin_task_interruption(
+            plan_id,
+            task_id,
+            attempt_id,
+            owner_tab_id,
+            owner_session_id,
+            owner_epoch,
+            reason,
+            now_ms,
+        )?;
+        self.finish_task_interruption(
+            plan_id,
+            task_id,
+            attempt_id,
+            owner_epoch,
+            checkpoint,
+            now_ms,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

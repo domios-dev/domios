@@ -915,6 +915,8 @@ Explicitly closes every Team member through the Team cascade path, removes the T
 
 Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch also requires fresh provider-allowance telemetry at or above `provider_reserve_pct` (default 5); the daemon applies this preflight before provisioning a lane or changing task state. Interrupted mutating attempts project `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
 
+`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts that sealed checkpoint for the authenticated Worker identified by `X-CodeTerm-Tab-Id`; the tab must have an exact nonce-authenticated session binding. The equivalent CLI command is `codeterm plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates the fresh attempt in `awaiting_worker_ack`, and fences every prior owner session.
+
 ### Keep-Awake (GET/POST /api/keepawake*)
 
 Prevents the machine from sleeping (and optionally from dimming the display) while long-running agents are working. Global machine state, not tab- or workspace-scoped. All three endpoints require the standard Bearer token.
@@ -1402,4 +1404,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 104 -->
+<!-- revision: 105 -->

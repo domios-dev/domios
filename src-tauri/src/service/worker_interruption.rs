@@ -6,6 +6,8 @@ use crate::plan::InterruptionCheckpoint;
 use crate::service::plan::interruption::checkpoint_digest;
 use tauri::Emitter;
 
+const CHECKPOINT_ARTIFACT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
 #[cfg(test)]
 mod tests;
 
@@ -64,6 +66,27 @@ pub struct WorkerInterruptionRequest {
 }
 
 impl super::ServiceContext {
+    pub fn verify_task_owner_session(
+        &self,
+        task_id: &str,
+        tab_id: &str,
+        session_id: &str,
+        owner_epoch: u64,
+    ) -> Result<(), String> {
+        let authenticated = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.session_binding_nonce.as_ref().is_some_and(|nonce| {
+                    tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str())
+                })
+        });
+        if !authenticated {
+            return Err("task owner session binding is stale or unauthenticated".into());
+        }
+        self.plan_store
+            .verify_task_owner_epoch(task_id, tab_id, session_id, owner_epoch)
+            .map_err(|error| error.to_string())
+    }
+
     pub fn signal_provider_exhaustion(&self, provider: &str) -> usize {
         let tabs = self
             .plan_store
@@ -151,6 +174,47 @@ impl super::ServiceContext {
         if !claimed {
             return true;
         }
+        if let Err(error) = self.plan_store.begin_task_interruption(
+            &request.plan_id,
+            &request.task_id,
+            &request.attempt_id,
+            &request.tab_id,
+            &request.session_id,
+            request.owner_epoch,
+            request.event.reason(),
+            request.occurred_at,
+        ) {
+            pending_interruptions()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(tab_id);
+            log::error!("[worker-interruption] fence failed: {error}");
+            return false;
+        }
+        if request.event == WorkerInterruptionEvent::ProviderExhausted {
+            if let Err(error) = self.close_tab(tab_id) {
+                let _ = self.plan_store.mark_interruption_checkpoint_failed(
+                    &request.plan_id,
+                    &request.task_id,
+                    &request.attempt_id,
+                    request.owner_epoch,
+                    request.occurred_at,
+                );
+                pending_interruptions()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .remove(tab_id);
+                let _ = self.app_handle.emit(
+                    "coordination-incident",
+                    serde_json::json!({
+                        "kind": "worker_interruption_stop_failed",
+                        "impact": error,
+                        "fallback": "The owner is fenced in plan state; stop the tab before adoption."
+                    }),
+                );
+                return false;
+            }
+        }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
@@ -194,16 +258,32 @@ impl super::ServiceContext {
             })
         })
         .await
-        .map_err(|error| format!("checkpoint worker failed: {error}"))??;
-        self.plan_store
-            .interrupt_task_attempt(
+        .map_err(|error| {
+            let _ = self.plan_store.mark_interruption_checkpoint_failed(
                 &request.plan_id,
                 &request.task_id,
                 &request.attempt_id,
-                &request.tab_id,
-                &request.session_id,
                 request.owner_epoch,
-                request.event.reason(),
+                request.occurred_at,
+            );
+            format!("checkpoint worker failed: {error}")
+        })?
+        .map_err(|error| {
+            let _ = self.plan_store.mark_interruption_checkpoint_failed(
+                &request.plan_id,
+                &request.task_id,
+                &request.attempt_id,
+                request.owner_epoch,
+                request.occurred_at,
+            );
+            error
+        })?;
+        self.plan_store
+            .finish_task_interruption(
+                &request.plan_id,
+                &request.task_id,
+                &request.attempt_id,
+                request.owner_epoch,
                 checkpoint,
                 request.occurred_at,
             )
@@ -217,15 +297,7 @@ impl super::ServiceContext {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        let authenticated = self.mux.read().get_tab(new_tab_id).is_some_and(|tab| {
-            tab.agent_session_id.as_deref() == Some(new_session_id)
-                && tab.session_binding_nonce.as_ref().is_some_and(|nonce| {
-                    tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str())
-                })
-        });
-        if !authenticated {
-            return Err("adoption requires authenticated fresh-owner session binding".into());
-        }
+        self.authenticated_adoption_checkpoint(task_id, new_tab_id, new_session_id)?;
         let detail = self
             .plan_store
             .show_task(task_id)
@@ -240,9 +312,78 @@ impl super::ServiceContext {
         tokio::task::spawn_blocking(move || verify_git_checkpoint(&verified))
             .await
             .map_err(|error| format!("checkpoint verifier failed: {error}"))??;
+        self.persist_checkpoint_adoption(
+            &detail.plan_id,
+            task_id,
+            new_tab_id,
+            new_session_id,
+            checkpoint,
+            now_ms,
+        )
+    }
+
+    pub fn adopt_worker_checkpoint_sync(
+        &self,
+        task_id: &str,
+        new_tab_id: &str,
+        new_session_id: &str,
+        now_ms: u64,
+    ) -> Result<(u64, String), String> {
+        self.authenticated_adoption_checkpoint(task_id, new_tab_id, new_session_id)?;
+        let detail = self
+            .plan_store
+            .show_task(task_id)
+            .ok_or_else(|| "task not found".to_string())?;
+        let checkpoint = detail
+            .task
+            .interruption
+            .checkpoint
+            .clone()
+            .ok_or_else(|| "task has no interruption checkpoint".to_string())?;
+        verify_git_checkpoint(&checkpoint)?;
+        self.persist_checkpoint_adoption(
+            &detail.plan_id,
+            task_id,
+            new_tab_id,
+            new_session_id,
+            checkpoint,
+            now_ms,
+        )
+    }
+
+    fn authenticated_adoption_checkpoint(
+        &self,
+        task_id: &str,
+        new_tab_id: &str,
+        new_session_id: &str,
+    ) -> Result<(), String> {
+        let authenticated = self.mux.read().get_tab(new_tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(new_session_id)
+                && tab.session_binding_nonce.as_ref().is_some_and(|nonce| {
+                    tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str())
+                })
+        });
+        if !authenticated {
+            return Err("adoption requires authenticated fresh-owner session binding".into());
+        }
+        self.plan_store
+            .show_task(task_id)
+            .ok_or_else(|| "task not found".to_string())?;
+        Ok(())
+    }
+
+    fn persist_checkpoint_adoption(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        new_tab_id: &str,
+        new_session_id: &str,
+        checkpoint: InterruptionCheckpoint,
+        now_ms: u64,
+    ) -> Result<(u64, String), String> {
         self.plan_store
             .adopt_interrupted_task(
-                &detail.plan_id,
+                plan_id,
                 task_id,
                 &checkpoint.diff_sha256,
                 &checkpoint.base_head,
@@ -287,6 +428,9 @@ pub fn seal_git_checkpoint(request: CheckpointRequest<'_>) -> Result<Interruptio
         .to_string();
     let git_status = git(&worktree, &["status", "--porcelain=v2", "--untracked-files=all"])?;
     let tracked = git(&worktree, &["diff", "--binary", "--no-ext-diff", "HEAD"])?;
+    if tracked.len() > CHECKPOINT_ARTIFACT_MAX_BYTES {
+        return Err("checkpoint diff artifact exceeds 4 MiB bound".into());
+    }
     let untracked = git(&worktree, &["ls-files", "--others", "--exclude-standard", "-z"])?;
     let mut diff_artifact = tracked;
     if !untracked.is_empty() {
@@ -311,7 +455,14 @@ pub fn seal_git_checkpoint(request: CheckpointRequest<'_>) -> Result<Interruptio
                         .map_err(|error| format!("read untracked {relative}: {error}"))?,
                 )
             };
-            if diff_artifact.len().saturating_add(bytes.len() * 2) > 4 * 1024 * 1024 {
+            if diff_artifact
+                .len()
+                .saturating_add(relative.len())
+                .saturating_add(kind.len())
+                .saturating_add(bytes.len() * 2)
+                .saturating_add(3)
+                > CHECKPOINT_ARTIFACT_MAX_BYTES
+            {
                 return Err("checkpoint diff artifact exceeds 4 MiB bound".into());
             }
             diff_artifact.push_str(relative);
@@ -326,7 +477,7 @@ pub fn seal_git_checkpoint(request: CheckpointRequest<'_>) -> Result<Interruptio
         }
     }
     let diff_sha256 = checkpoint_digest(&diff_artifact);
-    Ok(InterruptionCheckpoint {
+    let checkpoint = InterruptionCheckpoint {
         task_id: request.task_id.to_string(),
         attempt_id: request.attempt_id.to_string(),
         tab_id: request.tab_id.to_string(),
@@ -342,7 +493,14 @@ pub fn seal_git_checkpoint(request: CheckpointRequest<'_>) -> Result<Interruptio
         completed_tests: request.completed_tests,
         unresolved_work: request.unresolved_work,
         next_acceptance_gate: request.next_acceptance_gate,
-    })
+    };
+    let encoded_len = serde_json::to_vec(&checkpoint)
+        .map_err(|error| format!("encode checkpoint: {error}"))?
+        .len();
+    if encoded_len > CHECKPOINT_ARTIFACT_MAX_BYTES {
+        return Err("checkpoint exceeds 4 MiB total bound".into());
+    }
+    Ok(checkpoint)
 }
 
 fn path_text(path: PathBuf) -> String {

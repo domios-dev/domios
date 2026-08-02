@@ -743,11 +743,22 @@ pub(super) fn dispatch(
             ))
         }
     };
+    let allowance_capability = svc
+        .agent_registry
+        .with_provider(&resolved_provider, |provider| {
+            provider.provider_allowance_capability()
+        })
+        .flatten();
     let reserve_pct = p
         .and_then(|value| value.get("provider_reserve_pct"))
         .and_then(Value::as_f64)
-        .unwrap_or(5.0) as f32;
+        .map(|value| value as f32)
+        .or_else(|| allowance_capability.map(|capability| capability.default_reserve_pct))
+        .unwrap_or(5.0);
     let allowance = if execution_intent == crate::plan::ExecutionIntent::Mutating {
+        let allowance_capability = allowance_capability.ok_or_else(|| {
+            invalid_dispatch("selected provider has no mutation allowance capability")
+        })?;
         let snapshot = svc
             .usage_store
             .get_latest(&resolved_provider, None)
@@ -756,7 +767,7 @@ pub(super) fn dispatch(
         Some(crate::plan::ProviderAllowance {
             remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
             observed_at: snapshot.captured_at.max(0) as u64,
-            stale_after_ms: 15 * 60 * 1_000,
+            stale_after_ms: allowance_capability.telemetry_max_age_ms,
             reserve_pct,
         })
     } else {

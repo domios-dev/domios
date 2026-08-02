@@ -229,6 +229,10 @@ pub fn create_router(state: AppState) -> Router {
             post(plan_routes::task_respawn),
         )
         .route(
+            "/api/plans/{id}/tasks/{tid}/adopt-checkpoint",
+            post(plan_routes::task_adopt_checkpoint),
+        )
+        .route(
             "/api/plans/{id}/tasks/{tid}/milestones",
             post(plan_routes::milestone_add),
         )

@@ -332,6 +332,7 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     task_update_core(&state.svc, &headers, &id, &tid, body)
 }
 
@@ -530,6 +531,7 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     state
         .svc
@@ -567,6 +569,7 @@ pub async fn task_assign(
     Json(body): Json<TaskAssignBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     state
         .svc
         .plan_store
@@ -619,6 +622,104 @@ pub async fn task_attempt_show(
     })))
 }
 
+fn verify_task_mutation_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+    plan_id: &str,
+    task_id: &str,
+) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
+    let Some(tab_id) = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    if state
+        .svc
+        .plan_store
+        .owner_of(plan_id)
+        .and_then(|owner| owner.tab_id)
+        .as_deref()
+        == Some(tab_id)
+    {
+        return Ok(());
+    }
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(task_id)
+        .filter(|detail| detail.plan_id == plan_id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    let owner_epoch = detail.task.interruption.owner_epoch;
+    if owner_epoch == 0 {
+        return Ok(());
+    }
+    let session_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::CONFLICT,
+                "task mutation requires the exact authenticated owner session",
+            )
+        })?;
+    state
+        .svc
+        .verify_task_owner_session(task_id, tab_id, &session_id, owner_epoch)
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
+}
+
+pub async fn task_adopt_checkpoint(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::BAD_REQUEST, "missing Worker tab id"))?;
+    let session_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::CONFLICT,
+                "adoption caller has no authenticated session",
+            )
+        })?;
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .filter(|detail| detail.plan_id == id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    let (owner_epoch, attempt_id) = state
+        .svc
+        .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
+        .await
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "attempt_id": attempt_id,
+        "owner_epoch": owner_epoch,
+        "tab_id": tab_id,
+        "session_id": session_id,
+        "state": "awaiting_worker_ack"
+    })))
+}
+
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -626,6 +727,7 @@ pub async fn task_respawn(
     Json(body): Json<TaskRespawnRequest>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     let draft = state
         .svc
         .plan_store
@@ -696,6 +798,7 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     state
         .svc
         .plan_store
