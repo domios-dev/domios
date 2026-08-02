@@ -198,6 +198,22 @@ fn default_relay_method() -> String {
     "GET".to_string()
 }
 
+fn resolve_paired_peer_id<'a>(
+    target: &str,
+    peers: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Option<String> {
+    let mut name_match = None;
+    for (id, name) in peers {
+        if id == target {
+            return Some(id.to_string());
+        }
+        if name_match.is_none() && name.eq_ignore_ascii_case(target) {
+            name_match = Some(id.to_string());
+        }
+    }
+    name_match
+}
+
 /// Parse a successful relayed `agent spawn` into a remote-worker registration
 /// `(report_to, remote_tab, title, model)`. None unless this was a POST spawn
 /// that succeeded, carried a `report_to` target, and produced a tab id.
@@ -250,12 +266,19 @@ pub async fn mesh_relay_to_peer(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let (client, peer_name) = {
         let mesh = state.mesh.lock();
-        let peer = mesh.paired_peers.get(&req.target_peer_id).ok_or_else(|| {
+        let peer_id = resolve_paired_peer_id(
+            &req.target_peer_id,
+            mesh.paired_peers
+                .iter()
+                .map(|(id, peer)| (id.as_str(), peer.instance_name.as_str())),
+        )
+        .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
                 format!("Peer {} not paired", req.target_peer_id),
             )
         })?;
+        let peer = &mesh.paired_peers[&peer_id];
         if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
@@ -265,17 +288,13 @@ pub async fn mesh_relay_to_peer(
                 ),
             ));
         }
-        let client = mesh.client_for(&req.target_peer_id).ok_or_else(|| {
+        let client = mesh.client_for(&peer_id).ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
                 format!("Peer {} not paired", req.target_peer_id),
             )
         })?;
-        let name = mesh
-            .paired_peers
-            .get(&req.target_peer_id)
-            .map(|p| p.instance_name.clone())
-            .unwrap_or_else(|| req.target_peer_id.clone());
+        let name = peer.instance_name.clone();
         (client, name)
     };
     let delivery_id = relay_send_delivery_id(&req.method, &req.path);
@@ -786,8 +805,23 @@ mod tests {
     use super::outcome_holds_dedupe;
     use super::relay_error_summary;
     use super::relay_send_delivery_id;
+    use super::resolve_paired_peer_id;
     use super::spawn_registration_from_relay;
     use crate::mesh::types::RelayResponse;
+
+    #[test]
+    fn peer_relay_resolves_id_or_case_insensitive_name() {
+        let peers = [("peer-a", "BLACKSTAR"), ("peer-b", "ROG")];
+        assert_eq!(
+            resolve_paired_peer_id("peer-a", peers),
+            Some("peer-a".to_string())
+        );
+        assert_eq!(
+            resolve_paired_peer_id("blackstar", peers),
+            Some("peer-a".to_string())
+        );
+        assert_eq!(resolve_paired_peer_id("missing", peers), None);
+    }
 
     #[test]
     fn peer_relay_stamps_delivery_id_only_on_sends() {
