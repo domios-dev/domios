@@ -322,6 +322,8 @@ pub async fn resume_session_api(
         task_id: None,
         task_launch_authority: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
         existing_tab_id: None,

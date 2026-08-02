@@ -95,6 +95,7 @@ pub struct BoundWorkerReport {
     pub test_cmd: Option<String>,
     pub test_result: Option<String>,
     pub skipped: Option<String>,
+    pub authority: Option<super::interruption::TaskMutationAuthority>,
 }
 
 fn gen_attempt_id() -> String {
@@ -282,9 +283,6 @@ fn build_prompt(
         out.push_str(report.trim());
         out.push('\n');
     }
-    out.push_str("\n");
-    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
-    out.push('\n');
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
@@ -370,9 +368,6 @@ fn build_compete_prompt(
         out.push_str(&lane_lines.join("\n"));
         out.push('\n');
     }
-    out.push_str("\n");
-    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
-    out.push('\n');
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
@@ -989,6 +984,36 @@ impl PlanStore {
             if plan.tasks[task_index].assigned_tab_id.as_deref() != Some(reporter_tab) {
                 return Ok(false);
             }
+            let interruption = &plan.tasks[task_index].interruption;
+            if interruption.handoff_required
+                || (interruption.owner_epoch > 0
+                    && interruption.owner_tab_id.as_deref() != Some(reporter_tab))
+            {
+                return Ok(false);
+            }
+            if interruption.owner_epoch > 0 {
+                let authority = report.authority.as_ref().ok_or_else(|| {
+                    PlanError::Io("report caller authority is missing".into())
+                })?;
+                super::interruption::authorize_task_mutation(
+                    plan,
+                    &plan.tasks[task_index],
+                    authority,
+                )?;
+                if interruption.owner_tab_id.as_deref() == Some(&authority.tab_id) {
+                    let exact_attempt = plan.tasks[task_index].execution_attempts.iter().any(
+                        |attempt| {
+                            attempt.executor_tab_id == authority.tab_id
+                                && attempt.session_id.as_deref() == Some(&authority.session_id)
+                                && attempt.interruption.owner_epoch == authority.owner_epoch
+                                && attempt.closed_at.is_none()
+                        },
+                    );
+                    if !exact_attempt {
+                        return Err(PlanError::Io("report attempt authority changed".into()));
+                    }
+                }
+            }
             if plan.tasks[task_index]
                 .execution_attempts
                 .iter()
@@ -1033,11 +1058,15 @@ impl PlanStore {
                 canvas: Default::default(),
                 attachments: vec![],
             });
+            let owner_epoch = task.interruption.owner_epoch;
             if let Some(attempt) = task
                 .execution_attempts
                 .iter_mut()
                 .rposition(|attempt| {
-                    attempt.executor_tab_id == reporter_tab && attempt.closed_at.is_none()
+                    attempt.executor_tab_id == reporter_tab
+                        && attempt.closed_at.is_none()
+                        && (owner_epoch == 0
+                            || attempt.interruption.owner_epoch == owner_epoch)
                 })
                 .map(|index| &mut task.execution_attempts[index])
             {

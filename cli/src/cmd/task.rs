@@ -35,9 +35,7 @@ fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<St
 }
 
 fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
-    client
-        .call_detailed(method, Some(params.clone()))
-        .map_err(|err| render_plan_call_error(err, &params))
+    crate::cmd::plan::call_plan_rpc(client, method, params)
 }
 
 fn caller_tab(client: &dyn RpcClient) -> Option<String> {
@@ -337,6 +335,9 @@ fn print_task_presentation(val: &Value) {
 fn task_presentation_line(val: &Value) -> Option<String> {
     match val.get("presentation").and_then(|value| value.as_str()) {
         Some("actionable_pending") => Some("presentation: actionable pending".into()),
+        Some("handoff_required") => Some(
+            "presentation: handoff required (sealed checkpoint awaits adoption)".into(),
+        ),
         Some("waiting_on_dependencies") => {
             let dependencies = val
                 .get("dependency_waits")

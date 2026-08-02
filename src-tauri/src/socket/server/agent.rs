@@ -124,7 +124,7 @@ pub(super) fn dispatch(
             let mut resp = serde_json::json!({
                 "ok": true,
                 "accepted": true,
-                "state": "recorded",
+                "state": "delivered",
                 "report_id": result.report_id,
                 "target_tab_id": result.orchestrator_tab_id,
             });
@@ -133,6 +133,15 @@ pub(super) fn dispatch(
                     "persisted": true,
                     "plan_id": plan_id,
                     "task_id": task_id,
+                });
+            }
+            if let Some(rejection) = result.rejected_task_transition {
+                resp["task_report"] = serde_json::json!({
+                    "persisted": false,
+                    "plan_id": rejection.plan_id,
+                    "task_id": rejection.task_id,
+                    "transition_rejected": true,
+                    "cause": rejection.cause,
                 });
             }
             if !result.notices.is_empty() {

@@ -41,6 +41,7 @@ fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::Boun
         test_cmd: Some("cargo test".into()),
         test_result: Some("ok".into()),
         skipped: None,
+        authority: None,
     }
 }
 
@@ -711,15 +712,17 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
     let expected_prefix = format!(
         "You are Hopper. Audit reconnect semantics.\n\
          Your assigned task is: retry lane\n\n{}\n\n\
+         {}\n\n\
          You are a CodeTerm Worker respawned from a prior task attempt.\n\
          Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
-        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END,
+        crate::service_plan::worker_identity::WORKER_ACK_INSTRUCTION
     );
     assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
     let ack = draft.task_prompt.find("codeterm agent ack").unwrap();
     let report = draft.task_prompt.find("When done, run exactly:").unwrap();
-    assert!(draft.task_prompt.find("Original task body:").unwrap() < ack);
+    assert!(ack < draft.task_prompt.find("Original task body:").unwrap());
     assert!(ack < report);
 }
 
@@ -765,14 +768,16 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     let expected_prefix = format!(
         "You are Hopper. Audit reconnect semantics.\n\
          Your assigned task is: judgeable\n\n{}\n\n\
+         {}\n\n\
          You are one isolated competitive attempt.",
-        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END,
+        crate::service_plan::worker_identity::WORKER_ACK_INSTRUCTION
     );
     assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(prompt.matches("You are Hopper.").count(), 1);
     let ack = prompt.find("codeterm agent ack").unwrap();
     let report = prompt.find("When done, run exactly:").unwrap();
-    assert!(prompt.find("Task body:").unwrap() < ack);
+    assert!(ack < prompt.find("Task body:").unwrap());
     assert!(ack < report);
 }
 

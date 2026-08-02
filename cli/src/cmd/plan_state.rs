@@ -372,6 +372,7 @@ pub fn render_state(val: &Value) -> String {
 
 fn lane_presentation(lane: &Value) -> String {
     match s(lane, "presentation") {
+        "handoff_required" => "handoff required: sealed checkpoint awaits adoption".into(),
         "actionable_pending" => "actionable pending".into(),
         "waiting_on_dependencies" => {
             let waits = lane

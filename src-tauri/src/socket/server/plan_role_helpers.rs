@@ -112,12 +112,23 @@ pub(super) fn assign_task_with_profile(
     svc: &ServiceState,
     params: &Option<Value>,
     body: Option<&Value>,
+    authority: Option<&crate::service::plan::interruption::TaskMutationAuthority>,
     now: u64,
 ) -> Result<String, JsonRpcError> {
     let (id, tid) = super::plan_refs::resolve_task(store, params)?;
     let tab = get_string_param(params, "tab")?;
-    store
-        .assign_task_with_role(
+    let result = if let Some(authority) = authority {
+        store.assign_task_with_role_authorized(
+            &id,
+            &tid,
+            &tab,
+            body.and_then(|x| x.get("peer")).and_then(|v| v.as_str()),
+            planner_role_for_tab(svc, &tab),
+            authority,
+            now,
+        )
+    } else {
+        store.assign_task_with_role(
             &id,
             &tid,
             &tab,
@@ -125,7 +136,8 @@ pub(super) fn assign_task_with_profile(
             planner_role_for_tab(svc, &tab),
             now,
         )
-        .map_err(plan_rpc_err)?;
+    };
+    result.map_err(plan_rpc_err)?;
     Ok(id)
 }
 

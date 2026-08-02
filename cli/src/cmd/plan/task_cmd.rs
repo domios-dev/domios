@@ -621,9 +621,15 @@ pub(super) fn run_task(
             parent,
             workspace,
             cwd,
+            execution_intent,
+            provider_reserve_pct,
         } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({ "task_id": task_ref });
+            let mut params = json!({
+                "task_id": task_ref,
+                "execution_intent": execution_intent,
+                "provider_reserve_pct": provider_reserve_pct,
+            });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }
@@ -743,6 +749,20 @@ pub(super) fn run_task(
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
             println!("Respawned worker Tab {tab} (attempt {attempt_id})");
+            Ok(None)
+        }
+        PlanTaskAction::AdoptCheckpoint { plan_id, task_id } => {
+            let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
+            maybe_inject_caller_tab(&mut params);
+            let val = call(client, "plan.task.adopt_checkpoint", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            println!(
+                "Adopted checkpoint as owner epoch {} (attempt {}). Run codeterm agent ack.",
+                val.get("owner_epoch").and_then(|value| value.as_u64()).unwrap_or(0),
+                val.get("attempt_id").and_then(|value| value.as_str()).unwrap_or("?")
+            );
             Ok(None)
         }
         PlanTaskAction::Link {

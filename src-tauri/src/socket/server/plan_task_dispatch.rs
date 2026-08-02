@@ -406,6 +406,7 @@ fn worker_ack_timeout_event(
         tab_id,
         attempt_id,
         spawn_command,
+        None,
     )
 }
 
@@ -779,6 +780,51 @@ pub(super) fn dispatch(
         .agent
         .clone()
         .unwrap_or_else(crate::config::default_agent_provider);
+    let execution_intent = match owned_str(p, "execution_intent").as_deref() {
+        Some("read_only") => crate::plan::ExecutionIntent::ReadOnly,
+        Some("mutating") => crate::plan::ExecutionIntent::Mutating,
+        _ => {
+            return Err(invalid_dispatch(
+                "dispatch requires execution_intent read_only or mutating",
+            ))
+        }
+    };
+    let allowance_capability = svc
+        .agent_registry
+        .with_provider(&resolved_provider, |provider| {
+            provider.provider_allowance_capability()
+        })
+        .flatten();
+    let reserve_pct = p
+        .and_then(|value| value.get("provider_reserve_pct"))
+        .and_then(Value::as_f64)
+        .map(|value| value as f32)
+        .or_else(|| allowance_capability.map(|capability| capability.default_reserve_pct))
+        .unwrap_or(5.0);
+    let allowance = if execution_intent == crate::plan::ExecutionIntent::Mutating {
+        let allowance_capability = allowance_capability.ok_or_else(|| {
+            invalid_dispatch("selected provider has no mutation allowance capability")
+        })?;
+        let snapshot = svc
+            .usage_store
+            .get_latest(&resolved_provider, None)
+            .map_err(|error| invalid_dispatch(format!("provider allowance unavailable: {error}")))?
+            .ok_or_else(|| invalid_dispatch("provider allowance telemetry is unknown"))?;
+        Some(crate::plan::ProviderAllowance {
+            remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
+            observed_at: snapshot.captured_at.max(0) as u64,
+            stale_after_ms: allowance_capability.telemetry_max_age_ms,
+            reserve_pct,
+        })
+    } else {
+        None
+    };
+    crate::service::plan::interruption::provider_allowance_preflight(
+        &execution_intent,
+        allowance.as_ref(),
+        now,
+    )
+    .map_err(plan_rpc_err)?;
     let mut warnings: Vec<String> = Vec::new();
     if let Some(notice) = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
@@ -922,12 +968,15 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    let attempt_id = match store.begin_task_dispatch(
+    let attempt_id = match store.begin_task_dispatch_with_policy(
         &plan_id,
         &task_id,
         &tab_id,
         &spawn.title,
         starting_lane,
+        execution_intent,
+        allowance,
+        Some(&resolved_provider),
         now,
     ) {
         Ok(attempt_id) => attempt_id,

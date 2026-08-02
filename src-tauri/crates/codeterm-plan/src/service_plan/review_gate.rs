@@ -260,6 +260,42 @@ pub struct ReviewTransitionResult {
     pub follow_up_task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy_warning: Option<StrategyWarning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<ReviewContinuation>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ReviewContinuation {
+    pub attempt_id: String,
+    pub executor_tab_id: String,
+    pub session_id: String,
+    pub epoch: u32,
+    pub review_round: u32,
+    pub state: String,
+}
+
+fn exact_review_continuation_attempt(task: &Task) -> Option<usize> {
+    let candidates = task
+        .execution_attempts
+        .iter()
+        .enumerate()
+        .filter(|(_, attempt)| {
+            attempt.closed_at.is_none()
+                && attempt.acknowledged_at.is_some()
+                && attempt.reported_at.is_some()
+                && attempt.session_id.as_deref().is_some_and(|value| !value.trim().is_empty())
+                && if attempt.competition_group_id.is_some() {
+                    attempt.winner
+                } else {
+                    task.assigned_tab_id.as_deref() == Some(attempt.executor_tab_id.as_str())
+                }
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [index] = candidates.as_slice() else {
+        return None;
+    };
+    Some(*index)
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -506,10 +542,8 @@ impl PlanStore {
         result.ok_or(PlanError::NotFound)
     }
 
-    /// Generic BOUNCE: atomically exits `in_review` regardless of stage
-    /// (plain Review or claimed Qa), returns the task to `in_progress`, and
-    /// leaves no stale QA claim. This is the read-only-review-stage
-    /// counterpart to `fail_qa` (which is the Qa-claim-stage bounce).
+    /// BOUNCE records an exact-attempt continuation epoch before delivery.
+    /// The task remains in review until authenticated continuation succeeds.
     pub fn bounce_review(
         &self,
         plan_id: &str,
@@ -531,7 +565,51 @@ impl PlanStore {
                 .iter()
                 .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            if matches!(p.tasks[idx].status, TaskStatus::InReview | TaskStatus::InProgress)
+                && matches!(
+                    p.tasks[idx].status_label.as_deref(),
+                    Some(
+                        "awaiting_continuation"
+                            | "bounce_continuation_failed"
+                            | "review bounced"
+                    )
+                )
+            {
+                let attempt_index = exact_review_continuation_attempt(&p.tasks[idx])
+                    .ok_or(PlanError::TaskNotFound)?;
+                let attempt = &p.tasks[idx].execution_attempts[attempt_index];
+                if attempt.continuation.review_round != Some(p.tasks[idx].review_round) {
+                    return Err(PlanError::TaskNotFound);
+                }
+                result = Some(ReviewTransitionResult {
+                    plan_id: p.id.clone(),
+                    task_id: p.tasks[idx].id.clone(),
+                    milestone_id: attempt
+                        .continuation.milestone_id
+                        .clone()
+                        .ok_or(PlanError::TaskNotFound)?,
+                    task_name: p.tasks[idx].name.clone(),
+                    verdict: ReviewVerdict::Bounce,
+                    review_round: p.tasks[idx].review_round,
+                    follow_up_task_id: None,
+                    strategy_warning: strategy_warning(&p.tasks[idx]),
+                    continuation: Some(ReviewContinuation {
+                        attempt_id: attempt.id.clone(),
+                        executor_tab_id: attempt.executor_tab_id.clone(),
+                        session_id: attempt.session_id.clone().ok_or(PlanError::TaskNotFound)?,
+                        epoch: attempt.continuation.epoch,
+                        review_round: p.tasks[idx].review_round,
+                        state: attempt
+                            .continuation.state
+                            .clone()
+                            .unwrap_or_else(|| "awaiting_continuation".into()),
+                    }),
+                });
+                return Ok(());
+            }
             require_in_review(&p.tasks[idx])?;
+            let attempt_index = exact_review_continuation_attempt(&p.tasks[idx])
+                .ok_or(PlanError::TaskNotFound)?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             {
                 let task = &mut p.tasks[idx];
@@ -545,10 +623,16 @@ impl PlanStore {
                     distinct_oracle,
                 });
                 task.review_round += 1;
-                task.status = TaskStatus::InProgress;
+                let attempt = &mut task.execution_attempts[attempt_index];
+                attempt.continuation.epoch += 1;
+                attempt.continuation.review_round = Some(task.review_round);
+                attempt.continuation.state = Some("awaiting_continuation".into());
+                attempt.continuation.milestone_id = Some(mid.clone());
+                attempt.continuation.delivered_at = None;
+                task.status = TaskStatus::InReview;
                 task.review_stage = ReviewStage::Review;
                 task.qa_state = None;
-                task.status_label = Some("review bounced".into());
+                task.status_label = Some("awaiting_continuation".into());
                 task.status_changed_at = now_ms;
                 task.updated_at = now_ms;
                 task.milestones.push(review_milestone(
@@ -569,10 +653,93 @@ impl PlanStore {
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id: None,
                 strategy_warning: strategy_warning(&p.tasks[idx]),
+                continuation: p.tasks[idx]
+                    .execution_attempts
+                    .get(attempt_index)
+                    .map(|attempt| ReviewContinuation {
+                        attempt_id: attempt.id.clone(),
+                        executor_tab_id: attempt.executor_tab_id.clone(),
+                        session_id: attempt.session_id.clone().unwrap_or_default(),
+                        epoch: attempt.continuation.epoch,
+                        review_round: p.tasks[idx].review_round,
+                        state: "awaiting_continuation".into(),
+                    }),
             });
             Ok(())
         })?;
         result.ok_or(PlanError::TaskNotFound)
+    }
+
+    pub fn claim_review_continuation_delivery(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        epoch: u32,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.closed_at.is_none()
+                    && attempt.continuation.epoch == epoch
+            }) else {
+                return Ok(false);
+            };
+            if task.status != TaskStatus::InReview
+                || task.status_label.as_deref() != Some("awaiting_continuation")
+                || attempt.continuation.state.as_deref() != Some("awaiting_continuation")
+            {
+                return Ok(false);
+            }
+            attempt.continuation.state = Some("continuation_delivering".into());
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
+    pub fn finish_review_continuation(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        epoch: u32,
+        delivered: bool,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.closed_at.is_none()
+                    && attempt.continuation.epoch == epoch
+                    && attempt.continuation.state.as_deref() == Some("continuation_delivering")
+            }) else {
+                return Ok(false);
+            };
+            if delivered {
+                attempt.continuation.state = Some("continued".into());
+                attempt.continuation.delivered_at = Some(now_ms);
+                task.status = TaskStatus::InProgress;
+                task.status_label = Some("review bounced".into());
+                task.status_changed_at = now_ms;
+            } else {
+                attempt.continuation.state = Some("bounce_continuation_failed".into());
+                task.status = TaskStatus::InReview;
+                task.status_label = Some("bounce_continuation_failed".into());
+            }
+            task.updated_at = now_ms;
+            Ok(true)
+        })
     }
 
     /// ACCEPT verdict: attaches evidence AND closes the task (in_review -> done)
@@ -694,6 +861,7 @@ impl PlanStore {
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id,
                 strategy_warning: None,
+                continuation: None,
             });
             Ok(())
         })?;

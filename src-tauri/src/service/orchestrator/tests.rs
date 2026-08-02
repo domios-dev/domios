@@ -153,10 +153,7 @@ fn planner_profile_uses_planner_suffix() {
 fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
     let brief = crate::service::plan::worker_identity::attach_worker_identity(
         "You are Hopper — executor for: repair delivery",
-        &format!(
-            "# Repair delivery\n\nFix the ledger.\n\n{}",
-            crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION
-        ),
+        "# Repair delivery\n\nFix the ledger.",
     );
     let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
     let identity = task.find("You are Hopper").unwrap();
@@ -175,7 +172,7 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
 
     assert!(identity < context);
     assert!(context < assignment && assignment < brief);
-    assert!(brief < ack && ack < report && report < fallback);
+    assert!(ack < brief && brief < report && report < fallback);
     assert!(!task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
     assert!(task.ends_with(
@@ -281,6 +278,8 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         task_id: None,
         task_launch_authority: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         agent_name: None,
         args: None,
         cwd: None,

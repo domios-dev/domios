@@ -90,6 +90,7 @@ pub struct OpenLane {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskPresentation {
+    HandoffRequired,
     ActionablePending,
     WaitingOnDependencies,
     InProgress,
@@ -138,12 +139,16 @@ pub(crate) fn task_presentation(
 
 pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection {
     let dependency_waits = dependency_waits(plan, task);
-    let presentation = task_presentation(
-        &task.status,
-        &dependency_waits,
-        &task.review_stage,
-        &task.qa_state,
-    );
+    let presentation = if task.interruption.handoff_required {
+        TaskPresentation::HandoffRequired
+    } else {
+        task_presentation(
+            &task.status,
+            &dependency_waits,
+            &task.review_stage,
+            &task.qa_state,
+        )
+    };
     TaskProjection {
         presentation,
         dependency_waits,

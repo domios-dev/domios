@@ -85,8 +85,36 @@ pub(crate) fn inject_trusted_session(params: &mut Value) {
 pub(crate) fn call_plan_rpc(
     client: &mut dyn RpcClient,
     method: &str,
-    params: Value,
+    mut params: Value,
 ) -> Result<Value, String> {
+    if method == "plan.task.adopt_checkpoint" {
+        inject_trusted_session(&mut params);
+    } else if params.get("task_id").is_some()
+        && (method.starts_with("plan.task.") || matches!(method, "task.take" | "task.drop"))
+        && !matches!(
+            method,
+            "plan.task.add"
+                | "plan.task.attempts"
+                | "plan.task.attempt.show"
+                | "plan.task.adopt_checkpoint"
+        )
+    {
+        inject_trusted_session(&mut params);
+        let lookup = params.clone();
+        let shown = client
+            .call_detailed("task.show", Some(lookup))
+            .map_err(|error| render_plan_call_error(error, &params))?;
+        let owner_epoch = shown
+            .get("task")
+            .unwrap_or(&shown)
+            .get("interruption")
+            .and_then(|value| value.get("owner_epoch"))
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "task mutation could not resolve owner_epoch".to_string())?;
+        if let Some(object) = params.as_object_mut() {
+            object.insert("owner_epoch".into(), json!(owner_epoch));
+        }
+    }
     client
         .call_detailed(method, Some(params.clone()))
         .map_err(|e| render_plan_call_error(e, &params))

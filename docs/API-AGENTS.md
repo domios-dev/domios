@@ -73,6 +73,10 @@ Explicitly closes every Team member through the Team cascade path, removes the T
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
 | POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
+Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch also requires fresh provider-allowance telemetry at or above `provider_reserve_pct` (default 5); this preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
+
+`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the CodeTerm identity headers. The equivalent CLI command is `codeterm plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
+
 ### Keep-Awake (GET/POST /api/keepawake*)
 
 Prevents the machine from sleeping (and optionally from dimming the display) while long-running agents are working. Global machine state, not tab- or workspace-scoped. All three endpoints require the standard Bearer token.
@@ -216,4 +220,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

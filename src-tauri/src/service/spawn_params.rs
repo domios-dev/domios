@@ -140,6 +140,8 @@ impl SpawnTabSpec {
             task_id: None,
             task_launch_authority: None,
             plan_task: None,
+            execution_intent: None,
+            provider_reserve_pct: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
             existing_tab_id: None,
@@ -393,6 +395,8 @@ mod tests {
             plan_id: Some("assigned-plan".into()),
             task_id: Some("assigned-task".into()),
             plan_task: Some("assigned-task".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            provider_reserve_pct: None,
             ..Default::default()
         };
         params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
