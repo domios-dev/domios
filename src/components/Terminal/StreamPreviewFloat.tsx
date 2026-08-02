@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 
 interface StreamPreviewFloatProps {
   rows: readonly string[];
-  working: boolean;
-  statusLine?: string | null;
 }
 
 const LINE_HEIGHT = 20;
@@ -14,15 +12,8 @@ function reducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/**
- * Bare streaming text, nothing else: the tail of the in-flight message
- * (matcher-cleaned), clamped to two lines, muted, in flow below the last
- * message only while the turn is working. Enters and exits by a 300ms
- * ease-out opacity+height animation (instant under prefers-reduced-motion);
- * reserves nothing when idle.
- */
-export function StreamPreviewFloat({ rows, working, statusLine }: StreamPreviewFloatProps) {
-  const show = working || rows.length > 0;
+export function StreamPreviewFloat({ rows }: StreamPreviewFloatProps) {
+  const show = rows.length > 0;
   const [mounted, setMounted] = useState(show);
   const [entered, setEntered] = useState(show);
   useEffect(() => {
@@ -45,13 +36,17 @@ export function StreamPreviewFloat({ rows, working, statusLine }: StreamPreviewF
   }, [mounted, show]);
   if (!mounted) return null;
 
-  const tail = rows.length > 0 ? rows.slice(-MAX_LINES).join("\n") : statusLine ?? "";
+  const tail = rows.slice(-MAX_LINES).join("\n");
   return (
     <div
       className="ct-stream-line w-full max-w-4xl min-w-0 mx-auto overflow-hidden"
-      style={{ height: entered ? BLOCK_HEIGHT : 0, opacity: entered ? 1 : 0 }}
-      onTransitionEnd={() => {
-        if (!show) setMounted(false);
+      style={{
+        height: entered ? BLOCK_HEIGHT : 0,
+        opacity: entered ? 1 : 0,
+        transform: entered ? "translateY(0)" : "translateY(-4px)",
+      }}
+      onTransitionEnd={(event) => {
+        if (!show && event.propertyName === "height") setMounted(false);
       }}
       data-testid="chat-stream-preview"
       data-float="line"
@@ -69,7 +64,9 @@ export function StreamPreviewFloat({ rows, working, statusLine }: StreamPreviewF
         {tail}
       </div>
       <style>{`
-        .ct-stream-line { transition: height 300ms ease-out, opacity 300ms ease-out; }
+        .ct-stream-line {
+          transition: height 420ms var(--ct-ease-liquid-settle), opacity 360ms ease-out, transform 420ms var(--ct-ease-liquid-settle);
+        }
         @media (prefers-reduced-motion: reduce) {
           .ct-stream-line { transition: none; }
         }

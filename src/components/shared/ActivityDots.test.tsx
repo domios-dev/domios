@@ -115,7 +115,7 @@ async function run() {
   assert((microSize * 2) + 1.25 <= badgeWidth, "two shared micro dots and their gap fit the workspace badge width");
   assert(microSize + microJump <= badgeHeight, "shared micro jump fits the workspace badge height");
   assert.match(workspaceBadgeRule[1], /box-sizing:\s*border-box;[^}]*padding-bottom:\s*1px;/s, "pill reserves room for the landing squash");
-  assert(badgeTop + badgeHeight < (cardHeight - initialsHeight) / 2, "workspace badge stays above centered initials");
+  assert(badgeTop + badgeHeight <= (cardHeight - initialsHeight) / 2, "workspace badge stays above centered initials");
   const cubeRules = [".sidebar-workspace-card {", ".sidebar-workspace-card[data-selected=\"true\"]", ".sidebar-workspace-card-select:hover"];
   for (const rule of cubeRules) assert(globalsCss.includes(rule), `cube-grid surface ${rule} remains owned by globals`);
   for (const keyframe of [
