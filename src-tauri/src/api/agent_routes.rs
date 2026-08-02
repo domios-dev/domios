@@ -264,6 +264,7 @@ pub async fn spawn_agent(
         spawned_by_tab_id: body.spawned_by_tab_id,
         model: body.model,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: body.reasoning_effort,
         system_prompt: body.system_prompt,
         preset: body.preset,

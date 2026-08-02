@@ -163,7 +163,7 @@ impl ServiceContext {
         if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
             crate::service::reasoning_effort::persist_launch_identity(
                 tab,
-                None,
+                bind_params.planned_reasoning_effort.as_deref(),
                 bind_params.reasoning_effort.as_deref(),
             );
         }
@@ -190,7 +190,7 @@ impl ServiceContext {
             actual_model: model_identity.3,
             reasoning_effort: reasoning_effort.clone(),
             reasoning_effort_provenance: resolved_effort_provenance(
-                None,
+                bind_params.planned_reasoning_effort,
                 reasoning_effort,
             ),
             title,
@@ -515,7 +515,7 @@ impl ServiceContext {
             );
             crate::service::reasoning_effort::persist_launch_identity(
                 tab,
-                None,
+                params.planned_reasoning_effort.as_deref(),
                 params.reasoning_effort.as_deref(),
             );
         }
@@ -692,7 +692,7 @@ impl ServiceContext {
             actual_model: None,
             reasoning_effort: reasoning_effort.clone(),
             reasoning_effort_provenance: resolved_effort_provenance(
-                None,
+                params.planned_reasoning_effort,
                 reasoning_effort,
             ),
             title,
@@ -853,6 +853,18 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
 #[cfg(test)]
 mod hierarchy_defaults_tests {
     use super::*;
+
+    #[test]
+    fn effort_provenance_keeps_plan_and_request_distinct() {
+        let planned = resolved_effort_provenance(Some("high".into()), Some("medium".into()));
+        assert_eq!(planned.planned.as_deref(), Some("high"));
+        assert_eq!(planned.requested.as_deref(), Some("medium"));
+        assert_eq!(planned.resolved.as_deref(), Some("medium"));
+
+        let ordinary = resolved_effort_provenance(None, Some("high".into()));
+        assert_eq!(ordinary.planned, None);
+        assert_eq!(ordinary.requested.as_deref(), Some("high"));
+    }
 
     fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {

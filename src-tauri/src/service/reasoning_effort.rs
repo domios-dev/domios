@@ -106,7 +106,17 @@ mod tests {
         let tab = state.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("claude".into());
         tab.agent_session_id = Some("owned-session".into());
-        persist_launch_identity(tab, Some("high"), Some("high"));
+        persist_launch_identity(tab, Some("high"), Some("medium"));
+
+        assert_eq!(tab.reasoning_effort_identity.planned.as_deref(), Some("high"));
+        assert_eq!(
+            tab.reasoning_effort_identity.requested.as_deref(),
+            Some("medium")
+        );
+        assert_eq!(
+            tab.reasoning_effort_identity.resolved.as_deref(),
+            Some("medium")
+        );
 
         assert!(!apply_session_owned_actual(
             tab,
@@ -130,5 +140,16 @@ mod tests {
             tab.reasoning_effort_identity.actual_source.as_deref(),
             Some("session-owned")
         );
+    }
+
+    #[test]
+    fn non_plan_launch_keeps_planned_effort_null() {
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        persist_launch_identity(tab, None, Some("high"));
+
+        assert_eq!(tab.reasoning_effort_identity.planned, None);
+        assert_eq!(tab.reasoning_effort_identity.requested.as_deref(), Some("high"));
+        assert_eq!(tab.reasoning_effort_identity.resolved.as_deref(), Some("high"));
     }
 }
