@@ -88,10 +88,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Capabilities => {
             unsupported("capabilities is socket-only; run it on the target machine")
         }
+        Commands::Pad { .. } => unsupported("pad is caller-local and cannot target a mesh peer"),
         Commands::SendText {
             text,
             tab,
             from_file,
+            from_pad,
             stdin: use_stdin,
             actions,
             delay,
@@ -99,9 +101,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             } else {
-                send_text_to_api(text, tab, from_file, *use_stdin, actions, &mut stdin)
+                send_text_to_api(text, tab, from_file, from_pad, *use_stdin, actions, &mut stdin)
             }
         }
         Commands::Delayed { action } => match action {
@@ -122,7 +124,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 stdin: use_stdin,
             } => {
                 let mut stdin = std::io::stdin();
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, &None, *use_stdin, delay, at, &mut stdin)
             }
             crate::DelayedAction::Edit {
                 id,
@@ -137,6 +139,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     match resolve_send_text_input(
                         text.clone(),
                         from_file.clone(),
+                        None,
                         *use_stdin,
                         &mut std::io::stdin(),
                     ) {

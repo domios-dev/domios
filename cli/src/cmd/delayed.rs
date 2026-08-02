@@ -90,12 +90,17 @@ pub fn queue_from_send(
     tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
+    from_pad: Option<String>,
     from_stdin: bool,
     delay: Option<String>,
     at: Option<String>,
 ) {
     let tab_id = resolve_tab(client, tab);
-    let text = required_text(text, from_file, from_stdin);
+    let text = if let Some(path) = from_pad {
+        crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(exit_error)
+    } else {
+        required_text(text, from_file, from_stdin)
+    };
     let scheduled_at_ms = parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
     queue_message(json, &tab_id, text, scheduled_at_ms);
 }
@@ -120,7 +125,7 @@ fn queue_message(json: bool, tab_id: &str, text: String, scheduled_at_ms: u64) {
 
 fn required_text(text: Option<String>, from_file: Option<String>, from_stdin: bool) -> String {
     let mut stdin = std::io::stdin();
-    let (text, source) = resolve_send_text_input(text, from_file, from_stdin, &mut stdin)
+    let (text, source) = resolve_send_text_input(text, from_file, None, from_stdin, &mut stdin)
         .unwrap_or_else(|e| exit_error(e));
     if text.trim().is_empty() {
         exit_error(format!(
