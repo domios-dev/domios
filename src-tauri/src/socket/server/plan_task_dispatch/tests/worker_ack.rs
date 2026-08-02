@@ -420,3 +420,147 @@ fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
     assert_eq!(unchanged.assigned_tab_id.as_deref(), Some("tab-worker"));
     assert_eq!(unchanged.execution_attempts[0].closed_at, None);
 }
+
+#[test]
+fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Competition".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "competitive worker".into(),
+                competition: Some(crate::plan::TaskCompetitionMetadata {
+                    enabled: true,
+                    attempts: Some(3),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let drafts = store
+        .build_task_compete_drafts(
+            &plan.id,
+            &task_id,
+            crate::service::plan::task_attempts::TaskCompeteRequest {
+                attempts: Some(3),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let mut attempts = Vec::new();
+    for (index, draft) in drafts.iter().enumerate() {
+        let tab_id = format!("competitor-{index}");
+        let created = store
+            .record_task_compete_attempt(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                draft,
+                Some("worker"),
+                4 + index as u64,
+            )
+            .unwrap();
+        store
+            .mark_task_attempt_runtime_ready(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                &created.attempt.id,
+                &format!("session-{index}"),
+                10 + index as u64,
+            )
+            .unwrap();
+        attempts.push((tab_id, created.attempt.id));
+    }
+    assert_eq!(store.show_task(&task_id).unwrap().task.assigned_tab_id, None);
+
+    store
+        .acknowledge_task_attempt(&plan.id, &task_id, &attempts[0].0, &attempts[0].1, 20)
+        .unwrap();
+    store
+        .acknowledge_task_attempt(&plan.id, &task_id, &attempts[1].0, &attempts[1].1, 21)
+        .unwrap();
+    assert!(store.worker_startup_attempt_owns(
+        &plan.id,
+        &task_id,
+        &attempts[2].0,
+        &attempts[2].1,
+        Some("session-2"),
+    ));
+    assert!(!store.worker_startup_attempt_owns(
+        &plan.id,
+        &task_id,
+        &attempts[2].0,
+        &attempts[2].1,
+        Some("session-wrong"),
+    ));
+
+    let mut blocked_plan = store.get(&plan.id).unwrap();
+    let task = blocked_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.status = TaskStatus::Blocked;
+    task.status_label = Some("judge dependency".into());
+    store.save(&mut blocked_plan, 22).unwrap();
+    assert!(!store.worker_startup_attempt_owns(
+        &plan.id,
+        &task_id,
+        &attempts[2].0,
+        &attempts[2].1,
+        Some("session-2"),
+    ));
+    assert!(!store
+        .mark_worker_startup_deadline(
+            &plan.id,
+            &task_id,
+            &attempts[2].0,
+            &attempts[2].1,
+            true,
+            23,
+        )
+        .unwrap());
+
+    let mut resumed_plan = store.get(&plan.id).unwrap();
+    let task = resumed_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.status = TaskStatus::InProgress;
+    task.status_label = Some("competitive".into());
+    store.save(&mut resumed_plan, 24).unwrap();
+    assert!(store
+        .mark_worker_startup_deadline(
+            &plan.id,
+            &task_id,
+            &attempts[2].0,
+            &attempts[2].1,
+            true,
+            25,
+        )
+        .unwrap());
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label.as_deref(), Some("competitive"));
+    assert_eq!(task.execution_attempts[0].closed_at, None);
+    assert_eq!(task.execution_attempts[1].closed_at, None);
+    assert_eq!(task.execution_attempts[2].closed_at, Some(25));
+}

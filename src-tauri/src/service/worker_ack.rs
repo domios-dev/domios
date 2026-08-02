@@ -132,27 +132,13 @@ impl ServiceContext {
         attempt_id: &str,
         session_id: Option<&str>,
     ) -> bool {
-        self.plan_store.get(plan_id).is_some_and(|plan| {
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-                .is_some_and(|task| {
-                    task.status == crate::plan::TaskStatus::Pending
-                        && task.assigned_tab_id.as_deref() == Some(tab_id)
-                        && task
-                            .execution_attempts
-                            .iter()
-                            .rfind(|attempt| attempt.closed_at.is_none())
-                            .is_some_and(|attempt| {
-                                attempt.id == attempt_id
-                                && attempt.executor_tab_id == tab_id
-                                && attempt.acknowledged_at.is_none()
-                                && session_id.is_none_or(|session_id| {
-                                    attempt.session_id.as_deref() == Some(session_id)
-                                })
-                            })
-                })
-        })
+        self.plan_store.worker_startup_attempt_owns(
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id,
+            session_id,
+        )
     }
 
     fn authenticated_worker_binding(&self, tab_id: &str) -> Option<(String, String)> {
