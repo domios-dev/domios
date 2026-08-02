@@ -431,6 +431,11 @@ impl ServiceContext {
         }
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
+            super::reasoning_effort::persist_launch_identity(
+                tab,
+                None,
+                agent.reasoning_effort.as_deref(),
+            );
         }
         self.emit_state_changed();
 
@@ -808,6 +813,11 @@ impl ServiceContext {
                     tab,
                     agent.planned_model.as_deref(),
                     &model_resolution,
+                );
+                super::reasoning_effort::persist_launch_identity(
+                    tab,
+                    None,
+                    agent.reasoning_effort.as_deref(),
                 );
                 if let Some(ref rtid) = agent.report_target_tab_id {
                     tab.report_target_tab_id = Some(rtid.clone());

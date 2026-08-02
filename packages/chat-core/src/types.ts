@@ -75,6 +75,8 @@ export interface NormalizedChatMessage {
   /** Frontend-only arrival/send order hint for live optimistic merges. Providers
    *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
   clientOrder?: number;
+  /** Persisted provider-context generation reconstructed from reset markers. */
+  contextEpoch?: number;
   provider?: string;
   subtype?: string;
   tagName?: string;

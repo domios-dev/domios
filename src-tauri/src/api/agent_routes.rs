@@ -312,6 +312,8 @@ pub async fn spawn_agent(
         "requested_model": result.requested_model,
         "provider_resolved_model": result.provider_resolved_model,
         "actual_model": result.actual_model,
+        "reasoning_effort": result.reasoning_effort,
+        "reasoning_effort_provenance": result.reasoning_effort_provenance,
         "title": result.title,
         "description": result.description,
         "role": result.role,

@@ -288,7 +288,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
 
 #### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
-Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session.
+Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session. When the id changes, the prior session becomes a persisted context epoch: Chat keeps its transcript visible behind a labelled divider, while archived turns are excluded from the provider's new context.
 
 ```bash
 # Claude pipes its hook payload on stdin; the installed hook forwards it verbatim.
@@ -775,7 +775,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 |--------|------|------|-------------|
 | GET | `/api/sessions/search` | `?q=...&provider=claude\|codex\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search |
 | GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
-| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` | Atomic "open the right workspace + tab + resume" action |
+| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
 
 Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
 
@@ -810,21 +810,30 @@ Response shape:
 **POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
 1. Locate the session across providers (`AgentRegistry::find_session`) → get cwd + provider id from disk metadata (Claude reads cwd out of the JSONL itself; the encoded directory name is NOT trusted because it loses leading-dot folders and case).
 2. Reuse the workspace at `workspace_id` if given; otherwise create one at the recorded cwd, named `workspace_name` or the cwd basename.
-3. Spawn an agent tab in that workspace with `--resume <id>` baked into `args` (Claude). Other providers are routed via their `build_resume_command` shape.
-4. The tab's `agent_session_id` is NOT pre-set — the SessionStart hook records it as soon as the agent reports it, avoiding double `--resume` injection from the launch/resume code path in `commands.rs::spawn_pty`.
+3. Restore authoritative role, profile, parent, and spawn authority from the exact provider session binding. A Worker or Manager is restored only while its Orchestrator parent is live.
+4. Spawn an identity-only agent tab with the provider's resume command and `NoStarter`. Historical tasks, starter prompts, launch assignments, fallback input, and wake signals are never replayed.
+5. If authoritative identity is unavailable, return `identity.status = "roleless"` with the exact promotion and relink commands. The CLI prints `resumed roleless` rather than claiming restoration.
 
 Response:
 ```json
 {
-  "tab_id": "a3f1b2c7",
   "tab_id": "d5e6f7a8",
   "workspace_id": "b4e2c8d1",
   "provider": "claude",
   "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "cwd": "/Users/me/code/foo",
-  "resume_command": "claude --resume 0193e1a4-..."
+  "resume_command": "claude --resume 0193e1a4-...",
+  "identity": {
+    "status": "restored",
+    "role": "Worker",
+    "role_profile": "executor",
+    "parent_tab_id": "a3f1b2c7",
+    "can_spawn": false
+  }
 }
 ```
+
+Roleless responses instead include `identity.actions.promotion` and `identity.actions.relink` as directly executable CLI guidance.
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
@@ -1428,4 +1437,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 105 -->
+<!-- revision: 106 -->

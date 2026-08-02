@@ -705,6 +705,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Runtime-confirmed reasoning effort from this exact claimed session.
+    /// Providers must not consult a global/latest record when implementing it.
+    fn detect_session_reasoning_effort(&self, _cwd: &str, _session_id: &str) -> Option<String> {
+        None
+    }
+
     /// When the TUI silently rolls into a new on-disk session (opencode does
     /// this on `/model` swap), the tab's cached `session_id` goes stale and
     /// `detect_session_model` keeps returning the previous model. Providers

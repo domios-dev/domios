@@ -8,12 +8,17 @@ use crate::service::{spawn_title, ServiceContext};
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
 /// `actual` stays `None` — the launch flag is a request, not runtime proof.
-pub(crate) fn resolved_effort_provenance(requested: Option<String>) -> ReasoningEffortProvenance {
+pub(crate) fn resolved_effort_provenance(
+    planned: Option<String>,
+    requested: Option<String>,
+) -> ReasoningEffortProvenance {
+    let has_effort = planned.is_some() || requested.is_some();
     ReasoningEffortProvenance {
-        planned: None,
+        planned,
         requested: requested.clone(),
         resolved: requested,
         actual: None,
+        actual_source: has_effort.then(|| "provider-default-unverified".into()),
     }
 }
 
@@ -155,6 +160,13 @@ impl ServiceContext {
             params,
         );
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
+        if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
+            crate::service::reasoning_effort::persist_launch_identity(
+                tab,
+                None,
+                bind_params.reasoning_effort.as_deref(),
+            );
+        }
         self.persist_unresolved_plugin_model_request(&handle.tab_id, &bind_params);
         let model_identity = self.tab_model_identity(&handle.tab_id);
         self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
@@ -177,7 +189,10 @@ impl ServiceContext {
             provider_resolved_model: model_identity.2,
             actual_model: model_identity.3,
             reasoning_effort: reasoning_effort.clone(),
-            reasoning_effort_provenance: resolved_effort_provenance(reasoning_effort),
+            reasoning_effort_provenance: resolved_effort_provenance(
+                None,
+                reasoning_effort,
+            ),
             title,
             description: handle.description,
             role,
@@ -498,6 +513,11 @@ impl ServiceContext {
                 params.planned_model.as_deref(),
                 &model_resolution,
             );
+            crate::service::reasoning_effort::persist_launch_identity(
+                tab,
+                None,
+                params.reasoning_effort.as_deref(),
+            );
         }
 
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
@@ -671,7 +691,10 @@ impl ServiceContext {
             provider_resolved_model: model_resolution.model,
             actual_model: None,
             reasoning_effort: reasoning_effort.clone(),
-            reasoning_effort_provenance: resolved_effort_provenance(reasoning_effort),
+            reasoning_effort_provenance: resolved_effort_provenance(
+                None,
+                reasoning_effort,
+            ),
             title,
             description: params.description,
             role: params.role,
