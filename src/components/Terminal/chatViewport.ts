@@ -1,4 +1,4 @@
-const BOTTOM_TOLERANCE_PX = 2;
+const BOTTOM_TOLERANCE_PX = 0.5;
 
 export interface ChatViewportGeometry {
   scrollHeight: number;
@@ -16,15 +16,20 @@ export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
   viewport.scrollTop = viewport.scrollHeight;
 }
 
-export function nextChatViewportMode(
-  viewport: ChatViewportGeometry,
-): ChatViewportMode {
-  if (isChatViewportAtBottom(viewport)) return "pinned";
-  return "detached";
+export function nextChatViewportMode(viewport: ChatViewportGeometry): ChatViewportMode {
+  return isChatViewportAtBottom(viewport) ? "pinned" : "detached";
 }
 
-export function shouldFollowChatSend(wasPinned: boolean, isStillPinned: boolean): boolean {
-  return wasPinned && isStillPinned;
+export interface ChatPrependSnapshot {
+  scrollHeight: number;
+  scrollTop: number;
+}
+
+export function chatScrollTopAfterPrepend(
+  before: ChatPrependSnapshot,
+  nextScrollHeight: number,
+): number {
+  return before.scrollTop + Math.max(0, nextScrollHeight - before.scrollHeight);
 }
 
 export function shouldRestoreChatViewport(
@@ -37,60 +42,9 @@ export function shouldRestoreChatViewport(
   return active && !loading && messageCount > 0 && currentKey !== restoredKey;
 }
 
-export interface ChatScrollAnchorCandidate {
-  id: string;
-  offsetTop: number;
-}
-
-export interface ChatScrollAnchor {
-  elementId: string;
-  offsetFromViewportTop: number;
-}
-
 export interface ChatScrollState {
   mode: ChatViewportMode;
-  anchor: ChatScrollAnchor | null;
-}
-
-/** Candidates must be in ascending DOM/offsetTop order (natural chat flow). */
-export function findTopVisibleAnchorId(
-  scrollTop: number,
-  candidates: readonly ChatScrollAnchorCandidate[],
-): string | null {
-  let found: string | null = null;
-  for (const candidate of candidates) {
-    if (candidate.offsetTop <= scrollTop) found = candidate.id;
-    else break;
-  }
-  return found ?? candidates[0]?.id ?? null;
-}
-
-export function captureChatScrollAnchor(
-  viewport: ChatViewportGeometry,
-  candidates: readonly ChatScrollAnchorCandidate[],
-): ChatScrollAnchor | null {
-  const elementId = findTopVisibleAnchorId(viewport.scrollTop, candidates);
-  if (elementId == null) return null;
-  const candidate = candidates.find((c) => c.id === elementId);
-  if (!candidate) return null;
-  return { elementId, offsetFromViewportTop: candidate.offsetTop - viewport.scrollTop };
-}
-
-export function resolveChatScrollTopForAnchor(
-  anchor: ChatScrollAnchor,
-  currentOffsetTop: number | null,
-): number | null {
-  if (currentOffsetTop == null) return null;
-  return currentOffsetTop - anchor.offsetFromViewportTop;
-}
-
-export function chatActivationRestoreTarget(
-  persisted: ChatScrollState | null,
-): { mode: "bottom" } | { mode: "anchor"; anchor: ChatScrollAnchor } {
-  if (persisted?.mode === "detached" && persisted.anchor) {
-    return { mode: "anchor", anchor: persisted.anchor };
-  }
-  return { mode: "bottom" };
+  scrollTop: number;
 }
 
 const persistedChatScrollStates = new Map<string, ChatScrollState>();

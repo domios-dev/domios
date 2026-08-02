@@ -120,6 +120,8 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
     active: true,
     loading: false,
     messageCount: visible.length,
+    contentVersion: visible,
+    prependVersion: visible[0] ? timelineItemKey(visible[0]) : null,
     followTailRef,
     onModeChange: handleModeChange,
   });
@@ -138,13 +140,14 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
   }, []);
 
   const loadOlder = useCallback(() => {
+    scrollAuthority.prepareForHistoryPrepend();
     if (range.start > 0) {
       setWindowAnchorKey((previous) => slideChatWindowOlder(timeline, previous));
       return;
     }
     pendingRevealRef.current = true;
     setHistory((previous) => refillRetainedChatHistory(previous, durableTranscript));
-  }, [range.start, timeline]);
+  }, [range.start, scrollAuthority, timeline]);
 
   useLayoutEffect(() => {
     setCachedChatHistoryWindow(
@@ -169,7 +172,7 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
 
   return (
     <div ref={scrollAuthority.scrollRef} data-testid="scroll">
-      <div ref={scrollAuthority.contentRef}>
+      <div>
         {visible.map((item) => {
           const rendered = item.kind === "message" ? item.message : item.event.message;
           return <div key={rendered.id} data-message-id={rendered.id}>{rendered.content}</div>;

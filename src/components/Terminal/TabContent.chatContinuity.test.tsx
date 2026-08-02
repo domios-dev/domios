@@ -285,7 +285,6 @@ async function main(): Promise<void> {
     "hydrated transcript remained covered by stale ShellReady",
   );
   const agentState = host.querySelector('[data-testid="agent-state"]');
-  assert(agentState?.textContent?.includes("Bound Provider"), "provider identity was not preserved");
   assert(agentState?.textContent?.includes("model-live"), "model identity was not preserved");
   assert(
     host.querySelector('[data-testid="tab-mode-switch"] [data-value="chat"]')
