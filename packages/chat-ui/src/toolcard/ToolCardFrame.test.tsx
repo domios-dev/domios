@@ -39,6 +39,10 @@ const { host: errorHost } = await render(
 );
 if (!errorHost.querySelector<HTMLElement>("[style*='dashed']")) throw new Error("error border regression");
 if (!errorHost.querySelector('[data-testid="toolcard-status"] svg')) throw new Error("error status regression");
+const detailsToggle = errorHost.querySelector('button[aria-expanded="true"]');
+const detailsId = detailsToggle?.getAttribute("aria-controls");
+const detailsRegion = detailsId ? errorHost.querySelector<HTMLElement>(`#${detailsId}`) : null;
+if (detailsRegion?.style.maxHeight !== "600px" || detailsRegion.style.overflowY !== "auto") throw new Error("expanded tool Details must cap at 600px and scroll internally");
 
 const usedThemeVars = [
   "--ct-border", "--ct-surface", "--ct-muted-fg", "--ct-red", "--ct-yellow", "--ct-green",

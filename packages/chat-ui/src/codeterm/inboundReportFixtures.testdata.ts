@@ -37,3 +37,12 @@ export const CURIE_PARTIAL_REPORT_BODY_MARKERS = [
   "  src-tauri/src/service/pty_io/submit_transaction.rs",
   "Original readiness report that was refused locally:",
 ];
+
+export const DISPATCH_READY_REPORT = String.raw`task: pl_kddub3/task_ii7zgs
+{"attempt_id":"attempt_ts4pkq","kind":"dispatch_ready","lane":{"base":"37574ceb90b3c58db93c02c39271139a1f62d525","branch":"lane/pl-kddub3-task-ii7zgs-coordination-cards","canonical_project_path":"D:\\Developer\\codeterm","worktree_path":"\\\\?\\D:\\Developer\\codeterm-worktrees\\pl-kddub3-task-ii7zgs-coordination-cards"},"plan_id":"pl_kddub3","session_id":"019f6c2f-854b-7942-b784-77df3daebba3<script>alert(1)</script>","tab_id":"4fe93c04","task_id":"task_ii7zgs"}`;
+
+export const COMPETITION_DISPATCH_READY_REPORT = String.raw`task: pl_kddub3/task_compete
+{"attempt_id":"attempt_compete","kind":"dispatch_ready","plan_id":"pl_kddub3","session_id":"session_compete","tab_id":"tab_compete","task_id":"task_compete"}`;
+
+export const COMPETITION_STARTUP_FAILED_REPORT = String.raw`task: pl_kddub3/task_compete
+{"error":"competition worker failed at D:\\private\\lane","kind":"dispatch_startup_failed","stage":"agent_ready"}`;
