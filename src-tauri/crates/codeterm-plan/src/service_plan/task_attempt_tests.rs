@@ -41,6 +41,7 @@ fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::Boun
         test_cmd: Some("cargo test".into()),
         test_result: Some("ok".into()),
         skipped: None,
+        authority: None,
     }
 }
 

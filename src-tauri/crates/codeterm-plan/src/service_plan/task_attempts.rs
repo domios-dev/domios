@@ -95,6 +95,7 @@ pub struct BoundWorkerReport {
     pub test_cmd: Option<String>,
     pub test_result: Option<String>,
     pub skipped: Option<String>,
+    pub authority: Option<super::interruption::TaskMutationAuthority>,
 }
 
 fn gen_attempt_id() -> String {
@@ -971,6 +972,29 @@ impl PlanStore {
                     && interruption.owner_tab_id.as_deref() != Some(reporter_tab))
             {
                 return Ok(false);
+            }
+            if interruption.owner_epoch > 0 {
+                let authority = report.authority.as_ref().ok_or_else(|| {
+                    PlanError::Io("report caller authority is missing".into())
+                })?;
+                super::interruption::authorize_task_mutation(
+                    plan,
+                    &plan.tasks[task_index],
+                    authority,
+                )?;
+                if interruption.owner_tab_id.as_deref() == Some(&authority.tab_id) {
+                    let exact_attempt = plan.tasks[task_index].execution_attempts.iter().any(
+                        |attempt| {
+                            attempt.executor_tab_id == authority.tab_id
+                                && attempt.session_id.as_deref() == Some(&authority.session_id)
+                                && attempt.interruption.owner_epoch == authority.owner_epoch
+                                && attempt.closed_at.is_none()
+                        },
+                    );
+                    if !exact_attempt {
+                        return Err(PlanError::Io("report attempt authority changed".into()));
+                    }
+                }
             }
             if plan.tasks[task_index]
                 .execution_attempts

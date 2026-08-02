@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service_plan::NewTask;
 
 fn allowance(remaining_pct: f32, observed_at: u64) -> ProviderAllowance {
@@ -293,4 +293,65 @@ fn continued_review_attempt_is_interruptible_but_undelivered_epoch_is_not() {
             6,
         )
         .is_err());
+}
+
+#[test]
+fn orchestrator_can_close_and_assign_after_worker_epoch_adoption() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut owner = OrchestratorRef::from_tab("orch");
+    owner.session_id = Some("orch-session".into());
+    let mut plan = Plan::new("authority".into(), dir.path().display().to_string(), owner);
+    store.save(&mut plan, 1).unwrap();
+    let assign_task = store
+        .add_task(&plan.id, NewTask { name: "assign".into(), kind: "implement".into(), ..Default::default() }, 2)
+        .unwrap();
+    let close_task = store
+        .add_task(&plan.id, NewTask { name: "close".into(), kind: "implement".into(), ..Default::default() }, 3)
+        .unwrap();
+    store.with_plan(&plan.id, 4, |plan| {
+        for task in &mut plan.tasks {
+            task.interruption.owner_epoch = 2;
+            task.interruption.owner_tab_id = Some("worker".into());
+            task.interruption.owner_session_id = Some("worker-session".into());
+        }
+        Ok(())
+    }).unwrap();
+    let authority = TaskMutationAuthority {
+        tab_id: "orch".into(),
+        session_id: "orch-session".into(),
+        session_binding_nonce: "orch-nonce".into(),
+        owner_epoch: 2,
+    };
+    store.assign_task_with_role_authorized(
+        &plan.id, &assign_task, "replacement", None, Some("worker"), &authority, 5,
+    ).unwrap();
+    store.close_task_authorized(
+        &plan.id, &close_task, Some("accepted"), AgentRef::from_tab("orch"), &authority, 6,
+    ).unwrap();
+    let plan = store.get(&plan.id).unwrap();
+    assert_eq!(plan.tasks.iter().find(|task| task.id == assign_task).unwrap().assigned_tab_id.as_deref(), Some("replacement"));
+    assert_eq!(plan.tasks.iter().find(|task| task.id == close_task).unwrap().status, TaskStatus::Done);
+}
+
+#[test]
+fn takeover_between_verification_and_write_is_rejected_atomically() {
+    let (_dir, store, plan_id, task_id, _) = bound_store();
+    let stale = TaskMutationAuthority {
+        tab_id: "old-tab".into(),
+        session_id: "old-session".into(),
+        session_binding_nonce: "old-nonce".into(),
+        owner_epoch: 1,
+    };
+    store.with_plan(&plan_id, 5, |plan| {
+        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+        task.interruption.owner_epoch = 2;
+        task.interruption.owner_tab_id = Some("new-tab".into());
+        task.interruption.owner_session_id = Some("new-session".into());
+        Ok(())
+    }).unwrap();
+    assert!(store.close_task_authorized(
+        &plan_id, &task_id, None, AgentRef::from_tab("old-tab"), &stale, 6,
+    ).is_err());
+    assert_ne!(store.show_task(&task_id).unwrap().task.status, TaskStatus::Done);
 }

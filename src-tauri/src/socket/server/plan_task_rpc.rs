@@ -3,6 +3,7 @@ use super::plan_fields::{optional_string_field, string_array_field, tab_and_ance
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
+use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 use super::plan_role_helpers::{
     assign_task_with_profile, record_spawned_attempt, RespawnAttemptRoleExt,
 };
@@ -88,81 +89,6 @@ fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<()
             "suggestion": "use --model <provider>:<model>",
         })),
     })
-}
-
-pub(super) fn verify_owner_epoch_for_task_mutation(
-    method: &str,
-    params: &Option<Value>,
-    svc: &ServiceState,
-) -> Result<(), JsonRpcError> {
-    if matches!(
-        method,
-        "task.list"
-            | "task.show"
-            | "plan.task.attempts"
-            | "plan.task.attempt.show"
-            | "plan.task.adopt_checkpoint"
-            | "plan.task.add"
-    ) {
-        return Ok(());
-    }
-    let (_, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
-    let detail = svc
-        .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-    if detail.task.interruption.owner_epoch == 0 {
-        return Ok(());
-    }
-    let required = |field: &str| {
-        params
-            .as_ref()
-            .and_then(|value| value.get(field))
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| JsonRpcError {
-                code: -32602,
-                message: format!("task mutation requires {field}"),
-                data: None,
-            })
-    };
-    let caller_tab_id = required("caller_tab_id")?;
-    let caller_session_id = required("session_id")?;
-    let caller_nonce = required("session_binding_nonce")?;
-    let caller_epoch = params
-        .as_ref()
-        .and_then(|value| value.get("owner_epoch"))
-        .and_then(Value::as_u64)
-        .ok_or_else(|| JsonRpcError {
-            code: -32602,
-            message: "task mutation requires owner_epoch".into(),
-            data: None,
-        })?;
-    if detail.task.interruption.owner_epoch != caller_epoch {
-        return Err(JsonRpcError {
-            code: -32603,
-            message: "task mutation owner epoch is stale".into(),
-            data: None,
-        });
-    }
-    let binding_matches = svc.mux.read().get_tab(caller_tab_id).is_some_and(|tab| {
-        tab.agent_session_id.as_deref() == Some(caller_session_id)
-            && tab.session_binding_nonce.as_deref() == Some(caller_nonce)
-            && tab.reported_session_binding_nonce.as_deref() == Some(caller_nonce)
-    });
-    if !binding_matches {
-        return Err(JsonRpcError {
-            code: -32603,
-            message: "task mutation caller binding is stale or rebound".into(),
-            data: None,
-        });
-    }
-    svc.verify_task_owner_session(&task_id, caller_tab_id, caller_session_id, caller_epoch)
-        .map_err(|error| JsonRpcError {
-            code: -32603,
-            message: error,
-            data: None,
-        })
 }
 
 pub(super) fn handles(method: &str) -> bool {
@@ -708,7 +634,34 @@ pub(super) fn dispatch(
         }
 
         "plan.task.assign" => {
-            let id = assign_task_with_profile(store, svc, params, p, now)?;
+            let (_, task_id) = plan_refs::resolve_task(store, params)?;
+            let owner_epoch = store
+                .show_task(&task_id)
+                .map(|detail| detail.task.interruption.owner_epoch)
+                .unwrap_or(0);
+            let id = if owner_epoch > 0 {
+                let authority = task_mutation_authority(params)?;
+                let mux = svc.mux.read();
+                let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+                    tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                        && tab.session_binding_nonce.as_deref()
+                            == Some(&authority.session_binding_nonce)
+                        && tab.reported_session_binding_nonce.as_deref()
+                            == Some(&authority.session_binding_nonce)
+                });
+                if !authenticated {
+                    return Err(JsonRpcError {
+                        code: -32603,
+                        message: "task mutation caller binding is stale or rebound".into(),
+                        data: None,
+                    });
+                }
+                let id = assign_task_with_profile(store, svc, params, p, Some(&authority), now)?;
+                drop(mux);
+                id
+            } else {
+                assign_task_with_profile(store, svc, params, p, None, now)?
+            };
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }

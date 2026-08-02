@@ -2,6 +2,34 @@ use super::{PlanError, PlanStore};
 use crate::plan::{ExecutionIntent, InterruptionCheckpoint, ProviderAllowance, TaskStatus};
 use sha2::{Digest, Sha256};
 
+#[derive(Debug, Clone)]
+pub struct TaskMutationAuthority {
+    pub tab_id: String,
+    pub session_id: String,
+    pub session_binding_nonce: String,
+    pub owner_epoch: u64,
+}
+
+pub(crate) fn authorize_task_mutation(
+    plan: &crate::plan::Plan,
+    task: &crate::plan::Task,
+    authority: &TaskMutationAuthority,
+) -> Result<(), PlanError> {
+    if task.interruption.owner_epoch != authority.owner_epoch {
+        return Err(PlanError::Io("stale task mutation owner epoch".into()));
+    }
+    let orchestrator = plan.owner.tab_id.as_deref() == Some(&authority.tab_id)
+        && plan.owner.session_id.as_deref() == Some(&authority.session_id);
+    let worker = !task.interruption.handoff_required
+        && task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id)
+        && task.interruption.owner_session_id.as_deref() == Some(&authority.session_id);
+    if orchestrator || worker {
+        Ok(())
+    } else {
+        Err(PlanError::Io("stale task mutation authority".into()))
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -30,6 +58,37 @@ pub fn provider_allowance_preflight(
 }
 
 impl PlanStore {
+    #[allow(clippy::too_many_arguments)]
+    pub fn assign_task_with_role_authorized(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab: &str,
+        peer: Option<&str>,
+        role: Option<&str>,
+        authority: &TaskMutationAuthority,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let index = plan
+                .tasks
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            authorize_task_mutation(plan, &plan.tasks[index], authority)?;
+            let task = &mut plan.tasks[index];
+            task.assigned_tab_id = Some(tab.into());
+            task.lane.tab_id = Some(tab.into());
+            task.taken_by_role = role.map(str::to_string);
+            task.peer = peer.map(str::to_string);
+            task.updated_at = now_ms;
+            let attempt =
+                super::task_attempts::new_assignment_attempt(task, tab, peer, role, now_ms);
+            task.execution_attempts.push(attempt);
+            Ok(())
+        })
+    }
+
     fn attempt_is_active_for_interruption(
         task_status: &TaskStatus,
         attempt: &crate::plan::TaskExecutionAttempt,
