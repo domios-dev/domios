@@ -187,6 +187,8 @@ export interface Tab {
   show_in_tabbar?: boolean;
   worker_id?: string | null;
   agent_booting?: boolean;
+  /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
+  auto_approve?: boolean;
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
@@ -471,9 +473,11 @@ export interface AgentConfig {
 export interface ApiConfig {
   enabled: boolean;
   host: string;
+  allow_network?: boolean;
   port: number;
   token: string | null;
   cors: boolean;
+  cors_allow_origins?: string[];
 }
 
 export interface GeneralAgentConfig {
@@ -775,6 +779,7 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
+  supports_permission_bypass?: boolean;
   /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
   supports_chat_ui?: boolean;

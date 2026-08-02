@@ -221,6 +221,12 @@ pub async fn spawn_pty_core(
         let tab_model = restore.model;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
+        let (tab_hidden, tab_audience) = svc
+            .mux
+            .read()
+            .get_tab(pid)
+            .map(|tab| (tab.hidden, tab.audience))
+            .unwrap_or((true, crate::multiplexer::types::TabAudience::Automation));
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
@@ -254,8 +260,13 @@ pub async fn spawn_pty_core(
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
-                // The global "resume with --dangerously-skip-permissions" toggle is the user's explicit intent for restored agents; per-tab auto_approve is unreliable across spawn paths, so do NOT gate on it.
-                let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
+                let skip_perms = crate::service::permission_policy::permission_bypass_allowed(
+                    &svc.agent_registry,
+                    &provider_id,
+                    pc.resume_skip_permissions.unwrap_or(false),
+                    tab_hidden,
+                    tab_audience,
+                );
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
@@ -276,6 +287,11 @@ pub async fn spawn_pty_core(
                     .flatten();
 
                 if let Some(cmd) = resume_cmd {
+                    if resume_enabled {
+                        if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
+                            tab.auto_approve = skip_perms;
+                        }
+                    }
                     let pty_id_for_poll = pty_id.clone();
                     let pty_id_for_launch = pty_id.clone();
                     let screen_state_clone = screen_state.clone();
@@ -413,13 +429,25 @@ pub async fn spawn_pty_core(
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
             let pc = crate::config::provider_config(&provider_id);
-            let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
+            let permission_bypass_authorization =
+                crate::service::permission_policy::authorize_permission_bypass(
+                    &svc.agent_registry,
+                    &provider_id,
+                    pc.resume_skip_permissions.unwrap_or(false),
+                    tab_hidden,
+                    tab_audience,
+                );
+            let skip_perms = permission_bypass_authorization.is_some();
+            if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
+                tab.auto_approve = skip_perms;
+            }
             let input = restored_fresh_launch_input(
                 &svc.agent_registry,
                 crate::service::SpawnAgentParams {
                     agent: Some(provider_id.clone()),
                     cwd: tab_cwd.clone(),
                     skip_permissions: Some(skip_perms),
+                    permission_bypass_authorization,
                     model: tab_model.clone(),
                     role: tab_role.clone(),
                     role_profile: tab_role_profile.clone(),

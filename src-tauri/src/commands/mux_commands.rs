@@ -531,6 +531,13 @@ pub fn build_agent_launch_command(
     skip_permissions: bool,
 ) -> Result<String, String> {
     svc.require_agent_provider_ready(&agent_id)?;
+    let permission_bypass = crate::service::permission_policy::permission_bypass_allowed(
+        &svc.agent_registry,
+        &agent_id,
+        skip_permissions,
+        false,
+        crate::multiplexer::types::TabAudience::User,
+    );
     let model_args = crate::service::spawn::resolve_fresh_agent_model(
         &svc.agent_registry,
         &agent_id,
@@ -553,7 +560,7 @@ pub fn build_agent_launch_command(
         } else {
             Some(model_args)
         },
-        skip_permissions,
+        skip_permissions: permission_bypass,
         session_id: None,
         structured_prompt_server: None,
     };

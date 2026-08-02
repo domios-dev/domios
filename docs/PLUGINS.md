@@ -584,6 +584,27 @@ tax (see also `docs/contributing/architecture.md`):
    iframe and fetch, so all access modes (localhost / Tailscale IP / serve / peer /
    desktop) work without per-call host strings.
 
+### Global provider integrations are consented and reversible
+
+Provider startup may inspect integration status but must never repair or install
+global Claude/Codex configuration. A provider declaring an integration exposes
+the exact target and proposed CodeTerm-owned entries in Settings. Installation
+is a local, confirmed action: CodeTerm records consent in
+`agents.<id>` only after the provider mutation succeeds, writes an exact-byte
+recoverable `.codeterm-backup`, and merges only its owned hooks without deleting
+foreign keys or hooks. Audit persistence failure restores the provider backup.
+Malformed, empty, or non-object JSON is rejected before any write. Uninstall
+removes only CodeTerm entries; Restore replaces the target with the explicit
+pre-install backup. Codex records and later revokes only a hook-trust expansion
+it made, preserves later foreign config edits, and deletes its Windows hook
+script only while the script still matches the owned content.
+
+Claude `PreCompact` memory export is a separate action and is off during the
+standard hook install. Hook commands must require the tab-scoped
+`CODETERM_API_URL`, `CODETERM_API_TOKEN`, and `CODETERM_TAB_ID` environment and
+exit without side effects outside a CodeTerm tab. JS and native provider paths
+share these consent, backup, merge, uninstall, and restore semantics.
+
 ### Lessons paid for in this migration (don't relearn them)
 
 - A sandboxed iframe that touches `localStorage` crashes on mount — guard browser APIs.
@@ -619,4 +640,4 @@ tax (see also `docs/contributing/architecture.md`):
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 14 -->
+<!-- revision: 16 -->

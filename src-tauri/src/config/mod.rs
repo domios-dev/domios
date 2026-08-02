@@ -1,5 +1,6 @@
 pub mod schema;
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -57,13 +58,16 @@ close_tab = "Ctrl+Shift+W"
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
-resume_skip_permissions = true
+resume_skip_permissions = false
 
 [api]
-enabled = false
+enabled = true
+host = "127.0.0.1"
+allow_network = false
 port = 7685
 # token = "your-secret-token"
-cors = true
+cors = false
+# cors_allow_origins = ["https://trusted.example"]
 "##
     .to_string()
 }
@@ -86,15 +90,70 @@ pub fn memory_config() -> schema::MemoryConfig {
 /// and the startup env scrub cannot derive divergent targets — a tab built
 /// with a prod-inherited URL (7685) 401s this instance's token against prod.
 pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
-    let host = if api.host == "0.0.0.0" {
-        "127.0.0.1"
-    } else {
-        api.host.as_str()
+    let bind = canonical_api_bind_addr(api)
+        .unwrap_or_else(|_| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), api.port));
+    let callback_ip = match bind.ip() {
+        IpAddr::V4(address) if address.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(address) if address.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        address => address,
+    };
+    let host = match callback_ip {
+        IpAddr::V4(address) => address.to_string(),
+        IpAddr::V6(address) => format!("[{address}]"),
     };
     (
-        format!("http://{}:{}", host, api.port),
+        format!("http://{host}:{}", api.port),
         api.port.to_string(),
     )
+}
+
+pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, String> {
+    let trimmed = api.host.trim();
+    let host = if trimmed.eq_ignore_ascii_case("localhost") {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        let unbracketed = trimmed
+            .strip_prefix('[')
+            .and_then(|value| value.strip_suffix(']'))
+            .unwrap_or(trimmed);
+        unbracketed.parse::<IpAddr>().map_err(|_| {
+            format!(
+                "api.host '{}' is unsupported; use localhost or a numeric IPv4/IPv6 address",
+                api.host
+            )
+        })?
+    };
+    Ok(SocketAddr::new(host, api.port))
+}
+
+pub fn api_host_is_loopback(host: &str) -> bool {
+    let api = schema::ApiConfig {
+        host: host.to_string(),
+        ..schema::ApiConfig::default()
+    };
+    canonical_api_bind_addr(&api).is_ok_and(|address| address.ip().is_loopback())
+}
+
+pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String> {
+    let bind = canonical_api_bind_addr(api)?;
+    let has_token = api.token.as_ref().is_some_and(|token| !token.trim().is_empty());
+    if !bind.ip().is_loopback() && (!api.allow_network || !has_token) {
+        return Err(format!(
+            "non-loopback API host '{}' requires api.allow_network = true and an explicit bearer token",
+            api.host
+        ));
+    }
+    if api.cors && api.cors_allow_origins.is_empty() {
+        return Err("api.cors requires at least one api.cors_allow_origins entry".into());
+    }
+    if api.cors_allow_origins.iter().any(|origin| {
+        origin == "*"
+            || !(origin.starts_with("http://") || origin.starts_with("https://"))
+            || origin.parse::<axum::http::HeaderValue>().is_err()
+    }) {
+        return Err("api.cors_allow_origins must contain explicit HTTP(S) origins, never '*'".into());
+    }
+    Ok(())
 }
 
 /// Resolve effective per-provider config for the given agent id.
@@ -433,7 +492,60 @@ mod tests {
         let config: AppConfig = toml::from_str(&toml_str).expect("default TOML should parse");
         assert_eq!(config.font.size, 14);
         assert_eq!(config.terminal.scrollback, 10000);
+        assert!(config.api.enabled);
+        assert_eq!(config.api.host, "127.0.0.1");
+        assert!(!config.api.allow_network);
+        assert!(!config.api.cors);
         assert_eq!(config.api.port, 7685);
+    }
+
+    #[test]
+    fn api_loopback_spellings_have_bindable_addresses_and_valid_callback_urls() {
+        for (host, bind, callback) in [
+            ("localhost", "127.0.0.1:7686", "http://127.0.0.1:7686"),
+            ("::1", "[::1]:7686", "http://[::1]:7686"),
+            ("[::1]", "[::1]:7686", "http://[::1]:7686"),
+        ] {
+            let api = schema::ApiConfig {
+                host: host.into(),
+                port: 7686,
+                ..schema::ApiConfig::default()
+            };
+            assert_eq!(canonical_api_bind_addr(&api).unwrap().to_string(), bind);
+            assert_eq!(api_callback_url(&api).0, callback);
+            assert!(validate_api_trust_boundary(&api).is_ok());
+        }
+
+        let unsupported = schema::ApiConfig {
+            host: "codeterm.internal".into(),
+            ..schema::ApiConfig::default()
+        };
+        assert!(validate_api_trust_boundary(&unsupported).is_err());
+    }
+
+    #[test]
+    fn api_defaults_are_loopback_authenticated_and_cors_closed() {
+        let config = ensure_api_token(AppConfig::default(), None);
+        assert_eq!(config.api.host, "127.0.0.1");
+        assert!(!config.api.cors);
+        assert!(config.api.cors_allow_origins.is_empty());
+        assert!(config.api.token.as_ref().is_some_and(|token| !token.is_empty()));
+        assert!(validate_api_trust_boundary(&config.api).is_ok());
+
+        let mut unsafe_remote = schema::ApiConfig::default();
+        unsafe_remote.host = "0.0.0.0".into();
+        unsafe_remote.allow_network = false;
+        unsafe_remote.token = None;
+        assert!(validate_api_trust_boundary(&unsafe_remote).is_err());
+
+        unsafe_remote.allow_network = true;
+        unsafe_remote.token = Some("explicit-network-token".into());
+        assert!(validate_api_trust_boundary(&unsafe_remote).is_ok());
+
+        let mut permissive_cors = schema::ApiConfig::default();
+        permissive_cors.cors = true;
+        permissive_cors.cors_allow_origins = vec!["*".into()];
+        assert!(validate_api_trust_boundary(&permissive_cors).is_err());
     }
 
     #[test]
@@ -570,6 +682,7 @@ pub async fn update_config(
     config: AppConfig,
 ) -> Result<(), String> {
     let mut resolved = config;
+    validate_api_trust_boundary(&resolved.api)?;
 
     // If the theme name changed, load the builtin theme fresh instead of trying to detect overrides.
     // The frontend sends old colors with the new name, so override detection breaks after the first switch.

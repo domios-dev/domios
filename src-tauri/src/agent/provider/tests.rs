@@ -99,6 +99,7 @@ fn provider_descriptor_round_trip() {
             }],
             supports_lazy_skills: true,
             has_hooks: true,
+            supports_permission_bypass: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
             model_switch_format: Some("/model {model}".into()),

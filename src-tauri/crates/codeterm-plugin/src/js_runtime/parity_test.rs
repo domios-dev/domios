@@ -845,6 +845,21 @@ fn supports_stop_matches_stop_keystroke() {
     }
 }
 
+#[test]
+fn permission_bypass_descriptor_matches_provider_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for id in ["claude", "codex", "opencode", "cursor"] {
+        let provider = load_js(id);
+        assert_eq!(
+            provider.describe().supports_permission_bypass,
+            !provider.auto_approve_flags().is_empty(),
+            "{id}: UI bypass choice must be derived from provider capability"
+        );
+    }
+}
+
 /// #16 parity (discipline rule #2): a capability method a provider doesn't
 /// implement must SKIP-not-recurse and return the SAME sane default on BOTH the
 /// native and JS runtimes when there is no native fallback to delegate to. The

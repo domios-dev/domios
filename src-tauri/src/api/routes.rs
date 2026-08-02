@@ -4,7 +4,11 @@ use axum::{
     routing::{delete, get, patch, post},
     Router,
 };
-use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
+use tower_http::{
+    catch_panic::CatchPanicLayer,
+    compression::CompressionLayer,
+    cors::{Any, AllowOrigin, CorsLayer},
+};
 
 use super::{
     agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
@@ -872,12 +876,28 @@ pub fn create_router(state: AppState) -> Router {
         router
     };
 
-    router
+    let api_config = state.config.lock().api.clone();
+    let router = router
         .layer(middleware::from_fn_with_state(
             state.clone(),
             super::auth::auth_middleware,
-        ))
-        .layer(CorsLayer::permissive())
+        ));
+    let router = if api_config.cors {
+        let origins = api_config
+            .cors_allow_origins
+            .iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+            .collect::<Vec<_>>();
+        router.layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+    } else {
+        router
+    };
+    router
         .layer(CatchPanicLayer::new())
         .with_state(state)
 }

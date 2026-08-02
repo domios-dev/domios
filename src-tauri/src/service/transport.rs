@@ -21,7 +21,7 @@ pub struct AtomicSpawnParams {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub skip_permissions: bool,
     /// chatBackend openSession config (systemPrompt/preset/model). Ignored for PTY.
     #[serde(default)]
@@ -29,10 +29,6 @@ pub struct AtomicSpawnParams {
     /// Explicit model for the spawned agent (PTY launch args / chat session model).
     #[serde(default)]
     pub model: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// Authoritative result the client applies once. PTY and chat launch work stays
@@ -296,6 +292,17 @@ impl ServiceContext {
             tab_id
         };
 
+        let permission_bypass = crate::service::permission_policy::permission_bypass_allowed(
+            &self.agent_registry,
+            provider,
+            params.skip_permissions,
+            false,
+            crate::multiplexer::types::TabAudience::User,
+        );
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            tab.auto_approve = permission_bypass;
+        }
+
         if let Some(at) = agent_type {
             self.set_tab_agent_type(&tab_id, Some(at.to_string()));
         }
@@ -308,7 +315,7 @@ impl ServiceContext {
                 &TransportLaunchCtx {
                     provider_id: provider,
                     tab_id: &tab_id,
-                    skip_permissions: params.skip_permissions,
+                    skip_permissions: permission_bypass,
                     config: params.config.clone().unwrap_or(serde_json::Value::Null),
                     model: params.model.as_deref(),
                 },

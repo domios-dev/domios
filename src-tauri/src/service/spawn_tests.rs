@@ -82,6 +82,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,
@@ -527,20 +528,20 @@ fn resume_agent_model_does_not_inject_default() {
 }
 
 #[test]
-fn agent_auto_approve_defaults_true_via_serde() {
+fn agent_auto_approve_defaults_false_via_serde() {
     let json = r#"{"provider": "claude"}"#;
     let agent: AgentSpawnSpec = serde_json::from_str(json).unwrap();
-    assert!(agent.auto_approve);
+    assert!(!agent.auto_approve);
 }
 
 #[test]
-fn agent_auto_approve_defaults_true_via_struct() {
+fn agent_auto_approve_defaults_false_via_struct() {
     let agent = AgentSpawnSpec {
         provider: "claude".into(),
-        auto_approve: default_true(),
+        auto_approve: false,
         ..Default::default()
     };
-    assert!(agent.auto_approve);
+    assert!(!agent.auto_approve);
 }
 
 #[test]
@@ -616,6 +617,7 @@ fn from_agent_params_carries_model_into_spec() {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
         model: Some("gpt-5.4-mini".into()),
         planned_model: None,
@@ -734,6 +736,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,
@@ -794,6 +797,7 @@ fn from_agent_params_carries_activate_into_spec() {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,

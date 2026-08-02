@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
-use crate::multiplexer::types::{Tab, TabBacking, TabType, TitleLevel, Workspace};
+use crate::multiplexer::types::{Tab, TabAudience, TabBacking, TabType, TitleLevel, Workspace};
 
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     let t = title?.to_ascii_lowercase();
@@ -167,6 +167,9 @@ impl MultiplexerState {
                 depth: tab.map(|p| p.depth).unwrap_or(0),
                 chat_view: tab.map(|p| p.chat_view),
                 auto_approve: tab.map(|p| p.auto_approve).unwrap_or(false),
+                audience: tab
+                    .map(|p| p.audience)
+                    .unwrap_or(TabAudience::Automation),
                 agent_session_model: tab.and_then(|p| p.agent_session_model.clone()),
                 agent_planned_model: tab.and_then(|p| p.agent_planned_model.clone()),
                 agent_requested_model: tab.and_then(|p| p.agent_requested_model.clone()),
@@ -276,7 +279,8 @@ impl MultiplexerState {
                 can_spawn,
                 depth,
                 chat_view,
-                auto_approve,
+                auto_approve: _,
+                audience,
                 agent_session_model,
                 agent_planned_model,
                 agent_requested_model,
@@ -396,14 +400,14 @@ impl MultiplexerState {
                     pending_prompt: None,
                     agent_state: restored_identity
                         .and_then(|identity| identity.agent_state.clone()),
-                    auto_approve: *auto_approve,
+                    auto_approve: false,
                     protected: false,
                     connected_services: vec![],
                     agent_set_at: None,
                     exit_suspected_at: None,
                     agent_booting: false,
                     hidden: false,
-                    audience: Default::default(),
+                    audience: *audience,
                     skip_snapshot: false,
                     show_in_tabbar: true,
                     worker_id: None,

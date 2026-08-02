@@ -140,11 +140,8 @@ fn atomic_spawn_params_deserialize_camel_case() {
 }
 
 #[test]
-fn atomic_spawn_params_skip_permissions_defaults_true() {
+fn atomic_spawn_params_skip_permissions_defaults_false() {
     let p: AtomicSpawnParams =
         serde_json::from_value(serde_json::json!({ "agentId": "claude" })).unwrap();
-    assert!(
-        p.skip_permissions,
-        "skipPermissions omitted → defaults to true"
-    );
+    assert!(!p.skip_permissions, "omitted bypass must preserve provider permissions");
 }

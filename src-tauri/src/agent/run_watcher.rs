@@ -486,11 +486,14 @@ fn screen_is_bare_shell(text: &str) -> bool {
 /// isn't known yet (let idle / timeout handle that case).
 fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     let (provider, session_id) = {
-        let mux = svc.mux.write();
-        let tab = mux.get_tab(tab_id);
+        let mut mux = svc.mux.write();
+        let tab = mux.get_tab_mut(tab_id);
+        if let Some(tab) = tab.as_deref_mut() {
+            tab.auto_approve = false;
+        }
         (
-            tab.and_then(|p| p.agent_type.clone()),
-            tab.and_then(|p| p.agent_session_id.clone()),
+            tab.as_deref().and_then(|p| p.agent_type.clone()),
+            tab.as_deref().and_then(|p| p.agent_session_id.clone()),
         )
     };
     let (Some(provider), Some(sid)) = (provider, session_id) else {
@@ -500,10 +503,7 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
         );
         return;
     };
-    let cmd = svc
-        .agent_registry
-        .with_provider(&provider, |p| p.build_resume_command(&sid, true))
-        .flatten();
+    let cmd = hidden_recovery_resume_command(&svc.agent_registry, &provider, &sid);
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
         return;
@@ -511,6 +511,16 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     if let Err(e) = svc.send_shell_spawn(pty_id, &cmd) {
         log::error!("[run-watcher] resume send failed tab={}: {}", tab_id, e);
     }
+}
+
+fn hidden_recovery_resume_command(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    session_id: &str,
+) -> Option<String> {
+    registry
+        .with_provider(provider, |p| p.build_resume_command(session_id, false))
+        .flatten()
 }
 
 fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: String) {
@@ -865,5 +875,18 @@ mod tests {
             ..Default::default()
         };
         assert!(has_nonempty_assistant_transcript(&completed));
+    }
+
+    #[test]
+    fn hidden_agent_crash_recovery_is_sandboxed() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::plugin::agent_claude::ClaudeProvider::new(),
+        ));
+
+        let command = hidden_recovery_resume_command(&registry, "claude", "session-1")
+            .expect("resume command");
+
+        assert!(!command.contains("--dangerously-skip-permissions"));
     }
 }

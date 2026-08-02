@@ -239,6 +239,19 @@ fn provider_without_bootstrap_receives_no_interactive_startup_turn() {
     assert!(super::compose_startup_message(false, contract, None).is_none());
 }
 
+#[test]
+fn general_agent_resume_defaults_to_provider_permissions() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::plugin::agent_claude::ClaudeProvider::new(),
+    ));
+
+    let command = super::build_general_agent_resume_command(&registry, "claude", "session-1")
+        .expect("resume command");
+
+    assert!(!command.contains("--dangerously-skip-permissions"));
+}
+
 fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
     let mut mux = MultiplexerState::empty();
     super::super::workspace::ensure_general_workspace(&mut mux, true);
