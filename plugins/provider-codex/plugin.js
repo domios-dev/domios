@@ -1227,11 +1227,16 @@ var plugin = {
     }
     if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
     const upd = scoreUpdatePrompt(screen);
-    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
+    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.installKeys && upd.installKeys.length > 0 && upd.skipKeys && upd.skipKeys.length > 0) {
       return {
         state: "update_prompt",
         confidence: upd.confidence,
-        action: { keys: upd.skipKeys }
+        action: {
+          providerUpdate: {
+            installKeys: upd.installKeys,
+            declineKeys: upd.skipKeys
+          }
+        }
       };
     }
     const rl = scoreRateLimit(screen, host.unixNowMs());
@@ -1271,11 +1276,14 @@ var plugin = {
     const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
     if (partial > 0) return { state: "unknown", confidence: partial };
     return { state: "working", confidence: 0 };
+  },
+  providerSelfUpdateCapability() {
+    return { inSession: true, restartRequired: true };
   }
 };
 var CLASSIFY_THRESHOLD = 0.8;
 var RESUME_BUFFER_MS = 60 * 1e3;
-function skipNavigationKeys(options) {
+function navigationKeys(options, matches) {
   if (options.length === 0) return null;
   let highlightIdx = -1;
   for (let i = 0; i < options.length; i++) {
@@ -1285,21 +1293,27 @@ function skipNavigationKeys(options) {
     }
   }
   if (highlightIdx === -1) highlightIdx = 0;
-  let skipIdx = -1;
+  let targetIdx = -1;
   for (let i = 0; i < options.length; i++) {
     const label = options[i].label;
-    if (/\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)) {
-      skipIdx = i;
+    if (matches(label)) {
+      targetIdx = i;
       break;
     }
   }
-  if (skipIdx === -1) return null;
+  if (targetIdx === -1) return null;
   const keys = [];
-  const delta = skipIdx - highlightIdx;
+  const delta = targetIdx - highlightIdx;
   if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
   else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
   keys.push("enter");
   return keys;
+}
+function skipNavigationKeys(options) {
+  return navigationKeys(
+    options,
+    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)
+  );
 }
 function scoreUpdatePrompt(screen) {
   const options = parseMenuOptions(screen);
@@ -1322,7 +1336,8 @@ function scoreUpdatePrompt(screen) {
   if (sigReleaseNotes) confidence += 0.1;
   if (confidence > 1) confidence = 1;
   const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
-  return { confidence, skipKeys };
+  const installKeys = sigUpdateSkipMenu ? navigationKeys(options, (label) => /\bupdate\b/i.test(label)) : null;
+  return { confidence, installKeys, skipKeys };
 }
 function looksBusy(screen) {
   const s = String(screen || "");

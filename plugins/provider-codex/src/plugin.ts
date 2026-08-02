@@ -626,11 +626,20 @@ const plugin: PluginModule = {
 
     // Ensemble vote for the codex self-update prompt.
     const upd = scoreUpdatePrompt(screen);
-    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
+    if (
+      upd.confidence >= CLASSIFY_THRESHOLD &&
+      upd.installKeys && upd.installKeys.length > 0 &&
+      upd.skipKeys && upd.skipKeys.length > 0
+    ) {
       return {
         state: "update_prompt",
         confidence: upd.confidence,
-        action: { keys: upd.skipKeys },
+        action: {
+          providerUpdate: {
+            installKeys: upd.installKeys,
+            declineKeys: upd.skipKeys,
+          },
+        },
       };
     }
 
@@ -677,10 +686,11 @@ const plugin: PluginModule = {
 
     return { state: "working", confidence: 0 };
   },
-};
 
-// Tab-state classification (codex self-update prompt). Wire shapes mirror
-// src-tauri/src/agent/tab_state.rs, declared locally because the SDK exposes
+  providerSelfUpdateCapability(): { inSession: boolean; restartRequired: boolean } {
+    return { inSession: true, restartRequired: true };
+  },
+};
 
 interface TabStateSnapshot {
   tabId: string;
@@ -703,6 +713,7 @@ interface TabStateAction {
   keys?: string[];
   delayedResume?: { at: string; text: string; thenKeys?: string[] };
   surface?: { kind: string; payload: unknown };
+  providerUpdate?: { installKeys: string[]; declineKeys: string[] };
 }
 
 interface TabStateClassification {
@@ -719,28 +730,42 @@ const CLASSIFY_THRESHOLD = 0.8;
 const RESUME_BUFFER_MS = 60 * 1000;
 
 // there's no distinct Skip option, so we never blindly Enter on the default "Update now".
-function skipNavigationKeys(options: MenuOption[]): string[] | null {
+function navigationKeys(
+  options: MenuOption[],
+  matches: (label: string) => boolean,
+): string[] | null {
   if (options.length === 0) return null;
   let highlightIdx = -1;
   for (let i = 0; i < options.length; i++) {
     if (options[i].highlighted) { highlightIdx = i; break; }
   }
   if (highlightIdx === -1) highlightIdx = 0; // codex defaults to option 1
-  let skipIdx = -1;
+  let targetIdx = -1;
   for (let i = 0; i < options.length; i++) {
     const label = options[i].label;
-    if (/\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)) { skipIdx = i; break; }
+    if (matches(label)) { targetIdx = i; break; }
   }
-  if (skipIdx === -1) return null;
+  if (targetIdx === -1) return null;
   const keys: string[] = [];
-  const delta = skipIdx - highlightIdx;
+  const delta = targetIdx - highlightIdx;
   if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
   else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
   keys.push("enter");
   return keys;
 }
 
-interface UpdateScore { confidence: number; skipKeys: string[] | null }
+function skipNavigationKeys(options: MenuOption[]): string[] | null {
+  return navigationKeys(
+    options,
+    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label),
+  );
+}
+
+interface UpdateScore {
+  confidence: number;
+  installKeys: string[] | null;
+  skipKeys: string[] | null;
+}
 
 // signal is a numbered menu carrying both "update" and "skip"; a lone signal stays sub-threshold.
 function scoreUpdatePrompt(screen: string): UpdateScore {
@@ -767,7 +792,10 @@ function scoreUpdatePrompt(screen: string): UpdateScore {
 
   // Only compute Skip navigation when the actionable menu signal is present.
   const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
-  return { confidence: confidence, skipKeys: skipKeys };
+  const installKeys = sigUpdateSkipMenu
+    ? navigationKeys(options, (label) => /\bupdate\b/i.test(label))
+    : null;
+  return { confidence: confidence, installKeys: installKeys, skipKeys: skipKeys };
 }
 
 function looksBusy(screen: string): boolean {
