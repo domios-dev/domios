@@ -307,7 +307,7 @@ async function main(): Promise<void> {
     "detached arrivals preserve the exact pixel anchor",
   );
   assert(
-    view().history.messages.at(-1)?.id === "m-1500",
+    view().history.messages[view().history.messages.length - 1]?.id === "m-1500",
     "detached arrivals always retain the newest live tail",
   );
 
@@ -333,7 +333,7 @@ async function main(): Promise<void> {
   const refillId = refillAnchor.dataset.messageId!;
   await act(async () => view().loadOlder());
   assert(
-    view().history.messages.at(-1)?.id === "m-1500",
+    view().history.messages[view().history.messages.length - 1]?.id === "m-1500",
     "older refill never evicts the newest live tail",
   );
   assert(
