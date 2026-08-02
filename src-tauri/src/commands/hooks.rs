@@ -24,18 +24,6 @@ fn runtime_api_port() -> Result<u16, String> {
         .map_err(|_| format!("CODETERM_API_PORT is invalid: {value}"))
 }
 
-pub(crate) fn install_provider_integration_for_launch(
-    registry: &crate::agent::registry::AgentRegistry,
-    provider_id: &str,
-) -> Result<(), String> {
-    let api_port = runtime_api_port()?;
-    registry
-        .with_provider(provider_id, |provider| {
-            provider.install_integration(api_port)
-        })
-        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
-}
-
 #[tauri::command]
 pub fn check_provider_integration(
     svc: State<'_, ServiceState>,
@@ -49,15 +37,54 @@ pub fn check_provider_integration(
 #[tauri::command]
 pub fn install_provider_integration(
     svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
     provider_id: String,
     api_port: Option<u16>,
+    consent: bool,
+    precompact_memory_export: Option<bool>,
 ) -> Result<(), String> {
+    if !consent {
+        return Err("Review and consent are required before changing global provider configuration".into());
+    }
     let port = match api_port {
         Some(port) => port,
         None => runtime_api_port()?,
     };
+    let status = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| provider.check_integration())
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?;
+    let target = status
+        .get("target")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| "provider global configuration".into());
+    {
+        let mut cfg = config.lock();
+        let provider = cfg.agents.entry(provider_id.clone()).or_default();
+        provider.extra.insert("integration_consent_granted".into(), toml::Value::Boolean(true));
+        provider.extra.insert(
+            "integration_consent_recorded_at".into(),
+            toml::Value::Integer(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|error| error.to_string())?
+                    .as_secs() as i64,
+            ),
+        );
+        provider.extra.insert("integration_target".into(), toml::Value::String(target));
+        provider.extra.insert(
+            "precompact_memory_export".into(),
+            toml::Value::Boolean(precompact_memory_export.unwrap_or(false)),
+        );
+        crate::config::save_config_pub(&cfg)?;
+    }
+    let options = crate::agent::provider::IntegrationInstallOptions {
+        consent,
+        precompact_memory_export: precompact_memory_export.unwrap_or(false),
+    };
     svc.agent_registry
-        .with_provider(&provider_id, |p| p.install_integration(port))
+        .with_provider(&provider_id, |p| p.install_integration(port, &options))
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
 }
 
@@ -68,6 +95,16 @@ pub fn uninstall_provider_integration(
 ) -> Result<(), String> {
     svc.agent_registry
         .with_provider(&provider_id, |p| p.uninstall_integration())
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+}
+
+#[tauri::command]
+pub fn restore_provider_integration(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<(), String> {
+    svc.agent_registry
+        .with_provider(&provider_id, |p| p.restore_integration())
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
 }
 
@@ -91,22 +128,22 @@ pub fn install_provider_rule(
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
 }
 
-/// Repairs provider integrations without holding the registry lock or blocking startup.
+/// Runs provider-owned read-only checks without blocking startup.
 pub fn ensure_integrations_for_all(registry: &crate::agent::registry::AgentRegistry) {
     let port = match runtime_api_port() {
         Ok(port) => port,
         Err(error) => {
-            log::warn!("[provider] integration repair skipped: {error}");
+            log::warn!("[provider] integration check skipped: {error}");
             return;
         }
     };
     for provider in registry.all_provider_arcs() {
         let id = provider.id().to_string();
         if let Err(error) = std::thread::Builder::new()
-            .name(format!("integration-{id}"))
+            .name(format!("integration-check-{id}"))
             .spawn(move || provider.ensure_integration_on_startup(port))
         {
-            log::warn!("[provider {id}] integration repair thread failed: {error}");
+            log::warn!("[provider {id}] integration check thread failed: {error}");
         }
     }
 }

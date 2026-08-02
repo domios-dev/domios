@@ -21,7 +21,7 @@ pub struct AtomicSpawnParams {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub skip_permissions: bool,
     /// chatBackend openSession config (systemPrompt/preset/model). Ignored for PTY.
     #[serde(default)]
@@ -29,10 +29,6 @@ pub struct AtomicSpawnParams {
     /// Explicit model for the spawned agent (PTY launch args / chat session model).
     #[serde(default)]
     pub model: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// Authoritative result the client applies once. PTY and chat launch work stays

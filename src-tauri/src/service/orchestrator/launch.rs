@@ -1115,7 +1115,7 @@ pub(crate) fn build_agent_command(
     registry: &AgentRegistry,
 ) -> String {
     if let Some(ref sid) = params.resume_session_id {
-        let skip = params.skip_permissions.unwrap_or(true);
+        let skip = params.permission_bypass_requested();
         if let Some(cmd) = registry
             .with_provider(agent_cmd, |p| p.build_resume_command(sid, skip))
             .flatten()
@@ -1174,7 +1174,7 @@ pub(crate) fn build_agent_command(
         } else {
             Some(args.clone())
         },
-        skip_permissions: params.skip_permissions.unwrap_or(true),
+        skip_permissions: params.permission_bypass_requested(),
         session_id: injected_session_id.map(std::string::ToString::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
     };

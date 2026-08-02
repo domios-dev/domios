@@ -28,6 +28,22 @@ fn api_bind_disclosure(
     }))
 }
 
+fn api_listener_disclosure(
+    state: &AppState,
+    cfg: &crate::config::schema::AppConfig,
+) -> serde_json::Value {
+    serde_json::json!({
+        "active": state.rest_api.bound_addr().map(|address| address.to_string()),
+        "configured": format!("{}:{}", cfg.api.host, cfg.api.port),
+        "authenticated": cfg.api.token.as_ref().is_some_and(|token| !token.is_empty()),
+        "cors_allow_origins": if cfg.api.cors {
+            cfg.api.cors_allow_origins.clone()
+        } else {
+            Vec::<String>::new()
+        },
+    })
+}
+
 fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
     if let Some(api) = config
         .get_mut("api")
@@ -51,12 +67,16 @@ pub async fn get_config_api(
             "Config serialization failed",
         )
     })?;
-    let full = redact_rest_config(full);
+    let mut full = redact_rest_config(full);
+    if let Some(object) = full.as_object_mut() {
+        object.insert("api_listener".into(), api_listener_disclosure(&state, &cfg));
+    }
     match q.key {
         Some(key) => {
             let val = dot_get(&full, &key).ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
             let mut answer = serde_json::json!({ "key": &key, "value": val });
             if matches!(key.as_str(), "api.host" | "api.port") {
+                answer["api_listener"] = api_listener_disclosure(&state, &cfg);
                 if let Some(bind) = api_bind_disclosure(&state, &cfg) {
                     answer["api_bind"] = bind;
                 }
@@ -107,6 +127,8 @@ pub async fn patch_config_api(
     let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
     new_cfg.api.token = cfg.api.token.clone();
+    crate::config::validate_api_trust_boundary(&new_cfg.api)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Unsafe API listener configuration"))?;
 
     // builtin fresh (clients send the old colors along with the new name).
     let current_theme_name = state.config.lock().theme.name.clone();
@@ -181,6 +203,7 @@ pub async fn patch_config_api(
     }
 
     let mut applied = serde_json::json!({ "ok": true });
+    applied["api_listener"] = api_listener_disclosure(&state, &new_cfg);
     if let Some(bind) = api_bind_disclosure(&state, &new_cfg) {
         log::warn!(
             "[api] config stores {} but the live listener holds {} — restart to apply",

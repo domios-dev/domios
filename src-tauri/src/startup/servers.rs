@@ -129,7 +129,14 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 
     {
         let api_config = states.config.lock().api.clone();
-        if api_config.enabled {
+        let listener_allowed = match crate::config::validate_api_trust_boundary(&api_config) {
+            Ok(()) => true,
+            Err(error) => {
+                log::error!("[api] listener disabled by trust-boundary policy: {error}");
+                false
+            }
+        };
+        if api_config.enabled && listener_allowed {
             let api_state = api::routes::AppState {
                 svc: service_state.clone(),
                 cron: cron_state.clone(),
@@ -148,10 +155,11 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
             let port = api_config.port;
-            if host == "0.0.0.0" {
+            if !crate::config::api_host_is_loopback(&host) {
                 log::warn!(
-                    "[api] binding to 0.0.0.0 exposes the API to all network interfaces — \
-                     consider setting api.host = \"127.0.0.1\" in config for better security"
+                    "[api] explicit non-loopback listener {}:{} exposes authenticated control to the network",
+                    host,
+                    port
                 );
             }
             std::env::set_var("CODETERM_API_PORT", port.to_string());

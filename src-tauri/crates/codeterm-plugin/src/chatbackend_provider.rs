@@ -157,6 +157,7 @@ pub trait ChatBackendProvider: Send + Sync {
             notifications_schema: Vec::new(),
             supports_lazy_skills: false,
             has_hooks: false,
+            supports_permission_bypass: false,
             cli_binary: None,
             install_command: None,
             model_switch_format: None,

@@ -1462,7 +1462,10 @@ var plugin = {
         notification_hook: false,
         stop_hook: false,
         precompact_hook: false,
-        session_start_hook: false
+        session_start_hook: false,
+        target: path || "~/.claude/settings.json",
+        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
+        proposed_changes: ["Notification", "Stop", "SessionStart"]
       };
     }
     const json = host.fs.readJson(path);
@@ -1502,19 +1505,26 @@ var plugin = {
     const ss = sessionStartCurrent();
     return {
       settings_exists: true,
-      hooks_installed: n && s && pc && ss,
+      hooks_installed: n && s && ss,
       notification_hook: n,
       stop_hook: s,
       precompact_hook: pc,
-      session_start_hook: ss
+      session_start_hook: ss,
+      target: path,
+      backup_exists: host.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["Notification", "Stop", "SessionStart"]
     };
   },
-  installIntegration(_apiPort) {
+  installIntegration(_apiPort, options) {
+    if (!options || options.consent !== true) return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
+    const existed = host.fileExists(path);
+    const original = existed ? String(host.fs.readFile(path) || "{}") : "{}";
     const json = host.fileExists(path) ? host.fs.readJson(path) || {} : {};
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) return { ok: false, error: "hooks is not an object" };
+    if (!json.hooks) json.hooks = {};
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
     const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
@@ -1537,16 +1547,22 @@ var plugin = {
     const newHooks = {
       Notification: newEntry("permission_prompt", notifyCmd, 5e3),
       Stop: newEntry("", stopCmd, 5e3),
-      PreCompact: newEntry("", precompactCmd, 1e4),
       SessionStart: newEntry("", sessionStartCmd, 5e3)
     };
+    if (options.precompact_memory_export === true) newHooks.PreCompact = newEntry("", precompactCmd, 1e4);
     const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (!Array.isArray(json.hooks[k])) json.hooks[k] = [];
-      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
-      json.hooks[k].push(newHooks[k]);
+      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) return { ok: false, error: "hooks." + k + " is not an array" };
+      const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => !isCodetermHook(entry)) : [];
+      if (newHooks[k]) {
+        existing.push(newHooks[k]);
+        json.hooks[k] = existing;
+      } else if (Array.isArray(json.hooks[k])) {
+        json.hooks[k] = existing;
+      }
     }
+    if (!host.fileExists(path + ".codeterm-backup") && !host.fs.writeFile(path + ".codeterm-backup", existed ? original : "")) return { ok: false, error: "could not write recoverable backup for " + path };
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       host.log("info", "[claude-plugin] hooks installed at " + path);
@@ -1560,7 +1576,7 @@ var plugin = {
     if (!path || !host.fileExists(path)) return { ok: true };
     const json = host.fs.readJson(path);
     if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    const keys = ["Notification", "Stop"];
+    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (!Array.isArray(json.hooks[k])) continue;
@@ -1572,6 +1588,17 @@ var plugin = {
       return { ok: true };
     }
     return { ok: false, error: "writeJson failed for " + path };
+  },
+  restoreIntegration() {
+    const m = manifest();
+    const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
+    if (!path) return { ok: false, error: "could not expand settingsPath" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const original = host.fs.readFile(backup);
+    if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
+    if (original === "") return !host.fileExists(path) || host.removeFile(path) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+    return host.fs.writeFile(path, original) ? { ok: true } : { ok: false, error: "restore failed for " + path };
   },
   // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.

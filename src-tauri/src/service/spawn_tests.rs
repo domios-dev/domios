@@ -527,20 +527,20 @@ fn resume_agent_model_does_not_inject_default() {
 }
 
 #[test]
-fn agent_auto_approve_defaults_true_via_serde() {
+fn agent_auto_approve_defaults_false_via_serde() {
     let json = r#"{"provider": "claude"}"#;
     let agent: AgentSpawnSpec = serde_json::from_str(json).unwrap();
-    assert!(agent.auto_approve);
+    assert!(!agent.auto_approve);
 }
 
 #[test]
-fn agent_auto_approve_defaults_true_via_struct() {
+fn agent_auto_approve_defaults_false_via_struct() {
     let agent = AgentSpawnSpec {
         provider: "claude".into(),
-        auto_approve: default_true(),
+        auto_approve: false,
         ..Default::default()
     };
-    assert!(agent.auto_approve);
+    assert!(!agent.auto_approve);
 }
 
 #[test]

@@ -617,3 +617,45 @@ fn test_build_non_claude_ignores_task_in_command() {
     let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
     assert_eq!(cmd, "aider");
 }
+
+#[test]
+fn fresh_and_resumed_agents_default_to_provider_permissions() {
+    let registry = test_registry();
+    let fresh = make_params("claude", None);
+    let fresh_command = build_agent_command("claude", &fresh, None, None, &registry);
+    assert!(!fresh_command.contains("--dangerously-skip-permissions"));
+
+    let mut resumed = make_params("claude", None);
+    resumed.resume_session_id = Some("session-123".into());
+    let resume_command = build_agent_command("claude", &resumed, None, None, &registry);
+    assert!(!resume_command.contains("--dangerously-skip-permissions"));
+
+    let mut explicit = make_params("claude", None);
+    explicit.skip_permissions = Some(true);
+    let explicit_command = build_agent_command("claude", &explicit, None, None, &registry);
+    assert_eq!(
+        explicit_command.matches("--dangerously-skip-permissions").count(),
+        1
+    );
+    let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(explicit);
+    let crate::service::spawn::TabCommand::Agent(agent) = spec.command else {
+        panic!("visible provider spawn must remain an agent tab");
+    };
+    assert!(agent.auto_approve, "tab inspection must expose the active bypass");
+}
+
+#[test]
+fn hidden_usage_probe_cannot_enable_permission_bypass() {
+    let registry = test_registry();
+    let mut automation = make_params("claude", None);
+    automation.skip_permissions = Some(true);
+    automation.audience = crate::multiplexer::types::TabAudience::Automation;
+    assert!(!automation.permission_bypass_requested());
+    let command = build_agent_command("claude", &automation, None, None, &registry);
+    assert!(!command.contains("--dangerously-skip-permissions"));
+    let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(automation);
+    let crate::service::spawn::TabCommand::Agent(agent) = spec.command else {
+        panic!("automation probe must remain an agent tab");
+    };
+    assert!(!agent.auto_approve, "automation cannot inherit a remembered bypass");
+}

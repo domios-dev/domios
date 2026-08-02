@@ -248,7 +248,7 @@ impl ServiceContext {
             title: Some(format!("cron:{}", job_name)),
             description: None,
             visibility: TabVisibility::Hidden,
-            audience: Default::default(),
+            audience: crate::multiplexer::types::TabAudience::Automation,
             eager: false,
             command: TabCommand::Agent(AgentSpawnSpec {
                 provider: agent,
@@ -256,7 +256,7 @@ impl ServiceContext {
                 model,
                 task: Some(task_text),
                 role,
-                auto_approve: true,
+                auto_approve: false,
                 report_target_tab_id,
                 spawned_by: Some(format!("cron:{}", id)),
                 ..Default::default()
