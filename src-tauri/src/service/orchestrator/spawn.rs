@@ -265,8 +265,12 @@ impl ServiceContext {
                 self.chatbackend_registry.as_ref(),
                 params,
             );
-            let handle =
-                self.spawn_tab_with_ready_and_state_change(spec, ready_tx, emit_state_change)?;
+            let svc = self.clone();
+            let handle = tokio::task::spawn_blocking(move || {
+                svc.spawn_tab_with_ready_and_state_change(spec, ready_tx, emit_state_change)
+            })
+            .await
+            .map_err(|error| format!("chatBackend spawn task failed: {error}"))??;
             self.persist_unresolved_plugin_model_request(&handle.tab_id, &bind_params);
             let requested_model = model
                 .as_deref()
