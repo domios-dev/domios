@@ -1,40 +1,42 @@
-import { parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 
-const cursors = new Map<string, string>();
-const resumable = new Map<string, () => void>();
+interface SubscriptionRecord {
+  event: string;
+  ordinaryTabId: string;
+  peerId: string;
+  remoteTabId: string;
+  handler: (value: { payload: unknown }) => void;
+  controller: AbortController | null;
+  cursor: string | null;
+  generation: number;
+  disposed: boolean;
+}
 
-export function subscribeRemoteTabEvent<T>(
-  event: string,
-  handler: (value: { payload: T }) => void,
-): (() => void) | null {
-  const prefix = "tab-chat-msg-";
-  if (!event.startsWith(prefix)) return null;
-  const identity = parseCompositeTabId(event.slice(prefix.length));
-  if (!identity) return null;
-  const remoteTabId = identity.ordinaryTabId.slice(identity.ordinaryTabId.indexOf("/") + 1);
+const subscriptions = new Map<string, SubscriptionRecord>();
+
+function connect(record: SubscriptionRecord): void {
+  if (record.disposed) return;
+  record.controller?.abort();
+  const controller = new AbortController();
+  const generation = ++record.generation;
+  record.controller = controller;
   const params = new URLSearchParams({
-    peer: identity.peerId,
+    peer: record.peerId,
     path: "/api/events/stream",
-    tab: identity.ordinaryTabId,
+    tab: record.ordinaryTabId,
   });
-  const cursor = cursors.get(identity.ordinaryTabId);
-  if (cursor) params.set("since", cursor);
-  const abort = new AbortController();
-  const connect = () => {
-    if (!abort.signal.aborted) subscribeRemoteTabEvent(event, handler);
-  };
-  resumable.set(event, connect);
+  if (record.cursor) params.set("since", record.cursor);
   const { base, token } = remoteTabTransportHttp();
   void fetch(`${base}/api/mesh/relay-stream?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
-    signal: abort.signal,
+    signal: controller.signal,
   }).then(async (response) => {
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    while (!abort.signal.aborted) {
+    while (!controller.signal.aborted && generation === record.generation) {
       const chunk = await reader.read();
       if (chunk.done) break;
       buffer += decoder.decode(chunk.value, { stream: true });
@@ -44,22 +46,75 @@ export function subscribeRemoteTabEvent<T>(
         buffer = buffer.slice(boundary + 2);
         const data = frame.split("\n").find((line) => line.startsWith("data:"));
         if (data) {
-          const message = JSON.parse(data.slice(5).trim()) as { event_type?: string; data?: Record<string, unknown>; boot?: string; seq?: number };
-          if (message.boot && typeof message.seq === "number") cursors.set(identity.ordinaryTabId, `${message.boot}:${message.seq}`);
-          if (message.event_type === `${prefix}${remoteTabId}` && message.data) {
-            handler({ payload: { ...message.data, tab_id: identity.ordinaryTabId } as T });
+          const message = JSON.parse(data.slice(5).trim()) as {
+            event_type?: string; data?: Record<string, unknown>; boot?: string; seq?: number;
+          };
+          if (message.boot && typeof message.seq === "number") record.cursor = `${message.boot}:${message.seq}`;
+          if (message.event_type === `tab-chat-msg-${record.remoteTabId}` && message.data) {
+            publishRemoteTransportState(record.ordinaryTabId, "available");
+            record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
           }
         }
         boundary = buffer.indexOf("\n\n");
       }
     }
-    if (!abort.signal.aborted) publishRemoteTransportState(identity.ordinaryTabId, "reconnecting");
-  }).catch(() => { if (!abort.signal.aborted) publishRemoteTransportState(identity.ordinaryTabId, "unavailable"); });
-  return () => { abort.abort(); resumable.delete(event); };
+    if (!controller.signal.aborted && generation === record.generation) {
+      publishRemoteTransportState(record.ordinaryTabId, "reconnecting");
+    }
+  }).catch(() => {
+    if (!controller.signal.aborted && generation === record.generation) {
+      publishRemoteTransportState(record.ordinaryTabId, "unavailable");
+    }
+  }).finally(() => {
+    if (generation === record.generation) record.controller = null;
+  });
+}
+
+export function subscribeRemoteTabEvent<T>(
+  event: string,
+  handler: (value: { payload: T }) => void,
+): (() => void) | null {
+  const prefix = "tab-chat-msg-";
+  if (!event.startsWith(prefix)) return null;
+  const eventTarget = event.slice(prefix.length);
+  if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
+    throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
+  }
+  const identity = parseCompositeTabId(eventTarget);
+  if (!identity) return null;
+  subscriptions.get(event)?.controller?.abort();
+  const record: SubscriptionRecord = {
+    event,
+    ordinaryTabId: identity.ordinaryTabId,
+    peerId: identity.peerId,
+    remoteTabId: identity.ordinaryTabId.slice(identity.ordinaryTabId.indexOf("/") + 1),
+    handler: handler as (value: { payload: unknown }) => void,
+    controller: null,
+    cursor: null,
+    generation: 0,
+    disposed: false,
+  };
+  subscriptions.set(event, record);
+  connect(record);
+  return () => {
+    record.disposed = true;
+    record.controller?.abort();
+    if (subscriptions.get(event) === record) subscriptions.delete(event);
+  };
 }
 
 export function resumeRemoteTabEvents(): void {
-  const pending = [...resumable.values()];
-  resumable.clear();
-  for (const connect of pending) connect();
+  for (const record of subscriptions.values()) connect(record);
+}
+
+export function remoteTabEventSubscriptionSnapshot(event: string): {
+  cursor: string | null; generation: number; disposed: boolean; hasController: boolean;
+} | null {
+  const record = subscriptions.get(event);
+  return record ? {
+    cursor: record.cursor,
+    generation: record.generation,
+    disposed: record.disposed,
+    hasController: record.controller !== null,
+  } : null;
 }

@@ -24,7 +24,7 @@
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
-import { parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 
 export interface TabOutputSink {
@@ -243,6 +243,9 @@ function ensureStarted(): void {
  * resume from the tracked offset (xterm is keep-alive, scrollback persists).
  */
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => void {
+  if (classifyTabTarget(tabId).kind === "invalid-remote") {
+    throw new Error(`Invalid remote tab id "${tabId}"; local output fallback is forbidden`);
+  }
   const remote = parseCompositeTabId(tabId);
   if (remote) return subscribeRemoteTabOutput(remote.ordinaryTabId, remote.peerId, sink);
   let set = sinks.get(tabId);
@@ -280,6 +283,7 @@ function subscribeRemoteTabOutput(
 const remoteSinks = new Map<string, Set<TabOutputSink>>();
 const remoteControllers = new Map<string, AbortController>();
 const remoteCursors = new Map<string, { peerId: string; boot?: string; offset: number }>();
+const remoteGenerations = new Map<string, number>();
 
 export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number): string {
   const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: offset } });
@@ -287,9 +291,12 @@ export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, off
 }
 
 function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
-  if (remoteControllers.has(ordinaryTabId)) return;
+  const previous = remoteControllers.get(ordinaryTabId);
+  if (previous && !previous.signal.aborted) return;
   if (!remoteCursors.has(ordinaryTabId)) remoteCursors.set(ordinaryTabId, { peerId, offset: 0 });
   const abort = new AbortController();
+  const generation = (remoteGenerations.get(ordinaryTabId) ?? 0) + 1;
+  remoteGenerations.set(ordinaryTabId, generation);
   remoteControllers.set(ordinaryTabId, abort);
   const params = new URLSearchParams({
     peer: peerId,
@@ -321,10 +328,15 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
         const data = frame.split("\n").find((line) => line.startsWith("data:"));
         if (data) {
           const message = JSON.parse(data.slice(5).trim()) as OutputFrame;
+          if (message.tab_id && message.tab_id !== remoteTabId) {
+            boundary = buffer.indexOf("\n\n");
+            continue;
+          }
           const current = remoteCursors.get(ordinaryTabId) ?? { peerId, offset: 0 };
           if (message.boot) current.boot = message.boot;
           if (typeof message.offset === "number") current.offset = message.offset;
           remoteCursors.set(ordinaryTabId, current);
+          if (message.tab_id === remoteTabId) publishRemoteTransportState(ordinaryTabId, "available");
           for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
             if (typeof message.output === "string") target.onOutput(message.output);
             else if (message.truncated && typeof message.from === "number") target.onTruncated(message.from);
@@ -336,14 +348,23 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
     }
     if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "reconnecting");
   }).catch(() => { if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "unavailable"); })
-    .finally(() => remoteControllers.delete(ordinaryTabId));
+    .finally(() => {
+      if (remoteGenerations.get(ordinaryTabId) === generation) remoteControllers.delete(ordinaryTabId);
+    });
 }
 
 export function resumeRemoteOutputStreams(): void {
   for (const [ordinaryTabId] of remoteSinks) {
     const cursor = remoteCursors.get(ordinaryTabId);
-    if (cursor) startRemoteTabOutput(ordinaryTabId, cursor.peerId);
+    if (cursor) {
+      remoteControllers.get(ordinaryTabId)?.abort();
+      startRemoteTabOutput(ordinaryTabId, cursor.peerId);
+    }
   }
+}
+
+export function remoteOutputSubscriptionGeneration(ordinaryTabId: string): number {
+  return remoteGenerations.get(ordinaryTabId) ?? 0;
 }
 
 /** Force an immediate reconnect keeping all offsets (wake-from-sleep resume):

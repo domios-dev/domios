@@ -1,4 +1,4 @@
-use super::{route_remote_tab_action, validate_remote_stream_owner};
+use super::{encode_remote_tab_component, route_remote_tab_action, validate_remote_stream_owner};
 
 #[test]
 fn remote_tab_action_routes_to_composite_identity_owner_only() {
@@ -31,6 +31,13 @@ fn remote_tab_action_routes_to_composite_identity_owner_only() {
     assert!(route_remote_tab_action("shared-tab", "peer-a", true, "GET", "/output").is_err());
     assert!(route_remote_tab_action("mesh:peer-a/shared-tab", "peer-b", true, "GET", "/output").is_err());
     assert!(route_remote_tab_action("mesh:peer-a/shared-tab", "peer-a", false, "GET", "/output").is_err());
+}
+
+#[test]
+fn remote_route_components_are_url_safe() {
+    assert_eq!(encode_remote_tab_component("таб:one"), "%D1%82%D0%B0%D0%B1%3Aone");
+    let route = route_remote_tab_action("mesh:peer/таб:one", "peer", true, "POST", "/focus").unwrap();
+    assert_eq!(route.path, "/api/tabs/%D1%82%D0%B0%D0%B1%3Aone/focus");
 }
 
 #[test]

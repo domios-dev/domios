@@ -4,6 +4,10 @@ pub struct RemoteTabOwner {
     pub tab_id: String,
 }
 
+pub fn encode_remote_tab_component(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
 pub fn parse_remote_tab_owner(ordinary_id: &str) -> Result<RemoteTabOwner, &'static str> {
     let value = ordinary_id
         .strip_prefix("mesh:")
@@ -52,10 +56,11 @@ pub fn route_remote_tab_action(
     }
     let delivery_id = (method.eq_ignore_ascii_case("POST") && suffix == "/send")
         .then(|| uuid::Uuid::new_v4().to_string());
+    let tab = encode_remote_tab_component(&owner.tab_id);
     let path = match suffix {
-        "/inspect" => format!("/api/tabs/inspect?tab_ids={}", owner.tab_id),
+        "/inspect" => format!("/api/tabs/inspect?tab_ids={tab}"),
         "/stream" => "/api/output/stream".to_string(),
-        _ => format!("/api/tabs/{}{}", owner.tab_id, suffix),
+        _ => format!("/api/tabs/{tab}{suffix}"),
     };
     Ok(crate::mesh::types::RelayCommand {
         method: method.to_string(),
