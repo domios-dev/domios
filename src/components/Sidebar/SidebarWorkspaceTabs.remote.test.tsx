@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection } from "../../store/multiplexer/remoteTabProjection";
 
@@ -16,3 +16,5 @@ describe("sidebar ordinary remote rows", () => {
     expect(source).toContain("<SidebarSingleTabRow");
   });
 });
+
+finish();

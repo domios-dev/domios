@@ -16,6 +16,7 @@ import { usageTrackingEnabled } from "./usageTracking";
 import { tabSessionActionView } from "./tabSessionActions";
 import { RemoteTabUnavailable } from "./RemoteTabUnavailable";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
+import { tabContentSurface } from "./tabContentSurface";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -30,12 +31,6 @@ interface TabContentProps {
   workspaceCwd?: string | null;
   uiFontScale?: number;
   isVisible: boolean;
-}
-
-export function tabContentSurface(tab: Tab): "ordinary" | "remote-unavailable" {
-  return tab.remote_peer_id && tab.remote_availability !== "available"
-    ? "remote-unavailable"
-    : "ordinary";
 }
 
 export function TabContent({

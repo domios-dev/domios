@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import { onRemoteTransportState, publishRemoteTransportState } from "./remoteTabTransportState";
 
 describe("remote transport availability", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("projects stream failure and event-driven recovery without changing identity", () => {
+    vi.stubGlobal("window", new EventTarget());
     const seen = vi.fn();
     const stop = onRemoteTransportState(seen);
     publishRemoteTransportState("mesh:peer/tab", "unavailable");
@@ -14,3 +17,5 @@ describe("remote transport availability", () => {
     stop();
   });
 });
+
+finish();

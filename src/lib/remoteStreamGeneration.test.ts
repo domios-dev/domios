@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   remoteOutputSubscriptionGeneration, resumeRemoteOutputStreams, subscribeTabOutput,
   remoteOutputSubscriptionSnapshot,
@@ -26,3 +26,5 @@ describe("remote output generation replacement", () => {
     vi.unstubAllGlobals();
   });
 });
+
+finish();
