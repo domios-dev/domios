@@ -1712,12 +1712,12 @@ Aliases: park
 
 #### `codeterm plan planning-state`
 
-Advance planner-owned planning state: drafting | structure_ready | approved
+Return a draft to drafting; approval uses `plan approve`
 
 - `--note`
 - `<plan_id>`
 - `--set`
-- `--tab` — Planner tab id advancing the state (records author as planner; omit = user)
+- `--tab` — Deprecated author label retained for draft reset records
 
 #### `codeterm plan prune`
 
@@ -2024,6 +2024,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--criterion`
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
+- `--execution-intent`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
@@ -2739,6 +2740,7 @@ Add a standalone task to the workspace Inbox
 - `--body-file`
 - `--correctness`
 - `--criterion`
+- `--execution-intent`
 - `--intent`
 - `--intent-file`
 - `--model`
