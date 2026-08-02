@@ -172,19 +172,21 @@ fn neither_task_nor_task_file_is_none() {
 
 #[test]
 fn relative_task_file_resolves_from_spawn_cwd() {
-    let base = std::env::temp_dir().join(format!("ct-task-cwd-{}", uuid::Uuid::new_v4()));
+    let caller = std::env::temp_dir().join(format!("ct-task-caller-{}", uuid::Uuid::new_v4()));
+    let base = caller.join("agent-work");
     std::fs::create_dir_all(&base).unwrap();
     std::fs::write(base.join("brief.txt"), "cwd-relative body\n").unwrap();
 
-    let resolved = resolve_spawn_task(
+    let resolved = super::resolve_spawn_task_from(
         None,
         Some("brief.txt".into()),
-        Some(base.to_str().unwrap()),
+        Some("agent-work"),
+        &caller,
         &mut &b""[..],
     )
     .unwrap();
 
-    std::fs::remove_dir_all(&base).ok();
+    std::fs::remove_dir_all(&caller).ok();
     assert_eq!(resolved.as_deref(), Some("cwd-relative body\n"));
 }
 

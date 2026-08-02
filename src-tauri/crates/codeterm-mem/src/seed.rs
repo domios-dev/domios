@@ -31,6 +31,21 @@ Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system 
 - `codeterm keepawake start --duration-secs N [--display]` / `stop` / `status` — prevent sleep cross-platform (do NOT call `caffeinate`, `powercfg`, `systemd-inhibit`)
 
 Always use the CLI from inside CodeTerm via Bash. Do not curl the REST API directly."#;
+const LEGACY_SKILL_SUMMARY: &str =
+    "CodeTerm CLI skill — tab / workspace / agent / mem control";
+const LEGACY_SKILL_TAGS: &[&str] = &["bundled", "core", "cli"];
+
+fn is_exact_legacy_codeterm(item: &super::store::MemItem) -> bool {
+    item.kind == "skill"
+        && item.scope == "global"
+        && item.title == "codeterm"
+        && item.summary.as_deref() == Some(LEGACY_SKILL_SUMMARY)
+        && item.area.as_deref() == Some("codeterm")
+        && item.tags.iter().map(String::as_str).eq(LEGACY_SKILL_TAGS.iter().copied())
+        && item.body == LEGACY_SKILL_CODETERM.trim()
+        && item.source.as_deref() == Some("bundled:v1")
+        && item.importance == 4.0
+}
 
 pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
     let marker = mem
@@ -119,9 +134,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             .into_iter()
             .find(|hit| hit.item.title == item.title);
         if let Some(hit) = existing {
-            let stale_bundled = hit.item.source.as_deref() == Some("bundled:v1")
-                && item.title == "codeterm"
-                && hit.item.body.trim() == LEGACY_SKILL_CODETERM.trim();
+            let stale_bundled = is_exact_legacy_codeterm(&hit.item);
             if stale_bundled
                 && mem
                     .update(
@@ -155,9 +168,9 @@ mod tests {
             kind: MemKind::Skill,
             scope: MemScope::Global,
             title: "codeterm".into(),
-            summary: Some("old".into()),
+            summary: Some(LEGACY_SKILL_SUMMARY.into()),
             area: Some("codeterm".into()),
-            tags: vec!["bundled".into()],
+            tags: LEGACY_SKILL_TAGS.iter().map(|tag| (*tag).into()).collect(),
             body: body.into(),
             source: Some("bundled:v1".into()),
             importance: 4.0,
@@ -222,5 +235,21 @@ mod tests {
             .find(|hit| hit.item.title == "codeterm")
             .unwrap();
         assert_eq!(preserved.item.body, user_body);
+
+        let mutations: [fn(&mut NewMemItem); 3] = [
+            |item: &mut NewMemItem| item.summary = Some("user summary".into()),
+            |item: &mut NewMemItem| item.tags.push("user-tag".into()),
+            |item: &mut NewMemItem| item.importance = 4.5,
+        ];
+        for mutate in mutations {
+            let mem = MemManager::open_in_memory().unwrap();
+            let mut record = legacy_skill(LEGACY_SKILL_CODETERM);
+            mutate(&mut record);
+            let id = mem.save(record).unwrap();
+            let before = serde_json::to_vec(&mem.get(&id).unwrap().unwrap()).unwrap();
+            seed_bundled(&mem).unwrap();
+            let after = serde_json::to_vec(&mem.get(&id).unwrap().unwrap()).unwrap();
+            assert_eq!(after, before, "edited legacy metadata must remain byte-exact");
+        }
     }
 }

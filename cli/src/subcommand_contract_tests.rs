@@ -352,6 +352,32 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
 }
 
 #[test]
+fn every_tab_command_accepts_canonical_tab_flag() {
+    for command in ["focus", "close"] {
+        let mut parsed = TabOnly::try_parse_from(["tab", command, "--tab", "tab_1"])
+            .expect("canonical selector parses");
+        crate::args::misc::normalize_required_tab_selector(&mut parsed.action)
+            .expect("canonical selector normalizes");
+        assert!(matches!(
+            parsed.action,
+            TabAction::Focus { id: Some(ref id), tab: None }
+                | TabAction::Close { id: Some(ref id), tab: None }
+                if id == "tab_1"
+        ));
+    }
+    let mut positional = TabOnly::try_parse_from(["tab", "close", "tab_2"]).unwrap();
+    crate::args::misc::normalize_required_tab_selector(&mut positional.action).unwrap();
+    assert!(matches!(
+        positional.action,
+        TabAction::Close { id: Some(ref id), tab: None } if id == "tab_2"
+    ));
+    let mut missing = TabOnly::try_parse_from(["tab", "close"]).unwrap();
+    let error = crate::args::misc::normalize_required_tab_selector(&mut missing.action)
+        .expect_err("missing selector is a CLI error");
+    assert_eq!(error, "tab close requires --tab <ID>");
+}
+
+#[test]
 fn tab_command_alias_is_rejected() {
     assert!(Cli::try_parse_from(["codeterm", "tab", "list"]).is_err());
 }

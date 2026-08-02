@@ -71,7 +71,11 @@ fn project(method: &str) -> Projection {
 }
 
 pub fn render(value: &Value) -> String {
-    let Some(methods) = value.as_array() else {
+    let Some(methods) = value
+        .get("methods")
+        .and_then(Value::as_array)
+        .or_else(|| value.as_array())
+    else {
         return "No capabilities reported.\n".into();
     };
     let mut out = String::new();
@@ -123,14 +127,14 @@ mod tests {
 
     #[test]
     fn capabilities_mark_rpc_only_and_name_cli_replacements() {
-        let out = render(&json!([
+        let out = render(&json!({"methods": [
             "system.identify",
             "notification.create",
             "services.list",
             "mem.search",
             "agent.children",
             "tab.resize"
-        ]));
+        ], "protocol": "json-rpc-2.0"}));
         assert!(out.contains("system.identify  [CLI: `codeterm identify`]"));
         assert!(out.contains("notification.create  [CLI: `codeterm notify`]"));
         assert!(out.contains("services.list  [CLI: `codeterm service list`]"));

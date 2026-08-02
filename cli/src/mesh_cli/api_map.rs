@@ -272,11 +272,15 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("POST".into(), "/api/tabs".into(), Some(body.to_string()))
             }
             crate::TabAction::Focus { id, tab } => {
-                let id = tab.as_ref().or(id.as_ref()).expect("validated tab selector");
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "focus") else {
+                    return unsupported("tab focus requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
             crate::TabAction::Close { id, tab } => {
-                let id = tab.as_ref().or(id.as_ref()).expect("validated tab selector");
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "close") else {
+                    return unsupported("tab close requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/close", id), None)
             }
             crate::TabAction::Rename { title, tab } => {
