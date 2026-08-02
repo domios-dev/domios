@@ -7,7 +7,6 @@ use crate::cmd::hints::{
     task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
 use crate::cmd::plan::inject_trusted_session;
-use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};

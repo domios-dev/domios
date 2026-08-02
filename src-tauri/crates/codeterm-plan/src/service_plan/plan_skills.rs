@@ -244,6 +244,7 @@ fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String
     (title, purpose, check)
 }
 
+#[cfg(test)]
 pub(super) fn persisted_skill_purpose(md: &str) -> Option<String> {
     parse_frontmatter(md).1
 }
@@ -608,7 +609,7 @@ mod tests {
     }
 
     #[test]
-    fn list_and_show_skills_from_sidecar() {
+    fn plan_skill_manifest_from_sidecar_matches_list() {
         let tmp = tempfile::tempdir().unwrap();
         crate::service_plan::paths::mark_test_project_root(tmp.path());
         let store = PlanStore::new_for_test(tmp.path());
@@ -638,12 +639,20 @@ mod tests {
             ".deploy.pending",
             "---\ntitle: Pending\n---\n\nNot committed yet.\n",
         );
+        std::fs::write(
+            dir.join("skills/ledger.jsonl"),
+            "{\"seq\":1,\"slug\":\"deploy\",\"verdict\":\"keep\",\"rationale\":\"fixture\"}\n",
+        )
+        .unwrap();
+        let manifest = plan_skill_manifest(&store, &plan.id).unwrap();
         let listed = list_plan_skills(&store, &plan.id).unwrap();
         assert_eq!(listed.len(), 1);
+        assert_eq!(manifest.len(), listed.len());
         assert_eq!(listed[0].slug, "deploy");
         assert_eq!(listed[0].title, "Deploy");
         assert!(listed[0].purpose.contains("Deploy staging"));
         assert_eq!(listed[0].check.as_deref(), Some("echo ok"));
+        assert_eq!(manifest[0].content_digest, listed[0].content_digest);
         let heartbeat_skills =
             crate::service_plan::skill_registry::list_plan_skill_summaries(&plan);
         assert_eq!(

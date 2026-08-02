@@ -225,11 +225,13 @@ fn lane_metadata_for_dispatch(
 fn task_launch_authority_for_dispatch(
     plan_id: &str,
     task_id: &str,
+    attempt_id: &str,
     lane: &TaskLaneMetadata,
 ) -> crate::service::TaskLaunchAuthority {
     crate::service::TaskLaunchAuthority {
         plan_id: plan_id.to_string(),
         task_id: task_id.to_string(),
+        attempt_id: attempt_id.to_string(),
         lane_base: lane.base.clone(),
     }
 }
@@ -446,6 +448,14 @@ impl DispatchStartup {
                 None => Ok(None),
             },
             |lane, session_id| {
+                let session_binding_nonce = self
+                    .svc
+                    .mux
+                    .read()
+                    .get_tab(&self.tab_id)
+                    .and_then(|tab| tab.session_binding_nonce.clone())
+                    .filter(|nonce| !nonce.trim().is_empty())
+                    .ok_or_else(|| "ready Worker tab has no session binding nonce".to_string())?;
                 let lane_metadata = lane
                     .as_ref()
                     .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
@@ -465,6 +475,7 @@ impl DispatchStartup {
                         &self.tab_id,
                         &self.attempt_id,
                         session_id,
+                        &session_binding_nonce,
                         lane_metadata,
                         epoch_ms(),
                     )
@@ -949,9 +960,11 @@ pub(super) fn dispatch(
             lane.cleanup_status = None;
             lane
         });
+    let reserved_attempt_id = crate::plan::ids::short_id("attempt");
     spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
         &task_id,
+        &reserved_attempt_id,
         &starting_lane,
     ));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
@@ -970,7 +983,7 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    let attempt_id = match store.begin_task_dispatch_with_policy(
+    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt(
         &plan_id,
         &task_id,
         &tab_id,
@@ -979,6 +992,7 @@ pub(super) fn dispatch(
         execution_intent,
         allowance,
         Some(&resolved_provider),
+        &reserved_attempt_id,
         now,
     ) {
         Ok(attempt_id) => attempt_id,

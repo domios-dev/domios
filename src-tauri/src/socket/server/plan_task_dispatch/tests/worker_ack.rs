@@ -90,6 +90,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
             "tab-worker",
             &attempt_id,
             "session-worker",
+            "nonce-worker",
             lane_metadata,
             5,
         )
@@ -233,6 +234,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
             "tab-worker",
             &attempt_id,
             "session-worker",
+            "nonce-worker",
             lane,
             13,
         )

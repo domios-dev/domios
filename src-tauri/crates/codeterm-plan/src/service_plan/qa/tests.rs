@@ -6,7 +6,7 @@ fn executor_tab(task_id: &str) -> String {
     format!("executor-{task_id}")
 }
 
-fn attempt(task_id: &str, id: &str, tab_id: &str, checkout: &str) -> TaskExecutionAttempt {
+fn attempt(_task_id: &str, id: &str, tab_id: &str, checkout: &str) -> TaskExecutionAttempt {
     TaskExecutionAttempt {
         id: id.into(),
         executor_tab_id: tab_id.into(),

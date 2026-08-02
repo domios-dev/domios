@@ -29,13 +29,18 @@ pub(super) fn dispatch(
     }
     let plan_id = plan_refs::resolve_plan(store, params)?;
     let Some(body) = params.as_ref() else { return Ok(result) };
-    let binding = (
+    let binding = [
         body.get("caller_tab_id").and_then(Value::as_str),
         body.get("caller_session_id").and_then(Value::as_str),
         body.get("session_binding_nonce").and_then(Value::as_str),
         body.get("task_id").and_then(Value::as_str),
-    );
-    let (Some(tab_id), Some(session_id), Some(nonce), Some(task_id)) = binding else {
+    ];
+    if binding.iter().any(|value| value.is_some()) && binding.iter().any(|value| value.is_none()) {
+        return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
+            "plan skill caller identity is incomplete".into(),
+        )));
+    }
+    let [Some(tab_id), Some(session_id), Some(nonce), Some(task_id)] = binding else {
         return Ok(result);
     };
     let live = svc.mux.read().get_tab(tab_id).map(|tab| {
@@ -56,9 +61,13 @@ pub(super) fn dispatch(
     let slug = skill.get("slug").and_then(Value::as_str).unwrap_or_default();
     let body = skill.get("body").and_then(Value::as_str).unwrap_or_default();
     let digest = format!("sha256:{:x}", sha2::Sha256::digest(body.as_bytes()));
+    let attempt_id = params
+        .as_ref()
+        .and_then(|params| params.get("attempt_id"))
+        .and_then(Value::as_str);
     store
         .record_plan_skill_load(
-            &plan_id, task_id, tab_id, session_id, nonce, slug, &digest, now_ms,
+            &plan_id, task_id, tab_id, session_id, nonce, attempt_id, slug, &digest, now_ms,
         )
         .map_err(plan_rpc_err)?;
     Ok(result)
