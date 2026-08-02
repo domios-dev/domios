@@ -57,3 +57,14 @@ fn interruption_events_are_provider_neutral() {
         "forced_context_reset"
     );
 }
+
+#[test]
+fn pending_interruption_fences_duplicate_process_exit_event() {
+    let tab_id = "duplicate-tab";
+    pending_interruptions()
+        .lock()
+        .unwrap()
+        .insert(tab_id.into());
+    assert!(pending_interruptions().lock().unwrap().contains(tab_id));
+    assert!(pending_interruptions().lock().unwrap().remove(tab_id));
+}
