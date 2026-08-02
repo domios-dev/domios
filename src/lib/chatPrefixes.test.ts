@@ -38,9 +38,16 @@ console.log("detectChatPrefix");
 
 {
   const r = detectChatPrefix(
-    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
+    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n[to reply, run: codeterm send \"YOUR REPLY\" --tab 12e450b4]",
   );
   eq(r?.body, "Hey", "reply routing hint stays hidden from chat body");
+}
+
+{
+  const r = detectChatPrefix(
+    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
+  );
+  eq(r?.body, "Hey", "legacy reply routing hint stays hidden from chat body");
 }
 
 {

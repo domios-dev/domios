@@ -534,12 +534,21 @@ impl Messenger {
         {
             return None;
         }
-        Some(
-            crate::message_markers::Marker::new("reply")
-                .attr("tab", short_id(&self.envelope.from_tab))
-                .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
-                .build(),
-        )
+        let mut command = format!(
+            "codeterm send \"YOUR REPLY\" --tab {}",
+            short_id(&self.envelope.from_tab)
+        );
+        if let Some(mesh) = self
+            .envelope
+            .from_mesh
+            .as_deref()
+            .map(str::trim)
+            .filter(|mesh| !mesh.is_empty())
+        {
+            command.push_str(" --mesh ");
+            command.push_str(mesh);
+        }
+        Some(format!("[to reply, run: {command}]"))
     }
 }
 
@@ -762,7 +771,7 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20");
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:tab label=Edison tab=e8a0ac20-=-hello\n-=-codeterm:reply tab=e8a0ac20-=-"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20-=-hello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]"
         );
     }
 
@@ -771,7 +780,7 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-hello\n-=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-hello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]"
         );
     }
 
@@ -779,10 +788,10 @@ mod tests {
     fn codeterm_and_reports_do_not_request_a_reply() {
         assert!(!Messenger::from(MessageEnvelope::from_codeterm())
             .wrap("hello")
-            .contains("codeterm:reply"));
+            .contains("[to reply"));
         assert!(!Messenger::report("Worker", "abc12345")
             .wrap("done")
-            .contains("codeterm:reply"));
+            .contains("[to reply"));
     }
 
     #[test]

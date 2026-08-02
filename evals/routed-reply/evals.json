@@ -5,8 +5,8 @@
     {
       "id": 1,
       "name": "reply-through-trailing-return-address",
-      "prompt": "A routed message ends with -=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-. Reply to its sender with the word READY.",
-      "expected_output": "Uses the trailing marker as a CodeTerm return address and sends the reply through CodeTerm without echoing it locally.",
+      "prompt": "A routed message ends with [to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]. Reply to its sender with the word READY.",
+      "expected_output": "Uses the trailing host instruction and sends the reply through CodeTerm without echoing it locally.",
       "expectations": [
         "Uses codeterm send with --tab e8a0ac20 and --mesh BLACKSTAR",
         "Sends READY through that command",
