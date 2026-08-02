@@ -2,7 +2,7 @@ use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
     optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
-    submit_authenticated_pty_input, wait_for_observed_readiness,
+    public_agent_input_readiness, submit_authenticated_pty_input, wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -332,6 +332,18 @@ fn launching_agent_with_a_live_pty_is_optimistically_routable() {
     tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
     let tab = _mux.get_tab(&tab_id).unwrap();
     assert!(is_tab_routable_for_send(tab));
+    assert!(public_agent_input_readiness(tab).is_none());
+}
+
+#[test]
+fn public_send_waits_for_agent_ready_even_when_pty_exists() {
+    let (mut mux, tab_id) = fully_routable_tab();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::ProviderReady);
+    assert!(public_agent_input_readiness(tab).is_none());
+
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    assert_eq!(public_agent_input_readiness(tab), Some(Ok(())));
 }
 
 #[test]
