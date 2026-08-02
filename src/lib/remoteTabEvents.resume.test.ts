@@ -32,10 +32,11 @@ describe("remote chat event subscription ownership", () => {
       'data: {"boot":"boot-a","seq":9,"event_type":"tab-chat-msg-tab","data":{"delta":"x"}}\n\n',
     );
     const requests: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+    const fetchMock: typeof fetch = async (input) => {
       requests.push(String(input));
       return new Response(new ReadableStream({ start(controller) { controller.enqueue(bytes); } }));
-    }));
+    };
+    vi.stubGlobal("fetch", fetchMock);
     const available: string[] = [];
     const stopState = onRemoteTransportState(({ availability }) => available.push(availability));
     let delivered!: () => void;

@@ -135,7 +135,9 @@ async function runTests(): Promise<void> {
     try {
       await test.body();
     } catch (error) {
-      throw new Error(`${test.name}: ${thrownMessage(error)}`, { cause: error });
+      const wrapped = new Error(`${test.name}: ${thrownMessage(error)}`) as Error & { cause?: unknown };
+      wrapped.cause = error;
+      throw wrapped;
     } finally {
       for (const body of afterEachBodies) await body();
     }
