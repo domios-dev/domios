@@ -115,6 +115,8 @@ pub struct SpawnAgentParams {
     pub task_id: Option<String>,
     #[serde(default, skip)]
     pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
+    #[serde(default, skip)]
+    pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
     pub execution_intent: Option<crate::plan::ExecutionIntent>,
@@ -196,6 +198,7 @@ impl SpawnAgentParams {
 pub(crate) struct TaskLaunchAuthority {
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
+    pub(crate) attempt_id: String,
     pub(crate) lane_base: Option<String>,
 }
 
@@ -204,6 +207,7 @@ impl TaskLaunchAuthority {
         let mut env = std::collections::HashMap::from([
             ("CODETERM_PLAN_ID".into(), self.plan_id.clone()),
             ("CODETERM_TASK_ID".into(), self.task_id.clone()),
+            ("CODETERM_ATTEMPT_ID".into(), self.attempt_id.clone()),
         ]);
         if let Some(base) = self
             .lane_base

@@ -225,11 +225,13 @@ fn lane_metadata_for_dispatch(
 fn task_launch_authority_for_dispatch(
     plan_id: &str,
     task_id: &str,
+    attempt_id: &str,
     lane: &TaskLaneMetadata,
 ) -> crate::service::TaskLaunchAuthority {
     crate::service::TaskLaunchAuthority {
         plan_id: plan_id.to_string(),
         task_id: task_id.to_string(),
+        attempt_id: attempt_id.to_string(),
         lane_base: lane.base.clone(),
     }
 }
@@ -446,6 +448,14 @@ impl DispatchStartup {
                 None => Ok(None),
             },
             |lane, session_id| {
+                let session_binding_nonce = self
+                    .svc
+                    .mux
+                    .read()
+                    .get_tab(&self.tab_id)
+                    .and_then(|tab| tab.session_binding_nonce.clone())
+                    .filter(|nonce| !nonce.trim().is_empty())
+                    .ok_or_else(|| "ready Worker tab has no session binding nonce".to_string())?;
                 let lane_metadata = lane
                     .as_ref()
                     .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
@@ -465,6 +475,7 @@ impl DispatchStartup {
                         &self.tab_id,
                         &self.attempt_id,
                         session_id,
+                        &session_binding_nonce,
                         lane_metadata,
                         epoch_ms(),
                     )
@@ -845,7 +856,9 @@ pub(super) fn dispatch(
 
     // A personality is the executor persona: it names the tab and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
-    let brief = build_brief(&detail.task, &detail.sections);
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
+        .map_err(plan_rpc_err)?;
+    let brief = build_brief_with_manifest(&detail.task, &detail.sections, &plan_id, &manifest);
 
     let explicit_cwd = owned_str(p, "cwd");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
@@ -947,9 +960,11 @@ pub(super) fn dispatch(
             lane.cleanup_status = None;
             lane
         });
+    let reserved_attempt_id = crate::plan::ids::short_id("attempt");
     spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
         &task_id,
+        &reserved_attempt_id,
         &starting_lane,
     ));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
@@ -968,7 +983,7 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    let attempt_id = match store.begin_task_dispatch_with_policy(
+    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt(
         &plan_id,
         &task_id,
         &tab_id,
@@ -977,6 +992,7 @@ pub(super) fn dispatch(
         execution_intent,
         allowance,
         Some(&resolved_provider),
+        &reserved_attempt_id,
         now,
     ) {
         Ok(attempt_id) => attempt_id,
@@ -996,6 +1012,26 @@ pub(super) fn dispatch(
             ));
         }
     };
+    if let Err(error) = store.set_attempt_plan_skill_manifest(
+        &plan_id,
+        &task_id,
+        &attempt_id,
+        manifest,
+        now,
+    ) {
+        let cleanup = rollback_failed_dispatch(
+            provisioned_lane,
+            || store.revert_task_dispatch(&plan_id, &task_id, now).map_err(|error| error.to_string()),
+            || close_tab_if_present(svc, &tab_id),
+        );
+        return Err(dispatch_failed(
+            "skill_manifest",
+            match cleanup {
+                Ok(()) => error.to_string(),
+                Err(cleanup) => format!("{error}; {cleanup}"),
+            },
+        ));
+    }
     if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
         let cleanup = rollback_failed_dispatch(
             provisioned_lane,
@@ -1116,7 +1152,30 @@ pub(super) fn build_brief_with_personality(
     sections: &[crate::service::plan::task_queries::TaskSection],
     effective_personality: Option<&str>,
 ) -> String {
-    crate::service::plan::task_brief::render_task_brief(task, sections, effective_personality, None)
+    crate::service::plan::task_brief::render_task_brief(
+        task,
+        sections,
+        effective_personality,
+        None,
+        None,
+        &[],
+    )
+}
+
+fn build_brief_with_manifest(
+    task: &Task,
+    sections: &[crate::service::plan::task_queries::TaskSection],
+    plan_id: &str,
+    manifest: &[crate::plan::PlanSkillManifestEntry],
+) -> String {
+    crate::service::plan::task_brief::render_task_brief(
+        task,
+        sections,
+        task.personality.as_deref(),
+        None,
+        Some(plan_id),
+        manifest,
+    )
 }
 
 #[cfg(test)]

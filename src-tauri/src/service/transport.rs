@@ -307,6 +307,10 @@ impl ServiceContext {
         if let Some(at) = agent_type {
             self.set_tab_agent_type(&tab_id, Some(at.to_string()));
         }
+        let pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            self.emit_state_changed();
+        })?;
         let _ = self.focus_tab(&tab_id);
 
         // The tab is already created/activated/focused; roll it back on launch failure so the user isn't left on a blank tab.
@@ -323,9 +327,11 @@ impl ServiceContext {
             ),
             || {
                 self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                let _ = self.revoke_agent_pad(&tab_id);
                 self.emit_state_changed();
             },
         )?;
+        drop(pad);
 
         let snapshot = self.mux.read().snapshot();
         self.emit_state_changed();

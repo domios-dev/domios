@@ -62,15 +62,24 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
         plan_id: resolved.plan_id.clone(),
         task_id: resolved.task_id.clone(),
+        attempt_id: crate::plan::ids::short_id("attempt"),
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        store,
+        &resolved.plan_id,
+    )
+    .map_err(|error| error.to_string())?;
     let brief = crate::service::plan::task_brief::render_task_brief(
         &detail.task,
         &detail.sections,
         detail.task.personality.as_deref(),
         instruction.as_deref(),
+        Some(&resolved.plan_id),
+        &manifest,
     );
+    params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);
     params.plan_id = Some(resolved.plan_id);
     params.task_id = Some(resolved.task_id);
@@ -91,9 +100,12 @@ fn bind_worker_task_to_tab(
     tab_id: &str,
     title: &str,
     session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    attempt_id: &str,
+    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
     let resolved = store
@@ -107,7 +119,7 @@ fn bind_worker_task_to_tab(
         .task
         .lane;
     let attempt_id = store
-        .begin_task_dispatch_with_policy(
+        .begin_task_dispatch_with_reserved_attempt(
             &plan_id,
             &task_id,
             tab_id,
@@ -116,16 +128,27 @@ fn bind_worker_task_to_tab(
             intent,
             allowance,
             provider,
+            attempt_id,
             now_ms,
         )
         .map_err(|error| error.to_string())?;
+    if let Err(error) =
+        store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now_ms)
+    {
+        let _ = store.revert_task_dispatch(&plan_id, &task_id, now_ms);
+        return Err(error.to_string());
+    }
     if let Some(session_id) = session_id {
+        let session_binding_nonce = session_binding_nonce
+            .filter(|nonce| !nonce.trim().is_empty())
+            .ok_or_else(|| "plan-task spawn is missing its session binding nonce".to_string())?;
         if let Err(error) = store.finish_task_dispatch(
             &plan_id,
             &task_id,
             tab_id,
             &attempt_id,
             session_id,
+            session_binding_nonce,
             lane,
             now_ms,
         ) {
@@ -154,9 +177,12 @@ fn bind_worker_plan_task_transaction(
     tab_id: &str,
     title: &str,
     session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    attempt_id: &str,
+    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
     close_tab: impl FnOnce(),
 ) -> Result<WorkerTaskBinding, String> {
@@ -167,9 +193,12 @@ fn bind_worker_plan_task_transaction(
         tab_id,
         title,
         session_id,
+        session_binding_nonce,
         intent,
         allowance,
         provider,
+        attempt_id,
+        manifest,
         now_ms,
     ) {
         Ok(binding) => Ok(binding),
@@ -219,13 +248,14 @@ impl ServiceContext {
             return Ok(());
         };
         let now_ms = epoch_ms();
-        let (title, session_id) = {
+        let (title, session_id, session_binding_nonce) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
-            let session_id = mux
-                .get_tab(tab_id)
-                .and_then(|tab| tab.agent_session_id.clone());
-            (title, session_id)
+            let binding = mux.get_tab(tab_id).map(|tab| {
+                (tab.agent_session_id.clone(), tab.session_binding_nonce.clone())
+            });
+            let (session_id, session_binding_nonce) = binding.unwrap_or_default();
+            (title, session_id, session_binding_nonce)
         };
         let binding = bind_worker_plan_task_transaction(
             &self.plan_store,
@@ -234,11 +264,20 @@ impl ServiceContext {
             tab_id,
             &title,
             session_id.as_deref(),
+            session_binding_nonce.as_deref(),
             params.execution_intent.clone().ok_or_else(|| {
                 "plan-task spawn requires explicit execution_intent".to_string()
             })?,
             self.provider_allowance_for_spawn(params, now_ms)?,
             params.agent.as_deref(),
+            &params
+                .task_launch_authority
+                .as_ref()
+                .ok_or_else(|| "plan-task spawn is missing launch authority".to_string())?
+                .attempt_id,
+            params.plan_skill_manifest.clone().ok_or_else(|| {
+                "plan-task spawn is missing its prepared plan skill manifest".to_string()
+            })?,
             now_ms,
             || {
                 let _ = self.close_tab(tab_id);
@@ -347,9 +386,17 @@ mod tests {
             "tab-worker",
             "Ada",
             Some("session-worker"),
+            Some("nonce-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            "attempt-prepared",
+            vec![crate::plan::PlanSkillManifestEntry {
+                slug: "prepared".into(),
+                title: "Prepared".into(),
+                purpose: "Prove exact snapshot retention.".into(),
+                content_digest: "sha256:prepared".into(),
+            }],
             10,
         )
         .unwrap();
@@ -362,6 +409,7 @@ mod tests {
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
         assert_eq!(binding.plan_id, plan_id);
         assert_eq!(binding.task_id, task_id);
+        assert_eq!(task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug, "prepared");
         assert_eq!(
             task.execution_attempts
                 .last()
@@ -506,9 +554,12 @@ mod tests {
             "tab-worker",
             "Ada",
             None,
+            None,
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            "attempt-review",
+            vec![],
             10,
         )
         .unwrap_err();
@@ -532,9 +583,12 @@ mod tests {
             "tab-worker",
             "Ada",
             Some("session-worker"),
+            Some("nonce-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            "attempt-ack",
+            vec![],
             10,
         )
         .unwrap();
@@ -564,9 +618,12 @@ mod tests {
             "tab-worker",
             "Ada",
             None,
+            None,
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            "attempt-rollback",
+            vec![],
             10,
             || tab_closed = true,
         )

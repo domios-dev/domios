@@ -352,9 +352,14 @@ impl ServiceContext {
             self.emit_state_changed();
         }
 
+        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+        })?;
+
         if let Err(error) = self.chatbackend_launch(plugin_id, tab_id.clone(), config, history_meta)
         {
             self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            let _ = self.revoke_agent_pad(&tab_id);
             if emit_state_change {
                 self.emit_state_changed();
             }

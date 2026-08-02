@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::service_plan::PlanError;
 use crate::service_plan::PlanStore;
@@ -20,6 +21,7 @@ pub struct PlanSkillSummary {
     pub purpose: String,
     pub check: Option<String>,
     pub verdict: String,
+    pub content_digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -28,6 +30,56 @@ pub struct PlanSkillDetail {
     pub title: String,
     pub body: String,
     pub ledger: Vec<PlanSkillLedgerEntry>,
+}
+
+pub fn plan_skill_manifest(
+    store: &PlanStore,
+    plan_id: &str,
+) -> Result<Vec<crate::plan::PlanSkillManifestEntry>, PlanError> {
+    let plan_dir = plan_dir_for(store, plan_id)?;
+    plan_skill_manifest_from_dir(&plan_dir)
+}
+
+pub(super) fn plan_skill_manifest_for_plan(
+    plan: &crate::plan::Plan,
+) -> Result<Vec<crate::plan::PlanSkillManifestEntry>, PlanError> {
+    let plan_dir = super::paths::plan_state_dir(
+        super::paths::plan_sidecar_root(plan),
+        &plan.status,
+        &plan.id,
+    )
+    .map_err(|error| PlanError::Io(error.to_string()))?;
+    plan_skill_manifest_from_dir(&plan_dir)
+}
+
+pub(super) fn plan_skill_manifest_from_dir(
+    plan_dir: &Path,
+) -> Result<Vec<crate::plan::PlanSkillManifestEntry>, PlanError> {
+    let latest_verdicts = read_ledger(&plan_dir).into_iter().fold(
+        std::collections::HashMap::new(),
+        |mut verdicts, entry| {
+            verdicts.insert(entry.slug, entry.verdict);
+            verdicts
+        },
+    );
+    let mut manifest = Vec::new();
+    for slug in list_slugs(&plan_dir) {
+        if latest_verdicts.get(&slug).map(String::as_str) != Some("keep") {
+            continue;
+        }
+        let path = plan_dir.join("skills").join(&slug).join("SKILL.md");
+        let body = std::fs::read(&path).map_err(|error| io_error("read plan skill body", error))?;
+        let text = std::str::from_utf8(&body)
+            .map_err(|error| io_error("decode plan skill body", error))?;
+        let (title, purpose, _) = parse_frontmatter(text);
+        manifest.push(crate::plan::PlanSkillManifestEntry {
+            slug: slug.clone(),
+            title: title.unwrap_or_else(|| titleize(&slug)),
+            purpose: purpose.unwrap_or_default(),
+            content_digest: format!("sha256:{:x}", Sha256::digest(&body)),
+        });
+    }
+    Ok(manifest)
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -192,6 +244,7 @@ fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String
     (title, purpose, check)
 }
 
+#[cfg(test)]
 pub(super) fn persisted_skill_purpose(md: &str) -> Option<String> {
     parse_frontmatter(md).1
 }
@@ -407,25 +460,19 @@ pub fn list_plan_skills(
     plan_id: &str,
 ) -> Result<Vec<PlanSkillSummary>, PlanError> {
     let plan_dir = plan_dir_for(store, plan_id)?;
-    let ledger = read_ledger(&plan_dir);
-    Ok(list_slugs(&plan_dir)
+    Ok(plan_skill_manifest(store, plan_id)?
         .into_iter()
-        .map(|slug| {
-            let md = std::fs::read_to_string(plan_dir.join("skills").join(&slug).join("SKILL.md"))
+        .map(|entry| {
+            let md = std::fs::read_to_string(plan_dir.join("skills").join(&entry.slug).join("SKILL.md"))
                 .unwrap_or_default();
-            let (title, purpose, check) = parse_frontmatter(&md);
-            let verdict = ledger
-                .iter()
-                .rev()
-                .find(|entry| entry.slug == slug)
-                .map(|entry| entry.verdict.clone())
-                .unwrap_or_else(|| "-".to_string());
+            let (_, _, check) = parse_frontmatter(&md);
             PlanSkillSummary {
-                slug: slug.clone(),
-                title: title.unwrap_or_else(|| titleize(&slug)),
-                purpose: purpose.unwrap_or_default(),
+                slug: entry.slug,
+                title: entry.title,
+                purpose: entry.purpose,
                 check,
-                verdict,
+                verdict: "keep".to_string(),
+                content_digest: entry.content_digest,
             }
         })
         .collect())
@@ -466,6 +513,37 @@ mod tests {
     use std::io::Write;
 
     struct ExternalPlanCleanup(std::path::PathBuf);
+
+    #[test]
+    fn plan_skill_manifest_uses_latest_keep_verdict_and_exact_digest() {
+        let temp = tempfile::tempdir().unwrap();
+        let skills = temp.path().join("skills");
+        for (slug, body) in [
+            ("alpha", "---\ntitle: Alpha\ndescription: First purpose.\n---\n\n# Alpha\n"),
+            ("beta", "---\ntitle: Beta\ndescription: Discarded.\n---\n\n# Beta\n"),
+        ] {
+            std::fs::create_dir_all(skills.join(slug)).unwrap();
+            std::fs::write(skills.join(slug).join("SKILL.md"), body).unwrap();
+        }
+        std::fs::create_dir_all(skills.join("stray")).unwrap();
+        std::fs::write(
+            skills.join("ledger.jsonl"),
+            "{\"seq\":1,\"slug\":\"alpha\",\"verdict\":\"discard\",\"rationale\":\"old\"}\n{\"seq\":2,\"slug\":\"alpha\",\"verdict\":\"keep\",\"rationale\":\"latest\"}\n{\"seq\":3,\"slug\":\"beta\",\"verdict\":\"superseded\",\"rationale\":\"latest\"}\n",
+        )
+        .unwrap();
+        let manifest = plan_skill_manifest_from_dir(temp.path()).unwrap();
+        assert_eq!(manifest.len(), 1);
+        assert_eq!(manifest[0].slug, "alpha");
+        assert_eq!(manifest[0].title, "Alpha");
+        assert_eq!(manifest[0].purpose, "First purpose.");
+        assert_eq!(
+            manifest[0].content_digest,
+            format!(
+                "sha256:{:x}",
+                Sha256::digest(std::fs::read(skills.join("alpha/SKILL.md")).unwrap())
+            )
+        );
+    }
 
     impl Drop for ExternalPlanCleanup {
         fn drop(&mut self) {
@@ -531,7 +609,7 @@ mod tests {
     }
 
     #[test]
-    fn list_and_show_skills_from_sidecar() {
+    fn plan_skill_manifest_from_sidecar_matches_list() {
         let tmp = tempfile::tempdir().unwrap();
         crate::service_plan::paths::mark_test_project_root(tmp.path());
         let store = PlanStore::new_for_test(tmp.path());
@@ -561,12 +639,20 @@ mod tests {
             ".deploy.pending",
             "---\ntitle: Pending\n---\n\nNot committed yet.\n",
         );
+        std::fs::write(
+            dir.join("skills/ledger.jsonl"),
+            "{\"seq\":1,\"slug\":\"deploy\",\"verdict\":\"keep\",\"rationale\":\"fixture\"}\n",
+        )
+        .unwrap();
+        let manifest = plan_skill_manifest(&store, &plan.id).unwrap();
         let listed = list_plan_skills(&store, &plan.id).unwrap();
         assert_eq!(listed.len(), 1);
+        assert_eq!(manifest.len(), listed.len());
         assert_eq!(listed[0].slug, "deploy");
         assert_eq!(listed[0].title, "Deploy");
         assert!(listed[0].purpose.contains("Deploy staging"));
         assert_eq!(listed[0].check.as_deref(), Some("echo ok"));
+        assert_eq!(manifest[0].content_digest, listed[0].content_digest);
         let heartbeat_skills =
             crate::service_plan::skill_registry::list_plan_skill_summaries(&plan);
         assert_eq!(

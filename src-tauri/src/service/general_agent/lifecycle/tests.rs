@@ -277,7 +277,12 @@ fn general_agent_env_uses_configured_api_port_not_parent_env() {
     config.api.token = Some("test-token".to_string());
     let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
 
-    let env = super::general_agent_env_vars("tab-1", "nonce-1".to_string(), &config);
+    let env = super::general_agent_env_vars(
+        "tab-1",
+        "C:/tmp/pad".to_string(),
+        "nonce-1".to_string(),
+        &config,
+    );
     unsafe {
         match original_port {
             Some(p) => std::env::set_var("CODETERM_API_PORT", p),

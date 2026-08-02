@@ -16,6 +16,8 @@ pub mod mem;
 pub mod mem_secret;
 pub mod mesh;
 pub mod orchestration;
+pub mod pad;
+pub mod payload_source;
 pub mod orchestrator;
 pub mod paste;
 pub mod plan;

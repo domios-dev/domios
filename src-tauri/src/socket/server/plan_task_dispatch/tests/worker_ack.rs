@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn atomic_dispatch_carries_assigned_authority_into_pty_launch() {
+    let lane = TaskLaneMetadata {
+        base: Some("assigned-base".into()),
+        ..Default::default()
+    };
+    let env = task_launch_authority_for_dispatch(
+        "assigned-plan",
+        "assigned-task",
+        "attempt-assigned",
+        &lane,
+    )
+    .env();
+
+    assert_eq!(
+        env.get("CODETERM_PLAN_ID").map(String::as_str),
+        Some("assigned-plan")
+    );
+    assert_eq!(
+        env.get("CODETERM_TASK_ID").map(String::as_str),
+        Some("assigned-task")
+    );
+    assert_eq!(
+        env.get("CODETERM_ATTEMPT_ID").map(String::as_str),
+        Some("attempt-assigned")
+    );
+    assert_eq!(
+        env.get("CODETERM_LANE_BASE").map(String::as_str),
+        Some("assigned-base")
+    );
+}
+
+#[test]
 fn timeout_event_is_actionable_without_authorizing_a_resend() {
     let event = worker_ack_timeout_event(
         "plan",
@@ -90,6 +122,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
             "tab-worker",
             &attempt_id,
             "session-worker",
+            "nonce-worker",
             lane_metadata,
             5,
         )
@@ -233,6 +266,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
             "tab-worker",
             &attempt_id,
             "session-worker",
+            "nonce-worker",
             lane,
             13,
         )

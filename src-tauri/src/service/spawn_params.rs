@@ -139,6 +139,7 @@ impl SpawnTabSpec {
             starter_prompt,
             task_id: None,
             task_launch_authority: None,
+            plan_skill_manifest: None,
             plan_task: None,
             execution_intent: None,
             provider_reserve_pct: None,
@@ -402,6 +403,7 @@ mod tests {
         params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
             plan_id: "assigned-plan".into(),
             task_id: "assigned-task".into(),
+            attempt_id: "attempt-assigned".into(),
             lane_base: Some("assigned-base".into()),
         });
         let spec = SpawnTabSpec::from_agent_params(params);
@@ -416,6 +418,10 @@ mod tests {
         assert_eq!(
             agent.extra_env.get("CODETERM_TASK_ID").map(String::as_str),
             Some("assigned-task")
+        );
+        assert_eq!(
+            agent.extra_env.get("CODETERM_ATTEMPT_ID").map(String::as_str),
+            Some("attempt-assigned")
         );
         assert_eq!(
             agent

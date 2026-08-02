@@ -3,6 +3,8 @@ use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus}
 use codeterm_types::agent::ReportStatus;
 use std::sync::{Arc, Barrier};
 
+mod plan_skill_evidence;
+
 fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -957,6 +959,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             "tab-1",
             Some("Ada"),
             Some("sess-1"),
+            None,
             4,
         )
         .unwrap();
@@ -970,6 +973,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             "tab-2",
             Some("Bea"),
             Some("sess-2"),
+            None,
             6,
         )
         .unwrap();
