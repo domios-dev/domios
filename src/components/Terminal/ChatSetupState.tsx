@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { DeferredLoader } from "../shared/DeferredLoader";
 import type { BootStage, Tab } from "../../lib/types";
@@ -98,19 +98,6 @@ interface ChatSetupStateProps {
   onEscape?: () => void;
 }
 
-function useReducedMotion(): boolean {
-  const read = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-  const [reduced, setReduced] = useState(read);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return reduced;
-}
-
 interface LaunchGlyphProps {
   providerName: string;
   iconSvg?: string | null;
@@ -141,48 +128,17 @@ export function ChatSetupState({
   providerIconHint,
   onEscape,
 }: ChatSetupStateProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [transitionState, setTransitionState] = useState<"hidden" | "present" | "exiting">(
-    view.kind === "none" ? "hidden" : "present",
-  );
-  const reducedMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (view.kind !== "none") {
-      setTransitionState("present");
-      return;
-    }
-    if (reducedMotion) {
-      setTransitionState("hidden");
-    } else {
-      setTransitionState((state) => state === "present" ? "exiting" : state);
-    }
-  }, [reducedMotion, view.kind]);
-
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
     onEscape?.();
   }, [onEscape]);
 
-  const handleTransitionEnd = useCallback((event: React.TransitionEvent<HTMLDivElement>) => {
-    if (event.target !== cardRef.current || event.propertyName !== "opacity" || transitionState !== "exiting") return;
-    setTransitionState("hidden");
-  }, [transitionState]);
-
-  if (transitionState === "hidden") return null;
-
-  const cardStyle: React.CSSProperties = {
-    opacity: transitionState === "exiting" ? 0 : 1,
-    pointerEvents: transitionState === "exiting" ? "none" : undefined,
-    transition: reducedMotion ? "none" : "opacity 120ms ease",
-  };
-
-  if (view.kind !== "starting" && transitionState !== "exiting") return null;
+  if (view.kind !== "starting") return null;
 
   const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;
   return (
-    <DeferredLoader ref={cardRef} state={transitionState} className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
+    <DeferredLoader state="present" className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
       <div className="flex w-full max-w-sm flex-col items-center text-center">
         <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
           <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />

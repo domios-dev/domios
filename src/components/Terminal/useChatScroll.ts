@@ -18,6 +18,32 @@ import {
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 
+interface PendingPrependSnapshot extends ChatPrependSnapshot {
+  version: unknown;
+  anchorId: string | null;
+  anchorOffset: number;
+}
+
+function capturePrependAnchor(el: HTMLDivElement): Pick<PendingPrependSnapshot, "anchorId" | "anchorOffset"> {
+  const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
+  let anchor = rows[0] ?? null;
+  for (const row of rows) {
+    if (row.offsetTop > el.scrollTop) break;
+    anchor = row;
+  }
+  return {
+    anchorId: anchor?.dataset.messageId ?? null,
+    anchorOffset: anchor ? anchor.offsetTop - el.scrollTop : 0,
+  };
+}
+
+function resolvePrependAnchor(el: HTMLDivElement, snapshot: PendingPrependSnapshot): number | null {
+  if (!snapshot.anchorId) return null;
+  const anchor = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
+    .find((row) => row.dataset.messageId === snapshot.anchorId);
+  return anchor ? anchor.offsetTop - snapshot.anchorOffset : null;
+}
+
 export interface UseChatScrollOptions {
   sessionKey: string;
   active: boolean;
@@ -53,7 +79,7 @@ export function useChatScroll({
   const restoredKeyRef = useRef("");
   const persisted = getPersistedChatScrollState(sessionKey);
   const modeRef = useRef<ChatViewportMode>(persisted?.mode ?? "pinned");
-  const prependSnapshotRef = useRef<(ChatPrependSnapshot & { version: unknown }) | null>(null);
+  const prependSnapshotRef = useRef<PendingPrependSnapshot | null>(null);
   const prependVersionRef = useRef(prependVersion);
   prependVersionRef.current = prependVersion;
   const lastScrollTopRef = useRef(persisted?.scrollTop ?? 0);
@@ -105,6 +131,7 @@ export function useChatScroll({
       scrollHeight: el.scrollHeight,
       scrollTop: el.scrollTop,
       version: prependVersionRef.current,
+      ...capturePrependAnchor(el),
     };
   }, []);
 
@@ -139,9 +166,9 @@ export function useChatScroll({
     const prependSnapshot = prependSnapshotRef.current;
     if (prependSnapshot && Object.is(prependSnapshot.version, prependVersion)) {
       prependSnapshotRef.current = {
+        ...prependSnapshot,
         scrollHeight: el.scrollHeight,
         scrollTop: el.scrollTop,
-        version: prependSnapshot.version,
       };
     }
     if (
@@ -150,7 +177,8 @@ export function useChatScroll({
       && modeRef.current === "detached"
     ) {
       prependSnapshotRef.current = null;
-      el.scrollTop = chatScrollTopAfterPrepend(prependSnapshot, el.scrollHeight);
+      el.scrollTop = resolvePrependAnchor(el, prependSnapshot)
+        ?? chatScrollTopAfterPrepend(prependSnapshot, el.scrollHeight);
       lastScrollTopRef.current = el.scrollTop;
       persist(el);
       return;
