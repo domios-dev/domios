@@ -57,13 +57,17 @@ Run this loop after every report, reminder, task close, tab death, or gate:
    focus.
 4. **Give every actionable task an exit:** dispatch, pause with a reason, judge,
    replan through the Planner, or escalate.
-5. **Keep source writers parallel.** Implementation Workers use isolated,
+5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
+   independent actionable work exists. Clear dispatch, dependency, review, and
+   cleanup blockers first, then reuse a matching Worker or dispatch the next
+   bounded task without duplicating ownership.
+6. **Keep source writers parallel.** Implementation Workers use isolated,
    source-only lanes based on concurrency and file ownership.
-6. **Own canonical verification.** Real-merge accepted ancestry first, then run
+7. **Own canonical verification.** Real-merge accepted ancestry first, then run
    every build, test, dev check, and gate in the canonical checkout.
-7. **Let heartbeat follow state.** Heartbeat is derived automatically from
+8. **Let heartbeat follow state.** Heartbeat is derived automatically from
    plan and task state; never maintain focus or lane fields manually.
-8. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
+9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
 Discovery is an intermediate wave. It must produce decisions and follow-up
@@ -282,4 +286,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 46 -->
+<!-- revision: 47 -->
