@@ -253,7 +253,7 @@ pub(super) fn dispatch(
                 | "plan.task.link"
         )
     {
-        plan_task_rpc::verify_owner_epoch_for_task_mutation(method, &params, svc)?;
+        plan_task_authority::verify_owner_epoch_for_task_mutation(method, &params, svc)?;
     }
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),

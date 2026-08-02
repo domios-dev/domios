@@ -547,8 +547,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             let mut body = serde_json::json!({
                 "tab_id": tab_id,
+                "caller_tab_id": tab_id,
                 "message": message,
             });
+            if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
+                body["caller_session_id"] = serde_json::json!(session_id);
+            }
+            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+                body["session_binding_nonce"] = serde_json::json!(nonce);
+            }
             if let Some(k) = kind {
                 body["kind"] = serde_json::json!(k);
             }

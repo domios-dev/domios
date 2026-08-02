@@ -436,6 +436,61 @@ impl PlanStore {
         )
     }
 
+    pub fn close_task_authorized(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        result: Option<&str>,
+        from: AgentRef,
+        authority: &crate::service_plan::interruption::TaskMutationAuthority,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task_index = plan
+                .tasks
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            crate::service_plan::interruption::authorize_task_mutation(
+                plan,
+                &plan.tasks[task_index],
+                authority,
+            )?;
+            let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
+            super::finalize_task_done(plan, task_index, now_ms)?;
+            if was_in_review {
+                plan.tasks[task_index].review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: result.unwrap_or("").into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                crate::service_plan::review_gate::earn_review_credit(&mut plan.review_policy);
+            }
+            if let Some(text) = result {
+                let milestone_id = crate::plan::ids::mint_id("ms", |candidate| {
+                    plan_contains_id(plan, candidate)
+                });
+                plan.tasks[task_index].milestones.push(Milestone {
+                    id: milestone_id,
+                    from,
+                    kind: "status_update".into(),
+                    text: text.into(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
+            Ok(())
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_milestone(
         &self,
