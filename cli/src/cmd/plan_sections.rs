@@ -1,6 +1,6 @@
 use crate::args::plan::PlanSectionAction;
 use crate::client::RpcClient;
-use crate::cmd::plan::{call_plan_rpc, inject_trusted_session, maybe_inject_caller_tab, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, inject_trusted_session, resolve_text};
 use serde_json::{json, Value};
 
 pub fn handle(

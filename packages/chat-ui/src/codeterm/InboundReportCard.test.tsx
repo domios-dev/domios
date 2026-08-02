@@ -183,7 +183,7 @@ for (const fixture of [COMPETITION_DISPATCH_READY_REPORT, COMPETITION_STARTUP_FA
 }
 
 for (const fixture of [
-  { id: "ack", json: { kind: "worker_ack", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", attempt_id: "secret-attempt", state: "in_progress" }, event: "Worker acknowledged", state: "in progress" },
+  { id: "ack", json: { kind: "worker_ack", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", attempt_id: "secret-attempt", state: "in_progress" }, event: "Worker acknowledged", state: "In progress" },
   { id: "failed", json: { kind: "dispatch_startup_failed", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", stage: "session", error: "No session with C:\\secret\\lane" }, event: "Worker startup failed", state: "Retry required" },
 ]) {
   const rendered = await renderCoordination(`task: pl_one/task_one\n${JSON.stringify(fixture.json)}`, fixture.id);
