@@ -79,9 +79,5 @@ pub fn render_task_brief(
         out.push_str("\n\n");
     }
 
-    out.push_str("## CodeTerm coordination\n");
-    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
-    out.push('\n');
-
     super::worker_identity::attach_worker_identity(&identity, &out)
 }

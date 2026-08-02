@@ -282,9 +282,6 @@ fn build_prompt(
         out.push_str(report.trim());
         out.push('\n');
     }
-    out.push_str("\n");
-    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
-    out.push('\n');
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
@@ -370,9 +367,6 @@ fn build_compete_prompt(
         out.push_str(&lane_lines.join("\n"));
         out.push('\n');
     }
-    out.push_str("\n");
-    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
-    out.push('\n');
     out.push_str("\nWhen done, run exactly:\n");
     out.push_str(report_command);
     out.push('\n');
