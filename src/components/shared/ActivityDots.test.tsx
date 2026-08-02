@@ -45,10 +45,15 @@ async function run() {
 
   const css = readFileSync(new URL("../../styles/agent-state.css", import.meta.url), "utf8");
   const microRule = css.match(/\.activity-dots--micro\s*\{([^}]*)\}/s);
+  const workspaceBadgeDotsRule = css.match(/\.activity-dots--workspace-badge\s*\{([^}]*)\}/s);
   assert(microRule, "micro geometry rule exists");
+  assert(workspaceBadgeDotsRule, "workspace badge geometry rule exists");
   assert.match(microRule[1], /--activity-dot-size:\s*2\.5px;/);
   assert.match(microRule[1], /--activity-dot-gap:\s*1\.25px;/);
   assert.match(microRule[1], /--activity-dot-jump:\s*1\.25px;/);
+  assert.match(workspaceBadgeDotsRule[1], /--activity-dot-size:\s*2px;/);
+  assert.match(workspaceBadgeDotsRule[1], /--activity-dot-gap:\s*1px;/);
+  assert.match(workspaceBadgeDotsRule[1], /--activity-dot-jump:\s*0\.75px;/);
   assert.match(css, /\.activity-dots--small\s*\{[^}]*--activity-dot-size:\s*3px;[^}]*--activity-dot-gap:\s*2px;/s);
   assert.match(css, /\.activity-dots--medium\s*\{[^}]*--activity-dot-size:\s*5px;[^}]*--activity-dot-gap:\s*3px;/s);
   const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
@@ -112,9 +117,13 @@ async function run() {
   const badgeHeight = px(workspaceBadgeRule[1], "height");
   const microSize = px(microRule[1], "--activity-dot-size");
   const microJump = px(microRule[1], "--activity-dot-jump");
-  assert((microSize * 2) + 1.25 <= badgeWidth, "two shared micro dots and their gap fit the workspace badge width");
-  assert(microSize + microJump <= badgeHeight, "shared micro jump fits the workspace badge height");
-  assert.match(workspaceBadgeRule[1], /box-sizing:\s*border-box;[^}]*padding-bottom:\s*1px;/s, "pill reserves room for the landing squash");
+  const workspaceDotSize = px(workspaceBadgeDotsRule[1], "--activity-dot-size");
+  const workspaceDotGap = px(workspaceBadgeDotsRule[1], "--activity-dot-gap");
+  const workspaceDotJump = px(workspaceBadgeDotsRule[1], "--activity-dot-jump");
+  assert((workspaceDotSize * 2) + workspaceDotGap <= badgeWidth, "two scoped badge dots and their gap fit the narrower pill");
+  assert(workspaceDotSize + workspaceDotJump <= badgeHeight, "scoped badge jump remains inside the shorter pill");
+  assert(workspaceDotSize < microSize && workspaceDotJump < microJump, "badge-only motion is gentler than shared micro dots");
+  assert.match(workspaceBadgeRule[1], /box-sizing:\s*border-box;[^}]*padding-bottom:\s*0\.75px;[^}]*align-items:\s*center;/s, "pill centers the resting baseline while reserving landing room");
   assert(badgeTop + badgeHeight < (cardHeight - initialsHeight) / 2, "workspace badge stays above centered initials");
   const cubeRules = [".sidebar-workspace-card {", ".sidebar-workspace-card[data-selected=\"true\"]", ".sidebar-workspace-card-select:hover"];
   for (const rule of cubeRules) assert(globalsCss.includes(rule), `cube-grid surface ${rule} remains owned by globals`);

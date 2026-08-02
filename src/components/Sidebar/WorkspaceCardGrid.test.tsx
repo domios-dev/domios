@@ -39,8 +39,8 @@ async function run() {
   const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
   assert.match(
     styles,
-    /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*16px;[^}]*height:\s*9px;[^}]*box-sizing:\s*border-box;[^}]*padding-bottom:\s*1px;[^}]*align-items:\s*flex-end;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);[^}]*color:\s*var\(--ct-on-accent\);[^}]*box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--ct-accent\) 22%, transparent\);/s,
-    "working indicator is a theme-token compact activity pill that contains the jump rhythm",
+    /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*12px;[^}]*height:\s*7px;[^}]*box-sizing:\s*border-box;[^}]*padding-bottom:\s*0\.75px;[^}]*align-items:\s*center;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);[^}]*color:\s*var\(--ct-on-accent\);[^}]*box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--ct-accent\) 22%, transparent\);/s,
+    "working indicator is a compact theme-token pill with an optically centered dot baseline",
   );
   assert.deepEqual(
     Array.from({ length: 8 }, (_, index) => workspaceCardPosition(index, 3)),
