@@ -42,6 +42,37 @@ pub struct ModelFallbackNotice {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReasoningEffortIdentity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
+    #[serde(default)]
+    pub actual: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextEpochArchive {
+    pub provider: String,
+    pub cwd: String,
+    pub session_id: String,
+}
+
+impl ReasoningEffortIdentity {
+    pub fn is_empty(&self) -> bool {
+        self.planned.is_none()
+            && self.requested.is_none()
+            && self.resolved.is_none()
+            && self.actual.is_none()
+            && self.actual_source.is_none()
+    }
+}
+
 /// A closed tab retained for browser-style reopen. Captures just enough to
 /// re-materialize the tab with the SAME backing — the `backing` reuses the
 /// existing `TabBacking` serialization, and `agent_type` / `agent_session_id`
@@ -447,6 +478,10 @@ pub struct Tab {
     /// Runtime evidence that the provider ran a different model than requested.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
+    #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
+    pub reasoning_effort_identity: ReasoningEffortIdentity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
@@ -605,6 +640,22 @@ impl Tab {
             && self.role == Some(AgentRole::Orchestrator)
             && self.team_id.is_some()
     }
+
+    pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
+        if session_id.is_empty()
+            || self
+                .context_epoch_archives
+                .iter()
+                .any(|archive| archive.provider == provider && archive.session_id == session_id)
+        {
+            return;
+        }
+        self.context_epoch_archives.push(ContextEpochArchive {
+            provider: provider.to_string(),
+            cwd: self.cwd.clone().unwrap_or_default(),
+            session_id: session_id.to_string(),
+        });
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -641,6 +692,8 @@ mod tests {
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
+            reasoning_effort_identity: ReasoningEffortIdentity::default(),
+            context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,

@@ -4,11 +4,11 @@ import {
   reduceToolEvents,
   stabilizeTimelineItems,
   lastSessionResetIndex,
+  projectContextEpochs,
   mergeById,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
   collapseDuplicateUserMessages,
-  trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
   type TimelineItem,
   type OptimisticEcho,
@@ -336,6 +336,12 @@ function mergeSnapshotWindow(
     nextOrder,
     sourceSessionId,
   );
+  if (freshSnapshot.some((message) => message.systemSubtype === "context_epoch_boundary")) {
+    const currentSessionDeltas = previous.filter(
+      (message) => message.sourceSessionId === sourceSessionId,
+    );
+    return mergeById(freshSnapshot, currentSessionDeltas);
+  }
   return mergeById(previous, freshSnapshot);
 }
 
@@ -865,7 +871,6 @@ export function useChatSession({
   }, [emitDiagnostic, tabId, structured]);
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
-  const resetParsed = useMemo(() => trimAfterSessionReset(parsed), [parsed]);
   const resetCutoffMs = useMemo(() => {
     const index = lastSessionResetIndex(parsed);
     return index >= 0 ? timestampMs(parsed[index]?.timestamp) : null;
@@ -879,14 +884,14 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    if (liveOptimistic.length === 0) return collapseDuplicateUserMessages(resetParsed);
+    if (liveOptimistic.length === 0) return projectContextEpochs(collapseDuplicateUserMessages(parsed));
     // content-collapse that would swallow a legitimately repeated message).
-    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
+    const parsedUsers = parsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return collapseDuplicateUserMessages(mergeTimelineMessages(resetParsed, stillPending));
-  }, [resetParsed, liveOptimistic]);
+    return projectContextEpochs(collapseDuplicateUserMessages(mergeTimelineMessages(parsed, stillPending)));
+  }, [parsed, liveOptimistic]);
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.

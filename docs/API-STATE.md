@@ -91,7 +91,7 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 |--------|------|------|-------------|
 | GET | `/api/sessions/search` | `?q=...&provider=claude\|codex\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search |
 | GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
-| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` | Atomic "open the right workspace + tab + resume" action |
+| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
 
 Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
 
@@ -126,21 +126,30 @@ Response shape:
 **POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
 1. Locate the session across providers (`AgentRegistry::find_session`) → get cwd + provider id from disk metadata (Claude reads cwd out of the JSONL itself; the encoded directory name is NOT trusted because it loses leading-dot folders and case).
 2. Reuse the workspace at `workspace_id` if given; otherwise create one at the recorded cwd, named `workspace_name` or the cwd basename.
-3. Spawn an agent tab in that workspace with `--resume <id>` baked into `args` (Claude). Other providers are routed via their `build_resume_command` shape.
-4. The tab's `agent_session_id` is NOT pre-set — the SessionStart hook records it as soon as the agent reports it, avoiding double `--resume` injection from the launch/resume code path in `commands.rs::spawn_pty`.
+3. Restore authoritative role, profile, parent, and spawn authority from the exact provider session binding. A Worker or Manager is restored only while its Orchestrator parent is live.
+4. Spawn an identity-only agent tab with the provider resume command and `NoStarter`. Historical tasks, starter prompts, launch assignments, fallback input, and wake signals are never replayed.
+5. If authoritative identity is unavailable, return `identity.status = "roleless"` with exact promotion and relink commands. The CLI prints `resumed roleless` rather than claiming restoration.
 
 Response:
 ```json
 {
-  "tab_id": "a3f1b2c7",
   "tab_id": "d5e6f7a8",
   "workspace_id": "b4e2c8d1",
   "provider": "claude",
   "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "cwd": "/Users/me/code/foo",
-  "resume_command": "claude --resume 0193e1a4-..."
+  "resume_command": "claude --resume 0193e1a4-...",
+  "identity": {
+    "status": "restored",
+    "role": "Worker",
+    "role_profile": "executor",
+    "parent_tab_id": "a3f1b2c7",
+    "can_spawn": false
+  }
 }
 ```
+
+Roleless responses instead include `identity.actions.promotion` and `identity.actions.relink` as directly executable CLI guidance.
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
@@ -189,4 +198,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

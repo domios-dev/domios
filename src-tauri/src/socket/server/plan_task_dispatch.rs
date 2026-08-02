@@ -22,6 +22,11 @@ fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn dispatch_reasoning_effort(p: Option<&Value>) -> (Option<String>, Option<String>) {
+    let requested = owned_str(p, "reasoning_effort");
+    (requested.clone(), requested)
+}
+
 const DISPATCH_READY_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
@@ -825,6 +830,7 @@ pub(super) fn dispatch(
     if requires_repository {
         preflight_checkout_occupancy(&plan, &task_id, &spawn_cwd)?;
     }
+    let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: Some(spawn_cwd),
@@ -837,7 +843,8 @@ pub(super) fn dispatch(
         workspace_id: owned_str(p, "workspace_id"),
         model: routing.model.clone(),
         planned_model: detail.task.model.clone(),
-        reasoning_effort: owned_str(p, "reasoning_effort"),
+        planned_reasoning_effort,
+        reasoning_effort,
         spawned_by_tab_id: owned_str(p, "caller_tab_id"),
         task: Some(brief),
         ..Default::default()

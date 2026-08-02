@@ -156,6 +156,10 @@ impl AgentProvider for DiscoverModelsNativeStub {
         false
     }
 
+    fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        (session_id == "owned-session").then(|| "high".to_string())
+    }
+
     fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
         None
     }
@@ -875,10 +879,8 @@ fn model_launch_args_match_each_cli_flag_format() {
     }
 }
 
-/// Reasoning-effort capability is declared in the manifest and surfaced through
-/// the descriptor. codex declares low/medium/high with a scriptable `-c`
-/// launch flag; providers that declare no efforts must expose no selector and
-/// reject any requested effort structurally (no silent downgrade).
+/// Reasoning-effort capability is declared in each provider manifest and
+/// surfaced through the descriptor with its provider-owned launch format.
 #[test]
 fn reasoning_effort_capability_is_declared_and_gated() {
     if require_plugins().is_none() {
@@ -914,21 +916,52 @@ fn reasoning_effort_capability_is_declared_and_gated() {
     assert_eq!(rejection.requested, "ultra");
     assert_eq!(rejection.supported, vec!["low", "medium", "high"]);
 
-    // A provider that declares no efforts: no selector, and any effort rejects.
     let claude = load_js("claude");
-    assert!(
-        claude.describe().reasoning_efforts.is_empty(),
-        "claude declares no efforts ⇒ no selector"
+    let claude_ids: Vec<String> = claude
+        .describe()
+        .reasoning_efforts
+        .iter()
+        .map(|effort| effort.id.clone())
+        .collect();
+    assert_eq!(
+        claude_ids,
+        vec!["low", "medium", "high", "xhigh", "max"]
     );
-    assert!(
-        claude.reasoning_effort_launch_args("high").is_empty(),
-        "no-capability provider adds no effort flags"
+    assert_eq!(
+        claude.reasoning_effort_launch_args("xhigh"),
+        vec!["--effort".to_string(), "xhigh".to_string()]
     );
     assert!(claude.validate_reasoning_effort(None).is_ok());
-    assert!(
-        claude.validate_reasoning_effort(Some("high")).is_err(),
-        "no-capability provider must reject an explicit effort, not silently ignore it"
+    assert!(claude.validate_reasoning_effort(Some("max")).is_ok());
+    assert!(claude.validate_reasoning_effort(Some("ultra")).is_err());
+
+    let native_claude = crate::agent_claude::provider::ClaudeProvider::new();
+    assert_eq!(native_claude.reasoning_efforts(), claude.reasoning_efforts());
+    assert_eq!(
+        native_claude.reasoning_effort_launch_args("high"),
+        claude.reasoning_effort_launch_args("high")
     );
+}
+
+#[test]
+fn session_owned_reasoning_effort_native_js_parity() {
+    let native = DiscoverModelsNativeStub;
+    let js = load_inline_js(
+        "effort-attestation-fixture",
+        r#"
+            module.exports.default = {
+                detectSessionReasoningEffort(_cwd, sessionId) {
+                    return sessionId === 'owned-session' ? 'high' : null;
+                }
+            };
+        "#,
+    );
+    for session_id in ["owned-session", "global-latest-foreign"] {
+        assert_eq!(
+            native.detect_session_reasoning_effort("/repo", session_id),
+            js.detect_session_reasoning_effort("/repo", session_id),
+        );
+    }
 }
 
 #[test]

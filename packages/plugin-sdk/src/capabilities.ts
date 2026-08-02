@@ -104,6 +104,7 @@ export interface AgentProvider {
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
+  detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   describeSession?(filePath: string, head?: string): {
     projectPath?: string;

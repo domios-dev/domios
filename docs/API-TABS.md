@@ -56,7 +56,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
 
 #### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
-Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session.
+Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session. When the id changes, the prior session becomes a persisted context epoch: Chat keeps its transcript visible behind a labelled divider while archived turns are excluded from the provider's new context.
 
 ```bash
 # Claude pipes its hook payload on stdin; the installed hook forwards it verbatim.
@@ -161,4 +161,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

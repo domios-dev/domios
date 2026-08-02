@@ -76,6 +76,11 @@ pub struct AgentReport {
     pub model_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_identity_mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::multiplexer::types::ReasoningEffortIdentity::is_empty"
+    )]
+    pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
 }
 
 impl AgentReport {
@@ -212,6 +217,7 @@ impl ReportStore {
                 provider_resolved_model: None,
                 fallback: None,
                 mismatch: None,
+                reasoning_effort: Default::default(),
             }),
         )
     }
@@ -243,6 +249,10 @@ impl ReportStore {
         let mismatch = model_identity
             .as_ref()
             .and_then(|identity| identity.mismatch.clone());
+        let reasoning_effort = model_identity
+            .as_ref()
+            .map(|identity| identity.reasoning_effort.clone())
+            .unwrap_or_default();
         let report = AgentReport {
             id: uuid::Uuid::new_v4().to_string(),
             from_tab_id: from_tab_id.to_string(),
@@ -269,6 +279,7 @@ impl ReportStore {
             actual_model: actual_model.clone(),
             model_fallback: fallback,
             model_identity_mismatch: mismatch,
+            reasoning_effort,
         };
 
         // a ledger write failure is logged, never blocks the live report path.
@@ -406,6 +417,7 @@ pub struct ReportModelIdentity {
     pub provider_resolved_model: Option<String>,
     pub fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
     pub mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
+    pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
 }
 
 #[cfg(test)]
@@ -570,6 +582,13 @@ mod tests {
                     reason: "runtime_session_model_mismatch".into(),
                 }),
                 mismatch: Some(mismatch.clone()),
+                reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity {
+                    planned: Some("high".into()),
+                    requested: Some("high".into()),
+                    resolved: Some("high".into()),
+                    actual: None,
+                    actual_source: Some("provider-default-unverified".into()),
+                },
             }),
         );
 
@@ -583,6 +602,12 @@ mod tests {
         );
         assert!(report.model_fallback.is_some());
         assert_eq!(report.model_identity_mismatch, Some(mismatch));
+        assert_eq!(report.reasoning_effort.requested.as_deref(), Some("high"));
+        assert_eq!(report.reasoning_effort.actual, None);
+        assert_eq!(
+            report.reasoning_effort.actual_source.as_deref(),
+            Some("provider-default-unverified")
+        );
     }
 
     #[test]
@@ -613,6 +638,7 @@ mod tests {
             "actual_model",
             "model_fallback",
             "model_identity_mismatch",
+            "reasoning_effort",
         ] {
             assert!(
                 json.get(key).is_none(),
