@@ -116,6 +116,22 @@ fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) ->
     )
 }
 
+fn spawnable_chatbackend_manifest(id: &str) -> String {
+    use crate::js_runtime::host_api::HOST_API_VERSION;
+    format!(
+        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+            "capabilities":{{"chatBackend":{{"spawnable":true}}}},"entry":"plugin.js"}}"#
+    )
+}
+
+fn chatbackend_with_model(model: &str) -> String {
+    format!(
+        r#"module.exports.default = {{
+            listModels() {{ return [{{ id: "{model}", displayName: "{model}", available: true }}]; }}
+        }};"#
+    )
+}
+
 fn plugin_for(id: &str) -> String {
     format!(
         r#"module.exports.default = {{ detectFromTitle: function(t) {{ return t.indexOf("{id}") !== -1; }} }};"#
@@ -423,6 +439,96 @@ fn tick_deregisters_capability_on_folder_removal() {
         tick_until(&watcher, || !caps.bubble.contains("bubbler")),
         "capability must be deregistered on uninstall"
     );
+}
+
+#[test]
+fn chatbackend_model_refresh_is_provider_scoped_and_event_driven() {
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        caps.clone(),
+    );
+    let sentinel_dir = root.path().join("sentinel");
+    let foreign_dir = root.path().join("foreign");
+    write(
+        &sentinel_dir.join("plugin.json"),
+        &spawnable_chatbackend_manifest("sentinel"),
+    );
+    write(
+        &sentinel_dir.join("plugin.js"),
+        &chatbackend_with_model("sentinel-a"),
+    );
+    write(
+        &foreign_dir.join("plugin.json"),
+        &spawnable_chatbackend_manifest("foreign"),
+    );
+    write(
+        &foreign_dir.join("plugin.js"),
+        &chatbackend_with_model("foreign-model"),
+    );
+
+    watcher.tick();
+    assert_eq!(
+        caps.chatbackend
+            .descriptor("sentinel")
+            .unwrap()
+            .available_models[0]
+            .id,
+        "sentinel-a"
+    );
+    assert_eq!(watcher.contribution_event_count(), 2);
+
+    let prior_mtime = std::fs::metadata(sentinel_dir.join("plugin.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    write(
+        &sentinel_dir.join("plugin.js"),
+        &chatbackend_with_model("sentinel-b"),
+    );
+    set_mtime(
+        &sentinel_dir.join("plugin.js"),
+        prior_mtime + Duration::from_secs(2),
+    );
+    watcher.tick();
+
+    assert_eq!(
+        caps.chatbackend
+            .descriptor("sentinel")
+            .unwrap()
+            .available_models[0]
+            .id,
+        "sentinel-b"
+    );
+    assert_eq!(
+        caps.chatbackend
+            .descriptor("foreign")
+            .unwrap()
+            .available_models[0]
+            .id,
+        "foreign-model",
+        "refresh must not replace a foreign provider snapshot"
+    );
+    assert_eq!(watcher.contribution_event_count(), 3);
+
+    std::fs::remove_dir_all(&sentinel_dir).unwrap();
+    watcher.tick();
+
+    assert!(caps.chatbackend.descriptor("sentinel").is_none());
+    assert!(crate::model_catalog::registered_snapshot("sentinel")
+        .models
+        .is_empty());
+    assert_eq!(
+        caps.chatbackend
+            .descriptor("foreign")
+            .unwrap()
+            .available_models[0]
+            .id,
+        "foreign-model"
+    );
+    assert_eq!(watcher.contribution_event_count(), 4);
 }
 
 #[test]

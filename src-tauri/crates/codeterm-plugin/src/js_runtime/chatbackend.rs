@@ -105,6 +105,8 @@ struct PluginModel {
     display_name: Option<String>,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    available: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -256,15 +258,19 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
-        let models: Vec<PluginModel> =
-            call_json(&self.vm, "listModels", &[]).map_err(|e| map_err("listModels", e))?;
+        let models: Vec<PluginModel> = match call_json(&self.vm, "listModels", &[]) {
+            Ok(models) => models,
+            Err(VmError::MissingFunction(_)) => return Ok(Vec::new()),
+            Err(VmError::Script(msg)) if msg.contains("not a function") => return Ok(Vec::new()),
+            Err(error) => return Err(map_err("listModels", error)),
+        };
         Ok(models
             .into_iter()
             .map(|m| ModelInfo {
                 display_name: m.display_name.unwrap_or_else(|| m.id.clone()),
                 id: m.id,
                 description: m.description,
-                available: None,
+                available: m.available,
             })
             .collect())
     }
@@ -552,7 +558,7 @@ mod tests {
         let vm = vm_with(
             r#"module.exports.default = {
                 listModels() { return [
-                    { id: "qwen", displayName: "Qwen 2.5", description: "local" },
+                    { id: "qwen", displayName: "Qwen 2.5", description: "local", available: false },
                     { id: "bare" }
                 ]; }
             }"#,
@@ -562,8 +568,16 @@ mod tests {
         assert_eq!(models[0].id, "qwen");
         assert_eq!(models[0].display_name, "Qwen 2.5");
         assert_eq!(models[0].description.as_deref(), Some("local"));
+        assert_eq!(models[0].available, Some(false));
         // Missing displayName falls back to the id.
         assert_eq!(models[1].display_name, "bare");
+    }
+
+    #[test]
+    fn list_models_missing_export_returns_empty_list() {
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "local-shell");
+        assert!(b.list_models().unwrap().is_empty());
     }
 
     #[test]
