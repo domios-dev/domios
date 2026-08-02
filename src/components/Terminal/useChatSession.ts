@@ -1114,7 +1114,7 @@ export function useChatSession({
 
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
+    const parsedUsers = parsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
     const matched = new Set(matchedIds);
     setOptimistic((prev) => {
@@ -1126,7 +1126,7 @@ export function useChatSession({
       });
       return next.length === prev.length ? prev : next;
     });
-  }, [resetParsed, resetCutoffMs, optimistic]);
+  }, [parsed, resetCutoffMs, optimistic]);
 
   return {
     loading,
