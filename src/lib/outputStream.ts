@@ -25,6 +25,7 @@
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
 import { parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import { publishRemoteTransportState } from "./remoteTabTransportState";
 
 export interface TabOutputSink {
   onOutput(text: string): void;
@@ -266,12 +267,40 @@ function subscribeRemoteTabOutput(
   peerId: string,
   sink: TabOutputSink,
 ): () => void {
+  let set = remoteSinks.get(ordinaryTabId);
+  if (!set) { set = new Set(); remoteSinks.set(ordinaryTabId, set); }
+  set.add(sink);
+  startRemoteTabOutput(ordinaryTabId, peerId);
+  return () => {
+    set!.delete(sink);
+    if (set!.size === 0) { remoteSinks.delete(ordinaryTabId); remoteControllers.get(ordinaryTabId)?.abort(); }
+  };
+}
+
+const remoteSinks = new Map<string, Set<TabOutputSink>>();
+const remoteControllers = new Map<string, AbortController>();
+const remoteCursors = new Map<string, { peerId: string; boot?: string; offset: number }>();
+
+export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number): string {
+  const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: offset } });
+  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
+  if (remoteControllers.has(ordinaryTabId)) return;
+  if (!remoteCursors.has(ordinaryTabId)) remoteCursors.set(ordinaryTabId, { peerId, offset: 0 });
   const abort = new AbortController();
+  remoteControllers.set(ordinaryTabId, abort);
   const params = new URLSearchParams({
     peer: peerId,
     path: "/api/output/stream",
     tab: ordinaryTabId,
   });
+  const cursor = remoteCursors.get(ordinaryTabId);
+  const remoteTabId = ordinaryTabId.slice(ordinaryTabId.indexOf("/") + 1);
+  if (cursor?.boot) {
+    params.set("since", remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset));
+  }
   const transport = remoteTabTransportHttp();
   void fetch(`${transport.base}/api/mesh/relay-stream?${params.toString()}`, {
     headers: transport.token ? { Authorization: `Bearer ${transport.token}` } : {},
@@ -292,15 +321,29 @@ function subscribeRemoteTabOutput(
         const data = frame.split("\n").find((line) => line.startsWith("data:"));
         if (data) {
           const message = JSON.parse(data.slice(5).trim()) as OutputFrame;
-          if (typeof message.output === "string") sink.onOutput(message.output);
-          else if (message.truncated && typeof message.from === "number") sink.onTruncated(message.from);
-          else if (message.ended) sink.onEnded();
+          const current = remoteCursors.get(ordinaryTabId) ?? { peerId, offset: 0 };
+          if (message.boot) current.boot = message.boot;
+          if (typeof message.offset === "number") current.offset = message.offset;
+          remoteCursors.set(ordinaryTabId, current);
+          for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
+            if (typeof message.output === "string") target.onOutput(message.output);
+            else if (message.truncated && typeof message.from === "number") target.onTruncated(message.from);
+            else if (message.ended) target.onEnded();
+          }
         }
         boundary = buffer.indexOf("\n\n");
       }
     }
-  }).catch(() => undefined);
-  return () => abort.abort();
+    if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "reconnecting");
+  }).catch(() => { if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "unavailable"); })
+    .finally(() => remoteControllers.delete(ordinaryTabId));
+}
+
+export function resumeRemoteOutputStreams(): void {
+  for (const [ordinaryTabId] of remoteSinks) {
+    const cursor = remoteCursors.get(ordinaryTabId);
+    if (cursor) startRemoteTabOutput(ordinaryTabId, cursor.peerId);
+  }
 }
 
 /** Force an immediate reconnect keeping all offsets (wake-from-sleep resume):

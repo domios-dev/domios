@@ -39,6 +39,9 @@ import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerAction
 import { createMuxStateStore } from "./selectorStore";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
+import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
+import { resumeRemoteOutputStreams } from "../../lib/outputStream";
+import { resumeRemoteTabEvents } from "../../lib/remoteTabEvents";
 
 export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
@@ -186,6 +189,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
     const remote = remoteTabsFromOrdinaryProjection(ordinary);
     dispatch({ type: "SET_REMOTE_TABS", tabs: remote });
+    resumeRemoteOutputStreams();
+    resumeRemoteTabEvents();
   }, []);
 
   useEffect(() => {
@@ -195,12 +200,23 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (!active) return;
       const remote = remoteTabsFromOrdinaryProjection(ordinary);
       dispatch({ type: "SET_REMOTE_TABS", tabs: remote });
+      resumeRemoteOutputStreams();
+      resumeRemoteTabEvents();
     };
     void refreshRemoteTabs().catch(() => undefined);
     let unlisten: (() => void) | undefined;
-    void listen("mesh-state-changed", () => void refreshRemoteTabs()).then((fn) => { unlisten = fn; });
+    void listen("mesh-state-changed", () => {
+      for (const tab of Object.values(stateRef.current.tabs)) {
+        if (tab.remote_peer_id) dispatch({ type: "UPDATE_REMOTE_AVAILABILITY", tabId: tab.id, availability: "reconnecting" });
+      }
+      void refreshRemoteTabs();
+    }).then((fn) => { unlisten = fn; });
     return () => { active = false; unlisten?.(); };
   }, []);
+
+  useEffect(() => onRemoteTransportState(({ ordinaryTabId, availability }) => {
+    dispatch({ type: "UPDATE_REMOTE_AVAILABILITY", tabId: ordinaryTabId, availability });
+  }), []);
 
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
@@ -630,17 +646,19 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (!ws?.tabs.includes(tabId)) return;
       const remote = stateRef.current.tabs[tabId];
       if (remote?.remote_peer_id && remote.remote_availability !== "available") return;
+      const isRemote = Boolean(remote?.remote_peer_id);
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
       // Refresh only after the close is acknowledged; on rejection the tab
       // still lives, so drop its tombstone and restore from authoritative state.
       guardedInvoke("mux_close_tab", { workspaceId, tabId })
         .then(() => {
-          if (stateRef.current.tabs[tabId]?.remote_peer_id) void refreshRemoteProjection();
+          if (isRemote) void refreshRemoteProjection();
           else refreshFromBackend();
         })
         .catch(() => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
-          refreshFromBackend();
+          if (isRemote) void refreshRemoteProjection();
+          else refreshFromBackend();
         });
     },
     [refreshFromBackend, refreshRemoteProjection, guardedInvoke],

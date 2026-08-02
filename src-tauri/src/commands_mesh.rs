@@ -472,13 +472,22 @@ pub async fn mesh_remote_tab_action(
         command.path = match suffix.as_str() {
             "/pty/write" => format!("/api/pty/{pty_id}/write"),
             "/pty/resize" => format!("/api/pty/{pty_id}/resize"),
+            "/pty/claim-resize" => format!("/api/tabs/{}/resize-owner", owner.tab_id),
             suffix if suffix.starts_with("/pty/read") => {
                 format!("/api/pty/{pty_id}/read{}", suffix.trim_start_matches("/pty/read"))
             }
             _ => return Err("unsupported remote PTY action".into()),
         };
+        if suffix == "/pty/claim-resize" {
+            let mut claim = body.unwrap_or(serde_json::Value::Null);
+            claim["pty_id"] = serde_json::Value::String(pty_id.to_string());
+            command.body = claim;
+        } else {
+            command.body = body.unwrap_or(serde_json::Value::Null);
+        }
+    } else {
+        command.body = body.unwrap_or(serde_json::Value::Null);
     }
-    command.body = body.unwrap_or(serde_json::Value::Null);
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
     let response = client.send_relay(&command).await?;
     if !response.ok {

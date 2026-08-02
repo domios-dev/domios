@@ -322,3 +322,18 @@ fn human_row_collapses_when_tab_title_equals_tab_title() {
     // No "(Main)" duplicate — single label only.
     assert!(!row.contains("(Main)"), "duplicate label in row: {}", row);
 }
+
+#[test]
+fn inspect_rejects_mixed_and_multi_peer_owners() {
+    let mixed = vec!["local".into(), "mesh:peer/remote".into()];
+    assert!(super::remote_inspect_target(&mixed).unwrap_err().contains("mixed"));
+    let peers = vec!["mesh:a/one".into(), "mesh:b/two".into()];
+    assert!(super::remote_inspect_target(&peers).unwrap_err().contains("multi-peer"));
+}
+
+#[test]
+fn composite_parser_rejects_rest_and_whitespace_delimiters() {
+    for id in ["mesh:p/a b", "mesh:p/a?b", "mesh:p/a&b", "mesh:p/a#b"] {
+        assert!(super::parse_remote_tab_id(id).is_none(), "accepted {id}");
+    }
+}

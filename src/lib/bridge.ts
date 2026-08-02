@@ -368,6 +368,10 @@ const HTTP_MAP: Record<string, Mapper> = {
       if (!ptyId) throw new Error("Remote tab PTY unavailable");
       if (suffix === "/pty/write") path = `/api/pty/${enc(ptyId)}/write`;
       else if (suffix === "/pty/resize") path = `/api/pty/${enc(ptyId)}/resize`;
+      else if (suffix === "/pty/claim-resize") {
+        path = `/api/tabs/${enc(remoteTab)}/resize-owner`;
+        a.body = { ...(a.body as Record<string, unknown>), pty_id: ptyId };
+      }
       else if (suffix.startsWith("/pty/read")) path = `/api/pty/${enc(ptyId)}/read${suffix.slice("/pty/read".length)}`;
       else throw new Error("Unsupported remote PTY action");
     }

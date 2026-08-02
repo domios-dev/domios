@@ -45,6 +45,9 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "write_pty_string": return call("POST", "/pty/write", { data: args.data, raw: args.raw !== false });
     case "interrupt_agent": return call("POST", "/pty/write", { data: "\u001b", raw: true });
     case "resize_pty": return call("POST", "/pty/resize", { cols: args.cols, rows: args.rows, client_id: args.clientId });
+    case "claim_resize_owner": return call("POST", "/pty/claim-resize", {
+      pty_id: args.ptyId, client_id: args.clientId, cols: args.cols, rows: args.rows, force: args.force === true,
+    });
     case "read_pty": {
       const offset = readOffsets.get(identity.ordinaryTabId) ?? 0;
       return call("GET", `/pty/read?offset=${offset}`, null, (value) => {
@@ -53,8 +56,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
         return response.data ?? [];
       });
     }
-    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId });
-    case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
+    case "chat_start": return call("POST", "/chat-raw/start", { subscription_id: args.subscriptionId });
+    case "chat_stop": return call("POST", "/chat-raw/stop", { subscription_id: args.subscriptionId });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes });
     case "chat_send_text": return call("POST", "/chat-send", { text: args.text });
     case "chat_send_status": return call("GET", "/chat-send");
