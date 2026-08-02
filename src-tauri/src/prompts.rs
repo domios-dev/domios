@@ -283,7 +283,8 @@ mod tests {
 
     #[test]
     fn orchestration_prompts_separate_capability_from_mode() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Orchestrator is an explicit mode"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("You coordinate Teams; you never join one"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("remaining outside their role and plan bindings"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("Until then, stay the machine-level General Agent"));
         assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
