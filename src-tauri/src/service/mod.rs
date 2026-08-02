@@ -117,7 +117,9 @@ pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
 pub(crate) use hierarchy::{FirstPlanCaller, FirstPlanTeamError};
-pub(crate) use plan_authority::AuthenticatedPlanCaller;
+pub(crate) use plan_authority::{
+    ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
+};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,

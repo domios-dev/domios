@@ -1,5 +1,6 @@
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{PlanningAuthor, PlanningState, PlannerRef};
+use crate::plan::{PlanMode, PlanningAuthor, PlanningState, PlannerRef};
+use serde_json::Value;
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -103,6 +104,31 @@ impl ServiceContext {
             .map_err(|error| error.to_string())
     }
 
+    pub(crate) fn authorize_execution_action(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<(), String> {
+        self.authorize_plan_orchestrator(plan_id, caller)?;
+        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        if plan.planning_state != PlanningState::Approved {
+            return Err("the Plan graph must be approved before execution actions".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn enter_execution_mode(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        self.authorize_execution_action(plan_id, caller)?;
+        self.plan_store
+            .set_mode(plan_id, PlanMode::Execution, now_ms)
+            .map_err(|error| error.to_string())
+    }
+
     pub(crate) fn ensure_task_dispatchable(&self, plan_id: &str) -> Result<(), PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
         if plan.execution_tasks_unlocked() {
@@ -110,6 +136,29 @@ impl ServiceContext {
         } else {
             Err(PlanError::TaskDispatchRequiresApproval)
         }
+    }
+}
+
+pub(crate) fn ensure_planner_task_fields_are_structural(
+    author: &PlanningAuthor,
+    body: &Value,
+) -> Result<(), String> {
+    if !matches!(author, PlanningAuthor::Planner { .. }) {
+        return Ok(());
+    }
+    const EXECUTION_FIELDS: &[&str] = &[
+        "status", "status_label", "lane", "assign_tab", "assigned_tab_id", "tab",
+        "executor_role", "role_guidance", "personality", "personality_provenance",
+        "attempt", "attempt_id", "attempts", "competition", "review_stage", "qa_state",
+    ];
+    let field = EXECUTION_FIELDS
+        .iter()
+        .find(|field| body.get(**field).is_some_and(|value| !value.is_null()));
+    match field {
+        Some(field) => Err(format!(
+            "draft Planners may only edit structural task fields; '{field}' requires the Plan Orchestrator"
+        )),
+        None => Ok(()),
     }
 }
 
@@ -247,5 +296,39 @@ mod tests {
             TaskStatus::Pending
         );
         assert!(fixture.service.ensure_task_dispatchable(&plan_id).is_ok());
+    }
+
+    #[test]
+    fn draft_execution_actions_and_mode_activation_fail_before_approval() {
+        let (fixture, plan_id, _, owner) = fixture();
+        assert!(fixture
+            .service
+            .authorize_execution_action(&plan_id, &owner)
+            .is_err());
+        assert!(fixture
+            .service
+            .enter_execution_mode(&plan_id, &owner, 2)
+            .is_err());
+        assert_eq!(
+            fixture.service.plan_store.get(&plan_id).unwrap().mode,
+            PlanMode::Planning
+        );
+    }
+
+    #[test]
+    fn planner_task_updates_reject_execution_lifecycle_fields() {
+        let author = PlanningAuthor::Planner { tab_id: "planner".into() };
+        for field in ["status", "lane", "executor_role", "assign_tab", "attempt_id"] {
+            assert!(ensure_planner_task_fields_are_structural(
+                &author,
+                &serde_json::json!({ (field): "forbidden" })
+            )
+            .is_err());
+        }
+        assert!(ensure_planner_task_fields_are_structural(
+            &author,
+            &serde_json::json!({ "name": "Structural", "depends_on": [] })
+        )
+        .is_ok());
     }
 }

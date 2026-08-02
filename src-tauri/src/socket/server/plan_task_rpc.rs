@@ -46,6 +46,27 @@ pub(super) fn authorize_draft_mutation(
     })
 }
 
+fn authenticated_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: params.and_then(|v| v.get("caller_tab_id")).and_then(Value::as_str).map(str::to_string),
+        session_id: params.and_then(|v| v.get("session_id")).and_then(Value::as_str).map(str::to_string),
+        binding_nonce: params.and_then(|v| v.get("session_binding_nonce")).and_then(Value::as_str).map(str::to_string),
+    }
+}
+
+pub(super) fn authorize_execution(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: Option<&Value>,
+) -> Result<(), JsonRpcError> {
+    svc.authorize_execution_action(plan_id, &authenticated_caller(params))
+        .map_err(|message| JsonRpcError {
+            code: -32003,
+            message,
+            data: Some(json!({ "type": "plan_execution_authorization_required" })),
+        })
+}
+
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
     let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
     else {
@@ -355,7 +376,14 @@ pub(super) fn dispatch(
             let section_ids = store
                 .resolve_task_section_ids(&id, &requested_sections)
                 .map_err(plan_rpc_err)?;
-            authorize_draft_mutation(svc, &id, p)?;
+            let author = svc
+                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+            crate::service::ensure_planner_task_fields_are_structural(
+                &author,
+                p.unwrap_or(&Value::Null),
+            )
+            .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
             let has_sections = !section_ids.is_empty();
             let has_model = p
                 .and_then(|x| x.get("model"))
@@ -509,7 +537,14 @@ pub(super) fn dispatch(
             validate_task_update_params(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
-            authorize_draft_mutation(svc, &id, p)?;
+            let author = svc
+                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+            crate::service::ensure_planner_task_fields_are_structural(
+                &author,
+                p.unwrap_or(&Value::Null),
+            )
+            .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
                     .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))
@@ -628,6 +663,8 @@ pub(super) fn dispatch(
         }
 
         "plan.task.assign" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            authorize_execution(svc, &id, p)?;
             let id = assign_task_with_profile(store, svc, params, p, now)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
@@ -649,6 +686,7 @@ pub(super) fn dispatch(
 
         "plan.task.respawn" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            authorize_execution(svc, &id, p)?;
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
