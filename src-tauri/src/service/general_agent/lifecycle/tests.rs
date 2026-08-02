@@ -261,6 +261,11 @@ fn general_agent_env_uses_configured_api_port_not_parent_env() {
         env.get("CODETERM_API_TOKEN").map(String::as_str),
         Some("test-token")
     );
+    assert_eq!(
+        env.get("CODETERM_MACHINE_AGENT_IDENTITY").map(String::as_str),
+        Some("general_agent")
+    );
+    assert!(!env.contains_key("CODETERM_ROLE"));
 }
 
 #[test]

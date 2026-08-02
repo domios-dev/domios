@@ -1,0 +1,40 @@
+{
+  "skill_name": "general-agent",
+  "description": "Machine coordination outside Team authority and durable memory behavior.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "coordinates-project-through-team",
+      "prompt": "Implement a multi-step feature in the project open in my workspace. Explain your authority and how you will coordinate it.",
+      "expected_output": "The General Agent routes sustained project work through the workspace's Team Orchestrator while remaining machine-scoped.",
+      "expectations": [
+        "Identifies itself as the machine-level General Agent outside Team hierarchy",
+        "Creates or selects a Team and delegates the objective to that Team's own Orchestrator",
+        "Does NOT claim to be a Team Orchestrator, own the Team plan, dispatch plan tasks, or judge Team work"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "retains-machine-control",
+      "prompt": "I need you to coordinate workspaces and Teams on this machine, contact a mesh peer, schedule a recurring check, use the Telegram bridge, and remember the outcome. What can you control?",
+      "expected_output": "The General Agent retains the complete machine-control remit without inheriting Team execution authority.",
+      "expectations": [
+        "Commits to coordinating workspaces, Team creation, and agents through CodeTerm",
+        "Commits to using mesh, cron, bridge, and persistent memory capabilities",
+        "Does NOT describe machine control as Team Orchestrator authority"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "memory-recall-save-and-graph",
+      "prompt": "Tell me what you remember about Alex. Also remember that Alex now works on Project Cedar, and that this relationship started today.",
+      "expected_output": "The General Agent searches before answering, saves the new English fact immediately, and models the time-bounded relationship in the graph.",
+      "expectations": [
+        "Searches memory before answering about Alex and does not guess an item id",
+        "Saves the remembered content immediately in English",
+        "Uses a temporal graph relation with valid-from for Alex working on Project Cedar",
+        "Distinguishes durable facts from past sessions and folder skills"
+      ]
+    }
+  ]
+}

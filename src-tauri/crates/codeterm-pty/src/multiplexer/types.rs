@@ -363,6 +363,13 @@ pub enum TabAudience {
     Automation,
 }
 
+/// Machine-scoped agent identity, orthogonal to Team roles and membership.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineAgentIdentity {
+    GeneralAgent,
+}
+
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -454,6 +461,9 @@ pub struct Tab {
     /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
+    /// Machine-level identity. This never grants Team execution authority.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub machine_agent_identity: Option<MachineAgentIdentity>,
     /// Behavioral profile layered on top of the structural role.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
@@ -589,6 +599,12 @@ impl Tab {
     pub fn is_chat_backend(&self) -> bool {
         matches!(self.backing, TabBacking::ChatBackend { .. })
     }
+
+    pub fn has_team_orchestrator_authority(&self) -> bool {
+        self.machine_agent_identity.is_none()
+            && self.role == Some(AgentRole::Orchestrator)
+            && self.team_id.is_some()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -629,6 +645,7 @@ mod tests {
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
+            machine_agent_identity: None,
             role_profile: None,
             team_id: None,
             watcher: None,

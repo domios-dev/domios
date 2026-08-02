@@ -38,6 +38,7 @@ impl MultiplexerState {
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
+            machine_agent_identity: None,
             role_profile: None,
             team_id: None,
             watcher: None,

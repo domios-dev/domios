@@ -461,8 +461,8 @@ pub fn start_general_agent(
             provider_name,
             &command,
             params.task.as_deref().or(startup_message.as_deref()),
-            Some("Orchestrator"),
-            Some("general_agent"),
+            Some("General Agent"),
+            Some("machine_general"),
             if fallback {
                 "confirmed_fallback"
             } else {
@@ -479,8 +479,8 @@ pub fn start_general_agent(
             provider_name,
             &cmd,
             None,
-            Some("Orchestrator"),
-            Some("general_agent"),
+            Some("General Agent"),
+            Some("machine_general"),
             "resumed_session",
         );
     }
@@ -806,7 +806,10 @@ fn general_agent_env_vars(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
-    env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
+    env.insert(
+        "CODETERM_MACHINE_AGENT_IDENTITY".to_string(),
+        "general_agent".to_string(),
+    );
     // Derive URL+port from the daemon config, not a parent CodeTerm env leak —
     // an inherited prod CODETERM_API_URL (7685) 401s this instance's token.
     let (api_url, api_port) = crate::config::api_callback_url(&config.lock().api);

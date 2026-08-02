@@ -93,14 +93,18 @@ function TabWorkingActivity() {
   );
 }
 
-function TabSubline({ roleShield }: { roleShield: string | null }) {
+function TabSubline({ roleShield, generalAgent }: { roleShield: string | null; generalAgent: boolean }) {
   if (!roleShield) return null;
   return (
     <span
       data-testid="tab-subline"
       className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
     >
-      <RoleBadge label={roleShield} className="shrink-0" />
+      {generalAgent ? (
+        <span data-testid="general-agent-subtitle" className="shrink-0">General Agent</span>
+      ) : (
+        <RoleBadge label={roleShield} className="shrink-0" />
+      )}
     </span>
   );
 }
@@ -136,10 +140,12 @@ function TabItemInner({
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = tab.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
-  const roleShield = roleShieldLabel(tab);
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
+  const isGeneralAgent = tab.machine_agent_identity === "general_agent";
+  const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
+  const roleShield = isGeneralAgent ? "General Agent" : roleShieldLabel(tab);
   const isSubTab =
     tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -296,7 +302,7 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
-        aria-label={`Open tab ${displayTitle}`}
+        aria-label={isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
@@ -341,7 +347,7 @@ function TabItemInner({
                 {collapsedSummary}
               </span>
             ) : (
-              <TabSubline roleShield={roleShield} />
+              <TabSubline roleShield={roleShield} generalAgent={isGeneralAgent} />
             )}
         </span>
         {/* Connected services */}
@@ -370,9 +376,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${displayTitle} tab status ${status ?? "Unknown"}`}
+        aria-label={`${accessibleTitle} tab status ${status ?? "Unknown"}`}
       >
-        {displayTitle} tab status {status ?? "Unknown"}
+        {accessibleTitle} tab status {status ?? "Unknown"}
       </span>
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode ? (
@@ -464,6 +470,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     backingPluginId(pp) === backingPluginId(np) &&
     backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
+    pp.machine_agent_identity === np.machine_agent_identity &&
     pp.role === np.role &&
     pp.chat_view === np.chat_view &&
     pp.pending_prompt === np.pending_prompt &&
