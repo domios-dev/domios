@@ -61,8 +61,9 @@ fn peer_api_url_brackets_ipv6_host() {
 fn paste_put_over_mesh_maps_to_remote_pasteboard_create() {
     let cmd = Commands::Paste {
         action: crate::PasteAction::Put {
-            body: "payload".into(),
+            body: Some("payload".into()),
             from_file: None,
+            from_pad: None,
             from_stdin: false,
             ttl: Some("5m".into()),
             content_type: Some("text/plain".into()),
@@ -105,6 +106,7 @@ fn bridge_send_over_mesh_decodes_quoted_newline() {
     let (method, path, body) = cli_command_to_api(&Commands::Bridge {
         action: BridgeAction::Send {
             text: Some("first\\nsecond".into()),
+            from_pad: None,
             raw_text: false,
             service: "telegram".into(),
             to: 42,

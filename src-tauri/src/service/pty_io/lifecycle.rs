@@ -261,6 +261,9 @@ impl ServiceContext {
     pub(crate) fn tab_env(&self, tab_id: &str) -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.to_string());
+        if let Ok(pad) = self.ensure_agent_pad(tab_id) {
+            env_vars.insert("CODETERM_PAD_DIR".into(), pad.env_value());
+        }
         env_vars.insert(
             "CODETERM_SESSION_BINDING_NONCE".into(),
             self.ensure_session_binding_nonce(tab_id),

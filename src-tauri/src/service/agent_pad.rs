@@ -87,6 +87,25 @@ impl AgentPad {
     }
 }
 
+impl super::ServiceContext {
+    pub(crate) fn ensure_agent_pad(&self, tab_id: &str) -> Result<AgentPad, String> {
+        if let Ok(pad) = AgentPad::open(&crate::paths::data_dir(), tab_id) { return Ok(pad); }
+        let role = self.mux.read().get_tab(tab_id).and_then(|tab| tab.role)
+            .map(|role| format!("{role:?}"));
+        let role = match role.as_deref() {
+            Some("Worker") => AgentPadRole::Worker,
+            Some("Orchestrator") => AgentPadRole::Orchestrator,
+            Some("Planner") | Some("Manager") => AgentPadRole::Planner,
+            _ => AgentPadRole::General,
+        };
+        AgentPad::create(&crate::paths::data_dir(), tab_id, role)
+    }
+
+    pub(crate) fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
+        revoke(&crate::paths::data_dir().join(PAD_SUBDIR), tab_id)
+    }
+}
+
 pub fn revoke(root: &Path, tab_id: &str) -> Result<(), String> {
     validate_tab_id(tab_id)?;
     let path = root.join(tab_id);
