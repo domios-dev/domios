@@ -66,14 +66,16 @@ pub(super) fn dispatch(
                         data: None,
                     });
                 }
-                store.close_task_authorized(
-                    &id,
-                    &tid,
-                    p.and_then(|x| x.get("result")).and_then(|v| v.as_str()),
-                    from_param(p),
-                    &authority,
-                    now,
-                ).map_err(plan_rpc_err)?;
+                store
+                    .close_task_authorized(
+                        &id,
+                        &tid,
+                        p.and_then(|x| x.get("result")).and_then(|v| v.as_str()),
+                        from_param(p),
+                        &authority,
+                        now,
+                    )
+                    .map_err(plan_rpc_err)?;
                 drop(mux);
             } else {
                 store

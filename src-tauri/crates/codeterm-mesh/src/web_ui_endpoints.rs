@@ -65,14 +65,17 @@ pub fn normalize(announcement: WebUiAnnouncement) -> Option<WebUiAnnouncement> {
 }
 
 pub fn preferred_https_url(announcement: Option<&WebUiAnnouncement>) -> Option<String> {
-    announcement?.endpoints.iter().find_map(|endpoint| match endpoint {
-        WebUiEndpoint::TailscaleHttps { host, port } => Some(if *port == 443 {
-            format!("https://{host}")
-        } else {
-            format!("https://{host}:{port}")
-        }),
-        _ => None,
-    })
+    announcement?
+        .endpoints
+        .iter()
+        .find_map(|endpoint| match endpoint {
+            WebUiEndpoint::TailscaleHttps { host, port } => Some(if *port == 443 {
+                format!("https://{host}")
+            } else {
+                format!("https://{host}:{port}")
+            }),
+            _ => None,
+        })
 }
 
 fn parse_https_endpoint(url: &str) -> Option<WebUiEndpoint> {
@@ -153,9 +156,18 @@ mod tests {
             Some("https://host.tailnet.ts.net"),
         )
         .expect("endpoints");
-        assert!(matches!(announcement.endpoints[0], WebUiEndpoint::TailscaleHttps { .. }));
-        assert!(matches!(announcement.endpoints[1], WebUiEndpoint::TailscaleHttp { .. }));
-        assert!(matches!(announcement.endpoints[2], WebUiEndpoint::LanHttp { .. }));
+        assert!(matches!(
+            announcement.endpoints[0],
+            WebUiEndpoint::TailscaleHttps { .. }
+        ));
+        assert!(matches!(
+            announcement.endpoints[1],
+            WebUiEndpoint::TailscaleHttp { .. }
+        ));
+        assert!(matches!(
+            announcement.endpoints[2],
+            WebUiEndpoint::LanHttp { .. }
+        ));
     }
 
     #[test]

@@ -132,13 +132,8 @@ impl ServiceContext {
         attempt_id: &str,
         session_id: Option<&str>,
     ) -> bool {
-        self.plan_store.worker_startup_attempt_owns(
-            plan_id,
-            task_id,
-            tab_id,
-            attempt_id,
-            session_id,
-        )
+        self.plan_store
+            .worker_startup_attempt_owns(plan_id, task_id, tab_id, attempt_id, session_id)
     }
 
     fn authenticated_worker_binding(&self, tab_id: &str) -> Option<(String, String)> {
@@ -527,9 +522,6 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("ORCHESTRATION PRODUCT INCIDENT"));
-        assert!(event["fallback"]
-            .as_str()
-            .unwrap()
-            .contains("still live"));
+        assert!(event["fallback"].as_str().unwrap().contains("still live"));
     }
 }

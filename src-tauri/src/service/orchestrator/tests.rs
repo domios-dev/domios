@@ -635,11 +635,7 @@ fn launch_flags_require_host_resolved_global_access() {
     let mut authorized = make_params("claude", None);
     authorized.skip_permissions = Some(true);
     authorized.permission_bypass_authorization =
-        crate::service::permission_policy::authorize_permission_bypass(
-            &registry,
-            "claude",
-            true,
-        );
+        crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true);
     let explicit_command = build_agent_command("claude", &authorized, None, None, &registry);
     assert_eq!(
         explicit_command

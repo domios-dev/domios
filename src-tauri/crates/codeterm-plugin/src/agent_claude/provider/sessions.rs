@@ -328,7 +328,9 @@ fn session_entry_reasoning_effort(value: &serde_json::Value) -> Option<String> {
         value.get("effort"),
         value.get("reasoning_effort"),
         value.get("reasoningEffort"),
-        value.get("message").and_then(|message| message.get("effort")),
+        value
+            .get("message")
+            .and_then(|message| message.get("effort")),
         value
             .get("message")
             .and_then(|message| message.get("reasoning_effort")),
@@ -517,15 +519,14 @@ mod model_label_tests {
             "{\"type\":\"assistant\",\"message\":{\"metadata\":{\"effort\":\"high\"}}}\n",
         )
         .unwrap();
-        std::fs::write(
-            &latest,
-            "{\"type\":\"assistant\",\"effort\":\"max\"}\n",
-        )
-        .unwrap();
+        std::fs::write(&latest, "{\"type\":\"assistant\",\"effort\":\"max\"}\n").unwrap();
 
         assert_eq!(scan_effort_tail(&owned, 64 * 1024).as_deref(), Some("high"));
         assert_eq!(scan_effort_tail(&latest, 64 * 1024).as_deref(), Some("max"));
-        assert_eq!(scan_effort_tail(&dir.path().join("missing.jsonl"), 64 * 1024), None);
+        assert_eq!(
+            scan_effort_tail(&dir.path().join("missing.jsonl"), 64 * 1024),
+            None
+        );
     }
 
     #[test]

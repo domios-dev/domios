@@ -36,7 +36,7 @@ fn format_unix_ts(ts: i64) -> String {
 pub fn handle_sessions(
     json_mode: bool,
     action: SessionsAction,
-    http: &reqwest::blocking::Client,
+    http: &crate::local_api::LocalApiClient,
     base: &str,
     token: Option<&str>,
 ) {

@@ -28,7 +28,9 @@ pub(super) fn dispatch(
         return Ok(result);
     }
     let plan_id = plan_refs::resolve_plan(store, params)?;
-    let Some(body) = params.as_ref() else { return Ok(result) };
+    let Some(body) = params.as_ref() else {
+        return Ok(result);
+    };
     let binding = [
         body.get("caller_tab_id").and_then(Value::as_str),
         body.get("caller_session_id").and_then(Value::as_str),
@@ -58,8 +60,14 @@ pub(super) fn dispatch(
         message: "plan skill response is missing skill".into(),
         data: None,
     })?;
-    let slug = skill.get("slug").and_then(Value::as_str).unwrap_or_default();
-    let body = skill.get("body").and_then(Value::as_str).unwrap_or_default();
+    let slug = skill
+        .get("slug")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let body = skill
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let digest = format!("sha256:{:x}", sha2::Sha256::digest(body.as_bytes()));
     let attempt_id = params
         .as_ref()

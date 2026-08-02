@@ -78,7 +78,6 @@ impl RestartOutcome {
             _ => "fresh",
         }
     }
-
 }
 
 /// Tab state captured before any restart leg mutates it.

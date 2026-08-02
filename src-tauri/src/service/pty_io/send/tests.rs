@@ -27,8 +27,12 @@ fn handle() -> crate::ScreenStateHandle {
 
 #[test]
 fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
-    assert!(delivery_is_unknown("submit_unconfirmed: Enter was not observed"));
-    assert!(!delivery_is_unknown("pty_unavailable: recipient PTY missing"));
+    assert!(delivery_is_unknown(
+        "submit_unconfirmed: Enter was not observed"
+    ));
+    assert!(!delivery_is_unknown(
+        "pty_unavailable: recipient PTY missing"
+    ));
 }
 
 #[test]

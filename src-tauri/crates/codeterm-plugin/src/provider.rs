@@ -565,10 +565,12 @@ pub trait AgentProvider: Send + Sync {
     }
 
     fn provider_allowance_capability(&self) -> Option<ProviderAllowanceCapability> {
-        self.usage_parser().is_some().then_some(ProviderAllowanceCapability {
-            default_reserve_pct: 5.0,
-            telemetry_max_age_ms: 15 * 60 * 1_000,
-        })
+        self.usage_parser()
+            .is_some()
+            .then_some(ProviderAllowanceCapability {
+                default_reserve_pct: 5.0,
+                telemetry_max_age_ms: 15 * 60 * 1_000,
+            })
     }
 
     fn usage_probe_command(&self) -> Option<&str> {
@@ -936,7 +938,9 @@ pub trait AgentProvider: Send + Sync {
         options: &IntegrationInstallOptions,
     ) -> Result<(), String> {
         if !options.consent {
-            return Err("provider integration installation requires explicit local-user consent".into());
+            return Err(
+                "provider integration installation requires explicit local-user consent".into(),
+            );
         }
         Ok(())
     }

@@ -8,9 +8,7 @@ fn startup_attempt<'a>(
     attempt_id: &str,
 ) -> Option<(&'a crate::plan::TaskExecutionAttempt, bool)> {
     let attempt = task.execution_attempts.iter().find(|attempt| {
-        attempt.id == attempt_id
-            && attempt.executor_tab_id == tab_id
-            && attempt.closed_at.is_none()
+        attempt.id == attempt_id && attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
     })?;
     if let Some(group_id) = attempt.competition_group_id.as_deref() {
         if attempt
@@ -24,9 +22,7 @@ fn startup_attempt<'a>(
             .execution_attempts
             .iter()
             .rev()
-            .find(|attempt| {
-                attempt.closed_at.is_none() && attempt.competition_group_id.is_some()
-            })
+            .find(|attempt| attempt.closed_at.is_none() && attempt.competition_group_id.is_some())
             .and_then(|attempt| attempt.competition_group_id.as_deref());
         return (current_group == Some(group_id)).then_some((attempt, true));
     }
@@ -103,9 +99,10 @@ impl PlanStore {
             if !owns_startup {
                 return Ok(false);
             }
-            let competitive = task.execution_attempts.iter().any(|attempt| {
-                attempt.id == attempt_id && attempt.competition_group_id.is_some()
-            });
+            let competitive = task
+                .execution_attempts
+                .iter()
+                .any(|attempt| attempt.id == attempt_id && attempt.competition_group_id.is_some());
             if final_deadline {
                 let attempt = task
                     .execution_attempts
@@ -168,9 +165,10 @@ impl PlanStore {
                         == Some(group_id);
                 }
                 task.assigned_tab_id.is_none()
-                    && task.execution_attempts.last().is_some_and(|candidate| {
-                        candidate.id == attempt_id
-                    })
+                    && task
+                        .execution_attempts
+                        .last()
+                        .is_some_and(|candidate| candidate.id == attempt_id)
             });
             if !fenced_attempt_is_current {
                 return Ok(false);
@@ -530,9 +528,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             let authority = startup_attempt(&plan.tasks[task_index], tab_id, attempt_id);
             let competitive = authority.is_some_and(|(_, competitive)| competitive);
-            if authority.is_none()
-                || !startup_status_allows(&plan.tasks[task_index], competitive)
-            {
+            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index], competitive) {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "attempt no longer owns the acknowledging tab",

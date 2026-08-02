@@ -121,8 +121,7 @@ mod tests {
         let mut args = vec!["codeterm"];
         args.extend(path.split_whitespace());
         args.push("--help");
-        Cli::try_parse_from(args)
-            .is_err_and(|error| error.kind() == ErrorKind::DisplayHelp)
+        Cli::try_parse_from(args).is_err_and(|error| error.kind() == ErrorKind::DisplayHelp)
     }
 
     #[test]

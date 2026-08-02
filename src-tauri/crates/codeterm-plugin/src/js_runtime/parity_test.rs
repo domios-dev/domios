@@ -923,10 +923,7 @@ fn reasoning_effort_capability_is_declared_and_gated() {
         .iter()
         .map(|effort| effort.id.clone())
         .collect();
-    assert_eq!(
-        claude_ids,
-        vec!["low", "medium", "high", "xhigh", "max"]
-    );
+    assert_eq!(claude_ids, vec!["low", "medium", "high", "xhigh", "max"]);
     assert_eq!(
         claude.reasoning_effort_launch_args("xhigh"),
         vec!["--effort".to_string(), "xhigh".to_string()]
@@ -936,7 +933,10 @@ fn reasoning_effort_capability_is_declared_and_gated() {
     assert!(claude.validate_reasoning_effort(Some("ultra")).is_err());
 
     let native_claude = crate::agent_claude::provider::ClaudeProvider::new();
-    assert_eq!(native_claude.reasoning_efforts(), claude.reasoning_efforts());
+    assert_eq!(
+        native_claude.reasoning_efforts(),
+        claude.reasoning_efforts()
+    );
     assert_eq!(
         native_claude.reasoning_effort_launch_args("high"),
         claude.reasoning_effort_launch_args("high")

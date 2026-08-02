@@ -671,11 +671,7 @@ fn run_plan(
             crate::cmd::plan_doctor::assert_quality_ready(client, &plan_id)?;
             let mut params = json!({ "plan_id": plan_id, "mode": "approved" });
             inject_trusted_session(&mut params);
-            call(
-                client,
-                "plan.mode.set",
-                params,
-            )
+            call(client, "plan.mode.set", params)
         }
 
         PlanAction::Unapprove { plan_id } => {

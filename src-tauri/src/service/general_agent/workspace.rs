@@ -96,9 +96,8 @@ pub fn ensure_general_workspace(
                 tab.role_profile = None;
                 tab.team_id = None;
                 tab.parent_tab_id = None;
-                tab.machine_agent_identity = Some(
-                    crate::multiplexer::types::MachineAgentIdentity::GeneralAgent,
-                );
+                tab.machine_agent_identity =
+                    Some(crate::multiplexer::types::MachineAgentIdentity::GeneralAgent);
                 tab.can_spawn = true;
                 tab.cwd = Some(general_cwd.clone());
                 tab.provisioned_cwd = Some(general_cwd);
@@ -134,9 +133,8 @@ pub fn ensure_general_workspace(
                 tab.role_profile = None;
                 tab.team_id = None;
                 tab.parent_tab_id = None;
-                tab.machine_agent_identity = Some(
-                    crate::multiplexer::types::MachineAgentIdentity::GeneralAgent,
-                );
+                tab.machine_agent_identity =
+                    Some(crate::multiplexer::types::MachineAgentIdentity::GeneralAgent);
                 tab.can_spawn = true;
                 tab.cwd = Some(general_cwd.clone());
                 tab.provisioned_cwd = Some(general_cwd);

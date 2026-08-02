@@ -230,8 +230,8 @@ fn screen_from_capture(encoded: &str) -> AttributedScreen {
 
 fn screen_from_cast(cast: &str) -> AttributedScreen {
     let mut lines = cast.lines();
-    let header: serde_json::Value = serde_json::from_str(lines.next().expect("cast header"))
-        .expect("valid cast header");
+    let header: serde_json::Value =
+        serde_json::from_str(lines.next().expect("cast header")).expect("valid cast header");
     let rows = header["height"].as_u64().expect("cast height") as u16;
     let cols = header["width"].as_u64().expect("cast width") as u16;
     let mut parser = vt100::Parser::new(rows, cols, 0);

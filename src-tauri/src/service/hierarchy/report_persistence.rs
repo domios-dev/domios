@@ -84,10 +84,20 @@ fn report_authority(
             report_persistence_incident(tab_id, plan_id, Some(task_id), "missing caller session id")
         })?,
         session_binding_nonce: details.session_binding_nonce.clone().ok_or_else(|| {
-            report_persistence_incident(tab_id, plan_id, Some(task_id), "missing caller binding nonce")
+            report_persistence_incident(
+                tab_id,
+                plan_id,
+                Some(task_id),
+                "missing caller binding nonce",
+            )
         })?,
         owner_epoch: details.owner_epoch.ok_or_else(|| {
-            report_persistence_incident(tab_id, plan_id, Some(task_id), "missing claimed owner epoch")
+            report_persistence_incident(
+                tab_id,
+                plan_id,
+                Some(task_id),
+                "missing claimed owner epoch",
+            )
         })?,
     };
     if authority.tab_id != tab_id {
@@ -415,7 +425,12 @@ mod tests {
     fn spoofed_or_rebound_report_rejects_transition_without_mutating_task() {
         let (mux, _) = MultiplexerState::new();
         let fixture = ServiceFixture::new(mux);
-        let workspace = fixture.service.mux.write().create_workspace("reports".into(), None).id;
+        let workspace = fixture
+            .service
+            .mux
+            .write()
+            .create_workspace("reports".into(), None)
+            .id;
         let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
         {
             let mut mux = fixture.service.mux.write();
@@ -449,8 +464,16 @@ mod tests {
             None,
             None,
             3,
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(error.contains("stale, spoofed, or rebound"));
-        assert!(fixture.service.plan_store.show_task(&task_id).unwrap().task.milestones.is_empty());
+        assert!(fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .milestones
+            .is_empty());
     }
 }

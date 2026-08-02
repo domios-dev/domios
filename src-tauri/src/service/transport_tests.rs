@@ -146,7 +146,10 @@ fn agent_pad_launch_env_for_pty_and_chat_backend() {
     let pty_env = std::collections::HashMap::from([("CODETERM_PAD_DIR", pty.env_value())]);
     let chat_ctx = serde_json::json!({"padDir": chat.env_value()});
     assert_eq!(pty_env["CODETERM_PAD_DIR"], pty.path().to_string_lossy());
-    assert_eq!(chat_ctx["padDir"], chat.path().to_string_lossy().to_string());
+    assert_eq!(
+        chat_ctx["padDir"],
+        chat.path().to_string_lossy().to_string()
+    );
 }
 
 #[test]
@@ -154,7 +157,9 @@ fn failed_launch_removes_agent_pad() {
     let temp = tempfile::tempdir().unwrap();
     let pad = AgentPad::create(temp.path(), "failed-full-id", AgentPadRole::Worker).unwrap();
     let path = pad.path().to_path_buf();
-    let result = finish_launch(Err::<Option<String>, _>("launch failed".into()), || pad.revoke().unwrap());
+    let result = finish_launch(Err::<Option<String>, _>("launch failed".into()), || {
+        pad.revoke().unwrap()
+    });
     assert!(result.is_err());
     assert!(!path.exists());
 }
@@ -166,7 +171,12 @@ fn provider_restart_retains_agent_pad() {
     std::fs::write(pad.path().join("report.md"), "snapshot").unwrap();
     drop(pad);
     let restored = AgentPad::open(temp.path(), "restart-full-id").unwrap();
-    assert_eq!(restored.read_utf8(std::path::Path::new("report.md")).unwrap(), "snapshot");
+    assert_eq!(
+        restored
+            .read_utf8(std::path::Path::new("report.md"))
+            .unwrap(),
+        "snapshot"
+    );
 }
 
 #[test]
@@ -184,6 +194,8 @@ fn team_close_removes_each_agent_pad() {
     let pads = ["orchestrator-full-id", "planner-full-id", "worker-full-id"]
         .map(|id| AgentPad::create(temp.path(), id, AgentPadRole::Worker).unwrap());
     let paths = pads.each_ref().map(|pad| pad.path().to_path_buf());
-    for pad in pads { pad.revoke().unwrap(); }
+    for pad in pads {
+        pad.revoke().unwrap();
+    }
     assert!(paths.iter().all(|path| !path.exists()));
 }

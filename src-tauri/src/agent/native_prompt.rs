@@ -152,7 +152,11 @@ mod tests {
                     .collect::<Vec<_>>(),
                 "{case}"
             );
-            assert_eq!(prompt.multi_select, expected["multiSelect"].as_bool(), "{case}");
+            assert_eq!(
+                prompt.multi_select,
+                expected["multiSelect"].as_bool(),
+                "{case}"
+            );
             assert_eq!(
                 prompt.selected_values,
                 Some(vec![

@@ -367,7 +367,10 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let tab = state.tabs.get("p2").expect("Tab restored");
     assert_eq!(tab.backing, TabBacking::Pty);
-    assert!(!tab.auto_approve, "snapshot trust never authorizes a resumed launch");
+    assert!(
+        !tab.auto_approve,
+        "snapshot trust never authorizes a resumed launch"
+    );
 }
 
 #[test]
@@ -391,7 +394,10 @@ fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
     let restored = MultiplexerState::from_session_snapshot(&persisted);
     let restored_tab = restored.get_tab(&tab_id).expect("restored automation tab");
     assert_eq!(restored_tab.audience, TabAudience::Automation);
-    assert!(!restored_tab.auto_approve, "restored automation remains sandboxed");
+    assert!(
+        !restored_tab.auto_approve,
+        "restored automation remains sandboxed"
+    );
 
     let mut legacy_json = serde_json::to_value(persisted).unwrap();
     legacy_json["workspaces"][0]["tabs"][0]["split_tree"]
@@ -400,9 +406,14 @@ fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
         .remove("audience");
     let legacy_snapshot: SessionSnapshot = serde_json::from_value(legacy_json).unwrap();
     let legacy_restored = MultiplexerState::from_session_snapshot(&legacy_snapshot);
-    let legacy_tab = legacy_restored.get_tab(&tab_id).expect("legacy automation tab");
+    let legacy_tab = legacy_restored
+        .get_tab(&tab_id)
+        .expect("legacy automation tab");
     assert_eq!(legacy_tab.audience, TabAudience::Automation);
-    assert!(!legacy_tab.auto_approve, "missing audience must fail closed");
+    assert!(
+        !legacy_tab.auto_approve,
+        "missing audience must fail closed"
+    );
 }
 
 #[test]

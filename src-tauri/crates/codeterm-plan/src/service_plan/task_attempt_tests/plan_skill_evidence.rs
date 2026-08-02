@@ -73,7 +73,11 @@ fn plan_skill_show_records_exact_attempt_evidence_idempotently() {
 fn competition_plan_skill_load_uses_exact_attempt_not_scalar_assignment() {
     let (_dir, store, plan_id, task_id, attempt_id) = prepared_store();
     let mut plan = store.get(&plan_id).unwrap();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.assigned_tab_id = None;
     task.execution_attempts[0].competition_group_id = Some("compete-1".into());
     store.save(&mut plan, 6).unwrap();
@@ -119,7 +123,11 @@ fn report_snapshot_retains_loaded_plan_skills_after_restart() {
         )
         .unwrap();
     let reloaded = PlanStore::new_for_test(dir.path());
-    let persisted = reloaded.show_task(&task_id).unwrap().task.execution_attempts
+    let persisted = reloaded
+        .show_task(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts
         .into_iter()
         .find(|attempt| attempt.id == attempt_id)
         .unwrap();

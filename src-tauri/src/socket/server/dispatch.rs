@@ -13,6 +13,7 @@ pub(super) fn dispatch(
 ) -> Result<serde_json::Value, JsonRpcError> {
     // System methods are tiny — handle inline.
     match method {
+        "api.request" => return local_api::dispatch(&params, app),
         "system.identify" => {
             return Ok(serde_json::json!({
                 "name": "CodeTerm",
@@ -25,6 +26,7 @@ pub(super) fn dispatch(
             let methods = vec![
                 "system.identify",
                 "system.capabilities",
+                "api.request",
                 "workspace.list",
                 "workspace.create",
                 "workspace.focus",

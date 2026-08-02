@@ -20,6 +20,8 @@ may run a gate only when it is assigned to that canonical checkout and receives
 explicit permission for that exact gate. Record deferred commands for canonical
 QA instead of treating lane execution as evidence.
 
+Batch all related edits before running tests.
+
 Create plan tasks with `codeterm plan task add ... --test-plan ... --qa-plan ...`;
 `test_plan` is Worker evidence, while `qa_plan` is the independent QA oracle.
 Dispatch with `codeterm plan task dispatch`; the Worker brief omits `qa_plan`.

@@ -7,7 +7,7 @@ use axum::{
 use tower_http::{
     catch_panic::CatchPanicLayer,
     compression::CompressionLayer,
-    cors::{Any, AllowOrigin, CorsLayer},
+    cors::{AllowOrigin, Any, CorsLayer},
 };
 
 use super::{
@@ -39,6 +39,9 @@ pub struct AppState {
     /// Directory holding the built React bundle, served at the daemon root.
     pub web_dist: Option<std::path::PathBuf>,
 }
+
+#[derive(Clone)]
+pub struct LocalApiRouter(pub Router);
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
@@ -449,10 +452,7 @@ pub fn create_router(state: AppState) -> Router {
             post(pty_routes::pty_launch_command),
         )
         .route("/api/session/save", post(session_routes::save_session_api))
-        .route(
-            "/api/providers",
-            get(agent_routes::list_agent_providers_public),
-        )
+        .route("/api/providers", get(agent_routes::list_agent_providers))
         .route(
             "/api/sessions/search",
             get(session_routes::search_sessions_api),
@@ -881,11 +881,10 @@ pub fn create_router(state: AppState) -> Router {
     };
 
     let api_config = state.config.lock().api.clone();
-    let router = router
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            super::auth::auth_middleware,
-        ));
+    let router = router.layer(middleware::from_fn_with_state(
+        state.clone(),
+        super::auth::auth_middleware,
+    ));
     let router = if api_config.cors {
         let origins = api_config
             .cors_allow_origins
@@ -901,9 +900,7 @@ pub fn create_router(state: AppState) -> Router {
     } else {
         router
     };
-    router
-        .layer(CatchPanicLayer::new())
-        .with_state(state)
+    router.layer(CatchPanicLayer::new()).with_state(state)
 }
 
 #[cfg(test)]

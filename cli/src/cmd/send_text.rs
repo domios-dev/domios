@@ -180,7 +180,7 @@ pub fn handle_send_text(
     }
     let tab_id = resolve_tab(client, tab);
     if let Some(actions) = parsed_actions {
-        let result = send_actions_via_http(json, &tab_id, &resolved_text, actions);
+        let result = send_actions_via_socket(json, &tab_id, &resolved_text, actions);
         handle_send_text_result(json, result, Some(&resolved_text));
         return;
     }
@@ -386,14 +386,14 @@ fn parse_ctrl_key(value: &str) -> Option<u8> {
     }
 }
 
-fn send_actions_via_http(
+fn send_actions_via_socket(
     _json: bool,
     tab_id: &str,
     text: &str,
     actions: Vec<SendActionSpec>,
 ) -> Result<serde_json::Value, String> {
-    let (base, token) = crate::read_api_config();
-    let http = crate::build_http(&token).map_err(|e| e.to_string())?;
+    let (base, _) = crate::read_api_config();
+    let api = crate::build_local_api().map_err(|e| e.to_string())?;
     let mut body = serde_json::json!({
         "actions": actions_to_json(&actions),
     });
@@ -405,7 +405,7 @@ fn send_actions_via_http(
             body["source_tab"] = serde_json::json!(my_tab);
         }
     }
-    let resp = http
+    let resp = api
         .post(format!("{}/api/tabs/{}/send", base, tab_id))
         .json(&body)
         .send()

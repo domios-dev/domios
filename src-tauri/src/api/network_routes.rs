@@ -61,7 +61,12 @@ pub async fn serve_enable_handler(
         body.https_port,
     )
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Web Access mutation failed"))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Web Access mutation failed",
+        )
+    })?;
     Ok(Json(
         serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
     ))
@@ -79,7 +84,12 @@ pub async fn serve_disable_handler(
         state.api_port,
     )
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Web Access mutation failed"))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Web Access mutation failed",
+        )
+    })?;
     Ok(Json(
         serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
     ))

@@ -63,19 +63,28 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     if detail.task.interruption.owner_epoch != authority.owner_epoch {
         return Err(rpc_error("task mutation owner epoch is stale"));
     }
-    let binding_matches = svc.mux.read().get_tab(&authority.tab_id).is_some_and(|tab| {
-        tab.agent_session_id.as_deref() == Some(&authority.session_id)
-            && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
-            && tab.reported_session_binding_nonce.as_deref()
-                == Some(&authority.session_binding_nonce)
-    });
+    let binding_matches = svc
+        .mux
+        .read()
+        .get_tab(&authority.tab_id)
+        .is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+                && tab.reported_session_binding_nonce.as_deref()
+                    == Some(&authority.session_binding_nonce)
+        });
     if !binding_matches {
-        return Err(rpc_error("task mutation caller binding is stale or rebound"));
+        return Err(rpc_error(
+            "task mutation caller binding is stale or rebound",
+        ));
     }
-    let orchestrator = svc.plan_store.owner_of(&detail.plan_id).is_some_and(|owner| {
-        owner.tab_id.as_deref() == Some(&authority.tab_id)
-            && owner.session_id.as_deref() == Some(&authority.session_id)
-    });
+    let orchestrator = svc
+        .plan_store
+        .owner_of(&detail.plan_id)
+        .is_some_and(|owner| {
+            owner.tab_id.as_deref() == Some(&authority.tab_id)
+                && owner.session_id.as_deref() == Some(&authority.session_id)
+        });
     if orchestrator {
         return Ok(());
     }

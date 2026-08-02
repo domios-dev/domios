@@ -106,20 +106,19 @@ impl super::ServiceContext {
             .flat_map(|plan| plan.tasks)
             .flat_map(|task| {
                 let status = task.status;
-                task.execution_attempts.into_iter().filter_map(move |attempt| {
-                    (attempt.closed_at.is_none()
-                        && attempt.provider.as_deref() == Some(provider)
-                        && attempt_is_active_for_interruption(&status, &attempt))
-                    .then_some(attempt.executor_tab_id)
-                })
+                task.execution_attempts
+                    .into_iter()
+                    .filter_map(move |attempt| {
+                        (attempt.closed_at.is_none()
+                            && attempt.provider.as_deref() == Some(provider)
+                            && attempt_is_active_for_interruption(&status, &attempt))
+                        .then_some(attempt.executor_tab_id)
+                    })
             })
             .collect::<std::collections::HashSet<_>>();
         tabs.iter()
             .filter(|tab_id| {
-                self.signal_worker_interruption(
-                    tab_id,
-                    WorkerInterruptionEvent::ProviderExhausted,
-                )
+                self.signal_worker_interruption(tab_id, WorkerInterruptionEvent::ProviderExhausted)
             })
             .count()
     }
@@ -424,7 +423,9 @@ fn git(worktree: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|error| error.to_string())
 }
 
-pub fn seal_git_checkpoint(request: CheckpointRequest<'_>) -> Result<InterruptionCheckpoint, String> {
+pub fn seal_git_checkpoint(
+    request: CheckpointRequest<'_>,
+) -> Result<InterruptionCheckpoint, String> {
     let worktree = request
         .worktree_path
         .canonicalize()
@@ -433,18 +434,22 @@ pub fn seal_git_checkpoint(request: CheckpointRequest<'_>) -> Result<Interruptio
         .repo_path
         .canonicalize()
         .map_err(|error| format!("resolve repository: {error}"))?;
-    let current_head = git(&worktree, &["rev-parse", "HEAD"])?
-        .trim()
-        .to_string();
+    let current_head = git(&worktree, &["rev-parse", "HEAD"])?.trim().to_string();
     let base_head = git(&worktree, &["rev-parse", request.base_head])?
         .trim()
         .to_string();
-    let git_status = git(&worktree, &["status", "--porcelain=v2", "--untracked-files=all"])?;
+    let git_status = git(
+        &worktree,
+        &["status", "--porcelain=v2", "--untracked-files=all"],
+    )?;
     let tracked = git(&worktree, &["diff", "--binary", "--no-ext-diff", "HEAD"])?;
     if tracked.len() > CHECKPOINT_ARTIFACT_MAX_BYTES {
         return Err("checkpoint diff artifact exceeds 4 MiB bound".into());
     }
-    let untracked = git(&worktree, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let untracked = git(
+        &worktree,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+    )?;
     let mut diff_artifact = tracked;
     if !untracked.is_empty() {
         diff_artifact.push_str("\n# CODETERM_UNTRACKED\n");

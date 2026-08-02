@@ -257,7 +257,9 @@ fn show_skill(
     ]
     .map(|value| value.filter(|value| !value.trim().is_empty()));
     if binding.iter().any(Option::is_some) && binding.iter().any(Option::is_none) {
-        return Err("task-bound plan skill show requires complete tab/session/nonce/task identity".into());
+        return Err(
+            "task-bound plan skill show requires complete tab/session/nonce/task identity".into(),
+        );
     }
     if let [Some(tab_id), Some(session_id), Some(session_binding_nonce), Some(task_id)] = binding {
         params["caller_tab_id"] = json!(tab_id);

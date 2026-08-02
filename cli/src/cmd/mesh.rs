@@ -1,8 +1,8 @@
 use crate::{
-    build_http, client::SocketClient, mesh_cli, read_api_config, MeshAction, MeshPeerAction,
+    build_local_api, client::SocketClient, mesh_cli, read_api_config, MeshAction, MeshPeerAction,
 };
 
-fn handle_resp(resp: reqwest::blocking::Response) -> Result<serde_json::Value, String> {
+fn handle_resp(resp: crate::local_api::LocalApiResponse) -> Result<serde_json::Value, String> {
     let status = resp.status();
     if status.is_success() {
         resp.json::<serde_json::Value>()
@@ -15,7 +15,7 @@ fn handle_resp(resp: reqwest::blocking::Response) -> Result<serde_json::Value, S
 
 pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
     let (base, token) = read_api_config();
-    let http = match build_http(&token) {
+    let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: failed to build HTTP client: {}", e);
@@ -23,119 +23,114 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         }
     };
     match action {
-        MeshAction::Status => {
-            match client.call("mesh.status", None) {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        let name = val
-                            .get("instance_name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("?");
-                        let id = val
-                            .get("instance_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("?");
-                        let paired = val
-                            .get("paired_count")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0);
-                        let discovered = val
-                            .get("discovered_count")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0);
-                        println!("{} ({})", name, &id[..id.len().min(8)]);
-                        println!("Paired: {}, Discovered: {}", paired, discovered);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+        MeshAction::Status => match client.call("mesh.status", None) {
+            Ok(val) => {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                } else {
+                    let name = val
+                        .get("instance_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let id = val
+                        .get("instance_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let paired = val
+                        .get("paired_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let discovered = val
+                        .get("discovered_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    println!("{} ({})", name, &id[..id.len().min(8)]);
+                    println!("Paired: {}, Discovered: {}", paired, discovered);
                 }
             }
-        }
-        MeshAction::Peers => {
-            match client.call("mesh.peers", None) {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        if let Some(paired) = val.get("paired").and_then(|v| v.as_array()) {
-                            if !paired.is_empty() {
-                                println!("Paired:");
-                            }
-                            for p in paired {
-                                let name = p
-                                    .get("instance_name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let online =
-                                    p.get("online").and_then(|v| v.as_bool()).unwrap_or(false);
-                                let ip = p
-                                    .get("addresses")
-                                    .and_then(|v| v.as_array())
-                                    .and_then(|a| a.first())
-                                    .and_then(|a| a.get("ip"))
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let dot = if online { "●" } else { "○" };
-                                println!(
-                                    "  {} {} ({}) {}",
-                                    dot,
-                                    name,
-                                    ip,
-                                    if p.get("is_primary")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false)
-                                    {
-                                        "★"
-                                    } else {
-                                        ""
-                                    }
-                                );
-                            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
+        MeshAction::Peers => match client.call("mesh.peers", None) {
+            Ok(val) => {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                } else {
+                    if let Some(paired) = val.get("paired").and_then(|v| v.as_array()) {
+                        if !paired.is_empty() {
+                            println!("Paired:");
                         }
-                        if let Some(discovered) = val.get("discovered").and_then(|v| v.as_array()) {
-                            if !discovered.is_empty() {
-                                println!("Discovered:");
-                            }
-                            for d in discovered {
-                                let name = d
-                                    .get("instance_name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let method = d
-                                    .get("discovery_method")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let ip = d
-                                    .get("addresses")
-                                    .and_then(|v| v.as_array())
-                                    .and_then(|a| a.first())
-                                    .and_then(|a| a.get("ip"))
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let dev = d.get("dev").and_then(|v| v.as_bool()).unwrap_or(false);
-                                println!(
-                                    "  ◇ {} ({}) [{}]{}",
-                                    name,
-                                    ip,
-                                    method,
-                                    if dev { " [dev]" } else { "" }
-                                );
-                            }
+                        for p in paired {
+                            let name = p
+                                .get("instance_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let online = p.get("online").and_then(|v| v.as_bool()).unwrap_or(false);
+                            let ip = p
+                                .get("addresses")
+                                .and_then(|v| v.as_array())
+                                .and_then(|a| a.first())
+                                .and_then(|a| a.get("ip"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let dot = if online { "●" } else { "○" };
+                            println!(
+                                "  {} {} ({}) {}",
+                                dot,
+                                name,
+                                ip,
+                                if p.get("is_primary")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false)
+                                {
+                                    "★"
+                                } else {
+                                    ""
+                                }
+                            );
+                        }
+                    }
+                    if let Some(discovered) = val.get("discovered").and_then(|v| v.as_array()) {
+                        if !discovered.is_empty() {
+                            println!("Discovered:");
+                        }
+                        for d in discovered {
+                            let name = d
+                                .get("instance_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let method = d
+                                .get("discovery_method")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let ip = d
+                                .get("addresses")
+                                .and_then(|v| v.as_array())
+                                .and_then(|a| a.first())
+                                .and_then(|a| a.get("ip"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let dev = d.get("dev").and_then(|v| v.as_bool()).unwrap_or(false);
+                            println!(
+                                "  ◇ {} ({}) [{}]{}",
+                                name,
+                                ip,
+                                method,
+                                if dev { " [dev]" } else { "" }
+                            );
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
             }
-        }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
         MeshAction::Tabs { target } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "tabs", "", json);
+            mesh_cli::mesh_relay_cmd(&target, "tabs", "", json);
         }
         MeshAction::Connect { instance_id } => {
             let body = serde_json::json!({"instance_id": instance_id});
@@ -502,7 +497,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
 /// the flag on every tick, so the change takes effect within ~15s without
 /// a daemon restart. The local Tailscale daemon is left untouched.
 fn set_mesh_enabled(
-    http: &reqwest::blocking::Client,
+    http: &crate::local_api::LocalApiClient,
     base: &str,
     token: &Option<String>,
     enabled: bool,

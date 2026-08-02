@@ -1,19 +1,20 @@
 //! Relay local API calls to a paired peer via signed /api/mesh/relay POSTs.
 
-use crate::data_dir_name;
-
+#[cfg(test)]
 use super::compat::{
     dialect_from_identify, request_for_dialect, response_for_dialect, MeshApiDialect,
 };
 
 /// A logical tab send (POST `.../send`) — the only relay shape that gets a
 /// delivery id for at-most-once dedupe on the target.
+#[cfg(test)]
 pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/send")
 }
 
 /// The stable delivery id for a logical send: an explicit env override (so a
 /// caller can pin one across retries) else a fresh v4 UUID per invocation.
+#[cfg(test)]
 pub(crate) fn delivery_id_or_generate(env_value: Option<String>) -> String {
     match env_value {
         Some(value) if !value.trim().is_empty() => value,
@@ -21,12 +22,14 @@ pub(crate) fn delivery_id_or_generate(env_value: Option<String>) -> String {
     }
 }
 
+#[cfg(test)]
 fn resolve_delivery_id() -> String {
     delivery_id_or_generate(std::env::var("CODETERM_DELIVERY_ID").ok())
 }
 
 /// Build the `/api/mesh/relay` envelope, stamping a delivery id onto tab sends
 /// so the target dedupes retries by (authenticated sender, delivery_id).
+#[cfg(test)]
 pub(crate) fn build_relay_envelope(
     method: &str,
     path: &str,
@@ -45,60 +48,8 @@ pub(crate) fn build_relay_envelope(
     relay
 }
 
-/// Resolve a peer's API URL by name or instance_id via the local /api/mesh/peers.
-pub(crate) fn resolve_peer_url(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
-    target: &str,
-) -> Option<String> {
-    let peers_resp = fetch_peers(http, base, token);
-    let paired = peers_resp.get("paired").and_then(|v| v.as_array())?;
-    let peer = paired.iter().find(|p| {
-        p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
-            || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
-    })?;
-    peer_api_url(peer)
-}
-
-pub(crate) fn relay_call(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed_token: &str,
-    method: &str,
-    path: &str,
-    body: Option<&str>,
-) -> Result<serde_json::Value, String> {
-    let relay = build_relay_envelope(method, path, body);
-    let resp = http
-        .post(format!("{}/api/mesh/relay", peer_url))
-        .header("Authorization", format!("Bearer {}", signed_token))
-        .json(&relay)
-        .send()
-        .map_err(|e| e.to_string())?;
-    let status = resp.status();
-    let bytes = resp.bytes().map_err(|e| e.to_string())?;
-    serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|_| {
-        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]);
-        format!(
-            "HTTP {} {}: {}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-            preview.trim()
-        )
-    })
-}
-
 /// Shortcut relay — maps old-style actions to new generic relay format.
-pub fn mesh_relay_cmd(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
-    target: &str,
-    action: &str,
-    tab: &str,
-    json_mode: bool,
-) {
+pub fn mesh_relay_cmd(target: &str, action: &str, tab: &str, json_mode: bool) {
     let (method, path, body) = match action {
         "output" => (
             "GET",
@@ -124,59 +75,19 @@ pub fn mesh_relay_cmd(
     } else {
         Some(body.to_string())
     };
-    mesh_relay_generic(
-        http,
-        base,
-        token,
-        target,
-        method,
-        &path,
-        body_str.as_deref(),
-        json_mode,
-    );
+    mesh_relay_generic(target, method, &path, body_str.as_deref(), json_mode);
 }
 
 /// Fetch a relayed API response as a JSON value without printing — used by
 /// callers that need to post-process the peer's response (e.g. `Tab find`
 /// runs the fuzzy ranker on the peer's tab list before printing).
 pub fn mesh_relay_fetch_json(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
     target: &str,
     method: &str,
     path: &str,
     body: Option<&str>,
 ) -> serde_json::Value {
-    let peer_url = match resolve_peer_url(http, base, token, target) {
-        Some(u) => u,
-        None => {
-            eprintln!("Peer '{}' not found", target);
-            std::process::exit(1);
-        }
-    };
-    let signed_token = match crate::read_mesh_signed_token() {
-        Some(t) => t,
-        None => {
-            eprintln!(
-                "Error: cannot sign mesh request — no identity at {:?}.",
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(data_dir_name())
-                    .join("mesh/identity.json")
-            );
-            std::process::exit(1);
-        }
-    };
-    match perform_compatible_mesh_relay_call(
-        http,
-        &peer_url,
-        &signed_token,
-        target,
-        method,
-        path,
-        body,
-    ) {
+    match mesh_relay_invoke_result(target, method, path, body) {
         Ok(val) => val,
         Err(failure) => failure.print_and_exit(false),
     }
@@ -226,8 +137,15 @@ impl MeshSpawnFailure {
     }
 }
 
+impl std::fmt::Display for MeshSpawnFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.peer, self.reason)
+    }
+}
+
 /// Fallback next-step hint by HTTP status class, used when the peer's
 /// response carries no `retry_hint` of its own.
+#[cfg(test)]
 fn generic_retry_hint(status: u16) -> String {
     match status {
         429 => "rate limited — back off and retry shortly".to_string(),
@@ -242,6 +160,7 @@ fn generic_retry_hint(status: u16) -> String {
 
 /// Classify a completed relay response into success data or a structured
 /// failure. Pure — no I/O, no process exit — so tests can drive it directly.
+#[cfg(test)]
 fn classify_relay_response(
     peer_name: &str,
     status: reqwest::StatusCode,
@@ -284,6 +203,7 @@ fn classify_relay_response(
 
 /// POST an already-built relay envelope to a resolved peer URL and classify
 /// the outcome. Bypasses peer discovery, so a test double can stand in.
+#[cfg(test)]
 pub(crate) fn perform_mesh_relay_call(
     http: &reqwest::blocking::Client,
     peer_url: &str,
@@ -311,6 +231,7 @@ pub(crate) fn perform_mesh_relay_call(
     classify_relay_response(peer_name, status, &bytes)
 }
 
+#[cfg(test)]
 fn perform_compatible_mesh_relay_call(
     http: &reqwest::blocking::Client,
     peer_url: &str,
@@ -334,22 +255,11 @@ fn perform_compatible_mesh_relay_call(
         )?;
         dialect_from_identify(&identify)
     };
-    let request_token = if path == "/api/identify" {
-        signed_token.to_string()
-    } else {
-        crate::read_mesh_signed_token().ok_or_else(|| {
-            MeshSpawnFailure::new(
-                peer_name,
-                "cannot sign mesh request after peer contract preflight",
-                "restore this machine's mesh identity, then retry",
-            )
-        })?
-    };
     let (path, body) = request_for_dialect(dialect, path, body);
     perform_mesh_relay_call(
         http,
         peer_url,
-        &request_token,
+        signed_token,
         peer_name,
         method,
         &path,
@@ -358,93 +268,77 @@ fn perform_compatible_mesh_relay_call(
     .map(|value| response_for_dialect(dialect, value))
 }
 
-/// Resolve a peer (refreshing once on miss) and mint a signed request token —
-/// shared by every relay entry point.
-fn resolve_peer_for_relay(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
-    target: &str,
-) -> Result<(String, String), MeshSpawnFailure> {
-    let mut peers_json = fetch_peers(http, base, token);
-    let mut peer = find_peer(&peers_json, target).cloned();
-    if peer.is_none() {
-        let _ = http
-            .post(format!("{}/api/mesh/refresh", base))
-            .header(
-                "Authorization",
-                format!("Bearer {}", token.as_deref().unwrap_or("")),
-            )
-            .send();
-        peers_json = fetch_peers(http, base, token);
-        peer = find_peer(&peers_json, target).cloned();
-    }
-    let Some(peer) = peer else {
-        return Err(MeshSpawnFailure::new(
-            target,
-            "peer not found (after refresh)",
-            "pair the peer first — `codeterm mesh peers`",
-        ));
-    };
-    let Some(peer_url) = peer_api_url(&peer) else {
-        return Err(MeshSpawnFailure::new(
-            target,
-            "peer has no non-loopback API address",
-            "the peer needs a reachable network address — check its mesh status",
-        ));
-    };
-
-    // Mesh peers need a freshly signed Ed25519 token; a local API token is
-    // not accepted by peer verifiers.
-    match crate::read_mesh_signed_token() {
-        Some(signed_token) => Ok((peer_url, signed_token)),
-        None => Err(MeshSpawnFailure::new(
-            target,
-            format!(
-                "cannot sign mesh request — no identity at {:?}",
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(data_dir_name())
-                    .join("mesh/identity.json")
-            ),
-            "generate a mesh identity on this machine before spawning across mesh",
-        )),
-    }
-}
-
 /// Resolve a peer (refreshing once on miss), sign, and relay — returning a
 /// structured failure instead of exiting so callers can decide what to do.
 pub(crate) fn mesh_relay_invoke_result(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
     target: &str,
     method: &str,
     path: &str,
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let (peer_url, signed_token) = resolve_peer_for_relay(http, base, token, target)?;
-    perform_compatible_mesh_relay_call(http, &peer_url, &signed_token, target, method, path, body)
+    let local = crate::build_local_api().map_err(|error| {
+        MeshSpawnFailure::new(
+            target,
+            format!("local socket unavailable: {error}"),
+            "start CodeTerm locally, then retry",
+        )
+    })?;
+    let relay_body = body
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let response = local
+        .post("/api/mesh/relay-to")
+        .json(&serde_json::json!({
+            "target_peer_id": target,
+            "method": method,
+            "path": path,
+            "body": relay_body,
+        }))
+        .send()
+        .map_err(|error| {
+            MeshSpawnFailure::new(
+                target,
+                format!("local relay failed: {error}"),
+                "check `codeterm mesh peers`, then retry",
+            )
+        })?;
+    let status = response.status();
+    let value = response
+        .json::<serde_json::Value>()
+        .map_err(|error| MeshSpawnFailure::new(target, error.to_string(), "check daemon logs"))?;
+    if !status.is_success() || value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        let error = value
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("mesh relay failed");
+        return Err(MeshSpawnFailure::new(
+            target,
+            error,
+            "check `codeterm mesh peers`, then retry",
+        ));
+    }
+    Ok(value
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
 }
 
 /// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
 /// the shared entry point for callers that don't need the Result themselves.
 pub(crate) fn mesh_relay_invoke(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
     target: &str,
     method: &str,
     path: &str,
     body: Option<&str>,
     json_mode: bool,
 ) -> serde_json::Value {
-    match mesh_relay_invoke_result(http, base, token, target, method, path, body) {
+    match mesh_relay_invoke_result(target, method, path, body) {
         Ok(data) => data,
         Err(failure) => failure.print_and_exit(json_mode),
     }
 }
 
+#[cfg(test)]
 pub(crate) fn peer_api_url(peer: &serde_json::Value) -> Option<String> {
     if let Some(url) = peer_tailscale_https_url(peer) {
         return Some(url);
@@ -457,7 +351,10 @@ pub(crate) fn peer_api_url(peer: &serde_json::Value) -> Option<String> {
     let ip = addresses
         .iter()
         .find(|address| {
-            address.get("is_tailscale").and_then(|value| value.as_bool()) == Some(true)
+            address
+                .get("is_tailscale")
+                .and_then(|value| value.as_bool())
+                == Some(true)
                 && address
                     .get("ip")
                     .and_then(|value| value.as_str())
@@ -476,14 +373,14 @@ pub(crate) fn peer_api_url(peer: &serde_json::Value) -> Option<String> {
     Some(format!("http://{}:{}", format_host(ip), port))
 }
 
+#[cfg(test)]
 fn peer_tailscale_https_url(peer: &serde_json::Value) -> Option<String> {
     peer.get("web_ui")?
         .get("endpoints")?
         .as_array()?
         .iter()
         .find_map(|endpoint| {
-            if endpoint.get("transport").and_then(|value| value.as_str())
-                != Some("tailscale_https")
+            if endpoint.get("transport").and_then(|value| value.as_str()) != Some("tailscale_https")
             {
                 return None;
             }
@@ -506,12 +403,14 @@ fn peer_tailscale_https_url(peer: &serde_json::Value) -> Option<String> {
         })
 }
 
+#[cfg(test)]
 fn is_loopback_ip(ip: &str) -> bool {
     ip.parse::<std::net::IpAddr>()
         .map(|addr| addr.is_loopback())
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn is_tailscale_ip(ip: &str) -> bool {
     ip.parse::<std::net::Ipv4Addr>()
         .map(|address| {
@@ -521,6 +420,7 @@ fn is_tailscale_ip(ip: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn format_host(ip: &str) -> String {
     if ip.contains(':') && !ip.starts_with('[') {
         format!("[{}]", ip)
@@ -530,18 +430,14 @@ fn format_host(ip: &str) -> String {
 }
 
 /// Generic relay — send any API call through mesh to a remote peer and print.
-#[allow(clippy::too_many_arguments)]
 pub fn mesh_relay_generic(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
     target: &str,
     method: &str,
     path: &str,
     body: Option<&str>,
     json_mode: bool,
 ) {
-    let data = mesh_relay_invoke(http, base, token, target, method, path, body, json_mode);
+    let data = mesh_relay_invoke(target, method, path, body, json_mode);
 
     if json_mode {
         // Unwrap envelope so `--json` output matches local CLI shape.
@@ -562,6 +458,7 @@ pub fn mesh_relay_generic(
 /// REQUEST body (so the registry keys on the same target the worker reports to);
 /// `tab_id`/`title` come from the spawn RESPONSE. Returns `None` when there is
 /// no report target or the spawn produced no tab id (nothing to nest).
+#[cfg(test)]
 pub(crate) fn remote_worker_record_body(
     peer: &str,
     spawn_body: &serde_json::Value,
@@ -609,6 +506,7 @@ pub(crate) fn remote_worker_forget_body(peer: &str, remote_tab: &str) -> serde_j
 
 /// Spawn against an already-resolved peer, registering only on success — the
 /// gating logic both `mesh_spawn_and_maybe_register` and tests call directly.
+#[cfg(test)]
 pub(crate) fn spawn_and_maybe_register_at_resolved_peer(
     http: &reqwest::blocking::Client,
     peer_url: &str,
@@ -643,45 +541,21 @@ pub(crate) fn spawn_and_maybe_register_at_resolved_peer(
 
 /// Resolve `target`, then spawn + conditionally register at that peer.
 pub(crate) fn mesh_spawn_and_maybe_register(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
     target: &str,
     spawn_body: &serde_json::Value,
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let (peer_url, signed_token) = resolve_peer_for_relay(http, base, token, target)?;
-    // `target` may be an id/alias, so resolve the display name for the ghost.
-    let peer_name = find_peer(&fetch_peers(http, base, token), target)
-        .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .unwrap_or_else(|| target.to_string());
-    spawn_and_maybe_register_at_resolved_peer(
-        http,
-        &peer_url,
-        &signed_token,
-        &peer_name,
-        base,
-        token,
-        spawn_body,
-        body,
-    )
+    let _ = spawn_body;
+    mesh_relay_invoke_result(target, "POST", "/api/agents/spawn", body)
 }
 
 /// Relay an `agent spawn` to a peer and print the outcome — the CLI-facing
 /// wrapper around `mesh_spawn_and_maybe_register`.
-pub fn mesh_spawn_and_register(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
-    target: &str,
-    body: Option<&str>,
-    json_mode: bool,
-) {
+pub fn mesh_spawn_and_register(target: &str, body: Option<&str>, json_mode: bool) {
     let spawn_body: serde_json::Value = body
         .and_then(|b| serde_json::from_str(b).ok())
         .unwrap_or(serde_json::json!({}));
-    let data = match mesh_spawn_and_maybe_register(http, base, token, target, &spawn_body, body) {
+    let data = match mesh_spawn_and_maybe_register(target, &spawn_body, body) {
         Ok(data) => data,
         Err(failure) => failure.print_and_exit(json_mode),
     };
@@ -700,28 +574,20 @@ pub fn mesh_spawn_and_register(
 /// ghost. The registry cleanup is best-effort: a successful remote close should
 /// not fail just because the origin had no stale ghost or could not delete it.
 pub fn mesh_close_tab_and_forget_remote_worker(
-    http: &reqwest::blocking::Client,
     base: &str,
-    token: &Option<String>,
     target: &str,
     tab_id: &str,
     json_mode: bool,
 ) {
     let path = format!("/api/tabs/{tab_id}/close");
-    let data = mesh_relay_invoke(http, base, token, target, "POST", &path, None, json_mode);
+    let data = mesh_relay_invoke(target, "POST", &path, None, json_mode);
 
-    let peer_name = find_peer(&fetch_peers(http, base, token), target)
-        .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .unwrap_or_else(|| target.to_string());
-    let _ = http
-        .delete(format!("{}/api/remote-workers", base))
-        .header(
-            "Authorization",
-            format!("Bearer {}", token.as_deref().unwrap_or("")),
-        )
-        .json(&remote_worker_forget_body(&peer_name, tab_id))
-        .send();
+    if let Ok(local) = crate::build_local_api() {
+        let _ = local
+            .delete(format!("{}/api/remote-workers", base))
+            .json(&remote_worker_forget_body(target, tab_id))
+            .send();
+    }
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
@@ -731,41 +597,6 @@ pub fn mesh_close_tab_and_forget_remote_worker(
     } else {
         crate::cmd::print::print_human(&data);
     }
-}
-
-fn fetch_peers(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
-) -> serde_json::Value {
-    http.get(format!("{}/api/mesh/peers", base))
-        .header(
-            "Authorization",
-            format!("Bearer {}", token.as_deref().unwrap_or("")),
-        )
-        .send()
-        .ok()
-        .and_then(|r| r.json::<serde_json::Value>().ok())
-        .or_else(fetch_peers_via_socket)
-        .unwrap_or(serde_json::json!({}))
-}
-
-fn fetch_peers_via_socket() -> Option<serde_json::Value> {
-    let socket = crate::client::discover_socket().ok()?;
-    let mut client = crate::client::SocketClient::connect(&socket).ok()?;
-    client.call("mesh.peers", None).ok()
-}
-
-fn find_peer<'a>(peers_json: &'a serde_json::Value, target: &str) -> Option<&'a serde_json::Value> {
-    peers_json
-        .get("paired")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| {
-            arr.iter().find(|p| {
-                p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
-                    || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
-            })
-        })
 }
 
 #[cfg(test)]

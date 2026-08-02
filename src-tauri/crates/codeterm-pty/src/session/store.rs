@@ -260,8 +260,7 @@ impl SessionStore {
             fs::rename(&path, &backup)
                 .map_err(|error| format!("backup {}: {error}", path.display()))?;
         }
-        fs::rename(&tmp, &path)
-            .map_err(|error| format!("rename → {}: {error}", path.display()))?;
+        fs::rename(&tmp, &path).map_err(|error| format!("rename → {}: {error}", path.display()))?;
         if backup.exists() {
             let _ = fs::remove_file(backup);
         }
@@ -811,7 +810,10 @@ mod tests {
             .expect("planner identity");
         assert_eq!(planner_identity.role, "Manager");
         assert_eq!(planner_identity.role_profile.as_deref(), Some("planner"));
-        assert_eq!(planner_identity.parent_tab_id.as_deref(), Some(parent.as_str()));
+        assert_eq!(
+            planner_identity.parent_tab_id.as_deref(),
+            Some(parent.as_str())
+        );
         assert!(store
             .load_agent_session_identity("claude", "different-session")
             .is_none());

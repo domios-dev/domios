@@ -15,7 +15,10 @@ fn run(repo: &Path, args: &[&str]) {
 fn exhaustion_after_dirty_edit_seals_and_verifies_exact_checkpoint() {
     let dir = tempfile::tempdir().unwrap();
     run(dir.path(), &["init"]);
-    run(dir.path(), &["config", "user.email", "fixture@example.invalid"]);
+    run(
+        dir.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
     run(dir.path(), &["config", "user.name", "Fixture"]);
     std::fs::write(dir.path().join("tracked.txt"), "base\n").unwrap();
     run(dir.path(), &["add", "tracked.txt"]);
@@ -51,7 +54,10 @@ fn exhaustion_after_dirty_edit_seals_and_verifies_exact_checkpoint() {
 fn checkpoint_bound_includes_tracked_diff_and_total_envelope() {
     let dir = tempfile::tempdir().unwrap();
     run(dir.path(), &["init"]);
-    run(dir.path(), &["config", "user.email", "fixture@example.invalid"]);
+    run(
+        dir.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
     run(dir.path(), &["config", "user.name", "Fixture"]);
     std::fs::write(dir.path().join("large.bin"), []).unwrap();
     run(dir.path(), &["add", "large.bin"]);
@@ -84,7 +90,10 @@ fn interruption_events_are_provider_neutral() {
         WorkerInterruptionEvent::ProviderExhausted.reason(),
         "provider_exhausted"
     );
-    assert_eq!(WorkerInterruptionEvent::ProcessExited.reason(), "process_exited");
+    assert_eq!(
+        WorkerInterruptionEvent::ProcessExited.reason(),
+        "process_exited"
+    );
     assert_eq!(
         WorkerInterruptionEvent::ForcedContextReset.reason(),
         "forced_context_reset"

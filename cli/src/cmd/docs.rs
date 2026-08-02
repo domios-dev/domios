@@ -323,7 +323,12 @@ mod tests {
                 let trimmed = line.trim_start();
                 let marker = trimmed.chars().next().filter(|ch| matches!(ch, '`' | '~'));
                 let run = marker
-                    .map(|ch| trimmed.chars().take_while(|candidate| candidate == &ch).count())
+                    .map(|ch| {
+                        trimmed
+                            .chars()
+                            .take_while(|candidate| candidate == &ch)
+                            .count()
+                    })
                     .unwrap_or_default();
                 if run >= 3 {
                     match fence {

@@ -86,7 +86,10 @@ pub(super) fn dispatch(
             let state = get_string_param(params, "state")?;
             let state =
                 PlanningState::parse(&state).ok_or_else(|| plan_rpc_err(PlanError::BadMode))?;
-            if matches!(state, PlanningState::StructureReady | PlanningState::Approved) {
+            if matches!(
+                state,
+                PlanningState::StructureReady | PlanningState::Approved
+            ) {
                 return Err(JsonRpcError {
                     code: -32602,
                     message: "structure readiness is derived; the Orchestrator approves and activates with `codeterm plan approve <plan>`".into(),

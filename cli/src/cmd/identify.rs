@@ -110,7 +110,6 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
                     .map(String::from)
             })
     };
-    let signed_token = crate::read_mesh_signed_token();
     let env_token = std::env::var("CODETERM_API_TOKEN")
         .ok()
         .filter(|value| !value.is_empty());
@@ -124,9 +123,9 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
             .map(|value| !value.trim().is_empty() && value.trim() != "7685")
             .unwrap_or(false);
     let token = if targets_dev {
-        config_token().or(signed_token).or(env_token)
+        config_token().or(env_token)
     } else {
-        env_token.or(signed_token).or_else(config_token)
+        env_token.or_else(config_token)
     };
 
     ResolvedApiConfig {

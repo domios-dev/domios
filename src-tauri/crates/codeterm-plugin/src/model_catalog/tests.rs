@@ -136,7 +136,8 @@ fn reregistering_unchanged_seed_keeps_live_overlay_changed_seed_replaces_it() {
 
     register(id, seed); // rescan/hot-reload with the identical seed
     assert_eq!(
-        resolve_models(id)[0].display_name, "Live",
+        resolve_models(id)[0].display_name,
+        "Live",
         "unchanged seed re-registration must not drop a genuine live overlay"
     );
 
@@ -148,7 +149,8 @@ fn reregistering_unchanged_seed_keeps_live_overlay_changed_seed_replaces_it() {
         },
     );
     assert_eq!(
-        resolve_models(id)[0].display_name, "Newer Seed",
+        resolve_models(id)[0].display_name,
+        "Newer Seed",
         "a changed seed invalidates the prior live overlay"
     );
     cleanup(id);
@@ -582,7 +584,11 @@ fn live_cache_from_prior_seed_fingerprint_is_rejected() {
         },
     );
     // The old build persisted a live snapshot fingerprinted against its seed.
-    put_live(id, vec![model("opus", "Live From Old Seed")], Some("opus".into()));
+    put_live(
+        id,
+        vec![model("opus", "Live From Old Seed")],
+        Some("opus".into()),
+    );
     // A new build ships an updated seed and restarts.
     register(
         id,
@@ -595,7 +601,8 @@ fn live_cache_from_prior_seed_fingerprint_is_rejected() {
     prime_from_cache(id);
 
     assert_eq!(
-        resolve_models(id)[0].display_name, "New Label 5",
+        resolve_models(id)[0].display_name,
+        "New Label 5",
         "cache captured against a prior seed must be rejected before priming"
     );
     assert!(
@@ -634,7 +641,11 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
     assert_eq!(models[0].display_name, "Live");
     assert_eq!(models[0].available, Some(true));
     let fetched_at = test_live_fetched_at(id);
-    assert!(!is_stale(id, DEFAULT_TTL, fetched_at + Duration::from_secs(1)));
+    assert!(!is_stale(
+        id,
+        DEFAULT_TTL,
+        fetched_at + Duration::from_secs(1)
+    ));
     cleanup(id);
 }
 

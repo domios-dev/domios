@@ -34,6 +34,16 @@
         "Does NOT copy or paraphrase the HTML file contents",
         "Does NOT use ct.file.pick() or ct.file.renderHtml() for a known file path"
       ]
+    },
+    {
+      "id": 4,
+      "name": "batch-related-edits-before-testing",
+      "prompt": "Without running commands, briefly describe your edit and verification order when the same transport change is needed in twelve related command handlers.",
+      "expected_output": "Batches the coherent edit set before running verification.",
+      "expectations": [
+        "Makes the related edits as one coherent batch before testing",
+        "Does NOT run a gate after every individual handler"
+      ]
     }
   ]
 }

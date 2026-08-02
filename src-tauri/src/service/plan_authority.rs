@@ -1,7 +1,7 @@
-use crate::plan::{PlanMode, PlanningAuthor, PlanningState, PlannerRef};
-use serde_json::Value;
+use crate::plan::{PlanMode, PlannerRef, PlanningAuthor, PlanningState};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
+use serde_json::Value;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AuthenticatedPlanCaller {
@@ -156,9 +156,22 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
         return Ok(());
     }
     const EXECUTION_FIELDS: &[&str] = &[
-        "status", "status_label", "lane", "assign_tab", "assigned_tab_id", "tab",
-        "executor_role", "role_guidance", "personality", "personality_provenance",
-        "attempt", "attempt_id", "attempts", "competition", "review_stage", "qa_state",
+        "status",
+        "status_label",
+        "lane",
+        "assign_tab",
+        "assigned_tab_id",
+        "tab",
+        "executor_role",
+        "role_guidance",
+        "personality",
+        "personality_provenance",
+        "attempt",
+        "attempt_id",
+        "attempts",
+        "competition",
+        "review_stage",
+        "qa_state",
     ];
     let field = EXECUTION_FIELDS
         .iter()
@@ -192,10 +205,7 @@ mod tests {
         mux.set_tab_role(&owner, AgentRole::Orchestrator, None)
             .unwrap();
         let planner = mux.create_tab(&workspace).unwrap();
-        let team_id = mux
-            .resolve_or_mint_team_for_parent(&owner)
-            .unwrap()
-            .team_id;
+        let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
         for (tab_id, session, nonce) in [
             (&owner, "owner-session", "owner-nonce"),
             (&planner, "planner-session", "planner-nonce"),
@@ -302,7 +312,11 @@ mod tests {
         assert_eq!(plan.mode, PlanMode::Approved);
         assert_eq!(plan.planning_log.len(), 1);
         assert_eq!(
-            plan.tasks.iter().find(|task| task.id == task_id).unwrap().status,
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .unwrap()
+                .status,
             TaskStatus::Pending
         );
         assert!(fixture.service.ensure_task_dispatchable(&plan_id).is_ok());
@@ -344,8 +358,16 @@ mod tests {
 
     #[test]
     fn planner_task_updates_reject_execution_lifecycle_fields() {
-        let author = PlanningAuthor::Planner { tab_id: "planner".into() };
-        for field in ["status", "lane", "executor_role", "assign_tab", "attempt_id"] {
+        let author = PlanningAuthor::Planner {
+            tab_id: "planner".into(),
+        };
+        for field in [
+            "status",
+            "lane",
+            "executor_role",
+            "assign_tab",
+            "attempt_id",
+        ] {
             assert!(ensure_planner_task_fields_are_structural(
                 &author,
                 &serde_json::json!({ (field): "forbidden" })

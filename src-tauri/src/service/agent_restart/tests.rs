@@ -210,18 +210,15 @@ fn build_relaunch_uses_resolved_full_access() {
 #[test]
 fn agent_restart_access_does_not_depend_on_tab_class() {
     let registry = registry_with_claude();
-    let visible = crate::service::permission_policy::authorize_permission_bypass(
-        &registry, "claude", true,
-    )
-    .is_some();
-    let hidden = crate::service::permission_policy::authorize_permission_bypass(
-        &registry, "claude", true,
-    )
-    .is_some();
-    let automation = crate::service::permission_policy::authorize_permission_bypass(
-        &registry, "claude", true,
-    )
-    .is_some();
+    let visible =
+        crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true)
+            .is_some();
+    let hidden =
+        crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true)
+            .is_some();
+    let automation =
+        crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true)
+            .is_some();
 
     assert!(visible);
     assert!(hidden);

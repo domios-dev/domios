@@ -412,7 +412,10 @@ mod tests {
             env.get("CODETERM_WORKSPACE_ID").map(String::as_str),
             Some("ws-1")
         );
-        assert_eq!(env.get("CODETERM_PAD_DIR").map(String::as_str), Some("/instance/runtime/agent-pads/chat-tab"));
+        assert_eq!(
+            env.get("CODETERM_PAD_DIR").map(String::as_str),
+            Some("/instance/runtime/agent-pads/chat-tab")
+        );
         assert!(env.contains_key("CODETERM_SOCKET_PATH"));
     }
 

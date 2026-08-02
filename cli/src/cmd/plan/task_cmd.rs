@@ -760,8 +760,12 @@ pub(super) fn run_task(
             }
             println!(
                 "Adopted checkpoint as owner epoch {} (attempt {}). Run codeterm agent ack.",
-                val.get("owner_epoch").and_then(|value| value.as_u64()).unwrap_or(0),
-                val.get("attempt_id").and_then(|value| value.as_str()).unwrap_or("?")
+                val.get("owner_epoch")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0),
+                val.get("attempt_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("?")
             );
             Ok(None)
         }

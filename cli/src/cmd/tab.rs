@@ -1,7 +1,7 @@
 use crate::client::SocketClient;
 use crate::cmd::agent::normalize_tab_description;
 use crate::cmd::print::{handle_result, print_json};
-use crate::{build_http, read_api_config, resolve_tab, TabAction};
+use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 mod capture;
 mod remote_target;
@@ -94,11 +94,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             chat_backend,
             config,
         } => {
-            let (base, token) = read_api_config();
-            let http = match build_http(&token) {
+            let (base, _) = read_api_config();
+            let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    eprintln!("Error: failed to connect to local API: {}", e);
                     std::process::exit(1);
                 }
             };
@@ -138,7 +138,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 }
             }
-            let create_result = http
+            let create_result = api
                 .post(format!("{}/api/tabs", base))
                 .json(&body)
                 .send()
@@ -165,7 +165,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     } else {
                         let exec_url = format!("{}/api/tabs/{}/exec", base, tab_id);
                         let exec_body = serde_json::json!({"command": cmd_text});
-                        match http.post(&exec_url).json(&exec_body).send() {
+                        match api.post(&exec_url).json(&exec_body).send() {
                             Ok(r) if r.status().is_success() => Ok(resp),
                             Ok(r) => Err(format!(
                                 "tab created (id={}) but --cmd failed: HTTP {}: {}",
@@ -338,8 +338,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 return;
             }
             let tab_id = resolve_tab(client, tab);
-            let (api_url, api_token) = read_api_config();
-            let http = match build_http(&api_token) {
+            let (api_url, _) = read_api_config();
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -403,15 +403,15 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 return;
             }
             let tab_id = resolve_tab(client, tab);
-            let (api_url, api_token) = read_api_config();
-            let http = match build_http(&api_token) {
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    eprintln!("Error: failed to connect to local API: {}", e);
                     std::process::exit(1);
                 }
             };
-            match http
+            match api
                 .post(format!("{}/api/tabs/{}/exec", api_url, tab_id))
                 .json(&serde_json::json!({
                     "command": command,
@@ -463,8 +463,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 _ => {}
             }
             let tab_selector = tab.unwrap_or_else(|| resolve_tab(client, None));
-            let (api_url, api_token) = read_api_config();
-            let http = match build_http(&api_token) {
+            let (api_url, _) = read_api_config();
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -517,15 +517,15 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 _ => {}
             }
             let tab_id = resolve_tab(client, tab);
-            let (api_url, api_token) = read_api_config();
-            let http = match build_http(&api_token) {
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    eprintln!("Error: failed to connect to local API: {}", e);
                     std::process::exit(1);
                 }
             };
-            match http
+            match api
                 .post(format!("{}/api/tabs/{}/stop", api_url, tab_id))
                 .header("Content-Type", "application/json")
                 .body("{}")
@@ -575,16 +575,16 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 return;
             }
             let tab_id = resolve_tab(client, tab);
-            let (api_url, api_token) = read_api_config();
-            let http = match build_http(&api_token) {
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    eprintln!("Error: failed to connect to local API: {}", e);
                     std::process::exit(1);
                 }
             };
             let url = format!("{}/api/tabs/{}/chat?since={}", api_url, tab_id, since);
-            match http.get(url).send() {
+            match api.get(url).send() {
                 // Non-JSON / empty body (e.g. tab not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
                     let v = resp
@@ -706,8 +706,8 @@ fn ordinary_tab_list_path(params: &serde_json::Value) -> String {
 }
 
 fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let (base, token) = read_api_config();
-    let http = build_http(&token).map_err(|error| error.to_string())?;
+    let (base, _) = read_api_config();
+    let http = build_local_api().map_err(|error| error.to_string())?;
     let response = http
         .get(format!("{base}{}", ordinary_tab_list_path(params)))
         .send()
@@ -721,12 +721,7 @@ fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, 
 }
 
 fn relay_tab_json(peer: &str, method: &str, path: &str, body: Option<&str>) -> serde_json::Value {
-    let (base, token) = read_api_config();
-    let http = build_http(&token).unwrap_or_else(|error| {
-        eprintln!("Error: failed to build HTTP client: {error}");
-        std::process::exit(1);
-    });
-    crate::mesh_cli::mesh_relay_fetch_json(&http, &base, &token, peer, method, path, body)
+    crate::mesh_cli::mesh_relay_fetch_json(peer, method, path, body)
 }
 
 /// `-=-codeterm:tab label=X tab=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).

@@ -13,7 +13,9 @@ pub(crate) fn materialize_archived_context_epochs(
     for (epoch, archive) in archives.iter().enumerate() {
         let messages = if svc
             .agent_registry
-            .with_provider(&archive.provider, |provider| provider.uses_structured_chat())
+            .with_provider(&archive.provider, |provider| {
+                provider.uses_structured_chat()
+            })
             .unwrap_or(false)
         {
             svc.agent_registry

@@ -108,7 +108,10 @@ mod tests {
         tab.agent_session_id = Some("owned-session".into());
         persist_launch_identity(tab, Some("high"), Some("medium"));
 
-        assert_eq!(tab.reasoning_effort_identity.planned.as_deref(), Some("high"));
+        assert_eq!(
+            tab.reasoning_effort_identity.planned.as_deref(),
+            Some("high")
+        );
         assert_eq!(
             tab.reasoning_effort_identity.requested.as_deref(),
             Some("medium")
@@ -135,7 +138,10 @@ mod tests {
             "owned-session",
             Some("high".into()),
         ));
-        assert_eq!(tab.reasoning_effort_identity.actual.as_deref(), Some("high"));
+        assert_eq!(
+            tab.reasoning_effort_identity.actual.as_deref(),
+            Some("high")
+        );
         assert_eq!(
             tab.reasoning_effort_identity.actual_source.as_deref(),
             Some("session-owned")
@@ -149,7 +155,13 @@ mod tests {
         persist_launch_identity(tab, None, Some("high"));
 
         assert_eq!(tab.reasoning_effort_identity.planned, None);
-        assert_eq!(tab.reasoning_effort_identity.requested.as_deref(), Some("high"));
-        assert_eq!(tab.reasoning_effort_identity.resolved.as_deref(), Some("high"));
+        assert_eq!(
+            tab.reasoning_effort_identity.requested.as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            tab.reasoning_effort_identity.resolved.as_deref(),
+            Some("high")
+        );
     }
 }

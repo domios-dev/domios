@@ -67,10 +67,7 @@ pub enum Command {
     TabInspect { tab_ids: Vec<String> },
 
     /// Send text to a tab's PTY
-    SendText {
-        tab_id: String,
-        text: String,
-    },
+    SendText { tab_id: String, text: String },
 
     /// Get tab output (terminal buffer)
     GetOutput {

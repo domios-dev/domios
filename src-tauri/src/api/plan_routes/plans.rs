@@ -796,14 +796,17 @@ pub async fn mode_set(
                     &crate::api::tab_routes::authenticated_plan_caller(&headers),
                 )
                 .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
-            state.svc.plan_store.set_planning_state(
-                &id,
-                PlanningState::StructureReady,
-                PlanningAuthor::User,
-                None,
-                now,
-            )
-            .map_err(plan_err)?
+            state
+                .svc
+                .plan_store
+                .set_planning_state(
+                    &id,
+                    PlanningState::StructureReady,
+                    PlanningAuthor::User,
+                    None,
+                    now,
+                )
+                .map_err(plan_err)?
         }
         PlanMode::Execution => state
             .svc

@@ -31,8 +31,7 @@ Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system 
 - `codeterm keepawake start --duration-secs N [--display]` / `stop` / `status` — prevent sleep cross-platform (do NOT call `caffeinate`, `powercfg`, `systemd-inhibit`)
 
 Always use the CLI from inside CodeTerm via Bash. Do not curl the REST API directly."#;
-const LEGACY_SKILL_SUMMARY: &str =
-    "CodeTerm CLI skill — tab / workspace / agent / mem control";
+const LEGACY_SKILL_SUMMARY: &str = "CodeTerm CLI skill — tab / workspace / agent / mem control";
 const LEGACY_SKILL_TAGS: &[&str] = &["bundled", "core", "cli"];
 
 fn is_exact_legacy_codeterm(item: &super::store::MemItem) -> bool {
@@ -41,7 +40,11 @@ fn is_exact_legacy_codeterm(item: &super::store::MemItem) -> bool {
         && item.title == "codeterm"
         && item.summary.as_deref() == Some(LEGACY_SKILL_SUMMARY)
         && item.area.as_deref() == Some("codeterm")
-        && item.tags.iter().map(String::as_str).eq(LEGACY_SKILL_TAGS.iter().copied())
+        && item
+            .tags
+            .iter()
+            .map(String::as_str)
+            .eq(LEGACY_SKILL_TAGS.iter().copied())
         && item.body == LEGACY_SKILL_CODETERM.trim()
         && item.source.as_deref() == Some("bundled:v1")
         && item.importance == 4.0
@@ -255,7 +258,10 @@ mod tests {
             after.access_count = 0;
             let before = serde_json::to_vec(&before).unwrap();
             let after = serde_json::to_vec(&after).unwrap();
-            assert_eq!(after, before, "edited legacy metadata must remain byte-exact");
+            assert_eq!(
+                after, before,
+                "edited legacy metadata must remain byte-exact"
+            );
         }
     }
 }

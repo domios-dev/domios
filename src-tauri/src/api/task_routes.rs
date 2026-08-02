@@ -181,7 +181,12 @@ pub async fn take(
     state
         .svc
         .plan_store
-        .set_task_assignment(&task_id, Some(&tab_id), tab_role(&state, &tab_id), epoch_ms())
+        .set_task_assignment(
+            &task_id,
+            Some(&tab_id),
+            tab_role(&state, &tab_id),
+            epoch_ms(),
+        )
         .map_err(plan_err)?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,

@@ -218,7 +218,10 @@ pub(crate) fn init_states() -> AppStates {
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
-    let live_agent_tabs = mux_state_inner.snapshot().tabs.into_values()
+    let live_agent_tabs = mux_state_inner
+        .snapshot()
+        .tabs
+        .into_values()
         .filter(|tab| tab.agent_type.is_some() || tab.is_chat_backend())
         .map(|tab| tab.id)
         .collect();

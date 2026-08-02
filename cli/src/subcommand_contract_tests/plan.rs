@@ -40,7 +40,13 @@ fn qa_next_claim_requires_note_and_teaches_only_positional_plan_id() {
     assert!(!rendered.contains("--plan"), "{rendered}");
     assert_eq!(rendered.matches("[PLAN_ID]").count(), 1, "{rendered}");
     assert!(PlanOnly::try_parse_from([
-        "plan", "qa", "next", "pl_1", "--claim", "--note", "canonical gate"
+        "plan",
+        "qa",
+        "next",
+        "pl_1",
+        "--claim",
+        "--note",
+        "canonical gate"
     ])
     .is_ok());
 }

@@ -217,7 +217,9 @@ fn build_prompt(
         "Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
     );
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
-    out.push_str(&super::task_brief::render_plan_skill_manifest(plan_id, manifest));
+    out.push_str(&super::task_brief::render_plan_skill_manifest(
+        plan_id, manifest,
+    ));
     out.push_str(&format!("Task name: {}\n", task.name));
     out.push_str(&format!("Provider/model preference: {provider}"));
     if let Some(model) = model {
@@ -310,7 +312,9 @@ fn build_compete_prompt(
     out.push_str(crate::service_plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
     out.push_str("\n\n");
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
-    out.push_str(&super::task_brief::render_plan_skill_manifest(plan_id, manifest));
+    out.push_str(&super::task_brief::render_plan_skill_manifest(
+        plan_id, manifest,
+    ));
     out.push_str(&format!(
         "Competition group: {group_id}\nAttempt lane: {lane}\n"
     ));
@@ -402,7 +406,9 @@ pub fn new_assignment_attempt_with_id(
 ) -> TaskExecutionAttempt {
     let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
-        id: attempt_id.map(str::to_string).unwrap_or_else(gen_attempt_id),
+        id: attempt_id
+            .map(str::to_string)
+            .unwrap_or_else(gen_attempt_id),
         executor_tab_id: tab_id.to_string(),
         provider,
         agent_type: provider_name_from_model(task.model.as_deref()),
@@ -485,11 +491,7 @@ pub fn close_live_attempts_for_tab(
     closed
 }
 
-pub fn accept_exact_attempt(
-    attempt: &mut TaskExecutionAttempt,
-    reason: &str,
-    now_ms: u64,
-) {
+pub fn accept_exact_attempt(attempt: &mut TaskExecutionAttempt, reason: &str, now_ms: u64) {
     let competition_winner = attempt.winner;
     crate::service_plan::competition::set_attempt_judgement(
         attempt,
@@ -1038,23 +1040,26 @@ impl PlanStore {
                 return Ok(false);
             }
             if interruption.owner_epoch > 0 {
-                let authority = report.authority.as_ref().ok_or_else(|| {
-                    PlanError::Io("report caller authority is missing".into())
-                })?;
+                let authority = report
+                    .authority
+                    .as_ref()
+                    .ok_or_else(|| PlanError::Io("report caller authority is missing".into()))?;
                 super::interruption::authorize_task_mutation(
                     plan,
                     &plan.tasks[task_index],
                     authority,
                 )?;
                 if interruption.owner_tab_id.as_deref() == Some(&authority.tab_id) {
-                    let exact_attempt = plan.tasks[task_index].execution_attempts.iter().any(
-                        |attempt| {
-                            attempt.executor_tab_id == authority.tab_id
-                                && attempt.session_id.as_deref() == Some(&authority.session_id)
-                                && attempt.interruption.owner_epoch == authority.owner_epoch
-                                && attempt.closed_at.is_none()
-                        },
-                    );
+                    let exact_attempt =
+                        plan.tasks[task_index]
+                            .execution_attempts
+                            .iter()
+                            .any(|attempt| {
+                                attempt.executor_tab_id == authority.tab_id
+                                    && attempt.session_id.as_deref() == Some(&authority.session_id)
+                                    && attempt.interruption.owner_epoch == authority.owner_epoch
+                                    && attempt.closed_at.is_none()
+                            });
                     if !exact_attempt {
                         return Err(PlanError::Io("report attempt authority changed".into()));
                     }
@@ -1111,8 +1116,7 @@ impl PlanStore {
                 .rposition(|attempt| {
                     attempt.executor_tab_id == reporter_tab
                         && attempt.closed_at.is_none()
-                        && (owner_epoch == 0
-                            || attempt.interruption.owner_epoch == owner_epoch)
+                        && (owner_epoch == 0 || attempt.interruption.owner_epoch == owner_epoch)
                 })
                 .map(|index| &mut task.execution_attempts[index])
             {

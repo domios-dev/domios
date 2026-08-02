@@ -217,7 +217,10 @@ fn build_chatbackend_open_session_ctx(
         );
     }
     if let Some(pad_dir) = pad_dir {
-        ctx.insert("padDir".into(), serde_json::Value::String(pad_dir.to_string()));
+        ctx.insert(
+            "padDir".into(),
+            serde_json::Value::String(pad_dir.to_string()),
+        );
     }
     for key in ["systemPrompt", "preset", "model", "mode"] {
         if let Some(value) = config.get(key).and_then(|v| v.as_str()) {
@@ -337,7 +340,12 @@ impl ServiceContext {
         let workspace_id = self.workspace_id_for_tab(tab_id);
         let pad = self.ensure_agent_pad(tab_id)?;
         let pad_dir = pad.env_value();
-        let ctx = build_chatbackend_open_session_ctx(tab_id, workspace_id.as_deref(), Some(&pad_dir), config);
+        let ctx = build_chatbackend_open_session_ctx(
+            tab_id,
+            workspace_id.as_deref(),
+            Some(&pad_dir),
+            config,
+        );
         let provider = self.chatbackend_provider(plugin_id)?;
         open_chatbackend_session(provider.as_ref(), ctx)
     }

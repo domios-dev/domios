@@ -5,11 +5,11 @@ use super::plan_fields::{
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
-pub(super) use super::plan_task_authority::authorize_draft_mutation;
-use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 use super::plan_role_helpers::{
     assign_task_with_profile, record_spawned_attempt, RespawnAttemptRoleExt,
 };
+pub(super) use super::plan_task_authority::authorize_draft_mutation;
+use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
@@ -22,9 +22,18 @@ use tauri::AppHandle;
 
 fn authenticated_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
     crate::service::AuthenticatedPlanCaller {
-        tab_id: params.and_then(|v| v.get("caller_tab_id")).and_then(Value::as_str).map(str::to_string),
-        session_id: params.and_then(|v| v.get("session_id")).and_then(Value::as_str).map(str::to_string),
-        binding_nonce: params.and_then(|v| v.get("session_binding_nonce")).and_then(Value::as_str).map(str::to_string),
+        tab_id: params
+            .and_then(|v| v.get("caller_tab_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        session_id: params
+            .and_then(|v| v.get("session_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        binding_nonce: params
+            .and_then(|v| v.get("session_binding_nonce"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
     }
 }
 
@@ -242,7 +251,11 @@ pub(super) fn dispatch(
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let (plan_id, task_id) = svc
                 .authorize_task_execution_action(&task_id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
             let tab_id = get_string_param(params, "caller_tab_id")?;
             let role = tab_role(svc, &tab_id);
             store
@@ -256,7 +269,11 @@ pub(super) fn dispatch(
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let (plan_id, task_id) = svc
                 .authorize_task_execution_action(&task_id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
             store
                 .set_task_assignment(&task_id, None, None, now)
                 .map_err(plan_rpc_err)?;
@@ -392,12 +409,20 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             let author = svc
                 .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
             crate::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
             )
-            .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
             let has_sections = !section_ids.is_empty();
             let has_model = p
                 .and_then(|x| x.get("model"))
@@ -554,12 +579,20 @@ pub(super) fn dispatch(
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let author = svc
                 .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
             crate::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
             )
-            .map_err(|message| JsonRpcError { code: -32003, message, data: None })?;
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
                     .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))
@@ -1160,12 +1193,9 @@ mod tests {
         fixture.service.plan_store.save(&mut plan, 5).unwrap();
         let service = Arc::new(fixture.service.clone());
         let missing = Some(json!({ "plan_id": plan_id, "task_id": task_id }));
-        assert!(verify_owner_epoch_for_task_mutation(
-            "plan.task.update",
-            &missing,
-            &service
-        )
-        .is_err());
+        assert!(
+            verify_owner_epoch_for_task_mutation("plan.task.update", &missing, &service).is_err()
+        );
         let stale = Some(json!({
             "plan_id": plan_id,
             "task_id": task_id,
@@ -1174,12 +1204,9 @@ mod tests {
             "session_binding_nonce": "nonce",
             "owner_epoch": 1
         }));
-        assert!(verify_owner_epoch_for_task_mutation(
-            "plan.task.update",
-            &stale,
-            &service
-        )
-        .is_err());
+        assert!(
+            verify_owner_epoch_for_task_mutation("plan.task.update", &stale, &service).is_err()
+        );
         let rebound = Some(json!({
             "plan_id": plan_id,
             "task_id": task_id,
@@ -1188,11 +1215,8 @@ mod tests {
             "session_binding_nonce": "nonce",
             "owner_epoch": 2
         }));
-        assert!(verify_owner_epoch_for_task_mutation(
-            "plan.task.update",
-            &rebound,
-            &service
-        )
-        .is_err());
+        assert!(
+            verify_owner_epoch_for_task_mutation("plan.task.update", &rebound, &service).is_err()
+        );
     }
 }
