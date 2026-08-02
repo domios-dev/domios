@@ -43,6 +43,15 @@ for source in loader_sources:
 
 errors = []
 
+bold_prompt_files = sorted(
+    p.relative_to(prompts_dir).as_posix()
+    for p in prompts_dir.rglob("*.md")
+    if "**" in p.read_text(encoding="utf-8")
+)
+if bold_prompt_files:
+    errors.append("Compiled prompts use Markdown bold instead of plain text or uppercase:")
+    errors.extend(f"  {name}" for name in bold_prompt_files)
+
 missing_doc = sorted(files - doc_pairs.keys())
 if missing_doc:
     errors.append("Prompt files missing from docs/PROMPTS.md:")
