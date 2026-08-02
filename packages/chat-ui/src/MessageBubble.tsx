@@ -17,7 +17,7 @@ import {
 import { ToolCallBubble } from "./ToolCallBubble";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
-import { InboundReportCard } from "./codeterm/InboundReportCard";
+import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
 import type { TabNameResolver } from "./codeterm/templates";
@@ -42,6 +42,7 @@ import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/L
 import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
+import { parseCoordinationReport } from "./codeterm/coordinationReport";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
@@ -112,7 +113,9 @@ function recordBubbleRender(id: string): void {
 export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
-  const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication || isOutboundMessage(item);
+  const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
+  const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
+  const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
     return persisted ?? shouldAutoExpand;
