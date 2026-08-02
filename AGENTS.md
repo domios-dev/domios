@@ -55,6 +55,20 @@ Choose the operation before running a command: shared development is `docs/BUILD
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
+On macOS, local self-reinstall is built into the CLI, not a standalone script
+or `build.sh install-local`. After `./build.sh build`, run:
+
+```bash
+codeterm update install --from-file "/path/to/CodeTerm.app" \
+  --continue-tab "$CODETERM_TAB_ID" \
+  --continue-prompt "Resume the interrupted task and verify the installed build."
+```
+
+The implementation lives in `cli/src/cmd/install.rs`. It replaces the app,
+relaunches CodeTerm, and resumes the calling tab. Do not manually replace the
+bundle or conclude that macOS self-install is missing because
+`./build.sh install-local` is Windows-only.
+
 `dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Every build, test, dev run, and executable gate runs only from the canonical integration checkout under Orchestrator authority.
 
 Isolated Worker lanes are source-only. They may inspect, edit, statically review, and commit owned source, but they never invoke `build.ps1`/`build.sh`, Cargo, project tests, dev servers, packaging, or validation gates, including focused checks. Workers author coverage and report exact deferred commands. After a real ancestry-preserving merge, the Orchestrator runs those commands in canonical. The only exception is a Worker assigned to canonical and given explicit permission for the exact gate.
@@ -303,4 +317,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->
