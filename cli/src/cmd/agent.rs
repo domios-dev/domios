@@ -7,12 +7,33 @@ use crate::cmd::report_guard::ReportRefusal;
 use crate::{build_http, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+fn absolute_spawn_base(spawn_cwd: Option<&str>, caller_cwd: &std::path::Path) -> std::path::PathBuf {
+    match spawn_cwd.map(std::path::Path::new) {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        Some(path) => caller_cwd.join(path),
+        None => caller_cwd.to_path_buf(),
+    }
+}
+
 /// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
 /// reads the file verbatim (or stdin when the value is `-`), so the body never
 /// passes through the caller's shell — backticks and $(...) survive byte-exact.
 pub fn resolve_spawn_task<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
+    spawn_cwd: Option<&str>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    let caller_cwd = std::env::current_dir()
+        .map_err(|error| format!("failed to resolve caller cwd for --task-file: {error}"))?;
+    resolve_spawn_task_from(task, task_file, spawn_cwd, &caller_cwd, stdin)
+}
+
+fn resolve_spawn_task_from<R: Read>(
+    task: Option<String>,
+    task_file: Option<String>,
+    spawn_cwd: Option<&str>,
+    caller_cwd: &std::path::Path,
     stdin: &mut R,
 ) -> Result<Option<String>, String> {
     match (task, task_file) {
@@ -26,9 +47,22 @@ pub fn resolve_spawn_task<R: Read>(
                     .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
                 Ok(Some(buf))
             } else {
-                std::fs::read_to_string(&path)
+                let requested = std::path::Path::new(&path);
+                let base = absolute_spawn_base(spawn_cwd, caller_cwd);
+                let resolved = if requested.is_absolute() {
+                    requested.to_path_buf()
+                } else {
+                    base.join(requested)
+                };
+                std::fs::read_to_string(&resolved)
                     .map(Some)
-                    .map_err(|e| format!("failed to read --task-file {}: {}", path, e))
+                    .map_err(|e| {
+                        format!(
+                            "failed to read --task-file {path} (resolved from {} as {}): {e}",
+                            base.display(),
+                            resolved.display()
+                        )
+                    })
             }
         }
         (None, None) => Ok(None),
@@ -704,7 +738,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 eprintln!("Error: --workspace is required when spawning --role Orchestrator");
                 std::process::exit(1);
             }
-            let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
+            let task = match resolve_spawn_task(task, task_file, cwd.as_deref(), &mut std::io::stdin()) {
                 Ok(t) => t,
                 Err(e) => {
                     eprintln!("Error: {}", e);

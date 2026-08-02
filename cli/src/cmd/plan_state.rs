@@ -155,11 +155,12 @@ pub fn render_state(val: &Value) -> String {
 
     if let Some(c) = val.get("task_counts") {
         let total = u(c, "total");
-        let mut pct = val
-            .get("percent_done")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0)
-            * 100.0;
+        let done = u(c, "done");
+        let mut pct = if total == 0 {
+            0.0
+        } else {
+            done as f64 / total as f64 * 100.0
+        };
         if mode != "complete" {
             pct = pct.min(99.0);
         }
@@ -170,9 +171,9 @@ pub fn render_state(val: &Value) -> String {
             String::new()
         };
         out.push_str(&format!(
-            "tasks: {} total | done {} | in_progress {} | in_review {} | pending {} | blocked {}{} | cancelled {} ({pct:.0}% open-work progress)\n",
+            "tasks: {} total | done {} | in_progress {} | in_review {} | pending {} | blocked {}{} | cancelled {} ({pct:.0}% total-task progress)\n",
             total,
-            u(c, "done"),
+            done,
             u(c, "in_progress"),
             u(c, "in_review"),
             u(c, "pending"),
@@ -428,7 +429,7 @@ mod tests {
         let out = render_state(&val);
         assert!(out.contains("Loop [pl_1] (active)"));
         assert!(out.contains("goal: ship it"));
-        assert!(out.contains("25% open-work progress"));
+        assert!(out.contains("25% total-task progress"));
         assert!(out.contains("coverage: 50% (1 section gap"));
         assert!(out.contains("drift: 1 (in_progress_tab_gone 1)"));
         assert!(out.contains("focus: foundation"));
@@ -511,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn non_complete_plan_with_paused_work_never_renders_fully_done() {
+    fn percent_done_matches_displayed_counts() {
         let val = json!({
             "plan_id": "pl_1",
             "title": "Paused work",
@@ -533,7 +534,7 @@ mod tests {
         let out = render_state(&val);
 
         assert!(out.contains("paused 1"), "{out}");
-        assert!(out.contains("99% open-work progress"), "{out}");
+        assert!(out.contains("50% total-task progress"), "{out}");
         assert!(!out.contains("100%"), "{out}");
     }
 

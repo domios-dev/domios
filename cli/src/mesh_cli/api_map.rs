@@ -217,11 +217,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
             }
-            crate::TabAction::Inspect { tabs } => (
+            crate::TabAction::Inspect { tabs, tab } => (
                 "GET".into(),
                 format!(
                     "/api/tabs/inspect?tab_ids={}",
-                    tabs.iter()
+                    tabs.iter().chain(tab.iter())
                         .map(|tab| urlencoding::encode(tab).into_owned())
                         .collect::<Vec<_>>()
                         .join(",")
@@ -271,10 +271,16 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("POST".into(), "/api/tabs".into(), Some(body.to_string()))
             }
-            crate::TabAction::Focus { id } => {
+            crate::TabAction::Focus { id, tab } => {
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "focus") else {
+                    return unsupported("tab focus requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
-            crate::TabAction::Close { id } => {
+            crate::TabAction::Close { id, tab } => {
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "close") else {
+                    return unsupported("tab close requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/close", id), None)
             }
             crate::TabAction::Rename { title, tab } => {
@@ -458,6 +464,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
                     task_file.clone(),
+                    cwd.as_deref(),
                     &mut std::io::stdin(),
                 ) {
                     Ok(t) => t,

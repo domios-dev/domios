@@ -14,7 +14,18 @@ use crate::cmd::print::handle_result;
 use crate::MemAction;
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
+    let human_search = !json_mode && matches!(&action, MemAction::Search { .. });
     if let Some(result) = socket::try_dispatch(client, &action) {
+        if human_search {
+            match result {
+                Ok(value) => print!("{}", render_search_hits(&value)),
+                Err(error) => {
+                    eprintln!("Error: {error}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
         print_mem_result(json_mode, result);
         return;
     }
@@ -62,6 +73,48 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         _ => unreachable!("all other mem actions have socket transport parity"),
     }
+}
+
+const SEARCH_PREVIEW_CHARS: usize = 120;
+
+fn render_search_hits(value: &serde_json::Value) -> String {
+    let Some(hits) = value
+        .get("hits")
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| value.as_array())
+    else {
+        return "(empty)\n".into();
+    };
+    if hits.is_empty() {
+        return "(empty)\n".into();
+    }
+    let mut out = String::new();
+    for hit in hits {
+        let item = hit.get("item").unwrap_or(hit);
+        let text = item
+            .get("summary")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| item.get("body").and_then(|value| value.as_str()))
+            .unwrap_or("");
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut preview: String = normalized.chars().take(SEARCH_PREVIEW_CHARS).collect();
+        if normalized.chars().count() > SEARCH_PREVIEW_CHARS {
+            preview.push('…');
+        }
+        let id = item.get("id").and_then(|value| value.as_str()).unwrap_or("?");
+        let title = item
+            .get("title")
+            .and_then(|value| value.as_str())
+            .unwrap_or("untitled");
+        let kind = item
+            .get("kind")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown");
+        let score = hit.get("score").and_then(|value| value.as_f64()).unwrap_or(0.0);
+        out.push_str(&format!("{id} | {title} | {kind} | {score:.3} | {preview}\n"));
+    }
+    out
 }
 
 /// Print direct-injection text without the generic object wrapper.

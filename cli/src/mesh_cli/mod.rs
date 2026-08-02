@@ -20,6 +20,15 @@ pub use auth::sign_request;
 pub use parse::parse_ip_port;
 pub use relay::mesh_relay_cmd;
 
+fn remote_close_tab_id(command: &Commands) -> Option<&str> {
+    match command {
+        Commands::Tab {
+            action: super::TabAction::Close { id: Some(id), tab: None },
+        } => Some(id),
+        _ => None,
+    }
+}
+
 #[derive(Subcommand)]
 pub enum MeshAction {
     /// Show mesh status (identity, discovery, peers)
@@ -248,10 +257,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
         return;
     }
-    if let Commands::Tab {
-        action: super::TabAction::Close { id },
-    } = &cli.command
-    {
+    if let Some(id) = remote_close_tab_id(&cli.command) {
         relay::mesh_close_tab_and_forget_remote_worker(&http, &base, &token, target, id, cli.json);
         return;
     }

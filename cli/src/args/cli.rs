@@ -61,7 +61,7 @@ pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,
 
-    /// List all available API methods
+    /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
 
     /// Plugin management — install, update, remove, manage channels
