@@ -76,6 +76,7 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
+    let permission_bypass = general_agent_permission_bypass(&svc.agent_registry, provider_name);
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
     // Regenerate AGENT.md in a background thread.
@@ -92,16 +93,17 @@ pub fn start_general_agent(
 
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
-        let (tab_id_opt, current_agent, current_pty_id) = {
+        let (tab_id_opt, current_agent, current_pty_id, current_auto_approve) = {
             let m = mux.write();
             match m.resolve_tab_id(GENERAL_ALIAS) {
                 Some(pid) => {
                     let tab = m.get_tab(&pid);
                     let at = tab.and_then(|p| p.agent_type.clone());
                     let pt = tab.and_then(|p| p.pty_id.clone());
-                    (Some(pid), at, pt)
+                    let auto_approve = tab.is_some_and(|p| p.auto_approve);
+                    (Some(pid), at, pt, auto_approve)
                 }
-                None => (None, None, None),
+                None => (None, None, None, false),
             }
         };
         if let (Some(pid), Some(current_agent)) = (tab_id_opt.clone(), current_agent.clone()) {
@@ -115,7 +117,7 @@ pub fn start_general_agent(
                             &pty_id,
                             std::time::Duration::from_secs(3),
                         );
-                        if agent_visible {
+                        if agent_visible && current_auto_approve == permission_bypass {
                             let unbound = mux
                                 .write()
                                 .get_tab(&pid)
@@ -134,7 +136,11 @@ pub fn start_general_agent(
                             log::info!("[general-agent] Already running (tab={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
-                        log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                        if agent_visible {
+                            log::info!("[general-agent] Permission policy changed for PTY {} — terminating before relaunch", pty_id);
+                        } else {
+                            log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                        }
                         if let Err(reason) =
                             terminate_pty_before_relaunch(pty, screen_state, &pty_id)
                         {
@@ -292,7 +298,7 @@ pub fn start_general_agent(
         let mut m = mux.write();
         let d = m.link_pty(&tab_id, pty_id.clone());
         if let Some(tab) = m.get_tab_mut(&tab_id) {
-            tab.auto_approve = false;
+            tab.auto_approve = permission_bypass;
         }
         d
     };
@@ -361,7 +367,12 @@ pub fn start_general_agent(
     let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match build_general_agent_resume_command(&svc.agent_registry, provider_name, sid) {
+        match build_general_agent_resume_command(
+            &svc.agent_registry,
+            provider_name,
+            sid,
+            permission_bypass,
+        ) {
             Some(cmd) => cmd,
             None => {
                 log::error!(
@@ -426,7 +437,7 @@ pub fn start_general_agent(
             task: (!fallback).then_some(system_prompt.clone()),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: None,
-            skip_permissions: false,
+            skip_permissions: permission_bypass,
             session_id: pre_session_id,
             structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                 svc,
@@ -764,10 +775,26 @@ fn build_general_agent_resume_command(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
     session_id: &str,
+    permission_bypass: bool,
 ) -> Option<String> {
     registry
-        .with_provider(provider, |p| p.build_resume_command(session_id, false))
+        .with_provider(provider, |p| {
+            p.build_resume_command(session_id, permission_bypass)
+        })
         .flatten()
+}
+
+fn general_agent_permission_bypass(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+) -> bool {
+    crate::service::permission_policy::permission_bypass_allowed(
+        registry,
+        provider,
+        true,
+        false,
+        crate::multiplexer::types::TabAudience::User,
+    )
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {

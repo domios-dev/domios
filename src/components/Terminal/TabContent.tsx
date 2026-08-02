@@ -17,7 +17,6 @@ import { tabSessionActionView } from "./tabSessionActions";
 import { RemoteTabUnavailable } from "./RemoteTabUnavailable";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { tabContentSurface } from "./tabContentSurface";
-import { PermissionBypassStatus } from "./PermissionBypassStatus";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -120,7 +119,6 @@ export function TabContent({
           isActive={isVisible}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
-          {tab.agent_type && <PermissionBypassStatus autoApprove={tab.auto_approve === true} />}
           {body}
         </div>
       </div>
