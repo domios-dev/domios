@@ -300,6 +300,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
         model: None,
         planned_model: None,
@@ -630,8 +631,40 @@ fn fresh_and_resumed_agents_default_to_provider_permissions() {
     let resume_command = build_agent_command("claude", &resumed, None, None, &registry);
     assert!(!resume_command.contains("--dangerously-skip-permissions"));
 
+    let mut stale_legacy = make_params("claude", None);
+    stale_legacy.skip_permissions = Some(true);
+    stale_legacy.resume_session_id = Some("legacy-restored-session".into());
+    let stale_command = build_agent_command("claude", &stale_legacy, None, None, &registry);
+    assert!(!stale_command.contains("--dangerously-skip-permissions"));
+
+    let mut hidden_restored = make_params("claude", None);
+    hidden_restored.resume_session_id = Some("hidden-restored-session".into());
+    hidden_restored.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(
+            &registry,
+            "claude",
+            true,
+            true,
+            crate::multiplexer::types::TabAudience::User,
+        );
+    hidden_restored.skip_permissions = Some(
+        hidden_restored
+            .permission_bypass_authorization
+            .is_some(),
+    );
+    let hidden_command = build_agent_command("claude", &hidden_restored, None, None, &registry);
+    assert!(!hidden_command.contains("--dangerously-skip-permissions"));
+
     let mut explicit = make_params("claude", None);
     explicit.skip_permissions = Some(true);
+    explicit.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(
+            &registry,
+            "claude",
+            true,
+            false,
+            crate::multiplexer::types::TabAudience::User,
+        );
     let explicit_command = build_agent_command("claude", &explicit, None, None, &registry);
     assert_eq!(
         explicit_command.matches("--dangerously-skip-permissions").count(),
@@ -650,7 +683,16 @@ fn hidden_usage_probe_cannot_enable_permission_bypass() {
     let mut automation = make_params("claude", None);
     automation.skip_permissions = Some(true);
     automation.audience = crate::multiplexer::types::TabAudience::Automation;
-    assert!(!automation.permission_bypass_requested());
+    automation.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(
+            &registry,
+            "claude",
+            true,
+            false,
+            crate::multiplexer::types::TabAudience::Automation,
+        );
+    automation.skip_permissions = Some(automation.permission_bypass_authorization.is_some());
+    assert!(!automation.permission_bypass_requested("claude"));
     let command = build_agent_command("claude", &automation, None, None, &registry);
     assert!(!command.contains("--dangerously-skip-permissions"));
     let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(automation);

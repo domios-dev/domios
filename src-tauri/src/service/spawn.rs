@@ -266,13 +266,15 @@ impl ServiceContext {
         } else {
             agent.provider.clone()
         };
-        let permission_bypass = super::permission_policy::permission_bypass_allowed(
-            &self.agent_registry,
-            &agent_cmd,
-            agent.auto_approve,
-            spec.visibility == TabVisibility::Hidden,
-            spec.audience,
-        );
+        let permission_bypass_authorization =
+            super::permission_policy::authorize_permission_bypass(
+                &self.agent_registry,
+                &agent_cmd,
+                agent.auto_approve,
+                spec.visibility == TabVisibility::Hidden,
+                spec.audience,
+            );
+        let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
@@ -465,6 +467,7 @@ impl ServiceContext {
 
         let mut legacy_params = spec.to_agent_params()?;
         legacy_params.skip_permissions = Some(permission_bypass);
+        legacy_params.permission_bypass_authorization = permission_bypass_authorization;
         legacy_params.model = launch_model;
         legacy_params.structured_prompt_server =
             crate::service::structured_prompt::ensure_for_spawn(

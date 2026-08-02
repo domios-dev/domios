@@ -363,27 +363,39 @@ pub fn install_integration(
     install_integration_at(&claude_settings_path()?, options)
 }
 
-pub fn uninstall_integration() -> Result<(), String> {
-    let path = claude_settings_path()?;
+pub(crate) fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut json: Json = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
-
-    if let Some(hooks) = json.get_mut("hooks").and_then(|v| v.as_object_mut()) {
-        for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
-            if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
-                arr.retain(|h| !is_codeterm_hook(h));
-            }
+    let root = json
+        .as_object_mut()
+        .ok_or("settings.json must contain a JSON object")?;
+    let Some(hooks_value) = root.get_mut("hooks") else {
+        return Ok(());
+    };
+    let hooks = hooks_value.as_object_mut().ok_or("hooks is not an object")?;
+    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
+        if hooks.get(*key).is_some_and(|value| !value.is_array()) {
+            return Err(format!("hooks.{key} is not an array"));
+        }
+    }
+    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
+        if let Some(arr) = hooks.get_mut(*key).and_then(|value| value.as_array_mut()) {
+            arr.retain(|hook| !is_codeterm_hook(hook));
         }
     }
 
-    write_json_atomic(&path, &json)?;
+    write_json_atomic(path, &json)?;
     log::info!("[agent-claude] hooks removed");
     Ok(())
+}
+
+pub fn uninstall_integration() -> Result<(), String> {
+    uninstall_integration_at(&claude_settings_path()?)
 }
 
 pub(crate) fn restore_integration_at(path: &std::path::Path) -> Result<(), String> {

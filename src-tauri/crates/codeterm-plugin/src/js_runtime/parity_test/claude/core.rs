@@ -325,6 +325,36 @@ fn integration_rejects_malformed_non_object_and_empty_json_without_side_effects(
 }
 
 #[test]
+fn integration_uninstall_rejects_invalid_json_shapes_without_side_effects() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for (name, fixture) in [
+        ("malformed", "{not-json"),
+        ("non-object", "[]"),
+        ("malformed hook array", r#"{"hooks":{"Stop":{}}}"#),
+    ] {
+        for use_js in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let settings = dir.path().join("settings.json");
+            std::fs::write(&settings, fixture).unwrap();
+            let result = if use_js {
+                claude_in_temp(&dir.path().join("rule.md"), &settings).uninstall_integration()
+            } else {
+                crate::agent_claude::provider::integration::uninstall_integration_at(&settings)
+            };
+            assert!(
+                result.is_err(),
+                "{} accepted {name}",
+                if use_js { "JS" } else { "native" }
+            );
+            assert_eq!(std::fs::read_to_string(&settings).unwrap(), fixture);
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
+}
+
+#[test]
 fn integration_backup_and_restore_preserve_exact_bytes_in_native_and_js() {
     if require_plugins().is_none() {
         return;

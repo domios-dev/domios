@@ -469,6 +469,31 @@ for (const [name, fixture] of [
   eq(files.get(settingsPath), fixture, `${name} Claude input bytes remain unchanged`);
 }
 
+for (const [name, fixture] of [
+  ["malformed", "{not-json"],
+  ["non-object", "[]"],
+  ["malformed hook array", '{"hooks":{"Stop":{}}}'],
+] as const) {
+  const settingsPath = "/tmp/.claude/settings.json";
+  const files = new Map<string, string>([[settingsPath, fixture]]);
+  let writes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: () => null,
+      writeFile: (path: string, value: string) => { writes += 1; files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { writes += 1; files.set(path, JSON.stringify(value)); return true; },
+    },
+  }));
+  const result = p.uninstallIntegration();
+  assert(result.ok === false, `${name} Claude uninstall input is rejected`);
+  eq(writes, 0, `${name} Claude uninstall rejection has no side effects`);
+  eq(files.get(settingsPath), fixture, `${name} Claude uninstall bytes remain unchanged`);
+}
+
 {
   const settingsPath = "/tmp/.claude/settings.json";
   const original = '{\n  "foreign": true,\n  "hooks": {"Stop": []}\n}\n';

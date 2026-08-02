@@ -276,7 +276,7 @@ impl MultiplexerState {
                 can_spawn,
                 depth,
                 chat_view,
-                auto_approve,
+                auto_approve: _,
                 agent_session_model,
                 agent_planned_model,
                 agent_requested_model,
@@ -395,7 +395,7 @@ impl MultiplexerState {
                     pending_prompt: None,
                     agent_state: restored_identity
                         .and_then(|identity| identity.agent_state.clone()),
-                    auto_approve: *auto_approve,
+                    auto_approve: false,
                     protected: false,
                     connected_services: vec![],
                     agent_set_at: None,

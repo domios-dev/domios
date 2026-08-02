@@ -918,6 +918,46 @@ for (const [name, fixture] of [
 
 {
   const hooksPath = "/tmp/home\\.codex\\hooks.json";
+  const configPath = "/tmp/home\\.codex\\config.toml";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const ownershipPath = configPath + ".codeterm-hook-trust-owned";
+  const initial = new Map<string, string>([
+    [hooksPath, '{"foreign":"hooks"}'],
+    [configPath, `[hooks.state."${hooksPath}:session_start:owned"]\nenabled = false\nforeign = "config"\n`],
+    [scriptPath, "# foreign script\r\n"],
+    [ownershipPath, "foreign ownership bytes"],
+    [hooksPath + ".codeterm-backup", "prior hooks backup"],
+    [configPath + ".codeterm-backup", "prior config backup"],
+    [scriptPath + ".codeterm-backup", "prior script backup"],
+  ]);
+  for (let failAt = 1; failAt <= 9; failAt++) {
+    const files = new Map(initial);
+    let writeAttempt = 0;
+    const write = (path: string, value: string) => {
+      writeAttempt += 1;
+      if (writeAttempt === failAt) return false;
+      files.set(path, value);
+      return true;
+    };
+    const p = loadCodexWithHost(baseHost({
+      platform: () => "windows",
+      fs: {
+        fileExists: (path: string) => files.has(path),
+        readFile: (path: string) => files.get(path) ?? null,
+        readJson: (path: string) => JSON.parse(files.get(path) || "{}"),
+        writeFile: write,
+        writeJson: (path: string, value: unknown) => write(path, JSON.stringify(value)),
+        removeFile: (path: string) => files.delete(path),
+      },
+    }));
+    const result = p.installIntegration(7686, { consent: true });
+    assert(result.ok === false, `Codex install fails at write ${failAt}`);
+    eq([...files.entries()].sort(), [...initial.entries()].sort(), `write ${failAt} restores every exact prior byte`);
+  }
+}
+
+{
+  const hooksPath = "/tmp/home\\.codex\\hooks.json";
   const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
   const files = new Map<string, string>([
     [hooksPath, '{"hooks":{"SessionStart":[]}}'],

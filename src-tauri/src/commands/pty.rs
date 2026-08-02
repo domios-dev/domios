@@ -429,13 +429,15 @@ pub async fn spawn_pty_core(
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
             let pc = crate::config::provider_config(&provider_id);
-            let skip_perms = crate::service::permission_policy::permission_bypass_allowed(
-                &svc.agent_registry,
-                &provider_id,
-                pc.resume_skip_permissions.unwrap_or(false),
-                tab_hidden,
-                tab_audience,
-            );
+            let permission_bypass_authorization =
+                crate::service::permission_policy::authorize_permission_bypass(
+                    &svc.agent_registry,
+                    &provider_id,
+                    pc.resume_skip_permissions.unwrap_or(false),
+                    tab_hidden,
+                    tab_audience,
+                );
+            let skip_perms = permission_bypass_authorization.is_some();
             if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
                 tab.auto_approve = skip_perms;
             }
@@ -445,6 +447,7 @@ pub async fn spawn_pty_core(
                     agent: Some(provider_id.clone()),
                     cwd: tab_cwd.clone(),
                     skip_permissions: Some(skip_perms),
+                    permission_bypass_authorization,
                     model: tab_model.clone(),
                     role: tab_role.clone(),
                     role_profile: tab_role_profile.clone(),
