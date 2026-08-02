@@ -4,6 +4,10 @@ use crate::cmd::print::{handle_result, print_json};
 use crate::{build_http, read_api_config, resolve_tab, TabAction};
 
 pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
+    if let Err(error) = validate_user_tab_selectors(&action) {
+        handle_result(json, Err(error));
+        return;
+    }
     match action {
         TabAction::List {
             workspace,
@@ -19,16 +23,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     .or_else(|| caller_workspace_id(client, caller_tab_id.as_deref()))
             };
             let params = tab_list_params(workspace_id, all_workspaces, agents, caller_tab_id);
-            match client.call("tab.list", Some(params)) {
+            match fetch_ordinary_tabs(&params) {
                 Ok(value) => {
                     let Some(arr) = value.as_array() else {
                         handle_result(json, Ok(value));
                         return;
                     };
-                    let mut list = arr.clone();
-                    if let Err(error) = append_remote_workers(&mut list) {
-                        eprintln!("warning: remote team members unavailable: {error}");
-                    }
+                    let list = arr.clone();
                     if json {
                         print_json(&serde_json::Value::Array(list));
                     } else if list.is_empty() {
@@ -49,6 +50,16 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             if tabs.is_empty() {
                 eprintln!("Error: tab inspect requires --tab <ID>");
                 std::process::exit(2);
+            }
+            match remote_inspect_target(&tabs) {
+                Ok(Some((peer, remote_tabs))) => {
+                    let ids = remote_tabs.iter().map(|tab| urlencoding::encode(tab).into_owned()).collect::<Vec<_>>().join(",");
+                    let data = relay_tab_json(&peer, "GET", &format!("/api/tabs/inspect?tab_ids={ids}"), None);
+                    handle_result(json, Ok(data));
+                    return;
+                }
+                Err(error) => { handle_result(json, Err(error)); return; }
+                Ok(None) => {}
             }
             let result = client.call("tab.inspect", Some(serde_json::json!({ "tab_ids": tabs })));
             handle_result(json, result);
@@ -200,6 +211,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     eprintln!("Error: {error}");
                     std::process::exit(2);
                 });
+            if let RemoteTabTarget::Remote(peer, remote_tab) = classify_remote_tab_id(id) {
+                let path = format!("/api/tabs/{}/focus", urlencoding::encode(&remote_tab));
+                handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, None)));
+                return;
+            }
             let result = client.call("tab.focus", Some(serde_json::json!({ "tab_id": id })));
             handle_result(json, result);
         }
@@ -209,12 +225,24 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     eprintln!("Error: {error}");
                     std::process::exit(2);
                 });
+            if let RemoteTabTarget::Remote(peer, remote_tab) = classify_remote_tab_id(id) {
+                let path = format!("/api/tabs/{}/close", urlencoding::encode(&remote_tab));
+                handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, None)));
+                return;
+            }
             let mut params = serde_json::json!({ "tab_id": id });
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = client.call("tab.close", Some(params));
             handle_result(json, result);
         }
         TabAction::Rename { tab, title } => {
+            if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+                let body = serde_json::json!({ "title": title }).to_string();
+                let data = relay_tab_json(&peer, "POST", &format!("/api/tabs/{}/rename", urlencoding::encode(&remote_tab)), Some(&body));
+                handle_result(json, Ok(data));
+                return;
+            }
+            if tab.as_deref().is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid)) { handle_result(json, Err("invalid remote tab id".into())); return; }
             let tab_id = resolve_tab(client, tab);
             let result = client.call(
                 "tab.rename",
@@ -231,6 +259,16 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     std::process::exit(1);
                 }
             };
+            match tab.as_deref().map(classify_remote_tab_id) {
+                Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+                    let body = serde_json::json!({ "description": description }).to_string();
+                    let path = format!("/api/tabs/{}/describe", urlencoding::encode(&remote_tab));
+                    handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, Some(&body))));
+                    return;
+                }
+                Some(RemoteTabTarget::Invalid) => { handle_result(json, Err("invalid remote tab id".into())); return; }
+                _ => {}
+            }
             let tab_id = resolve_tab(client, tab);
             let result = client.call(
                 "tab.describe",
@@ -239,6 +277,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             handle_result(json, result);
         }
         TabAction::GetText { tab, formatted } => {
+            if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+                let data = relay_tab_json(&peer, "GET", &format!("/api/tabs/{}/text?formatted={formatted}", urlencoding::encode(&remote_tab)), None);
+                if let Some(text) = data.get("text").and_then(|value| value.as_str()) { print!("{text}"); return; }
+                eprintln!("No tab text");
+                std::process::exit(1);
+            }
+            if tab.as_deref().is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid)) { handle_result(json, Err("invalid remote tab id".into())); return; }
             let tab_id = resolve_tab(client, tab);
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
@@ -282,6 +327,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             command,
             timeout,
         } => {
+            if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+                let body = serde_json::json!({"command": command, "timeout_ms": timeout, "strip_ansi": true}).to_string();
+                let data = relay_tab_json(&peer, "POST", &format!("/api/tabs/{}/exec", urlencoding::encode(&remote_tab)), Some(&body));
+                if let Some(output) = data.get("output").and_then(|value| value.as_str()) { print!("{output}"); return; }
+                eprintln!("Exec failed");
+                std::process::exit(1);
+            }
+            if tab.as_deref().is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid)) { handle_result(json, Err("invalid remote tab id".into())); return; }
             let tab_id = resolve_tab(client, tab);
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
@@ -330,6 +383,15 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Status { tab } => {
+            match tab.as_deref().map(classify_remote_tab_id) {
+                Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+                    let path = format!("/api/tabs/{}/status", urlencoding::encode(&remote_tab));
+                    handle_result(json, Ok(relay_tab_json(&peer, "GET", &path, None)));
+                    return;
+                }
+                Some(RemoteTabTarget::Invalid) => { handle_result(json, Err("invalid remote tab id".into())); return; }
+                _ => {}
+            }
             let tab_selector = tab.unwrap_or_else(|| resolve_tab(client, None));
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
@@ -372,6 +434,15 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Stop { tab } => {
+            match tab.as_deref().map(classify_remote_tab_id) {
+                Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+                    let path = format!("/api/tabs/{}/stop", urlencoding::encode(&remote_tab));
+                    handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, Some("{}"))));
+                    return;
+                }
+                Some(RemoteTabTarget::Invalid) => { handle_result(json, Err("invalid remote tab id".into())); return; }
+                _ => {}
+            }
             let tab_id = resolve_tab(client, tab);
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
@@ -413,6 +484,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Chat { tab, since } => {
+            if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+                let path = remote_tab_chat_path(&remote_tab, since);
+                let data = relay_tab_json(&peer, "GET", &path, None);
+                if json { handle_result(true, Ok(data)); } else { print_tab_chat(&data); }
+                return;
+            }
+            if tab.as_deref().is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid)) { handle_result(json, Err("invalid remote tab id".into())); return; }
             let tab_id = resolve_tab(client, tab);
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
@@ -461,6 +539,7 @@ fn tab_list_params(
         "workspace_id": workspace_id,
         "caller_tab_id": caller_tab_id,
         "focused_workspace": focused_workspace,
+        "all_workspaces": all_workspaces,
         "agents_only": agents_only,
     })
 }
@@ -483,67 +562,130 @@ fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -
         .map(str::to_string)
 }
 
-fn append_remote_workers(tabs: &mut Vec<serde_json::Value>) -> Result<(), String> {
-    let (base, token) = read_api_config();
-    let http = build_http(&token).map_err(|e| e.to_string())?;
-    let response = http
-        .get(format!("{base}/api/remote-workers"))
-        .send()
-        .map_err(|e| e.to_string())?;
-    let status = response.status();
-    let body = response.text().unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!("HTTP {}: {}", status.as_u16(), body));
+fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
+    fn invalid(value: &str) -> bool {
+        matches!(classify_remote_tab_id(value), RemoteTabTarget::Invalid)
     }
-    let registry = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    merge_remote_workers(tabs, &registry);
-    Ok(())
+    let invalid_selector = match action {
+        TabAction::Inspect { tabs, tab } => tabs
+            .iter()
+            .chain(tab)
+            .find(|value| invalid(value))
+            .map(String::as_str),
+        TabAction::Focus { id, tab } | TabAction::Close { id, tab } => id
+            .as_deref()
+            .into_iter()
+            .chain(tab.as_deref())
+            .find(|value| invalid(value)),
+        TabAction::Rename { tab, .. }
+        | TabAction::Describe { tab, .. }
+        | TabAction::GetText { tab, .. }
+        | TabAction::Exec { tab, .. }
+        | TabAction::Status { tab }
+        | TabAction::Stop { tab }
+        | TabAction::Chat { tab, .. } => tab.as_deref().filter(|value| invalid(value)),
+        TabAction::Capture { action } => match action {
+            crate::args::misc::TabCaptureAction::Start { tab, .. }
+            | crate::args::misc::TabCaptureAction::Stop { tab } => tab.as_deref().filter(|value| invalid(value)),
+        },
+        _ => None,
+    };
+    invalid_selector
+        .map(|selector| Err(format!("invalid remote tab id: {selector}")))
+        .unwrap_or(Ok(()))
 }
 
-fn merge_remote_workers(tabs: &mut Vec<serde_json::Value>, registry: &serde_json::Value) {
-    let Some(by_orchestrator) = registry.as_object() else {
-        return;
-    };
-    let parents: std::collections::HashMap<String, (String, String)> = tabs
-        .iter()
-        .filter_map(|tab| {
-            Some((
-                sfield(tab, "id").to_string(),
-                (
-                    sfield(tab, "workspace_name").to_string(),
-                    sfield(tab, "workspace_id").to_string(),
-                ),
-            ))
-        })
-        .collect();
+fn remote_tab_chat_path(remote_tab: &str, since: usize) -> String {
+    format!(
+        "/api/tabs/{}/chat?since={}",
+        urlencoding::encode(remote_tab),
+        urlencoding::encode(&since.to_string()),
+    )
+}
+
+fn ordinary_tab_list_path(params: &serde_json::Value) -> String {
+    let mut query = vec![];
+    if let Some(workspace) = params.get("workspace_id").and_then(serde_json::Value::as_str) {
+        query.push(format!("workspace_id={workspace}"));
+    }
+    if params.get("all_workspaces").and_then(serde_json::Value::as_bool) == Some(true) {
+        query.push("all_workspaces=true".into());
+    }
+    if params.get("agents_only").and_then(serde_json::Value::as_bool) == Some(true) {
+        query.push("agents=true".into());
+    }
+    format!("/api/tabs?{}", query.join("&"))
+}
+
+fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let (base, token) = read_api_config();
+    let http = build_http(&token).map_err(|error| error.to_string())?;
+    let response = http
+        .get(format!("{base}{}", ordinary_tab_list_path(params)))
+        .send()
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    let text = response.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {text}", status.as_u16()));
+    }
+    serde_json::from_str(&text).map_err(|error| error.to_string())
+}
+
+fn parse_remote_tab_id(value: &str) -> Option<(String, String)> {
+    let (peer, tab) = value.strip_prefix("mesh:")?.split_once('/')?;
+    if peer.is_empty() || tab.is_empty() || tab.contains('/') || value.chars().any(|c| c.is_whitespace() || matches!(c, '?' | '&' | '#')) {
+        return None;
+    }
+    Some((peer.to_string(), tab.to_string()))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RemoteTabTarget {
+    Local,
+    Remote(String, String),
+    Invalid,
+}
+
+fn classify_remote_tab_id(value: &str) -> RemoteTabTarget {
+    match parse_remote_tab_id(value) {
+        Some((peer, tab)) => RemoteTabTarget::Remote(peer, tab),
+        None if value.starts_with("mesh:") => RemoteTabTarget::Invalid,
+        None => RemoteTabTarget::Local,
+    }
+}
+
+fn remote_inspect_target(tabs: &[String]) -> Result<Option<(String, Vec<String>)>, String> {
     let mut remote = Vec::new();
-    for (orchestrator, workers) in by_orchestrator {
-        let Some((workspace_name, workspace_id)) = parents.get(orchestrator) else {
-            continue;
-        };
-        let Some(workers) = workers.as_array() else {
-            continue;
-        };
-        for worker in workers {
-            let remote_tab = sfield(worker, "remote_tab");
-            if remote_tab.is_empty() {
-                continue;
-            }
-            remote.push(serde_json::json!({
-                "id": remote_tab,
-                "tab_id": remote_tab,
-                "title": sfield(worker, "title"),
-                "parent_tab_id": orchestrator,
-                "workspace_name": workspace_name,
-                "workspace_id": workspace_id,
-                "agent_session_model": sfield(worker, "model"),
-                "role": "Worker",
-                "remote_peer": sfield(worker, "peer"),
-                "remote": true,
-            }));
+    let mut local = false;
+    for value in tabs {
+        match parse_remote_tab_id(value) {
+            Some(identity) => remote.push(identity),
+            None if value.starts_with("mesh:") => return Err(format!("invalid remote tab id: {value}")),
+            None => local = true,
         }
     }
-    tabs.extend(remote);
+    if remote.is_empty() { return Ok(None); }
+    if local { return Err("mixed local and remote inspection is unsupported".into()); }
+    let peer = remote[0].0.clone();
+    if remote.iter().any(|(owner, _)| owner != &peer) {
+        return Err("multi-peer remote inspection is unsupported".into());
+    }
+    Ok(Some((peer, remote.into_iter().map(|(_, tab)| tab).collect())))
+}
+
+fn relay_tab_json(
+    peer: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> serde_json::Value {
+    let (base, token) = read_api_config();
+    let http = build_http(&token).unwrap_or_else(|error| {
+        eprintln!("Error: failed to build HTTP client: {error}");
+        std::process::exit(1);
+    });
+    crate::mesh_cli::mesh_relay_fetch_json(&http, &base, &token, peer, method, path, body)
 }
 
 fn handle_tab_capture(
@@ -552,6 +694,22 @@ fn handle_tab_capture(
     action: crate::args::misc::TabCaptureAction,
 ) {
     use crate::args::misc::TabCaptureAction;
+    let selector = match &action {
+        TabCaptureAction::Start { tab, .. } | TabCaptureAction::Stop { tab } => tab.as_deref(),
+    };
+    match selector.map(classify_remote_tab_id) {
+        Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+            let (suffix, body) = match action {
+                TabCaptureAction::Start { out, .. } => ("/capture/start", serde_json::json!({ "out": out })),
+                TabCaptureAction::Stop { .. } => ("/capture/stop", serde_json::json!({})),
+            };
+            let path = format!("/api/tabs/{}{}", urlencoding::encode(&remote_tab), suffix);
+            handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, Some(&body.to_string()))));
+            return;
+        }
+        Some(RemoteTabTarget::Invalid) => { handle_result(json, Err("invalid remote tab id".into())); return; }
+        _ => {}
+    }
     let (api_url, api_token) = read_api_config();
     let http = match build_http(&api_token) {
         Ok(c) => c,

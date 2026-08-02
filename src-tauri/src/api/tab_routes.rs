@@ -40,7 +40,14 @@ pub async fn list_tabs(
         state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs"))?;
-    Ok(Json(result.into_json()))
+    let local = result.into_json();
+    if query.local_only {
+        return Ok(Json(local));
+    }
+    let local = local.as_array().cloned().unwrap_or_default();
+    Ok(Json(serde_json::Value::Array(
+        crate::service::remote_tabs::ordinary_tab_projection(&state.mesh, local).await,
+    )))
 }
 
 #[derive(Default, Deserialize)]
@@ -52,6 +59,8 @@ pub struct TabListQuery {
     pub all_workspaces: bool,
     #[serde(default)]
     pub agents: bool,
+    #[serde(default)]
+    pub local_only: bool,
 }
 
 #[derive(Deserialize)]

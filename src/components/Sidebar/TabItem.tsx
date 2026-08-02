@@ -93,17 +93,29 @@ function TabWorkingActivity() {
   );
 }
 
-function TabSubline({ roleShield, generalAgent }: { roleShield: string | null; generalAgent: boolean }) {
-  if (!roleShield) return null;
+export function remoteTabSubtitle(tab: Tab, roleShield: string | null): string | null {
+  const peer = tab.remote_peer_name?.trim();
+  if (!peer) return roleShield;
+  const role = roleShield
+    ? roleShield.charAt(0) + roleShield.slice(1).toLowerCase()
+    : null;
+  const base = role ? `${role} · @${peer}` : `@${peer}`;
+  if (tab.remote_availability === "reconnecting") return `${base} · Reconnecting`;
+  if (tab.remote_availability === "unavailable") return `${base} · Unavailable`;
+  return base;
+}
+
+function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; generalAgent: boolean }) {
+  if (!subtitle) return null;
   return (
     <span
       data-testid="tab-subline"
       className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
     >
-      {generalAgent ? (
+      {generalAgent && !subtitle.includes(" · @") ? (
         <span data-testid="general-agent-subtitle" className="shrink-0">General Agent</span>
       ) : (
-        <RoleBadge label={roleShield} className="shrink-0" />
+        <RoleBadge label={subtitle} className="shrink-0" />
       )}
     </span>
   );
@@ -146,6 +158,7 @@ function TabItemInner({
   const isGeneralAgent = tab.machine_agent_identity === "general_agent";
   const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
   const roleShield = isGeneralAgent ? "General Agent" : roleShieldLabel(tab);
+  const subtitle = remoteTabSubtitle(tab, roleShield);
   const isSubTab =
     tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -302,7 +315,7 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
-        aria-label={isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}
+        aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${tab.remote_peer_name ? ` @${tab.remote_peer_name}` : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
@@ -347,7 +360,7 @@ function TabItemInner({
                 {collapsedSummary}
               </span>
             ) : (
-              <TabSubline roleShield={roleShield} generalAgent={isGeneralAgent} />
+              <TabSubline subtitle={subtitle} generalAgent={isGeneralAgent} />
             )}
         </span>
         {/* Connected services */}

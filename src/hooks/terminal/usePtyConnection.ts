@@ -6,6 +6,7 @@ import { subscribeTabOutput, webOutputStreamActive, type TabOutputSink } from ".
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
 import {
   captureTerminalViewport,
@@ -202,7 +203,7 @@ export function usePtyConnection({
         });
       }
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
-      const useOutputStream = webOutputStreamActive();
+      const useOutputStream = webOutputStreamActive() || parseCompositeTabId(tabId) !== null;
 
       // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
       if (ptyId && IS_WEB) {

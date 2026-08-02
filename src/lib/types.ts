@@ -193,6 +193,10 @@ export interface Tab {
   boot_failure_reason?: string | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
+  remote_peer_id?: string;
+  remote_peer_name?: string;
+  remote_tab_id?: string;
+  remote_availability?: "available" | "reconnecting" | "unavailable";
 }
 
 export interface MultiplexerState {
