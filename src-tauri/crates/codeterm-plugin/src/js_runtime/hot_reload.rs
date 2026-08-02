@@ -38,6 +38,7 @@ impl CapabilityRegistries {
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
+        self.deregister_plugin(id);
         if caps.transcriber {
             self.transcribe.register(
                 id.clone(),
@@ -376,6 +377,11 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
+                let was_spawnable_chatbackend = self
+                    .caps
+                    .chatbackend
+                    .get(&id)
+                    .is_some_and(|backend| backend.spawnable());
                 self.register_vm(&id, provider.vm());
                 let activated_at_startup = self.activated_startup.lock().contains(&id);
                 if provider.manifest().requires_reload && !activated_at_startup {
@@ -403,7 +409,9 @@ impl HotReloadRegistry {
                     log::info!("[plugin-watcher] registered {id}");
                     self.emit_agent_provider_changed();
                 } else {
-                    if provider.manifest().capabilities.chat_backend_spawnable() {
+                    if was_spawnable_chatbackend
+                        || provider.manifest().capabilities.chat_backend_spawnable()
+                    {
                         self.emit_agent_provider_changed();
                     }
                     log::info!(
