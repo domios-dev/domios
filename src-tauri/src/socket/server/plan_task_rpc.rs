@@ -16,6 +16,36 @@ use crate::service::{
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+pub(super) fn authorize_draft_mutation(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: Option<&Value>,
+) -> Result<(), JsonRpcError> {
+    svc.authorize_draft_structure_mutation(
+        plan_id,
+        &crate::service::AuthenticatedPlanCaller {
+            tab_id: params
+                .and_then(|value| value.get("caller_tab_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            session_id: params
+                .and_then(|value| value.get("session_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            binding_nonce: params
+                .and_then(|value| value.get("session_binding_nonce"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+    )
+    .map(|_| ())
+    .map_err(|message| JsonRpcError {
+        code: -32003,
+        message,
+        data: Some(json!({ "type": "plan_draft_authorization_required" })),
+    })
+}
+
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
     let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
     else {
@@ -325,10 +355,7 @@ pub(super) fn dispatch(
             let section_ids = store
                 .resolve_task_section_ids(&id, &requested_sections)
                 .map_err(plan_rpc_err)?;
-            let force = p.and_then(|x| x.get("force")).and_then(|v| v.as_bool()) == Some(true);
-            store
-                .ensure_task_creation_allowed(&id, &kind, force)
-                .map_err(plan_rpc_err)?;
+            authorize_draft_mutation(svc, &id, p)?;
             let has_sections = !section_ids.is_empty();
             let has_model = p
                 .and_then(|x| x.get("model"))
@@ -482,6 +509,7 @@ pub(super) fn dispatch(
             validate_task_update_params(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            authorize_draft_mutation(svc, &id, p)?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
                     .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))
@@ -779,10 +807,12 @@ pub(super) fn dispatch(
             let all = p.and_then(|x| x.get("all")).and_then(|v| v.as_bool()) == Some(true);
             let (id, count) = if all {
                 let id = plan_refs::resolve_plan(store, params)?;
+                authorize_draft_mutation(svc, &id, p)?;
                 let count = store.rm_all_tasks(&id, now).map_err(plan_rpc_err)?;
                 (id, count)
             } else {
                 let (id, tid) = plan_refs::resolve_task(store, params)?;
+                authorize_draft_mutation(svc, &id, p)?;
                 store.rm_task(&id, &tid, now).map_err(plan_rpc_err)?;
                 (id, 1)
             };

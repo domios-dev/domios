@@ -221,8 +221,6 @@ pub(crate) struct TaskAddBody {
     handle: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default)]
-    force: bool,
 }
 
 pub async fn task_add(
@@ -232,6 +230,13 @@ pub async fn task_add(
     Json(body): Json<TaskAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     let requested_sections = body
         .sections
         .as_deref()
@@ -253,11 +258,6 @@ pub async fn task_add(
     } else {
         body.kind.clone()
     };
-    state
-        .svc
-        .plan_store
-        .ensure_task_creation_allowed(&id, &kind, body.force)
-        .map_err(plan_err)?;
     let has_sections = !section_ids.is_empty();
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
     let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -342,6 +342,12 @@ fn task_update_core(
     tid: &str,
     body: Value,
 ) -> PlanRouteResult {
+    service
+        .authorize_draft_structure_mutation(
+            id,
+            &crate::api::tab_routes::authenticated_plan_caller(headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     crate::plan::task_update_fields::validate_task_update_fields(
         &body,
         crate::plan::task_update_fields::TaskUpdateSeam::Rest,

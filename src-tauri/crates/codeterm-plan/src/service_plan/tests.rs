@@ -805,7 +805,7 @@ fn set_layout_accepts_prefixed_ids_from_cli_and_docs() {
 }
 
 #[test]
-fn task_creation_requires_plan_approval_unless_forced() {
+fn draft_task_creation_does_not_activate_execution() {
     use crate::plan::PlanMode;
 
     let root = tempfile::tempdir().unwrap().keep();
@@ -818,18 +818,15 @@ fn task_creation_requires_plan_approval_unless_forced() {
     let id = plan.id.clone();
     store.save(&mut plan, 1).unwrap();
 
-    let err = store
-        .ensure_task_creation_allowed(&id, "implement", false)
-        .unwrap_err();
-    assert!(matches!(err, PlanError::TaskCreationRequiresApproval));
     store
-        .ensure_task_creation_allowed(&id, "implement", true)
+        .ensure_task_creation_allowed(&id, "implement", false)
         .unwrap();
 
     // Planning-kind tasks are first-class in planning mode: allowed without --force.
     store
         .ensure_task_creation_allowed(&id, "planning", false)
         .unwrap();
+    assert!(!store.get(&id).unwrap().execution_tasks_unlocked());
 
     store.set_mode(&id, PlanMode::Approved, 2).unwrap();
     store
