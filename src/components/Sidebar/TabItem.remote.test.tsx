@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
 import { remoteTabSubtitle } from "./TabItem";
 
@@ -15,6 +15,8 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
   remote_tab_id: "one",
   remote_availability: "available",
 });
+
+finish();
 
 describe("remote tab subtitle", () => {
   it("shows role plus peer or peer alone", () => {

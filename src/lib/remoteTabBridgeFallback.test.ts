@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import { __setInvokeForTest, invoke } from "./bridge";
 import { subscribeTabOutput } from "./outputStream";
 
@@ -21,3 +21,5 @@ describe("bridge remote-shaped target guard", () => {
       .toThrow("local output fallback is forbidden");
   });
 });
+
+finish();

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
-import { tabContentSurface } from "./TabContent";
+import { tabContentSurface } from "./tabContentSurface";
 
 describe("remote tab local component parity", () => {
   it("uses TerminalTab, TabSessionChat and TabTopBar without a parallel remote surface", () => {
@@ -10,7 +10,8 @@ describe("remote tab local component parity", () => {
     expect(source).toContain("<TabSessionChat");
     expect(source).toContain("<TabTopBar");
     expect(source).not.toContain("RemoteTabSurface");
-    expect(source).toContain('tab.remote_availability !== "available"');
+    const surfaceSource = readFileSync(new URL("./tabContentSurface.ts", import.meta.url), "utf8");
+    expect(surfaceSource).toContain('tab.remote_availability !== "available"');
     const local: Tab = { id: "same", title: "Local", pty_id: "same", tab_type: "Terminal", cwd: null };
     const remote: Tab = {
       ...local,
@@ -24,3 +25,5 @@ describe("remote tab local component parity", () => {
     expect(tabContentSurface(remote)).toBe("ordinary");
   });
 });
+
+finish();

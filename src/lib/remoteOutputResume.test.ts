@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../test/standaloneTest";
 import { remoteOutputSinceCursor } from "./outputStream";
 
 describe("remote output resume cursor", () => {
@@ -8,3 +8,5 @@ describe("remote output resume cursor", () => {
     expect(JSON.parse(atob(padded))).toEqual({ boot: "boot-a", tabs: { "tab-a": 417 } });
   });
 });
+
+finish();

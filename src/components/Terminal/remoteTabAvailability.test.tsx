@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../../test/standaloneTest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Tab } from "../../lib/types";
 import { RemoteTabUnavailable } from "./RemoteTabUnavailable";
@@ -20,3 +20,5 @@ describe("remote terminal availability", () => {
     expect(unavailable).toContain("Unavailable · @ROG");
   });
 });
+
+finish();

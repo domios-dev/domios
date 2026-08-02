@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
@@ -39,3 +39,5 @@ describe("remote tab transport adapter", () => {
     expect(remoteTransportCall("spawn_pty", { tabId: "mesh:peer/shared" })).toBeNull();
   });
 });
+
+finish();

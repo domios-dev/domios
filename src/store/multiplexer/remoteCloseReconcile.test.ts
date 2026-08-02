@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 
@@ -15,3 +15,5 @@ describe("failed remote close reconciliation", () => {
     expect(restored[remote.id]).toEqual(remote);
   });
 });
+
+finish();

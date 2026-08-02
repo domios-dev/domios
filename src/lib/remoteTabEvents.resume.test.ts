@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
   waitForRemoteTabEventGenerationSettlement,
@@ -6,6 +6,8 @@ import {
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
 describe("remote chat event subscription ownership", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("old finalizer cannot clear replacement and original unsubscribe owns it", async () => {
     let settleOldFetch!: (response: Response) => void;
     const oldFetch = new Promise<Response>((resolve) => { settleOldFetch = resolve; });
@@ -25,6 +27,7 @@ describe("remote chat event subscription ownership", () => {
   });
 
   it("tracks validated cursor, publishes available, and replacement ownership is isolated", async () => {
+    vi.stubGlobal("window", new EventTarget());
     const bytes = new TextEncoder().encode(
       'data: {"boot":"boot-a","seq":9,"event_type":"tab-chat-msg-tab","data":{"delta":"x"}}\n\n',
     );
@@ -52,3 +55,5 @@ describe("remote chat event subscription ownership", () => {
     vi.unstubAllGlobals();
   });
 });
+
+finish();

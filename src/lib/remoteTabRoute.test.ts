@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, finish, it } from "../test/standaloneTest";
 import type { Tab } from "./types";
 import { remoteTabActionRequest, remoteTabStreamPath, requireRemoteTabRoute } from "./remoteTabRoute";
 
@@ -46,3 +46,5 @@ describe("remote tab routing", () => {
     }
   });
 });
+
+finish();
