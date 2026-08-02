@@ -131,6 +131,12 @@ Use `codeterm docs LANES` for the complete lane lifecycle.
 
 ## Review capacity
 
+Choose review granularity from backlog and diff size. A few large changes merit
+individual review; a growing queue of compatible small changes should share one
+review wave and canonical QA group. After real merge, the Orchestrator may fix a
+bounded mechanical integration defect directly in canonical. Bounce ownership,
+correctness, authority, scope, or design defects instead of grinding tiny edits.
+
 Review backpressure blocks ordinary implementation dispatch. A task that exists
 only to clear stranded review debt needs daemon-owned provenance. Task names,
 kinds, tags, and executor roles never grant capacity. The live bound
@@ -276,4 +282,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 45 -->
+<!-- revision: 46 -->
