@@ -1,8 +1,8 @@
 //! `AgentTransport` — the runtime half of a provider behind one seam, plus the
 //! atomic spawn entry the frontend calls. Both impls wrap existing substrates
 //! ([`PtyTransport`] → backend-owned PTY launch; [`ChatTransport`] →
-//! `chatbackend_launch_async`). [`ServiceContext::spawn_tab_atomic`] builds the
-//! tab and kicks launch async, returning a snapshot the client applies once.
+//! `chatbackend_launch`). [`ServiceContext::spawn_tab_atomic`] builds the tab
+//! and returns a snapshot only after transport launch succeeds.
 
 use serde::{Deserialize, Serialize};
 
@@ -53,8 +53,8 @@ pub struct TransportLaunchCtx<'a> {
     pub model: Option<&'a str>,
 }
 
-/// The runtime half of a provider. `launch` never blocks tab visibility: it
-/// kicks its work onto a backend task and returns `None`.
+/// The runtime half of a provider. Callers put blocking transports on a
+/// blocking worker before invoking `launch`.
 pub trait AgentTransport {
     fn launch(
         &self,
@@ -193,18 +193,19 @@ impl AgentTransport for ChatTransport {
             }
         }
         let history_meta = config.clone();
-        svc.chatbackend_launch_async(
+        svc.chatbackend_launch(
             ctx.provider_id.to_string(),
             ctx.tab_id.to_string(),
             config,
             history_meta,
-        );
+        )?;
         Ok(None)
     }
 }
 
 impl ServiceContext {
-    /// The atomic spawn entry: pick the transport, build the tab synchronously, kick launch async, return the snapshot.
+    /// The atomic spawn entry: pick the transport, build the tab, launch it,
+    /// then return the authoritative snapshot.
     pub fn spawn_tab_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
             crate::config::default_agent_provider()
