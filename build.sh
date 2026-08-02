@@ -1192,7 +1192,8 @@ CodeTerm build commands
   dev-prebuilt                Restart a validated dev build without Cargo
   check                       Fast Rust compile check
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <app|pty|cli> NAME Run one focused capped Rust test
+  test-one <app|pty|mem|cli> NAME
+                              Run one focused capped Rust test
   test                        Run the application Rust unit suite
   verify                      Run check, tests, and source-size gate
   qa-prep                     Prepare a worktree for QA
@@ -1315,13 +1316,14 @@ EOF
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ;;
   test-one)
-    test_scope="${2:?test-one requires app, pty, or cli}"
+    test_scope="${2:?test-one requires app, pty, mem, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
+      mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected app, pty, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected app, pty, mem, or cli)" >&2; exit 2 ;;
     esac
     ;;
   verify)

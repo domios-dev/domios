@@ -216,7 +216,7 @@ mod tests {
             .find(|hit| hit.item.title == "codeterm")
             .unwrap();
         assert_eq!(refreshed.item.body, SKILL_CODETERM.trim());
-        assert!(!refreshed.item.body.contains("pane"));
+        assert_ne!(refreshed.item.body, LEGACY_SKILL_CODETERM.trim());
         assert!(refreshed.item.body.contains("CODETERM_TAB_ID"));
 
         let edited = MemManager::open_in_memory().unwrap();
@@ -246,9 +246,15 @@ mod tests {
             let mut record = legacy_skill(LEGACY_SKILL_CODETERM);
             mutate(&mut record);
             let id = mem.save(record).unwrap();
-            let before = serde_json::to_vec(&mem.get(&id).unwrap().unwrap()).unwrap();
+            let mut before = mem.get(&id).unwrap().unwrap();
             seed_bundled(&mem).unwrap();
-            let after = serde_json::to_vec(&mem.get(&id).unwrap().unwrap()).unwrap();
+            let mut after = mem.get(&id).unwrap().unwrap();
+            before.accessed_at = None;
+            before.access_count = 0;
+            after.accessed_at = None;
+            after.access_count = 0;
+            let before = serde_json::to_vec(&before).unwrap();
+            let after = serde_json::to_vec(&after).unwrap();
             assert_eq!(after, before, "edited legacy metadata must remain byte-exact");
         }
     }

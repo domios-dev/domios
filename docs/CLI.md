@@ -1746,7 +1746,7 @@ Show the next queued QA task, claim it, or record a group's full-gate regression
 
 - `--claim`
 - `--group` — Record ONE group-scoped regression working point instead of claiming a task
-- `--note` — Claim note. Required with --claim.
+- `--note` — Claim note. Required with --claim
 - `<plan_id>`
 
 #### `codeterm plan qa override`
@@ -2639,8 +2639,8 @@ Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 Close a tab by ID
 
-- `<id>` — Temporary positional alias for the tab id. Prefer --tab.
-- `--tab` — Tab ID to close.
+- `<id>` — Temporary positional alias for the tab id. Prefer --tab
+- `--tab` — Tab ID to close
 
 #### `codeterm tab current`
 
@@ -2667,8 +2667,8 @@ Execute a command in a tab and return output
 
 Focus a tab by ID
 
-- `<id>` — Temporary positional alias for the tab id. Prefer --tab.
-- `--tab` — Tab ID to focus.
+- `<id>` — Temporary positional alias for the tab id. Prefer --tab
+- `--tab` — Tab ID to focus
 
 #### `codeterm tab get-text`
 
@@ -2681,8 +2681,8 @@ Get visible terminal text of a tab (what the user sees)
 
 Show the full daemon tab payload for one or more explicit tab ids
 
-- `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs.
-- `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab.
+- `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs
+- `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab
 
 #### `codeterm tab list`
 
