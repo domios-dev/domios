@@ -7754,7 +7754,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
                   "aliases": []
                 },
                 {
@@ -7802,7 +7802,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -8602,7 +8602,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
                   "aliases": []
                 },
                 {
@@ -8650,7 +8650,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {

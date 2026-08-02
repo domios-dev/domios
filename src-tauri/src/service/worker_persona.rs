@@ -9,13 +9,20 @@ use crate::service::SpawnIdentityProvenance;
 use super::{spawn::resolve_spawn_workspace_id, ServiceContext, SpawnAgentParams};
 
 const WORKER_PERSONA_POOL: &[&str] = &[
-    "Ada", "Adele", "Alma", "Ansel", "Arlo", "Aster", "Bea", "Beno", "Bram", "Cora", "Dahl",
-    "Darcy", "Edda", "Eli", "Elsa", "Enzo", "Esme", "Etta", "Faye", "Felix", "Finn", "Gael",
-    "Hana", "Hugo", "Iris", "Jules", "Kai", "Kira", "Lena", "Levi", "Lina", "Luca", "Mara", "Milo",
-    "Mira", "Nell", "Nico", "Nora", "Olin", "Oona", "Orin", "Otis", "Pia", "Remi", "Rhea", "Rina",
-    "Sage", "Sana", "Tala", "Tess", "Theo", "Vera", "Vito", "Willa", "Yara", "Zane",
+    "Aaron", "Abby", "Adam", "Alan", "Albert", "Alex", "Alice", "Amy", "Andy", "Anita", "Anna",
+    "April", "Arthur", "Ava", "Bella", "Ben", "Betty", "Blake", "Bob", "Brian", "Bruce", "Carl",
+    "Carol", "Chloe", "Chris", "Clara", "Colin", "Daisy", "Daniel", "David", "Dean", "Derek", "Diana",
+    "Dylan", "Edward", "Elena", "Elise", "Ella", "Emma", "Emily", "Eric", "Ethan", "Eva", "Felix",
+    "Fiona", "Frank", "Fred", "Gary", "Gavin", "George", "Gina", "Grace", "Greg", "Hannah", "Harry",
+    "Hazel", "Helen", "Henry", "Holly", "Ian", "Irene", "Isaac", "Jack", "James", "Jane", "Jason",
+    "Jean", "Jenny", "Jesse", "Joel", "John", "Jordan", "Joy", "Julia", "Karen", "Kate", "Kevin",
+    "Lana", "Lara", "Laura", "Leah", "Leo", "Liam", "Lily", "Linda", "Lisa", "Logan", "Louis",
+    "Lucas", "Lucy", "Luke", "Mabel", "Maria", "Mark", "Martin", "Mary", "Max", "Megan", "Mia",
+    "Mike", "Molly", "Nancy", "Neil", "Nina", "Noah", "Nora", "Oliver", "Oscar", "Owen", "Pam",
+    "Patrick", "Paul", "Peter", "Rachel", "Rita", "Robert", "Robin", "Rose", "Ruby", "Ryan", "Sam",
+    "Sara", "Scott", "Simon", "Stella", "Steve", "Susan", "Ted", "Terry", "Tina", "Toby", "Tom",
+    "Tony", "Tyler", "Vera", "Victor", "Wendy", "Zoe",
 ];
-const DISALLOWED_AUTOMATIC_NAMES: &[&str] = &["Dijkstra"];
 const FALLBACK_PREFIX: &str = "Worker";
 const RECENT_ATTEMPT_LIMIT: usize = 64;
 
@@ -272,7 +279,6 @@ where
     if let Some(preferred) = preferred_title
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .filter(|value| !is_disallowed_automatic_name(value))
     {
         if WORKER_PERSONA_POOL
             .iter()
@@ -317,20 +323,11 @@ fn select_pool_name(used: &HashSet<String>, seed: u64) -> Option<String> {
     let start = (seed as usize) % WORKER_PERSONA_POOL.len();
     for offset in 0..WORKER_PERSONA_POOL.len() {
         let candidate = WORKER_PERSONA_POOL[(start + offset) % WORKER_PERSONA_POOL.len()];
-        if is_disallowed_automatic_name(candidate) {
-            continue;
-        }
         if !used.contains(&canonical_name(candidate)) {
             return Some(candidate.to_string());
         }
     }
     None
-}
-
-fn is_disallowed_automatic_name(value: &str) -> bool {
-    DISALLOWED_AUTOMATIC_NAMES
-        .iter()
-        .any(|candidate| candidate.eq_ignore_ascii_case(value.trim()))
 }
 
 fn has_explicit_identity(value: Option<&str>) -> bool {
@@ -384,9 +381,9 @@ mod tests {
     }
 
     #[test]
-    fn historical_dijkstra_is_never_auto_assigned() {
-        let allocation = allocate_worker_persona_name(["Ada"], Some("Dijkstra"), None, 0);
-        assert_ne!(allocation.title, "Dijkstra");
+    fn automatic_name_is_selected_from_the_pool() {
+        let allocation = allocate_worker_persona_name(["Alex"], None, None, 0);
+        assert!(WORKER_PERSONA_POOL.contains(&allocation.title.as_str()));
     }
 
     #[test]
@@ -448,7 +445,7 @@ mod tests {
         for join in threads {
             let (allocation, reservation_id) = join.join().expect("thread join");
             assert!(seen.insert(allocation.title.clone()));
-            assert_ne!(allocation.title, "Dijkstra");
+            assert!(WORKER_PERSONA_POOL.contains(&allocation.title.as_str()));
             assert!(!allocation.title.starts_with("Worker "));
             reservation_ids.push(reservation_id);
         }

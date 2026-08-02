@@ -2028,13 +2028,13 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name, e.g. Hopper, Dijkstra, Lamport
+- `--personality` — Executor persona name, e.g. Alex, Emma, Leo
 - `<plan_id>`
 - `--primary`
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
+- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
 - `--tag`
@@ -2194,13 +2194,13 @@ Update task metadata, status, quality fields, or lane assignment
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name, e.g. Hopper, Dijkstra, Lamport
+- `--personality` — Executor persona name, e.g. Alex, Emma, Leo
 - `<plan_id>`
 - `--primary`
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
+- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
