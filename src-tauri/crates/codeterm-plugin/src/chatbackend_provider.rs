@@ -215,7 +215,7 @@ impl ChatBackendRegistry {
                 (Vec::new(), Some(error))
             }
         };
-        model_catalog::replace(
+        model_catalog::replace_resolved(
             &id,
             RegisteredDefaults {
                 models,
@@ -246,8 +246,9 @@ impl ChatBackendRegistry {
     }
 
     pub fn unregister(&self, id: &str) {
-        self.entries.write().remove(id);
-        model_catalog::unregister(id);
+        if self.entries.write().remove(id).is_some() {
+            model_catalog::unregister(id);
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<dyn ChatBackendProvider>> {
@@ -478,6 +479,61 @@ mod tests {
         );
         registry.unregister("chatbackend-error-fixture");
         registry.unregister("foreign-chatbackend-fixture");
+    }
+
+    #[test]
+    fn registration_resolves_catalog_override_once_before_caching() {
+        let id = "chatbackend-override-fixture";
+        let override_path = model_catalog::models_dir().join(format!("{id}.toml"));
+        std::fs::write(
+            &override_path,
+            r#"replace = true
+default = "override-model"
+
+[[models]]
+id = "override-model"
+display_name = "Override model"
+description = "Explicit user override"
+available = false
+"#,
+        )
+        .unwrap();
+        let registry = ChatBackendRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        registry.register(
+            id,
+            Arc::new(ListingBackend {
+                id,
+                calls: calls.clone(),
+                models: Ok(vec![model("live-model", "Live model", Some(true))]),
+            }),
+        );
+
+        let descriptor = registry.descriptor(id).unwrap();
+        assert_eq!(descriptor.available_models.len(), 1);
+        assert_eq!(descriptor.available_models[0].id, "override-model");
+        assert_eq!(descriptor.available_models[0].available, Some(false));
+        assert_eq!(descriptor.default_model.as_deref(), Some("override-model"));
+
+        std::fs::write(
+            &override_path,
+            r#"replace = true
+
+[[models]]
+id = "late-model"
+display_name = "Late model"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            registry.descriptor(id).unwrap().available_models[0].id,
+            "override-model",
+            "descriptor stays on the lifecycle snapshot until refresh"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        registry.unregister(id);
+        let _ = std::fs::remove_file(override_path);
     }
 
     struct ForeignBackend;

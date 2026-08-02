@@ -204,6 +204,21 @@ pub fn replace(provider_id: &str, defaults: RegisteredDefaults) {
         .insert(provider_id.to_string(), ProviderModels::seed(defaults));
 }
 
+/// Replace one provider, resolve user override precedence once, then retain the
+/// resolved in-memory snapshot for pure descriptor reads.
+pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> RegisteredDefaults {
+    replace(provider_id, defaults);
+    let resolved = RegisteredDefaults {
+        models: resolve_models(provider_id),
+        default: resolve_default(provider_id),
+    };
+    registry().write().insert(
+        provider_id.to_string(),
+        ProviderModels::seed(resolved.clone()),
+    );
+    resolved
+}
+
 /// Remove only `provider_id` from every in-memory catalog registry.
 pub fn unregister(provider_id: &str) {
     registry().write().remove(provider_id);
