@@ -98,11 +98,7 @@ pub fn queue_from_send(
     at: Option<String>,
 ) {
     let tab_id = resolve_tab(client, tab);
-    let text = if let Some(path) = from_pad {
-        crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(exit_error)
-    } else {
-        required_text(text, from_file, from_stdin)
-    };
+    let text = required_text(text, from_file, from_pad, from_stdin);
     let scheduled_at_ms = parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
     queue_message(json, &tab_id, text, scheduled_at_ms);
 }
