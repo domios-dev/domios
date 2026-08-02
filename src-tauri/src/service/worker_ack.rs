@@ -28,6 +28,12 @@ fn first_deadline_action(authenticated_attempt_binding: bool) -> WorkerAckFirstD
     }
 }
 
+fn close_worker_after_final_deadline(
+    close_tab: impl FnOnce() -> Result<(), String>,
+) -> Option<String> {
+    close_tab().err()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WorkerAckSignal {
     Acknowledged,
@@ -91,9 +97,11 @@ pub(crate) fn worker_ack_timeout_event(
     tab_id: &str,
     attempt_id: &str,
     spawn_command: &str,
+    cleanup_error: Option<&str>,
 ) -> Value {
+    let cleanup_ok = cleanup_error.is_none();
     json!({
-        "kind": "worker_ack_startup_failed",
+        "kind": if cleanup_ok { "worker_ack_startup_failed" } else { "worker_ack_cleanup_failed" },
         "plan_id": plan_id,
         "task_id": task_id,
         "tab_id": tab_id,
@@ -101,8 +109,17 @@ pub(crate) fn worker_ack_timeout_event(
         "deadline_seconds": (WORKER_ACK_TIMEOUT + WORKER_ACK_FINAL_TIMEOUT).as_secs(),
         "expected_command": "codeterm agent ack",
         "spawn_command": spawn_command,
-        "impact": "Worker startup failed; the exact attempt was closed and its tab assignment was cleared.",
-        "fallback": "Inspect the preserved lane before dispatching a replacement Worker.",
+        "cleanup": { "ok": cleanup_ok, "error": cleanup_error },
+        "impact": if cleanup_ok {
+            "Worker startup failed; the exact attempt was closed and its tab assignment was cleared."
+        } else {
+            "ORCHESTRATION PRODUCT INCIDENT: the startup attempt was fenced, but its tab could not be closed."
+        },
+        "fallback": if cleanup_ok {
+            "Inspect the preserved lane before dispatching a replacement Worker."
+        } else {
+            "Treat the tab as still live and close it explicitly before dispatching a replacement Worker."
+        },
     })
 }
 
@@ -121,15 +138,18 @@ impl ServiceContext {
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .is_some_and(|task| {
                     task.assigned_tab_id.as_deref() == Some(tab_id)
-                        && task.execution_attempts.iter().any(|attempt| {
-                            attempt.id == attempt_id
+                        && task
+                            .execution_attempts
+                            .iter()
+                            .rfind(|attempt| attempt.closed_at.is_none())
+                            .is_some_and(|attempt| {
+                                attempt.id == attempt_id
                                 && attempt.executor_tab_id == tab_id
-                                && attempt.closed_at.is_none()
                                 && attempt.acknowledged_at.is_none()
                                 && session_id.is_none_or(|session_id| {
                                     attempt.session_id.as_deref() == Some(session_id)
                                 })
-                        })
+                            })
                 })
         })
     }
@@ -330,7 +350,16 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            let _ = service.close_tab(&worker_tab_id);
+            let cleanup_error =
+                close_worker_after_final_deadline(|| service.close_tab(&worker_tab_id));
+            if cleanup_error.is_some() {
+                let _ = service.plan_store.mark_worker_startup_cleanup_failed(
+                    &plan_id,
+                    &task_id,
+                    &attempt_id,
+                    epoch_ms(),
+                );
+            }
             service.publish_worker_lifecycle_report(
                 &parent_tab_id,
                 &worker_tab_id,
@@ -343,6 +372,7 @@ impl ServiceContext {
                     &worker_tab_id,
                     &attempt_id,
                     &spawn_command,
+                    cleanup_error.as_deref(),
                 ),
             );
         });
@@ -489,5 +519,30 @@ mod tests {
         assert!(registry.expire("tab", "attempt"));
         assert!(!registry.expire("tab", "attempt"));
         assert!(receiver.recv().is_err());
+    }
+
+    #[test]
+    fn worker_ack_close_tab_failure_is_a_coordination_incident() {
+        let cleanup_error = close_worker_after_final_deadline(|| Err("tab remained open".into()));
+        let event = worker_ack_timeout_event(
+            "plan",
+            "task",
+            "tab",
+            "attempt",
+            "codeterm plan task dispatch plan task",
+            cleanup_error.as_deref(),
+        );
+
+        assert_eq!(cleanup_error.as_deref(), Some("tab remained open"));
+        assert_eq!(event["kind"], "worker_ack_cleanup_failed");
+        assert_eq!(event["cleanup"]["ok"], false);
+        assert!(event["impact"]
+            .as_str()
+            .unwrap()
+            .contains("ORCHESTRATION PRODUCT INCIDENT"));
+        assert!(event["fallback"]
+            .as_str()
+            .unwrap()
+            .contains("still live"));
     }
 }
