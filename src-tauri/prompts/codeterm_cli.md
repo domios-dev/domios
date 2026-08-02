@@ -4,7 +4,7 @@
      (cli/src/cmd/manifest.rs). Do not document commands or flags that don't
      exist. Full generated reference: docs/CLI.md. -->
 
-You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable — run `codeterm <cmd> --help` for flags and `codeterm docs <TOPIC>` for playbooks; this section carries only invariants and the capability map.
+You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable — run `codeterm <cmd> --help` for flags and `codeterm docs <TOPIC>` for a compact section index when a playbook is long. Read required instructions once with `--section <slug>` or `--full`; `--head` is incomplete diagnostics only. This section carries only invariants and the capability map.
 
 Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_PARENT_TAB_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
 
@@ -29,9 +29,9 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 | Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. | `docs ROUTING` |
 | Long-running processes (servers, watchers) | `tab new --cmd "..."` — own visible tab, not your shell | — |
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
-| Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent providers/models` | `docs ORCHESTRATION` |
-| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or `--role Orchestrator` flag, then read `codeterm docs ORCHESTRATION`. | `docs ORCHESTRATION` |
-| Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | `docs ORCHESTRATION` |
+| Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION --section dispatch-contract` |
+| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or `--role Orchestrator` flag, then read `codeterm docs ORCHESTRATION --section the-loop`. | `codeterm docs ORCHESTRATION --section the-loop` |
+| Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | `codeterm docs ORCHESTRATION --section durable-model` |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
 | Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts | `docs TELEGRAM-SETUP` |
 | Remote machines (mesh) | see Mesh block below | `docs MESH` |

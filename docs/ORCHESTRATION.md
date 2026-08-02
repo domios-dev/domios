@@ -16,15 +16,19 @@ codeterm task show <task>
 Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a
 specific discrepancy that compact status cannot explain.
 
+An agent reads selected instruction material completely or does not select it;
+never preview then repeat with `--full`. Use one named `--section` call when it
+answers the need, or one `--full` call when the whole playbook is required.
+
 Load specialized procedures only when needed:
 
 | Need | Read |
 |---|---|
-| Planner ownership and task cutting | `codeterm docs PLANNER` |
-| Worktrees, integration, cleanup | `codeterm docs LANES` |
-| Narrow plan edits | `codeterm docs PLAN-EDITING` |
-| Bounce evidence and retry limits | `codeterm docs BOUNCE` |
-| Test authoring | `codeterm docs TEST-AUTHORING` |
+| Planner ownership and task cutting | `codeterm docs PLANNER --full` |
+| Worktrees, integration, cleanup | `codeterm docs LANES --full` |
+| Narrow plan edits | `codeterm docs PLAN-EDITING --full` |
+| Bounce evidence and retry limits | `codeterm docs BOUNCE --full` |
+| Test authoring | `codeterm docs TEST-AUTHORING --full` |
 | CLI syntax | `codeterm <command> --help` |
 
 ## Durable model
@@ -134,7 +138,7 @@ Every Worker must be visible under the Orchestrator and carry:
 - `codeterm agent ack` as its first task action;
 - instructions to report by running `codeterm agent report`.
 
-Use `codeterm docs LANES` for the complete lane lifecycle.
+Use `codeterm docs LANES --full` for the complete lane lifecycle.
 
 ## Review capacity
 
@@ -289,4 +293,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 48 -->
+<!-- revision: 49 -->
