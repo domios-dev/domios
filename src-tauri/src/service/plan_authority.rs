@@ -117,6 +117,16 @@ impl ServiceContext {
         Ok(())
     }
 
+    pub(crate) fn authorize_task_execution_action(
+        &self,
+        task_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<(String, String), String> {
+        let detail = self.plan_store.show_task(task_id).ok_or("task not found")?;
+        self.authorize_execution_action(&detail.plan_id, caller)?;
+        Ok((detail.plan_id, detail.task.id))
+    }
+
     pub(crate) fn enter_execution_mode(
         &self,
         plan_id: &str,
@@ -301,6 +311,19 @@ mod tests {
     #[test]
     fn draft_execution_actions_and_mode_activation_fail_before_approval() {
         let (fixture, plan_id, _, owner) = fixture();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: "Assignment target".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
         assert!(fixture
             .service
             .authorize_execution_action(&plan_id, &owner)
@@ -308,6 +331,10 @@ mod tests {
         assert!(fixture
             .service
             .enter_execution_mode(&plan_id, &owner, 2)
+            .is_err());
+        assert!(fixture
+            .service
+            .authorize_task_execution_action(&task_id, &owner)
             .is_err());
         assert_eq!(
             fixture.service.plan_store.get(&plan_id).unwrap().mode,
@@ -330,5 +357,43 @@ mod tests {
             &serde_json::json!({ "name": "Structural", "depends_on": [] })
         )
         .is_ok());
+    }
+
+    #[test]
+    fn task_take_and_drop_require_approved_graph_and_live_orchestrator_identity() {
+        let (fixture, plan_id, _, owner) = fixture();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: "Take or drop".into(),
+                    kind: "implement".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        assert!(fixture
+            .service
+            .authorize_task_execution_action(&task_id, &owner)
+            .is_err());
+        fixture
+            .service
+            .approve_and_activate_plan(&plan_id, &owner, None, 3)
+            .unwrap();
+        let stale = AuthenticatedPlanCaller {
+            binding_nonce: Some("replayed-nonce".into()),
+            ..owner.clone()
+        };
+        assert!(fixture
+            .service
+            .authorize_task_execution_action(&task_id, &stale)
+            .is_err());
+        assert!(fixture
+            .service
+            .authorize_task_execution_action(&task_id, &owner)
+            .is_ok());
     }
 }

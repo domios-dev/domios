@@ -35,7 +35,13 @@ pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
     "why",
 ];
 
-const SOCKET_CONTEXT_KEYS: &[&str] = &["caller_tab_id", "plan_id", "task_id"];
+const SOCKET_CONTEXT_KEYS: &[&str] = &[
+    "caller_tab_id",
+    "plan_id",
+    "session_binding_nonce",
+    "session_id",
+    "task_id",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TaskUpdateSeam {
@@ -231,5 +237,18 @@ mod tests {
             assert!(validate_task_update_fields(&body, TaskUpdateSeam::Socket).is_ok());
             assert!(validate_task_update_fields(&body, TaskUpdateSeam::Rest).is_err());
         }
+    }
+
+    #[test]
+    fn socket_task_update_accepts_trusted_session_identity_before_field_authorization() {
+        let body = serde_json::json!({
+            "task_id": "task",
+            "caller_tab_id": "planner",
+            "session_id": "session",
+            "session_binding_nonce": "nonce",
+            "name": "Structural update",
+        });
+        assert!(validate_task_update_fields(&body, TaskUpdateSeam::Socket).is_ok());
+        assert!(validate_task_update_fields(&body, TaskUpdateSeam::Rest).is_err());
     }
 }
