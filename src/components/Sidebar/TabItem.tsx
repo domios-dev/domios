@@ -99,7 +99,9 @@ export function remoteTabSubtitle(tab: Tab, roleShield: string | null): string |
   const role = roleShield
     ? roleShield.charAt(0) + roleShield.slice(1).toLowerCase()
     : null;
-  const base = role ? `${role} · @${peer}` : `@${peer}`;
+  const controller = tab.remote_controller_title?.trim();
+  const ownership = controller ? ` · by ${controller}` : "";
+  const base = `${role ? `${role} · ` : ""}@${peer}${ownership}`;
   if (tab.remote_availability === "reconnecting") return `${base} · Reconnecting`;
   if (tab.remote_availability === "unavailable") return `${base} · Unavailable`;
   return base;
