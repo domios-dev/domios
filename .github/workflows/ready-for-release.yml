@@ -1,36 +1,40 @@
-name: Mark develop issues ready-for-release
+name: Validate public issue metadata
 
-# Anything that lands on develop is "ready for release". Tag the referenced
-# issues with `ready-for-release` (kept open); the release workflow closes them
-# on publish. Runs on the self-hosted runner (same as the rest of our CI).
 on:
-  push:
-    branches: [develop]
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
-  label:
+  validate:
     runs-on: [self-hosted, codeterm-builder]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Label referenced issues
+      - name: Parse and verify public issues
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          RANGE="${{ github.event.before }}..${{ github.event.after }}"
-          # New branch / unknown base → just scan the tip commit.
-          git rev-parse "${{ github.event.before }}^{commit}" >/dev/null 2>&1 \
-            || RANGE="${{ github.event.after }}~1..${{ github.event.after }}"
-          nums=$(git log "$RANGE" --pretty=%B 2>/dev/null | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
-          for n in $nums; do
-            state=$(gh issue view "$n" -R "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo MISSING)
-            if [ "$state" = "OPEN" ]; then
-              gh issue edit "$n" -R "$GITHUB_REPOSITORY" --add-label ready-for-release && echo "labeled #$n"
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          python scripts/release_issue_contract.py parse \
+            --body-file "$RUNNER_TEMP/pr-body.md" > "$RUNNER_TEMP/public-issues.txt"
+
+          {
+            echo "## Public issue contract"
+            if [ -s "$RUNNER_TEMP/public-issues.txt" ]; then
+              while IFS= read -r reference; do
+                number="${reference##*#}"
+                gh issue view "$number" \
+                  --repo rollacode/codeterm-releases \
+                  --json number,state,title >/dev/null
+                echo "- $reference"
+              done < "$RUNNER_TEMP/public-issues.txt"
             else
-              echo "skip #$n ($state)"
+              echo "No public issues declared."
             fi
-          done
-          [ -n "$nums" ] || echo "no issue refs in $RANGE"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
