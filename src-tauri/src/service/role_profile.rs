@@ -36,6 +36,7 @@ impl SpawnAgentParams {
             starter_prompt: Default::default(),
             task_id: json_str(params, "task_id"),
             task_launch_authority: None,
+            plan_skill_manifest: None,
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             execution_intent: params
                 .get("execution_intent")
