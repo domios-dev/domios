@@ -162,6 +162,7 @@ fn production_adoption_binds_exact_authenticated_session_and_epoch() {
                 stale_after_ms: 100,
                 reserve_pct: 5.0,
             }),
+            Some("codex"),
             3,
         )
         .unwrap();

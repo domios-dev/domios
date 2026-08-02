@@ -15,7 +15,6 @@ use crate::service::{
 };
 use serde_json::{json, Value};
 use tauri::AppHandle;
-
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
     let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
     else {
@@ -91,7 +90,7 @@ fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<()
     })
 }
 
-fn verify_owner_epoch_for_task_mutation(
+pub(super) fn verify_owner_epoch_for_task_mutation(
     method: &str,
     params: &Option<Value>,
     svc: &ServiceState,
@@ -107,44 +106,58 @@ fn verify_owner_epoch_for_task_mutation(
     ) {
         return Ok(());
     }
-    let Some(caller_tab_id) = params
-        .as_ref()
-        .and_then(|value| value.get("caller_tab_id"))
-        .and_then(Value::as_str)
-    else {
-        return Ok(());
-    };
-    let Ok((plan_id, task_id)) = plan_refs::resolve_task(&svc.plan_store, params) else {
-        return Ok(());
-    };
-    if svc
-        .plan_store
-        .owner_of(&plan_id)
-        .and_then(|owner| owner.tab_id)
-        .as_deref()
-        == Some(caller_tab_id)
-    {
-        return Ok(());
-    }
+    let (_, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     let detail = svc
         .plan_store
         .show_task(&task_id)
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-    let owner_epoch = detail.task.interruption.owner_epoch;
-    if owner_epoch == 0 {
+    if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
     }
-    let session_id = svc
-        .mux
-        .read()
-        .get_tab(caller_tab_id)
-        .and_then(|tab| tab.agent_session_id.clone())
+    let required = |field: &str| {
+        params
+            .as_ref()
+            .and_then(|value| value.get(field))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| JsonRpcError {
+                code: -32602,
+                message: format!("task mutation requires {field}"),
+                data: None,
+            })
+    };
+    let caller_tab_id = required("caller_tab_id")?;
+    let caller_session_id = required("session_id")?;
+    let caller_nonce = required("session_binding_nonce")?;
+    let caller_epoch = params
+        .as_ref()
+        .and_then(|value| value.get("owner_epoch"))
+        .and_then(Value::as_u64)
         .ok_or_else(|| JsonRpcError {
-            code: -32603,
-            message: "task mutation requires the exact authenticated owner session".into(),
+            code: -32602,
+            message: "task mutation requires owner_epoch".into(),
             data: None,
         })?;
-    svc.verify_task_owner_session(&task_id, caller_tab_id, &session_id, owner_epoch)
+    if detail.task.interruption.owner_epoch != caller_epoch {
+        return Err(JsonRpcError {
+            code: -32603,
+            message: "task mutation owner epoch is stale".into(),
+            data: None,
+        });
+    }
+    let binding_matches = svc.mux.read().get_tab(caller_tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(caller_session_id)
+            && tab.session_binding_nonce.as_deref() == Some(caller_nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(caller_nonce)
+    });
+    if !binding_matches {
+        return Err(JsonRpcError {
+            code: -32603,
+            message: "task mutation caller binding is stale or rebound".into(),
+            data: None,
+        });
+    }
+    svc.verify_task_owner_session(&task_id, caller_tab_id, caller_session_id, caller_epoch)
         .map_err(|error| JsonRpcError {
             code: -32603,
             message: error,
@@ -895,7 +908,10 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::{dependency_vec_field, dispatch, external_ref_values, validate_model_field};
+    use super::{
+        dependency_vec_field, dispatch, external_ref_values, validate_model_field,
+        verify_owner_epoch_for_task_mutation,
+    };
     use crate::multiplexer::state::MultiplexerState;
     use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
     use crate::plan::{OrchestratorRef, Plan};
@@ -1114,5 +1130,70 @@ mod tests {
         assert_eq!(error.code, -32602);
         assert_eq!(error.data.unwrap()["type"], "provider_id_in_model_field");
         assert!(error.message.contains("<provider>:<model>"));
+    }
+    #[test]
+    fn adopted_task_mutation_rejects_missing_stale_and_rebound_authority() {
+        let (fixture, plan_id, task_id, _, _) = update_fixture();
+        let workspace = fixture
+            .service
+            .mux
+            .write()
+            .create_workspace("owner".into(), None)
+            .id;
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("owner-session".into());
+            tab.session_binding_nonce = Some("nonce".into());
+            tab.reported_session_binding_nonce = Some("nonce".into());
+        }
+        fixture
+            .service
+            .plan_store
+            .with_plan(&plan_id, 5, |plan| {
+                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                task.interruption.owner_epoch = 2;
+                task.interruption.owner_tab_id = Some(tab_id.clone());
+                task.interruption.owner_session_id = Some("owner-session".into());
+                Ok(())
+            })
+            .unwrap();
+        let service = Arc::new(fixture.service.clone());
+        let missing = Some(json!({ "plan_id": plan_id, "task_id": task_id }));
+        assert!(verify_owner_epoch_for_task_mutation(
+            "plan.task.update",
+            &missing,
+            &service
+        )
+        .is_err());
+        let stale = Some(json!({
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "caller_tab_id": tab_id,
+            "session_id": "owner-session",
+            "session_binding_nonce": "nonce",
+            "owner_epoch": 1
+        }));
+        assert!(verify_owner_epoch_for_task_mutation(
+            "plan.task.update",
+            &stale,
+            &service
+        )
+        .is_err());
+        let rebound = Some(json!({
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "caller_tab_id": tab_id,
+            "session_id": "other-session",
+            "session_binding_nonce": "nonce",
+            "owner_epoch": 2
+        }));
+        assert!(verify_owner_epoch_for_task_mutation(
+            "plan.task.update",
+            &rebound,
+            &service
+        )
+        .is_err());
     }
 }

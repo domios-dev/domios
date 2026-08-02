@@ -199,6 +199,7 @@ impl PlanStore {
             lane,
             crate::plan::ExecutionIntent::Unspecified,
             None,
+            None,
             now_ms,
         )
     }
@@ -213,6 +214,7 @@ impl PlanStore {
         lane: crate::plan::TaskLaneMetadata,
         intent: crate::plan::ExecutionIntent,
         allowance: Option<crate::plan::ProviderAllowance>,
+        provider: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
@@ -251,6 +253,8 @@ impl PlanStore {
                 now_ms,
             );
             attempt.executor_title = Some(executor_title.to_string());
+            attempt.provider = provider.map(str::to_string);
+            attempt.agent_type = provider.map(str::to_string);
             task.interruption.execution_intent = intent.clone();
             task.interruption.allowance = allowance.clone();
             task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
@@ -294,6 +298,8 @@ impl PlanStore {
                 || task.lane.tab_id.as_deref() != Some(tab_id)
                 || attempt.executor_tab_id != tab_id
                 || attempt.executor_title.as_deref() != Some(executor_title)
+                || attempt.provider.as_deref() != provider
+                || attempt.agent_type.as_deref() != provider
                 || attempt.session_id.is_some()
                 || task.interruption.execution_intent != intent
                 || task.interruption.allowance != allowance

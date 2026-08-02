@@ -628,48 +628,55 @@ fn verify_task_mutation_owner(
     plan_id: &str,
     task_id: &str,
 ) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
-    let Some(tab_id) = headers
-        .get("X-CodeTerm-Tab-Id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return Ok(());
-    };
-    if state
-        .svc
-        .plan_store
-        .owner_of(plan_id)
-        .and_then(|owner| owner.tab_id)
-        .as_deref()
-        == Some(tab_id)
-    {
-        return Ok(());
-    }
     let detail = state
         .svc
         .plan_store
         .show_task(task_id)
         .filter(|detail| detail.plan_id == plan_id)
         .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
-    let owner_epoch = detail.task.interruption.owner_epoch;
-    if owner_epoch == 0 {
+    if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
     }
-    let session_id = state
-        .svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .and_then(|tab| tab.agent_session_id.clone())
-        .ok_or_else(|| {
-            text_err(
-                axum::http::StatusCode::CONFLICT,
-                "task mutation requires the exact authenticated owner session",
-            )
-        })?;
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, "missing Worker tab id"))?;
+    let session_id = headers
+        .get("X-CodeTerm-Session-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, "missing Worker session id"))?;
+    let nonce = headers
+        .get("X-CodeTerm-Session-Binding-Nonce")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::UNAUTHORIZED, "missing session binding nonce"))?;
+    let caller_epoch = headers
+        .get("X-CodeTerm-Owner-Epoch")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch"))?;
+    if detail.task.interruption.owner_epoch != caller_epoch {
+        return Err(text_err(
+            axum::http::StatusCode::CONFLICT,
+            "task mutation owner epoch is stale",
+        ));
+    }
+    let binding_matches = state.svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(session_id)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+    });
+    if !binding_matches {
+        return Err(text_err(
+            axum::http::StatusCode::CONFLICT,
+            "task mutation caller binding is stale or rebound",
+        ));
+    }
     state
         .svc
-        .verify_task_owner_session(task_id, tab_id, &session_id, owner_epoch)
+        .verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
         .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
 }
 

@@ -90,6 +90,7 @@ fn bind_worker_task_to_tab(
     session_id: Option<&str>,
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
+    provider: Option<&str>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
     let resolved = store
@@ -111,6 +112,7 @@ fn bind_worker_task_to_tab(
             lane.clone(),
             intent,
             allowance,
+            provider,
             now_ms,
         )
         .map_err(|error| error.to_string())?;
@@ -151,6 +153,7 @@ fn bind_worker_plan_task_transaction(
     session_id: Option<&str>,
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
+    provider: Option<&str>,
     now_ms: u64,
     close_tab: impl FnOnce(),
 ) -> Result<WorkerTaskBinding, String> {
@@ -163,6 +166,7 @@ fn bind_worker_plan_task_transaction(
         session_id,
         intent,
         allowance,
+        provider,
         now_ms,
     ) {
         Ok(binding) => Ok(binding),
@@ -231,6 +235,7 @@ impl ServiceContext {
                 "plan-task spawn requires explicit execution_intent".to_string()
             })?,
             self.provider_allowance_for_spawn(params, now_ms)?,
+            params.agent.as_deref(),
             now_ms,
             || {
                 let _ = self.close_tab(tab_id);
@@ -340,6 +345,7 @@ mod tests {
             "Ada",
             Some("session-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
             None,
             10,
         )
@@ -481,6 +487,7 @@ mod tests {
             None,
             crate::plan::ExecutionIntent::ReadOnly,
             None,
+            None,
             10,
         )
         .unwrap_err();
@@ -505,6 +512,7 @@ mod tests {
             "Ada",
             Some("session-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
             None,
             10,
         )
@@ -536,6 +544,7 @@ mod tests {
             "Ada",
             None,
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
             None,
             10,
             || tab_closed = true,

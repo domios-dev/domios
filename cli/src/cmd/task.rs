@@ -6,7 +6,6 @@ use crate::cmd::hints::{
     extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
     task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
-use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
@@ -34,9 +33,7 @@ fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<St
 }
 
 fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
-    client
-        .call_detailed(method, Some(params.clone()))
-        .map_err(|err| render_plan_call_error(err, &params))
+    crate::cmd::plan::call_plan_rpc(client, method, params)
 }
 
 fn caller_tab(client: &dyn RpcClient) -> Option<String> {

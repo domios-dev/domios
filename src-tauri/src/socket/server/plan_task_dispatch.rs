@@ -889,6 +889,7 @@ pub(super) fn dispatch(
         starting_lane,
         execution_intent,
         allowance,
+        Some(&resolved_provider),
         now,
     ) {
         Ok(attempt_id) => attempt_id,
