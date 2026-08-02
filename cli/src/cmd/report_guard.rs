@@ -81,6 +81,9 @@ pub fn enrich_ready_report(
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
+    if task_scope.is_some_and(|scope| !scope.requires_repository) {
+        return Ok((branch, sha, changed_files));
+    }
     let lane_worktree = task_scope.and_then(|scope| scope.worktree_path.as_deref());
     let base = base.or_else(|| task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(

@@ -472,6 +472,7 @@ pub struct NewTask {
     pub executor_role: Option<String>,
     pub competition: Option<crate::plan::TaskCompetitionMetadata>,
     pub intent: Option<String>,
+    pub execution_intent: crate::plan::TaskExecutionIntent,
     pub parent_task_id: Option<String>,
     pub depends_on: Vec<String>,
     pub assigned_tab_id: Option<String>,

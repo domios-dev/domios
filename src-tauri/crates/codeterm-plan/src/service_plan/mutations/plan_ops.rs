@@ -343,6 +343,7 @@ impl PlanStore {
             personality_provenance: new.personality_provenance,
             competition: new.competition,
             intent: new.intent,
+            execution_intent: new.execution_intent,
             parent_task_id: new.parent_task_id,
             depends_on: normalized_dependency_ids(&new.depends_on),
             assigned_tab_id,
