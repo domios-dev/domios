@@ -48,16 +48,11 @@ fn deliver_confirmed_general_message(
 }
 
 fn compose_startup_message(
-    fallback_system_prompt: bool,
-    system_prompt: String,
+    _fallback_system_prompt: bool,
+    _system_prompt: String,
     bootstrap: Option<String>,
 ) -> Option<String> {
-    match (fallback_system_prompt, bootstrap) {
-        (true, Some(bootstrap)) => Some(format!("{system_prompt}\n\n{bootstrap}")),
-        (true, None) => Some(system_prompt),
-        (false, Some(bootstrap)) => Some(bootstrap),
-        (false, None) => None,
-    }
+    bootstrap
 }
 
 /// Start the General Agent — called from start_servers on a background thread.
