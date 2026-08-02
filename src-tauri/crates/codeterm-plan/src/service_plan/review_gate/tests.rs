@@ -570,7 +570,7 @@ fn third_trailing_stagnant_bounce_returns_strategy_warning_atomically() {
     let warning = result.strategy_warning.unwrap();
     assert_eq!(warning.consecutive_bounces, 3);
     assert_eq!(warning.review_round, 3);
-    assert!(warning.message.contains("codeterm docs BOUNCE --full"));
+    assert!(warning.message.contains("codeterm docs BOUNCE"));
 }
 
 #[test]

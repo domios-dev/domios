@@ -2,7 +2,6 @@
 """Deterministic prompt-contract and embedded-doc reading fixtures."""
 
 import json
-import re
 import sys
 from hashlib import sha256
 from pathlib import Path
@@ -13,7 +12,6 @@ FIXTURES = json.loads(
     Path(__file__).with_name("protocol-fixtures.json").read_text(encoding="utf-8")
 )
 CONTRACT = ROOT / "src-tauri/prompts/bounce_unwinding_contract.md"
-ORCHESTRATION_DOC = ROOT / "docs/ORCHESTRATION.md"
 
 
 def record_output(record, fields):
@@ -94,51 +92,30 @@ def controlled_mutations(fixtures, fields):
         raise AssertionError("unbounded-budget mutation was accepted")
 
 
-def section_slugs(document):
-    slugs = set()
-    for line in document.splitlines():
-        if not line.startswith("## "):
-            continue
-        slug = re.sub(
-            r"[^\w]+", "-", line[3:].casefold(), flags=re.UNICODE
-        ).strip("-")
-        slugs.add(slug)
-    return slugs
-
-
-def validate_docs_reading_response(fixture, response, available_slugs):
-    expected = (
-        f"codeterm docs {fixture['document']} "
-        f"--section {fixture['expected_section']}"
-    )
+def validate_docs_reading_response(fixture, response):
+    expected = f"codeterm docs {fixture['document']}"
     assert fixture["question"].strip(), "docs-reading fixture needs a question"
-    assert fixture["expected_section"] in available_slugs, "fixture section slug drifted"
-    assert response == expected, "dispatch question did not choose the exact complete section"
+    assert response == expected, "docs question did not choose the complete document"
     assert sha256(response.encode()).hexdigest() == fixture["expected_output_sha256"], (
         "docs-reading expected output drifted"
     )
     assert response.count("codeterm docs ") == 1, "docs read must be one invocation"
-    assert "--head" not in response, "required instruction read used an incomplete excerpt"
-    assert "--full" not in response, "named dispatch section must not trigger a blanket full read"
+    assert not any(flag in response for flag in ("--head", "--section", "--full"))
 
 
 def assert_docs_reading_contract():
     fixtures = FIXTURES["docs_reading_fixtures"]
     assert [fixture["id"] for fixture in fixtures] == ["D1"]
-    slugs = section_slugs(ORCHESTRATION_DOC.read_text(encoding="utf-8"))
     for fixture in fixtures:
-        validate_docs_reading_response(fixture, fixture["response"], slugs)
+        validate_docs_reading_response(fixture, fixture["response"])
 
-    preview_retry = (
-        "codeterm docs ORCHESTRATION\n"
-        "codeterm docs ORCHESTRATION --full"
-    )
+    partial_mode = "codeterm docs ORCHESTRATION --section dispatch-contract"
     try:
-        validate_docs_reading_response(fixtures[0], preview_retry, slugs)
+        validate_docs_reading_response(fixtures[0], partial_mode)
     except AssertionError:
         pass
     else:
-        raise AssertionError("preview-then-full mutation was accepted")
+        raise AssertionError("partial document mode was accepted")
 
 
 def main():

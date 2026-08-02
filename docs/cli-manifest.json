@@ -1487,56 +1487,16 @@
       ]
     },
     {
-      "name": "doc",
-      "about": "Read one embedded CodeTerm document in full",
-      "aliases": [],
-      "args": [
-        {
-          "name": "name",
-          "positional": true,
-          "value_name": "NAME",
-          "default": null,
-          "help": "Doc name (e.g. orchestration)",
-          "aliases": []
-        }
-      ],
-      "subcommands": []
-    },
-    {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. `codeterm docs` lists documents. For a long sectioned document, `codeterm docs <name>` prints a compact section index; `--section <slug>` returns one complete structural section and `--full` returns the byte-exact complete document. `--head <lines>` is an intentionally incomplete diagnostic excerpt, never an instruction-read workflow. Names and section slugs are case-insensitive",
+      "about": "Read embedded CodeTerm documentation in full. Omit NAME to list documents",
       "aliases": [],
       "args": [
-        {
-          "name": "full",
-          "positional": false,
-          "value_name": "FULL",
-          "default": null,
-          "help": "Print the byte-exact complete document in one call",
-          "aliases": []
-        },
-        {
-          "name": "head",
-          "positional": false,
-          "value_name": "LINES",
-          "default": null,
-          "help": "Print the first N source lines as a labelled incomplete diagnostic excerpt",
-          "aliases": []
-        },
         {
           "name": "name",
           "positional": true,
           "value_name": "NAME",
           "default": null,
-          "help": "Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs",
-          "aliases": []
-        },
-        {
-          "name": "section",
-          "positional": false,
-          "value_name": "SLUG",
-          "default": null,
-          "help": "Print one complete level-2 section, selected by normalized heading slug",
+          "help": "Document name. Omit to list every available name and purpose",
           "aliases": []
         }
       ],

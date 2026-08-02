@@ -283,13 +283,13 @@ mod tests {
             "strategy_warning": {
                 "consecutive_bounces": 3,
                 "review_round": 4,
-                "message": "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE --full`."
+                "message": "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`."
             }
         });
         let rendered = render_strategy_warning(&val).unwrap();
         assert!(rendered.contains("3 consecutive stagnant bounces"));
         assert!(rendered.contains("review round 4"));
-        assert!(rendered.contains("codeterm docs BOUNCE --full"));
+        assert!(rendered.contains("codeterm docs BOUNCE"));
     }
 
     #[test]

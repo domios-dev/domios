@@ -8,7 +8,7 @@ function command(detail: string, result?: string): ToolEvent {
 }
 
 const providerCommands = [
-  ["claude", "cd /d/Developer/codeterm\ncodeterm docs ORCHESTRATION 2>&1 | head -100"],
+  ["claude", "cd /d/Developer/codeterm\ncodeterm docs ORCHESTRATION"],
   ["codex", "cd D:\\Developer\\codeterm && codeterm docs ORCHESTRATION"],
   ["opencode", "Set-Location 'D:\\Developer\\codeterm'; codeterm docs ORCHESTRATION"],
   ["cursor", "codeterm docs ORCHESTRATION"],

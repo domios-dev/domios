@@ -221,7 +221,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 "GET".into(),
                 format!(
                     "/api/tabs/inspect?tab_ids={}",
-                    tabs.iter().chain(tab.iter())
+                    tabs.iter()
+                        .chain(tab.iter())
                         .map(|tab| urlencoding::encode(tab).into_owned())
                         .collect::<Vec<_>>()
                         .join(",")
@@ -893,7 +894,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
         // `docs` / `doc` read embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
-        Commands::Doc { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,

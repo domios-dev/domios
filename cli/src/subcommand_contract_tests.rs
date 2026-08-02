@@ -44,12 +44,6 @@ struct DelayedOnly {
 }
 
 #[derive(Parser)]
-enum DocsOnly {
-    Docs,
-    Doc { name: String },
-}
-
-#[derive(Parser)]
 struct SendOnly {
     #[arg(allow_hyphen_values = true)]
     text: Option<String>,
@@ -202,76 +196,30 @@ fn standalone_task_add_parses_qa_plan_file() {
 
 #[test]
 fn top_level_docs_parse() {
-    let parsed = DocsOnly::try_parse_from(["codeterm", "docs"]).expect("docs parses");
-    assert!(matches!(parsed, DocsOnly::Docs));
+    let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
+    assert!(matches!(parsed.command, Commands::Docs { name: None }));
 }
 
 #[test]
-fn docs_section_parser_accepts_case_insensitive_slug() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "docs",
-        "ORCHESTRATION",
-        "--section",
-        "DISPATCH-CONTRACT",
-    ])
-    .expect("section selector parses");
+fn named_docs_parse_without_selectors() {
+    let parsed =
+        Cli::try_parse_from(["codeterm", "docs", "ORCHESTRATION"]).expect("named document parses");
 
     match parsed.command {
-        Commands::Docs {
-            name,
-            section,
-            full,
-            head,
-        } => {
-            assert_eq!(name.as_deref(), Some("ORCHESTRATION"));
-            assert_eq!(section.as_deref(), Some("DISPATCH-CONTRACT"));
-            assert!(!full);
-            assert_eq!(head, None);
-        }
+        Commands::Docs { name } => assert_eq!(name.as_deref(), Some("ORCHESTRATION")),
         _ => panic!("expected docs"),
     }
 }
 
 #[test]
-fn docs_section_parser_rejects_blank_and_conflicting_selectors() {
+fn removed_docs_selectors_and_alias_are_rejected() {
     for args in [
-        vec!["codeterm", "docs", "ORCHESTRATION", "--section", ""],
-        vec!["codeterm", "docs", "--section", "the-loop"],
-        vec![
-            "codeterm",
-            "docs",
-            "ORCHESTRATION",
-            "--section",
-            "the-loop",
-            "--full",
-        ],
-        vec![
-            "codeterm",
-            "docs",
-            "ORCHESTRATION",
-            "--section",
-            "the-loop",
-            "--head",
-            "12",
-        ],
+        vec!["codeterm", "docs", "ORCHESTRATION", "--section", "the-loop"],
+        vec!["codeterm", "docs", "ORCHESTRATION", "--full"],
+        vec!["codeterm", "docs", "ORCHESTRATION", "--head", "12"],
+        vec!["codeterm", "doc", "ORCHESTRATION"],
     ] {
-        let error = match Cli::try_parse_from(args) {
-            Ok(_) => panic!("selector must be rejected"),
-            Err(error) => error,
-        };
-        let message = error.to_string();
-        assert!(message.contains("--section") || message.contains("section slug"));
-    }
-}
-
-#[test]
-fn top_level_doc_parse() {
-    let parsed =
-        DocsOnly::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");
-    match parsed {
-        DocsOnly::Doc { name } => assert_eq!(name, "orchestration"),
-        _ => panic!("expected doc"),
+        assert!(Cli::try_parse_from(args).is_err());
     }
 }
 
@@ -384,10 +332,8 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         inspected.action,
         TabAction::Inspect { tabs, tab } if tabs == ["tab_1", "tab_2"] && tab.is_empty()
     ));
-    let canonical = TabOnly::try_parse_from([
-        "tab", "inspect", "--tab", "tab_1", "--tab", "tab_2",
-    ])
-    .expect("canonical tab selectors parse");
+    let canonical = TabOnly::try_parse_from(["tab", "inspect", "--tab", "tab_1", "--tab", "tab_2"])
+        .expect("canonical tab selectors parse");
     assert!(matches!(
         canonical.action,
         TabAction::Inspect { tabs, tab } if tabs.is_empty() && tab == ["tab_1", "tab_2"]

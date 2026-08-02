@@ -90,7 +90,7 @@ worker stance lives in the task prompt and task `role_guidance`, not in a mem ro
 registry. When spawning a worker, include the relevant guidance inline: for example,
 "You are a Rust backend worker focused only on `src-tauri/`".
 
-Reusable operational knowledge belongs in embedded docs (`codeterm docs ...`) or
+Reusable operational knowledge belongs in a named embedded document or
 folder skills when runnable files are required. Machine-local preferences such as
 builder capacity belong in mem preferences.
 
@@ -165,7 +165,7 @@ System-prompt content is tiered; keep it that way when editing:
   `codeterm_cli.md` budget: ~900 words. Mem and mesh keep compact protocol
   blocks by explicit decision (high-frequency, behavior-critical).
 - **Tier 1 (agent discovers):** `codeterm <cmd> --help` (clap long_help) and
-  `codeterm docs <TOPIC>`. Nothing may live inline that tier 1 already answers;
+  the matching complete document. Nothing may live inline that tier 1 already answers;
   when adding a rule, put the rationale in docs and one imperative line here.
 - **Tier 2:** situational playbooks (TELEGRAM-SETUP, SECRETS, ...).
 
@@ -173,4 +173,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
