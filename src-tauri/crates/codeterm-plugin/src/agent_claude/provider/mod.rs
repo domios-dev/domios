@@ -302,12 +302,20 @@ impl AgentProvider for ClaudeProvider {
         integration::check_integration()
     }
 
-    fn install_integration(&self, api_port: u16) -> Result<(), String> {
-        integration::install_integration(api_port)
+    fn install_integration(
+        &self,
+        api_port: u16,
+        options: &crate::provider::IntegrationInstallOptions,
+    ) -> Result<(), String> {
+        integration::install_integration(api_port, options)
     }
 
     fn uninstall_integration(&self) -> Result<(), String> {
         integration::uninstall_integration()
+    }
+
+    fn restore_integration(&self) -> Result<(), String> {
+        integration::restore_integration()
     }
 
     fn ensure_integration_on_startup(&self, api_port: u16) {

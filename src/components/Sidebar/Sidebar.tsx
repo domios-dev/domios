@@ -123,8 +123,8 @@ export function Sidebar({
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
-  const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
+  const [skipPermissions, setSkipPermissions] = useState(false);
+  const [rememberPermissionChoice, setRememberPermissionChoice] = useState(false);
   const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
   const [sessionPicker, setSessionPicker] = useState<{ workspaceId: string; workspaceCwd: string | null } | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
@@ -136,9 +136,6 @@ export function Sidebar({
   );
   const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
-  const claudeConfig = agentsConfig?.claude;
-  const claudeSkipRemembered = claudeConfig?.spawn_skip_permissions_remembered === true;
-  const claudeSavedSkipPerms = claudeConfig?.spawn_skip_permissions === true;
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -149,6 +146,16 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
+    const descriptor = providers.find((provider) => provider.id === agentId);
+    const providerConfig = agentsConfig?.[agentId];
+    const supportsBypass = descriptor?.supports_permission_bypass === true;
+    const remembered = providerConfig?.spawn_skip_permissions_remembered === true;
+    const saved = supportsBypass && providerConfig?.spawn_skip_permissions === true;
+    const openPermissionReview = (selectedFolder: string) => {
+      setSkipPermissions(saved);
+      setRememberPermissionChoice(remembered);
+      setAgentSpawnModal({ folder: selectedFolder, agentId, workspaceId });
+    };
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
@@ -157,10 +164,10 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            if (agentId !== "claude" || claudeSkipRemembered) {
-              spawnAgentTab(workspaceId, agentId, agentId === "claude" && claudeSavedSkipPerms, path);
+            if (!supportsBypass) {
+              spawnAgentTab(workspaceId, agentId, saved, path);
             } else {
-              setAgentSpawnModal({ folder: path, agentId, workspaceId });
+              openPermissionReview(path);
             }
           },
         });
@@ -179,29 +186,27 @@ export function Sidebar({
       }
       if (!folder) return;
     }
-    if (agentId !== "claude" || claudeSkipRemembered) {
-      spawnAgentTab(workspaceId, agentId, agentId === "claude" && claudeSavedSkipPerms, folder);
+    if (!supportsBypass) {
+      spawnAgentTab(workspaceId, agentId, saved, folder);
       return;
     }
-    setAgentSpawnModal({ folder, agentId, workspaceId });
-  }, [spawnAgentTab, claudeSkipRemembered, claudeSavedSkipPerms]);
+    openPermissionReview(folder);
+  }, [agentsConfig, providers, spawnAgentTab]);
 
-  const handleClaudeConfirm = useCallback(() => {
+  const handlePermissionConfirm = useCallback(() => {
     if (!agentSpawnModal) return;
-    if (claudeRememberChoice) {
-      void setProviderSettings("claude", {
-        spawn_skip_permissions: claudeSkipPerms,
-        spawn_skip_permissions_remembered: true,
-      });
-    }
+    void setProviderSettings(agentSpawnModal.agentId, {
+      spawn_skip_permissions: skipPermissions,
+      spawn_skip_permissions_remembered: rememberPermissionChoice,
+    });
     spawnAgentTab(
       agentSpawnModal.workspaceId,
       agentSpawnModal.agentId,
-      claudeSkipPerms,
+      skipPermissions,
       agentSpawnModal.folder,
     );
     setAgentSpawnModal(null);
-  }, [agentSpawnModal, claudeSkipPerms, claudeRememberChoice, spawnAgentTab]);
+  }, [agentSpawnModal, rememberPermissionChoice, skipPermissions, spawnAgentTab]);
 
   const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
     if (!orchestrationModal) return;
@@ -912,17 +917,17 @@ export function Sidebar({
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={claudeSkipPerms}
-                  onChange={(e) => setClaudeSkipPerms(e.target.checked)}
+                  checked={skipPermissions}
+                  onChange={(e) => setSkipPermissions(e.target.checked)}
                   className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
                 />
-                <span className="text-[12px] text-[var(--ct-fg)]">Skip permission prompts</span>
+                <span className="text-[12px] text-[var(--ct-fg)]">Bypass provider permissions and sandbox</span>
               </label>
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={claudeRememberChoice}
-                  onChange={(e) => setClaudeRememberChoice(e.target.checked)}
+                  checked={rememberPermissionChoice}
+                  onChange={(e) => setRememberPermissionChoice(e.target.checked)}
                   className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
                 />
                 <span className="text-[12px] text-[var(--ct-muted-fg)]">Remember my choice</span>
@@ -936,7 +941,7 @@ export function Sidebar({
                 Cancel
               </button>
               <button
-                onClick={handleClaudeConfirm}
+                onClick={handlePermissionConfirm}
                 className="px-4 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 transition-opacity"
               >
                 Launch

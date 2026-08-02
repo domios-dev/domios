@@ -9,6 +9,7 @@
 //! provider doesn't require touching `commands/`.
 
 use crate::prompts::CODETERM_RULE;
+use crate::provider::IntegrationInstallOptions;
 use serde_json::Value as Json;
 
 // v3 resolves the callback from the launched Tab's environment, so prod and
@@ -23,6 +24,20 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
 fn claude_rule_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     Ok(home.join(".claude").join("rules").join("codeterm.md"))
+}
+
+fn backup_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_file_name(format!(
+        "{}.codeterm-backup",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("settings.json")
+    ))
+}
+
+fn write_json_atomic(path: &std::path::Path, json: &Json) -> Result<(), String> {
+    let pretty = serde_json::to_string_pretty(json).map_err(|e| e.to_string())?;
+    let temporary = path.with_extension("json.codeterm-tmp");
+    std::fs::write(&temporary, pretty).map_err(|e| e.to_string())?;
+    std::fs::rename(&temporary, path).map_err(|e| e.to_string())
 }
 
 /// True when a hook entry was installed by CodeTerm at any version — used on
@@ -126,6 +141,9 @@ pub fn check_integration() -> Json {
             "stop_hook": false,
             "precompact_hook": false,
             "session_start_hook": false,
+            "target": "~/.claude/settings.json",
+            "backup_exists": false,
+            "proposed_changes": ["Notification", "Stop", "SessionStart"],
         });
     };
     if !path.exists() {
@@ -136,6 +154,9 @@ pub fn check_integration() -> Json {
             "stop_hook": false,
             "precompact_hook": false,
             "session_start_hook": false,
+            "target": path,
+            "backup_exists": backup_path(&path).exists(),
+            "proposed_changes": ["Notification", "Stop", "SessionStart"],
         });
     }
 
@@ -169,11 +190,14 @@ pub fn check_integration() -> Json {
 
     serde_json::json!({
         "settings_exists": true,
-        "hooks_installed": notification_hook && stop_hook && precompact_hook && session_start_hook,
+        "hooks_installed": notification_hook && stop_hook && session_start_hook,
         "notification_hook": notification_hook,
         "stop_hook": stop_hook,
         "precompact_hook": precompact_hook,
         "session_start_hook": session_start_hook,
+        "target": path,
+        "backup_exists": backup_path(&path).exists(),
+        "proposed_changes": ["Notification", "Stop", "SessionStart"],
     })
 }
 
@@ -188,13 +212,25 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
     )
 }
 
-fn install_integration_at(path: &std::path::Path) -> Result<(), String> {
+fn install_integration_at(
+    path: &std::path::Path,
+    options: &IntegrationInstallOptions,
+) -> Result<(), String> {
+    if !options.consent {
+        return Err("provider integration installation requires explicit local-user consent".into());
+    }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    let mut json: Json = if path.exists() {
-        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let existed = path.exists();
+    let original = if existed {
+        std::fs::read_to_string(path).map_err(|e| e.to_string())?
+    } else {
+        "{}".into()
+    };
+    let mut json: Json = if existed {
+        let content = original.clone();
         serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse settings.json: {}", e))?
     } else {
@@ -268,6 +304,9 @@ fn install_integration_at(path: &std::path::Path) -> Result<(), String> {
         .ok_or("hooks is not an object")?;
 
     for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
+        if hooks.get(*key).is_some_and(|value| !value.is_array()) {
+            return Err(format!("hooks.{key} is not an array"));
+        }
         if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
             arr.retain(|h| !is_codeterm_hook(h));
         }
@@ -284,13 +323,15 @@ fn install_integration_at(path: &std::path::Path) -> Result<(), String> {
         hooks.insert("Stop".into(), serde_json::json!([]));
     }
     hooks["Stop"].as_array_mut().unwrap().push(stop_hook);
-    if !hooks.contains_key("PreCompact") {
-        hooks.insert("PreCompact".into(), serde_json::json!([]));
+    if options.precompact_memory_export {
+        if !hooks.contains_key("PreCompact") {
+            hooks.insert("PreCompact".into(), serde_json::json!([]));
+        }
+        hooks["PreCompact"]
+            .as_array_mut()
+            .unwrap()
+            .push(precompact_hook);
     }
-    hooks["PreCompact"]
-        .as_array_mut()
-        .unwrap()
-        .push(precompact_hook);
     if !hooks.contains_key("SessionStart") {
         hooks.insert("SessionStart".into(), serde_json::json!([]));
     }
@@ -299,14 +340,21 @@ fn install_integration_at(path: &std::path::Path) -> Result<(), String> {
         .unwrap()
         .push(session_start_hook);
 
-    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
+    let backup = backup_path(path);
+    if !backup.exists() {
+        std::fs::write(backup, if existed { original } else { String::new() })
+            .map_err(|e| e.to_string())?;
+    }
+    write_json_atomic(path, &json)?;
     log::info!("[agent-claude] hooks installed at {:?}", path);
     Ok(())
 }
 
-pub fn install_integration(_api_port: u16) -> Result<(), String> {
-    install_integration_at(&claude_settings_path()?)
+pub fn install_integration(
+    _api_port: u16,
+    options: &IntegrationInstallOptions,
+) -> Result<(), String> {
+    install_integration_at(&claude_settings_path()?, options)
 }
 
 pub fn uninstall_integration() -> Result<(), String> {
@@ -320,34 +368,39 @@ pub fn uninstall_integration() -> Result<(), String> {
         .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
 
     if let Some(hooks) = json.get_mut("hooks").and_then(|v| v.as_object_mut()) {
-        for key in &["Notification", "Stop"] {
+        for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
             if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
                 arr.retain(|h| !is_codeterm_hook(h));
             }
         }
     }
 
-    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
+    write_json_atomic(&path, &json)?;
     log::info!("[agent-claude] hooks removed");
     Ok(())
 }
 
-pub fn ensure_integration_on_startup(api_port: u16) {
-    let status = check_integration();
-    let already = status
-        .get("hooks_installed")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if already {
-        log::debug!("[agent-claude] hooks already installed");
-        return;
-    }
-    if let Err(e) = install_integration(api_port) {
-        log::warn!("[agent-claude] failed to auto-install hooks: {}", e);
+fn restore_integration_at(path: &std::path::Path) -> Result<(), String> {
+    let backup = backup_path(&path);
+    let original = std::fs::read(&backup)
+        .map_err(|error| format!("No recoverable integration backup at {}: {error}", backup.display()))?;
+    if original.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|error| error.to_string())?;
+        }
     } else {
-        log::info!("[agent-claude] hooks auto-installed");
+        std::fs::write(&path, original).map_err(|error| error.to_string())?;
     }
+    Ok(())
+}
+
+pub fn restore_integration() -> Result<(), String> {
+    restore_integration_at(&claude_settings_path()?)
+}
+
+pub fn ensure_integration_on_startup(api_port: u16) {
+    let _ = api_port;
+    let _ = check_integration();
 }
 
 // ── Project rule (~/.claude/rules/codeterm.md) ──
@@ -407,6 +460,13 @@ pub fn install_rule() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn integration_options(precompact_memory_export: bool) -> IntegrationInstallOptions {
+        IntegrationInstallOptions {
+            consent: true,
+            precompact_memory_export,
+        }
+    }
 
     #[test]
     fn extract_revision_reads_trailing_marker() {
@@ -476,9 +536,9 @@ mod tests {
     fn integration_is_instance_neutral_and_rejects_missing_runtime_identity() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path).unwrap();
+        install_integration_at(&path, &integration_options(false)).unwrap();
         let first = std::fs::read_to_string(&path).unwrap();
-        install_integration_at(&path).unwrap();
+        install_integration_at(&path, &integration_options(false)).unwrap();
         let second = std::fs::read_to_string(&path).unwrap();
 
         assert_eq!(first, second);
@@ -489,5 +549,32 @@ mod tests {
         assert!(!first.contains("CODETERM_API_PORT"));
         assert!(!first.contains("localhost:768"));
         assert!(!first.contains("> NUL"));
+    }
+
+    #[test]
+    fn integration_requires_consent_and_restores_exact_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let original = "{\n  \"foreign\": { \"spacing\": true }\n}\n";
+        std::fs::write(&path, original).unwrap();
+        let denied = IntegrationInstallOptions {
+            consent: false,
+            precompact_memory_export: true,
+        };
+        assert!(install_integration_at(&path, &denied).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert!(!backup_path(&path).exists());
+
+        install_integration_at(&path, &integration_options(false)).unwrap();
+        assert_eq!(std::fs::read_to_string(backup_path(&path)).unwrap(), original);
+        let standard: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(standard.pointer("/hooks/PreCompact").is_none());
+        install_integration_at(&path, &integration_options(true)).unwrap();
+        assert_eq!(std::fs::read_to_string(backup_path(&path)).unwrap(), original);
+        let installed: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(installed.pointer("/hooks/PreCompact").is_some());
+        restore_integration_at(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
     }
 }

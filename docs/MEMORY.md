@@ -1,7 +1,5 @@
 # CodeTerm Memory System
 
-<!-- revision: 12 -->
-
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
 
@@ -16,7 +14,7 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
 - **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran)
-- **Auto-flush** — `PreCompact` and `SessionStart` hooks POST to authenticated CodeTerm endpoints to capture conversation state without manual saves
+- **Lifecycle capture** — `SessionStart` tracks the active session; optional `PreCompact` export POSTs to the authenticated memory endpoint only after separate local-user consent
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
 
 ## Mem vs past-session search
@@ -161,16 +159,16 @@ Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injectio
 
 ## Auto-flush from agent hooks
 
-The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Today Claude installs four hook handlers:
+The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Claude's standard integration installs three hook handlers. `PreCompact` memory export is a separate opt-in because it exports conversation content:
 
 | Hook | Endpoint | Purpose |
 |---|---|---|
 | `Notification` | `POST /api/tabs/{id}/hook/permission` | Surface a permission prompt without waiting for PTY auto-detect |
 | `Stop` | `POST /api/tabs/{id}/hook/stop` | Mark task complete, fire `agent.task_complete` webhook |
-| `PreCompact` | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
+| `PreCompact` (opt-in) | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
 | `SessionStart` | `POST /api/tabs/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
 
-Hooks are installed by `commands.rs::install_hooks_v2` into `~/.claude/hooks.json`. The installer is idempotent and version-tagged so old loopback-auth shapes get replaced.
+Hooks are installed through the provider integration action into `~/.claude/settings.json`. The action shows the target and proposed changes, records consent, makes a recoverable backup, and preserves foreign hooks.
 
 ## Skill folders (`mem skill new/add`)
 
@@ -282,7 +280,7 @@ Injected into every agent session via `src-tauri/prompts/bridge_mem.md`:
 4. **NEVER GUESS IDS** — search first, then `get` a real id.
 5. **ON "remember"** — `codeterm mem save`; extraction workers handle graph automatically.
 6. **WHEN FACTS CHANGE** — save new fact; old stays in history.
-7. **SESSION END** — PreCompact hook auto-flushes conversation.
+7. **SESSION END** — if the user enabled PreCompact export, the hook flushes the conversation.
 
 **Injection:**
 - Claude → `install_bridge_rule` writes `~/.claude/rules/codeterm.md`
@@ -380,3 +378,5 @@ Memory Tabl UI reads this directly.
 - `src-tauri/src/api/mem_routes.rs` — REST API
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryTabl/` — UI
+
+<!-- revision: 13 -->

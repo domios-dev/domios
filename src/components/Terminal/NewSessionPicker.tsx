@@ -44,11 +44,9 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => defaultNewSessionChoice(visibleProviders));
   const [busy, setBusy] = useState(false);
-  const [claudeModalOpen, setClaudeModalOpen] = useState(false);
-  const [claudeSkipPerms, setClaudeSkipPerms] = useState(
-    () => agentsConfig?.claude?.spawn_skip_permissions === true,
-  );
-  const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
+  const [permissionModalProviderId, setPermissionModalProviderId] = useState<string | null>(null);
+  const [skipPermissions, setSkipPermissions] = useState(false);
+  const [rememberPermissionChoice, setRememberPermissionChoice] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const disabledProviderIds = useMemo(
     () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
@@ -96,13 +94,13 @@ export function NewSessionPicker({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || claudeModalOpen || folderPickerOpen) return;
+      if (event.key !== "Escape" || busy || permissionModalProviderId || folderPickerOpen) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, claudeModalOpen, folderPickerOpen, onClose]);
+  }, [busy, permissionModalProviderId, folderPickerOpen, onClose]);
 
   useEffect(() => {
     const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -247,26 +245,28 @@ export function NewSessionPicker({
       void runPairSpawn();
       return;
     }
-    const claudeSkipRemembered = agentsConfig?.claude?.spawn_skip_permissions_remembered === true;
-    const claudeSavedSkipPerms = agentsConfig?.claude?.spawn_skip_permissions === true;
-    if (choice.providerId === "claude" && !claudeSkipRemembered) {
-      setClaudeSkipPerms(claudeSavedSkipPerms);
-      setClaudeModalOpen(true);
+    const provider = visibleProviders.find((candidate) => candidate.id === choice.providerId);
+    const providerConfig = agentsConfig?.[choice.providerId];
+    const remembered = providerConfig?.spawn_skip_permissions_remembered === true;
+    const saved = providerConfig?.spawn_skip_permissions === true;
+    if (provider?.supports_permission_bypass) {
+      setSkipPermissions(saved);
+      setRememberPermissionChoice(remembered);
+      setPermissionModalProviderId(choice.providerId);
       return;
     }
-    void runSingleSpawn(claudeSavedSkipPerms);
-  }, [agentsConfig?.claude, choice, runPairSpawn, runSingleSpawn]);
+    void runSingleSpawn(provider?.supports_permission_bypass === true && saved);
+  }, [agentsConfig, choice, runPairSpawn, runSingleSpawn, visibleProviders]);
 
-  const handleClaudeConfirm = useCallback(() => {
-    if (claudeRememberChoice) {
-      void setProviderSettings("claude", {
-        spawn_skip_permissions: claudeSkipPerms,
-        spawn_skip_permissions_remembered: true,
-      });
-    }
-    setClaudeModalOpen(false);
-    void runSingleSpawn(claudeSkipPerms);
-  }, [claudeRememberChoice, claudeSkipPerms, runSingleSpawn]);
+  const handlePermissionConfirm = useCallback(() => {
+    if (!permissionModalProviderId) return;
+    void setProviderSettings(permissionModalProviderId, {
+      spawn_skip_permissions: skipPermissions,
+      spawn_skip_permissions_remembered: rememberPermissionChoice,
+    });
+    setPermissionModalProviderId(null);
+    void runSingleSpawn(skipPermissions);
+  }, [permissionModalProviderId, rememberPermissionChoice, runSingleSpawn, skipPermissions]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     setChoice((prev) => {
@@ -467,41 +467,44 @@ export function NewSessionPicker({
         </div>
       </div>
 
-      {claudeModalOpen && (
+      {permissionModalProviderId && (
         <>
-          <div className="fixed inset-0 z-[1010] bg-black/40" onClick={() => setClaudeModalOpen(false)} />
+          <div className="fixed inset-0 z-[1010] bg-black/40" onClick={() => setPermissionModalProviderId(null)} />
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Claude launch options"
+            aria-label="Provider permission options"
             className="fixed z-[1010] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden"
           >
             <div className="px-4 pt-4 pb-2">
-              <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn Claude</div>
+              <div className="text-[13px] font-medium text-[var(--ct-fg)]">
+                Spawn {visibleProviders.find((provider) => provider.id === permissionModalProviderId)?.display_name ?? permissionModalProviderId}
+              </div>
+              <div className="mt-1 text-[11px] text-[var(--ct-muted-fg)]">Provider permissions and sandboxing stay enabled by default.</div>
             </div>
             <div className="px-4 py-3 flex flex-col gap-2.5">
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={claudeSkipPerms}
-                  onChange={(e) => setClaudeSkipPerms(e.target.checked)}
+                  checked={skipPermissions}
+                  onChange={(e) => setSkipPermissions(e.target.checked)}
                   className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
                 />
-                <span className="text-[12px] text-[var(--ct-fg)]">Skip permission prompts</span>
+                <span className="text-[12px] text-[var(--ct-fg)]">Bypass provider permissions and sandbox</span>
               </label>
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={claudeRememberChoice}
-                  onChange={(e) => setClaudeRememberChoice(e.target.checked)}
+                  checked={rememberPermissionChoice}
+                  onChange={(e) => setRememberPermissionChoice(e.target.checked)}
                   className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
                 />
                 <span className="text-[12px] text-[var(--ct-muted-fg)]">Remember my choice</span>
               </label>
             </div>
             <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
-              <Button variant="ghost" size="sm" onClick={() => setClaudeModalOpen(false)}>Cancel</Button>
-              <Button variant="accent" size="sm" onClick={handleClaudeConfirm}>Launch</Button>
+              <Button variant="ghost" size="sm" onClick={() => setPermissionModalProviderId(null)}>Cancel</Button>
+              <Button variant="accent" size="sm" onClick={handlePermissionConfirm}>Launch</Button>
             </div>
           </div>
         </>

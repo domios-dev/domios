@@ -67,18 +67,22 @@ open_settings = "Ctrl+,"
 #                  by the saved session id is missing on disk (`AgentProvider::session_exists`
 #                  returns false), CodeTerm clears the stale id and launches fresh
 #                  instead of looping on "No conversation found".
-# resume_skip_permissions: add --dangerously-skip-permissions to resumed sessions.
+# resume_skip_permissions: explicit provider permission/sandbox bypass for visible resumes.
+# Automation and hidden probes never inherit this choice.
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
-resume_skip_permissions = true
+resume_skip_permissions = false
 
 [api]
 enabled = true
-host = "0.0.0.0"
+host = "127.0.0.1"
+allow_network = false
 port = 7685
-# token = "your-secret-token"  # Uncomment to require auth
-cors = true
+# Auto-generated on first load; every local control request uses Bearer auth.
+# token = "your-secret-token"
+cors = false
+# cors_allow_origins = ["https://trusted.example"]
 
 [general_agent]
 enabled = true
@@ -104,6 +108,19 @@ default_collection = ""          # Default collection id for new items (Bitwarde
 server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaultwarden URL
 persist_master_password = false              # Save master password in OS keychain on unlock (auto-unlock after restart). Off by default.
 ```
+
+The API listens only on loopback by default. A non-loopback `host` is an explicit
+network exposure and is rejected unless `allow_network = true` and the
+persisted config has a non-empty Bearer token. CORS is closed unless `cors = true` and every allowed HTTP(S)
+origin is named in `cors_allow_origins`; `*` is never accepted. Authenticated
+`GET /api/config` redacts the token and reports both the configured address and
+the listener the process actually owns.
+
+Provider permission bypass is also fail-closed. Fresh and resumed agents keep
+provider permissions/sandboxing unless a visible spawn explicitly selects the
+bypass capability. A remembered choice is stored under that provider's
+`[agents.<id>]` section and remains visible through tab/session inspection;
+hidden probes and other automation always run sandboxed.
 
 ## Config API
 
@@ -473,4 +490,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

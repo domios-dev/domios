@@ -227,7 +227,7 @@ pub async fn resume_session_api(
         skip_orchestrator_onboarding: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
-        skip_permissions: Some(true),
+        skip_permissions: Some(false),
         spawned_by_tab_id: None,
         model: body.model.clone(),
         planned_model: None,

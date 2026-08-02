@@ -371,7 +371,7 @@ const plugin: PluginModule = {
   checkIntegration(): unknown {
     const path = codexHooksPath();
     if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "hook trust"] };
     }
     const json = host.fs.readJson<CodexHooks>(path);
     if (!json) {
@@ -411,31 +411,67 @@ const plugin: PluginModule = {
       session_start_hook: current && trustOk,
       hook_trust_state: trustState,
       hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
+      target: path,
+      backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["SessionStart hook", "hook trust"],
     };
   },
 
-  installIntegration(apiPort: number): unknown {
+  installIntegration(
+    apiPort: number,
+    options?: { consent?: boolean },
+  ): unknown {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const path = codexHooksPath();
     if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
 
+    const hooksExisted = host.fs.fileExists(path);
+    const originalHooks = hooksExisted ? String(host.fs.readFile(path) || "{}") : "{}";
+    const configPath = codexConfigPath();
+    const configExisted = !!configPath && host.fs.fileExists(configPath);
+    const originalConfig = configPath && configExisted
+      ? String(host.fs.readFile(configPath) || "")
+      : "";
+    const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
+    const originalScript = scriptExisted && scriptPath ? String(host.fs.readFile(scriptPath) || "") : "";
+    if (!host.fs.fileExists(path + ".codeterm-backup")
+      && !host.fs.writeFile(path + ".codeterm-backup", hooksExisted ? originalHooks : "")) {
+      return { ok: false, error: "could not write recoverable backup for " + path };
+    }
+    if (configPath && configExisted && !host.fs.fileExists(configPath + ".codeterm-backup")
+      && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
+      return { ok: false, error: "could not write recoverable backup for " + configPath };
+    }
+    if (scriptPath && !host.fs.fileExists(scriptPath + ".codeterm-backup")
+      && !host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript)) {
+      return { ok: false, error: "could not write recoverable backup for " + scriptPath };
+    }
     const json = (host.fs.fileExists(path) ? (host.fs.readJson<CodexHooks>(path) || {}) : {}) as CodexHooks;
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
-    if (!Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = [];
+    if (json.hooks !== undefined && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    if (!json.hooks) json.hooks = {};
+    if (json.hooks.SessionStart !== undefined && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
+    if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
     json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
 
     const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     const port = apiPort | 0;
-    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const cmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start "
+    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+    const cmd = guard + 'curl -s -X POST "$CODETERM_API_URL'
+      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start\" "
       + "-H 'Content-Type: application/json' "
       + "-H 'X-CodeTerm-Agent-Provider: codex' "
       + nonceH + " "
       + authH
-      + " --data-binary @- > " + nullDev + " 2>&1 || true";
-    const scriptPath = codexWindowsHookScriptPath();
+      + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
     const commandWindows = scriptPath
       ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"'
       : cmd;
@@ -478,10 +514,39 @@ const plugin: PluginModule = {
     return ok ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
   },
 
+  restoreIntegration(): unknown {
+    const path = codexHooksPath();
+    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const hooks = host.fs.readFile(backup);
+    if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
+    if (hooks === "") {
+      if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
+    } else if (!host.fs.writeFile(path, hooks)) {
+      return { ok: false, error: "restore failed for " + path };
+    }
+    const config = codexConfigPath();
+    if (config && host.fs.fileExists(config + ".codeterm-backup")) {
+      const original = host.fs.readFile(config + ".codeterm-backup");
+      if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+    }
+    const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    if (script && host.fs.fileExists(script + ".codeterm-backup")) {
+      const original = host.fs.readFile(script + ".codeterm-backup");
+      if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
+      if (original === "") {
+        if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
+      } else if (!host.fs.writeFile(script, original)) {
+        return { ok: false, error: "restore failed for " + script };
+      }
+    }
+    return { ok: true };
+  },
+
   ensureIntegrationOnStartup(apiPort: number): unknown {
-    const status = this.checkIntegration!() as { hooks_installed?: boolean; hook_trust_state?: string };
-    if (status && status.hooks_installed) return { ok: true };
-    return this.installIntegration!(apiPort);
+    void apiPort;
+    return { ok: true, changed: false };
   },
 
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
@@ -701,15 +766,14 @@ function codexWindowsHookScriptPath(): string | null {
   return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
 }
 
-function codexWindowsHookScript(apiPort: number): string {
+function codexWindowsHookScript(_apiPort: number): string {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$tab = $env:CODETERM_TAB_ID",
-    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
-    '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
-    '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
+    "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
+    '$base = $env:CODETERM_API_URL.TrimEnd("/")',
     "$headers = @{",
     '  "Content-Type" = "application/json"',
     '  "X-CodeTerm-Agent-Provider" = "codex"',
@@ -717,9 +781,7 @@ function codexWindowsHookScript(apiPort: number): string {
     "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
     '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
     "}",
-    "if ($env:CODETERM_API_TOKEN) {",
-    '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
-    "}",
+    '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
     "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",

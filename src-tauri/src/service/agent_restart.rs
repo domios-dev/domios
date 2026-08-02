@@ -301,7 +301,7 @@ impl ServiceContext {
             provider,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
-            auto_approve: true,
+            auto_approve: false,
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
         })

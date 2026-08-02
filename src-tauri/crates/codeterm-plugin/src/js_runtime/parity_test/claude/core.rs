@@ -4,6 +4,13 @@
 use super::super::*;
 use super::*;
 
+fn integration_options(precompact_memory_export: bool) -> crate::provider::IntegrationInstallOptions {
+    crate::provider::IntegrationInstallOptions {
+        consent: true,
+        precompact_memory_export,
+    }
+}
+
 #[test]
 fn detect_from_title_parity() {
     if require_plugins().is_none() {
@@ -218,7 +225,9 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     assert_eq!(pre["hooks_installed"], false);
 
     // Install.
-    provider.install_integration(7686).expect("install ok");
+    provider
+        .install_integration(7686, &integration_options(true))
+        .expect("install ok");
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
             .unwrap();
@@ -265,18 +274,21 @@ fn integration_install_preserves_unrelated_settings_fields() {
     }
     let dir = tempfile::tempdir().unwrap();
     let settings = dir.path().join("settings.json");
-    std::fs::write(
-        &settings,
-        r#"{"theme":"dark","permissions":{"allow":["Bash"]},"hooks":{"Notification":[]}}"#,
-    )
-    .unwrap();
+    let original = r#"{"theme":"dark","permissions":{"allow":["Bash"]},"hooks":{"Notification":[]}}"#;
+    std::fs::write(&settings, original).unwrap();
     let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
-    provider.install_integration(7686).unwrap();
+    provider.install_integration(7686, &integration_options(true)).unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
     // Unrelated fields untouched.
     assert_eq!(json["theme"], "dark");
     assert_eq!(json["permissions"]["allow"][0], "Bash");
+    assert_eq!(
+        std::fs::read_to_string(settings.with_file_name("settings.json.codeterm-backup")).unwrap(),
+        original
+    );
+    provider.restore_integration().unwrap();
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), original);
 }
 
 #[test]
@@ -300,7 +312,7 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
         )
         .unwrap();
     let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
-    provider.install_integration(7686).unwrap();
+    provider.install_integration(7686, &integration_options(true)).unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
     let arr = json["hooks"]["Notification"].as_array().unwrap();
@@ -328,7 +340,7 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
 }
 
 #[test]
-fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
+fn integration_uninstall_removes_every_codeterm_hook() {
     if require_plugins().is_none() {
         return;
     }
@@ -337,12 +349,11 @@ fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
         &dir.path().join("rule.md"),
         &dir.path().join("settings.json"),
     );
-    provider.install_integration(7686).unwrap();
+    provider.install_integration(7686, &integration_options(true)).unwrap();
     provider.uninstall_integration().unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
             .unwrap();
-    // Mirroring native: Notification + Stop dropped; PreCompact + SessionStart kept (mem continuity).
     let n = json["hooks"]["Notification"].as_array().unwrap();
     let s = json["hooks"]["Stop"].as_array().unwrap();
     let pc = json["hooks"]["PreCompact"].as_array().unwrap();
@@ -355,14 +366,14 @@ fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
         .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
     assert!(pc
         .iter()
-        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v3"));
+        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
     assert!(ss
         .iter()
-        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v3"));
+        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
 }
 
 #[test]
-fn integration_ensure_on_startup_is_idempotent() {
+fn integration_ensure_on_startup_performs_no_write_before_consent() {
     if require_plugins().is_none() {
         return;
     }
@@ -372,11 +383,25 @@ fn integration_ensure_on_startup_is_idempotent() {
         &dir.path().join("settings.json"),
     );
     provider.ensure_integration_on_startup(7686);
-    let first = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
-    provider.ensure_integration_on_startup(7686);
-    let second = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
-    // Second pass must NOT duplicate hooks — checkIntegration sees installed=true and skips re-write.
-    assert_eq!(first, second);
+    assert!(!dir.path().join("settings.json").exists());
+}
+
+#[test]
+fn precompact_memory_export_is_separately_opt_in() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let provider = claude_in_temp(&dir.path().join("rule.md"), &path);
+    provider
+        .install_integration(7686, &integration_options(false))
+        .unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(json["hooks"]["PreCompact"]
+        .as_array()
+        .map_or(true, |hooks| hooks.is_empty()));
 }
 
 #[test]
@@ -388,9 +413,9 @@ fn integration_install_is_identical_across_codeterm_instances() {
     let path = dir.path().join("settings.json");
     let provider = claude_in_temp(&dir.path().join("rule.md"), &path);
 
-    provider.install_integration(7685).unwrap();
+    provider.install_integration(7685, &integration_options(true)).unwrap();
     let prod = std::fs::read_to_string(&path).unwrap();
-    provider.install_integration(7686).unwrap();
+    provider.install_integration(7686, &integration_options(true)).unwrap();
     let dev = std::fs::read_to_string(&path).unwrap();
 
     assert_eq!(prod, dev);

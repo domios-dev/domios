@@ -81,7 +81,7 @@ impl SpawnTabSpec {
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
-                auto_approve: params.skip_permissions.unwrap_or(true),
+                auto_approve: params.permission_bypass_requested(),
                 report_target_tab_id: params.report_target_tab_id.clone(),
                 worker_id: None,
                 extra_env: task_launch_env,

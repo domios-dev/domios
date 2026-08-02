@@ -133,7 +133,7 @@ pub struct SpawnAgentParams {
     /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
     /// the spawned worker reports back across the mesh.
     pub report_target_mesh_peer: Option<String>,
-    /// Default true; set false to spawn an agent that asks for permission.
+    /// Explicit trust expansion for a visible user spawn. Omitted means sandboxed.
     pub skip_permissions: Option<bool>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
@@ -165,6 +165,13 @@ pub struct SpawnAgentParams {
     /// into the launch command so the agent binds its SSE bus there.
     #[serde(default, skip)]
     pub structured_prompt_server: Option<crate::agent::provider::StructuredPromptServer>,
+}
+
+impl SpawnAgentParams {
+    pub(crate) fn permission_bypass_requested(&self) -> bool {
+        self.audience != crate::multiplexer::types::TabAudience::Automation
+            && self.skip_permissions == Some(true)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
