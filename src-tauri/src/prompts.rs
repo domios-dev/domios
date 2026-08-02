@@ -356,6 +356,20 @@ mod tests {
     }
 
     #[test]
+    fn agent_pad_multiline_rule_is_single_across_compiled_role_inputs() {
+        const RULE: &str = "Stage multiline reports and messages in `CODETERM_PAD_DIR` and pass the relative file with `--from-pad`; short scalar arguments may remain inline.";
+        assert_eq!(CODETERM_CLI.matches(RULE).count(), 1);
+        let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
+        assert_eq!(general.matches(RULE).count(), 1);
+        for role in [ORCHESTRATOR_ONBOARDING, ORCHESTRATOR_SUFFIX, PLANNER_SUFFIX, WORKER_SUFFIX] {
+            assert_eq!(role.matches(RULE).count(), 0, "role input duplicates shared AgentPad rule");
+            assert!(!role.contains("$(cat $CODETERM_PAD_DIR"));
+        }
+        assert!(RULE.contains("short scalar arguments may remain inline"));
+        assert!(!CODETERM_CLI.contains("$(cat $CODETERM_PAD_DIR"));
+    }
+
+    #[test]
     fn selected_instruction_references_name_whole_documents() {
         const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
         const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");

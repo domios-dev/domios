@@ -471,6 +471,44 @@ fn delayed_create_parses() {
 }
 
 #[test]
+fn from_pad_parses_for_every_text_body_consumer() {
+    for argv in [
+        vec!["codeterm", "send", "--from-pad", "message.md"],
+        vec!["codeterm", "delayed", "create", "--delay", "5m", "--from-pad", "message.md"],
+        vec!["codeterm", "delayed", "edit", "delayed-1", "--from-pad", "message.md"],
+        vec!["codeterm", "agent", "report", "--from-pad", "report.md"],
+        vec!["codeterm", "paste", "put", "--from-pad", "message.md"],
+        vec!["codeterm", "bridge", "send", "--to", "42", "--from-pad", "message.md"],
+    ] {
+        Cli::try_parse_from(argv).expect("--from-pad consumer must parse");
+    }
+}
+
+#[test]
+fn from_pad_conflicts_with_other_body_sources() {
+    for argv in [
+        vec!["codeterm", "send", "inline", "--from-pad", "message.md"],
+        vec!["codeterm", "send", "--from-file", "other.md", "--from-pad", "message.md"],
+        vec!["codeterm", "delayed", "create", "inline", "--delay", "5m", "--from-pad", "message.md"],
+        vec!["codeterm", "agent", "report", "inline", "--from-pad", "report.md"],
+        vec!["codeterm", "agent", "report", "--doc", "report.md", "--from-pad", "report.md"],
+        vec!["codeterm", "paste", "put", "inline", "--from-pad", "message.md"],
+        vec!["codeterm", "bridge", "send", "inline", "--to", "42", "--from-pad", "message.md"],
+    ] {
+        match Cli::try_parse_from(argv) {
+            Ok(_) => panic!("--from-pad body source conflict must fail"),
+            Err(error) => assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+}
+
+#[test]
+fn pad_path_and_list_parse_without_a_tab_selector() {
+    Cli::try_parse_from(["codeterm", "pad", "path"]).unwrap();
+    Cli::try_parse_from(["codeterm", "pad", "list"]).unwrap();
+}
+
+#[test]
 fn send_stdin_conflicts_with_positional_text() {
     match SendOnly::try_parse_from(["send", "--stdin", "hello"]) {
         Ok(_) => panic!("--stdin and positional text must conflict"),

@@ -165,7 +165,11 @@ fn collect_regular_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Res
         if !canonical.starts_with(root) { return Err("AgentPad entry escapes the current tab pad".into()); }
         let metadata = fs::metadata(&canonical).map_err(|e| format!("inspect AgentPad entry: {e}"))?;
         if metadata.is_dir() { collect_regular_files(root, &canonical, out)?; }
-        else if metadata.is_file() { out.push(canonical.strip_prefix(root).unwrap().to_path_buf()); }
+        else if metadata.is_file() {
+            let relative = canonical.strip_prefix(root).unwrap();
+            if relative.to_str().is_none() { return Err("AgentPad file name is not UTF-8".into()); }
+            out.push(relative.to_path_buf());
+        }
     }
     Ok(())
 }
