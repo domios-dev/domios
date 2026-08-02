@@ -256,9 +256,7 @@ pub async fn spawn_pty_core(
                 let skip_perms = crate::service::permission_policy::configured_permission_bypass(
                     &svc.agent_registry,
                     &provider_id,
-                )
-                .ok()
-                .flatten()
+                )?
                 .is_some();
                 let resume_cmd = svc
                     .agent_registry
@@ -425,9 +423,7 @@ pub async fn spawn_pty_core(
                 crate::service::permission_policy::configured_permission_bypass(
                     &svc.agent_registry,
                     &provider_id,
-                )
-                .ok()
-                .flatten();
+                )?;
             let skip_perms = permission_bypass_authorization.is_some();
             if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
                 tab.auto_approve = skip_perms;

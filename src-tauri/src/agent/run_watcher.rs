@@ -486,14 +486,11 @@ fn screen_is_bare_shell(text: &str) -> bool {
 /// isn't known yet (let idle / timeout handle that case).
 fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     let (provider, session_id) = {
-        let mut mux = svc.mux.write();
-        let mut tab = mux.get_tab_mut(tab_id);
-        if let Some(tab) = tab.as_deref_mut() {
-            tab.auto_approve = false;
-        }
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(tab_id);
         (
-            tab.as_deref().and_then(|p| p.agent_type.clone()),
-            tab.as_deref().and_then(|p| p.agent_session_id.clone()),
+            tab.and_then(|p| p.agent_type.clone()),
+            tab.and_then(|p| p.agent_session_id.clone()),
         )
     };
     let (Some(provider), Some(sid)) = (provider, session_id) else {
@@ -503,13 +500,19 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
         );
         return;
     };
-    let full_access = crate::service::permission_policy::configured_permission_bypass(
+    let full_access = match crate::service::permission_policy::configured_permission_bypass(
         &svc.agent_registry,
         &provider,
-    )
-    .ok()
-    .flatten()
-    .is_some();
+    ) {
+        Ok(authorization) => authorization.is_some(),
+        Err(error) => {
+            log::error!("[run-watcher] refusing policy downgrade for tab={tab_id}: {error}");
+            return;
+        }
+    };
+    if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
+        tab.auto_approve = full_access;
+    }
     let cmd = hidden_recovery_resume_command(&svc.agent_registry, &provider, &sid, full_access);
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
