@@ -18,9 +18,10 @@ interface ToolCardFrameProps {
   action?: ReactNode;
   variant?: "smart" | "codeterm";
   visualOverride?: ToolKindVisual;
+  disclosureLabel?: string;
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
   const globalShowCommands = useShowCommands();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -45,7 +46,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       <div className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs">
         <button
           type="button"
-          aria-label={expanded ? "Collapse tool details" : "Expand tool details"}
+          aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
