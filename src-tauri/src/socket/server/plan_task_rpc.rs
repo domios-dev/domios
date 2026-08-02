@@ -763,7 +763,7 @@ pub(super) fn dispatch(
                 original_task,
                 original_plan_mode,
                 lane_for_commit: task.lane.clone(),
-                provenance,
+                provenance: Some(provenance),
                 provisioned_lane: None,
                 spawn_command: format!(
                     "codeterm plan task respawn {id} {tid} --attempt {}",

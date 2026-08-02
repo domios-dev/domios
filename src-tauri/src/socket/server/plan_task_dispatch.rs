@@ -836,10 +836,8 @@ pub(super) fn dispatch(
             .as_ref()
             .is_some_and(|resolution| resolution.existing.is_none())
     {
-        Some(
-            svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
-                .map_err(|error| dispatch_failed("lane_provision", error))?,
-        )
+        svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
+            .map_err(|error| dispatch_failed("lane_provision", error))?
     } else {
         None
     };
