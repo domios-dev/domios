@@ -124,7 +124,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER --full` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -136,7 +136,7 @@ pub fn planner_onboarding_task_no_plan(
 ) -> String {
     format!(
         "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). No plan exists yet; the Orchestrator's first goal/plan create will bind you to that plan. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER --full` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+First read `codeterm docs PLANNER` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -196,16 +196,24 @@ mod tests {
     #[test]
     fn prompt_surface_uses_delay_only_jitter_wording() {
         const MEMORY_DOC: &str = include_str!("../../docs/MEMORY.md");
+        const MEMORY_SERVICES_DOC: &str = include_str!("../../docs/MEMORY-SERVICES.md");
         const CONFIG_DOC: &str = include_str!("../../docs/CONFIG.md");
+        const RUNTIME_CONFIG_DOC: &str = include_str!("../../docs/RUNTIME-CONFIG.md");
 
-        for text in [CODETERM_CLI, MEMORY_DOC, CONFIG_DOC] {
+        for text in [
+            CODETERM_CLI,
+            MEMORY_DOC,
+            MEMORY_SERVICES_DOC,
+            CONFIG_DOC,
+            RUNTIME_CONFIG_DOC,
+        ] {
             assert!(!text.contains("±30 min jitter"));
             assert!(!text.contains("±90 min jitter"));
             assert!(!text.contains("5:30–6:30"));
         }
         assert!(CODETERM_CLI.contains("delay-only"));
-        assert!(MEMORY_DOC.contains("0..30 min delay-only jitter"));
-        assert!(CONFIG_DOC.contains("0..30 min delay-only jitter"));
+        assert!(MEMORY_SERVICES_DOC.contains("0..30 min delay-only jitter"));
+        assert!(RUNTIME_CONFIG_DOC.contains("0..30 min delay-only jitter"));
     }
 
     #[test]
@@ -285,14 +293,16 @@ mod tests {
     fn orchestration_prompts_separate_capability_from_mode() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("YOU COORDINATE TEAMS; YOU NEVER JOIN ONE"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("TEAM EXECUTION AUTHORITY IS FORBIDDEN"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("machine-level General Agent outside Team hierarchy"));
+        assert!(
+            GENERAL_AGENT_TEMPLATE.contains("machine-level General Agent outside Team hierarchy")
+        );
         assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
         assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
     }
 
     #[test]
-    fn orchestration_guidance_never_prescribes_incomplete_doc_preview() {
+    fn orchestration_guidance_uses_only_complete_document_reads() {
         const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
         const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
         const PLAN_EDITING_DOC: &str = include_str!("../../docs/PLAN-EDITING.md");
@@ -306,19 +316,47 @@ mod tests {
         ];
 
         for surface in surfaces {
+            for fragment in surface.split('`') {
+                let command = fragment.trim();
+                if command.starts_with("codeterm docs") {
+                    for removed in ["--head", "--section", "--full"] {
+                        assert!(
+                            !command.contains(removed),
+                            "removed docs mode remains: {command}"
+                        );
+                    }
+                }
+            }
+            assert!(!surface.contains("section slug"));
+            assert!(!surface.contains("read depth"));
+        }
+    }
+
+    #[test]
+    fn codeterm_docs_rule_is_single_and_unformatted() {
+        const RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
+
+        assert_eq!(CODETERM_CLI.matches(RULE).count(), 1);
+        assert!(!RULE.contains('*'));
+        let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
+        assert_eq!(general.matches(RULE).count(), 1);
+        for role_surface in [
+            ORCHESTRATOR_ONBOARDING,
+            ORCHESTRATOR_SUFFIX,
+            PLANNER_SUFFIX,
+            WORKER_SUFFIX,
+            AGENT_CODETERM_PRIMER,
+            WORKER_CODETERM_CONTEXT,
+        ] {
             assert!(
-                !surface.contains("codeterm docs ORCHESTRATION --head"),
-                "orchestration instructions must not prescribe --head"
-            );
-            assert!(
-                !surface.contains("preview, then") && !surface.contains("preview then call"),
-                "instruction reads must not prescribe a preview/retry sequence"
+                role_surface.matches(RULE).count() <= 1,
+                "role instruction duplicates the docs rule"
             );
         }
     }
 
     #[test]
-    fn selected_instruction_references_are_complete_or_section_scoped() {
+    fn selected_instruction_references_name_whole_documents() {
         const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
         const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
         const PLAN_EDITING_DOC: &str = include_str!("../../docs/PLAN-EDITING.md");
@@ -330,81 +368,38 @@ mod tests {
             PLANNER_DOC,
             PLAN_EDITING_DOC,
         ];
-        let invariant = "An agent reads selected instruction material completely or does not select it;";
-
-        assert_eq!(
-            surfaces
-                .iter()
-                .map(|surface| surface.matches(invariant).count())
-                .sum::<usize>(),
-            1,
-            "the complete-or-not-selected invariant must have one canonical authored home"
-        );
-
         for surface in surfaces {
             for fragment in surface.split('`') {
                 let command = fragment.trim();
-                if !command.starts_with("codeterm docs ") || command.contains("<TOPIC>") {
+                if !command.starts_with("codeterm docs ")
+                    || command.contains("<TOPIC>")
+                    || command.contains("<NAME>")
+                    || command == "codeterm docs --help"
+                {
                     continue;
                 }
                 let document = command
                     .strip_prefix("codeterm docs ")
                     .and_then(|rest| rest.split_whitespace().next())
                     .unwrap_or_default();
-                let selected_instruction = [
-                    "ORCHESTRATION",
-                    "PLANNER",
-                    "PLAN-EDITING",
-                    "LANES",
-                    "BOUNCE",
-                    "TEST-AUTHORING",
-                ]
-                .contains(&document);
-                if !selected_instruction {
-                    continue;
-                }
                 assert!(
-                    command.contains(" --section ") || command.ends_with(" --full"),
-                    "instruction reference is neither complete nor section-scoped: {command}"
+                    [
+                        "ORCHESTRATION",
+                        "ORCHESTRATION-OPERATIONS",
+                        "PLANNER",
+                        "PLAN-EDITING",
+                        "LANES",
+                        "BOUNCE",
+                        "TEST-AUTHORING",
+                        "ROUTING",
+                        "MESH",
+                        "MEMORY",
+                        "SECRETS",
+                    ]
+                    .contains(&document),
+                    "instruction reference names an unknown document: {command}"
                 );
-            }
-        }
-
-        for (document, body) in [
-            ("ORCHESTRATION", ORCHESTRATION_DOC),
-            ("PLANNER", PLANNER_DOC),
-        ] {
-            let slugs: std::collections::HashSet<String> = body
-                .lines()
-                .filter_map(|line| line.strip_prefix("## "))
-                .map(|heading| {
-                    heading
-                        .chars()
-                        .map(|character| {
-                            if character.is_ascii_alphanumeric() {
-                                character.to_ascii_lowercase()
-                            } else {
-                                '-'
-                            }
-                        })
-                        .collect::<String>()
-                        .split('-')
-                        .filter(|part| !part.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("-")
-                })
-                .collect();
-            let needle = format!("codeterm docs {document} --section ");
-            for surface in surfaces {
-                for fragment in surface.split('`') {
-                    let command = fragment.trim();
-                    if let Some(slug) = command.strip_prefix(&needle) {
-                        assert!(
-                            slugs.contains(slug),
-                            "{document} instruction names an unknown section slug: {slug}"
-                        );
-                    }
-                }
+                assert_eq!(command, format!("codeterm docs {document}"));
             }
         }
     }
@@ -498,6 +493,8 @@ mod tests {
     #[test]
     fn orchestration_policy_keeps_checkout_choice_and_final_user_oracle_in_sync() {
         const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const OPERATIONS_DOC: &str = include_str!("../../docs/ORCHESTRATION-OPERATIONS.md");
+        let docs = format!("{ORCHESTRATION_DOC}\n{OPERATIONS_DOC}");
         let rendered = orchestrator_suffix();
 
         for policy in [
@@ -511,7 +508,7 @@ mod tests {
         ] {
             assert!(rendered.contains(policy), "prompt missing policy: {policy}");
             assert!(
-                ORCHESTRATION_DOC.contains(policy),
+                docs.contains(policy),
                 "orchestration doc missing policy: {policy}"
             );
         }
@@ -539,7 +536,7 @@ mod tests {
 
     #[test]
     fn milestone_gate_constants_wire_into_orchestration_ladder() {
-        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION-OPERATIONS.md");
 
         // Suggestion fills both placeholders and names the record command.
         let msg = milestone_gate_suggestion("phase-1", "Phase 1");
@@ -585,7 +582,9 @@ mod tests {
         assert!(GENERAL_AGENT_TEMPLATE.contains("codeterm team list"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("--role Orchestrator --workspace"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("MACHINE CONTROL REMAINS YOUR AUTHORITY"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("REMEMBER REQUEST PIPELINE IS ORDERED AND IMMEDIATE"));
+        assert!(
+            GENERAL_AGENT_TEMPLATE.contains("REMEMBER REQUEST PIPELINE IS ORDERED AND IMMEDIATE")
+        );
         assert!(!GENERAL_AGENT_TEMPLATE.contains("**"));
     }
 

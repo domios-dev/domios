@@ -2,7 +2,7 @@ use crate::plan::{Plan, TaskStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: orchestrating? read `codeterm docs ORCHESTRATION --section the-loop`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
+    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 static ORCHESTRATION_REMINDER_COUNT: AtomicU64 = AtomicU64::new(0);
 

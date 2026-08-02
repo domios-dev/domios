@@ -170,6 +170,14 @@ fn main() {
 
 fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
+    if matches!(
+        args.as_slice(),
+        [_, command, flag]
+            if command == "docs" && (flag == "--help" || flag == "-h")
+    ) {
+        print!("{}", cmd::docs::render_help());
+        return;
+    }
     hydrate_tab_task_binding_env(&args);
     let mut cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
@@ -304,8 +312,10 @@ fn main_impl() {
                     // stdout stays the bare value for scripting; the divergence goes to stderr.
                     if let Some(bind) = value.get("api_bind") {
                         let live = bind.get("live").and_then(|v| v.as_str()).unwrap_or("?");
-                        let configured =
-                            bind.get("configured").and_then(|v| v.as_str()).unwrap_or("?");
+                        let configured = bind
+                            .get("configured")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?");
                         eprintln!(
                             "warning: NOT applied to the running listener — it is still bound to {live}, \
                              config stores {configured}. Restart CodeTerm to apply, and verify with \
@@ -378,16 +388,10 @@ fn main_impl() {
         return;
     }
 
-    // `docs` / `doc` read embedded markdown — no daemon dependency.
-    if matches!(cli.command, Commands::Docs { .. } | Commands::Doc { .. }) {
+    // `docs` reads embedded markdown — no daemon dependency.
+    if matches!(cli.command, Commands::Docs { .. }) {
         match cli.command {
-            Commands::Docs {
-                name,
-                full,
-                head,
-                section,
-            } => cmd::docs::handle(name, full, head, section),
-            Commands::Doc { name } => cmd::docs::handle_doc(name),
+            Commands::Docs { name } => cmd::docs::handle(name),
             _ => unreachable!(),
         }
         return;
@@ -726,7 +730,6 @@ fn main_impl() {
 
         // Docs are handled before socket connect (embedded markdown)
         Commands::Docs { .. } => unreachable!(),
-        Commands::Doc { .. } => unreachable!(),
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),

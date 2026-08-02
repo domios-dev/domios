@@ -15,7 +15,7 @@ pub fn nudge_text(kind: NudgeKind) -> String {
                 .to_string()
         }
         NudgeKind::Orchestrator => format!(
-            "Plan reminder: this tab owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION --section the-loop` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
+            "Plan reminder: this tab owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
         ),
     }
 }
@@ -192,7 +192,7 @@ mod tests {
     fn orchestrator_nudge_body_defers_state_reconciliation_to_plan_prepend() {
         let text = nudge_text(NudgeKind::Orchestrator);
         assert!(text.contains("unfinished execution-plan work"));
-        assert!(text.contains("codeterm docs ORCHESTRATION --section the-loop"));
+        assert!(text.contains("codeterm docs ORCHESTRATION"));
         assert!(!text.contains("STATE-RECONCILIATION"));
 
         let worker_text = nudge_text(NudgeKind::Worker);

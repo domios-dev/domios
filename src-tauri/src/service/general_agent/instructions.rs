@@ -312,6 +312,7 @@ mod tests {
 
     #[test]
     fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
+        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let rendered = render_system_prompt("codex", None);
         assert_eq!(
             rendered
@@ -327,12 +328,14 @@ mod tests {
         assert_eq!(rendered.matches("You are the General Agent").count(), 1);
         assert_eq!(rendered.matches("# CodeTerm CLI reference").count(), 1);
         assert_eq!(rendered.matches("# CodeTerm Memory Protocol").count(), 1);
+        assert_eq!(rendered.matches(DOCS_RULE).count(), 1);
         assert!(!rendered.contains("<!-- bootstrap: true -->"));
         assert!(!rendered.contains("first-ever boot"));
     }
 
     #[test]
     fn generated_instruction_files_are_provider_correct_and_single_copy() {
+        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let dir = std::env::temp_dir().join(format!("ga-instructions-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("identity.md"), "IDENTITY_SENTINEL").unwrap();
@@ -351,8 +354,10 @@ mod tests {
             assert_eq!(contract.matches("# CodeTerm Memory Protocol").count(), 1);
             assert_eq!(contract.matches("IDENTITY_SENTINEL").count(), 1);
             assert_eq!(contract.matches("SOUL_SENTINEL").count(), 1);
+            assert_eq!(contract.matches(DOCS_RULE).count(), 1);
         }
         assert_eq!(claude.matches("@./AGENT.md").count(), 1);
+        assert_eq!(claude.matches(DOCS_RULE).count(), 0);
         assert!(claude.contains("USER_CLAUDE_NOTE"));
         assert!(agents.contains("USER_AGENTS_NOTE"));
 

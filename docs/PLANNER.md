@@ -40,9 +40,8 @@ codeterm task show <task_id>                         # one task, cheap
 codeterm plan section show <plan> <sec_id>           # one section, cheap
 ```
 
-Full editing playbook: `codeterm docs PLAN-EDITING --full`. Lane lifecycle (the
-Orchestrator's side): `codeterm docs LANES --full`. Orchestration model:
-`codeterm docs ORCHESTRATION --section durable-model`.
+Editing operations: `codeterm docs PLAN-EDITING`. Lane lifecycle on the
+Orchestrator side: `codeterm docs LANES`.
 
 ## How to plan
 
@@ -172,4 +171,4 @@ they shape how the worker approaches the job. Never leave them empty.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 8 -->
+<!-- revision: 9 -->

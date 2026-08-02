@@ -260,7 +260,7 @@ fn first_plan_response_has_team_naming_reminder() {
     outcome.apply_to_response(&mut response);
     let reminder = response["_hints"][0].as_str().unwrap();
     assert!(reminder.contains(&format!("codeterm team rename {} <name>", outcome.team_id)));
-    assert!(reminder.contains("codeterm docs ORCHESTRATION --section durable-model"));
+    assert!(reminder.contains("codeterm docs ORCHESTRATION"));
 }
 
 #[test]
