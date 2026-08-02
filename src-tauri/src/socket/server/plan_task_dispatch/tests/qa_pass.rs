@@ -168,7 +168,7 @@ fn qa_pass_failure_preserves_attempt_checkout_binding_and_task() {
 }
 
 #[test]
-fn qa_pass_closes_only_exact_competition_attempt_not_peer_or_replacement() {
+fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let plan = store
@@ -228,6 +228,35 @@ fn qa_pass_closes_only_exact_competition_attempt_not_peer_or_replacement() {
         )
         .unwrap();
     claim_qa(&store, &plan.id, &task_id);
+    let live_competition = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    let competition_error = store
+        .pass_qa(
+            &plan.id,
+            &task_id,
+            "claimed winner accepted",
+            AgentRef::from_tab("tester"),
+            7,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        competition_error,
+        PlanError::ReadbackMismatch { operation, .. } if operation == "qa_pass"
+    ));
+    let after_competition_error = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(after_competition_error, live_competition);
+
     store
         .judge_task_attempt(
             &plan.id,
@@ -260,7 +289,14 @@ fn qa_pass_closes_only_exact_competition_attempt_not_peer_or_replacement() {
         )
         .unwrap();
 
-    store
+    let superseded = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    let superseded_error = store
         .pass_qa(
             &plan.id,
             &task_id,
@@ -268,7 +304,11 @@ fn qa_pass_closes_only_exact_competition_attempt_not_peer_or_replacement() {
             AgentRef::from_tab("tester"),
             10,
         )
-        .unwrap();
+        .unwrap_err();
+    assert!(matches!(
+        superseded_error,
+        PlanError::ReadbackMismatch { operation, .. } if operation == "qa_pass"
+    ));
 
     let task = store
         .get(&plan.id)
@@ -277,25 +317,26 @@ fn qa_pass_closes_only_exact_competition_attempt_not_peer_or_replacement() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    let accepted = task
+    assert_eq!(task, superseded);
+    let claimed = task
         .execution_attempts
         .iter()
         .find(|attempt| attempt.id == winner.attempt.id)
         .unwrap();
-    assert_eq!(accepted.judge_verdict.as_deref(), Some("accepted"));
-    assert_eq!(accepted.judged_at, Some(10));
-    assert_eq!(accepted.closed_at, Some(7));
-    for untouched_id in [peer.attempt.id, replacement.attempt.id] {
+    assert_eq!(claimed.judge_verdict.as_deref(), Some("superseded"));
+    assert_eq!(claimed.judged_at, Some(7));
+    assert_eq!(claimed.closed_at, Some(7));
+    for untouched_id in [&peer.attempt.id, &replacement.attempt.id] {
         let untouched = task
             .execution_attempts
             .iter()
-            .find(|attempt| attempt.id == untouched_id)
+            .find(|attempt| attempt.id == untouched_id.as_str())
             .unwrap();
         assert_eq!(untouched.judge_verdict, None);
         assert_eq!(untouched.judged_at, None);
         assert_eq!(untouched.closed_at, None);
     }
-    assert_eq!(task.assigned_tab_id, None);
-    assert_eq!(task.lane.tab_id, None);
-    assert_eq!(task.status, TaskStatus::Done);
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("replacement-tab"));
+    assert_eq!(task.lane.tab_id.as_deref(), Some("replacement-tab"));
+    assert_eq!(task.status, TaskStatus::InReview);
 }
