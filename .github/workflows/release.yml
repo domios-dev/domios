@@ -10,6 +10,9 @@ on:
     tags:
       - 'release-*'
 
+permissions:
+  contents: read
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
@@ -111,18 +114,132 @@ jobs:
         run: |
           .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
 
-      - name: Release ready-for-release issues (→ done)
+      - name: Verify published public mirror
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          VER="${{ steps.ver.outputs.ver }}"
+          source_release=$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,publishedAt)
+          test "$(printf '%s' "$source_release" | jq -r .isDraft)" = false
+          test "$(printf '%s' "$source_release" | jq -r .publishedAt)" != null
+          release=$(gh release view "$TAG" \
+            --repo rollacode/codeterm-releases \
+            --json isDraft,publishedAt,assets)
+          test "$(printf '%s' "$release" | jq -r .isDraft)" = false
+          test "$(printf '%s' "$release" | jq -r .publishedAt)" != null
+          printf '%s' "$release" | jq -e '.assets | any(.name == "latest.json")' >/dev/null
+          gh release download "$TAG" \
+            --repo rollacode/codeterm-releases \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/public-mirror"
+          jq -e --arg ver "$VER" '.version == $ver and (.platforms | length > 0)' \
+            "$RUNNER_TEMP/public-mirror/latest.json" >/dev/null
+          jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/latest.json" | while IFS= read -r url; do
+            case "$url" in
+              https://github.com/rollacode/codeterm-releases/releases/download/"$TAG"/*) ;;
+              *) echo "::error::non-versioned or non-public updater URL: $url"; exit 1 ;;
+            esac
+            curl --fail --silent --show-error --location --head "$url" >/dev/null
+          done
+          jq -n --arg version "$VER" --arg sha "$GITHUB_SHA" \
+            '{version: $version, source_sha: $sha, public_mirror_verified: true}' \
+            > "$RUNNER_TEMP/issue-closure-boundary.json"
+          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
+            --repo rollacode/codeterm-releases --clobber
+
+      - name: Resolve included private PR public issues
+        run: |
+          CURRENT="release-${{ steps.ver.outputs.ver }}"
+          printf '[]' > "$RUNNER_TEMP/release-history.json"
+          for trigger in $(git tag --merged "$GITHUB_SHA" --list 'release-*' --sort=-version:refname \
+            | grep -v -x "$CURRENT"); do
+            version="${trigger#release-}"
+            tag="v$version"
+            sha=$(git rev-parse "$trigger^{commit}")
+            private_published=false
+            public_published=false
+            mirror_verified=false
+            private=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json isDraft,publishedAt,assets 2>/dev/null || true)
+            private_marker=false
+            if [ -n "$private" ] \
+              && [ "$(printf '%s' "$private" | jq -r .isDraft)" = false ] \
+              && [ "$(printf '%s' "$private" | jq -r .publishedAt)" != null ]; then
+              private_published=true
+              if printf '%s' "$private" \
+                | jq -e '.assets | any(.name == "issue-closure-boundary.json")' >/dev/null; then
+                private_marker=true
+              fi
+            fi
+            public=$(gh release view "$tag" --repo rollacode/codeterm-releases \
+              --json isDraft,publishedAt,assets 2>/dev/null || true)
+            if [ -n "$public" ] \
+              && [ "$(printf '%s' "$public" | jq -r .isDraft)" = false ] \
+              && [ "$(printf '%s' "$public" | jq -r .publishedAt)" != null ]; then
+              public_published=true
+              if [ "$private_marker" = true ] \
+                && printf '%s' "$public" \
+                  | jq -e '.assets
+                    | (any(.name == "latest.json")
+                       and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
+                mirror_verified=true
+              fi
+            fi
+            jq --arg version "$version" --arg sha "$sha" \
+              --argjson private "$private_published" \
+              --argjson public "$public_published" \
+              --argjson mirror "$mirror_verified" \
+              '. + [{version: $version, sha: $sha, private_published: $private,
+                      public_published: $public, mirror_verified: $mirror}]' \
+              "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
+            mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
+          done
+          START=$(python scripts/release_issue_contract.py range-start \
+            --releases-file "$RUNNER_TEMP/release-history.json")
+          if [ -n "$START" ]; then
+            RANGE="$START..$GITHUB_SHA"
+          else
+            RANGE="$GITHUB_SHA"
+          fi
+          printf '[]' > "$RUNNER_TEMP/release-prs.json"
+          for sha in $(git rev-list "$RANGE"); do
+            gh api "repos/${GITHUB_REPOSITORY}/commits/$sha/pulls" \
+              --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body}]' \
+              > "$RUNNER_TEMP/commit-prs.json"
+            jq -s 'add | unique_by(.number)' \
+              "$RUNNER_TEMP/release-prs.json" "$RUNNER_TEMP/commit-prs.json" \
+              > "$RUNNER_TEMP/release-prs.next.json"
+            mv "$RUNNER_TEMP/release-prs.next.json" "$RUNNER_TEMP/release-prs.json"
+          done
+          python scripts/release_issue_contract.py resolve \
+            --prs-file "$RUNNER_TEMP/release-prs.json" \
+            > "$RUNNER_TEMP/resolved-public-issues.json"
+          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Close shipped public issues
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
-          # Everything that reached develop carries the ready-for-release label;
-          # a successful publish turns those into done. Close-on-publish (not on
-          # master-merge), so a failed build never closes an unshipped issue.
-          TAG="${{ steps.ver.outputs.tag }}"
-          nums=$(gh issue list -R "$GITHUB_REPOSITORY" --label ready-for-release --state open --limit 200 --json number -q '.[].number')
-          for n in $nums; do
-            gh issue close "$n" -R "$GITHUB_REPOSITORY" -c "Released in $TAG 🚀"
-            gh issue edit "$n" -R "$GITHUB_REPOSITORY" --remove-label ready-for-release 2>/dev/null || true
-            echo "released #$n"
+          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" | while IFS= read -r reference; do
+            number="${reference##*#}"
+            state=$(gh issue view "$number" --repo rollacode/codeterm-releases --json state --jq .state)
+            printf '%s\t%s\n' "$reference" "$state"
+          done | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' \
+            > "$RUNNER_TEMP/public-issue-states.json"
+          python scripts/release_issue_contract.py plan-close \
+            --resolved-file "$RUNNER_TEMP/resolved-public-issues.json" \
+            --states-file "$RUNNER_TEMP/public-issue-states.json" \
+            --version "${{ steps.ver.outputs.ver }}" \
+            > "$RUNNER_TEMP/public-issue-close-plan.json"
+          jq -r '.[] | @base64' "$RUNNER_TEMP/public-issue-close-plan.json" | while IFS= read -r row; do
+            action=$(printf '%s' "$row" | base64 --decode)
+            number=$(printf '%s' "$action" | jq -r .number)
+            comment=$(printf '%s' "$action" | jq -r .comment)
+            gh issue close "$number" \
+              --repo rollacode/codeterm-releases \
+              --comment "$comment"
           done
-          [ -n "$nums" ] || echo "no ready-for-release issues to close"
