@@ -48,33 +48,45 @@ function actionableState(kind: string, payload: Record<string, unknown>): string
   return "Needs attention";
 }
 
-const TASK_HEADER = /^task:\s*\S+\s*$/i;
+const TASK_HEADER = /^task:\s*([^/\s]+)\/([^/\s]+)\s*$/i;
 
-function exactPayload(reportText: string): string | null {
+interface ExactEnvelope {
+  rawPayload: string;
+  headerPlanId?: string;
+  headerTaskId?: string;
+}
+
+function exactEnvelope(reportText: string): ExactEnvelope | null {
   const lines = reportText.split(/\r?\n/);
-  const bodyStart = TASK_HEADER.test(lines[0]) ? 1 : 0;
-  const payload = lines.slice(bodyStart).join("\n");
-  return payload.trim() === payload && payload.startsWith("{") && payload.endsWith("}") ? payload : null;
+  const header = TASK_HEADER.exec(lines[0]);
+  const rawPayload = lines.slice(header ? 1 : 0).join("\n");
+  if (rawPayload.trim() !== rawPayload || !rawPayload.startsWith("{") || !rawPayload.endsWith("}")) return null;
+  return { rawPayload, headerPlanId: header?.[1], headerTaskId: header?.[2] };
 }
 
 function isSupportedEnvelope(kind: string, payload: Record<string, unknown>): boolean {
   if (!COORDINATION_KINDS.has(kind)) return false;
-  if (typeof payload.plan_id !== "string" || typeof payload.task_id !== "string") return false;
   if (kind === "dispatch_ready") {
-    return typeof payload.tab_id === "string" && typeof payload.attempt_id === "string" && Boolean(payload.lane) && typeof payload.lane === "object";
+    return typeof payload.tab_id === "string"
+      && typeof payload.attempt_id === "string"
+      && typeof payload.session_id === "string"
+      && (payload.lane === undefined || Boolean(payload.lane) && typeof payload.lane === "object" && !Array.isArray(payload.lane));
   }
   if (kind === "worker_ack") {
     return typeof payload.tab_id === "string" && typeof payload.attempt_id === "string" && (payload.state === "in_progress" || payload.state === "awaiting_runtime_ready");
+  }
+  if (kind === "dispatch_startup_failed" || kind === "startup_failed") {
+    return typeof payload.stage === "string" && typeof payload.error === "string";
   }
   return true;
 }
 
 export function parseCoordinationReport(reportText: string): CoordinationReportDescriptor | null {
-  const rawPayload = exactPayload(reportText);
-  if (!rawPayload) return null;
+  const envelope = exactEnvelope(reportText);
+  if (!envelope) return null;
   let payload: Record<string, unknown>;
   try {
-    const parsed: unknown = JSON.parse(rawPayload);
+    const parsed: unknown = JSON.parse(envelope.rawPayload);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     payload = parsed as Record<string, unknown>;
   } catch {
@@ -82,8 +94,16 @@ export function parseCoordinationReport(reportText: string): CoordinationReportD
   }
   const kind = typeof payload.kind === "string" ? payload.kind : undefined;
   if (!kind || !isSupportedEnvelope(kind, payload)) return null;
-  const planId = displayText(payload.plan_id, 80);
-  const taskId = displayText(payload.task_id, 80);
+  const payloadPlanId = typeof payload.plan_id === "string" ? payload.plan_id : undefined;
+  const payloadTaskId = typeof payload.task_id === "string" ? payload.task_id : undefined;
+  if ((payloadPlanId == null) !== (payloadTaskId == null)) return null;
+  if (payloadPlanId && envelope.headerPlanId && (payloadPlanId !== envelope.headerPlanId || payloadTaskId !== envelope.headerTaskId)) return null;
+  const mayUseHeaderIdentity = kind === "dispatch_startup_failed" || kind === "startup_failed";
+  const rawPlanId = payloadPlanId ?? (mayUseHeaderIdentity ? envelope.headerPlanId : undefined);
+  const rawTaskId = payloadTaskId ?? (mayUseHeaderIdentity ? envelope.headerTaskId : undefined);
+  if (!rawPlanId || !rawTaskId) return null;
+  const planId = displayText(rawPlanId, 80);
+  const taskId = displayText(rawTaskId, 80);
   return {
     event: eventLabel(kind),
     state: actionableState(kind, payload),

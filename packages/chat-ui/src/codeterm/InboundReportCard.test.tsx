@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { InboundReportCard, parseInboundReport } from "./InboundReportCard";
 import { MessageBubble } from "../MessageBubble";
 import { decodeCliMessageText, normalizeMessageText } from "./messageText";
-import { CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS, DISPATCH_READY_REPORT } from "./inboundReportFixtures.testdata";
+import { COMPETITION_DISPATCH_READY_REPORT, COMPETITION_STARTUP_FAILED_REPORT, CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS, DISPATCH_READY_REPORT } from "./inboundReportFixtures.testdata";
 import { mountInboundReportCardHarness } from "./InboundReportCard.browserHarness";
 import { parseCoordinationReport } from "./coordinationReport";
 import { inboundActivityEvent } from "./InboundActivityCard";
@@ -133,6 +133,10 @@ if (parsedCoordination?.diagnostics !== DISPATCH_READY_REPORT) throw new Error("
 if (parseCoordinationReport(`Authored introduction\n${DISPATCH_READY_REPORT}`)) throw new Error("JSON-looking authored prose was misclassified as a coordination envelope");
 if (parseCoordinationReport(`status: Done\n${DISPATCH_READY_REPORT.split("\n").slice(1).join("\n")}`)) throw new Error("authored report with a JSON body was misclassified as a coordination envelope");
 if (parseCoordinationReport('task: pl_one/task_one\n{"kind":"worker_ack","plan_id":"pl_one","task_id":"task_one","state":"arbitrary"}')) throw new Error("unsupported worker_ack envelope was accepted");
+if (parseCoordinationReport(COMPETITION_DISPATCH_READY_REPORT)?.task !== "pl_kddub3/task_compete") throw new Error("competition dispatch_ready without lane was rejected");
+const competitionFailure = parseCoordinationReport(COMPETITION_STARTUP_FAILED_REPORT);
+if (competitionFailure?.task !== "pl_kddub3/task_compete" || competitionFailure.state !== "Retry required" || competitionFailure.diagnostics !== COMPETITION_STARTUP_FAILED_REPORT) throw new Error("competition startup failure did not use exact injected task identity and raw diagnostics");
+if (parseCoordinationReport(COMPETITION_DISPATCH_READY_REPORT.replace("task_compete", "different_task"))) throw new Error("mismatched header and payload identity was accepted");
 const collapsed = coordination.cardHost.querySelector('[data-testid="chat-coordination-report"]');
 if (!collapsed) throw new Error("dispatch_ready coordination card missing");
 for (const visible of ["Dispatch ready", "Kay", "pl_kddub3/task_ii7zgs", "Awaiting worker acknowledgement"]) {
@@ -163,6 +167,20 @@ await act(async () => copyButton.click());
 if (copied !== DISPATCH_READY_REPORT) throw new Error("coordination diagnostics copy lost fidelity");
 await act(async () => coordination.cardRoot.unmount());
 coordination.cardHost.remove();
+
+for (const fixture of [COMPETITION_DISPATCH_READY_REPORT, COMPETITION_STARTUP_FAILED_REPORT]) {
+  const rendered = await renderCoordination(fixture, fixture === COMPETITION_DISPATCH_READY_REPORT ? "competition-ready" : "competition-failed");
+  const card = rendered.cardHost.querySelector('[data-testid="chat-coordination-report"]');
+  if (!card?.textContent?.includes("pl_kddub3/task_compete")) throw new Error("competition coordination card lost header-derived task identity");
+  if (card.textContent.includes("private\\lane") || card.textContent.includes("competition worker failed")) throw new Error("competition coordination card leaked failure diagnostics while collapsed");
+  const toggle = card.querySelector('button[aria-controls]') as HTMLButtonElement | null;
+  if (!toggle) throw new Error("competition coordination Details disclosure missing");
+  await act(async () => toggle.click());
+  const raw = rendered.cardHost.querySelector('[data-testid="chat-coordination-details"]')?.textContent ?? "";
+  if (!raw.endsWith(fixture)) throw new Error("competition coordination Details lost exact raw diagnostics");
+  await act(async () => rendered.cardRoot.unmount());
+  rendered.cardHost.remove();
+}
 
 for (const fixture of [
   { id: "ack", json: { kind: "worker_ack", plan_id: "pl_one", task_id: "task_one", tab_id: "secret-tab", attempt_id: "secret-attempt", state: "in_progress" }, event: "Worker acknowledged", state: "in progress" },
