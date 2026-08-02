@@ -21,6 +21,7 @@ export function CoordinationReportCard({ descriptor, message, sender, expanded, 
   const [copied, setCopied] = useState(false);
   const failed = /failed|overdue|incident/i.test(descriptor.event);
   const task = descriptor.task ?? "Unassigned task";
+  const worker = sender.length <= 80 ? sender : `${sender.slice(0, 79)}…`;
 
   const copyDiagnostics = async () => {
     await navigator.clipboard.writeText(descriptor.diagnostics);
@@ -37,7 +38,7 @@ export function CoordinationReportCard({ descriptor, message, sender, expanded, 
       title={descriptor.event}
       summary={<LinkedText text={task} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />}
       visual={{ glyph: RadioTower, color: failed ? "var(--ct-red)" : "var(--ct-accent)", label: "coordination" }}
-      chips={[sender, descriptor.state]}
+      chips={[worker, descriptor.state]}
       onFocusTab={onFocusTab}
       disclosureLabel="coordination Details"
     >
