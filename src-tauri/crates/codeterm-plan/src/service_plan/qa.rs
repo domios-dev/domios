@@ -121,9 +121,9 @@ fn require_running_qa(task: &Task) -> Result<(), PlanError> {
     }
 }
 
-fn qa_claim_error(message: impl Into<String>) -> PlanError {
+fn qa_attempt_error(operation: &str, message: impl Into<String>) -> PlanError {
     PlanError::ReadbackMismatch {
-        operation: "qa_claim".into(),
+        operation: operation.into(),
         message: message.into(),
     }
 }
@@ -147,10 +147,12 @@ fn claimable_attempt_index(task: &Task) -> Result<usize, PlanError> {
         .collect::<Vec<_>>();
     match candidates.as_slice() {
         [index] => Ok(*index),
-        [] => Err(qa_claim_error(
+        [] => Err(qa_attempt_error(
+            "qa_claim",
             "QA item has no exact live execution attempt owned by its executor",
         )),
-        _ => Err(qa_claim_error(
+        _ => Err(qa_attempt_error(
+            "qa_claim",
             "QA item has ambiguous live execution-attempt ownership",
         )),
     }
@@ -166,13 +168,44 @@ fn claimed_attempt_index(task: &Task) -> Result<usize, PlanError> {
         .collect::<Vec<_>>();
     match candidates.as_slice() {
         [index] => Ok(*index),
-        [] => Err(qa_claim_error(
+        [] => Err(qa_attempt_error(
+            "qa_pass",
             "running QA item has no exact claimed execution attempt",
         )),
-        _ => Err(qa_claim_error(
+        _ => Err(qa_attempt_error(
+            "qa_pass",
             "running QA item has ambiguous claimed execution attempts",
         )),
     }
+}
+
+fn require_current_claimed_attempt(task: &Task, claimed_index: usize) -> Result<(), PlanError> {
+    let claimed = &task.execution_attempts[claimed_index];
+    if claimed.closed_at.is_some() {
+        return Err(qa_attempt_error(
+            "qa_pass",
+            format!(
+                "claimed execution attempt '{}' was superseded or closed during QA",
+                claimed.id
+            ),
+        ));
+    }
+    if let Some(other) = task
+        .execution_attempts
+        .iter()
+        .enumerate()
+        .find(|(index, attempt)| *index != claimed_index && attempt.closed_at.is_none())
+        .map(|(_, attempt)| attempt)
+    {
+        return Err(qa_attempt_error(
+            "qa_pass",
+            format!(
+                "live execution attempt '{}' supersedes or competes with claimed attempt '{}'",
+                other.id, claimed.id
+            ),
+        ));
+    }
+    Ok(())
 }
 
 impl PlanStore {
@@ -313,6 +346,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             require_running_qa(&p.tasks[idx])?;
             let attempt_index = claimed_attempt_index(&p.tasks[idx])?;
+            require_current_claimed_attempt(&p.tasks[idx], attempt_index)?;
             reject_done_with_open_subtasks(p, &p.tasks[idx].id)?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             let task = &mut p.tasks[idx];
