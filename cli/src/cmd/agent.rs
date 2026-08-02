@@ -520,6 +520,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             text,
             kind,
             doc,
+            from_pad,
             tab,
             plan,
             task,
@@ -551,7 +552,14 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
             let tab_id = resolve_tab(client, tab);
-            let mut message = text.or(message).unwrap_or_default();
+            let mut message = if let Some(path) = from_pad {
+                crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                })
+            } else {
+                text.or(message).unwrap_or_default()
+            };
             if let Some(path) = doc {
                 let doc_text = match std::fs::read_to_string(&path) {
                     Ok(text) => text,

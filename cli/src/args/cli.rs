@@ -20,6 +20,7 @@ use super::misc::{
     ThemeAction, WorkspaceAction,
 };
 use super::orchestration::OrchestrationAction;
+use super::pad::PadAction;
 use super::orchestrator::OrchestratorAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
@@ -63,6 +64,12 @@ pub enum Commands {
 
     /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
+
+    /// Inspect the current agent tab's private ephemeral filesystem pad
+    Pad {
+        #[command(subcommand)]
+        action: PadAction,
+    },
 
     /// Plugin management — install, update, remove, manage channels
     Plugin {
@@ -137,6 +144,10 @@ pub enum Commands {
         /// pass payloads that would otherwise be eaten by shell quoting.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+
+        /// Read text from a relative file in the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
+        from_pad: Option<String>,
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:

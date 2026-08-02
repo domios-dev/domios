@@ -261,8 +261,19 @@ pub fn start_general_agent(
 
     let cols = 120u16;
     let rows = 40u16;
-    let env_vars =
-        general_agent_env_vars(&tab_id, svc.rotate_session_binding_nonce(&tab_id), config);
+    let pad = match svc.ensure_agent_pad(&tab_id) {
+        Ok(pad) => pad,
+        Err(error) => {
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
+    };
+    let env_vars = general_agent_env_vars(
+        &tab_id,
+        pad.env_value(),
+        svc.rotate_session_binding_nonce(&tab_id),
+        config,
+    );
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -270,6 +281,7 @@ pub fn start_general_agent(
             Ok((id, _)) => id,
             Err(e) => {
                 log::error!("[general-agent] Failed to spawn PTY: {}", e);
+                let _ = svc.revoke_agent_pad(&tab_id);
                 fail_general_agent_start(svc, mux, &tab_id, &e);
                 return;
             }
@@ -782,11 +794,13 @@ fn fail_general_agent_start(
 
 fn general_agent_env_vars(
     tab_id: &str,
+    pad_dir: String,
     session_binding_nonce: String,
     config: &crate::config::ConfigState,
 ) -> std::collections::HashMap<String, String> {
     let mut env = std::collections::HashMap::new();
     env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
+    env.insert("CODETERM_PAD_DIR".to_string(), pad_dir);
     // Per-launch binding nonce so the session-start hook report can prove it owns this tab.
     env.insert(
         "CODETERM_SESSION_BINDING_NONCE".to_string(),

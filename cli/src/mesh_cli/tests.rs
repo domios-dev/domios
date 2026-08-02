@@ -61,8 +61,9 @@ fn peer_api_url_brackets_ipv6_host() {
 fn paste_put_over_mesh_maps_to_remote_pasteboard_create() {
     let cmd = Commands::Paste {
         action: crate::PasteAction::Put {
-            body: "payload".into(),
+            body: Some("payload".into()),
             from_file: None,
+            from_pad: None,
             from_stdin: false,
             ttl: Some("5m".into()),
             content_type: Some("text/plain".into()),
@@ -105,6 +106,7 @@ fn bridge_send_over_mesh_decodes_quoted_newline() {
     let (method, path, body) = cli_command_to_api(&Commands::Bridge {
         action: BridgeAction::Send {
             text: Some("first\\nsecond".into()),
+            from_pad: None,
             raw_text: false,
             service: "telegram".into(),
             to: 42,
@@ -661,6 +663,7 @@ fn send_text_is_fire_and_forget_on_mesh() {
         text: Some("ping".into()),
         tab: Some("abc123".into()),
         from_file: None,
+        from_pad: None,
         stdin: false,
         actions: None,
         delay: None,
@@ -683,6 +686,7 @@ fn send_delay_maps_to_delayed_messages() {
         text: Some("later".into()),
         tab: Some("abc123".into()),
         from_file: None,
+        from_pad: None,
         stdin: false,
         actions: None,
         delay: Some("1m".into()),
@@ -707,6 +711,7 @@ fn send_text_stdin_mesh_body_preserves_exact_text() {
         &None,
         &Some("abc123".into()),
         &None,
+        &None,
         true,
         &None,
         &mut stdin,
@@ -725,6 +730,7 @@ fn send_actions_allows_empty_payload_on_mesh() {
     let (m, p, b) = super::api_map::send_text_to_api(
         &None,
         &Some("abc123".into()),
+        &None,
         &None,
         true,
         &actions,
