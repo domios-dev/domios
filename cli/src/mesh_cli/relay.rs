@@ -145,7 +145,6 @@ impl std::fmt::Display for MeshSpawnFailure {
 
 /// Fallback next-step hint by HTTP status class, used when the peer's
 /// response carries no `retry_hint` of its own.
-#[cfg(test)]
 fn generic_retry_hint(status: u16) -> String {
     match status {
         429 => "rate limited — back off and retry shortly".to_string(),
@@ -160,7 +159,6 @@ fn generic_retry_hint(status: u16) -> String {
 
 /// Classify a completed relay response into success data or a structured
 /// failure. Pure — no I/O, no process exit — so tests can drive it directly.
-#[cfg(test)]
 fn classify_relay_response(
     peer_name: &str,
     status: reqwest::StatusCode,
@@ -303,24 +301,8 @@ pub(crate) fn mesh_relay_invoke_result(
             )
         })?;
     let status = response.status();
-    let value = response
-        .json::<serde_json::Value>()
-        .map_err(|error| MeshSpawnFailure::new(target, error.to_string(), "check daemon logs"))?;
-    if !status.is_success() || value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
-        let error = value
-            .get("error")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("mesh relay failed");
-        return Err(MeshSpawnFailure::new(
-            target,
-            error,
-            "check `codeterm mesh peers`, then retry",
-        ));
-    }
-    Ok(value
-        .get("data")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
+    let bytes = response.bytes().unwrap_or_default();
+    classify_relay_response(target, status, &bytes)
 }
 
 /// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
