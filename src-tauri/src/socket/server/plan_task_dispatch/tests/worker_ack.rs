@@ -244,6 +244,22 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
         task.execution_attempts.last().unwrap().acknowledged_at,
         Some(10)
     );
+
+    let mut runtime_projection = store.get(&plan.id).unwrap();
+    runtime_projection
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .status_label = None;
+    store.save(&mut runtime_projection, 14).unwrap();
+    let replay_after_readiness = store
+        .acknowledge_task_attempt(&plan.id, &task_id, "tab-worker", &attempt_id, 15)
+        .unwrap();
+    assert_eq!(replay_after_readiness.attempt.acknowledged_at, Some(10));
+    let after_ready_replay = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after_ready_replay.status, TaskStatus::InProgress);
+    assert_eq!(after_ready_replay.status_label, None);
 }
 
 #[test]
@@ -335,4 +351,72 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
         store.show_task(&task_id).unwrap().task.status_label.as_deref(),
         Some("startup_cleanup_failed")
     );
+}
+
+#[test]
+fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Dispatch".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane, 4)
+        .unwrap();
+    let mut blocked_plan = store.get(&plan.id).unwrap();
+    let blocked = blocked_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    blocked.status = TaskStatus::Blocked;
+    blocked.status_label = Some("dependency".into());
+    store.save(&mut blocked_plan, 5).unwrap();
+
+    assert!(!store
+        .mark_worker_startup_deadline(
+            &plan.id,
+            &task_id,
+            "tab-worker",
+            &attempt_id,
+            false,
+            6,
+        )
+        .unwrap());
+    assert!(!store
+        .mark_worker_startup_deadline(
+            &plan.id,
+            &task_id,
+            "tab-worker",
+            &attempt_id,
+            true,
+            7,
+        )
+        .unwrap());
+    let unchanged = store.show_task(&task_id).unwrap().task;
+    assert_eq!(unchanged.status, TaskStatus::Blocked);
+    assert_eq!(unchanged.status_label.as_deref(), Some("dependency"));
+    assert_eq!(unchanged.assigned_tab_id.as_deref(), Some("tab-worker"));
+    assert_eq!(unchanged.execution_attempts[0].closed_at, None);
 }

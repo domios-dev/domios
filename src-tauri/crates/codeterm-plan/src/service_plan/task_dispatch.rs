@@ -13,7 +13,8 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         let current = self.read_task_for_verification(plan_id, task_id)?;
-        let owns_startup = current.assigned_tab_id.as_deref() == Some(tab_id)
+        let owns_startup = current.status == crate::plan::TaskStatus::Pending
+            && current.assigned_tab_id.as_deref() == Some(tab_id)
             && current
                 .execution_attempts
                 .iter()
@@ -43,7 +44,10 @@ impl PlanStore {
                     && attempt.executor_tab_id == tab_id
                     && attempt.acknowledged_at.is_none()
                 });
-            if !owns_startup || task.assigned_tab_id.as_deref() != Some(tab_id) {
+            if task.status != crate::plan::TaskStatus::Pending
+                || !owns_startup
+                || task.assigned_tab_id.as_deref() != Some(tab_id)
+            {
                 return Ok(false);
             }
             if final_deadline {
@@ -313,9 +317,7 @@ impl PlanStore {
             ));
         }
         if current_attempt.acknowledged_at.is_some() {
-            if current_task.status != crate::plan::TaskStatus::InProgress
-                || current_task.status_label.as_deref() != Some("acknowledged")
-            {
+            if current_task.status != crate::plan::TaskStatus::InProgress {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "acknowledged attempt no longer owns an acknowledged task",
