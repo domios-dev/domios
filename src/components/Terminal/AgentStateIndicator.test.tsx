@@ -180,6 +180,20 @@ test("summary line is prefixed with provider and model", async () => {
   );
 });
 
+test("idle line keeps provider and model without a working suffix", async () => {
+  const { host } = await render(
+    <AgentStateIndicator
+      state={{ state: "idle" }}
+      providerName="Codex"
+      model="gpt-5.6-sol"
+    />,
+  );
+  const row = host.querySelector('[data-testid="agent-state"]');
+  const msg = host.querySelector(".ct-agent-msg");
+  assert(row?.getAttribute("data-agent-state") === "idle", "idle row stays mounted");
+  assert(msg?.textContent === "Codex · gpt-5.6-sol", "identity remains without transient Working text");
+});
+
 async function main() {
   setupDom();
   let failed = 0;

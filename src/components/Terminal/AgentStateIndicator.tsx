@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { formatAgentWorkingLine } from "@codeterm/chat-ui";
+import { AGENT_WORKING_LINE_SEP, formatAgentWorkingLine } from "@codeterm/chat-ui";
 import {
   AlertTriangle,
   ArrowUpCircle,
@@ -282,16 +282,14 @@ export function AgentStateIndicator({
     );
   }
 
-  // Idle with nothing to report → render nothing (your turn).
-  if (!isWorking && !summary) return null;
-
+  const identity = [providerName?.trim(), model?.trim()].filter(Boolean).join(AGENT_WORKING_LINE_SEP);
   const rawActivity = isWorking ? (state.status_line?.trim() || "Working") : (summary ?? "");
   const text =
     formatAgentWorkingLine({
       providerName,
       model,
       activityText: rawActivity,
-    }) ?? rawActivity;
+    }) ?? identity;
   const visibleText = compactStatusMessage(text);
   return (
     <div
@@ -301,7 +299,7 @@ export function AgentStateIndicator({
       data-agent-phase={phase}
       role="status"
       aria-live="polite"
-      aria-label={`Agent ${text}`}
+      aria-label={text ? `Agent ${text}` : "Agent status"}
     >
       <ActivityDots
         size="small"
@@ -314,7 +312,7 @@ export function AgentStateIndicator({
         key={isWorking ? "working" : "idle"}
         className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
         style={{ fontFamily: "var(--ct-font-mono)" }}
-        title={text}
+        title={text || undefined}
       >
         {visibleText}
         {isWorking && !state.status_line && <span className="opacity-70">…</span>}

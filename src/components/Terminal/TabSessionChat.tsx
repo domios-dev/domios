@@ -687,8 +687,6 @@ export function TabSessionChat({
         {!effectiveChatBackend && (
           <StreamPreviewFloat
             rows={streamPreview}
-            working={liveAgentState.state === "working"}
-            statusLine={liveAgentState.status_line}
           />
         )}
         </div>
