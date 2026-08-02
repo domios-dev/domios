@@ -206,6 +206,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
+    execution_intent: crate::plan::TaskExecutionIntent,
+    #[serde(default)]
     parent: Option<String>,
     #[serde(default, alias = "dependency_task_ids")]
     depends_on: Vec<String>,
@@ -296,6 +298,7 @@ pub async fn task_add(
                 personality_provenance: body.personality_provenance,
                 competition: body.competition,
                 intent: body.intent,
+                execution_intent: body.execution_intent,
                 parent_task_id: body.parent,
                 depends_on: body.depends_on,
                 assigned_tab_id: body.assign_tab,
@@ -789,13 +792,7 @@ mod tests {
             let mut body = json!({});
             body[key] = json!("ignored");
 
-            let result = task_update_core(
-                &service,
-                &HeaderMap::new(),
-                &plan_id,
-                &task_id,
-                body,
-            );
+            let result = task_update_core(&service, &HeaderMap::new(), &plan_id, &task_id, body);
             let after = full_task_record(&fixture, &plan_id, &task_id);
             assert!(
                 result.is_err(),
@@ -809,8 +806,7 @@ mod tests {
             assert!(message.contains("accepted"), "{message}");
             assert!(message.contains("external_refs"), "{message}");
             assert_eq!(
-                after,
-                before,
+                after, before,
                 "rejected key {key} changed the full task record"
             );
         }
@@ -827,26 +823,17 @@ mod tests {
         );
 
         for (key, body) in payloads {
-            let result = task_update_core(
-                &service,
-                &HeaderMap::new(),
-                &plan_id,
-                &task_id,
-                body,
-            );
+            let result = task_update_core(&service, &HeaderMap::new(), &plan_id, &task_id, body);
             let failure = result
                 .as_ref()
                 .err()
                 .map(|error| {
                     let status = &error.0;
-                    let body = &error.1.0;
+                    let body = &error.1 .0;
                     format!("{status}: {body}")
                 })
                 .unwrap_or_default();
-            assert!(
-                result.is_ok(),
-                "REST failed supported key {key}: {failure}"
-            );
+            assert!(result.is_ok(), "REST failed supported key {key}: {failure}");
         }
     }
 

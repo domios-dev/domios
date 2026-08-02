@@ -665,6 +665,7 @@ impl PlanStore {
                         executor_role: p.tasks[idx].executor_role.clone(),
                         competition: None,
                         intent: None,
+                        execution_intent: p.tasks[idx].execution_intent,
                         parent_task_id: Some(parent_id),
                         depends_on: vec![],
                         assigned_tab_id: None,

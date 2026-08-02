@@ -4,10 +4,11 @@ use serde_json::Value;
 
 use crate::client::SocketClient;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskReadinessScope {
     pub worktree_path: Option<PathBuf>,
     pub base: Option<String>,
+    pub requires_repository: bool,
 }
 
 pub fn task_readiness_scope(
@@ -46,6 +47,20 @@ fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessSc
             .and_then(|record| nonempty(record.get("worktree_path")))
             .map(PathBuf::from),
         base: record.and_then(|record| nonempty(record.get("base"))),
+        requires_repository: task
+            .get("execution_intent")
+            .and_then(Value::as_str)
+            != Some("non_repository"),
+    }
+}
+
+impl Default for TaskReadinessScope {
+    fn default() -> Self {
+        Self {
+            worktree_path: None,
+            base: None,
+            requires_repository: true,
+        }
     }
 }
 

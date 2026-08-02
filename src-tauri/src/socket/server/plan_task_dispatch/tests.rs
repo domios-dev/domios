@@ -1,8 +1,9 @@
 use super::{
     apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
-    complete_dispatch_transaction, dispatch_ready_event, dispatch_worker_identity,
-    lane_metadata_for_dispatch, preflight_review_capacity, regression_blocked_error,
-    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
+    checkout_required, complete_dispatch_transaction, dispatch_ready_event,
+    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_review_capacity,
+    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
+    rollback_failed_dispatch,
     task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
     worker_ack_timeout_event, DispatchEvidence,
 };
@@ -27,6 +28,60 @@ use std::time::{Duration, Instant};
 
 mod checkout_occupancy;
 mod worker_ack;
+
+#[test]
+fn nonrepo_team_runs_noncode_workers_without_git_probe() {
+    let provenance_called = Cell::new(false);
+    let evidence = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| Ok(()),
+        |_| Ok("session-nonrepo".into()),
+        || {
+            provenance_called.set(true);
+            Ok(None)
+        },
+        |lane, _| {
+            assert!(lane.is_none());
+            Ok(())
+        },
+        || panic!("successful non-repository dispatch must not roll back"),
+    )
+    .unwrap();
+    assert!(provenance_called.get());
+    assert!(evidence.lane.is_none());
+}
+
+#[test]
+fn repository_mutation_in_nonrepo_fails_checkout_required_before_spawn() {
+    let error = checkout_required("ordinary folder is not a checkout");
+    assert_eq!(error.code, -32012);
+    assert_eq!(error.data.unwrap()["type"], "checkout_required");
+}
+
+#[test]
+fn qa_git_oracles_are_skipped_for_nonrepository_tasks() {
+    let task = task(json!({
+        "id": "task_nonrepo",
+        "name": "research",
+        "type": "task",
+        "status": "pending",
+        "execution_intent": "non_repository"
+    }));
+    assert!(!task.execution_intent.requires_repository());
+    assert!(task.lane.worktree_path.is_none());
+    assert!(task.lane.base.is_none());
+}
+
+#[test]
+fn repository_lane_guards_remain_required_for_code_mutation() {
+    let task = task(json!({
+        "id": "task_repo",
+        "name": "code",
+        "type": "code",
+        "status": "pending"
+    }));
+    assert!(task.execution_intent.requires_repository());
+}
 
 #[test]
 fn regression_block_error_names_every_gate_in_message_and_data() {
@@ -272,7 +327,7 @@ fn dispatch_response_never_claims_ready_before_event() {
         "attempt",
         &DispatchEvidence {
             session_id: "session-worker".into(),
-            lane: provenance(),
+            lane: Some(provenance()),
         },
     );
     assert_eq!(event["kind"], "dispatch_ready");
@@ -297,7 +352,7 @@ fn one_dispatch_creates_exactly_one_tab() {
                 .and_then(|tab| tab.agent_session_id.clone())
                 .expect("session record"))
         },
-        || Ok(provenance()),
+        || Ok(Some(provenance())),
         |_, session_id| {
             assert_eq!(session_id, "session-worker");
             Ok(())
@@ -347,7 +402,7 @@ fn dispatch_failure_leaves_no_orphan() {
         Instant::now() + Duration::from_secs(1),
         |deadline| await_agent_ready(ready_rx, deadline),
         |_| Ok("session-worker".into()),
-        || Ok(provenance()),
+        || Ok(Some(provenance())),
         |_, _| Ok(()),
         || {
             rollback_failed_dispatch(
@@ -504,7 +559,7 @@ fn launch_delivery_readiness_and_same_tab_binding_precede_commit() {
         },
         || {
             order.borrow_mut().push("provenance");
-            Ok(provenance())
+            Ok(Some(provenance()))
         },
         |_, session| {
             assert_eq!(session, "session-worker");
@@ -558,7 +613,7 @@ fn every_transaction_stage_failure_runs_compensation() {
                 if failure == "provenance" {
                     Err("readback mismatch".into())
                 } else {
-                    Ok(provenance())
+                    Ok(Some(provenance()))
                 }
             },
             |_, _| {
@@ -587,7 +642,7 @@ fn binding_failure_never_false_starts() {
         Instant::now() + Duration::from_secs(1),
         |_| Ok(()),
         |_| Err("spawned tab did not bind a session".into()),
-        || Ok(provenance()),
+        || Ok(Some(provenance())),
         |_, _| {
             committed.set(true);
             Ok(())
@@ -673,7 +728,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
         Instant::now() + Duration::from_secs(1),
         |_| Err("TaskDeliveryFailed: rejected".into()),
         |_| Ok("session-worker".into()),
-        || Ok(actual.clone()),
+        || Ok(Some(actual.clone())),
         |provenance, session| {
             store
                 .commit_task_dispatch(
@@ -682,7 +737,10 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
                     "tab-worker",
                     "Ada",
                     session,
-                    lane_metadata_for_dispatch(&original.lane, provenance),
+                    lane_metadata_for_dispatch(
+                        &original.lane,
+                        provenance.as_ref().expect("repository provenance"),
+                    ),
                     4,
                 )
                 .map_err(|error| error.to_string())
