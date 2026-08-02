@@ -51,21 +51,25 @@ async function renderTab(value: Tab) {
   return { host, root };
 }
 
-const general = await renderTab(tab({ machine_agent_identity: "general_agent", protected: true }));
-assert(
-  general.host.querySelector('[data-testid="tab-subline"]')?.textContent === "General Agent",
-  "General subtitle is exact",
-);
-assert(
-  general.host.querySelector('button[aria-label="General Agent"]'),
-  "General activation has an exact accessible name",
-);
-assert(!general.host.textContent?.includes("Orchestrator"), "General row never says Orchestrator");
-await act(async () => general.root.unmount());
+async function main() {
+  const general = await renderTab(tab({ machine_agent_identity: "general_agent", protected: true }));
+  assert(
+    general.host.querySelector('[data-testid="tab-subline"]')?.textContent === "General Agent",
+    "General subtitle is exact",
+  );
+  assert(
+    general.host.querySelector('button[aria-label="General Agent"]'),
+    "General activation has an exact accessible name",
+  );
+  assert(!general.host.textContent?.includes("Orchestrator"), "General row never says Orchestrator");
+  await act(async () => general.root.unmount());
 
-const orchestrator = await renderTab(tab({ title: "Lead", role: "Orchestrator" }));
-assert(
-  orchestrator.host.querySelector('[data-testid="tab-subline"]')?.textContent === "ORCHESTRATOR",
-  "Team Orchestrator label is unchanged",
-);
-await act(async () => orchestrator.root.unmount());
+  const orchestrator = await renderTab(tab({ title: "Lead", role: "Orchestrator" }));
+  assert(
+    orchestrator.host.querySelector('[data-testid="tab-subline"]')?.textContent === "ORCHESTRATOR",
+    "Team Orchestrator label is unchanged",
+  );
+  await act(async () => orchestrator.root.unmount());
+}
+
+void main();
