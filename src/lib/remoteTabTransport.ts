@@ -10,6 +10,11 @@ export interface RemoteTransportCall {
   select?: (value: unknown) => unknown;
 }
 
+export type TabTarget =
+  | { kind: "local" }
+  | { kind: "remote"; ordinaryTabId: string; peerId: string }
+  | { kind: "invalid-remote"; value: string };
+
 const readOffsets = new Map<string, number>();
 let apiConfig: ApiConfig | undefined;
 
@@ -27,6 +32,12 @@ export function parseCompositeTabId(value: unknown): { ordinaryTabId: string; pe
   if (slash < 6 || slash === value.length - 1 || value.indexOf("/", slash + 1) >= 0) return null;
   if (/[?&#\s]/.test(value)) return null;
   return { ordinaryTabId: value, peerId: value.slice(5, slash) };
+}
+
+export function classifyTabTarget(value: unknown): TabTarget {
+  if (typeof value !== "string" || !value.startsWith("mesh:")) return { kind: "local" };
+  const parsed = parseCompositeTabId(value);
+  return parsed ? { kind: "remote", ...parsed } : { kind: "invalid-remote", value };
 }
 
 export function remoteTransportCall(command: string, args: Record<string, unknown> = {}): RemoteTransportCall | null {
@@ -74,5 +85,5 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
 }
 
 export function hasCompositeTabArgument(args: Record<string, unknown> = {}): boolean {
-  return parseCompositeTabId(args.tabId ?? args.tab_id ?? args.ptyId ?? args.pty_id) !== null;
+  return classifyTabTarget(args.tabId ?? args.tab_id ?? args.ptyId ?? args.pty_id).kind !== "local";
 }

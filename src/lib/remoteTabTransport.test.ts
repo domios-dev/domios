@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
+import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
   it("routes every local-component action to the composite owner", () => {
@@ -32,6 +32,8 @@ describe("remote tab transport adapter", () => {
     expect(parseCompositeTabId("mesh:/shared")).toBeNull();
     for (const id of ["mesh:peer/a b", "mesh:peer/a?b", "mesh:peer/a&b", "mesh:peer/a#b"]) {
       expect(parseCompositeTabId(id)).toBeNull();
+      expect(classifyTabTarget(id).kind).toBe("invalid-remote");
+      expect(hasCompositeTabArgument({ tabId: id })).toBe(true);
     }
     expect(hasCompositeTabArgument({ tabId: "mesh:peer/shared" })).toBe(true);
     expect(remoteTransportCall("spawn_pty", { tabId: "mesh:peer/shared" })).toBeNull();

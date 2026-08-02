@@ -337,3 +337,11 @@ fn composite_parser_rejects_rest_and_whitespace_delimiters() {
         assert!(super::parse_remote_tab_id(id).is_none(), "accepted {id}");
     }
 }
+
+#[test]
+fn malformed_remote_targets_never_classify_as_local() {
+    for id in ["mesh:p/a b", "mesh:p/a?b", "mesh:p/a&b", "mesh:p/a#b", "mesh:/tab"] {
+        assert_eq!(super::classify_remote_tab_id(id), super::RemoteTabTarget::Invalid);
+    }
+    assert_eq!(super::classify_remote_tab_id("local"), super::RemoteTabTarget::Local);
+}

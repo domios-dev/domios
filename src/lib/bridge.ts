@@ -22,7 +22,7 @@ import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
-import { hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
+import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
 import { subscribeRemoteTabEvent } from "./remoteTabEvents";
 
 export type UnlistenFn = TauriUnlistenFn;
@@ -706,6 +706,10 @@ if (typeof PerformanceObserver !== "undefined") {
 export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
   const t0 = performance.now();
   try {
+    const target = classifyTabTarget(args?.tabId ?? args?.tab_id ?? args?.ptyId ?? args?.pty_id);
+    if (target.kind === "invalid-remote") {
+      throw new Error(`Invalid remote tab id "${target.value}"; local fallback is forbidden`);
+    }
     if (invokeForTest) return await invokeForTest<T>(cmd, args);
     const remote = remoteTransportCall(cmd, args);
     if (remote) {

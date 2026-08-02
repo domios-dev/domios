@@ -450,9 +450,10 @@ pub async fn mesh_remote_tab_action(
     if suffix.starts_with("/pty/") {
         let owner = crate::api::mesh_routes::remote_tabs::parse_remote_tab_owner(&ordinary_tab_id)
             .map_err(str::to_string)?;
+        let encoded_tab = crate::api::mesh_routes::remote_tabs::encode_remote_tab_component(&owner.tab_id);
         let inspect = crate::mesh::types::RelayCommand {
             method: "GET".into(),
-            path: format!("/api/tabs/inspect?tab_ids={}", owner.tab_id),
+            path: format!("/api/tabs/inspect?tab_ids={encoded_tab}"),
             body: serde_json::Value::Null,
             delivery_id: None,
         };
@@ -472,7 +473,7 @@ pub async fn mesh_remote_tab_action(
         command.path = match suffix.as_str() {
             "/pty/write" => format!("/api/pty/{pty_id}/write"),
             "/pty/resize" => format!("/api/pty/{pty_id}/resize"),
-            "/pty/claim-resize" => format!("/api/tabs/{}/resize-owner", owner.tab_id),
+            "/pty/claim-resize" => format!("/api/tabs/{encoded_tab}/resize-owner"),
             suffix if suffix.starts_with("/pty/read") => {
                 format!("/api/pty/{pty_id}/read{}", suffix.trim_start_matches("/pty/read"))
             }
