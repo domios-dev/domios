@@ -66,7 +66,7 @@ export function PluginDetailPanel({
 
   // installed; before install, fall through to the generic install view).
   if (entry.capabilities?.secret_backend && entry.installed && config) {
-    return <SecretBackendDetail entry={entry} config={config} />;
+    return <SecretBackendDetail entry={entry} config={config} onAction={onAction} actionBusy={busy} />;
   }
 
   const action = primaryAction(entry);
