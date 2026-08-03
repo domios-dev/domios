@@ -338,8 +338,8 @@ async function main(): Promise<void> {
     "older paging advances the byte cursor downward",
   );
   assert(
-    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE * 2,
-    "older refill keeps bounded reading and live-tail windows",
+    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE,
+    "older refill keeps one bounded reading window",
   );
   const refilledAnchor = document.querySelector<HTMLElement>(`[data-message-id="${refillId}"]`);
   assert(refilledAnchor, "older refill preserves the previously visible row");
@@ -357,8 +357,8 @@ async function main(): Promise<void> {
     "remount restores the bounded detached history window",
   );
   assert(
-    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE * 2,
-    "remount preserves bounded reading and live-tail windows",
+    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE,
+    "remount preserves one bounded reading window",
   );
   await act(async () => remounted.root.unmount());
   remounted.host.remove();

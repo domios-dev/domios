@@ -54,9 +54,13 @@ export function setTranscriptAnchor(key: string, anchorKey: string | null): void
   publish(key, { ...current, anchorKey });
 }
 
-export function resetTranscriptWindow(key: string): void {
+export function resetTranscriptWindow(key: string, preserveAnchor = false): void {
   if (!windows.has(key)) return;
-  publish(key, { transcript: createTranscriptState(), anchorKey: null });
+  const current = readTranscriptWindow(key);
+  publish(key, {
+    transcript: createTranscriptState(),
+    anchorKey: preserveAnchor ? current.anchorKey : null,
+  });
 }
 
 export function clearTranscriptWindows(): void {
