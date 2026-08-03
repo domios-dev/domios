@@ -76,17 +76,18 @@ function duplicateIncomingIndexes<T extends NormalizedChatMessage>(prev: T[], in
   return duplicates;
 }
 
+/** `seq` is a per-batch ordinal that other batches reuse for unrelated rows,
+ *  so only the provider id identifies a row here. */
 function mergeIdentities(message: NormalizedChatMessage): string[] {
-  const identities = [`id:${message.id}`];
-  if ((message.type === "user" || message.type === "assistant") && message.seq != null) {
-    identities.push(`${message.type}-seq:${message.sourceSessionId ?? "unbound"}:${message.seq}`);
-  }
-  return identities;
+  return [`id:${message.id}`];
 }
 
 /** Merge a freshly-arrived batch into the existing transcript: dedupe by stable
  *  `id` (incoming wins, so a re-emitted message updates in place) then order by
  *  `(timestamp, seq, arrival)`.
+ *
+ *  Fallback for sources with no byte model; ranged sources reconcile in
+ *  `reduceTranscript`.
  *
  *  The ordering contract is provider-agnostic. Two signals can be missing or
  *  coarse, so neither alone is trusted:
@@ -99,28 +100,20 @@ function mergeIdentities(message: NormalizedChatMessage): string[] {
  *      timestamps, falling back to arrival order when a provider supplies none. */
 export function mergeById<T extends NormalizedChatMessage>(prev: T[], incoming: T[]): T[] {
   const semanticDuplicates = duplicateIncomingIndexes(prev, incoming);
-  const aliases = new Map<string, number>();
-  const entries: Array<{ message: T; arrival: number } | null> = [];
+  const slots = new Map<string, number>();
+  const entries: Array<{ message: T; arrival: number }> = [];
   const projectedIncoming = incoming.filter((_, index) => !semanticDuplicates.has(index));
   for (const message of [...prev, ...projectedIncoming]) {
-    const identities = mergeIdentities(message);
-    const matchedIndexes = [
-      ...new Set(identities.map((identity) => aliases.get(identity)).filter((index) => index != null)),
-    ];
-    const index = matchedIndexes[0] ?? entries.length;
-    const arrival = entries[index]?.arrival ?? index;
-    entries[index] = { message, arrival };
-    for (const matchedIndex of matchedIndexes.slice(1)) {
-      const matched = entries[matchedIndex];
-      if (matched) {
-        for (const identity of mergeIdentities(matched.message)) aliases.set(identity, index);
-        entries[matchedIndex] = null;
-      }
+    const [identity] = mergeIdentities(message);
+    const slot = slots.get(identity);
+    if (slot != null) {
+      entries[slot] = { message, arrival: entries[slot].arrival };
+      continue;
     }
-    for (const identity of identities) aliases.set(identity, index);
+    slots.set(identity, entries.length);
+    entries.push({ message, arrival: entries.length });
   }
   return entries
-    .filter((entry): entry is { message: T; arrival: number } => entry != null)
     .sort((a, b) => {
       const at = timestampMs(a.message.timestamp);
       const bt = timestampMs(b.message.timestamp);

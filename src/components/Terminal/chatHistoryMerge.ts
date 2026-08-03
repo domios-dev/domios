@@ -1,5 +1,7 @@
-import { mergeById, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 
+/** Stamps arrival ordinals used only to place an optimistic row against later
+ *  arrivals; `clientOrder` never participates in transcript identity. */
 export function withPreservedClientOrder(
   messages: ChatMessage[],
   previous: ChatMessage[],
@@ -13,20 +15,4 @@ export function withPreservedClientOrder(
     if (message.clientOrder === clientOrder && message.sourceSessionId === sessionId) return message;
     return { ...message, clientOrder, sourceSessionId: sessionId };
   });
-}
-
-export function mergeSnapshotWindow(
-  previous: ChatMessage[],
-  snapshot: ChatMessage[],
-  nextOrder: () => number,
-  sourceSessionId: string | null,
-): ChatMessage[] {
-  const freshSnapshot = withPreservedClientOrder(snapshot, previous, nextOrder, sourceSessionId);
-  if (freshSnapshot.some((message) => message.systemSubtype === "context_epoch_boundary")) {
-    const currentSessionDeltas = previous.filter(
-      (message) => message.sourceSessionId === sourceSessionId,
-    );
-    return mergeById(freshSnapshot, currentSessionDeltas);
-  }
-  return mergeById(previous, freshSnapshot);
 }

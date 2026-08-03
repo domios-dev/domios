@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Terminal/useChatSession.backfill.test.ts
 // Bounded "Show older" backfill: cursor from chat_start.start_offset, paged
-// chat_backfill fetches, ordering at the page/snapshot boundary, own-session
-// authority, and bounded detached history with an always-present live tail.
+// chat_backfill fetches, byte-range ordering at the page/snapshot boundary,
+// own-session authority, and bounded detached history with a live tail.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -62,7 +62,8 @@ async function main(): Promise<void> {
     snapshot: [] as NormalizedChatMessage[],
     startOffset: 0,
     pages: new Map<number, BackfillPage>(),
-    backfillCalls: [] as Array<{ beforeOffset: number; maxBytes: number }>,
+    endOffset: 0,
+    backfillCalls: [] as Array<{ beforeOffset: number }>,
   };
 
   (bridge as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(async () => () => {});
@@ -72,7 +73,7 @@ async function main(): Promise<void> {
         return {
           text: "",
           start_offset: state.startOffset,
-          offset: 1,
+          offset: state.endOffset,
           pending: false,
           messages: [...state.snapshot],
           source_session_id: "sid-1",
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
       }
       if (command === "chat_backfill") {
         const beforeOffset = Number(args.beforeOffset);
-        state.backfillCalls.push({ beforeOffset, maxBytes: Number(args.maxBytes) });
+        state.backfillCalls.push({ beforeOffset });
         const page = state.pages.get(beforeOffset);
         if (!page) throw new Error(`no page for ${beforeOffset}`);
         return { text: "", session_binding_nonce: "nonce-1", ...page };
@@ -119,6 +120,7 @@ async function main(): Promise<void> {
   // Large session: bounded snapshot tail + a positive start_offset cursor.
   state.snapshot = Array.from({ length: 30 }, (_, i) => msg(`s-${i}`, `snap-${i}`, 20_000 + i, i));
   state.startOffset = 5000;
+  state.endOffset = 8000;
   // Page 1: older window immediately below the snapshot; boundary timestamp COLLIDES
   // with the snapshot's first message (codex floors to seconds) and seq is
   // window-relative 0..N exactly like the server parser produces.
@@ -155,14 +157,13 @@ async function main(): Promise<void> {
   await flush();
   assert((state.backfillCalls.length as number) === 1, "one bounded backfill request per click");
   assert(state.backfillCalls[0].beforeOffset === 5000, "backfill pages from the snapshot window start");
-  assert(state.backfillCalls[0].maxBytes === 256 * 1024, "page size is bounded");
   {
     const contents = v().allMessages.map((m) => m.content);
     assert(contents[0] === "page1-0", `older page sorts first (got ${contents[0]})`);
     const boundary = contents.indexOf("page1-19");
     const snapFirst = contents.indexOf("snap-0");
     assert(boundary >= 0 && snapFirst >= 0 && boundary < snapFirst,
-      "equal-timestamp boundary keeps the backfilled message before the snapshot");
+      "the page's byte range keeps its rows before the snapshot despite an equal timestamp");
     assert(v().canBackfillOlder, "cursor advanced to the next older window");
   }
 
@@ -207,6 +208,7 @@ async function main(): Promise<void> {
   {
     state.snapshot = Array.from({ length: 300 }, (_, i) => msg(`b-${i}`, `bulk-${i}`, 30_000 + i, i));
     state.startOffset = 0;
+    state.endOffset = 30_000;
     state.backfillCalls = [];
     const host2 = document.createElement("div");
     document.body.appendChild(host2);
