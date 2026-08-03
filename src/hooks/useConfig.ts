@@ -95,6 +95,11 @@ function configEquals(a: AppConfig, b: AppConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+export function mergeConfigEvent(previous: AppConfig, incoming: AppConfig): AppConfig {
+  if (incoming.api.token || !previous.api.token) return incoming;
+  return { ...incoming, api: { ...incoming.api, token: previous.api.token } };
+}
+
 export function useConfig() {
   const [config, setConfig] = useState<AppConfig>(() => defaultConfig());
   const [loading, setLoading] = useState(true);
@@ -126,7 +131,10 @@ export function useConfig() {
 
     listen<AppConfig>("config-changed", (event) => {
       if (!cancelled) {
-        setConfig((prev) => (configEquals(prev, event.payload) ? prev : event.payload));
+        setConfig((previous) => {
+          const next = mergeConfigEvent(previous, event.payload);
+          return configEquals(previous, next) ? previous : next;
+        });
       }
     }).then((fn) => {
       if (cancelled) {
