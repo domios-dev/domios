@@ -77,7 +77,7 @@ export function AgentStateIndicator({
 
   return (
     <div
-      className={`ct-agent-row flex min-h-8 items-center gap-2 px-3 py-1 ${className ?? ""}`}
+      className={`ct-agent-row flex items-center gap-2 px-3 py-0.5 ${className ?? ""}`}
       data-testid="agent-state"
       data-agent-state={state.state}
       data-agent-subtype={state.subtype ?? undefined}
