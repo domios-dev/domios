@@ -155,8 +155,8 @@ fn oversized_session_reads_only_a_bounded_tail() {
     let snap = snapshot(&fx.registry, "window-test", &fx.path);
     assert!(snap.truncated());
     assert!(
-        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES,
-        "read {} bytes, window is {}",
+        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES + SNAPSHOT_ANCHOR_STRIDE_BYTES,
+        "read {} bytes, window is {} plus at most one anchor stride",
         snap.bytes_read,
         SNAPSHOT_WINDOW_BYTES
     );
@@ -183,6 +183,30 @@ fn oversized_session_reads_only_a_bounded_tail() {
 
 /// A window wider than one delta chunk must drain across passes without
 /// dropping, duplicating, or splitting a record.
+/// A moving window anchor would re-key the whole overlap on every attach, so
+/// the anchor may only advance once growth passes a stride.
+#[test]
+fn snapshot_anchor_is_stable_while_the_session_grows_within_a_stride() {
+    let pad = 4000;
+    let per = pad as u64 + 8 + 12;
+    let count = ((SNAPSHOT_CAP_BYTES * 3) / per) as usize;
+    let fx = fixture("anchor", count, pad);
+
+    let first = snapshot_start_offset(&fx.path, fx.total);
+    assert!(first > 0, "oversized session must use a bounded window");
+    let grown = fx.total + SNAPSHOT_ANCHOR_STRIDE_BYTES / 4;
+    assert_eq!(
+        snapshot_start_offset(&fx.path, grown),
+        first,
+        "growth below one stride must reuse the same window anchor"
+    );
+    let advanced = fx.total + SNAPSHOT_ANCHOR_STRIDE_BYTES;
+    assert!(
+        snapshot_start_offset(&fx.path, advanced) > first,
+        "growth past a stride re-anchors the window forward"
+    );
+}
+
 #[test]
 fn window_wider_than_the_delta_chunk_drains_completely() {
     let pad = 512;

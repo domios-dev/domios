@@ -78,8 +78,7 @@ getTestChatHandle()?.reply("tab-a", "from handle");
 
 assert(seen === "from handle", "test chat handle dispatches reply event");
 
-let structured: NormalizedChatMessage[] | null = null;
-let order = 0;
+let structured: NormalizedChatMessage[] = [];
 getTestChatHandle()?.pushMessages("tab-late", [{
   id: "queued-after-reload",
   type: "assistant",
@@ -89,15 +88,13 @@ getTestChatHandle()?.pushMessages("tab-late", [{
 } as any]);
 const unlistenLate = listenForTestChatReplies(
   "tab-late",
-  (updater) => {
-    structured = typeof updater === "function" ? updater(structured) : updater;
+  (payload) => {
+    structured = [...structured, ...payload.messages];
   },
-  () => order++,
 );
 
-const drainedStructured = structured as NormalizedChatMessage[] | null;
 assert(
-  drainedStructured?.some((message) => message.id === "queued-after-reload" && message.clientOrder === 0),
+  structured.some((message) => message.id === "queued-after-reload"),
   "queued test chat message drains when Tab listener mounts after reload",
 );
 unlistenLate?.();

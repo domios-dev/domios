@@ -306,7 +306,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   chat_backfill: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
       before_offset: a.beforeOffset,
-      max_bytes: a.maxBytes,
     }),
   session_transcript: (a) =>
     webJson(
