@@ -2,8 +2,6 @@
 // The transcript reducer driving the real scroll/window projection: bounded
 // retention, top-only eviction, byte-cursor paging, and cache remount.
 import {
-  createTranscriptState,
-  reduceTranscript,
   reduceToolEvents,
   TRANSCRIPT_RETENTION_LIMIT,
   transcriptBackfillCursor,
@@ -13,18 +11,23 @@ import {
   type TimelineItem,
   type TranscriptState,
 } from "@codeterm/chat-core";
-import { act, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { act, useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
   CHAT_WINDOW_SIZE,
   chatWindowProjection,
   chatWindowRange,
-  getCachedChatHistoryWindow,
-  setCachedChatHistoryWindow,
   slideChatWindowOlder,
   timelineItemKey,
 } from "./chatWindow";
+import {
+  clearTranscriptWindows,
+  commitTranscriptBatch,
+  readTranscriptWindow,
+  setTranscriptAnchor,
+  useTranscriptWindow,
+} from "./transcriptStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatScroll } from "./useChatScroll";
 
@@ -101,13 +104,13 @@ function windowOf(from: number, to: number) {
 
 const INITIAL_FROM = 1_000 - TRANSCRIPT_RETENTION_LIMIT;
 
-function initialTranscript(): TranscriptState {
-  return reduceTranscript(createTranscriptState(), {
+function seedTranscript(key: string): void {
+  commitTranscriptBatch(key, {
     kind: "snapshot",
     authority: AUTHORITY,
     range: windowOf(INITIAL_FROM, 1_000),
     rows: rowsIn(INITIAL_FROM, 1_000),
-  }).state;
+  });
 }
 
 interface HarnessView {
@@ -123,12 +126,12 @@ interface HarnessView {
 let latestView: HarnessView | null = null;
 
 function HistoryHarness({ cacheKey }: { cacheKey: string }) {
-  const [cached] = useState(() => getCachedChatHistoryWindow(cacheKey));
-  const [transcript, setTranscript] = useState<TranscriptState>(
-    () => cached?.transcript ?? initialTranscript(),
+  const { transcript, anchorKey: windowAnchorKey } = useTranscriptWindow(cacheKey);
+  const setWindowAnchorKey = useCallback(
+    (next: string | null) => setTranscriptAnchor(cacheKey, next),
+    [cacheKey],
   );
-  const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(cached?.anchorKey ?? null);
-  const followTailRef = useRef(cached == null);
+  const followTailRef = useRef(windowAnchorKey == null);
   const detachedReadingItemsRef = useRef<TimelineItem[]>([]);
   const pendingRevealRef = useRef(false);
   const rows = useMemo(() => transcriptRows(transcript), [transcript]);
@@ -145,11 +148,10 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
       setWindowAnchorKey(null);
       return;
     }
-    setWindowAnchorKey((previous) => {
-      const item = timeline[range.end - 1];
-      return previous ?? (item ? timelineItemKey(item) : null);
-    });
-  }, [range.end, timeline]);
+    if (windowAnchorKey != null) return;
+    const item = timeline[range.end - 1];
+    setWindowAnchorKey(item ? timelineItemKey(item) : null);
+  }, [range.end, setWindowAnchorKey, timeline, windowAnchorKey]);
 
   const scrollAuthority = useChatScroll({
     sessionKey: cacheKey,
@@ -165,46 +167,36 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
   useLayoutEffect(() => {
     if (!pendingRevealRef.current) return;
     pendingRevealRef.current = false;
-    setWindowAnchorKey((previous) => slideChatWindowOlder(timeline, previous));
-  }, [timeline]);
+    setWindowAnchorKey(slideChatWindowOlder(timeline, windowAnchorKey));
+  }, [setWindowAnchorKey, timeline, windowAnchorKey]);
 
   const append = useCallback((incoming: NormalizedChatMessage[], from: number) => {
-    setTranscript((previous) => reduceTranscript(previous, {
+    commitTranscriptBatch(cacheKey, {
       kind: "delta",
       authority: AUTHORITY,
       range: windowOf(from, from + incoming.length),
       rows: incoming,
-    }).state);
-  }, []);
+    });
+  }, [cacheKey]);
 
   const loadOlder = useCallback(() => {
     scrollAuthority.prepareForHistoryPrepend();
     if (range.start > 0) {
-      setWindowAnchorKey((previous) => slideChatWindowOlder(timeline, previous));
+      setWindowAnchorKey(slideChatWindowOlder(timeline, windowAnchorKey));
       return;
     }
-    setTranscript((previous) => {
-      const cursor = transcriptBackfillCursor(previous);
-      if (cursor == null || cursor <= 0) return previous;
-      const pageEnd = cursor / ROW_BYTES;
-      const pageStart = Math.max(0, pageEnd - 160);
-      const next = reduceTranscript(previous, {
-        kind: "backfill",
-        authority: AUTHORITY,
-        range: windowOf(pageStart, pageEnd),
-        rows: rowsIn(pageStart, pageEnd),
-      });
-      if (next.outcome === "adopted") pendingRevealRef.current = true;
-      return next.state;
+    const cursor = transcriptBackfillCursor(readTranscriptWindow(cacheKey).transcript);
+    if (cursor == null || cursor <= 0) return;
+    const pageEnd = cursor / ROW_BYTES;
+    const pageStart = Math.max(0, pageEnd - 160);
+    const outcome = commitTranscriptBatch(cacheKey, {
+      kind: "backfill",
+      authority: AUTHORITY,
+      range: windowOf(pageStart, pageEnd),
+      rows: rowsIn(pageStart, pageEnd),
     });
-  }, [range.start, scrollAuthority, timeline]);
-
-  useLayoutEffect(() => {
-    setCachedChatHistoryWindow(
-      cacheKey,
-      windowAnchorKey ? { transcript, anchorKey: windowAnchorKey } : null,
-    );
-  }, [cacheKey, transcript, windowAnchorKey]);
+    if (outcome === "adopted") pendingRevealRef.current = true;
+  }, [cacheKey, range.start, scrollAuthority, setWindowAnchorKey, timeline, windowAnchorKey]);
 
   useLayoutEffect(() => {
     const scroll = scrollAuthority.scrollRef.current;
@@ -259,7 +251,8 @@ async function mount(cacheKey: string): Promise<{ root: Root; host: HTMLElement 
 
 async function main(): Promise<void> {
   const cacheKey = "history-window:session";
-  setCachedChatHistoryWindow(cacheKey, null);
+  clearTranscriptWindows();
+  seedTranscript(cacheKey);
   clearPersistedChatScrollState(cacheKey);
   const mounted = await mount(cacheKey);
   const view = () => {

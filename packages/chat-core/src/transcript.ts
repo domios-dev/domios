@@ -28,6 +28,9 @@ export interface TranscriptState {
   segments: TranscriptSegment[];
   /** Rows dropped off the top by the retention bound. */
   evictedOlder: number;
+  /** Arrival ordinals handed to live rows; the only ordering signal an
+   *  optimistic row can be placed against. */
+  arrivals: number;
 }
 
 export interface TranscriptBatch {
@@ -55,7 +58,40 @@ export interface TranscriptResult {
 export const TRANSCRIPT_RETENTION_LIMIT = 440;
 
 export function createTranscriptState(): TranscriptState {
-  return { authority: null, segments: [], evictedOlder: 0 };
+  return { authority: null, segments: [], evictedOlder: 0, arrivals: 0 };
+}
+
+/** Ordinal an optimistic row must carry to sit above every later arrival. */
+export function nextOptimisticOrder(state: TranscriptState): number {
+  return state.arrivals;
+}
+
+/** History rows only inherit the batch session; they never take an ordinal. */
+function ownedRows(
+  authority: TranscriptAuthority,
+  rows: readonly NormalizedChatMessage[],
+): NormalizedChatMessage[] {
+  const sourceSessionId = authority.sourceSessionId ?? undefined;
+  return rows.map((row) => (
+    row.sourceSessionId != null ? row : { ...row, sourceSessionId }
+  ));
+}
+
+/** Live rows take the next arrival ordinals; history never does, so a re-parsed
+ *  window cannot push a pending optimistic row upward. */
+function arrivedRows(
+  state: TranscriptState,
+  authority: TranscriptAuthority,
+  rows: readonly NormalizedChatMessage[],
+): { rows: NormalizedChatMessage[]; arrivals: number } {
+  let arrivals = state.arrivals;
+  const sourceSessionId = authority.sourceSessionId ?? undefined;
+  const stamped = rows.map((row) => {
+    const clientOrder = row.clientOrder ?? arrivals;
+    if (row.clientOrder == null) arrivals += 1;
+    return { ...row, clientOrder, sourceSessionId: row.sourceSessionId ?? sourceSessionId };
+  });
+  return { rows: stamped, arrivals };
 }
 
 function isRange(range: TranscriptRange | null | undefined): range is TranscriptRange {
@@ -188,7 +224,7 @@ function reduceSnapshot(
   limit: number,
 ): TranscriptResult {
   if (!isRange(batch.range)) {
-    const rows = mergeById(unrangedRows(state), batch.rows);
+    const rows = mergeById(unrangedRows(state), ownedRows(batch.authority, batch.rows));
     return committed(state, withUnrangedRows(state, "snapshot", rows), "adopted", limit);
   }
   const range = batch.range;
@@ -209,7 +245,10 @@ function reduceSnapshot(
   );
   return committed(
     state,
-    [...preserved, { kind: "snapshot", range, rows: rangedRows(range, batch.rows) }],
+    [
+      ...preserved,
+      { kind: "snapshot", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) },
+    ],
     "adopted",
     limit,
   );
@@ -221,23 +260,31 @@ function reduceDelta(
   limit: number,
 ): TranscriptResult {
   if (!isRange(batch.range)) {
-    const rows = mergeById(unrangedRows(state), batch.rows);
-    return committed(state, withUnrangedRows(state, "delta", rows), "adopted", limit);
+    const arrived = arrivedRows(state, batch.authority, batch.rows);
+    const rows = mergeById(unrangedRows(state), arrived.rows);
+    return committed(
+      { ...state, arrivals: arrived.arrivals },
+      withUnrangedRows(state, "delta", rows),
+      "adopted",
+      limit,
+    );
   }
   const range = batch.range;
-  const segment: TranscriptSegment = {
-    kind: "delta",
-    range,
-    rows: rangedRows(range, batch.rows),
-  };
   const end = transcriptCommittedEnd(state);
-  if (end == null) {
-    return committed(state, [...state.segments, segment], "adopted", limit);
+  // A committed transcript never grows a hole: only a range that continues the
+  // committed span is adopted, everything else asks for an authoritative parse.
+  if (end != null) {
+    if (range.end <= end) return { state, outcome: "ignored_stale" };
+    if (range.start < end) return { state, outcome: "recover_overlap" };
+    if (range.start > end) return { state, outcome: "recover_gap" };
   }
-  if (range.end <= end) return { state, outcome: "ignored_stale" };
-  if (range.start < end) return { state, outcome: "recover_overlap" };
-  const outcome: TranscriptOutcome = range.start > end ? "recover_gap" : "adopted";
-  return committed(state, [...state.segments, segment], outcome, limit);
+  const arrived = arrivedRows(state, batch.authority, batch.rows);
+  return committed(
+    { ...state, arrivals: arrived.arrivals },
+    [...state.segments, { kind: "delta", range, rows: rangedRows(range, arrived.rows) }],
+    "adopted",
+    limit,
+  );
 }
 
 function reduceBackfill(state: TranscriptState, batch: TranscriptBatch): TranscriptResult {
@@ -251,7 +298,7 @@ function reduceBackfill(state: TranscriptState, batch: TranscriptBatch): Transcr
       ...state,
       segments: orderedSegments([
         ...state.segments,
-        { kind: "backfill", range, rows: rangedRows(range, batch.rows) },
+        { kind: "backfill", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) },
       ]),
       evictedOlder: Math.max(0, state.evictedOlder - batch.rows.length),
     },

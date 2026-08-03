@@ -1,35 +1,9 @@
-import type { TimelineItem, TranscriptState } from "@codeterm/chat-core";
+import type { TimelineItem } from "@codeterm/chat-core";
 
 /** The UI renders at most 220 rows; the retained source bound lives with the
  * transcript reducer, which evicts the oldest rows under byte-range authority. */
 export const CHAT_WINDOW_SIZE = 220;
 export const CHAT_WINDOW_STEP = 160;
-
-export interface CachedChatHistoryWindow {
-  transcript: TranscriptState;
-  anchorKey: string | null;
-}
-
-const MAX_CACHED_HISTORY_WINDOWS = 8;
-const cachedHistoryWindows = new Map<string, CachedChatHistoryWindow>();
-
-export function getCachedChatHistoryWindow(key: string): CachedChatHistoryWindow | null {
-  const cached = cachedHistoryWindows.get(key);
-  if (!cached) return null;
-  cachedHistoryWindows.delete(key);
-  cachedHistoryWindows.set(key, cached);
-  return cached;
-}
-
-export function setCachedChatHistoryWindow(key: string, value: CachedChatHistoryWindow | null): void {
-  cachedHistoryWindows.delete(key);
-  if (value) cachedHistoryWindows.set(key, value);
-  while (cachedHistoryWindows.size > MAX_CACHED_HISTORY_WINDOWS) {
-    const oldest = cachedHistoryWindows.keys().next().value;
-    if (oldest == null) break;
-    cachedHistoryWindows.delete(oldest);
-  }
-}
 
 export function timelineItemKey(item: TimelineItem): string {
   return item.kind === "message" ? item.message.id : item.event.message.id;
