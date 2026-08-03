@@ -33,7 +33,9 @@ describe("remote channel recovery", () => {
     // Only the current generation drives real progress.
     expect(recovery.noteProgress(second, 20)).toBe(true);
     expect(recovery.currentCursor()).toBe(20);
-    expect(emitted).toEqual([{ channel: "output", availability: "available" }]);
+    // No transition ever left 'available' here, so neither the live nor the stale
+    // callbacks emitted anything — stale generations never touch availability.
+    expect(emitted).toEqual([]);
   });
 
   it("zero-progress clean EOF does not busy-reconnect", () => {

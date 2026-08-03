@@ -36,7 +36,9 @@ export function createRemoteChannelRecovery<C>(
   let progressInActive = false;
   let awaitingSignal = false;
   let disposed = false;
-  let state: RemoteTransportAvailability = "reconnecting";
+  // Starts optimistically 'available' to match the fresh projection default, so the
+  // first real transition (a zero-progress/error end -> 'reconnecting') is not deduped.
+  let state: RemoteTransportAvailability = "available";
 
   function emit(next: RemoteTransportAvailability): void {
     if (state === next) return;
