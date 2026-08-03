@@ -434,28 +434,17 @@ impl ServiceContext {
                     params.report_target_tab_id.as_deref().unwrap_or("?"),
                     params.report_target_mesh_peer.as_deref().unwrap_or("?"),
                 );
-            } else {
-                if emit_state_change {
-                    self.set_tab_role_with_profile(
-                        &tab_id,
-                        role_str,
-                        params.role_profile.as_deref(),
-                        params.parent_tab_id.as_deref(),
-                        params.can_spawn,
-                    )?;
-                } else {
-                    let role = Self::parse_role(role_str)?;
-                    let mut mux = self.mux.write();
-                    mux.set_tab_role(&tab_id, role, params.parent_tab_id.as_deref())?;
-                    if let Some(can_spawn) = params.can_spawn {
-                        mux.set_can_spawn(&tab_id, can_spawn)?;
-                    }
-                }
-                if role_str == "Worker" || role_str == "Manager" {
-                    if let Some(ref parent) = params.parent_tab_id {
-                        self.expect_spawn_parent_link(&tab_id, parent)?;
-                    }
-                }
+            } else if let Err(error) = self.assign_spawn_role_hierarchy(
+                &tab_id,
+                role_str,
+                params.role_profile.as_deref(),
+                params.parent_tab_id.as_deref(),
+                params.can_spawn,
+                emit_state_change,
+            ) {
+                // A post-creation hierarchy failure must not leave an orphan tab.
+                let _ = self.close_tab(&tab_id);
+                return Err(error);
             }
         }
 
@@ -698,6 +687,33 @@ impl ServiceContext {
             model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
+    }
+
+    fn assign_spawn_role_hierarchy(
+        &self,
+        tab_id: &str,
+        role_str: &str,
+        role_profile: Option<&str>,
+        parent_tab_id: Option<&str>,
+        can_spawn: Option<bool>,
+        emit_state_change: bool,
+    ) -> Result<(), String> {
+        if emit_state_change {
+            self.set_tab_role_with_profile(tab_id, role_str, role_profile, parent_tab_id, can_spawn)?;
+        } else {
+            let role = Self::parse_role(role_str)?;
+            let mut mux = self.mux.write();
+            mux.set_tab_role(tab_id, role, parent_tab_id)?;
+            if let Some(can_spawn) = can_spawn {
+                mux.set_can_spawn(tab_id, can_spawn)?;
+            }
+        }
+        if role_str == "Worker" || role_str == "Manager" {
+            if let Some(parent) = parent_tab_id {
+                self.expect_spawn_parent_link(tab_id, parent)?;
+            }
+        }
+        Ok(())
     }
 
     fn tab_model_identity(
