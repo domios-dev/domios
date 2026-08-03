@@ -16,8 +16,9 @@ export interface DelayedMessage {
   sessionChanged: boolean;
 }
 
-export function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
-  return invoke<DelayedMessage[]>("delayed_send_list", { tabId });
+export async function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
+  // A remote peer may answer null; never let it reach callers as a non-array.
+  return (await invoke<DelayedMessage[] | null>("delayed_send_list", { tabId })) ?? [];
 }
 
 export function createDelayedMessage(
