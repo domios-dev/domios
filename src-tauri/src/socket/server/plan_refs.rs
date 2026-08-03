@@ -79,6 +79,7 @@ pub(super) fn resolve_task(
 pub(super) fn task_binding(
     store: &PlanStore,
     params: &Option<Value>,
+    team_id: Option<&str>,
 ) -> Result<Value, JsonRpcError> {
     let tab_id = get_string_param(params, "tab_id")?;
     let binding = store
@@ -88,6 +89,13 @@ pub(super) fn task_binding(
                 "plan_id": plan_id,
                 "task_id": task_id,
             })
+        })
+        .or_else(|| {
+            let (plan_id, _) = store.active_plan_for_team(team_id?)?;
+            Some(serde_json::json!({
+                "plan_id": plan_id,
+                "task_id": null,
+            }))
         });
     Ok(serde_json::json!({
         "tab_id": tab_id,
@@ -238,16 +246,38 @@ mod tests {
             .set_task_assignment(&task_id, Some("tab-bound"), None, 4)
             .unwrap();
 
-        let bound =
-            super::task_binding(&store, &Some(serde_json::json!({"tab_id": "tab-bound"}))).unwrap();
+        let bound = super::task_binding(
+            &store,
+            &Some(serde_json::json!({"tab_id": "tab-bound"})),
+            None,
+        )
+        .unwrap();
         assert_eq!(bound["binding"]["plan_id"], plan_id);
         assert_eq!(bound["binding"]["task_id"], task_id);
 
-        let unknown =
-            super::task_binding(&store, &Some(serde_json::json!({"tab_id": "tab-unbound"})))
-                .unwrap();
+        let unknown = super::task_binding(
+            &store,
+            &Some(serde_json::json!({"tab_id": "tab-unbound"})),
+            None,
+        )
+        .unwrap();
         assert_eq!(unknown["tab_id"], "tab-unbound");
         assert_eq!(unknown["binding"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn team_member_binding_resolves_the_team_active_plan_without_a_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id) =
+            store_with_plan(dir.path(), "owner", "Team plan", PlanMode::Execution);
+        let binding = super::task_binding(
+            &store,
+            &Some(serde_json::json!({"tab_id": "team-planner"})),
+            Some("team-owner"),
+        )
+        .unwrap();
+        assert_eq!(binding["binding"]["plan_id"], plan_id);
+        assert_eq!(binding["binding"]["task_id"], serde_json::Value::Null);
     }
 }
 

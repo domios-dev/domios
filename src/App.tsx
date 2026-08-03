@@ -163,7 +163,7 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme } = useConfig();
+  const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -534,7 +534,7 @@ function AppInner() {
         onDismissToast={dismissToast}
         onNavigateToast={navigateToNotificationTab}
       />
-      <PlansProvider api={stableApiConfig}>
+      <PlansProvider api={stableApiConfig} enabled={!configLoading}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
           <>

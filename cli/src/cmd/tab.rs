@@ -1,3 +1,4 @@
+use super::tab_restart::handle_shell_restart;
 use crate::client::SocketClient;
 use crate::cmd::agent::normalize_tab_description;
 use crate::cmd::print::{handle_result, print_json};
@@ -256,6 +257,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = client.call("tab.close", Some(params));
             handle_result(json, result);
+        }
+        TabAction::Restart { tab, cwd, cmd } => {
+            handle_shell_restart(client, json, tab, cwd, cmd);
         }
         TabAction::Rename { tab, title } => {
             if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
@@ -660,7 +664,8 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
             .into_iter()
             .chain(tab.as_deref())
             .find(|value| invalid(value)),
-        TabAction::Rename { tab, .. }
+        TabAction::Restart { tab, .. }
+        | TabAction::Rename { tab, .. }
         | TabAction::Describe { tab, .. }
         | TabAction::GetText { tab, .. }
         | TabAction::Exec { tab, .. }
