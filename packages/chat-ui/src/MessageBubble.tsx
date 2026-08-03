@@ -20,7 +20,7 @@ import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
-import type { TabNameResolver } from "./codeterm/templates";
+import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
   CommandBody,
@@ -66,6 +66,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a tab id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolveTabName?: TabNameResolver;
+  /** Resolve a mesh UUID/name to the peer's human instance name. */
+  resolvePeerName?: PeerNameResolver;
   /** Focus a referenced Tab from a CodeTerm action card. */
   onFocusTab?: (tabRef: string) => void;
   /** Open the plan view for a plan, optionally focused on a task/section node. */
@@ -110,7 +112,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -547,6 +549,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           expanded={expanded}
           onToggle={setExpandedPersistent}
           resolveTabName={resolveTabName}
+          resolvePeerName={resolvePeerName}
           onFocusTab={onFocusTab}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}

@@ -5,6 +5,7 @@ import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { LinkedText } from "./LinkedText";
 import type { CoordinationReportDescriptor } from "./coordinationReport";
+import { formatCommunicationEndpoint } from "./templates";
 
 interface Props {
   descriptor: CoordinationReportDescriptor;
@@ -35,11 +36,11 @@ export function CoordinationReportCard({ descriptor, message, sender, expanded, 
       status={failed ? "error" : "success"}
       expanded={expanded}
       onToggle={onToggle}
-      title={descriptor.event}
-      summary={task}
-      presentationSummary={<LinkedText text={task} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />}
+      title={`Report from ${formatCommunicationEndpoint(worker)}`}
+      summary={`${descriptor.event} · ${task}`}
+      presentationSummary={<><span>{descriptor.event} · </span><LinkedText text={task} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /></>}
       visual={{ glyph: RadioTower, color: failed ? "var(--ct-red)" : "var(--ct-accent)", label: "coordination" }}
-      chips={[worker, descriptor.state]}
+      chips={[descriptor.state]}
       onFocusTab={onFocusTab}
       disclosureLabel="coordination Details"
     >

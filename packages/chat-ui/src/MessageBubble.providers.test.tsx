@@ -488,9 +488,10 @@ test("codex exec_command rg search does not render as structured edit diff", asy
     codexStructuredEditMessages[0],
   ]);
   try {
-    assert(host.querySelector('[data-testid="chat-tool-call"]'), "exec_command should render command card");
-    assertIncludes(host, "command", "exec_command card label");
-    assertIncludes(host, "rg -n", "rg exec command renders");
+    assert(host.querySelector('[data-testid="chat-tool-call"]'), "exec_command should render search card");
+    assertIncludes(host, "Search", "rg search card label");
+    assertIncludes(host, "mem_post_request", "rg search query renders");
+    assert(!textOf(host).includes("rg -n"), "collapsed search hides raw command");
     assert(!textOf(host).includes("exec_command"), "raw exec_command label should not appear");
     assert(!textOf(host).includes("let body = text.trim()"), "rg search must not show patch diff content");
     const diffMarkers = textOf(host).match(/\+\d+/g) ?? [];
@@ -757,8 +758,8 @@ test("chatBackend curated tool cards hide internal lifecycle phase badges", asyn
       assert(!/\b(pending|running|result)\b/i.test(text), `${label} should not expose lifecycle phase badge`);
     }
     assertIncludes(host, "sleep 1", "pending exec still shows command");
-    assertIncludes(host, "read", "read_file uses normalized read card");
-    assertIncludes(host, "src/status.ts", "running read still shows path");
+    assertIncludes(host, "Read", "read_file uses normalized read card");
+    assertIncludes(host, "status.ts", "running read still shows file name");
     assert(!textOf(host).includes("written"), "collapsed edit hides attached output");
   } finally {
     await act(async () => root.unmount());
@@ -1015,7 +1016,7 @@ test("chatBackend read_file and write_file render file cards", async () => {
   ]);
   try {
     assert(host.querySelectorAll('[data-testid="chat-tool-call"]').length === 2, "expected read and edit cards");
-    assertIncludes(host, "src/main.ts", "read_file path");
+    assertIncludes(host, "main.ts", "read_file name");
     assertIncludes(host, "src/out.ts", "write_file path");
     assertIncludes(host, "export const ready = true;", "write_file preview");
   } finally {
@@ -1120,7 +1121,7 @@ test("structured report uses compact typed card instead of a nested message bubb
   }]);
   try {
     assert(host.querySelector('[data-testid="chat-inbound-report"]'), "expected typed inbound report card");
-    assertIncludes(host, "report · Hugo", "report sender");
+    assertIncludes(host, "Report from Hugo", "report sender");
     assertIncludes(host, "task_2iw42e", "report task summary");
     assertIncludes(host, "1e096cba6", "report sha chip");
     assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "report must not use nested cross-tab bubble");
@@ -1145,7 +1146,7 @@ test("chatBackend structured mesh inbound renders peer in sender header", async 
     },
   ]);
   try {
-    assertIncludes(host, "from Edison@BLACKSTAR", "structured mesh sender");
+    assertIncludes(host, "Received from Edison @ BLACKSTAR", "structured mesh sender");
     assertIncludes(host, "sonnet", "structured mesh model");
     assertIncludes(host, "mesh", "structured mesh channel");
     assertIncludes(host, "Remote status is green.", "expanded mesh body");

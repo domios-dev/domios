@@ -38,6 +38,7 @@ import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
+import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 
 interface Props {
   tabId: string;
@@ -133,6 +134,7 @@ export function TabSessionChat({
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
   const isActive = isVisible;
+  const resolvePeerName = useMeshPeerNameResolver(isActive);
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -312,9 +314,19 @@ export function TabSessionChat({
     onError: showComposerError,
   });
 
+  const communicationTabNames = useMemo(() => {
+    const names = new Map(tabTitleMap);
+    for (const { origin } of enrichedMessages) {
+      if (origin?.kind !== "tab") continue;
+      const sender = origin.title.split("@")[0]?.trim();
+      if (sender) names.set(origin.tabIdShort.slice(0, 8), sender);
+    }
+    return names;
+  }, [enrichedMessages, tabTitleMap]);
+
   const resolveTabName = useCallback(
-    (tabRef: string): string | undefined => tabTitleMap.get(tabRef.slice(0, 8)),
-    [tabTitleMap],
+    (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),
+    [communicationTabNames],
   );
 
   const renderedEnrichedMessages = enrichedMessages;
@@ -631,6 +643,7 @@ export function TabSessionChat({
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolveTabName={resolveTabName}
+                resolvePeerName={resolvePeerName}
                 onOpenPlan={onOpenPlan}
                 resolvePlanRef={resolvePlanRef}
                 fontScale={uiFontScale}
