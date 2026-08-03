@@ -1,4 +1,5 @@
-use crate::plan::{PlanMode, PlannerRef, PlanningAuthor, PlanningState};
+use crate::multiplexer::types::AgentRole;
+use crate::plan::{PlanMode, PlanningAuthor, PlanningState};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 use serde_json::Value;
@@ -63,11 +64,8 @@ impl ServiceContext {
         if owner {
             return Ok(PlanningAuthor::User);
         }
-        let planner = matches!(
-            &plan.planner,
-            Some(PlannerRef::Tab { tab_id: expected_tab, session_id: Some(expected_session), .. })
-                if Some(expected_tab.as_str()) == tab_id && Some(expected_session.as_str()) == session_id
-        ) && plan.owner.tab_id.as_deref() == tab.parent_tab_id.as_deref()
+        let planner = tab.role == Some(AgentRole::Manager)
+            && tab.role_profile.as_deref() == Some("planner")
             && plan.team_id.as_deref() == tab.team_id.as_deref()
             && plan
                 .owner
@@ -191,7 +189,7 @@ mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
-    use crate::plan::{OrchestratorRef, Plan, PlanMode, PlannerRef, TaskStatus};
+    use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
 
@@ -219,6 +217,8 @@ mod tests {
         }
         {
             let tab = mux.get_tab_mut(&planner).unwrap();
+            tab.role = Some(AgentRole::Manager);
+            tab.role_profile = Some("planner".into());
             tab.parent_tab_id = Some(owner.clone());
             tab.team_id = Some(team_id.clone());
         }
@@ -232,11 +232,6 @@ mod tests {
                 title: None,
             },
         );
-        plan.planner = Some(PlannerRef::Tab {
-            tab_id: planner.clone(),
-            session_id: Some("planner-session".into()),
-            title: None,
-        });
         plan.team_id = Some(team_id);
         fixture.service.plan_store.save(&mut plan, 1).unwrap();
         let caller = |tab_id: String, session: &str, nonce: &str| AuthenticatedPlanCaller {

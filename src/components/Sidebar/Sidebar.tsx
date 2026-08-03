@@ -25,7 +25,7 @@ import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
-import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
@@ -130,7 +130,7 @@ export function Sidebar({
   const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
-  const fullPlans = useFullPlansOptional();
+  const fullPlans = useSidebarPlansOptional();
   const activeWork = useMemo(
     () => selectActiveWork(fullPlans.plans, state.tabs),
     [fullPlans.plans, state.tabs],
@@ -772,7 +772,6 @@ export function Sidebar({
             )}
             {!isCompact && (() => {
               const views = state.recently_closed ?? [];
-              if (views.length === 0) return null;
               const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed

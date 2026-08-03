@@ -289,6 +289,17 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 };
                 ("POST".into(), format!("/api/tabs/{}/close", id), None)
             }
+            crate::TabAction::Restart { tab, cwd, cmd } => {
+                if cmd.is_some() {
+                    return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
+                }
+                let id = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/restart", id),
+                    Some(serde_json::json!({"cwd": cwd}).to_string()),
+                )
+            }
             crate::TabAction::Rename { title, tab } => {
                 let p = tab.as_deref().unwrap_or("general");
                 (

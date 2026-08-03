@@ -59,6 +59,7 @@ pub mod remote_workers;
 mod role_identity;
 mod role_profile;
 pub mod session_persist;
+mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
@@ -121,7 +122,7 @@ use crate::{
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
-pub(crate) use hierarchy::{FirstPlanCaller, FirstPlanTeamError};
+pub(crate) use hierarchy::{TeamPlanCaller, TeamPlanCreationError};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,

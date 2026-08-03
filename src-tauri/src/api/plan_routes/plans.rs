@@ -13,7 +13,7 @@ use crate::plan::{
 };
 use crate::service::plan::IndexEntry;
 use crate::service::plan::PlanError;
-use crate::service::FirstPlanTeamError;
+use crate::service::TeamPlanCreationError;
 use crate::service::TeamPlanError;
 
 use super::{
@@ -90,11 +90,11 @@ pub async fn create(
     let from_spec = body.from_spec.filter(|s| !s.trim().is_empty());
     let outcome = state
         .svc
-        .create_first_plan_for_caller(
+        .create_team_plan_for_caller(
             body.title,
             project,
             owner,
-            crate::service::FirstPlanCaller {
+            crate::service::TeamPlanCaller {
                 tab_id: crate::api::tab_routes::caller_tab_header(&headers),
                 session_id: body.session_id,
                 binding_nonce: body.session_binding_nonce,
@@ -104,8 +104,8 @@ pub async fn create(
             now,
         )
         .map_err(|error| match error {
-            FirstPlanTeamError::Plan(error) => plan_err(error),
-            FirstPlanTeamError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+            TeamPlanCreationError::Plan(error) => plan_err(error),
+            TeamPlanCreationError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
         })?;
     let plan = outcome.plan.clone();
     let _ = state

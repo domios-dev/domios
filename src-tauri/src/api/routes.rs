@@ -885,12 +885,23 @@ pub fn create_router(state: AppState) -> Router {
         state.clone(),
         super::auth::auth_middleware,
     ));
-    let router = if api_config.cors {
-        let origins = api_config
-            .cors_allow_origins
-            .iter()
+    let configured_origins = api_config
+        .cors_allow_origins
+        .iter()
+        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+        .collect::<Vec<_>>();
+    #[cfg(debug_assertions)]
+    let origins = if api_config.cors {
+        configured_origins
+    } else {
+        ["http://localhost:1420", "http://127.0.0.1:1420"]
+            .into_iter()
             .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-            .collect::<Vec<_>>();
+            .collect()
+    };
+    #[cfg(not(debug_assertions))]
+    let origins = configured_origins;
+    let router = if api_config.cors || cfg!(debug_assertions) {
         router.layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(origins))

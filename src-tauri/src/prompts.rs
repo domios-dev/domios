@@ -123,8 +123,8 @@ pub fn planner_onboarding_task(
     plan_id: &str,
 ) -> String {
     format!(
-        "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+        "You are the Planner specialist for the active Team Plan {plan_id}, working with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. The Orchestrator owns and creates the Team Plan and may create its complete structure directly. When planning is delegated, refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). If no planning request has been delegated yet, reply that you are ready and WAIT."
     )
 }
 
@@ -135,8 +135,8 @@ pub fn planner_onboarding_task_no_plan(
     orchestrator_tab_id: &str,
 ) -> String {
     format!(
-        "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). No plan exists yet; the Orchestrator's first goal/plan create will bind you to that plan. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+        "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). The Team may not have a Plan yet; the Orchestrator creates it and Team membership makes it visible to you automatically. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. When the Orchestrator delegates planning, refine the active Team Plan with the normal plan editing commands. If no planning request has been delegated yet, reply that you are ready and WAIT."
     )
 }
 
@@ -458,14 +458,11 @@ mod tests {
         );
         assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
         assert!(
-            t.contains("Planner can EXECUTE:"),
-            "lists concrete executable actions"
-        );
-        assert!(
             t.contains("codeterm plan task add"),
             "names concrete planner action"
         );
-        assert!(t.contains("--personality"), "mandates persona fields");
+        assert!(t.contains("Orchestrator owns and creates the Team Plan"));
+        assert!(t.contains("No separate Planner-to-Plan binding"));
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
         assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
     }
@@ -473,8 +470,9 @@ mod tests {
     #[test]
     fn planner_onboarding_task_no_plan_carries_pair_hold_state_without_plan_id() {
         let t = planner_onboarding_task_no_plan("Opus Orchestrator", "tab_orch_9");
-        assert!(t.contains("No plan exists yet"));
-        assert!(t.contains("first goal/plan create"));
+        assert!(t.contains("Team may not have a Plan yet"));
+        assert!(t.contains("Team membership makes it visible"));
+        assert!(t.contains("Do not create a bootstrap Plan"));
         assert!(t.contains("Opus Orchestrator"));
         assert!(!t.contains("pl_"));
     }
