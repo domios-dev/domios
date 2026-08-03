@@ -9,7 +9,7 @@ import {
   type ChatSessionDiagnosticSink,
   useChatSession,
 } from "./useChatSession";
-import { setCachedChatHistoryWindow } from "./chatWindow";
+import { clearTranscriptWindows } from "./transcriptStore";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -132,6 +132,10 @@ class FakeTimers {
     };
   }
 
+  pending(): number {
+    return this.jobs.size;
+  }
+
   async advance(ms: number): Promise<void> {
     const deadline = this.now + ms;
     while (true) {
@@ -245,7 +249,7 @@ async function mountSession(
     };
     return null;
   }
-  setCachedChatHistoryWindow(`tab:${sessionId ?? ""}`, null);
+  clearTranscriptWindows();
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -352,15 +356,16 @@ async function runChatSessionHookTests(): Promise<void> {
     assert(unlistens === 0 && stops === 0, "T1 pending does not tear down the listener or chat");
     assert(starts === 1, "T1 pending never polls chat_start after the initial attach");
     assert(
-      session.latest().attachmentState === "failed"
-        && !session.latest().recovering
+      session.latest().attachmentState === "awaiting_store"
+        && session.latest().recovering
         && !session.latest().loading
-        && session.latest().error?.includes("timed out"),
-      "T1 pending fails with a retryable error after the bounded deadline",
+        && session.latest().error == null,
+      "T1 pending waits on the store with no deadline and no error",
     );
+    assert(timers.pending() === 0, "T1 pending schedules no timer at all");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T1 pending has one listener and fails on its bounded deadline");
+    console.log("PASS T1 pending holds one listener and waits on an event, not a deadline");
   }
 
   {
