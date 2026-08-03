@@ -870,7 +870,7 @@ mod tests {
             title: None,
         });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"kind\":\"Tab\""));
+        assert!(json.contains("\"kind\":\"tab\""));
         assert!(json.contains("\"tab_id\":\"tab_plan\""));
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.planner, p.planner);
@@ -1051,6 +1051,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             pause_reason: None,
+            interruption: Default::default(),
             attachments: vec![],
         };
         t.review_round = 1;
