@@ -1,7 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
-import type { Tab } from "../../lib/types";
-import { tabContentSurface } from "./tabContentSurface";
 
 describe("remote tab local component parity", () => {
   it("uses TerminalTab, TabSessionChat and TabTopBar without a parallel remote surface", () => {
@@ -10,19 +8,12 @@ describe("remote tab local component parity", () => {
     expect(source).toContain("<TabSessionChat");
     expect(source).toContain("<TabTopBar");
     expect(source).not.toContain("RemoteTabSurface");
-    const surfaceSource = readFileSync(new URL("./tabContentSurface.ts", import.meta.url), "utf8");
-    expect(surfaceSource).toContain('tab.remote_availability !== "available"');
-    const local: Tab = { id: "same", title: "Local", pty_id: "same", tab_type: "Terminal", cwd: null };
-    const remote: Tab = {
-      ...local,
-      id: "mesh:peer/same",
-      pty_id: "mesh:peer/same",
-      remote_peer_id: "peer",
-      remote_tab_id: "same",
-      remote_availability: "available",
-    };
-    expect(tabContentSurface(local)).toBe("ordinary");
-    expect(tabContentSurface(remote)).toBe("ordinary");
+    expect(source).not.toContain("RemoteTabUnavailable");
+    expect(source).not.toContain("remote_availability");
+    const storeSource = readFileSync(new URL("../../store/multiplexer/index.tsx", import.meta.url), "utf8");
+    expect(storeSource).not.toContain('remote.remote_availability !== "available"');
+    const routeSource = readFileSync(new URL("../../lib/remoteTabRoute.ts", import.meta.url), "utf8");
+    expect(routeSource).not.toContain("remote_availability");
   });
 });
 

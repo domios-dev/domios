@@ -108,6 +108,31 @@ fn remote_projection_stamps_worker_role_for_roleless_source() {
 }
 
 #[test]
+fn remote_projection_preserves_named_managing_role() {
+    let projected = merge_ordinary_tab_projection(
+        &[serde_json::json!({"id": "controller", "team_id": "team-a"})],
+        &[RemotePeerProjection {
+            peer_id: "peer-a".into(),
+            peer_name: "REMOTE".into(),
+            authenticated: true,
+            reachable: true,
+            availability: "available",
+            tabs: vec![serde_json::json!({
+                "id": "planner",
+                "role": "Manager",
+                "role_profile": "planner"
+            })],
+            controllers: std::collections::HashMap::from([(
+                "planner".into(),
+                "controller".into(),
+            )]),
+        }],
+    );
+    assert_eq!(projected[1]["role"], "Manager");
+    assert_eq!(projected[1]["role_profile"], "planner");
+}
+
+#[test]
 fn remote_projection_excludes_tabs_without_a_local_controller() {
     let projected = merge_ordinary_tab_projection(
         &[],

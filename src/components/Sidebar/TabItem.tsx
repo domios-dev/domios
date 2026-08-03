@@ -11,7 +11,7 @@ import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, ownershipSubtitle } from "./remoteOwnership";
+import { managedByLabel, remoteIdentity } from "./remoteOwnership";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
@@ -94,10 +94,6 @@ function TabWorkingActivity() {
   );
 }
 
-export function remoteTabSubtitle(tab: Tab, roleShield: string | null): string | null {
-  return ownershipSubtitle(tab) ?? roleShield;
-}
-
 function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; generalAgent: boolean }) {
   if (!subtitle) return null;
   return (
@@ -110,6 +106,33 @@ function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; gener
       ) : (
         <RoleBadge label={subtitle} className="shrink-0" />
       )}
+    </span>
+  );
+}
+
+function RemoteIdentityLine({ tab }: { tab: Tab }) {
+  const identity = remoteIdentity(tab);
+  if (!identity) return null;
+  return (
+    <span
+      data-testid="remote-tab-identity"
+      className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
+    >
+      {identity.role ? <RoleBadge label={identity.role} className="shrink-0" /> : null}
+      {identity.role ? <span aria-hidden="true">·</span> : null}
+      <span className="truncate">{identity.peer}</span>
+    </span>
+  );
+}
+
+function ManagedByLine({ label }: { label: string | null }) {
+  if (!label) return null;
+  return (
+    <span
+      data-testid="remote-managed-by"
+      className="block truncate text-[10px] font-mono font-semibold uppercase leading-3 text-[var(--ct-accent)]"
+    >
+      {label}
     </span>
   );
 }
@@ -152,7 +175,7 @@ function TabItemInner({
   const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
   const roleShield = isGeneralAgent ? "General Agent" : roleShieldLabel(tab);
   const managedBy = managedByLabel(tab);
-  const subtitle = remoteTabSubtitle(tab, roleShield);
+  const localSubtitle = tab.remote_peer_id ? null : roleShield;
   const isSubTab =
     tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -354,7 +377,11 @@ function TabItemInner({
                 {collapsedSummary}
               </span>
             ) : (
-              <TabSubline subtitle={subtitle} generalAgent={isGeneralAgent} />
+              <>
+                <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
+                <RemoteIdentityLine tab={tab} />
+                <ManagedByLine label={managedBy} />
+              </>
             )}
         </span>
         {/* Connected services */}
@@ -479,10 +506,12 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.protected === np.protected &&
     pp.machine_agent_identity === np.machine_agent_identity &&
     pp.role === np.role &&
+    pp.role_profile === np.role_profile &&
     pp.remote_availability === np.remote_availability &&
     pp.ownership?.controller_title === np.ownership?.controller_title &&
     pp.ownership?.team?.id === np.ownership?.team?.id &&
     pp.remote_peer_name === np.remote_peer_name &&
+    pp.remote_peer_id === np.remote_peer_id &&
     pp.chat_view === np.chat_view &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&

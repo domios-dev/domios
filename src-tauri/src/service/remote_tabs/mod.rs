@@ -78,10 +78,12 @@ pub fn merge_ordinary_tab_projection(
             );
             object.insert("parent_tab_id".into(), serde_json::json!(controller_id));
             object.insert("spawned_by_tab_id".into(), serde_json::json!(controller_id));
-            object.insert(
-                "role".into(),
-                serde_json::json!(codeterm_types::agent::AgentRole::Worker),
-            );
+            if object.get("role").is_none_or(serde_json::Value::is_null) {
+                object.insert(
+                    "role".into(),
+                    serde_json::json!(codeterm_types::agent::AgentRole::Worker),
+                );
+            }
             if let Some(controller) = local.iter().find(|candidate| {
                 candidate.get("id").and_then(serde_json::Value::as_str)
                     == Some(controller_id.as_str())

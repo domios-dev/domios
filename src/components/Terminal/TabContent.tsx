@@ -14,9 +14,7 @@ import type {
 } from "../../lib/types";
 import { usageTrackingEnabled } from "./usageTracking";
 import { tabSessionActionView } from "./tabSessionActions";
-import { RemoteTabUnavailable } from "./RemoteTabUnavailable";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
-import { tabContentSurface } from "./tabContentSurface";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -53,14 +51,6 @@ export function TabContent({
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
   if (tab.remote_peer_id) configureRemoteTabTransport(api);
-
-  if (tabContentSurface(tab) === "remote-unavailable") {
-    return (
-      <TabWrapper tabId={tab.id}>
-        <RemoteTabUnavailable tab={tab} />
-      </TabWrapper>
-    );
-  }
 
   if (isFirstRunGeneralTab(tab)) {
     return (

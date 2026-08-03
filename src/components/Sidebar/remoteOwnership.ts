@@ -6,22 +6,29 @@ export interface RemoteTeamIdentity {
   peerName: string;
 }
 
-function availabilityNote(tab: Tab): string | null {
-  if (tab.remote_availability === "reconnecting") return "Reconnecting";
-  if (tab.remote_availability === "unavailable") return "Unavailable";
-  return null;
-}
-
 export function managedByLabel(tab: Tab): string | null {
   const controller = tab.ownership?.controller_title?.trim();
   return controller ? `managed by ${controller}` : null;
 }
 
-export function ownershipSubtitle(tab: Tab): string | null {
-  const base = managedByLabel(tab);
-  if (!base) return null;
-  const note = availabilityNote(tab);
-  return note ? `${base} · ${note}` : base;
+function titleCaseRole(profile: string): string {
+  return profile
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+export function namedManagerRole(tab: Tab): string | null {
+  const profile = tab.role_profile?.trim();
+  if (profile) return titleCaseRole(profile);
+  return tab.role === "Orchestrator" ? "Orchestrator" : null;
+}
+
+export function remoteIdentity(tab: Tab): { role: string | null; peer: string } | null {
+  if (!tab.remote_peer_id) return null;
+  const peer = tab.remote_peer_name?.trim() || tab.remote_peer_id;
+  return { role: namedManagerRole(tab), peer: `@${peer}` };
 }
 
 export function remoteTeamIdentity(tab: Tab): RemoteTeamIdentity | null {

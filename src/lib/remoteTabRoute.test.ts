@@ -19,13 +19,13 @@ describe("remote tab routing", () => {
 
   it("never falls back to a colliding local tab", () => {
     expect(() => requireRemoteTabRoute(base)).toThrow("not an authenticated remote projection");
-    expect(() => requireRemoteTabRoute({
+    expect(requireRemoteTabRoute({
       ...base,
       id: "mesh:peer-a/same",
       remote_peer_id: "peer-a",
       remote_tab_id: "same",
       remote_availability: "reconnecting",
-    })).toThrow("reconnecting");
+    })).toEqual({ peerId: "peer-a", tabId: "same" });
   });
 
   it("carries the owning peer and remote id for every ordinary action", () => {
