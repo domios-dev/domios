@@ -56,6 +56,8 @@ type ChatHandler = (event: {
   payload: {
     tab_id: string;
     messages: NormalizedChatMessage[];
+    start_offset?: number;
+    offset?: number;
     source_session_id: string | null;
     session_binding_nonce: string | null;
   };
