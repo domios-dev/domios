@@ -16,7 +16,7 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
   remote_peer_name: "ROG",
   remote_tab_id: "one",
   ownership: { controller_title: "Hubble", peer_id: "peer", peer_name: "ROG" },
-  remote_availability: "available",
+  remote_channels: { control: "available", output: "available", chat: "available" },
 });
 
 finish();
@@ -30,7 +30,7 @@ describe("remote tab metadata", () => {
   });
 
   it("does not mix stream availability into identity", () => {
-    expect(remoteIdentity({ ...remote("Worker"), remote_availability: "unavailable" }))
+    expect(remoteIdentity({ ...remote("Worker"), remote_channels: { control: "unavailable", output: "unavailable", chat: "unavailable" } }))
       .toEqual({ role: null, peer: "@ROG" });
   });
 

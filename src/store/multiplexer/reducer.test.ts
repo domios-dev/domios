@@ -909,7 +909,7 @@ test("SET_STATE preserves remote tab, selection, and focus across an authoritati
     pty_id: "mesh:peer/worker",
     remote_peer_id: "peer",
     remote_tab_id: "worker",
-    remote_availability: "available",
+    remote_channels: { control: "available", output: "available", chat: "available" },
     workspace_id: "w1",
     role: "Worker",
   } as unknown as Tab;
