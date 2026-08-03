@@ -75,10 +75,14 @@ const UNTASKED_REPORT: AgentReportEventPayload = {
 
 async function main(): Promise<void> {
   const listened: string[] = [];
-  let deliver: ((event: { payload: AgentReportEventPayload }) => void) | null = null;
+  let subscribed = false;
+  let deliver: (event: { payload: AgentReportEventPayload }) => void = () => {
+    throw new Error("the projection never subscribed to the report event");
+  };
   __setListenForTest(async (event, handler) => {
     listened.push(event);
     deliver = handler as typeof deliver;
+    subscribed = true;
     return () => {};
   });
   resetAgentReportProjection();
@@ -87,7 +91,7 @@ async function main(): Promise<void> {
   const mounted = subscribeAgentReportProjection(WORKER_TAB, () => { notifications += 1; });
   await Promise.resolve();
   await Promise.resolve();
-  assert(deliver != null, "the projection never subscribed to the report event");
+  assert(subscribed, "the projection never subscribed to the report event");
 
   assert(
     readAgentReportProjection(WORKER_TAB).outbound.length === 0
@@ -182,7 +186,7 @@ async function main(): Promise<void> {
   // The live bridge path feeds the same ingest, so no card depends on screen
   // text, PTY state or delivery outcome.
   const liveId = "b71f2b28-6f4a-4b0e-9a3e-51fa2d7c8a90";
-  deliver?.({ payload: { ...ACCEPTED_REPORT, report: { ...ACCEPTED_REPORT.report, id: liveId } } });
+  deliver({ payload: { ...ACCEPTED_REPORT, report: { ...ACCEPTED_REPORT.report, id: liveId } } });
   assert(
     readAgentReportProjection(WORKER_TAB).outbound.some((card) => card.reportId === liveId),
     "a report delivered through the event bridge was not projected",

@@ -3,6 +3,7 @@
 import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot } from "react-dom/client";
+import type { ChatAttachmentState } from "./chatSessionAuthority";
 import { useChatSession } from "./useChatSession";
 
 const window = new Window({ url: "http://localhost/" });
@@ -62,7 +63,13 @@ async function main() {
     return {};
   }) as never);
 
-  let latest = {
+  let latest: {
+    attachmentState: ChatAttachmentState;
+    error: string | null;
+    recovering: boolean;
+    messages: string[];
+    retry: () => void;
+  } = {
     attachmentState: "idle",
     error: null as string | null,
     recovering: false,
@@ -80,6 +87,7 @@ async function main() {
     };
     return null;
   }
+  const attachmentState = (): ChatAttachmentState => latest.attachmentState;
 
   const deliver = async (id: string, content: string) => {
     await act(async () => listener?.({
@@ -96,7 +104,7 @@ async function main() {
   const root = createRoot(host);
   await act(async () => root.render(<Harness sessionId={null} />));
   assert(starts === 1, "fresh snapshot started more than once");
-  assert(latest.attachmentState === "awaiting_session", "fresh chat did not await its first session");
+  assert(attachmentState() === "awaiting_session", "fresh chat did not await its first session");
   assert(!latest.recovering, "fresh chat was misclassified as recovering history");
   assert(latest.error == null, "fresh chat surfaced a history error");
   assert(scheduledWaits.length === 0, "awaiting a first session scheduled a wait");
@@ -104,27 +112,27 @@ async function main() {
   await act(async () => root.render(<Harness sessionId="bound-session" />));
   assert(Number(starts) === 2, "bound snapshot did not start exactly once");
   assert(stops === 0, "pending snapshot stopped the listener");
-  assert(latest.attachmentState === "awaiting_store", "bound pending snapshot did not await its store");
+  assert(attachmentState() === "awaiting_store", "bound pending snapshot did not await its store");
   assert(latest.recovering, "a bound chat awaiting its store is recovering history");
   assert(scheduledWaits.length === 0, "a pending attach scheduled a wait");
 
   await deliver("history", "history restored");
   assert(!latest.recovering, "chat stayed in recovering state");
-  assert(latest.attachmentState === "attached", "an observed event did not complete the attach");
+  assert(attachmentState() === "attached", "an observed event did not complete the attach");
   assert(latest.messages[0] === "history restored", "history was not restored");
   assert(latest.error == null, "a completed attach surfaced an error");
 
   await act(async () => latest.retry());
   assert(Number(starts) === 3, "retry did not request a fresh snapshot");
   assert(Number(stops) === 1, "retry did not stop exactly the prior subscription");
-  assert(latest.attachmentState === "awaiting_store", "retry did not re-enter the awaiting state");
+  assert(attachmentState() === "awaiting_store", "retry did not re-enter the awaiting state");
   assert(latest.recovering, "a re-attaching bound chat is recovering history");
   assert(scheduledWaits.length === 0, "a re-attach scheduled a failure deadline");
 
   // The only thing that resolves the pending re-attach is the next observed
   // event; nothing here can be advanced by elapsed time.
   await deliver("tail", "tail restored");
-  assert(latest.attachmentState === "attached", "the observed event did not resolve the re-attach");
+  assert(attachmentState() === "attached", "the observed event did not resolve the re-attach");
   assert(!latest.recovering, "the re-attached chat stayed recovering");
   assert(latest.error == null, "the re-attached chat surfaced an error");
   assert(
