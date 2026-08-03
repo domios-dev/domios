@@ -79,26 +79,9 @@ pub(crate) fn wait_for_restart_readiness(
     RestartReadiness::TimedOut { pty_id }
 }
 
-/// `AgentReady` asserts the agent can accept input. A surfaced interactive
-/// prompt owns that input, so the assertion is false while one is pending.
-/// Reads the prompt the output pipeline already surfaced — never re-parses.
-pub(crate) fn blocking_prompt_owns_input(tab: &Tab) -> bool {
-    tab.pending_prompt.is_some()
-}
-
-/// Tabs whose readiness claim was withheld because a blocking prompt owned the
-/// input. Paid by `release_deferred_agent_ready` when the prompt frees it.
-static READY_OWED: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashSet<String>>> =
-    std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashSet::new()));
-
 /// Record a stage on the tab. Only SpawnFailed carries a reason, so any other
 /// stage clears a previously latched failure.
 pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
-    if stage == BootStage::AgentReady && blocking_prompt_owns_input(tab) {
-        READY_OWED.lock().insert(tab.id.clone());
-        return;
-    }
-    READY_OWED.lock().remove(&tab.id);
     tab.boot_stage = Some(stage);
     tab.boot_failure_reason = (stage == BootStage::SpawnFailed)
         .then(|| reason.map(str::to_string))
@@ -132,23 +115,6 @@ impl ServiceContext {
         if stage == BootStage::AgentReady {
             self.schedule_planner_replay(tab_id);
             self.heal_recovery_state_if_ready();
-        }
-    }
-
-    /// Pay a readiness claim `apply_boot_stage` withheld because a blocking
-    /// prompt owned the input. Driven by the prompt-release observation, never
-    /// a timer; a no-op unless that exact tab is owed a claim.
-    pub(crate) fn release_deferred_agent_ready(&self, tab_id: &str) {
-        if !READY_OWED.lock().contains(tab_id) {
-            return;
-        }
-        let freed = {
-            let mux = self.mux.read();
-            mux.get_tab(tab_id)
-                .is_some_and(|tab| !blocking_prompt_owns_input(tab))
-        };
-        if freed {
-            self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
         }
     }
 
@@ -276,39 +242,11 @@ mod tests {
         tab.clone()
     }
 
-    /// Falsification oracle for #9. Fails for the named mechanism (the boot-stage
-    /// recorder never consults the surfaced blocking prompt) and would pass if
-    /// the cause were the prompt not being observable here — that variant fails
-    /// in `blocking_prompt_from_screen`'s probe instead.
     #[test]
-    fn agent_ready_is_withheld_while_a_blocking_prompt_owns_input() {
+    fn inferred_prompt_never_withholds_agent_ready() {
         let mut tab = tab_with_prompt(Some(blocking_prompt_from_screen()));
-        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
-        assert_ne!(
-            tab.boot_stage,
-            Some(BootStage::AgentReady),
-            "readiness asserted while a blocking prompt owns the input"
-        );
-    }
-
-    /// The other over-correction guard: withholding must defer the claim, not
-    /// destroy it — a tab blocked once must still reach ready afterwards.
-    #[test]
-    fn withheld_readiness_is_owed_and_paid_once_the_prompt_frees_input() {
-        let mut tab = tab_with_prompt(Some(blocking_prompt_from_screen()));
-        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
-        assert!(
-            READY_OWED.lock().contains(&tab.id),
-            "withheld readiness was dropped instead of owed"
-        );
-
-        tab.pending_prompt = None;
         apply_boot_stage(&mut tab, BootStage::AgentReady, None);
         assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
-        assert!(
-            !READY_OWED.lock().contains(&tab.id),
-            "a paid claim must not stay owed"
-        );
     }
 
     /// The over-correction guard: a fix that never reports ready also never

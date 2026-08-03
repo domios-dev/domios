@@ -347,6 +347,31 @@ fn public_send_waits_for_agent_ready_even_when_pty_exists() {
 }
 
 #[test]
+fn inferred_question_and_prompt_never_block_ready_agent_input() {
+    use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
+
+    let (mut mux, tab_id) = fully_routable_tab();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Question,
+            subtype: None,
+        }
+        .into(),
+    );
+    tab.pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        question: "Select an option".into(),
+        options: Vec::new(),
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    });
+
+    assert_eq!(public_agent_input_readiness(tab), Some(Ok(())));
+}
+
+#[test]
 fn agent_with_a_live_pty_is_routable_without_boot_metadata() {
     let (mut _mux, tab_id) = fully_routable_tab();
     let tab = _mux.get_tab_mut(&tab_id).unwrap();
