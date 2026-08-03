@@ -243,6 +243,7 @@ mod tests {
             report_target_tab_id: None,
             report_target_mesh_peer: None,
             spawned_by_tab_id: None,
+            ownership: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,

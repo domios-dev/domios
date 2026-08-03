@@ -57,6 +57,10 @@ impl SpawnAgentParams {
             skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: json_str(params, "spawned_by_tab_id"),
+            ownership: params
+                .get("ownership")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok()),
             model: json_str(params, "model"),
             planned_model: json_str(params, "planned_model"),
             planned_reasoning_effort: None,

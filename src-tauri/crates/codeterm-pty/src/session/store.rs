@@ -139,6 +139,8 @@ pub enum SplitNodeSnapshot {
         /// mesh. `None` for local tabs / legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         report_target_mesh_peer: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        ownership: Option<codeterm_types::pty::RemoteOwnership>,
         /// Can spawn children.
         #[serde(default)]
         can_spawn: bool,

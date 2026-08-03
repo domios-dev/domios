@@ -148,6 +148,9 @@ pub struct SpawnAgentParams {
         Option<crate::service::permission_policy::PermissionBypassAuthorization>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
+    /// Authenticated control ownership carried to the spawned tab (peer identity
+    /// re-stamped at the relay boundary, never trusted from the payload).
+    pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
     /// Plan/task routing model before a launch-time model override.

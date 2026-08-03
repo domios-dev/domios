@@ -212,7 +212,15 @@ export interface Tab {
   remote_peer_name?: string;
   remote_tab_id?: string;
   remote_availability?: "available" | "reconnecting" | "unavailable";
-  remote_controller_title?: string;
+  ownership?: RemoteOwnership;
+}
+
+export interface RemoteOwnership {
+  controller_title: string;
+  controller_tab_id?: string;
+  peer_id: string;
+  peer_name: string;
+  team?: { id: string; title?: string };
 }
 
 export interface MultiplexerState {
@@ -243,6 +251,8 @@ export interface Team {
   lifecycle: TeamLifecycle;
   created_at: number;
   workspace_id: string;
+  /** Set only on a synthesized remote Team; shows the origin peer once in the header. */
+  remote_peer_name?: string | null;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_tab`). */

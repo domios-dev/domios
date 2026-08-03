@@ -153,6 +153,7 @@ impl SpawnTabSpec {
             skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
+            ownership: None,
             model: agent.model.clone(),
             planned_model: agent.planned_model.clone(),
             planned_reasoning_effort: agent.planned_reasoning_effort.clone(),

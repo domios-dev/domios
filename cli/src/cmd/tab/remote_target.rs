@@ -5,7 +5,7 @@ pub(super) enum RemoteTabTarget {
     Invalid,
 }
 
-pub(super) fn parse_remote_tab_id(value: &str) -> Option<(String, String)> {
+pub(crate) fn parse_remote_tab_id(value: &str) -> Option<(String, String)> {
     let (peer, tab) = value.strip_prefix("mesh:")?.split_once('/')?;
     if peer.is_empty()
         || tab.is_empty()
