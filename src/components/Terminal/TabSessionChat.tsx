@@ -689,7 +689,7 @@ export function TabSessionChat({
       <AgentStateIndicator
         state={statusRowState}
         model={workingModelBadge}
-        className="w-full border-t"
+        className="w-full"
         onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
         onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
         onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
