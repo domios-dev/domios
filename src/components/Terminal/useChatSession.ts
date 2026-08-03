@@ -26,10 +26,10 @@ import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
-  CHAT_WINDOW_SIZE,
   CHAT_WINDOW_STEP,
   chatPredecessorRange,
   chatWindowRange,
+  chatWindowProjection,
   mergeRetainedChatLive,
   prependRetainedChatHistory,
   refillRetainedChatHistory,
@@ -935,22 +935,32 @@ export function useChatSession({
     () => chatWindowRange(allTimelineItems, windowAnchorKey),
     [allTimelineItems, windowAnchorKey],
   );
+  const windowAnchorIsLoaded = windowAnchorKey == null || allTimelineItems.some(
+    (item) => timelineItemKey(item) === windowAnchorKey,
+  );
 
+  const detachedReadingItemsRef = useRef<TimelineItem[]>([]);
+  const projectedTimelineItems = useMemo(() => {
+    const projection = chatWindowProjection(
+      allTimelineItems,
+      windowAnchorKey,
+      detachedReadingItemsRef.current,
+    );
+    detachedReadingItemsRef.current = projection.readingItems;
+    return projection.items;
+  }, [allTimelineItems, windowAnchorKey]);
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(() => {
-    const visible = allTimelineItems.slice(windowRange.start, windowRange.end);
-    const enriched = enrichTimelineItems(visible, enrichmentCacheRef.current);
-    return enriched.length <= CHAT_WINDOW_SIZE ? enriched : enriched.slice(-CHAT_WINDOW_SIZE);
-  }, [allTimelineItems, windowRange]);
+    return enrichTimelineItems(projectedTimelineItems, enrichmentCacheRef.current);
+  }, [projectedTimelineItems]);
 
   const hiddenMessageCount = (retainedHistory?.omittedOlder ?? 0) + windowRange.start;
-  const hiddenNewerCount = Math.max(0, allTimelineItems.length - windowRange.end);
   const durableBackfillCursor = retainedHistory?.predecessorRange?.startOffset ?? backfillCursor;
   const canBackfillOlder = durableBackfillCursor != null && durableBackfillCursor > 0;
 
   const loadOlder = useCallback(async () => {
     followTailRef.current = false;
-    if (windowRange.start > 0) {
+    if (windowAnchorIsLoaded && windowRange.start > 0) {
       updateWindowAnchor((previous) => slideChatWindowOlder(allTimelineItems, previous));
       return;
     }
@@ -1068,6 +1078,7 @@ export function useChatSession({
     retainedHistory,
     tabId,
     updateWindowAnchor,
+    windowAnchorIsLoaded,
     windowRange.start,
   ]);
 
@@ -1152,7 +1163,6 @@ export function useChatSession({
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
-    hiddenNewerCount,
     canBackfillOlder,
     backfillLoading,
     loadOlder,

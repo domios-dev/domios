@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn agent_pad_multiline_rule_is_single_across_compiled_role_inputs() {
-        const RULE: &str = "Stage multiline reports and messages in `CODETERM_PAD_DIR` and pass the relative file with `--from-pad`; short scalar arguments may remain inline.";
+        const RULE: &str = "AGENTPAD IS MANDATORY FOR AGENT-AUTHORED CODETERM PAYLOADS: write every message, report, delayed message, paste, and bridge body to the current pad, then pass its relative path with `--from-pad`, including short payloads. Use `codeterm pad path` to locate it; never inline authored payload text.";
         assert_eq!(CODETERM_CLI.matches(RULE).count(), 1);
         let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
         assert_eq!(general.matches(RULE).count(), 1);
@@ -374,7 +374,7 @@ mod tests {
             );
             assert!(!role.contains("$(cat $CODETERM_PAD_DIR"));
         }
-        assert!(RULE.contains("short scalar arguments may remain inline"));
+        assert!(RULE.contains("including short payloads"));
         assert!(!CODETERM_CLI.contains("$(cat $CODETERM_PAD_DIR"));
     }
 

@@ -60,6 +60,33 @@ export interface ChatWindowRange {
   end: number;
 }
 
+export interface ChatWindowProjection {
+  items: TimelineItem[];
+  readingItems: TimelineItem[];
+}
+
+export function chatWindowProjection(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+  cachedReadingItems: readonly TimelineItem[] = [],
+  size: number = CHAT_WINDOW_SIZE,
+): ChatWindowProjection {
+  const tailRange = chatWindowRange(items, null, size);
+  const tail = items.slice(tailRange.start, tailRange.end);
+  if (anchorKey == null) return { items: tail, readingItems: [] };
+
+  const anchorIndex = items.findIndex((item) => timelineItemKey(item) === anchorKey);
+  const currentItems = new Map(items.map((item) => [timelineItemKey(item), item]));
+  const readingItems = anchorIndex >= 0
+    ? items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1)
+    : cachedReadingItems.map((item) => currentItems.get(timelineItemKey(item)) ?? item);
+  const tailKeys = new Set(tail.map(timelineItemKey));
+  return {
+    items: [...readingItems.filter((item) => !tailKeys.has(timelineItemKey(item))), ...tail],
+    readingItems,
+  };
+}
+
 /** Anchor `null` = follow the tail. An anchor names the LAST visible item, so
  *  appends never move an anchored window and prepends shift it intact. */
 export function chatWindowRange(
