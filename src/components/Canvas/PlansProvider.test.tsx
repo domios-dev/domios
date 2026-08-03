@@ -6,7 +6,12 @@ import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { PlanButton } from "./PlanButton";
-import { PlansProvider, useCanvasPlans, useFullPlans } from "./PlansProvider";
+import {
+  PlansProvider,
+  useCanvasPlans,
+  useFullPlans,
+  useSidebarPlansOptional,
+} from "./PlansProvider";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -91,6 +96,16 @@ function FullProbe() {
   return null;
 }
 
+function SidebarProbe() {
+  const { plans } = useSidebarPlansOptional();
+  return <output data-testid="sidebar-plan-count">{plans.length}</output>;
+}
+
+async function flushAsyncWork() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 async function renderTree(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -99,7 +114,7 @@ async function renderTree(ui: ReactElement): Promise<{ host: HTMLDivElement; roo
     root.render(ui);
   });
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 30));
+    await flushAsyncWork();
   });
   return { host, root };
 }
@@ -134,7 +149,7 @@ test("plans-loaded event refetches the sidebar plan index immediately", async ()
   assert(indexCalls === 1, `one index fetch before event (got ${indexCalls})`);
   await act(async () => {
     emitPlansLoaded();
-    await new Promise((r) => setTimeout(r, 20));
+    await flushAsyncWork();
   });
   const callsAfterEvent: number = indexCalls;
   assert(callsAfterEvent === 2, `plans-loaded refetches index (got ${indexCalls})`);
@@ -153,6 +168,54 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   );
   assert(indexCalls === 1, `one index fetch (got ${indexCalls})`);
   assert(fullCalls === 1, `one batched full fetch for N canvas consumers (got ${fullCalls})`);
+  await act(async () => root.unmount());
+});
+
+test("sidebar owns full plans without mounting canvas", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const { host, root } = await renderTree(
+    <PlansProvider api={API}>
+      <SidebarProbe />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 1, `sidebar triggers one full fetch (got ${fullCalls})`);
+  assert(
+    host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
+    "sidebar receives the full plan body",
+  );
+  await act(async () => root.unmount());
+});
+
+test("canvas release cannot drop plans while sidebar remains mounted", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const { host, root } = await renderTree(
+    <PlansProvider api={API}>
+      <SidebarProbe />
+      <FullProbe />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 1, `shared consumers trigger one full fetch (got ${fullCalls})`);
+
+  await act(async () => {
+    root.render(
+      <PlansProvider api={API}>
+        <SidebarProbe />
+      </PlansProvider>,
+    );
+    await flushAsyncWork();
+  });
+  await act(async () => {
+    emitPlansLoaded();
+    await flushAsyncWork();
+  });
+
+  assert(fullCalls === 2, `sidebar refetches after canvas release (got ${fullCalls})`);
+  assert(
+    host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
+    "sidebar retains the full plan body after canvas release",
+  );
   await act(async () => root.unmount());
 });
 
@@ -226,7 +289,7 @@ test("two projects: workspace canvas consumer only loads matching project plans"
     );
   });
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 40));
+    await flushAsyncWork();
   });
   assert(seen.includes("plan-a"), "plan A loaded for project /repo/a");
   assert(!seen.includes("plan-b"), "plan B excluded for project /repo/a");
