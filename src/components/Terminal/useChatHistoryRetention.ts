@@ -1,5 +1,4 @@
 import {
-  type Dispatch,
   type MutableRefObject,
   type SetStateAction,
   useCallback,
@@ -7,15 +6,22 @@ import {
   useRef,
   useState,
 } from "react";
-import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import {
+  createTranscriptState,
+  reduceTranscript,
+  type TranscriptBatch,
+  type TranscriptOutcome,
+  type TranscriptState,
+} from "@codeterm/chat-core";
 import {
   getCachedChatHistoryWindow,
-  mergeRetainedChatLive,
-  retainChatSnapshotTail,
   setCachedChatHistoryWindow,
-  type RetainedChatHistory,
 } from "./chatWindow";
 
+/** Holds the committed transcript for one tab+session and survives a
+ *  Terminal <-> Chat switch through the window cache. Every mutation goes
+ *  through the transcript reducer, so a cached projection and an authoritative
+ *  snapshot converge on the same rows. */
 export function useChatHistoryRetention({
   tabId,
   agentSessionId,
@@ -27,25 +33,33 @@ export function useChatHistoryRetention({
 }) {
   const historyCacheKey = `${tabId}:${agentSessionId ?? ""}`;
   const [initialCachedWindow] = useState(() => getCachedChatHistoryWindow(historyCacheKey));
-  const [retainedHistory, setRetainedHistory] = useState<RetainedChatHistory | null>(
-    initialCachedWindow?.history ?? null,
+  const [transcript, setTranscript] = useState<TranscriptState>(
+    () => initialCachedWindow?.transcript ?? createTranscriptState(),
   );
   const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(
     initialCachedWindow?.anchorKey ?? null,
   );
   const internalFollowTailRef = useRef(true);
   const followTailRef = suppliedFollowTailRef ?? internalFollowTailRef;
-  const retainedHistoryCacheKeyRef = useRef(historyCacheKey);
+  const transcriptCacheKeyRef = useRef(historyCacheKey);
+  const committedRef = useRef(transcript);
 
-  const setRetainedStructured = useCallback<Dispatch<SetStateAction<ChatMessage[] | null>>>((action) => {
-    setRetainedHistory((previous) => {
-      const previousMessages = previous?.messages ?? null;
-      const next = typeof action === "function" ? action(previousMessages) : action;
-      if (next == null) return null;
-      if (!previous) return retainChatSnapshotTail(next);
-      return mergeRetainedChatLive(previous, next);
-    });
+  const applyTranscript = useCallback((next: TranscriptState) => {
+    committedRef.current = next;
+    setTranscript(next);
   }, []);
+
+  /** Reduce one batch against the committed transcript and return the reducer's
+   *  outcome so the caller can act on `recover_gap` / `recover_overlap`. */
+  const commitTranscript = useCallback((batch: TranscriptBatch): TranscriptOutcome => {
+    const { state, outcome } = reduceTranscript(committedRef.current, batch);
+    if (state !== committedRef.current) applyTranscript(state);
+    return outcome;
+  }, [applyTranscript]);
+
+  const resetTranscript = useCallback(() => {
+    applyTranscript(createTranscriptState());
+  }, [applyTranscript]);
 
   const updateWindowAnchor = useCallback((action: SetStateAction<string | null>) => {
     setWindowAnchorKey((previous) => (
@@ -54,30 +68,28 @@ export function useChatHistoryRetention({
   }, []);
 
   useEffect(() => {
-    if (retainedHistoryCacheKeyRef.current !== historyCacheKey) return;
+    if (transcriptCacheKeyRef.current !== historyCacheKey) return;
     setCachedChatHistoryWindow(
       historyCacheKey,
-      retainedHistory
-        ? { history: retainedHistory, anchorKey: windowAnchorKey }
-        : null,
+      transcript.segments.length > 0 ? { transcript, anchorKey: windowAnchorKey } : null,
     );
-  }, [historyCacheKey, retainedHistory, windowAnchorKey]);
+  }, [historyCacheKey, transcript, windowAnchorKey]);
 
   useEffect(() => {
-    if (retainedHistoryCacheKeyRef.current === historyCacheKey) return;
-    retainedHistoryCacheKeyRef.current = historyCacheKey;
+    if (transcriptCacheKeyRef.current === historyCacheKey) return;
+    transcriptCacheKeyRef.current = historyCacheKey;
     const cached = getCachedChatHistoryWindow(historyCacheKey);
     followTailRef.current = cached?.anchorKey == null;
-    setRetainedHistory(cached?.history ?? null);
+    applyTranscript(cached?.transcript ?? createTranscriptState());
     updateWindowAnchor(cached?.anchorKey ?? null);
-  }, [followTailRef, historyCacheKey, updateWindowAnchor]);
+  }, [applyTranscript, followTailRef, historyCacheKey, updateWindowAnchor]);
 
   return {
+    commitTranscript,
     followTailRef,
     initialCachedWindow,
-    retainedHistory,
-    setRetainedHistory,
-    setRetainedStructured,
+    resetTranscript,
+    transcript,
     updateWindowAnchor,
     windowAnchorKey,
   };

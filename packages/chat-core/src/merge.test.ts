@@ -84,15 +84,20 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
-// ── c73becde launch race: chat_start snapshot and tab-chat-msg live event
-// have separate transport ids but share the parser's user sequence.
+// ── seq is a per-batch ordinal, never an identity. Two independently parsed
+// bounded windows reuse the same seq for unrelated rows, so a seq match must
+// not collapse (or worse, overwrite) a committed row. Overlap between ranged
+// batches is proven by byte range in `reduceTranscript`, not here.
 {
-  const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
   const merged = mergeById(
-    [msg("snapshot-user-1", { content: startupText, seq: 1, sourceSessionId: "c73becde" })],
-    [msg("live-user-1", { content: startupText, seq: 1, sourceSessionId: "c73becde" })],
+    [msg("window-a-0", { type: "assistant", content: "prior answer", seq: 0, sourceSessionId: "sid" })],
+    [msg("window-b-0", { type: "assistant", content: "unrelated newer row", seq: 0, sourceSessionId: "sid" })],
   );
-  eq(merged.map((m) => m.id), ["live-user-1"], "snapshot/live user seq-1 projects one launch bubble");
+  eq(
+    merged.map((m) => m.content),
+    ["prior answer", "unrelated newer row"],
+    "a reused window-local seq never replaces a committed row",
+  );
 }
 
 {
@@ -105,12 +110,15 @@ function msg(id: string, opts: Partial<M> = {}): M {
 }
 
 {
-  const reply = "I traced the merge path and will fix the source identity.";
   const merged = mergeById(
-    [msg("snapshot-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
-    [msg("live-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
+    [msg("u-9", { type: "user", content: "continue", seq: 9, sourceSessionId: "sid" })],
+    [msg("a-9", { type: "assistant", content: "on it", seq: 9, sourceSessionId: "sid" })],
   );
-  eq(merged.map((m) => m.id), ["live-assistant-7"], "snapshot/live assistant seq-7 projects one reply bubble");
+  eq(
+    merged.map((m) => m.id),
+    ["u-9", "a-9"],
+    "rows sharing a batch ordinal keep distinct identities",
+  );
 }
 
 {

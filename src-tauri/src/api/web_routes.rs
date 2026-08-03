@@ -967,8 +967,6 @@ pub async fn chat_raw_stop(
 #[derive(Deserialize)]
 pub(crate) struct ChatBackfillBody {
     before_offset: u64,
-    #[serde(default)]
-    max_bytes: Option<u64>,
 }
 
 pub async fn chat_raw_backfill(
@@ -980,7 +978,7 @@ pub async fn chat_raw_backfill(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        crate::commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.max_bytes)
+        crate::commands::chat_backfill_core(&svc, tab_id, body.before_offset)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

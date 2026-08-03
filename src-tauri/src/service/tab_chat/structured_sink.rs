@@ -167,10 +167,6 @@ pub struct FlattenDeltaSink {
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
-    /// Monotonic id base for providers whose rows carry no uuid; uuid-bearing
-    /// rows ignore it. Seeded past the snapshot's message count so stream ids
-    /// never collide with snapshot ids.
-    base: std::sync::atomic::AtomicUsize,
 }
 
 impl super::tailer::DeltaSink for FlattenDeltaSink {
@@ -181,11 +177,12 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         start_offset: u64,
         offset: u64,
     ) {
-        use std::sync::atomic::Ordering;
         let mut out: Vec<ChatMsg> = Vec::new();
-        for r in &messages {
-            let base = self.base.fetch_add(1, Ordering::Relaxed);
-            out.extend(super::rich_to_chat_msgs(r, base));
+        for (ordinal, r) in messages.iter().enumerate() {
+            out.extend(super::rich_to_chat_msgs_at(
+                r,
+                super::RowOrigin::at(start_offset, ordinal),
+            ));
         }
         if out.is_empty() {
             return;
@@ -220,7 +217,6 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
 pub(crate) fn make_flatten_sink(
     app: AppHandle,
     mux: MuxState,
-    base_start: usize,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
@@ -231,7 +227,6 @@ pub(crate) fn make_flatten_sink(
         source_session_id,
         session_binding_nonce,
         send_ledger,
-        base: std::sync::atomic::AtomicUsize::new(base_start),
     })
 }
 

@@ -1,26 +1,29 @@
+// Run: npx tsx src/components/Terminal/chatHistoryWindow.test.tsx
+// The transcript reducer driving the real scroll/window projection: bounded
+// retention, top-only eviction, byte-cursor paging, and cache remount.
 import {
-  mergeById,
+  createTranscriptState,
+  reduceTranscript,
   reduceToolEvents,
+  TRANSCRIPT_RETENTION_LIMIT,
+  transcriptBackfillCursor,
+  transcriptCommittedEnd,
+  transcriptRows,
   type NormalizedChatMessage,
   type TimelineItem,
+  type TranscriptState,
 } from "@codeterm/chat-core";
 import { act, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
-  CHAT_RETAINED_MESSAGE_LIMIT,
   CHAT_WINDOW_SIZE,
   chatWindowProjection,
   chatWindowRange,
   getCachedChatHistoryWindow,
-  mergeRetainedChatLive,
-  refillRetainedChatHistory,
-  retainChatSnapshotTail,
-  seekRetainedChatPredecessor,
   setCachedChatHistoryWindow,
   slideChatWindowOlder,
   timelineItemKey,
-  type RetainedChatHistory,
 } from "./chatWindow";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatScroll } from "./useChatScroll";
@@ -59,6 +62,11 @@ Object.defineProperty(globalThis, "requestAnimationFrame", {
 });
 Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
 
+/** Every source row occupies a fixed byte span, so a window's byte range and
+ *  its row indexes are the same statement. */
+const ROW_BYTES = 100;
+const AUTHORITY = { sourceSessionId: "sid", sessionBindingNonce: "nonce" };
+
 function message(index: number): NormalizedChatMessage {
   const base = {
     id: `m-${index}`,
@@ -83,12 +91,31 @@ function message(index: number): NormalizedChatMessage {
 
 const durableTranscript = Array.from({ length: 1_000 }, (_, index) => message(index));
 
+function rowsIn(from: number, to: number): NormalizedChatMessage[] {
+  return durableTranscript.slice(from, to);
+}
+
+function windowOf(from: number, to: number) {
+  return { start: from * ROW_BYTES, end: to * ROW_BYTES };
+}
+
+const INITIAL_FROM = 1_000 - TRANSCRIPT_RETENTION_LIMIT;
+
+function initialTranscript(): TranscriptState {
+  return reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority: AUTHORITY,
+    range: windowOf(INITIAL_FROM, 1_000),
+    rows: rowsIn(INITIAL_FROM, 1_000),
+  }).state;
+}
+
 interface HarnessView {
-  history: RetainedChatHistory;
+  transcript: TranscriptState;
   range: { start: number; end: number };
   timeline: TimelineItem[];
   scroll: HTMLDivElement;
-  append: (messages: NormalizedChatMessage[]) => void;
+  append: (rows: NormalizedChatMessage[], from: number) => void;
   loadOlder: () => void;
   handleScroll: () => void;
 }
@@ -97,12 +124,15 @@ let latestView: HarnessView | null = null;
 
 function HistoryHarness({ cacheKey }: { cacheKey: string }) {
   const [cached] = useState(() => getCachedChatHistoryWindow(cacheKey));
-  const [history, setHistory] = useState(() => cached?.history ?? retainChatSnapshotTail(durableTranscript));
+  const [transcript, setTranscript] = useState<TranscriptState>(
+    () => cached?.transcript ?? initialTranscript(),
+  );
   const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(cached?.anchorKey ?? null);
   const followTailRef = useRef(cached == null);
   const detachedReadingItemsRef = useRef<TimelineItem[]>([]);
   const pendingRevealRef = useRef(false);
-  const timeline = useMemo(() => reduceToolEvents(history.messages), [history.messages]);
+  const rows = useMemo(() => transcriptRows(transcript), [transcript]);
+  const timeline = useMemo(() => reduceToolEvents(rows), [rows]);
   const range = useMemo(() => chatWindowRange(timeline, windowAnchorKey), [timeline, windowAnchorKey]);
   const visible = useMemo(() => {
     const projection = chatWindowProjection(timeline, windowAnchorKey, detachedReadingItemsRef.current);
@@ -138,11 +168,13 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
     setWindowAnchorKey((previous) => slideChatWindowOlder(timeline, previous));
   }, [timeline]);
 
-  const append = useCallback((incoming: NormalizedChatMessage[]) => {
-    setHistory((previous) => {
-      const merged = mergeById(previous.messages, incoming);
-      return mergeRetainedChatLive(previous, merged);
-    });
+  const append = useCallback((incoming: NormalizedChatMessage[], from: number) => {
+    setTranscript((previous) => reduceTranscript(previous, {
+      kind: "delta",
+      authority: AUTHORITY,
+      range: windowOf(from, from + incoming.length),
+      rows: incoming,
+    }).state);
   }, []);
 
   const loadOlder = useCallback(() => {
@@ -151,22 +183,34 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
       setWindowAnchorKey((previous) => slideChatWindowOlder(timeline, previous));
       return;
     }
-    pendingRevealRef.current = true;
-    setHistory((previous) => refillRetainedChatHistory(previous, durableTranscript));
+    setTranscript((previous) => {
+      const cursor = transcriptBackfillCursor(previous);
+      if (cursor == null || cursor <= 0) return previous;
+      const pageEnd = cursor / ROW_BYTES;
+      const pageStart = Math.max(0, pageEnd - 160);
+      const next = reduceTranscript(previous, {
+        kind: "backfill",
+        authority: AUTHORITY,
+        range: windowOf(pageStart, pageEnd),
+        rows: rowsIn(pageStart, pageEnd),
+      });
+      if (next.outcome === "adopted") pendingRevealRef.current = true;
+      return next.state;
+    });
   }, [range.start, scrollAuthority, timeline]);
 
   useLayoutEffect(() => {
     setCachedChatHistoryWindow(
       cacheKey,
-      windowAnchorKey ? { history, anchorKey: windowAnchorKey } : null,
+      windowAnchorKey ? { transcript, anchorKey: windowAnchorKey } : null,
     );
-  }, [cacheKey, history, windowAnchorKey]);
+  }, [cacheKey, transcript, windowAnchorKey]);
 
   useLayoutEffect(() => {
     const scroll = scrollAuthority.scrollRef.current;
     if (!scroll) return;
     latestView = {
-      history,
+      transcript,
       range,
       timeline,
       scroll,
@@ -222,71 +266,20 @@ async function main(): Promise<void> {
     assert(latestView, "history view exists");
     return latestView;
   };
+  const rows = () => transcriptRows(view().transcript);
 
   assert(
-    view().history.messages.length === CHAT_RETAINED_MESSAGE_LIMIT,
-    "1,000 mixed rows retain only the hard message window",
+    rows().length === TRANSCRIPT_RETENTION_LIMIT,
+    "a bounded window retains only the hard message bound",
   );
   assert(
     document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE,
     "rendered chat nodes stay within the hard row bound",
   );
 
-  const originalDetached = retainChatSnapshotTail(
-    durableTranscript,
-    CHAT_RETAINED_MESSAGE_LIMIT,
-    {
-      startOffset: 100,
-      endOffset: 1_000,
-      seekBeforeOffset: 1_000,
-      pageAnchorId: null,
-      boundaryVerified: false,
-    },
-  );
-  const detachedAnchor = originalDetached.messages.find((item) => item.id === "m-700");
-  assert(detachedAnchor, "inverse fixture has a retained detached anchor");
-  const refreshedTail = Array.from({ length: 1_000 }, (_, index) => message(2_000 + index));
-  const missingRefresh = refillRetainedChatHistory(originalDetached, refreshedTail);
-  assert(missingRefresh === originalDetached, "missing refreshed anchor leaves retained history unchanged");
-  assert(missingRefresh.omittedOlder === 560, "missing refreshed anchor preserves omitted older count");
-  assert(missingRefresh.predecessorRange?.startOffset === 100, "missing refreshed anchor preserves durable cursor");
-  assert(missingRefresh.messages[0]?.id === "m-560", "newer refreshed rows never prepend ahead of detached history");
-  assert(
-    missingRefresh.messages.find((item) => item.id === "m-700") === detachedAnchor,
-    "missing refreshed anchor preserves row identity",
-  );
-
-  const missedBoundaryPage = durableTranscript.slice(800, 1_000);
-  const missedBoundary = seekRetainedChatPredecessor(missingRefresh, missedBoundaryPage, 800);
-  assert(!missedBoundary.prepended, "a page newer than the retained boundary prepends nothing");
-  assert(missedBoundary.history.messages[0]?.id === "m-560", "failed seek preserves chronology");
-  assert(missedBoundary.history.predecessorRange?.startOffset === 100, "failed seek preserves durable cursor");
-  assert(missedBoundary.history.predecessorRange?.seekBeforeOffset === 800, "failed seek advances only its range cursor");
-
-  const emptyBoundary = seekRetainedChatPredecessor(missedBoundary.history, [], 700);
-  assert(!emptyBoundary.prepended, "D14 empty boundary prepends nothing");
-  assert(emptyBoundary.history.omittedOlder === 560, "D14 empty boundary preserves omitted history");
-  assert(emptyBoundary.history.predecessorRange?.startOffset === 100, "D14 empty boundary preserves durable cursor");
-
-  const boundaryPage = durableTranscript.slice(500, 700);
-  const foundBoundary = seekRetainedChatPredecessor(emptyBoundary.history, boundaryPage, 500);
-  assert(foundBoundary.prepended, "later Show older finds the exact retained boundary");
-  assert(foundBoundary.history.messages[0]?.id === "m-500", "boundary refill prepends only chronological predecessors");
-  assert(foundBoundary.history.predecessorRange?.startOffset === 100, "boundary refill keeps the durable cursor");
-  assert(
-    foundBoundary.history.messages.find((item) => item.id === "m-700") === detachedAnchor,
-    "boundary refill preserves the detached anchor identity",
-  );
-
-  const priorBoundaryPage = durableTranscript.slice(400, 500);
-  const continuedOlder = seekRetainedChatPredecessor(foundBoundary.history, priorBoundaryPage, 400);
-  assert(continuedOlder.prepended, "subsequent Show older continues from the verified page boundary");
-  assert(continuedOlder.history.messages[0]?.id === "m-400", "continued refill remains chronological");
-  assert(continuedOlder.history.predecessorRange?.seekBeforeOffset === 400, "continued refill advances exact range");
-
   view().scroll.scrollTop = view().scroll.scrollHeight;
   const firstPinnedId = document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId;
-  await act(async () => view().append([message(1_000)]));
+  await act(async () => view().append([message(1_000)], 1_000));
   assert(
     document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId !== firstPinnedId,
     "pinned arrival evicts the oldest top row",
@@ -295,47 +288,40 @@ async function main(): Promise<void> {
     view().scroll.scrollTop === view().scroll.scrollHeight,
     "pinned top eviction stays at the bottom in the same commit",
   );
+  assert(
+    rows()[0]?.id === `m-${INITIAL_FROM}` && rows()[rows().length - 1]?.id === "m-1000",
+    "a single arrival slides the rendered window without discarding a parsed window",
+  );
 
   view().scroll.scrollTop = 1_000;
   await act(async () => view().handleScroll());
-  const anchored = Array.from(document.querySelectorAll<HTMLElement>("[data-message-id]"))
-    .find((node) => node.offsetTop <= view().scroll.scrollTop && node.offsetTop + 20 > view().scroll.scrollTop);
-  assert(anchored, "detached viewport has an exact visible anchor");
   const detachedFirstId = document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId;
   await act(async () => {
-    view().append(Array.from({ length: 500 }, (_, index) => message(1_001 + index)));
+    view().append(Array.from({ length: 500 }, (_, index) => message(1_001 + index)), 1_001);
   });
   assert(
     document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId === detachedFirstId,
     "detached capacity pressure preserves the stable reading projection",
   );
   assert(
-    view().history.messages.length <= CHAT_RETAINED_MESSAGE_LIMIT,
-    "detached arrivals remain bounded",
+    rows().length < 941 && view().transcript.evictedOlder > 0,
+    "capacity pressure evicts whole parsed windows from the top",
   );
   assert(
-    view().history.messages[view().history.messages.length - 1]?.id === "m-1500",
+    rows()[rows().length - 1]?.id === "m-1500",
     "detached arrivals always retain the newest live tail",
   );
-
-  const streamingMessage = view().history.messages.find((item) => (
-    item.type === "assistant" && document.querySelector(`[data-message-id="${item.id}"]`)
-  ));
-  const streamingNode = streamingMessage
-    ? document.querySelector<HTMLElement>(`[data-message-id="${streamingMessage.id}"]`)
-    : null;
-  assert(streamingNode, "bounded detached window keeps visible tail rows");
-  const streamingId = streamingNode.dataset.messageId!;
-  const streamed = {
-    ...streamingMessage!,
-    content: "streamed replacement",
-  };
-  await act(async () => view().append([streamed]));
   assert(
-    document.querySelector(`[data-message-id="${streamingId}"]`) === streamingNode,
-    "streaming replacement keeps row identity",
+    transcriptCommittedEnd(view().transcript) === 1_501 * ROW_BYTES,
+    "the committed byte end follows the live tail",
   );
-  assert(streamingNode.textContent === "streamed replacement", "streaming replacement updates the retained row");
+
+  const retainedBefore = rows().length;
+  await act(async () => view().append([message(900)], 900));
+  assert(
+    rows().length === retainedBefore && rows()[rows().length - 1]?.id === "m-1500",
+    "a delta behind the committed end is ignored and never rewrites the tail",
+  );
 
   await act(async () => view().loadOlder());
   await act(async () => view().loadOlder());
@@ -344,10 +330,18 @@ async function main(): Promise<void> {
   const refillAnchor = document.querySelector<HTMLElement>("[data-message-id]");
   assert(refillAnchor, "older refill has a visible anchor");
   const refillId = refillAnchor.dataset.messageId!;
-  await act(async () => view().loadOlder());
+  const cursorBeforePaging = transcriptBackfillCursor(view().transcript);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await act(async () => view().loadOlder());
+    if ((transcriptBackfillCursor(view().transcript) ?? 0) < (cursorBeforePaging ?? 0)) break;
+  }
   assert(
-    view().history.messages[view().history.messages.length - 1]?.id === "m-1500",
-    "older refill never evicts the newest live tail",
+    rows()[rows().length - 1]?.id === "m-1500",
+    "older paging never evicts the newest live tail",
+  );
+  assert(
+    (transcriptBackfillCursor(view().transcript) ?? 0) < (cursorBeforePaging ?? 0),
+    "older paging advances the byte cursor downward",
   );
   assert(
     document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE * 2,
@@ -360,8 +354,6 @@ async function main(): Promise<void> {
     "older refill compensates exactly for the prepended rows",
   );
 
-  const remountAnchor = document.querySelector<HTMLElement>(`[data-message-id="${refillId}"]`);
-  assert(remountAnchor, "remount anchor is retained before unmount");
   await act(async () => mounted.root.unmount());
   mounted.host.remove();
   latestView = null;
