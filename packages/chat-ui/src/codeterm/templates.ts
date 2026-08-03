@@ -414,10 +414,14 @@ export function parseSend(
   const resolved = resolvedSendText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   const fromPad = inv.flags["from-pad"];
+  const staged =
+    typeof fromPad === "string" ||
+    typeof inv.flags["from-file"] === "string" ||
+    inv.flags.stdin === true;
   return {
     recipient,
     mesh,
-    body: resolved || typed || sendBodyDescriptor(inv),
+    body: resolved || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
     bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
     status: deliveredStatus(result),
   };
