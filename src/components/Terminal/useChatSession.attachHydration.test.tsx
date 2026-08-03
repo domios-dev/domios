@@ -194,9 +194,11 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
     render,
     attachmentState: () =>
       host.querySelector('[data-testid="attachment-state"]')?.textContent ?? "",
+    // Row ids are byte-range derived, so the rendered row content (which the
+    // fixture sets equal to its logical name) is the stable assertion surface.
     messageIds: () =>
       [...host.querySelectorAll('[data-testid="chat-message"]')].map(
-        (node) => node.getAttribute("data-message-id") ?? "",
+        (node) => node.textContent ?? "",
       ),
   };
 }

@@ -465,6 +465,7 @@ pub fn chat_start_core(
             let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 svc.mux.clone(),
+                0,
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
                 Some(svc.chat_send_ledger.clone()),
@@ -506,9 +507,8 @@ pub fn chat_start_core(
     );
     crate::service::tab_chat::session_window::log_bounded_snapshot(&tab_id, &provider_id, &snap);
     let read_ms = read_started.elapsed().as_millis();
-    // The tailer resumes at the parsed end, not the file size: a half-written
-    // trailing record is held back by the parser and must be consumed once by
-    // the tailer instead of being skipped.
+    // Resume at the parsed end, not the file size: a held-back partial record
+    // must be consumed once by the tailer rather than skipped.
     let (total, tailer_start_offset, bytes_read) = (snap.total, snap.end_offset, snap.bytes_read);
     // Backfill cursor: >0 means the bounded snapshot truncated older history.
     let snapshot_start = snap.start_offset;
@@ -525,6 +525,7 @@ pub fn chat_start_core(
         let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             svc.mux.clone(),
+            msg_count,
             Some(session_id.clone()),
             session_binding_nonce.clone(),
             Some(svc.chat_send_ledger.clone()),
@@ -567,9 +568,8 @@ pub fn chat_start_core(
     }
 
     Ok(ChatStartResult {
-        // `[start_offset, offset)` is the snapshot's exact record-bounded byte
-        // range: the client reconciles overlap and adoption from it, and
-        // start_offset > 0 is its chat_backfill paging cursor.
+        // `[start_offset, offset)` is the record-bounded snapshot range the
+        // client reconciles from; it pages older below start_offset.
         start_offset: snapshot_start,
         text: String::new(),
         offset: tailer_start_offset,
@@ -720,9 +720,8 @@ pub fn chat_backfill_core(
 
     Ok(ChatBackfillResult {
         text,
-        // The page's exact record boundaries: `aligned_start` is the first
-        // complete record read, so the next page ends there and the partial
-        // head this read dropped is parsed as that page's last record.
+        // `aligned_start` is the first complete record read, so the next page
+        // ends there and parses the partial head this read dropped.
         start_offset: aligned_start,
         end_offset: page.end_offset,
         messages,
@@ -731,11 +730,8 @@ pub fn chat_backfill_core(
     })
 }
 
-/// Seek+align one backfill page: `[before_offset - max_bytes, before_offset)`
-/// aligned forward to the first COMPLETE record, which is the exact boundary
-/// the page's reported range starts at. A read that already begins on a
-/// boundary keeps it, so the returned range never excludes a record the parser
-/// emitted, and the record straddling the read start belongs to the next page.
+/// Seek one backfill page and align it forward to the first complete record.
+/// A read already on a boundary keeps it, so no emitted record falls outside.
 fn backfill_window_slice(
     path: &std::path::Path,
     before_offset: u64,

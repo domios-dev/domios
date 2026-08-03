@@ -21,9 +21,8 @@ pub struct SessionSnapshot {
     pub total: u64,
     /// Where the snapshot started reading; `0` means the full transcript.
     pub start_offset: u64,
-    /// Exact complete-record boundary the parse ended on — where the tailer
-    /// picks up. Below `total` when the file ends in a half-written record, so
-    /// that record is consumed once by the tailer instead of being skipped.
+    /// Record boundary the parse ended on; the tailer resumes here so a
+    /// half-written trailing record is consumed once instead of skipped.
     pub end_offset: u64,
     pub bytes_read: u64,
 }
@@ -34,17 +33,12 @@ impl SessionSnapshot {
     }
 }
 
-/// Growth that must accumulate before a bounded window re-anchors. Row ids are
-/// ordinals inside their parsed window, so an anchor that moved on every attach
-/// would re-key the whole overlap on every Terminal -> Chat switch. Quantizing
-/// the anchor makes repeated snapshots of a growing session return the exact
-/// same window — and therefore the exact same rows and ids — until the file
-/// grows past one stride.
+/// Growth needed before a bounded window re-anchors. A moving anchor would
+/// re-key the whole overlap on every reattachment.
 pub const SNAPSHOT_ANCHOR_STRIDE_BYTES: u64 = SNAPSHOT_WINDOW_BYTES;
 
-/// Offset the bounded snapshot should begin at, aligned to a record boundary.
-/// The window spans `[start, total)` and is therefore between one and two
-/// strides wide — still bounded, and stable across reattachment.
+/// Record-aligned start of the bounded snapshot; the window spans
+/// `[start, total)` and is one to two strides wide.
 pub fn snapshot_start_offset(path: &Path, total: u64) -> u64 {
     if total <= SNAPSHOT_CAP_BYTES {
         return 0;
@@ -88,23 +82,19 @@ pub fn parse_window(
     (out, offset)
 }
 
-/// One page of older history ending at `until`. Sized to the provider's own
-/// delta chunk so a single capped read stops on the last record boundary at or
-/// before `until`: a narrower request would overshoot into already-committed
-/// bytes, which byte-range reconciliation cannot absorb.
+/// One page of older history, sized to the provider delta chunk because a
+/// narrower request overshoots into already-committed bytes.
 pub const BACKFILL_PAGE_BYTES: u64 = codeterm_plugin::jsonl_window::DELTA_CHUNK_BYTES;
 
 pub struct SessionPage {
     pub messages: Vec<RichMessage>,
-    /// Exact record boundary the read ended on. Above `until` only when a
-    /// single record is wider than the page, which the client refuses rather
-    /// than adopting a range that misdescribes its rows.
+    /// Record boundary the read ended on; above `until` only for a record
+    /// wider than the page, which the client then refuses.
     pub end_offset: u64,
 }
 
-/// Parse exactly one [`BACKFILL_PAGE_BYTES`] page ending at `until`. `from`
-/// may land mid-record; the provider drops that partial head, so the caller
-/// reports the first complete-record boundary as the page start.
+/// Parse one [`BACKFILL_PAGE_BYTES`] page ending at `until`. The provider drops
+/// the partial head, so the caller reports the first complete record as start.
 pub fn parse_page_before(
     registry: &Arc<AgentRegistry>,
     provider_id: &str,

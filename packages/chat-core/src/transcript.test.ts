@@ -58,9 +58,8 @@ function contents(state: TranscriptState): string[] {
   return transcriptRows(state).map((row) => row.content);
 }
 
-// ── 1. Two same-session bounded windows with shifted start and reused seq.
-// Production: window A [820083374,823269577) 354 rows, window B
-// [822788184,825799303) 144 rows. Reused seq must not replace prior rows.
+// ── 1. Production windows A [820083374,823269577) and B [822788184,825799303):
+// a shifted start with reused seq must not replace the prior rows.
 {
   const first = reduceTranscript(
     createTranscriptState(),
@@ -252,42 +251,53 @@ function contents(state: TranscriptState): string[] {
   );
 }
 
-// ── 5b. Row identity across reattachment. A window that does not re-anchor
-// re-parses to the same ids, so the overlap is not re-keyed; when the window
-// does advance, rows carrying a provider uuid keep their identity.
+// ── 5b. Ranged identity is derived from the batch range plus the row's
+// position, so reused transport ids and seq cannot alias across batches.
 {
-  const windowed = reduceTranscript(
+  const base = reduceTranscript(
     createTranscriptState(),
-    batch("snapshot", 1_000, 2_000, windowRows(["first", "second"])),
+    batch("snapshot", 0, 100, windowRows(["history"])),
   ).state;
-  const reattached = reduceTranscript(
-    windowed,
-    batch("snapshot", 1_000, 2_400, windowRows(["first", "second", "third"])),
-  ).state;
+  const live = (content: string): NormalizedChatMessage[] => [
+    { id: "stream-7", type: "assistant", content, seq: 7, sourceSessionId: SESSION.sourceSessionId },
+  ];
+  const firstLive = reduceTranscript(base, batch("delta", 100, 200, live("first live"))).state;
+  const secondLive = reduceTranscript(firstLive, batch("delta", 200, 300, live("second live")));
+  eq(secondLive.outcome, "adopted", "a contiguous second live batch adopts");
   eq(
-    transcriptRows(reattached).slice(0, 2).map((row) => row.id),
-    transcriptRows(windowed).map((row) => row.id),
-    "a stable window anchor re-parses to identical ids — the overlap is not re-keyed",
+    contents(secondLive.state),
+    ["history", "first live", "second live"],
+    "two live batches reusing one transport id and seq stay distinct rows",
   );
-  const uuid = (id: string, content: string, seq: number): NormalizedChatMessage => ({
-    id,
-    type: "assistant",
-    content,
-    seq,
-    sourceSessionId: SESSION.sourceSessionId,
-  });
-  const anchored = reduceTranscript(
-    createTranscriptState(),
-    batch("snapshot", 1_000, 2_000, [uuid("uuid-a-0", "kept", 0), uuid("uuid-b-0", "also kept", 1)]),
-  ).state;
-  const shifted = reduceTranscript(
-    anchored,
-    batch("snapshot", 1_500, 2_600, [uuid("uuid-b-0", "also kept", 0), uuid("uuid-c-0", "new", 1)]),
-  ).state;
   eq(
-    transcriptRows(shifted).map((row) => row.id),
-    ["uuid-b-0", "uuid-c-0"],
-    "an advanced window keeps the uuid identity of the unchanged overlap row",
+    transcriptRows(secondLive.state).map((row) => row.id),
+    ["0:0", "100:0", "200:0"],
+    "row identity comes from the authoritative batch range plus ordinal",
+  );
+  const replayed = reduceTranscript(
+    secondLive.state,
+    batch("delta", 200, 300, [
+      { id: "stream-99", type: "assistant", content: "second live", seq: 0 },
+    ]),
+  );
+  eq(replayed.outcome, "ignored_stale", "replaying a committed byte range is idempotent");
+  eq(
+    contents(replayed.state).length,
+    3,
+    "an idempotent replay dedupes even when the transport mints a new id",
+  );
+  const resnapshot = reduceTranscript(
+    secondLive.state,
+    batch("snapshot", 0, 300, [
+      ...windowRows(["history"]),
+      { id: "fresh-a", type: "assistant", content: "first live", seq: 0 },
+      { id: "fresh-b", type: "assistant", content: "second live", seq: 1 },
+    ]),
+  );
+  eq(
+    contents(resnapshot.state),
+    ["history", "first live", "second live"],
+    "a re-parse of the same bytes projects the same rows once, not duplicates",
   );
 }
 
@@ -344,10 +354,8 @@ function contents(state: TranscriptState): string[] {
   eq(contents(empty.state), ["committed"], "empty snapshot keeps the transcript");
 }
 
-// ── Inverse for the production duplicate-row RED: reattachment plus live
-// adoption must not project a row twice when the transport mints new ids or
-// reuses window-local seq, and must not collapse genuinely repeated authored
-// content.
+// ── Production duplicate-row RED: reattachment plus live adoption never
+// projects a row twice, and never collapses repeated authored content.
 {
   const authored = (id: string, seq: number, content: string): NormalizedChatMessage => ({
     id,

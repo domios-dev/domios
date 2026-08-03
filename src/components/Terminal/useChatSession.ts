@@ -406,9 +406,8 @@ export function useChatSession({
   const committedRowsRef = useRef(committedRows);
   committedRowsRef.current = committedRows;
 
-  /** Only live arrivals carry an arrival ordinal: it is what keeps an optimistic
-   *  row above the rows that arrive after the send. Snapshot and backfill rows
-   *  are history and must never push a pending row upward. */
+  /** Only live arrivals carry an arrival ordinal; re-parsed history must never
+   *  push a pending optimistic row upward. */
   const commitBatch = useCallback((
     kind: TranscriptBatch["kind"],
     authority: TranscriptAuthority,

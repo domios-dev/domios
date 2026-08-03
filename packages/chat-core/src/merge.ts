@@ -76,10 +76,8 @@ function duplicateIncomingIndexes<T extends NormalizedChatMessage>(prev: T[], in
   return duplicates;
 }
 
-/** `seq` is an ordinal inside one parsed batch, so it can never identify a row
- *  across batches — two independently parsed windows reuse the same values for
- *  unrelated rows. Only the provider id identifies a row here; ranged sources
- *  reconcile by byte range in `transcript.ts` instead. */
+/** `seq` is a per-batch ordinal that other batches reuse for unrelated rows,
+ *  so only the provider id identifies a row here. */
 function mergeIdentities(message: NormalizedChatMessage): string[] {
   return [`id:${message.id}`];
 }
@@ -88,9 +86,8 @@ function mergeIdentities(message: NormalizedChatMessage): string[] {
  *  `id` (incoming wins, so a re-emitted message updates in place) then order by
  *  `(timestamp, seq, arrival)`.
  *
- *  This is the fallback for sources with NO byte model (structured/store-backed
- *  providers). Sources that carry byte ranges reconcile through
- *  `reduceTranscript`, which proves overlap instead of inferring it.
+ *  Fallback for sources with no byte model; ranged sources reconcile in
+ *  `reduceTranscript`.
  *
  *  The ordering contract is provider-agnostic. Two signals can be missing or
  *  coarse, so neither alone is trusted:
