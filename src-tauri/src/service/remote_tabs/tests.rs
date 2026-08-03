@@ -85,7 +85,8 @@ fn remote_projection_uses_the_local_controller_context() {
     assert_eq!(remote["spawned_by_tab_id"], "controller");
     assert_eq!(remote["workspace_id"], "workspace-a");
     assert_eq!(remote["team_id"], "team-a");
-    assert_eq!(remote["remote_controller_title"], "Coordinator");
+    assert_eq!(remote["ownership"]["controller_title"], "Coordinator");
+    assert_eq!(remote["ownership"]["controller_tab_id"], "controller");
 }
 
 #[test]

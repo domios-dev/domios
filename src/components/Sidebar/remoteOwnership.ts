@@ -1,28 +1,36 @@
 import type { Tab } from "../../lib/types";
 
-export interface RemoteOwnership {
-  peer: string;
-  controller: string | null;
-  managedByLabel: string;
-  availabilityNote: string | null;
+export interface RemoteTeamIdentity {
+  id: string;
+  title: string;
+  peerName: string;
 }
 
-export function remoteOwnership(tab: Tab): RemoteOwnership | null {
-  const peer = tab.remote_peer_name?.trim();
-  if (!tab.remote_peer_id || !peer) return null;
-  const controller = tab.remote_controller_title?.trim() || null;
-  const managedByLabel = controller ? `managed by ${controller}` : `managed by @${peer}`;
-  const availabilityNote =
-    tab.remote_availability === "reconnecting"
-      ? "Reconnecting"
-      : tab.remote_availability === "unavailable"
-        ? "Unavailable"
-        : null;
-  return { peer, controller, managedByLabel, availabilityNote };
+function availabilityNote(tab: Tab): string | null {
+  if (tab.remote_availability === "reconnecting") return "Reconnecting";
+  if (tab.remote_availability === "unavailable") return "Unavailable";
+  return null;
 }
 
-export function remoteOwnershipSubtitle(ownership: RemoteOwnership): string {
-  return ownership.availabilityNote
-    ? `${ownership.managedByLabel} · ${ownership.availabilityNote}`
-    : ownership.managedByLabel;
+export function managedByLabel(tab: Tab): string | null {
+  const controller = tab.ownership?.controller_title?.trim();
+  return controller ? `managed by ${controller}` : null;
+}
+
+export function ownershipSubtitle(tab: Tab): string | null {
+  const base = managedByLabel(tab);
+  if (!base) return null;
+  const note = availabilityNote(tab);
+  return note ? `${base} · ${note}` : base;
+}
+
+export function remoteTeamIdentity(tab: Tab): RemoteTeamIdentity | null {
+  if (tab.remote_peer_id) return null;
+  const owner = tab.ownership;
+  if (!owner?.team || !owner.peer_id) return null;
+  return {
+    id: `mesh:${owner.peer_id}/${owner.team.id}`,
+    title: owner.team.title?.trim() || owner.team.id,
+    peerName: owner.peer_name,
+  };
 }
