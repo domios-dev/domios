@@ -33,9 +33,38 @@ function effectiveTeamId(tab: Tab): string | null {
   return remoteTeamIdentity(tab)?.id ?? (tab as TeamTab).team_id ?? null;
 }
 
-function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> {
+function indexedPlan(entry: PlanIndexEntry): Plan {
+  return {
+    id: entry.plan_id,
+    title: entry.title,
+    sections: [],
+    status: entry.status,
+    owner: entry.owner,
+    team_id: entry.team_id,
+    project_path: entry.canonical_project_path ?? "",
+    created_at: entry.updated_at,
+    updated_at: entry.updated_at,
+    milestone_kinds: [],
+    loops: [],
+    elements: [],
+    tasks: [],
+    canvas: { viewport: null },
+    owner_history: [],
+  };
+}
+
+function newestActivePlansByTeam(
+  plans: readonly TeamPlan[],
+  planIndex: readonly PlanIndexEntry[],
+): Map<string, Plan> {
+  const fullById = new Map(plans.map((plan) => [plan.id, plan]));
   const grouped = new Map<string, Plan>();
-  for (const plan of plans) {
+  const indexedIds = new Set(planIndex.map((entry) => entry.plan_id));
+  const candidates = [
+    ...planIndex.map((entry) => fullById.get(entry.plan_id) ?? indexedPlan(entry)),
+    ...plans.filter((plan) => !indexedIds.has(plan.id)),
+  ];
+  for (const plan of candidates) {
     if (!plan.team_id || plan.status !== "active") continue;
     const current = grouped.get(plan.team_id);
     const currentUpdatedAt = current?.updated_at ?? current?.created_at ?? 0;
@@ -171,7 +200,10 @@ export function SidebarWorkspaceTabs({
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
     [teams, ws.id],
   );
-  const plansByTeam = useMemo(() => newestActivePlansByTeam(plans as TeamPlan[]), [plans]);
+  const plansByTeam = useMemo(
+    () => newestActivePlansByTeam(plans as TeamPlan[], planIndex),
+    [plans, planIndex],
+  );
 
   const sharedRow = {
     workspaceId: ws.id,
