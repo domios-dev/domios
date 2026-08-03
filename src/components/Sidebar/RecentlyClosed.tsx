@@ -111,8 +111,6 @@ function RecentlyClosedInner({
     });
   }, []);
 
-  if (views.length === 0) return null;
-
   const groups = groupClosedViews(views);
   const text = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const metaText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
@@ -184,6 +182,14 @@ function RecentlyClosedInner({
       </SidebarDisclosure>
       {open && (
         <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 165 }}>
+          {groups.length === 0 && (
+            <div
+              data-testid="recently-closed-empty"
+              className={`${metaText} px-2 py-1.5 text-[var(--ct-muted)]`}
+            >
+              No closed tabs
+            </div>
+          )}
           {groups.map((group) => {
             if (group.kind === "single") return tabRow(group.tabs[0], false);
 
