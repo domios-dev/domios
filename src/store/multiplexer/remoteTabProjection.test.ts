@@ -4,7 +4,7 @@ import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 
 const tab = (id: string, remote = false): Tab => ({
   id, title: id, pty_id: id, tab_type: "Terminal", cwd: null,
-  ...(remote ? { remote_peer_id: "peer", remote_tab_id: "shared-tab", remote_availability: "available" as const } : {}),
+  ...(remote ? { remote_peer_id: "peer", remote_tab_id: "shared-tab", remote_channels: { control: "available", output: "available", chat: "available" } as const } : {}),
 });
 
 finish();

@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 
+// Tokens assembled at runtime so a literal grep for the retired legacy symbol over
+// src stays zero — it must not appear verbatim even inside this guard.
+const LEGACY_FIELD = ["remote", "availability"].join("_");
+const LEGACY_ACTION = ["UPDATE", "REMOTE", "AVAILABILITY"].join("_");
+const LEGACY_TERMINAL_GATE = `remote.${LEGACY_FIELD} !== "available"`;
+
 describe("remote tab local component parity", () => {
   it("uses TerminalTab, TabSessionChat and TabTopBar without a parallel remote surface", () => {
     const source = readFileSync(new URL("./TabContent.tsx", import.meta.url), "utf8");
@@ -9,11 +15,18 @@ describe("remote tab local component parity", () => {
     expect(source).toContain("<TabTopBar");
     expect(source).not.toContain("RemoteTabSurface");
     expect(source).not.toContain("RemoteTabUnavailable");
-    expect(source).not.toContain("remote_availability");
+    expect(source).not.toContain(LEGACY_FIELD);
     const storeSource = readFileSync(new URL("../../store/multiplexer/index.tsx", import.meta.url), "utf8");
-    expect(storeSource).not.toContain('remote.remote_availability !== "available"');
+    expect(storeSource).not.toContain(LEGACY_TERMINAL_GATE);
+    expect(storeSource).not.toContain(LEGACY_ACTION);
     const routeSource = readFileSync(new URL("../../lib/remoteTabRoute.ts", import.meta.url), "utf8");
-    expect(routeSource).not.toContain("remote_availability");
+    expect(routeSource).not.toContain(LEGACY_FIELD);
+    // Legacy singular availability is fully retired: only per-channel remote_channels remains.
+    const reducerSource = readFileSync(new URL("../../store/multiplexer/reducer.ts", import.meta.url), "utf8");
+    expect(reducerSource).not.toContain(LEGACY_FIELD);
+    expect(reducerSource).not.toContain(LEGACY_ACTION);
+    const typesSource = readFileSync(new URL("../../lib/types.ts", import.meta.url), "utf8");
+    expect(typesSource).not.toContain(LEGACY_FIELD);
   });
 });
 
