@@ -201,7 +201,65 @@ function contents(state: TranscriptState): string[] {
     { id: "900-0", type: "assistant", content: "newest", seq: 0 },
   ]));
   eq(gapped.outcome, "recover_gap", "a gapped delta asks for an authoritative snapshot");
-  eq(contents(gapped.state), ["a", "newest"], "the newest live tail stays visible across a gap");
+  eq(
+    contents(gapped.state),
+    ["a"],
+    "a committed transcript never grows a hole; the replacement snapshot restores the tail",
+  );
+}
+
+// A source with no byte model has no gap to detect: rows merge by id and the
+// newest one stays last, so a skipped id is not a hole.
+{
+  const unranged = (id: string, content: string): NormalizedChatMessage => ({
+    id,
+    type: "assistant",
+    content,
+  });
+  const base = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority: SESSION,
+    range: null,
+    rows: [unranged("db-1", "first")],
+  }).state;
+  const skipped = reduceTranscript(base, {
+    kind: "delta",
+    authority: SESSION,
+    range: null,
+    rows: [unranged("db-4", "newest")],
+  });
+  eq(skipped.outcome, "adopted", "an unranged delta is always adopted");
+  eq(contents(skipped.state), ["first", "newest"], "skipped ids merge without loss");
+  eq(
+    transcriptRows(skipped.state)[transcriptRows(skipped.state).length - 1]?.id,
+    "db-4",
+    "the newest unranged row stays last",
+  );
+}
+
+// Retention across three windows: whole oldest windows leave, the newest is
+// never touched, and evictedOlder grows by exactly the rows removed.
+{
+  const win = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}-${index}`,
+    type: "assistant" as const,
+    content: `${prefix}-${index}`,
+    seq: index,
+  }));
+  const first = reduceTranscript(createTranscriptState(), batch("snapshot", 0, 300, win("a", 3)), 4);
+  const second = reduceTranscript(first.state, batch("delta", 300, 600, win("b", 3)), 4);
+  const third = reduceTranscript(second.state, batch("delta", 600, 900, win("c", 3)), 4);
+  eq(
+    contents(third.state),
+    ["b-0", "b-1", "b-2", "c-0", "c-1", "c-2"],
+    "only the oldest whole window is removed; the newest window survives intact",
+  );
+  eq(third.state.evictedOlder, 3, "evictedOlder grows by exactly the evicted window row count");
+  eq(
+    transcriptBackfillCursor(third.state),
+    300,
+    "the paging cursor moves to the oldest retained window start",
+  );
 }
 
 // ── 5. The bound evicts whole parsed windows from the top, never the tail,
