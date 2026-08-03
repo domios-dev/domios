@@ -55,6 +55,41 @@ describe("remote chat event subscription ownership", () => {
     stopState();
     vi.unstubAllGlobals();
   });
+
+  it("authoritative snapshot then live events delivered", async () => {
+    vi.stubGlobal("window", new EventTarget());
+    // Frame 1 = authoritative snapshot; 2/4 = live deltas; replayed seq-2 dedups (G3).
+    const frames = [
+      '{"boot":"b","seq":1,"event_type":"tab-chat-msg-tab","data":{"delta":"snapshot"}}',
+      '{"boot":"b","seq":2,"event_type":"tab-chat-msg-tab","data":{"delta":"live-1"}}',
+      '{"boot":"b","seq":2,"event_type":"tab-chat-msg-tab","data":{"delta":"dup"}}',
+      '{"boot":"b","seq":3,"event_type":"tab-chat-msg-tab","data":{"delta":"live-2"}}',
+    ];
+    const bytes = new TextEncoder().encode(frames.map((f) => `data: ${f}\n\n`).join(""));
+    const fetchMock: typeof fetch = async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(bytes); controller.close(); },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const available: string[] = [];
+    const stopState = onRemoteTransportState(({ channel, availability }) => {
+      if (channel === "chat") available.push(availability);
+    });
+    const deltas: string[] = [];
+    let resolveThird!: () => void;
+    const gotThird = new Promise<void>((resolve) => { resolveThird = resolve; });
+    const event = "tab-chat-msg-mesh:peer/tab";
+    const unsubscribe = subscribeRemoteTabEvent<{ delta: string }>(event, ({ payload }) => {
+      deltas.push(payload.delta);
+      if (deltas.length === 3) resolveThird();
+    })!;
+    await gotThird;
+    expect(deltas).toEqual(["snapshot", "live-1", "live-2"]);
+    expect(available[0]).toBe("available");
+    expect(remoteTabEventSubscriptionSnapshot(event)?.cursor).toBe("b:3");
+    unsubscribe();
+    stopState();
+    vi.unstubAllGlobals();
+  });
 });
 
 finish();
