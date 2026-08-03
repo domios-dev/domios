@@ -117,24 +117,24 @@ impl AgentPad {
     }
 }
 
+pub(crate) fn restore(
+    data_dir: &Path,
+    tab_id: &str,
+    role: AgentPadRole,
+) -> Result<AgentPad, String> {
+    AgentPad::open(data_dir, tab_id).or_else(|_| AgentPad::create(data_dir, tab_id, role))
+}
+
 impl super::ServiceContext {
     pub(crate) fn ensure_agent_pad(&self, tab_id: &str) -> Result<AgentPad, String> {
-        if let Ok(pad) = AgentPad::open(&crate::paths::data_dir(), tab_id) {
-            return Ok(pad);
-        }
-        let role = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.role)
-            .map(|role| format!("{role:?}"));
-        let role = match role.as_deref() {
-            Some("Worker") => AgentPadRole::Worker,
-            Some("Orchestrator") => AgentPadRole::Orchestrator,
-            Some("Planner") | Some("Manager") => AgentPadRole::Planner,
+        let role = self.mux.read().get_tab(tab_id).and_then(|tab| tab.role);
+        let role = match role {
+            Some(crate::multiplexer::types::AgentRole::Worker) => AgentPadRole::Worker,
+            Some(crate::multiplexer::types::AgentRole::Orchestrator) => AgentPadRole::Orchestrator,
+            Some(crate::multiplexer::types::AgentRole::Manager) => AgentPadRole::Planner,
             _ => AgentPadRole::General,
         };
-        AgentPad::create(&crate::paths::data_dir(), tab_id, role)
+        restore(&crate::paths::data_dir(), tab_id, role)
     }
 
     pub(crate) fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
