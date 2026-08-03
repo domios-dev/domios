@@ -14,6 +14,13 @@ import { fetchPlanIndex, type PlanIndexEntry } from "./plansApi";
 import { usePlans, type UsePlansResult } from "./usePlans";
 
 const EMPTY_INDEX: PlanIndexEntry[] = [];
+const EMPTY_FULL: UsePlansResult = {
+  plans: [],
+  loading: false,
+  reconnecting: false,
+  error: null,
+  refetch: async () => {},
+};
 
 interface PlansContextValue {
   index: PlanIndexEntry[];
@@ -172,23 +179,16 @@ export function useFullPlans(): UsePlansResult {
   return full;
 }
 
-export function useFullPlansOptional(): UsePlansResult {
+export function useSidebarPlansOptional(): UsePlansResult {
   const ctx = useContext(PlansContext);
+  const acquireFull = ctx?.acquireFull;
+  const releaseFull = ctx?.releaseFull;
   useEffect(() => {
-    if (!ctx) return;
-    ctx.acquireFull();
-    return ctx.releaseFull;
-  }, [ctx]);
-  if (!ctx) {
-    return {
-      plans: [],
-      loading: false,
-      reconnecting: false,
-      error: null,
-      refetch: async () => {},
-    };
-  }
-  return ctx.full;
+    if (!acquireFull || !releaseFull) return;
+    acquireFull();
+    return releaseFull;
+  }, [acquireFull, releaseFull]);
+  return ctx?.full ?? EMPTY_FULL;
 }
 
 export function useCanvasPlans(mode: "workspace" | "focus", projectPath: string | null): UsePlansResult {
