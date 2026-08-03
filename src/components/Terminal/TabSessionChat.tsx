@@ -1,9 +1,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
-import { MessageBubble } from "@codeterm/chat-ui";
+import { MessageBubble, OutboundReportCard } from "@codeterm/chat-ui";
 import { extractPlanRefs } from "@codeterm/chat-ui";
-import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
+import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import {
@@ -39,6 +39,7 @@ import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
+import { useAgentReportProjection } from "./agentReportProjection";
 
 interface Props {
   tabId: string;
@@ -328,6 +329,29 @@ export function TabSessionChat({
     [communicationTabNames],
   );
 
+  const reportProjection = useAgentReportProjection(tabId);
+  // The sender's own transcript never contains the report it just sent, so the
+  // outbound card comes from the accepted-report event, keyed by report_id.
+  const outboundReports = useMemo<Array<{ targetTabId: string; descriptor: OutboundReportDescriptor }>>(
+    () => reportProjection.outbound.map((report) => ({
+      targetTabId: report.targetTabId,
+      descriptor: {
+        reportId: report.reportId,
+        recipient: tabTitleMap.get(report.targetTabId.slice(0, 8)) ?? report.targetTabId.slice(0, 8),
+        task: report.task,
+        status: report.status,
+        sha: report.sha,
+        message: report.message,
+        taskOutcome: report.taskOutcome && {
+          persisted: report.taskOutcome.persisted,
+          transitionRejected: report.taskOutcome.transition_rejected,
+          cause: report.taskOutcome.cause ?? null,
+        },
+      },
+    })),
+    [reportProjection, tabTitleMap],
+  );
+
   const renderedEnrichedMessages = enrichedMessages;
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress
@@ -542,6 +566,7 @@ export function TabSessionChat({
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
+    && outboundReports.length === 0
     && !inlinePrompt;
 
   return (
@@ -657,6 +682,23 @@ export function TabSessionChat({
             </div>
           );
         })}
+        {outboundReports.map(({ targetTabId, descriptor }) => (
+          <div
+            key={descriptor.reportId}
+            data-testid="chat-outbound-report-row"
+            data-report-id={descriptor.reportId}
+            role="article"
+            aria-label={`Report to ${descriptor.recipient}`}
+          >
+            <OutboundReportCard
+              report={descriptor}
+              onFocusTab={() => resolveFocusTab(targetTabId)}
+              fontScale={uiFontScale}
+              onOpenPlan={onOpenPlan}
+              resolvePlanRef={resolvePlanRef}
+            />
+          </div>
+        ))}
         <ChatSetupState
           tab={tab}
           view={setupView}
