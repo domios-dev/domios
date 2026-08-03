@@ -85,7 +85,26 @@ fn remote_projection_uses_the_local_controller_context() {
     assert_eq!(remote["spawned_by_tab_id"], "controller");
     assert_eq!(remote["workspace_id"], "workspace-a");
     assert_eq!(remote["team_id"], "team-a");
-    assert_eq!(remote["remote_controller_title"], "Coordinator");
+    assert_eq!(remote["ownership"]["controller_title"], "Coordinator");
+    assert_eq!(remote["ownership"]["controller_tab_id"], "controller");
+}
+
+#[test]
+fn remote_projection_stamps_worker_role_for_roleless_source() {
+    let projected = merge_ordinary_tab_projection(
+        &[serde_json::json!({"id": "controller", "team_id": "team-a"})],
+        &[RemotePeerProjection {
+            peer_id: "peer-a".into(),
+            peer_name: "REMOTE".into(),
+            authenticated: true,
+            reachable: true,
+            availability: "available",
+            tabs: vec![serde_json::json!({"id": "worker", "role": serde_json::Value::Null})],
+            controllers: std::collections::HashMap::from([("worker".into(), "controller".into())]),
+        }],
+    );
+    assert_eq!(projected[1]["role"], "Worker");
+    assert_eq!(projected[1]["team_id"], "team-a");
 }
 
 #[test]

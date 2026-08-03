@@ -19,6 +19,7 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 0,
         chat_view: Some(true),
@@ -348,6 +349,7 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 0,
         chat_view: Some(false),
@@ -435,6 +437,7 @@ fn tab_description_round_trips_through_snapshot() {
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
@@ -496,6 +499,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         spawned_by_tab_id: Some("spawner-1".into()),
         report_target_tab_id: Some("target-1".into()),
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
@@ -546,6 +550,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
@@ -590,6 +595,27 @@ fn remote_report_target_round_trips_through_snapshot() {
         Some("Mac-Air"),
         "remote report peer must survive restore"
     );
+}
+
+#[test]
+fn remote_ownership_round_trips_through_snapshot() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let tab_id = state.create_tab(&wsid).unwrap();
+    let ownership = codeterm_types::pty::RemoteOwnership {
+        controller_title: "Puccini".into(),
+        controller_tab_id: Some("af5919cb".into()),
+        peer_id: "peer-mac".into(),
+        peer_name: "Mac-Air".into(),
+        team: Some(codeterm_types::pty::RemoteOwnershipTeam {
+            id: "team-remote".into(),
+            title: Some("Remote Tab Portal".into()),
+        }),
+    };
+    state.get_tab_mut(&tab_id).unwrap().ownership = Some(ownership.clone());
+
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+    assert_eq!(restored.get_tab(&tab_id).unwrap().ownership, Some(ownership));
 }
 
 #[test]
@@ -842,6 +868,7 @@ fn spawned_by_round_trips_through_snapshot() {
         spawned_by_tab_id: Some("spawner".into()),
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
