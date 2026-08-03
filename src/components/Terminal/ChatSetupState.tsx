@@ -114,7 +114,13 @@ function LaunchGlyph({ providerName, iconSvg, iconColor, iconHint }: LaunchGlyph
       aria-label={providerName}
       style={{ color: iconColor ?? "var(--ct-accent, #58a6ff)" }}
     >
-      <ProviderGlyph iconSvg={iconSvg} iconColor={iconColor} iconHint={iconHint} title={providerName} className="text-[56px]" />
+      <ProviderGlyph
+        iconSvg={iconSvg}
+        iconColor={iconColor}
+        iconHint={iconSvg ? iconHint : "◆"}
+        title={providerName}
+        className={iconSvg ? "text-[56px]" : "text-[18px]"}
+      />
     </span>
   );
 }
