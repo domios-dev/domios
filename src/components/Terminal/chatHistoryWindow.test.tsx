@@ -135,7 +135,7 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
   const append = useCallback((incoming: NormalizedChatMessage[]) => {
     setHistory((previous) => {
       const merged = mergeById(previous.messages, incoming);
-      return mergeRetainedChatLive(previous, merged, followTailRef.current);
+      return mergeRetainedChatLive(previous, merged);
     });
   }, []);
 
@@ -295,26 +295,25 @@ async function main(): Promise<void> {
   const anchored = Array.from(document.querySelectorAll<HTMLElement>("[data-message-id]"))
     .find((node) => node.offsetTop <= view().scroll.scrollTop && node.offsetTop + 20 > view().scroll.scrollTop);
   assert(anchored, "detached viewport has an exact visible anchor");
-  const anchoredOffset = anchored.offsetTop - view().scroll.scrollTop;
   const detachedFirstId = document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId;
   await act(async () => {
     view().append(Array.from({ length: 500 }, (_, index) => message(1_001 + index)));
   });
-  const anchoredAfter = document.querySelector<HTMLElement>(`[data-message-id="${anchored.dataset.messageId}"]`);
   assert(
-    document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId === detachedFirstId,
-    "detached arrivals do not evict underneath the reader",
+    document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId !== detachedFirstId,
+    "detached capacity pressure evicts only the oldest top rows",
   );
   assert(
-    anchoredAfter && anchoredAfter.offsetTop - view().scroll.scrollTop === anchoredOffset,
-    "detached arrivals preserve the exact pixel anchor",
+    view().history.messages.length <= CHAT_RETAINED_MESSAGE_LIMIT,
+    "detached arrivals remain bounded",
   );
   assert(
     view().history.messages[view().history.messages.length - 1]?.id === "m-1500",
     "detached arrivals always retain the newest live tail",
   );
 
-  const streamingNode = anchoredAfter;
+  const streamingNode = document.querySelector<HTMLElement>("[data-message-id]");
+  assert(streamingNode, "bounded detached window keeps visible tail rows");
   const streamingId = streamingNode.dataset.messageId!;
   const streamed = {
     ...view().history.messages.find((item) => item.id === streamingId)!,

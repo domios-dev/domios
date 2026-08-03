@@ -30,17 +30,3 @@ export function mergeSnapshotWindow(
   }
   return mergeById(previous, freshSnapshot);
 }
-
-export function replaceSnapshotWindow(
-  previous: ChatMessage[],
-  snapshot: ChatMessage[],
-  requestOrder: number,
-  nextOrder: () => number,
-  sourceSessionId: string | null,
-): ChatMessage[] {
-  const liveSinceRequest = previous.filter(
-    (message) => message.clientOrder != null && message.clientOrder >= requestOrder,
-  );
-  const freshSnapshot = withPreservedClientOrder(snapshot, previous, nextOrder, sourceSessionId);
-  return mergeById(freshSnapshot, liveSinceRequest);
-}

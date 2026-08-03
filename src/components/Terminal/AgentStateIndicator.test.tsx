@@ -23,22 +23,23 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
-  const idle = await render(<AgentStateIndicator state={{ state: "idle" }} model="gpt-5.6-sol" />);
+  const idle = await render(<AgentStateIndicator state={{ state: "idle" }} providerName="Codex" model="gpt-5.6-sol" />);
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
   assert(idle.host.querySelectorAll(".activity-dots i").length === 3, "idle row keeps three dots");
   assert(idle.host.querySelector(".activity-dots")?.classList.contains("activity-dots--muted"), "idle dots are gray");
-  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "gpt-5.6-sol", "idle row contains model only without a summary");
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol", "idle row contains provider and model without a summary");
 
   let stopCalls = 0;
   await act(async () => idle.root.render(
     <AgentStateIndicator
       state={{ state: "working", status_line: "Editing files", phase: "thinking" }}
+      providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
     />,
   ));
   assert(idle.host.querySelector('[data-agent-state="working"]'), "working reuses the same row");
-  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "gpt-5.6-sol · Editing files", "working row contains model and current status");
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · Editing files", "working row contains provider, model, and current status");
   const stop = idle.host.querySelector<HTMLButtonElement>('[data-testid="agent-stop"]');
   assert(stop, "working row preserves Stop");
   await act(async () => stop.click());
@@ -49,12 +50,13 @@ async function main(): Promise<void> {
   await act(async () => idle.root.render(
     <AgentStateIndicator
       state={{ state: "question", subtype: "permission" }}
+      providerName="Codex"
       model="gpt-5.6-sol"
       onOpenTerminal={() => { terminalCalls += 1; }}
       onCancel={() => { cancelCalls += 1; }}
     />,
   ));
-  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "gpt-5.6-sol · Permission needed", "question stays in the single compact row");
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · Permission needed", "question stays in the single compact row");
   const terminal = idle.host.querySelector<HTMLButtonElement>('[data-testid="agent-open-terminal"]');
   const cancel = idle.host.querySelector<HTMLButtonElement>('[data-testid="agent-cancel-question"]');
   assert(terminal && cancel, "question row preserves terminal and cancel actions");
