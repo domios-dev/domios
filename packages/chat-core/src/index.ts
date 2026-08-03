@@ -31,6 +31,7 @@ export { mergeById } from "./merge";
 export {
   TRANSCRIPT_RETENTION_LIMIT,
   createTranscriptState,
+  nextOptimisticOrder,
   projectTranscript,
   reduceTranscript,
   transcriptBackfillCursor,
