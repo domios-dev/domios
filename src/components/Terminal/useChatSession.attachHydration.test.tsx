@@ -293,20 +293,29 @@ async function main(): Promise<void> {
   // not an index into adoption; the live subscriber is the id resync must stop.
   assert(Number(server.subscribers.size) === 1, "pre-resync attach did not own one subscription");
   const adoptedBeforeResync = [...server.subscribers][0] ?? "";
-  server.queueStart((subscriptionId) => ({
-    text: "",
-    start_offset: 0,
-    offset: 2,
-    pending: false,
-    messages: [message("history"), message("current-delta")],
-    source_session_id: "sid-live",
-    session_binding_nonce: "nonce-live",
+  const resyncSnapshot = deferred<StartResult>();
+  server.queueStart(async (subscriptionId) => ({
+    ...await resyncSnapshot.promise,
     subscription_id: subscriptionId,
   }));
   await act(async () => fireResync());
   await flush();
+  assert(
+    app.messageIds().join(",") === "history,current-delta",
+    "in-flight resync cleared the visible transcript",
+  );
+  resyncSnapshot.resolve({
+    text: "",
+    start_offset: 0,
+    offset: 2,
+    pending: false,
+    messages: [message("fresh-history")],
+    source_session_id: "sid-live",
+    session_binding_nonce: "nonce-live",
+  });
+  await flush();
   assert(server.starts.length === startsBeforeResync + 1, "resync did not request one snapshot");
-  assert(app.messageIds().join(",") === "history,current-delta", "resync duplicated transcript rows");
+  assert(app.messageIds().join(",") === "fresh-history", "resync did not atomically replace stale rows");
   assert(Number(server.subscribers.size) === 1, "resync left overlapping subscriptions");
   assert(server.stops.includes(adoptedBeforeResync), "resync did not stop prior subscription");
   assert(!server.subscribers.has(adoptedBeforeResync), "stopped subscription stayed registered");
