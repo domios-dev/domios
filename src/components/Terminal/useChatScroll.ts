@@ -7,9 +7,9 @@ import {
   type RefObject,
 } from "react";
 import {
+  chatViewportModeAfterScroll,
   chatScrollTopAfterPrepend,
   getPersistedChatScrollState,
-  nextChatViewportMode,
   setPersistedChatScrollState,
   shouldRestoreChatViewport,
   type ChatPrependSnapshot,
@@ -137,13 +137,22 @@ export function useChatScroll({
 
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget;
-    const movedUp = el.scrollTop < lastScrollTopRef.current;
-    const mode = movedUp ? "detached" : nextChatViewportMode(el);
+    const mode = chatViewportModeAfterScroll(modeRef.current, lastScrollTopRef.current, el);
     lastScrollTopRef.current = el.scrollTop;
     setMode(mode, el);
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollDown(mode === "detached" && distance > SHOW_SCROLL_DOWN_THRESHOLD_PX);
   }, [setMode]);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (modeRef.current === "pinned") scrollToBottom();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;

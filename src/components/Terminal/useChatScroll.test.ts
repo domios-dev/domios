@@ -69,19 +69,23 @@ async function main(): Promise<void> {
 
   scroll.scrollTop = 599.9;
   await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
-  assert(!followTail.current, "the first upward movement detaches despite bottom rounding tolerance");
+  assert(followTail.current, "a fractional layout clamp at the bottom keeps the live tail pinned");
+
+  scroll.scrollTop = 599;
+  await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
+  assert(!followTail.current, "a real upward movement detaches immediately");
 
   setGeometry(scroll, { scrollHeight: 1200, clientHeight: 400 });
   await render(root, 2, 2);
-  assertScrollTop(scroll, 599.9, "new canonical content never moves a detached viewport");
+  assertScrollTop(scroll, 599, "new canonical content never moves a detached viewport");
 
   await act(async () => hookResult!.prepareForHistoryPrepend());
   setGeometry(scroll, { scrollHeight: 1250, clientHeight: 400 });
   await render(root, 3, 3);
-  assertScrollTop(scroll, 599.9, "an intervening live update does not consume or move the prepend snapshot");
+  assertScrollTop(scroll, 599, "an intervening live update does not consume or move the prepend snapshot");
   setGeometry(scroll, { scrollHeight: 1550, clientHeight: 400 });
   await render(root, 4, 4, "m-0");
-  assertScrollTop(scroll, 899.9, "older-history prepend preserves the visible position");
+  assertScrollTop(scroll, 899, "older-history prepend preserves the visible position");
 
   await act(async () => hookResult!.scrollToBottom());
   assertScrollTop(scroll, 1150, "explicit down returns to latest");

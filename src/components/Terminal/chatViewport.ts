@@ -1,4 +1,4 @@
-const BOTTOM_TOLERANCE_PX = 0.5;
+const VIEWPORT_TOLERANCE_PX = 0.5;
 
 export interface ChatViewportGeometry {
   scrollHeight: number;
@@ -9,7 +9,7 @@ export interface ChatViewportGeometry {
 export type ChatViewportMode = "pinned" | "detached";
 
 export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean {
-  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= BOTTOM_TOLERANCE_PX;
+  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= VIEWPORT_TOLERANCE_PX;
 }
 
 export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
@@ -18,6 +18,16 @@ export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
 
 export function nextChatViewportMode(viewport: ChatViewportGeometry): ChatViewportMode {
   return isChatViewportAtBottom(viewport) ? "pinned" : "detached";
+}
+
+export function chatViewportModeAfterScroll(
+  currentMode: ChatViewportMode,
+  previousScrollTop: number,
+  viewport: ChatViewportGeometry,
+): ChatViewportMode {
+  if (isChatViewportAtBottom(viewport)) return "pinned";
+  if (currentMode === "detached") return "detached";
+  return previousScrollTop - viewport.scrollTop > VIEWPORT_TOLERANCE_PX ? "detached" : "pinned";
 }
 
 export interface ChatPrependSnapshot {

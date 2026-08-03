@@ -1,4 +1,5 @@
 import {
+  chatViewportModeAfterScroll,
   chatScrollTopAfterPrepend,
   clearPersistedChatScrollState,
   getPersistedChatScrollState,
@@ -27,6 +28,18 @@ assert(!isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 599, clientHeigh
 assert(
   nextChatViewportMode({ scrollHeight: 1200, scrollTop: 600, clientHeight: 400 }) === "detached",
   "a viewport away from bottom stays detached",
+);
+assert(
+  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1004, scrollTop: 600, clientHeight: 400 }) === "pinned",
+  "a viewport resize cannot detach a pinned live tail",
+);
+assert(
+  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599.9, clientHeight: 400 }) === "pinned",
+  "fractional browser clamping cannot detach a pinned live tail",
+);
+assert(
+  chatViewportModeAfterScroll("pinned", 600, { scrollHeight: 1000, scrollTop: 599, clientHeight: 400 }) === "detached",
+  "meaningful upward movement detaches immediately",
 );
 
 const detachedViewport = { scrollHeight: 1000, scrollTop: 250, clientHeight: 400 };

@@ -24,6 +24,10 @@
   padding: 4px 0;
 }
 
+.ct-agent-row--chat {
+  padding: 4px 12px 8px;
+}
+
 /* Steady block caret — kept only beside the question title. */
 .ct-agent-cursor {
   display: inline-block;
