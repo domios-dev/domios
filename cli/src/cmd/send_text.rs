@@ -1,5 +1,6 @@
 use crate::client::SocketClient;
 use crate::cmd::print::print_human;
+use crate::cmd::tab::remote_target::parse_remote_tab_id;
 use crate::resolve_tab;
 use regex::Regex;
 
@@ -132,6 +133,12 @@ pub fn handle_send_text(
     delay: Option<String>,
     at: Option<String>,
 ) {
+    if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+        send_composite_over_mesh(
+            json, &peer, &remote_tab, text, from_file, from_pad, from_stdin, actions, delay, at,
+        );
+        return;
+    }
     if delay.is_some() || at.is_some() {
         if actions.is_some() {
             eprintln!("Error: --actions cannot be queued with --delay/--at");
@@ -143,8 +150,38 @@ pub fn handle_send_text(
         return;
     }
     let mut stdin = std::io::stdin();
+    let (resolved_text, parsed_actions) =
+        resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    let tab_id = resolve_tab(client, tab);
+    if let Some(actions) = parsed_actions {
+        let result = send_actions_via_socket(json, &tab_id, &resolved_text, actions);
+        handle_send_text_result(json, result, Some(&resolved_text));
+        return;
+    }
+    let mut params = serde_json::json!({
+        "tab_id": tab_id,
+        "text": resolved_text,
+    });
+    // recipient side. Skip when target is self (chatting with own tab — no point self-tagging).
+    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+        if !my_tab.is_empty() && my_tab != tab_id {
+            params["source_tab"] = serde_json::json!(my_tab);
+        }
+    }
+    let result = client.call("tab.send_text", Some(params));
+    handle_send_text_result(json, result, Some(&resolved_text));
+}
+
+fn resolve_and_validate_send<R: std::io::Read>(
+    text: Option<String>,
+    from_file: Option<String>,
+    from_pad: Option<String>,
+    from_stdin: bool,
+    actions: Option<String>,
+    stdin: &mut R,
+) -> (String, Option<Vec<SendActionSpec>>) {
     let (resolved_text, source) =
-        match resolve_send_text_input(text, from_file, from_pad, from_stdin, &mut stdin) {
+        match resolve_send_text_input(text, from_file, from_pad, from_stdin, stdin) {
             Ok(value) => value,
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -178,24 +215,55 @@ pub fn handle_send_text(
             std::process::exit(2);
         }
     }
-    let tab_id = resolve_tab(client, tab);
-    if let Some(actions) = parsed_actions {
-        let result = send_actions_via_socket(json, &tab_id, &resolved_text, actions);
-        handle_send_text_result(json, result, Some(&resolved_text));
-        return;
+    (resolved_text, parsed_actions)
+}
+
+pub fn remote_send_body(
+    text: &str,
+    actions: Option<&[SendActionSpec]>,
+    source_tab: Option<&str>,
+) -> serde_json::Value {
+    let mut body = serde_json::Map::new();
+    if !text.is_empty() {
+        body.insert("text".into(), serde_json::json!(text));
     }
-    let mut params = serde_json::json!({
-        "tab_id": tab_id,
-        "text": resolved_text,
-    });
-    // recipient side. Skip when target is self (chatting with own tab — no point self-tagging).
-    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
-        if !my_tab.is_empty() && my_tab != tab_id {
-            params["source_tab"] = serde_json::json!(my_tab);
-        }
+    if let Some(actions) = actions {
+        body.insert("actions".into(), actions_to_json(actions));
     }
-    let result = client.call("tab.send_text", Some(params));
-    handle_send_text_result(json, result, Some(&resolved_text));
+    if let Some(source) = source_tab.filter(|s| !s.is_empty()) {
+        body.insert("source_tab".into(), serde_json::json!(source));
+    }
+    serde_json::Value::Object(body)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mirrors the send option surface for the mesh relay path."
+)]
+fn send_composite_over_mesh(
+    json: bool,
+    peer: &str,
+    remote_tab: &str,
+    text: Option<String>,
+    from_file: Option<String>,
+    from_pad: Option<String>,
+    from_stdin: bool,
+    actions: Option<String>,
+    delay: Option<String>,
+    at: Option<String>,
+) {
+    if delay.is_some() || at.is_some() {
+        eprintln!("Error: delayed send to a remote tab is unsupported; deliver now or run on the owning peer");
+        std::process::exit(2);
+    }
+    let mut stdin = std::io::stdin();
+    let (resolved_text, parsed_actions) =
+        resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    let source_tab = std::env::var("CODETERM_TAB_ID").ok();
+    let body = remote_send_body(&resolved_text, parsed_actions.as_deref(), source_tab.as_deref());
+    let path = format!("/api/tabs/{}/send", urlencoding::encode(remote_tab));
+    let data = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
+    handle_send_text_result(json, Ok(data), Some(&resolved_text));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -591,5 +659,32 @@ mod tests {
     #[test]
     fn action_parser_rejects_unknown_keys() {
         assert!(parse_actions_spec("launch-missiles").is_err());
+    }
+
+    #[test]
+    fn composite_tab_id_routes_over_mesh() {
+        use crate::cmd::tab::remote_target::parse_remote_tab_id;
+        assert_eq!(
+            parse_remote_tab_id("mesh:BLACKSTAR/0e39ec9e"),
+            Some(("BLACKSTAR".into(), "0e39ec9e".into()))
+        );
+        assert!(parse_remote_tab_id("0e39ec9e").is_none());
+    }
+
+    #[test]
+    fn remote_send_body_carries_text_and_source() {
+        let body = super::remote_send_body("deliver this", None, Some("af5919cb"));
+        assert_eq!(body["text"], serde_json::json!("deliver this"));
+        assert_eq!(body["source_tab"], serde_json::json!("af5919cb"));
+        assert!(body.get("actions").is_none());
+    }
+
+    #[test]
+    fn remote_send_body_omits_empty_text_and_blank_source() {
+        let actions = parse_actions_spec("enter").unwrap();
+        let body = super::remote_send_body("", Some(&actions), Some(""));
+        assert!(body.get("text").is_none());
+        assert!(body.get("source_tab").is_none());
+        assert_eq!(body["actions"], super::actions_to_json(&actions));
     }
 }

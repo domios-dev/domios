@@ -4,7 +4,7 @@ use crate::cmd::print::{handle_result, print_json};
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 mod capture;
-mod remote_target;
+pub(crate) mod remote_target;
 use capture::handle_tab_capture;
 use remote_target::{
     classify_remote_tab_id, parse_remote_tab_id, remote_inspect_target, remote_tab_chat_path,
