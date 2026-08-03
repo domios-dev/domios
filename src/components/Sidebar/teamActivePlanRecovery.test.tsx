@@ -6,7 +6,7 @@ import { Window } from "happy-dom";
 import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
-import { PlansProvider, useFullPlans, usePlanIndex } from "../Canvas/PlansProvider";
+import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
@@ -200,7 +200,7 @@ function fireExistingFullResync() {
 }
 
 function Projection() {
-  const full = useFullPlans();
+  const full = useSidebarPlansOptional();
   const index = usePlanIndex();
   const [mux, setMux] = useState(backendSnapshot);
 
