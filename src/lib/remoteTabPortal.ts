@@ -39,7 +39,7 @@ export function projectAttachedRemoteTab(
     remote_peer_id: peer.peer_id,
     remote_peer_name: peer.peer_name,
     remote_tab_id: source.id,
-    remote_availability: "available",
+    remote_channels: { control: "available", output: "available", chat: "available" },
     ownership: undefined,
     parent_tab_id: null,
     spawned_by_tab_id: null,

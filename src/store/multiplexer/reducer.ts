@@ -12,6 +12,7 @@ import {
   reconcileBackendWorkspaceTabs,
   type ExtendedState,
 } from "./tree";
+import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
 
 export type Action =
   | { type: "SET_STATE"; state: MultiplexerState }
@@ -43,8 +44,7 @@ export type Action =
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "RESET_GENERATION" }
   | { type: "SET_REMOTE_TABS"; tabs: Record<string, Tab> }
-  | { type: "UPDATE_REMOTE_AVAILABILITY"; tabId: string; availability: Tab["remote_availability"] }
-  | { type: "UPDATE_REMOTE_CHANNEL"; tabId: string; channel: "control" | "output" | "chat"; availability: NonNullable<Tab["remote_availability"]> };
+  | { type: "UPDATE_REMOTE_CHANNEL"; tabId: string; channel: RemoteTransportChannel; availability: RemoteTransportAvailability };
 
 /**
  * Merge a fresh `tab_statuses` snapshot into the known map, then drop the
@@ -104,11 +104,6 @@ function addPendingCloses(current: string[], tabIds: string[]): string[] {
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
-    case "UPDATE_REMOTE_AVAILABILITY": {
-      const tab = state.tabs[action.tabId];
-      if (!tab?.remote_peer_id) return state;
-      return { ...state, tabs: { ...state.tabs, [action.tabId]: { ...tab, remote_availability: action.availability } } };
-    }
     case "UPDATE_REMOTE_CHANNEL": {
       const tab = state.tabs[action.tabId];
       if (!tab?.remote_peer_id) return state;

@@ -176,8 +176,12 @@ export function TabSessionChat({
     followTailRef: chatFollowTailRef,
   });
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
-  const chatLoading = loading || recovering || error != null;
   const hasTranscript = enrichedMessages.length > 0;
+  // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
+  // reachability); remote PTY/output channel state never gates it.
+  const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
+  const chatChannelLoading = loading || recovering || (!hasTranscript && remoteChatReconnecting);
+  const chatLoading = chatChannelLoading || error != null;
   const setupView = hasTranscript
     ? { kind: "none" } as const
     : chatLoading
@@ -551,7 +555,7 @@ export function TabSessionChat({
 
   const statusRowState: AgentState = useMemo(() => {
     if (error) return { state: "idle", status_line: "Chat unavailable" };
-    if (loading || recovering) return { state: "working", status_line: "Loading chat…" };
+    if (chatChannelLoading) return { state: "working", status_line: "Loading chat…" };
     if (!hasTranscript && bootSetupView.kind === "starting") {
       return {
         state: "working",
@@ -562,7 +566,7 @@ export function TabSessionChat({
       };
     }
     return liveAgentState;
-  }, [bootSetupView.kind, error, hasTranscript, liveAgentState, loading, provider?.displayName, recovering, tab]);
+  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, tab]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -577,7 +581,7 @@ export function TabSessionChat({
       data-tab-id={tabId}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={loading || recovering}
+      aria-busy={chatChannelLoading}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",

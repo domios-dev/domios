@@ -4,7 +4,7 @@ import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 
 const remote: Tab = {
   id: "mesh:peer/one", title: "One", pty_id: "mesh:peer/one", tab_type: "Terminal", cwd: null,
-  remote_peer_id: "peer", remote_tab_id: "one", remote_availability: "available",
+  remote_peer_id: "peer", remote_tab_id: "one", remote_channels: { control: "available", output: "available", chat: "available" },
 };
 
 describe("failed remote close reconciliation", () => {
