@@ -183,9 +183,8 @@ fn oversized_session_reads_only_a_bounded_tail() {
 
 /// A window wider than one delta chunk must drain across passes without
 /// dropping, duplicating, or splitting a record.
-/// A bounded window must re-anchor only when the file grows past a stride:
-/// row ids are ordinals inside their window, so an anchor that moved on every
-/// attach would re-key the whole overlap on each Terminal -> Chat switch.
+/// A moving window anchor would re-key the whole overlap on every attach, so
+/// the anchor may only advance once growth passes a stride.
 #[test]
 fn snapshot_anchor_is_stable_while_the_session_grows_within_a_stride() {
     let pad = 4000;

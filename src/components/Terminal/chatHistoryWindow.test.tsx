@@ -289,7 +289,8 @@ async function main(): Promise<void> {
     "pinned top eviction stays at the bottom in the same commit",
   );
   assert(
-    rows()[0]?.id === `m-${INITIAL_FROM}` && rows()[rows().length - 1]?.id === "m-1000",
+    rows()[0]?.content === `message ${INITIAL_FROM}`
+      && rows()[rows().length - 1]?.content === "message 1000",
     "a single arrival slides the rendered window without discarding a parsed window",
   );
 
@@ -308,7 +309,7 @@ async function main(): Promise<void> {
     "capacity pressure evicts whole parsed windows from the top",
   );
   assert(
-    rows()[rows().length - 1]?.id === "m-1500",
+    rows()[rows().length - 1]?.content === "message 1500",
     "detached arrivals always retain the newest live tail",
   );
   assert(
@@ -319,7 +320,7 @@ async function main(): Promise<void> {
   const retainedBefore = rows().length;
   await act(async () => view().append([message(900)], 900));
   assert(
-    rows().length === retainedBefore && rows()[rows().length - 1]?.id === "m-1500",
+    rows().length === retainedBefore && rows()[rows().length - 1]?.content === "message 1500",
     "a delta behind the committed end is ignored and never rewrites the tail",
   );
 
@@ -336,7 +337,7 @@ async function main(): Promise<void> {
     if ((transcriptBackfillCursor(view().transcript) ?? 0) < (cursorBeforePaging ?? 0)) break;
   }
   assert(
-    rows()[rows().length - 1]?.id === "m-1500",
+    rows()[rows().length - 1]?.content === "message 1500",
     "older paging never evicts the newest live tail",
   );
   assert(

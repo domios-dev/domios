@@ -18,10 +18,8 @@ import {
   setCachedChatHistoryWindow,
 } from "./chatWindow";
 
-/** Holds the committed transcript for one tab+session and survives a
- *  Terminal <-> Chat switch through the window cache. Every mutation goes
- *  through the transcript reducer, so a cached projection and an authoritative
- *  snapshot converge on the same rows. */
+/** Committed transcript for one tab+session, cached across a Terminal <-> Chat
+ *  switch. Every mutation goes through the transcript reducer. */
 export function useChatHistoryRetention({
   tabId,
   agentSessionId,
@@ -49,8 +47,7 @@ export function useChatHistoryRetention({
     setTranscript(next);
   }, []);
 
-  /** Reduce one batch against the committed transcript and return the reducer's
-   *  outcome so the caller can act on `recover_gap` / `recover_overlap`. */
+  /** Returns the reducer outcome so the caller can act on a gap or overlap. */
   const commitTranscript = useCallback((batch: TranscriptBatch): TranscriptOutcome => {
     const { state, outcome } = reduceTranscript(committedRef.current, batch);
     if (state !== committedRef.current) applyTranscript(state);

@@ -151,13 +151,8 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
     }
 }
 
-/// Flatten a JSONL RichMessage (role + typed blocks) into the normalized
-/// `ChatMsg` shape — the single canonical chat shape shared with opencode's
-/// structured path and the frontend `NormalizedChatMessage`. This is the one
-/// place JSONL providers' rich rendering lives; the desktop renders the same
-/// output, so there is no second parser.
 /// Byte origin of one parsed row: `offset` is the complete-record boundary the
-/// batch started at, `ordinal` the row's position inside that batch.
+/// batch started at, `ordinal` the row position inside that batch.
 #[derive(Clone, Copy, Debug)]
 pub struct RowOrigin {
     pub offset: u64,
@@ -174,9 +169,8 @@ impl RowOrigin {
     }
 }
 
-/// Flatten a row parsed from a session byte range. Ids anchor to the batch's
-/// record boundary, so independently parsed windows never mint the same id for
-/// different rows; `seq` stays an ordinal within the batch.
+/// Flatten a row parsed from a session byte range: ids anchor to the batch
+/// record boundary, `seq` stays an ordinal inside the batch.
 pub fn rich_to_chat_msgs_at(rich: &RichMessage, origin: RowOrigin) -> Vec<ChatMsg> {
     let mut out = rich_to_chat_msgs_blocks(rich, &origin.id_base());
     for m in &mut out {
@@ -185,9 +179,8 @@ pub fn rich_to_chat_msgs_at(rich: &RichMessage, origin: RowOrigin) -> Vec<ChatMs
     out
 }
 
-/// Unanchored flatten for callers that have no session byte range: ids and
-/// `seq` are meaningful only inside the caller's own batch. Send-evidence
-/// content extraction only — transcript ingestion uses [`rich_to_chat_msgs_at`].
+/// Unanchored flatten for callers with no session byte range; ids and `seq`
+/// mean nothing outside that batch (send-evidence content extraction only).
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
     let mut out = rich_to_chat_msgs_blocks(rich, &base_id.to_string());
     for m in &mut out {

@@ -3,9 +3,7 @@ import { mergeById } from "./merge";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open byte range `[start, end)` of a session source, both ends on a
- *  complete-record boundary. This is the only cross-batch identity signal:
- *  row ids and `seq` are ordinals inside one parsed batch and mean nothing
- *  outside it. */
+ *  complete-record boundary. */
 export interface TranscriptRange {
   start: number;
   end: number;
@@ -40,18 +38,12 @@ export interface TranscriptBatch {
 }
 
 export type TranscriptOutcome =
-  /** Committed into the transcript. */
   | "adopted"
-  /** Session changed: the whole prior transcript was replaced. */
   | "rotated"
-  /** Byte range proves the rows are already committed. */
   | "ignored_stale"
   | "ignored_empty"
-  /** Malformed or regressing range — state kept, nothing adopted. */
   | "rejected_range"
-  /** Adopted, but a byte gap below it needs an authoritative snapshot. */
   | "recover_gap"
-  /** Overlap that no byte range proves — dropped, needs a snapshot. */
   | "recover_overlap";
 
 export interface TranscriptResult {
@@ -59,7 +51,7 @@ export interface TranscriptResult {
   outcome: TranscriptOutcome;
 }
 
-/** Hard bound on retained source rows; the oldest are evicted first. */
+/** Hard bound on retained source rows; whole oldest windows go first. */
 export const TRANSCRIPT_RETENTION_LIMIT = 440;
 
 export function createTranscriptState(): TranscriptState {
@@ -78,12 +70,23 @@ function sameAuthority(left: TranscriptAuthority, right: TranscriptAuthority): b
     && left.sessionBindingNonce === right.sessionBindingNonce;
 }
 
+/** Transport ids and `seq` are per-batch counters that other batches reuse, so
+ *  a ranged row is identified by its own batch range plus its position. */
+function rangedRows(
+  range: TranscriptRange,
+  rows: readonly NormalizedChatMessage[],
+): NormalizedChatMessage[] {
+  return rows.map((row, ordinal) => {
+    const id = `${range.start}:${ordinal}`;
+    return row.id === id ? row : { ...row, id };
+  });
+}
+
 function rangedSegments(state: TranscriptState): TranscriptSegment[] {
   return state.segments.filter((segment) => segment.range != null);
 }
 
-/** End of the committed byte span — the live cursor. `null` when nothing
- *  ranged is committed yet. */
+/** End of the committed byte span — the live cursor. */
 export function transcriptCommittedEnd(state: TranscriptState): number | null {
   let end: number | null = null;
   for (const segment of rangedSegments(state)) {
@@ -111,8 +114,7 @@ function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   });
 }
 
-/** Committed rows in source order. Segments never overlap by construction, so
- *  this is a concatenation; a repeated id can only come from an unranged
+/** Segments never overlap, so a repeated id can only come from an unranged
  *  source, where the newest occurrence wins. */
 export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
   const rows: NormalizedChatMessage[] = [];
@@ -132,12 +134,8 @@ export function transcriptRowCount(state: TranscriptState): number {
   return state.segments.reduce((total, segment) => total + segment.rows.length, 0);
 }
 
-/** Evict whole oldest segments only, and only while the remaining ones still
- *  satisfy the bound. Slicing rows out of a segment would leave its byte range
- *  describing rows it no longer holds — the paging cursor would then point
- *  below the evicted rows and they could never be recovered. Whole-segment
- *  eviction keeps every retained range exact, so one page ending at the new
- *  cursor restores exactly what was dropped. */
+/** Whole windows only: slicing rows out of a segment would leave its range
+ *  describing rows it no longer holds, stranding them below the paging cursor. */
 function withRetentionBound(state: TranscriptState, limit: number): TranscriptState {
   let kept = orderedSegments(state.segments);
   let total = transcriptRowCount(state);
@@ -194,18 +192,16 @@ function reduceSnapshot(
     return committed(state, withUnrangedRows(state, "snapshot", rows), "adopted", limit);
   }
   const range = batch.range;
-  // A committed segment straddling the window end would be half re-parsed and
-  // half not: nothing proves which of its rows the snapshot re-delivers, so a
-  // window that lands there (a stale parse arriving late) is refused.
+  // Nothing proves which rows of a segment straddling the window end were
+  // re-parsed, so a window landing there (a stale late parse) is refused.
   const straddlesEnd = state.segments.some(
     (segment) => segment.range != null
       && segment.range.start < range.end
       && range.end < segment.range.end,
   );
   if (straddlesEnd) return { state, outcome: "rejected_range" };
-  // The snapshot is authoritative for its own window only: strictly-older
-  // segments and a strictly-newer live tail both survive it. Rows with no byte
-  // range are never dropped either — nothing proves this window covers them.
+  // Authoritative for its own window only: older segments, a newer live tail,
+  // and rows with no range at all survive it.
   const preserved = state.segments.filter(
     (segment) => segment.range == null
       || segment.range.end <= range.start
@@ -213,7 +209,7 @@ function reduceSnapshot(
   );
   return committed(
     state,
-    [...preserved, { kind: "snapshot", range, rows: batch.rows }],
+    [...preserved, { kind: "snapshot", range, rows: rangedRows(range, batch.rows) }],
     "adopted",
     limit,
   );
@@ -229,30 +225,22 @@ function reduceDelta(
     return committed(state, withUnrangedRows(state, "delta", rows), "adopted", limit);
   }
   const range = batch.range;
+  const segment: TranscriptSegment = {
+    kind: "delta",
+    range,
+    rows: rangedRows(range, batch.rows),
+  };
   const end = transcriptCommittedEnd(state);
   if (end == null) {
-    return committed(
-      state,
-      [...state.segments, { kind: "delta", range, rows: batch.rows }],
-      "adopted",
-      limit,
-    );
+    return committed(state, [...state.segments, segment], "adopted", limit);
   }
   if (range.end <= end) return { state, outcome: "ignored_stale" };
   if (range.start < end) return { state, outcome: "recover_overlap" };
   const outcome: TranscriptOutcome = range.start > end ? "recover_gap" : "adopted";
-  return committed(
-    state,
-    [...state.segments, { kind: "delta", range, rows: batch.rows }],
-    outcome,
-    limit,
-  );
+  return committed(state, [...state.segments, segment], outcome, limit);
 }
 
-function reduceBackfill(
-  state: TranscriptState,
-  batch: TranscriptBatch,
-): TranscriptResult {
+function reduceBackfill(state: TranscriptState, batch: TranscriptBatch): TranscriptResult {
   if (!isRange(batch.range)) return { state, outcome: "rejected_range" };
   const range = batch.range;
   const oldest = transcriptBackfillCursor(state);
@@ -263,7 +251,7 @@ function reduceBackfill(
       ...state,
       segments: orderedSegments([
         ...state.segments,
-        { kind: "backfill", range, rows: batch.rows },
+        { kind: "backfill", range, rows: rangedRows(range, batch.rows) },
       ]),
       evictedOlder: Math.max(0, state.evictedOlder - batch.rows.length),
     },
@@ -271,9 +259,8 @@ function reduceBackfill(
   };
 }
 
-/** The single owner of transcript reconciliation. Byte ranges decide overlap,
- *  adoption and eviction; nothing is inferred from content, timestamps,
- *  provider ids or cross-batch `seq` equality. */
+/** The single owner of transcript reconciliation: byte ranges decide overlap,
+ *  adoption and eviction — never content, timestamps, provider ids or seq. */
 export function reduceTranscript(
   state: TranscriptState,
   batch: TranscriptBatch,
@@ -313,8 +300,7 @@ function toEchoes(rows: readonly NormalizedChatMessage[]): OptimisticEcho[] {
   }));
 }
 
-/** Place an optimistic row before the committed rows that arrived after it, so
- *  a sent message stays above the turn it triggered and never re-orders
+/** Keeps a sent row above the rows that arrived after it without re-ordering
  *  committed history. */
 function insertionIndex(rows: readonly NormalizedChatMessage[], clientOrder: number | undefined): number {
   if (clientOrder == null) return rows.length;
@@ -327,9 +313,8 @@ function insertionIndex(rows: readonly NormalizedChatMessage[], clientOrder: num
   return index;
 }
 
-/** Committed transcript plus the optimistic rows that have no parsed echo yet.
- *  An echoed row reconciles exactly once: it is dropped here and never
- *  re-appended, because matching runs against the whole committed projection. */
+/** An echoed row reconciles once: matching runs against the whole committed
+ *  projection, so a reconciled row is never re-appended. */
 export function projectTranscript(
   state: TranscriptState,
   optimistic: readonly NormalizedChatMessage[] = [],

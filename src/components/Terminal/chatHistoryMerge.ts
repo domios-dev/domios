@@ -1,8 +1,7 @@
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 
-/** Stamp arrival ordinals and the owning session on a batch. `clientOrder` is
- *  the only signal that places an optimistic row against rows that arrived
- *  after it; it never participates in transcript identity. */
+/** Stamps arrival ordinals used only to place an optimistic row against later
+ *  arrivals; `clientOrder` never participates in transcript identity. */
 export function withPreservedClientOrder(
   messages: ChatMessage[],
   previous: ChatMessage[],
