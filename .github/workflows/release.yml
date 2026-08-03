@@ -197,7 +197,7 @@ jobs:
               "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
             mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
           done
-          START=$(python scripts/release_issue_contract.py range-start \
+          START=$(python3 scripts/release_issue_contract.py range-start \
             --releases-file "$RUNNER_TEMP/release-history.json")
           if [ -n "$START" ]; then
             RANGE="$START..$GITHUB_SHA"
@@ -222,7 +222,7 @@ jobs:
               > "$RUNNER_TEMP/release-prs.next.json"
             mv "$RUNNER_TEMP/release-prs.next.json" "$RUNNER_TEMP/release-prs.json"
           done
-          python scripts/release_issue_contract.py resolve \
+          python3 scripts/release_issue_contract.py resolve \
             --commits-file "$RUNNER_TEMP/release-commits.json" \
             --prs-file "$RUNNER_TEMP/release-prs.json" \
             > "$RUNNER_TEMP/resolved-public-issues.json"
@@ -239,7 +239,7 @@ jobs:
             printf '%s\t%s\n' "$reference" "$state"
           done | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' \
             > "$RUNNER_TEMP/public-issue-states.json"
-          python scripts/release_issue_contract.py plan-close \
+          python3 scripts/release_issue_contract.py plan-close \
             --resolved-file "$RUNNER_TEMP/resolved-public-issues.json" \
             --states-file "$RUNNER_TEMP/public-issue-states.json" \
             --version "${{ steps.ver.outputs.ver }}" \
