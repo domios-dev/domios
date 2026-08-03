@@ -299,6 +299,23 @@ finish_build_gateway_logging() {
   return "$reader_status"
 }
 
+complete_build_gateway_before_install_handoff() {
+  local reader_status=0 finish_status=0
+  trap - EXIT INT TERM
+  if [ -n "${CT_BUILD_GATEWAY_LOG_PATH:-}" ]; then
+    printf 'Build gateway job %s build exit: 0\n' "$CT_BUILD_JOB_ID"
+    finish_build_gateway_logging || reader_status=$?
+    if [ "$reader_status" -ne 0 ]; then
+      printf 'ERROR: build gateway logging path broke before installer handoff (exit %s); log: %s\n' \
+        "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+      ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "0" logging_failed
+      return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+    fi
+  fi
+  ct_gateway_finish 0 0 || finish_status=$?
+  return "$finish_status"
+}
+
 build_gateway_logging_on_exit() {
   local captured_status="$?" command_status="" command_status_text=UNKNOWN
   local summary_status reader_status finish_status
@@ -383,7 +400,7 @@ enter_build_gateway() {
 }
 
 check_build_gateway_logging() {
-  local root success_log reader_success_status reader_failure_status open_status killed_status piped_status
+  local root success_log handoff_log reader_success_status reader_failure_status open_status killed_status piped_status
   root="$(mktemp -d "${TMPDIR:-/tmp}/codeterm-gateway-logging.XXXXXX")"
   CT_BUILD_GATEWAY_CHECK_ROOT="$root"
   trap 'rm -rf -- "$CT_BUILD_GATEWAY_CHECK_ROOT"' EXIT
@@ -399,6 +416,18 @@ check_build_gateway_logging() {
     return 1
   }
   echo "success: final marker reached console and gateway log"
+  CT_BUILD_JOB_ID=handoff-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+    ./build.sh gateway-log-probe handoff-success > "$root/handoff.console" 2>&1
+  handoff_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/handoff.console" | head -1 | tr -d '\r')"
+  grep -q '^HANDOFF_AFTER_GATEWAY$' "$root/handoff.console" || {
+    echo "build gateway handoff regression: post-gateway handoff did not run" >&2
+    return 1
+  }
+  if grep -q '^HANDOFF_AFTER_GATEWAY$' "$handoff_log"; then
+    echo "build gateway handoff regression: installer handoff remained inside the build log" >&2
+    return 1
+  fi
+  echo "handoff: gateway completed and logging closed before installer handoff"
   set +e
   CT_BUILD_JOB_ID=piped CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
     /bin/bash ./build.sh gateway-log-probe success 2>&1 | tail -n 20 > "$root/piped.console"
@@ -482,6 +511,7 @@ const jobs = Object.fromEntries(status.recent.map((job) => [job.job_id, job]));
 const expected = {
   healthy: ["success", 0, 0],
   piped: ["success", 0, 0],
+  "handoff-success": ["success", 0, 0],
   "reader-success": ["logging_failed", 74, 0],
   "reader-failure": ["logging_failed", 74, 101],
   "open-failure": ["logging_failed", 74, null],
@@ -1287,6 +1317,10 @@ EOF
       command-killed)
         kill -TERM "$$"
         ;;
+      handoff-success)
+        complete_build_gateway_before_install_handoff
+        printf 'HANDOFF_AFTER_GATEWAY\n'
+        ;;
     esac
     printf 'MARKER_LAST\n'
     ;;
@@ -1441,6 +1475,8 @@ EOF
       echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
       INSTALL_ARGS+=(--no-continue)
     fi
+    complete_build_gateway_before_install_handoff
+    echo "Build gateway released; starting detached installer handoff."
     env \
       -u CODETERM_INSTANCE \
       -u CODETERM_VITE_PORT \

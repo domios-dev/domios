@@ -54,4 +54,13 @@ done
 grep -Fq 'FRESH_CLI="src-tauri/bundled-cli/codeterm.exe"' build.sh
 grep -Fq '"$FRESH_CLI" "${INSTALL_ARGS[@]}"' build.sh
 
+gateway_release_line="$(grep -n '^[[:space:]]*complete_build_gateway_before_install_handoff$' build.sh | tail -1 | cut -d: -f1)"
+installer_handoff_line="$(grep -n '^[[:space:]]*"$FRESH_CLI" "${INSTALL_ARGS\[@\]}"' build.sh | tail -1 | cut -d: -f1)"
+[ -n "$gateway_release_line" ]
+[ -n "$installer_handoff_line" ]
+[ "$gateway_release_line" -lt "$installer_handoff_line" ] || {
+  echo "local install must release the build gateway before installer handoff" >&2
+  exit 1
+}
+
 echo "local install continuation checks passed"
