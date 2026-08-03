@@ -63,6 +63,21 @@ export function resetTranscriptWindow(key: string, preserveAnchor = false): void
   });
 }
 
+export function replaceTranscriptWindow(
+  key: string,
+  batch: TranscriptBatch,
+  preserveAnchor: boolean,
+): TranscriptOutcome {
+  const current = readTranscriptWindow(key);
+  const initial = createTranscriptState();
+  const { state, outcome } = reduceTranscript(initial, batch);
+  publish(key, {
+    transcript: batch.rows.length === 0 ? initial : state,
+    anchorKey: preserveAnchor ? current.anchorKey : null,
+  });
+  return outcome;
+}
+
 export function clearTranscriptWindows(): void {
   for (const key of [...windows.keys()]) {
     windows.delete(key);

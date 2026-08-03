@@ -31,6 +31,7 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  replaceTranscriptWindow,
   resetTranscriptWindow,
   transcriptWindowKey,
   useTranscriptWindow,
@@ -127,6 +128,8 @@ export function useChatSession({
   const rotationQueuedRef = useRef(false);
   const recoveryQueuedRef = useRef(false);
   const pendingLiveEventsRef = useRef<ChatMsgEvent[]>([]);
+  const preserveSnapshotAnchorRef = useRef(false);
+  const replaceOnNextLiveEventRef = useRef(false);
 
   onErrorRef.current = onError;
   diagnosticSinkRef.current = diagnosticSink;
@@ -167,8 +170,12 @@ export function useChatSession({
 
   const requestAttach = useCallback((preserveViewport = false) => {
     pendingLiveEventsRef.current = [];
-    resetTranscriptWindow(windowKeyRef.current, preserveViewport);
-    if (!preserveViewport) clearPersistedChatScrollState(windowKeyRef.current);
+    preserveSnapshotAnchorRef.current = preserveViewport;
+    replaceOnNextLiveEventRef.current = false;
+    if (!preserveViewport) {
+      resetTranscriptWindow(windowKeyRef.current);
+      clearPersistedChatScrollState(windowKeyRef.current);
+    }
     setError(null);
     attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
@@ -194,14 +201,23 @@ export function useChatSession({
 
   const commitLiveEvent = useCallback((payload: ChatMsgEvent): TranscriptOutcome => {
     if (payload.tab_id !== tabId || payload.messages.length === 0) return "ignored_empty";
-    return commitBatch(
-      "delta",
-      {
+    const batch: TranscriptBatch = {
+      kind: "delta",
+      authority: {
         sourceSessionId: payload.source_session_id,
         sessionBindingNonce: payload.session_binding_nonce,
       },
-      batchRange(payload.start_offset, payload.offset),
-      payload.messages,
+      range: batchRange(payload.start_offset, payload.offset),
+      rows: payload.messages,
+    };
+    if (!replaceOnNextLiveEventRef.current) {
+      return commitTranscriptBatch(windowKeyRef.current, batch);
+    }
+    replaceOnNextLiveEventRef.current = false;
+    return replaceTranscriptWindow(
+      windowKeyRef.current,
+      batch,
+      preserveSnapshotAnchorRef.current,
     );
   }, [commitBatch, tabId]);
 
@@ -436,6 +452,7 @@ export function useChatSession({
           // attach. Nothing here waits on elapsed time.
           attachmentStateRef.current = "awaiting_store";
           setAttachmentState("awaiting_store");
+          replaceOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
           if (pending.length > 0) {
             for (const event of pending) commitLiveEvent(event);
@@ -443,14 +460,19 @@ export function useChatSession({
           }
           return;
         }
-        commitBatch(
-          "snapshot",
+        replaceOnNextLiveEventRef.current = false;
+        replaceTranscriptWindow(
+          windowKeyRef.current,
           {
-            sourceSessionId: res.source_session_id,
-            sessionBindingNonce: res.session_binding_nonce,
+            kind: "snapshot",
+            authority: {
+              sourceSessionId: res.source_session_id,
+              sessionBindingNonce: res.session_binding_nonce,
+            },
+            range: batchRange(res.start_offset, res.offset),
+            rows: res.messages ?? [],
           },
-          batchRange(res.start_offset, res.offset),
-          res.messages ?? [],
+          preserveSnapshotAnchorRef.current,
         );
         const pending = pendingLiveEventsRef.current.splice(0);
         let recover = false;
@@ -515,12 +537,12 @@ export function useChatSession({
     });
   }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
-  const retry = useCallback(() => requestAttach(), [requestAttach]);
+  const retry = useCallback(() => requestRecoveryAttach(), [requestRecoveryAttach]);
 
   useEffect(() => {
     if (!active) return;
-    return onResync(requestAttach);
-  }, [active, requestAttach]);
+    return onResync(requestRecoveryAttach);
+  }, [active, requestRecoveryAttach]);
 
   useEffect(() => {
     const handleReattached = (event: Event) => {
