@@ -17,3 +17,13 @@ export { ShowCommandsProvider, useShowCommands } from "./toolcard/toolKindVisual
 export type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 export { extractPlanRefs } from "./codeterm/planRefs";
 export { installInboundReportCardHarness } from "./codeterm/InboundReportCard.browserHarness";
+export { OutboundReportCard } from "./codeterm/OutboundReportCard";
+export type { OutboundReportDescriptor } from "./codeterm/OutboundReportCard";
+export {
+  parseDeliveredTaskOutcome,
+  reportContentBody,
+  reportIncidentLine,
+  reportVerdict,
+  shortSha,
+} from "./codeterm/reportOutcome";
+export type { ReportTaskOutcome } from "./codeterm/reportOutcome";
