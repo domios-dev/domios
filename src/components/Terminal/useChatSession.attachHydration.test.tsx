@@ -272,6 +272,7 @@ async function main(): Promise<void> {
   assert(app.messageIds().join(",") === "history", "pre-existing transcript did not render once");
   assert(Number(server.subscribers.size) === 1, "visible Chat did not own exactly one subscription");
 
+  const startsBeforeDeltas = server.starts.length;
   await act(async () => {
     server.emit([message("wrong-tab")], "sid-live", "nonce-live", "foreign-tab");
     server.emit([message("wrong-session")], "sid-foreign", "nonce-live");
@@ -281,6 +282,10 @@ async function main(): Promise<void> {
   assert(
     app.messageIds().join(",") === "history,current-delta",
     `authority filter adopted a foreign or stale delta (${app.messageIds()})`,
+  );
+  assert(
+    server.starts.length === startsBeforeDeltas,
+    `a dropped delta forced a re-attach (starts=${server.starts.length})`,
   );
 
   const startsBeforeResync = server.starts.length;
