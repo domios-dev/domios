@@ -13,23 +13,22 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
   remote_peer_id: "peer",
   remote_peer_name: "ROG",
   remote_tab_id: "one",
-  remote_controller_title: "Hubble",
+  ownership: { controller_title: "Hubble", peer_id: "peer", peer_name: "ROG" },
   remote_availability: "available",
 });
 
 finish();
 
 describe("remote tab subtitle", () => {
-  it("shows role plus peer or peer alone", () => {
-    expect(remoteTabSubtitle(remote("Manager", "planner"), "PLANNER")).toBe("Planner · @ROG · by Hubble");
-    expect(remoteTabSubtitle(remote("Orchestrator"), "ORCHESTRATOR")).toBe("Orchestrator · @ROG · by Hubble");
-    expect(remoteTabSubtitle(remote(), null)).toBe("@ROG · by Hubble");
+  it("shows one canonical managed-by attribution without repeating the peer", () => {
+    expect(remoteTabSubtitle(remote("Manager", "planner"), "PLANNER")).toBe("managed by Hubble");
+    expect(remoteTabSubtitle(remote("Orchestrator"), "ORCHESTRATOR")).toBe("managed by Hubble");
     expect(remoteTabSubtitle({ ...remote(), remote_availability: "reconnecting" }, null))
-      .toBe("@ROG · by Hubble · Reconnecting");
+      .toBe("managed by Hubble · Reconnecting");
   });
 
-  it("leaves local subtitle byte-for-byte unchanged", () => {
-    const local = { ...remote("Manager", "planner"), remote_peer_name: undefined };
+  it("falls back to the role shield when there is no ownership", () => {
+    const local = { ...remote("Manager", "planner"), ownership: undefined };
     expect(remoteTabSubtitle(local, "PLANNER")).toBe("PLANNER");
   });
 });

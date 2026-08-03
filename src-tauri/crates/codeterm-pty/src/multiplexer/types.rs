@@ -538,6 +538,10 @@ pub struct Tab {
     /// so a top-level orchestrator's report still reaches its spawning agent.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub spawned_by_tab_id: Option<String>,
+    /// Authenticated control ownership (controller identity, origin peer, origin
+    /// Team) — separate from transport identity. Drives target-side attribution.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,
@@ -709,6 +713,7 @@ mod tests {
             report_target_tab_id: None,
             report_target_mesh_peer: None,
             spawned_by_tab_id: None,
+            ownership: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,

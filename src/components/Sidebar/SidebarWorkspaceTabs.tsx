@@ -18,6 +18,7 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
+import { remoteTeamIdentity } from "./remoteOwnership";
 import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
@@ -29,6 +30,10 @@ import {
 
 type TeamTab = Tab & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
+
+function effectiveTeamId(tab: Tab): string | null {
+  return remoteTeamIdentity(tab)?.id ?? (tab as TeamTab).team_id ?? null;
+}
 
 function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> {
   const grouped = new Map<string, Plan>();
@@ -135,14 +140,32 @@ export function SidebarWorkspaceTabs({
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, TeamTabMember[]>();
     sortedTabs.forEach((tab, index) => {
-      const teamTab = tab as TeamTab;
-      if (!teamTab.team_id) return;
-      const members = grouped.get(teamTab.team_id) ?? [];
-      members.push({ tab: teamTab, index });
-      grouped.set(teamTab.team_id, members);
+      const teamId = effectiveTeamId(tab);
+      if (!teamId) return;
+      const members = grouped.get(teamId) ?? [];
+      members.push({ tab, index });
+      grouped.set(teamId, members);
     });
     return grouped;
   }, [sortedTabs, tabs]);
+
+  const remoteTeams = useMemo(() => {
+    const map = new Map<string, Team>();
+    for (const tab of sortedTabs) {
+      const identity = remoteTeamIdentity(tab);
+      if (identity && !map.has(identity.id)) {
+        map.set(identity.id, {
+          id: identity.id,
+          name: identity.title,
+          lifecycle: "active",
+          created_at: 0,
+          workspace_id: ws.id,
+          remote_peer_name: identity.peerName,
+        });
+      }
+    }
+    return map;
+  }, [sortedTabs, ws.id]);
 
   const teamById = useMemo(
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
@@ -223,18 +246,18 @@ export function SidebarWorkspaceTabs({
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
   const looseItems = sortedTabs
-    .filter((tab) => !(tab as TeamTab).team_id)
+    .filter((tab) => !effectiveTeamId(tab))
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
   const pinnedLooseItems = sortedTabs
     .filter(
       (tab) =>
-        !(tab as TeamTab).team_id && tab.protected,
+        !effectiveTeamId(tab) && tab.protected,
     )
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
 
   for (const [index, tab] of sortedTabs.entries()) {
     const teamTab = tab as TeamTab;
-    const teamId = teamTab.team_id ?? null;
+    const teamId = effectiveTeamId(teamTab);
     if (!teamId) {
       rows.push(
         <SidebarSingleTabRow
@@ -271,7 +294,7 @@ export function SidebarWorkspaceTabs({
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workingLocal = workers.filter((member) => tabStatuses[member.tab.id] === "Working").length;
-    const team = teamById.get(teamId) ?? {
+    const team = teamById.get(teamId) ?? remoteTeams.get(teamId) ?? {
       id: teamId,
       name: null,
       lifecycle: "forming" as const,

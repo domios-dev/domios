@@ -78,16 +78,26 @@ pub fn merge_ordinary_tab_projection(
             );
             object.insert("parent_tab_id".into(), serde_json::json!(controller_id));
             object.insert("spawned_by_tab_id".into(), serde_json::json!(controller_id));
+            object.insert(
+                "role".into(),
+                serde_json::json!(codeterm_types::agent::AgentRole::Worker),
+            );
             if let Some(controller) = local.iter().find(|candidate| {
                 candidate.get("id").and_then(serde_json::Value::as_str)
                     == Some(controller_id.as_str())
             }) {
+                let controller_title = controller
+                    .get("title")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(controller_id.as_str());
                 object.insert(
-                    "remote_controller_title".into(),
-                    controller
-                        .get("title")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!(controller_id)),
+                    "ownership".into(),
+                    serde_json::json!({
+                        "controller_title": controller_title,
+                        "controller_tab_id": controller_id,
+                        "peer_id": "",
+                        "peer_name": "",
+                    }),
                 );
                 for field in ["workspace_id", "team_id"] {
                     object.insert(
