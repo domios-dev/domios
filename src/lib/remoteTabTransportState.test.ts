@@ -8,11 +8,11 @@ describe("remote transport availability", () => {
     vi.stubGlobal("window", new EventTarget());
     const seen = vi.fn();
     const stop = onRemoteTransportState(seen);
-    publishRemoteTransportState("mesh:peer/tab", "unavailable");
-    publishRemoteTransportState("mesh:peer/tab", "reconnecting");
+    publishRemoteTransportState("mesh:peer/tab", "chat", "unavailable");
+    publishRemoteTransportState("mesh:peer/tab", "output", "reconnecting");
     expect(seen.mock.calls.map(([value]) => value)).toEqual([
-      { ordinaryTabId: "mesh:peer/tab", availability: "unavailable" },
-      { ordinaryTabId: "mesh:peer/tab", availability: "reconnecting" },
+      { ordinaryTabId: "mesh:peer/tab", channel: "chat", availability: "unavailable" },
+      { ordinaryTabId: "mesh:peer/tab", channel: "output", availability: "reconnecting" },
     ]);
     stop();
   });

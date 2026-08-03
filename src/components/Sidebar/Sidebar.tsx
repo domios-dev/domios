@@ -41,6 +41,7 @@ import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
+import { RemoteTabPicker } from "./RemoteTabPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -101,6 +102,7 @@ export function Sidebar({
     reorderTabs,
     reorderWorkspaces,
     createTab,
+    attachRemoteTab,
     closeTab,
     reopenClosed,
     reopenGroup,
@@ -125,6 +127,7 @@ export function Sidebar({
     workspaceCwd: string | null;
     initialProviderId?: string;
   } | null>(null);
+  const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
@@ -585,6 +588,7 @@ export function Sidebar({
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
                       onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
+                      onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
                       newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
@@ -746,6 +750,7 @@ export function Sidebar({
                           onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
                           onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                          onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
                           newSessionDisabled={firstRunActive}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
@@ -759,6 +764,12 @@ export function Sidebar({
                 </SidebarDnd>
               ))}
             </div>
+            {remotePickerWorkspaceId && (
+              <RemoteTabPicker
+                onClose={() => setRemotePickerWorkspaceId(null)}
+                onAttach={(peer, tab) => attachRemoteTab?.(remotePickerWorkspaceId, peer, tab)}
+              />
+            )}
             {!isCompact && (() => {
               const views = state.recently_closed ?? [];
               if (views.length === 0) return null;

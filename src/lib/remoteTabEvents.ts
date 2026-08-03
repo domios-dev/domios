@@ -10,14 +10,16 @@ interface SubscriptionRecord {
   controller: AbortController | null;
   cursor: string | null;
   generation: number;
+  recoveryAvailable: boolean;
   disposed: boolean;
   settlements: Map<number, { promise: Promise<void>; resolve: () => void }>;
 }
 
 const subscriptions = new Map<string, SubscriptionRecord>();
 
-function connect(record: SubscriptionRecord): void {
+function connect(record: SubscriptionRecord, resetRecovery = false): void {
   if (record.disposed) return;
+  if (resetRecovery) record.recoveryAvailable = true;
   record.controller?.abort();
   const controller = new AbortController();
   const generation = ++record.generation;
@@ -55,25 +57,28 @@ function connect(record: SubscriptionRecord): void {
           };
           if (message.boot && typeof message.seq === "number") record.cursor = `${message.boot}:${message.seq}`;
           if (message.event_type === `tab-chat-msg-${record.remoteTabId}` && message.data) {
-            publishRemoteTransportState(record.ordinaryTabId, "available");
+            publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
           }
         }
         boundary = buffer.indexOf("\n\n");
       }
     }
-    if (!controller.signal.aborted && generation === record.generation) {
-      publishRemoteTransportState(record.ordinaryTabId, "reconnecting");
-    }
-  }).catch(() => {
-    if (!controller.signal.aborted && generation === record.generation) {
-      publishRemoteTransportState(record.ordinaryTabId, "unavailable");
-    }
-  }).finally(() => {
-    if (generation === record.generation) record.controller = null;
+  }).catch(() => undefined).finally(() => {
+    const ownsGeneration = generation === record.generation;
+    if (ownsGeneration) record.controller = null;
     const settled = record.settlements.get(generation);
     record.settlements.delete(generation);
     settled?.resolve();
+    if (!controller.signal.aborted && ownsGeneration && !record.disposed) {
+      if (record.recoveryAvailable) {
+        record.recoveryAvailable = false;
+        publishRemoteTransportState(record.ordinaryTabId, "chat", "reconnecting");
+        connect(record);
+      } else {
+        publishRemoteTransportState(record.ordinaryTabId, "chat", "unavailable");
+      }
+    }
   });
 }
 
@@ -94,11 +99,12 @@ export function subscribeRemoteTabEvent<T>(
     event,
     ordinaryTabId: identity.ordinaryTabId,
     peerId: identity.peerId,
-    remoteTabId: identity.ordinaryTabId.slice(identity.ordinaryTabId.indexOf("/") + 1),
+    remoteTabId: identity.remoteTabId,
     handler: handler as (value: { payload: unknown }) => void,
     controller: null,
     cursor: null,
     generation: 0,
+    recoveryAvailable: true,
     disposed: false,
     settlements: new Map(),
   };
@@ -112,7 +118,7 @@ export function subscribeRemoteTabEvent<T>(
 }
 
 export function resumeRemoteTabEvents(): void {
-  for (const record of subscriptions.values()) connect(record);
+  for (const record of subscriptions.values()) connect(record, true);
 }
 
 export function remoteTabEventSubscriptionSnapshot(event: string): {

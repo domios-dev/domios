@@ -344,6 +344,19 @@ const HTTP_MAP: Record<string, Mapper> = {
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
   ordinary_tabs_list: () => webJson("GET", "/api/tabs?all_workspaces=true"),
+  mesh_peer_tabs_list: async (a) => {
+    const peer = s(a, "peerId") ?? s(a, "peer_id");
+    const response = await webJson<{ ok?: boolean; data?: unknown; error?: string | null }>("POST", "/api/mesh/relay-to", {
+      target_peer_id: peer,
+      method: "GET",
+      path: "/api/tabs?all_workspaces=true&local_only=true",
+      body: null,
+    });
+    if (!response.ok) throw new Error(response.error ?? "Failed to list remote Tabs");
+    const peers = await webJson<{ paired?: Array<{ instance_id: string; instance_name: string }> }>("GET", "/api/mesh/peers");
+    const peerName = peers.paired?.find((item) => item.instance_id === peer)?.instance_name ?? peer;
+    return { peer_id: peer, peer_name: peerName, tabs: response.data ?? [] };
+  },
   mesh_remote_tab_action: async (a) => {
     const peer = s(a, "peerId") ?? s(a, "peer_id");
     const ordinary = s(a, "ordinaryTabId") ?? s(a, "ordinary_tab_id");

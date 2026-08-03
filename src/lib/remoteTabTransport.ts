@@ -10,6 +10,12 @@ export interface RemoteTransportCall {
   select?: (value: unknown) => unknown;
 }
 
+export interface RemoteTabIdentity {
+  ordinaryTabId: string;
+  peerId: string;
+  remoteTabId: string;
+}
+
 export type TabTarget =
   | { kind: "local" }
   | { kind: "remote"; ordinaryTabId: string; peerId: string }
@@ -26,12 +32,16 @@ export function remoteTabTransportHttp(): { base: string; token: string } {
   return { base: daemonHttpBase(apiConfig), token: daemonAuthToken(apiConfig) };
 }
 
-export function parseCompositeTabId(value: unknown): { ordinaryTabId: string; peerId: string } | null {
+export function parseCompositeTabId(value: unknown): RemoteTabIdentity | null {
   if (typeof value !== "string" || !value.startsWith("mesh:")) return null;
   const slash = value.indexOf("/", 5);
   if (slash < 6 || slash === value.length - 1 || value.indexOf("/", slash + 1) >= 0) return null;
   if (/[?&#\s]/.test(value)) return null;
-  return { ordinaryTabId: value, peerId: value.slice(5, slash) };
+  return {
+    ordinaryTabId: value,
+    peerId: value.slice(5, slash),
+    remoteTabId: value.slice(slash + 1),
+  };
 }
 
 export function classifyTabTarget(value: unknown): TabTarget {
@@ -67,8 +77,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
         return response.data ?? [];
       });
     }
-    case "chat_start": return call("POST", "/chat-raw/start", { subscription_id: args.subscriptionId });
-    case "chat_stop": return call("POST", "/chat-raw/stop", { subscription_id: args.subscriptionId });
+    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId });
+    case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes });
     case "chat_send_text": return call("POST", "/chat-send", { text: args.text });
     case "chat_send_status": return call("GET", "/chat-send");

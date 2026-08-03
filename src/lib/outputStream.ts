@@ -273,10 +273,15 @@ function subscribeRemoteTabOutput(
   let set = remoteSinks.get(ordinaryTabId);
   if (!set) { set = new Set(); remoteSinks.set(ordinaryTabId, set); }
   set.add(sink);
+  if (!remoteControllers.has(ordinaryTabId)) remoteRecoveryAvailable.set(ordinaryTabId, true);
   startRemoteTabOutput(ordinaryTabId, peerId);
   return () => {
     set!.delete(sink);
-    if (set!.size === 0) { remoteSinks.delete(ordinaryTabId); remoteControllers.get(ordinaryTabId)?.abort(); }
+    if (set!.size === 0) {
+      remoteSinks.delete(ordinaryTabId);
+      remoteRecoveryAvailable.delete(ordinaryTabId);
+      remoteControllers.get(ordinaryTabId)?.abort();
+    }
   };
 }
 
@@ -285,6 +290,7 @@ const remoteControllers = new Map<string, AbortController>();
 const remoteCursors = new Map<string, { peerId: string; boot?: string; offset: number }>();
 const remoteGenerations = new Map<string, number>();
 const remoteSettlements = new Map<string, Map<number, { promise: Promise<void>; resolve: () => void }>>();
+const remoteRecoveryAvailable = new Map<string, boolean>();
 
 export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number): string {
   const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: offset } });
@@ -310,7 +316,11 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
     tab: ordinaryTabId,
   });
   const cursor = remoteCursors.get(ordinaryTabId);
-  const remoteTabId = ordinaryTabId.slice(ordinaryTabId.indexOf("/") + 1);
+  const remoteTabId = parseCompositeTabId(ordinaryTabId)?.remoteTabId;
+  if (!remoteTabId) {
+    settle();
+    return;
+  }
   if (cursor?.boot) {
     params.set("since", remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset));
   }
@@ -342,7 +352,7 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
           if (message.boot) current.boot = message.boot;
           if (typeof message.offset === "number") current.offset = message.offset;
           remoteCursors.set(ordinaryTabId, current);
-          if (message.tab_id === remoteTabId) publishRemoteTransportState(ordinaryTabId, "available");
+          if (message.tab_id === remoteTabId) publishRemoteTransportState(ordinaryTabId, "output", "available");
           for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
             if (typeof message.output === "string") target.onOutput(message.output);
             else if (message.truncated && typeof message.from === "number") target.onTruncated(message.from);
@@ -352,15 +362,24 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
         boundary = buffer.indexOf("\n\n");
       }
     }
-    if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "reconnecting");
-  }).catch(() => { if (!abort.signal.aborted) publishRemoteTransportState(ordinaryTabId, "unavailable"); })
+  }).catch(() => undefined)
     .finally(() => {
-      if (remoteGenerations.get(ordinaryTabId) === generation) remoteControllers.delete(ordinaryTabId);
+      const ownsGeneration = remoteGenerations.get(ordinaryTabId) === generation;
+      if (ownsGeneration) remoteControllers.delete(ordinaryTabId);
       const settlements = remoteSettlements.get(ordinaryTabId);
       const settled = settlements?.get(generation);
       settlements?.delete(generation);
       if (settlements?.size === 0) remoteSettlements.delete(ordinaryTabId);
       settled?.resolve();
+      if (!abort.signal.aborted && ownsGeneration && remoteSinks.has(ordinaryTabId)) {
+        if (remoteRecoveryAvailable.get(ordinaryTabId) !== false) {
+          remoteRecoveryAvailable.set(ordinaryTabId, false);
+          publishRemoteTransportState(ordinaryTabId, "output", "reconnecting");
+          startRemoteTabOutput(ordinaryTabId, peerId);
+        } else {
+          publishRemoteTransportState(ordinaryTabId, "output", "unavailable");
+        }
+      }
     });
 }
 
@@ -368,6 +387,7 @@ export function resumeRemoteOutputStreams(): void {
   for (const [ordinaryTabId] of remoteSinks) {
     const cursor = remoteCursors.get(ordinaryTabId);
     if (cursor) {
+      remoteRecoveryAvailable.set(ordinaryTabId, true);
       remoteControllers.get(ordinaryTabId)?.abort();
       startRemoteTabOutput(ordinaryTabId, cursor.peerId);
     }
