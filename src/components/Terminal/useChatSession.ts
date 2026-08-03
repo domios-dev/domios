@@ -267,8 +267,9 @@ export function useChatSession({
               tailSignature: tailSignatureOf(ev.payload.messages),
             };
             emitDiagnostic({ edge: "event_arrival", ...diagnosticBase });
+            const addressedToThisTab = ev.payload.tab_id === tabId;
             if (
-              ev.payload.tab_id !== tabId
+              !addressedToThisTab
               || !canAdoptTranscriptAuthority(
                 ev.payload,
                 agentSessionIdRef.current,
@@ -277,6 +278,9 @@ export function useChatSession({
               )
             ) {
               emitDiagnostic({ edge: "authority_drop", ...diagnosticBase });
+              // Another tab's delta says nothing about this tab's subscription,
+              // even when it carries a binding this tab once adopted.
+              if (!addressedToThisTab) return;
               const ownStream = adoptedBindingsRef.current.has(bindingKey(
                 ev.payload.source_session_id,
                 ev.payload.session_binding_nonce,
