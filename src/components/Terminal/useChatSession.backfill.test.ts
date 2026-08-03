@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Terminal/useChatSession.backfill.test.ts
 // Bounded "Show older" backfill: cursor from chat_start.start_offset, paged
 // chat_backfill fetches, ordering at the page/snapshot boundary, own-session
-// authority, and the ~220-item DOM window with slide/show-latest.
+// authority, and bounded detached history with an always-present live tail.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -38,7 +38,6 @@ interface HookView {
   allMessages: NormalizedChatMessage[];
   enrichedCount: number;
   hiddenOlder: number;
-  hiddenNewer: number;
   canBackfillOlder: boolean;
   backfillLoading: boolean;
   loadOlder: () => Promise<void> | void;
@@ -109,7 +108,6 @@ async function main(): Promise<void> {
       allMessages: session.allMessages,
       enrichedCount: session.enrichedMessages.length,
       hiddenOlder: session.hiddenMessageCount,
-      hiddenNewer: session.hiddenNewerCount,
       canBackfillOlder: session.canBackfillOlder,
       backfillLoading: session.backfillLoading,
       loadOlder: session.loadOlder,
@@ -205,7 +203,7 @@ async function main(): Promise<void> {
   await act(async () => root.unmount());
   host.remove();
 
-  // --- windowing: DOM stays bounded and show-latest returns to the tail ---
+  // --- detached history remains bounded while the newest tail stays projected ---
   {
     state.snapshot = Array.from({ length: 300 }, (_, i) => msg(`b-${i}`, `bulk-${i}`, 30_000 + i, i));
     state.startOffset = 0;
@@ -217,26 +215,28 @@ async function main(): Promise<void> {
       root2.render(createElement(Harness));
     });
     await flush();
+    await act(async () => v().showLatest());
+    await flush();
 
+    const loadedMessageCount = v().allMessages.length;
     assert(v().enrichedCount <= CHAT_WINDOW_SIZE, `DOM window stays bounded (${v().enrichedCount})`);
-    assert(v().hiddenOlder === 300 - CHAT_WINDOW_SIZE, "older items beyond the window are hidden, not rendered");
-    assert(v().hiddenNewer === 0, "follow mode hides nothing newer");
+    assert(v().hiddenOlder === loadedMessageCount - CHAT_WINDOW_SIZE, "older loaded items beyond the window are hidden, not rendered");
 
     await act(async () => {
       void v().loadOlder();
     });
     await flush();
     assert((state.backfillCalls.length as number) === 0, "local hidden items slide without a backfill request");
-    assert(v().hiddenNewer > 0, "sliding back leaves newer items outside the window");
-    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, "window size holds after sliding");
-    assert(v().allMessages.length === 300, "sliding never drops data, only DOM");
+    assert(v().enrichedCount <= CHAT_WINDOW_SIZE * 2, "reading and tail windows remain bounded");
+    assert(v().enrichedCount === loadedMessageCount, "detached projection still contains the newest tail");
+    assert(v().allMessages.length === loadedMessageCount, "sliding never drops data, only DOM");
 
     await act(async () => {
       v().showLatest();
     });
     await flush();
-    assert(v().hiddenNewer === 0, "show-latest returns to the tail");
-    assert(v().hiddenOlder === 300 - CHAT_WINDOW_SIZE, "tail window hides older items again");
+    assert(v().enrichedCount === CHAT_WINDOW_SIZE, "show-latest collapses to the bounded tail");
+    assert(v().hiddenOlder === loadedMessageCount - CHAT_WINDOW_SIZE, "tail window hides older items again");
 
     await act(async () => root2.unmount());
     host2.remove();

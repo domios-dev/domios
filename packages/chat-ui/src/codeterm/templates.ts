@@ -394,7 +394,7 @@ export interface SentMessage {
   recipient: string;
   mesh?: string;
   body: string;
-  bodySource: "resolved" | "typed";
+  bodySource: "resolved" | "typed" | "pad";
   status?: CardStatus;
 }
 
@@ -413,16 +413,19 @@ export function parseSend(
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
   const resolved = resolvedSendText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");
+  const fromPad = inv.flags["from-pad"];
   return {
     recipient,
     mesh,
     body: resolved || typed || sendBodyDescriptor(inv),
-    bodySource: resolved == null ? "typed" : "resolved",
+    bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
     status: deliveredStatus(result),
   };
 }
 
 function sendBodyDescriptor(inv: CodetermInvocation): string {
+  const fromPad = inv.flags["from-pad"];
+  if (typeof fromPad === "string") return `AgentPad payload: ${fromPad}`;
   const fromFile = inv.flags["from-file"];
   if (typeof fromFile === "string") return `Message sent from file: ${fromFile}`;
   if (inv.flags.stdin === true) return "Message sent from standard input.";

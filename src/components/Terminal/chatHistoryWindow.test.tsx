@@ -10,6 +10,7 @@ import { Window } from "happy-dom";
 import {
   CHAT_RETAINED_MESSAGE_LIMIT,
   CHAT_WINDOW_SIZE,
+  chatWindowProjection,
   chatWindowRange,
   getCachedChatHistoryWindow,
   mergeRetainedChatLive,
@@ -99,10 +100,15 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
   const [history, setHistory] = useState(() => cached?.history ?? retainChatSnapshotTail(durableTranscript));
   const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(cached?.anchorKey ?? null);
   const followTailRef = useRef(cached == null);
+  const detachedReadingItemsRef = useRef<TimelineItem[]>([]);
   const pendingRevealRef = useRef(false);
   const timeline = useMemo(() => reduceToolEvents(history.messages), [history.messages]);
   const range = useMemo(() => chatWindowRange(timeline, windowAnchorKey), [timeline, windowAnchorKey]);
-  const visible = timeline.slice(range.start, range.end);
+  const visible = useMemo(() => {
+    const projection = chatWindowProjection(timeline, windowAnchorKey, detachedReadingItemsRef.current);
+    detachedReadingItemsRef.current = projection.readingItems;
+    return projection.items;
+  }, [timeline, windowAnchorKey]);
 
   const handleModeChange = useCallback((mode: "pinned" | "detached") => {
     if (mode === "pinned") {
@@ -300,8 +306,8 @@ async function main(): Promise<void> {
     view().append(Array.from({ length: 500 }, (_, index) => message(1_001 + index)));
   });
   assert(
-    document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId !== detachedFirstId,
-    "detached capacity pressure evicts only the oldest top rows",
+    document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId === detachedFirstId,
+    "detached capacity pressure preserves the stable reading projection",
   );
   assert(
     view().history.messages.length <= CHAT_RETAINED_MESSAGE_LIMIT,
@@ -312,11 +318,16 @@ async function main(): Promise<void> {
     "detached arrivals always retain the newest live tail",
   );
 
-  const streamingNode = document.querySelector<HTMLElement>("[data-message-id]");
+  const streamingMessage = view().history.messages.find((item) => (
+    item.type === "assistant" && document.querySelector(`[data-message-id="${item.id}"]`)
+  ));
+  const streamingNode = streamingMessage
+    ? document.querySelector<HTMLElement>(`[data-message-id="${streamingMessage.id}"]`)
+    : null;
   assert(streamingNode, "bounded detached window keeps visible tail rows");
   const streamingId = streamingNode.dataset.messageId!;
   const streamed = {
-    ...view().history.messages.find((item) => item.id === streamingId)!,
+    ...streamingMessage!,
     content: "streamed replacement",
   };
   await act(async () => view().append([streamed]));
@@ -339,8 +350,8 @@ async function main(): Promise<void> {
     "older refill never evicts the newest live tail",
   );
   assert(
-    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE,
-    "older refill respects the rendered hard bound",
+    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE * 2,
+    "older refill keeps bounded reading and live-tail windows",
   );
   const refilledAnchor = document.querySelector<HTMLElement>(`[data-message-id="${refillId}"]`);
   assert(refilledAnchor, "older refill preserves the previously visible row");
@@ -360,8 +371,8 @@ async function main(): Promise<void> {
     "remount restores the bounded detached history window",
   );
   assert(
-    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE,
-    "remount preserves the rendered hard bound",
+    document.querySelectorAll("[data-message-id]").length <= CHAT_WINDOW_SIZE * 2,
+    "remount preserves bounded reading and live-tail windows",
   );
   await act(async () => remounted.root.unmount());
   remounted.host.remove();

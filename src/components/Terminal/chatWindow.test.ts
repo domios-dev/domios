@@ -3,6 +3,7 @@ import {
   CHAT_WINDOW_SIZE,
   CHAT_WINDOW_STEP,
   chatWindowRange,
+  chatWindowProjection,
   slideChatWindowOlder,
   timelineItemKey,
 } from "./chatWindow";
@@ -27,7 +28,7 @@ function items(count: number, offset = 0): TimelineItem[] {
   assert(small.start === 0 && small.end === 10, "short transcript shows everything");
 }
 
-// --- an anchored window does not move when items append at the tail ---
+// --- an anchored reading window stays stable while projection always includes the live tail ---
 {
   const list = items(500);
   const anchor = timelineItemKey(list[299]);
@@ -36,6 +37,23 @@ function items(count: number, offset = 0): TimelineItem[] {
   const after = chatWindowRange(appended, anchor);
   assert(before.start === after.start && before.end === after.end, "appends never move an anchored window");
   assert(after.end === 300, "anchor names the last visible item");
+  const projection = chatWindowProjection(appended, anchor);
+  assert(projection.items.length === CHAT_WINDOW_SIZE * 2, "detached projection keeps reading and tail windows bounded");
+  assert(timelineItemKey(projection.items[219]) === anchor, "reading window remains intact");
+  assert(timelineItemKey(projection.items.at(-1)!) === "m-549", "newest tail is always projected");
+
+  const replaced = items(550, 1_000);
+  const recovered = chatWindowProjection(replaced, anchor, projection.readingItems);
+  assert(timelineItemKey(recovered.items[219]) === anchor, "vanished source anchor keeps the cached reading window");
+  assert(timelineItemKey(recovered.items.at(-1)!) === "m-1549", "cached reading never blocks the current tail");
+}
+
+// --- overlapping reading and tail windows merge without duplicate rows ---
+{
+  const list = items(300);
+  const projection = chatWindowProjection(list, timelineItemKey(list[199]));
+  assert(projection.items.length === 300, "overlapping windows deduplicate rows");
+  assert(timelineItemKey(projection.items[0]) === "m-0" && timelineItemKey(projection.items.at(-1)!) === "m-299", "merged projection includes history and newest tail");
 }
 
 // --- prepends shift an anchored window intact (same content) ---

@@ -51,6 +51,8 @@ const TASK = "task_" + "b".repeat(32);
   assert(fromFile.body.length > 0 && fromFile.body.includes("update.md") && fromFile.recipient === "tab bda" && fromFile.status?.ok === true, "from-file send has a delivered body descriptor");
   const stdin = parseSend(inv(`codeterm send --tab bda --stdin`), "OK (sent)", undefined);
   assert(stdin.body.length > 0 && stdin.recipient === "tab bda" && stdin.status?.ok === true, "stdin send has a delivered body descriptor");
+  const fromPad = parseSend(inv(`codeterm send --tab bda --from-pad message.md`), "OK (sent)", undefined);
+  assert(fromPad.body === "AgentPad payload: message.md" && fromPad.bodySource === "pad", "AgentPad send is identified without exposing its runtime path");
   const regression = parseSend(inv(`codeterm send --tab bda`), "OK (sent)", undefined);
   assert(regression.body.length > 0 && regression.recipient === "tab bda" && regression.status?.ok === true, "delivered send without body sources has a non-empty descriptor");
   const fail = parseSend(inv(`codeterm send --tab bda "x"`), "error: Tab not found", undefined);
