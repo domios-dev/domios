@@ -211,7 +211,11 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
     await flushAsyncWork();
   });
 
-  assert(fullCalls === 2, `sidebar refetches after canvas release (got ${fullCalls})`);
+  const callsAfterCanvasRelease: number = fullCalls;
+  assert(
+    callsAfterCanvasRelease === 2,
+    `sidebar refetches after canvas release (got ${fullCalls})`,
+  );
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
     "sidebar retains the full plan body after canvas release",
