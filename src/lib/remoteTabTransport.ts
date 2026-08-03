@@ -4,6 +4,7 @@ import { daemonAuthToken, daemonHttpBase } from "./webApi";
 export interface RemoteTransportCall {
   ordinaryTabId: string;
   peerId: string;
+  remoteTabId: string;
   method: string;
   suffix: string;
   body: unknown;
