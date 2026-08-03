@@ -212,6 +212,7 @@ export interface Tab {
   remote_peer_name?: string;
   remote_tab_id?: string;
   remote_availability?: "available" | "reconnecting" | "unavailable";
+  remote_channels?: Partial<Record<"control" | "output" | "chat", "available" | "reconnecting" | "unavailable">>;
   ownership?: RemoteOwnership;
 }
 

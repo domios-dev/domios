@@ -17,8 +17,8 @@ describe("remote tab transport adapter", () => {
   it("maps chat lifecycle and real resize ownership to exact remote REST bodies", () => {
     const start = remoteTransportCall("chat_start", { tabId: "mesh:peer/shared", subscriptionId: "sub-1" });
     const stop = remoteTransportCall("chat_stop", { tabId: "mesh:peer/shared", subscriptionId: "sub-1" });
-    expect(start?.body).toEqual({ subscription_id: "sub-1" });
-    expect(stop?.body).toEqual({ subscription_id: "sub-1" });
+    expect(start?.body).toEqual({ subscriptionId: "sub-1" });
+    expect(stop?.body).toEqual({ subscriptionId: "sub-1" });
     const claim = remoteTransportCall("claim_resize_owner", {
       tabId: "mesh:peer/shared", ptyId: "mesh:peer/shared", clientId: "client-1", cols: 91, rows: 33,
     });

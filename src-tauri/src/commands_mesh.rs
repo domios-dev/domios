@@ -428,6 +428,45 @@ pub async fn ordinary_tabs_list(
 }
 
 #[tauri::command]
+pub async fn mesh_peer_tabs_list(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    peer_id: String,
+) -> Result<serde_json::Value, String> {
+    let (client, peer_name) = {
+        let manager = mesh.lock();
+        let peer = manager
+            .paired_peers
+            .get(&peer_id)
+            .ok_or_else(|| "Mesh peer not found".to_string())?;
+        if !peer.online {
+            return Err("Mesh peer is offline".into());
+        }
+        (
+            manager
+                .client_for(&peer_id)
+                .ok_or_else(|| "Mesh peer is unavailable".to_string())?,
+            peer.instance_name.clone(),
+        )
+    };
+    let response = client
+        .send_relay(&crate::mesh::types::RelayCommand {
+            method: "GET".into(),
+            path: "/api/tabs?all_workspaces=true&local_only=true".into(),
+            body: serde_json::Value::Null,
+            delivery_id: None,
+        })
+        .await?;
+    if !response.ok {
+        return Err(response.error.unwrap_or_else(|| "Failed to list remote Tabs".into()));
+    }
+    Ok(serde_json::json!({
+        "peer_id": peer_id,
+        "peer_name": peer_name,
+        "tabs": response.data.unwrap_or_else(|| serde_json::json!([])),
+    }))
+}
+
+#[tauri::command]
 pub async fn mesh_remote_tab_action(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     ordinary_tab_id: String,
