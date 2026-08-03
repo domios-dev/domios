@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ FIXTURES = ROOT / "scripts" / "fixtures" / "release-issue-contract"
 class ReleaseIssueContractTest(unittest.TestCase):
     def run_contract(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            ["python", str(SCRIPT), *args],
+            [sys.executable, str(SCRIPT), *args],
             cwd=ROOT,
             text=True,
             capture_output=True,

@@ -37,7 +37,7 @@ jobs:
               "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
             mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
           done
-          python scripts/release_issue_contract.py resolve \
+          python3 scripts/release_issue_contract.py resolve \
             --commits-file "$RUNNER_TEMP/release-commits.json" \
             --prs-file "$RUNNER_TEMP/release-prs.json" \
             > "$RUNNER_TEMP/resolved-public-issues.json"
