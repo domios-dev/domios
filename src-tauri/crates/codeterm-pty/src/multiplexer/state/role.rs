@@ -220,6 +220,25 @@ impl MultiplexerState {
         }
     }
 
+    /// Semantic Worker identity for a cross-mesh tab whose hierarchy lives on
+    /// the origin: Worker role and leaf capability, no target-local parent.
+    pub fn set_detached_worker_role(
+        &mut self,
+        tab_id: &str,
+        role_profile: Option<&str>,
+    ) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or(format!("Tab {} not found", tab_id))?;
+        tab.role = Some(AgentRole::Worker);
+        tab.role_profile = role_profile.map(str::to_string);
+        tab.parent_tab_id = None;
+        tab.can_spawn = false;
+        tab.depth = 2;
+        Ok(())
+    }
+
     /// Record the tab id of the caller that ran `agent spawn` for this tab.
     /// Independent of `parent_tab_id` — Orchestrators clear `parent_tab_id`
     /// but still need a route back to the agent that asked for them.
@@ -267,6 +286,27 @@ mod tests {
             .create_tab(&mux.list_workspaces()[0].id.clone())
             .unwrap();
         (mux, tab)
+    }
+
+    #[test]
+    fn detached_worker_role_needs_no_target_local_parent() {
+        let (mut mux, tab) = fresh();
+        let ownership = codeterm_types::pty::RemoteOwnership {
+            controller_title: "Puccini".into(),
+            controller_tab_id: Some("af5919cb".into()),
+            peer_id: "peer-mac".into(),
+            peer_name: "Mac-Air".into(),
+            team: None,
+        };
+        mux.get_tab_mut(&tab).unwrap().ownership = Some(ownership.clone());
+        mux.set_detached_worker_role(&tab, None)
+            .expect("detached Worker requires no local parent");
+        let p = mux.get_tab(&tab).unwrap();
+        assert_eq!(p.role, Some(AgentRole::Worker));
+        assert_eq!(p.parent_tab_id, None);
+        assert!(!p.can_spawn, "leaf Worker is not a manager");
+        assert_eq!(p.depth, 2);
+        assert_eq!(p.ownership, Some(ownership));
     }
 
     #[test]

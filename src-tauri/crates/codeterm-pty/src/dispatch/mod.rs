@@ -455,6 +455,7 @@ pub(crate) fn build_tab_summary_json(
                 "status": tab.agent_state.as_ref().map(|state| state.state),
                 "role": tab.role,
                 "role_profile": tab.role_profile,
+                "ownership": tab.ownership,
                 "chat_view": tab.chat_view,
                 "backing": tab.backing,
                 "backing_kind": backing_kind,

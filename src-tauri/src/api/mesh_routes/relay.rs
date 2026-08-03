@@ -171,6 +171,7 @@ fn tag_relay_spawn_source(
     body: &mut serde_json::Value,
     method: &str,
     path: &str,
+    sender_id: &str,
     sender_name: &str,
 ) {
     let bare = path.split('?').next().unwrap_or(path);
@@ -179,8 +180,54 @@ fn tag_relay_spawn_source(
     }
     if let Some(obj) = body.as_object_mut() {
         obj.insert("origin_peer".into(), serde_json::json!(sender_name));
+        if let Some(ownership) = obj.get_mut("ownership").and_then(|v| v.as_object_mut()) {
+            ownership.insert("peer_id".into(), serde_json::json!(sender_id));
+            ownership.insert("peer_name".into(), serde_json::json!(sender_name));
+        }
         sanitize_cross_peer_parent(obj);
     }
+}
+
+/// Origin relay-out: attach controller/origin-Team ownership from the local
+/// caller tab; the target boundary stamps peer identity from the signed sender.
+fn enrich_spawn_ownership(
+    state: &AppState,
+    method: &str,
+    path: &str,
+    body: &mut serde_json::Value,
+) {
+    let bare = path.split('?').next().unwrap_or(path);
+    if !(bare == "/api/agents/spawn" && method.eq_ignore_ascii_case("POST")) {
+        return;
+    }
+    let Some(obj) = body.as_object_mut() else {
+        return;
+    };
+    let caller = obj
+        .get("spawned_by_tab_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let Some(caller) = caller else { return };
+    let mux = state.svc.mux.read();
+    let Some(tab) = mux.get_tab(&caller) else {
+        return;
+    };
+    let team = tab.team_id.as_ref().and_then(|team_id| {
+        mux.get_team(team_id)
+            .map(|team| serde_json::json!({ "id": team_id, "title": team.name }))
+    });
+    let mut ownership = serde_json::json!({
+        "controller_title": tab.title,
+        "controller_tab_id": caller,
+        "peer_id": "",
+        "peer_name": "",
+    });
+    if let Some(team) = team {
+        ownership["team"] = team;
+    }
+    obj.insert("ownership".into(), ownership);
 }
 
 fn sanitize_cross_peer_parent(obj: &mut serde_json::Map<String, serde_json::Value>) {
@@ -324,10 +371,12 @@ pub async fn mesh_relay_to_peer(
         (client, name)
     };
     let delivery_id = relay_send_delivery_id(&req.method, &req.path);
+    let mut relay_body = req.body;
+    enrich_spawn_ownership(&state, &req.method, &req.path, &mut relay_body);
     let cmd = crate::mesh::types::RelayCommand {
         method: req.method,
         path: req.path,
-        body: req.body,
+        body: relay_body,
         delivery_id,
     };
     let resp = client
@@ -523,7 +572,7 @@ async fn perform_relay(
 
     let mut body = cmd.body.clone();
     tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
-    tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, &sender_name);
+    tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, sender_id, &sender_name);
 
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request().map_err(|e| {

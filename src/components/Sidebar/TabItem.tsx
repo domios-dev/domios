@@ -11,7 +11,7 @@ import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { remoteOwnership, remoteOwnershipSubtitle } from "./remoteOwnership";
+import { managedByLabel, ownershipSubtitle } from "./remoteOwnership";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
@@ -95,8 +95,7 @@ function TabWorkingActivity() {
 }
 
 export function remoteTabSubtitle(tab: Tab, roleShield: string | null): string | null {
-  const ownership = remoteOwnership(tab);
-  return ownership ? remoteOwnershipSubtitle(ownership) : roleShield;
+  return ownershipSubtitle(tab) ?? roleShield;
 }
 
 function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; generalAgent: boolean }) {
@@ -152,7 +151,7 @@ function TabItemInner({
   const isGeneralAgent = tab.machine_agent_identity === "general_agent";
   const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
   const roleShield = isGeneralAgent ? "General Agent" : roleShieldLabel(tab);
-  const ownership = remoteOwnership(tab);
+  const managedBy = managedByLabel(tab);
   const subtitle = remoteTabSubtitle(tab, roleShield);
   const isSubTab =
     tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
@@ -310,7 +309,7 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
-        aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${ownership ? `, ${ownership.managedByLabel}` : ""}`}
+        aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
@@ -481,7 +480,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.machine_agent_identity === np.machine_agent_identity &&
     pp.role === np.role &&
     pp.remote_availability === np.remote_availability &&
-    pp.remote_controller_title === np.remote_controller_title &&
+    pp.ownership?.controller_title === np.ownership?.controller_title &&
+    pp.ownership?.team?.id === np.ownership?.team?.id &&
     pp.remote_peer_name === np.remote_peer_name &&
     pp.chat_view === np.chat_view &&
     pp.pending_prompt === np.pending_prompt &&
