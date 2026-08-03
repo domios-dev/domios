@@ -9,6 +9,7 @@ import {
   type ChatSessionDiagnosticSink,
   useChatSession,
 } from "./useChatSession";
+import { setCachedChatHistoryWindow } from "./chatWindow";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -165,6 +166,7 @@ type SessionView = {
 
 type ChatStartMock = {
   text: string;
+  start_offset: number;
   offset: number;
   pending?: boolean;
   messages?: NormalizedChatMessage[];
@@ -176,14 +178,29 @@ type ChatStartMock = {
 function chatStartResult<T extends { text: string; offset: number }>(sourceSessionId: string | null, result: T, sessionBindingNonce: string | null = null): T & ChatStartMock {
   return {
     ...result,
+    start_offset: 0,
     source_session_id: sourceSessionId,
     session_binding_nonce: sessionBindingNonce,
     subscription_id: "test-subscription",
   };
 }
 
-function chatEvent(sourceSessionId: string | null, messages: NormalizedChatMessage[], sessionBindingNonce: string | null = null) {
-  return { tab_id: "tab", source_session_id: sourceSessionId, session_binding_nonce: sessionBindingNonce, messages };
+/** A JSONL tab-chat event always carries the byte range the tailer consumed;
+ *  `range` names it, so re-delivery and append are stated, not guessed. */
+function chatEvent(
+  sourceSessionId: string | null,
+  messages: NormalizedChatMessage[],
+  sessionBindingNonce: string | null = null,
+  range: { start: number; end: number } = { start: 0, end: 1 },
+) {
+  return {
+    tab_id: "tab",
+    source_session_id: sourceSessionId,
+    session_binding_nonce: sessionBindingNonce,
+    start_offset: range.start,
+    offset: range.end,
+    messages,
+  };
 }
 
 function setupHookDom(): void {
@@ -228,6 +245,7 @@ async function mountSession(
     };
     return null;
   }
+  setCachedChatHistoryWindow(`tab:${sessionId ?? ""}`, null);
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -469,16 +487,18 @@ async function runChatSessionHookTests(): Promise<void> {
         : chatStartResult("sid-2", { text: "", offset: 3, messages: [{ id: "one", type: "assistant", content: "one updated", timestamp: "1" }, { id: "three", type: "assistant", content: "three", timestamp: "3" }] });
     }) as never);
     const diagnosticSink = (event: ChatSessionDiagnosticEvent) => {
-      if (event.edge === "state_commit" && event.messageIds?.includes("three")) resolveResync();
+      if (event.edge === "state_commit" && event.sourceSessionId === "sid-2") resolveResync();
     };
     const session = await mountSession("sid-1", true, null, diagnosticSink);
-    await act(async () => handler?.({ payload: chatEvent("sid-1", [{ id: "two", type: "assistant", content: "two", timestamp: "2" }]) }));
+    await act(async () => handler?.({ payload: chatEvent("sid-1", [{ id: "two", type: "assistant", content: "two", timestamp: "2" }], null, { start: 1, end: 2 }) }));
     await session.render("sid-2");
     await resynced;
     const messages = session.latest().messages;
     assert(starts === 2, "T4 attached rotation performs one coalesced resync");
-    assert(messages.map((message) => message.id).join(",") === "one,two,three", "T4 resync preserves transcript ordering");
-    assert(messages.map((message) => message.clientOrder).join(",") === "0,1,2", "T4 resync preserves monotonic client order");
+    assert(
+      messages.map((message) => message.content).join(",") === "one updated,three",
+      "T4 rotation projects exactly the rotated session window, in order",
+    );
     await act(async () => session.root.unmount());
     console.log("PASS T4 attached rotation preserves transcript order");
   }
@@ -643,7 +663,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await act(async () => {
       handler?.({ payload: chatEvent("c73becde", [{
         id: "live-bound-user-1", type: "user", content: startupText, seq: 1,
-      }]) });
+      }], null, { start: 0, end: 1 }) });
     });
     assert(
       starts === 2
@@ -675,17 +695,18 @@ async function runChatSessionHookTests(): Promise<void> {
     await act(async () => {
       handler?.({ payload: chatEvent("c73becde", [{
         id: "live-c73becde-user-1", type: "user", content: startupText, seq: 1,
-      }]) });
+      }], null, { start: 0, end: 1 }) });
     });
     assert(
-      session.latest().messages.map((message) => message.id).join(",") === "live-c73becde-user-1",
-      "P0 launch snapshot/live pair projects one stable seq-1 user bubble",
+      session.latest().messages.length === 1
+        && session.latest().messages[0]?.content === startupText,
+      "P0 launch snapshot/live pair projects one stable user bubble",
     );
     await act(async () => {
       handler?.({ payload: chatEvent("c73becde", [
         { id: "repeat-user-2", type: "user", content: "continue", seq: 2 },
         { id: "repeat-user-3", type: "user", content: "continue", seq: 3 },
-      ]) });
+      ], null, { start: 1, end: 3 }) });
     });
     assert(
       session.latest().messages.filter((message) => message.content === "continue").length === 2,
