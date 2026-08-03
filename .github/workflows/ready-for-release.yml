@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Parse and verify public issues
         env:
@@ -21,8 +23,26 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
-          python scripts/release_issue_contract.py parse \
-            --body-file "$RUNNER_TEMP/pr-body.md" > "$RUNNER_TEMP/public-issues.txt"
+          jq -n --argjson number '${{ github.event.pull_request.number }}' \
+            --arg url '${{ github.event.pull_request.html_url }}' \
+            --rawfile body "$RUNNER_TEMP/pr-body.md" \
+            '[{number: $number, url: $url, body: $body}]' > "$RUNNER_TEMP/release-prs.json"
+          printf '[]' > "$RUNNER_TEMP/release-commits.json"
+          for sha in $(git rev-list '${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}'); do
+            git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
+            jq --arg sha "$sha" \
+              --arg url "https://github.com/${GITHUB_REPOSITORY}/commit/$sha" \
+              --rawfile body "$RUNNER_TEMP/commit-body.txt" \
+              '. + [{sha: $sha, url: $url, body: $body}]' \
+              "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
+            mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
+          done
+          python scripts/release_issue_contract.py resolve \
+            --commits-file "$RUNNER_TEMP/release-commits.json" \
+            --prs-file "$RUNNER_TEMP/release-prs.json" \
+            > "$RUNNER_TEMP/resolved-public-issues.json"
+          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            > "$RUNNER_TEMP/public-issues.txt"
 
           {
             echo "## Public issue contract"

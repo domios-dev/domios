@@ -229,24 +229,26 @@ gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 
 ## Public issue closure contract
 
-A private-source PR declares a public issue only with an exact, repository-qualified metadata
-line:
+A private-source PR or commit declares a public issue only with an exact,
+repository-qualified metadata line:
 
 ```text
 Public-Issue: rollacode/codeterm-releases#123
 ```
 
-Use one line per issue. Duplicates, malformed or wrong-repository metadata, prose `#123`
-references, and GitHub closing keywords fail PR validation. The validator uses
+Use one line per issue. In PR bodies, duplicates, malformed or wrong-repository metadata, prose
+`#123` references, and GitHub closing keywords fail validation. Commit messages ignore incidental
+issue prose but reject malformed `Public-Issue:` metadata. The validator uses
 `GH_RELEASE_TOKEN` to prove every declared issue exists in `rollacode/codeterm-releases` and
 prints the normalized set in the check summary. This metadata is deliberately not a GitHub
-closing keyword, so merging the private PR cannot close a public issue.
+closing keyword, so merging private source cannot close a public issue prematurely.
 
 After publishing, `release.yml` independently verifies that the private and matching public
 releases are published, that the mirror has `latest.json`, and that every version-pinned public
-updater asset URL resolves. Only then does it resolve the private PRs in the release range, union their
-validated metadata, and close still-open public issues. Each close comment names `vX.Y.Z` and the
-declaring private PR URL. Already-closed issues are skipped, making reruns idempotent.
+updater asset URL resolves. Only then does it resolve commits and associated private PRs in the
+release range, union their validated metadata, and close still-open public issues. Each close
+comment names `vX.Y.Z` and a declaring commit or private PR URL. Already-closed issues are skipped,
+making reruns idempotent.
 
 The close step is downstream of build, private/public publication, and mirror verification.
 Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
@@ -298,4 +300,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
