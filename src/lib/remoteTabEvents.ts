@@ -1,5 +1,15 @@
+import { createRemoteChannelRecovery, type RemoteChannelRecovery, type StreamEndReason } from "./remoteChannelRecovery";
 import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
+
+interface ChatCursor {
+  boot: string;
+  seq: number;
+}
+
+// Forward progress = new boot generation or higher seq; replayed frames dedup.
+const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean =>
+  prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 
 interface SubscriptionRecord {
   event: string;
@@ -8,21 +18,18 @@ interface SubscriptionRecord {
   remoteTabId: string;
   handler: (value: { payload: unknown }) => void;
   controller: AbortController | null;
-  cursor: string | null;
-  generation: number;
-  recoveryAvailable: boolean;
+  recovery: RemoteChannelRecovery<ChatCursor>;
   disposed: boolean;
   settlements: Map<number, { promise: Promise<void>; resolve: () => void }>;
 }
 
 const subscriptions = new Map<string, SubscriptionRecord>();
 
-function connect(record: SubscriptionRecord, resetRecovery = false): void {
+function connect(record: SubscriptionRecord): void {
   if (record.disposed) return;
-  if (resetRecovery) record.recoveryAvailable = true;
   record.controller?.abort();
   const controller = new AbortController();
-  const generation = ++record.generation;
+  const generation = record.recovery.beginConnection();
   let settle!: () => void;
   const settlement = new Promise<void>((resolve) => { settle = resolve; });
   record.settlements.set(generation, { promise: settlement, resolve: settle });
@@ -32,8 +39,10 @@ function connect(record: SubscriptionRecord, resetRecovery = false): void {
     path: "/api/events/stream",
     tab: record.ordinaryTabId,
   });
-  if (record.cursor) params.set("since", record.cursor);
+  const cursor = record.recovery.currentCursor();
+  if (cursor) params.set("since", `${cursor.boot}:${cursor.seq}`);
   const { base, token } = remoteTabTransportHttp();
+  let reason: StreamEndReason = "eof";
   void fetch(`${base}/api/mesh/relay-stream?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: controller.signal,
@@ -42,7 +51,7 @@ function connect(record: SubscriptionRecord, resetRecovery = false): void {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    while (!controller.signal.aborted && generation === record.generation) {
+    while (!controller.signal.aborted && record.recovery.isCurrent(generation)) {
       const chunk = await reader.read();
       if (chunk.done) break;
       buffer += decoder.decode(chunk.value, { stream: true });
@@ -55,8 +64,11 @@ function connect(record: SubscriptionRecord, resetRecovery = false): void {
           const message = JSON.parse(data.slice(5).trim()) as {
             event_type?: string; data?: Record<string, unknown>; boot?: string; seq?: number;
           };
-          if (message.boot && typeof message.seq === "number") record.cursor = `${message.boot}:${message.seq}`;
-          if (message.event_type === `tab-chat-msg-${record.remoteTabId}` && message.data) {
+          let progressed = true;
+          if (message.boot && typeof message.seq === "number") {
+            progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
+          }
+          if (progressed && message.event_type === `tab-chat-msg-${record.remoteTabId}` && message.data) {
             publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
           }
@@ -64,21 +76,16 @@ function connect(record: SubscriptionRecord, resetRecovery = false): void {
         boundary = buffer.indexOf("\n\n");
       }
     }
-  }).catch(() => undefined).finally(() => {
-    const ownsGeneration = generation === record.generation;
+  }).catch(() => { reason = "error"; }).finally(() => {
+    const ownsGeneration = generation === record.recovery.generation();
     if (ownsGeneration) record.controller = null;
     const settled = record.settlements.get(generation);
     record.settlements.delete(generation);
     settled?.resolve();
-    if (!controller.signal.aborted && ownsGeneration && !record.disposed) {
-      if (record.recoveryAvailable) {
-        record.recoveryAvailable = false;
-        publishRemoteTransportState(record.ordinaryTabId, "chat", "reconnecting");
-        connect(record);
-      } else {
-        publishRemoteTransportState(record.ordinaryTabId, "chat", "unavailable");
-      }
-    }
+    if (controller.signal.aborted) return;
+    const decision = record.recovery.handleStreamEnd(generation, reason);
+    if (decision === "reconnect") connect(record);
+    else if (decision === "wait") publishRemoteTransportState(record.ordinaryTabId, "chat", "reconnecting");
   });
 }
 
@@ -102,9 +109,7 @@ export function subscribeRemoteTabEvent<T>(
     remoteTabId: identity.remoteTabId,
     handler: handler as (value: { payload: unknown }) => void,
     controller: null,
-    cursor: null,
-    generation: 0,
-    recoveryAvailable: true,
+    recovery: createRemoteChannelRecovery<ChatCursor>({ channel: "chat", advanced: chatCursorAdvanced }),
     disposed: false,
     settlements: new Map(),
   };
@@ -112,25 +117,31 @@ export function subscribeRemoteTabEvent<T>(
   connect(record);
   return () => {
     record.disposed = true;
+    record.recovery.dispose();
     record.controller?.abort();
     if (subscriptions.get(event) === record) subscriptions.delete(event);
   };
 }
 
 export function resumeRemoteTabEvents(): void {
-  for (const record of subscriptions.values()) connect(record, true);
+  for (const record of subscriptions.values()) {
+    record.recovery.signal();
+    connect(record);
+  }
 }
 
 export function remoteTabEventSubscriptionSnapshot(event: string): {
   cursor: string | null; generation: number; disposed: boolean; hasController: boolean;
 } | null {
   const record = subscriptions.get(event);
-  return record ? {
-    cursor: record.cursor,
-    generation: record.generation,
+  if (!record) return null;
+  const cursor = record.recovery.currentCursor();
+  return {
+    cursor: cursor ? `${cursor.boot}:${cursor.seq}` : null,
+    generation: record.recovery.generation(),
     disposed: record.disposed,
     hasController: record.controller !== null,
-  } : null;
+  };
 }
 
 export function waitForRemoteTabEventGenerationSettlement(event: string, generation: number): Promise<void> {

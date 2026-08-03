@@ -28,6 +28,17 @@ describe("remote tab local component parity", () => {
     const typesSource = readFileSync(new URL("../../lib/types.ts", import.meta.url), "utf8");
     expect(typesSource).not.toContain(LEGACY_FIELD);
   });
+
+  it("gates 'Loading chat' on the chat channel only, never on PTY/output", () => {
+    const chatSource = readFileSync(new URL("./TabSessionChat.tsx", import.meta.url), "utf8");
+    // The chat loading gate reads the CHAT channel state.
+    expect(chatSource).toContain("remote_channels?.chat");
+    expect(chatSource).toContain("chatChannelLoading");
+    // It must never gate chat loading on the terminal (PTY/output/control) channels.
+    expect(chatSource).not.toContain("remoteTerminalUsable");
+    expect(chatSource).not.toContain("remote_channels?.output");
+    expect(chatSource).not.toContain("remote_channels?.control");
+  });
 });
 
 finish();
