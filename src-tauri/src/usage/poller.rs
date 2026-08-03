@@ -355,11 +355,19 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         }
         Err(e) => {
             let msg = e.to_string();
+            let failure_kind = match &e {
+                super::probe::ProbeError::FetchFailed(_) => UsageFailureKind::FetchError,
+                super::probe::ProbeError::NoQuotaFreeSource(_) => {
+                    UsageFailureKind::SourceUnavailable
+                }
+                super::probe::ProbeError::Internal(_) => UsageFailureKind::Internal,
+                super::probe::ProbeError::BinaryMissing(_) => UsageFailureKind::SourceUnavailable,
+            };
             let _ = inner.store.insert_failure_kind(
                 &key.provider,
                 key.account_id.as_deref(),
                 None,
-                UsageFailureKind::Timeout,
+                failure_kind,
                 &msg,
                 probe_command.as_deref(),
             );
