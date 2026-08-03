@@ -133,11 +133,8 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
             match profile {
                 Some("planner" | "Planner") => params.role_profile = Some("planner".into()),
                 Some("watcher" | "Watcher") => params.role_profile = Some("watcher".into()),
-                other => {
-                    return Err(format!(
-                        "Manager requires a known role_profile (planner|watcher), got {other:?}"
-                    ))
-                }
+                Some(other) => params.role_profile = Some(normalize_manager_profile(other)?),
+                None => return Err("Manager requires a named role_profile".into()),
             }
         }
         Some("Orchestrator" | "Conductor") => {
@@ -173,6 +170,18 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
         }
     }
     Ok(())
+}
+
+fn normalize_manager_profile(profile: &str) -> Result<String, String> {
+    let normalized = profile.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    if normalized.is_empty()
+        || !normalized
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return Err(format!("Invalid Manager role_profile '{profile}'"));
+    }
+    Ok(normalized)
 }
 
 fn json_u64(params: &serde_json::Value, key: &str) -> Option<u64> {

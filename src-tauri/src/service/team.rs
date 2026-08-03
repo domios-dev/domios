@@ -386,13 +386,14 @@ fn adopt_plan_for_team_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, TeamPlanError> {
-    authorize_team_mutation(mux, team_id, caller).map_err(|error| {
+    let TeamMutationCaller::AgentTab(caller_tab_id) = &caller;
+    authorize_team_mutation(mux, team_id, caller.clone()).map_err(|error| {
         TeamPlanError::Team(format!(
             "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
 Safe recovery: old-team member transfers ownership, then new owner adopts."
         ))
     })?;
-    let owner_tab_id = live_team_orchestrator(mux, team_id)?;
+    let owner_tab_id = team_plan_owner(mux, team_id, caller_tab_id)?;
     crate::service::agent_transition::transition_plan_to_orchestrator_core(
         mux,
         plan_store,
@@ -491,7 +492,11 @@ transfers ownership, then new owner adopts."
     }
 }
 
-fn live_team_orchestrator(mux: &MultiplexerState, team_id: &str) -> Result<String, TeamPlanError> {
+fn team_plan_owner(
+    mux: &MultiplexerState,
+    team_id: &str,
+    caller_tab_id: &str,
+) -> Result<String, TeamPlanError> {
     let mut orchestrators: Vec<_> = mux
         .snapshot()
         .tabs
@@ -502,13 +507,16 @@ fn live_team_orchestrator(mux: &MultiplexerState, team_id: &str) -> Result<Strin
         .map(|tab| tab.id.clone())
         .collect();
     orchestrators.sort();
+    if orchestrators.iter().any(|tab_id| tab_id == caller_tab_id) {
+        return Ok(caller_tab_id.into());
+    }
     match orchestrators.as_slice() {
         [tab_id] => Ok(tab_id.clone()),
         [] => Err(TeamPlanError::Team(format!(
             "Team {team_id} has no live Orchestrator"
         ))),
         _ => Err(TeamPlanError::Team(format!(
-            "Team {team_id} has multiple live Orchestrators; transfer to a specific tab instead"
+            "Team {team_id} has multiple live Orchestrators; an Orchestrator must adopt the plan"
         ))),
     }
 }
@@ -534,7 +542,19 @@ fn prepare_team_member_spawn(
     params: AddTeamMemberParams,
 ) -> Result<PreparedTeamMemberSpawn, String> {
     authorize_team_manager(mux, team_id, Some(caller_tab_id))?;
+    if !mux
+        .get_tab(caller_tab_id)
+        .is_some_and(|caller| caller.can_spawn)
+    {
+        return Err(format!(
+            "Caller tab {caller_tab_id} does not allow spawning Team members"
+        ));
+    }
     let (role, role_profile) = team_member_role(&params.role)?;
+    let workspace_id = mux
+        .find_workspace_for_tab(caller_tab_id)
+        .ok_or_else(|| format!("Caller tab {caller_tab_id} has no workspace"))?;
+    let parent_tab_id = (role != "Orchestrator").then(|| caller_tab_id.into());
     let task = params.task.filter(|task| !task.trim().is_empty());
     let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
         Some(role.as_str()),
@@ -548,10 +568,12 @@ fn prepare_team_member_spawn(
             title: params.title,
             role: Some(role),
             role_profile,
-            parent_tab_id: Some(caller_tab_id.into()),
+            parent_tab_id,
             task,
             starter_prompt,
             model: params.model,
+            workspace_id: Some(workspace_id),
+            report_target_tab_id: Some(caller_tab_id.into()),
             spawned_by_tab_id: Some(caller_tab_id.into()),
             ..Default::default()
         },
@@ -582,17 +604,25 @@ pub(crate) fn commit_team_member_spawn(
     expected_role: &str,
     expected_profile: &Option<String>,
 ) -> Result<AddTeamMemberResult, String> {
+    let expected_role = AgentRole::from_str_compat(expected_role)
+        .ok_or_else(|| format!("Unknown Team member role {expected_role}"))?;
+    let expected_parent = (expected_role != AgentRole::Orchestrator).then_some(caller_tab_id);
     let tab = mux
         .get_tab(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found after member spawn"))?;
-    let invalid_hierarchy = tab.parent_tab_id.as_deref() != Some(caller_tab_id)
-        || tab.team_id.as_deref() != Some(team_id)
-        || tab.role != AgentRole::from_str_compat(expected_role)
+    let invalid_hierarchy = tab.parent_tab_id.as_deref() != expected_parent
+        || (expected_role != AgentRole::Orchestrator && tab.team_id.as_deref() != Some(team_id))
+        || tab.role != Some(expected_role)
         || tab.role_profile != *expected_profile
         || mux.find_workspace_for_tab(tab_id) != mux.find_workspace_for_tab(caller_tab_id);
     if invalid_hierarchy {
         mux.close_tab(tab_id)?;
         return Err("Team member spawn did not preserve the manager hierarchy".into());
+    }
+    if expected_role == AgentRole::Orchestrator {
+        mux.get_tab_mut(tab_id)
+            .expect("Tab validated before Team assignment")
+            .team_id = Some(team_id.into());
     }
     let team = mux
         .get_team(team_id)
@@ -752,9 +782,10 @@ fn authorize_team_manager(
             "Caller tab {caller_tab_id} is not a member of Team {team_id}"
         ));
     }
-    let manager = caller.role == Some(AgentRole::Orchestrator)
-        || (caller.role == Some(AgentRole::Manager)
-            && caller.role_profile.as_deref() == Some("planner"));
+    let manager = matches!(
+        caller.role,
+        Some(AgentRole::Orchestrator | AgentRole::Manager)
+    );
     if !manager {
         return Err(format!(
             "Caller tab {caller_tab_id} is not authorized to manage Team {team_id}"

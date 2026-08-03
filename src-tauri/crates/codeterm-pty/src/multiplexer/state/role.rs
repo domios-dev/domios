@@ -127,13 +127,10 @@ impl MultiplexerState {
                         parent.depth,
                     )
                 };
-                let final_parent_depth = if parent_role == Some(AgentRole::Orchestrator) {
-                    if !parent_can_spawn {
-                        return Err("Parent does not allow spawning".to_string());
-                    }
+                let final_parent_depth = if parent_can_spawn {
                     parent_depth
                 } else {
-                    if parent_has_parent {
+                    if parent_role.is_some() || parent_has_parent {
                         return Err(
                             "Worker's parent is a leaf role; leaf roles cannot spawn workers"
                                 .to_string(),
@@ -212,11 +209,11 @@ impl MultiplexerState {
             return Err("Tab has no role".to_string());
         }
         match tab.role {
-            Some(AgentRole::Orchestrator) => {
+            Some(AgentRole::Orchestrator | AgentRole::Manager) => {
                 tab.can_spawn = can_spawn;
                 Ok(())
             }
-            _ => Err("Only Orchestrator can spawn children".to_string()),
+            _ => Err("Only managing roles can spawn children".to_string()),
         }
     }
 
@@ -452,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_set_can_spawn_true_is_rejected() {
+    fn manager_can_receive_explicit_spawn_capability() {
         let (mut mux, root) = fresh();
         mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
@@ -461,8 +458,16 @@ mod tests {
             .unwrap();
         mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
             .unwrap();
-        let err = mux.set_can_spawn(&manager, true).unwrap_err();
-        assert!(err.contains("Only Orchestrator"));
+        mux.set_can_spawn(&manager, true).unwrap();
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&manager))
+            .unwrap();
+        assert_eq!(
+            mux.get_tab(&worker).unwrap().parent_tab_id.as_deref(),
+            Some(manager.as_str())
+        );
     }
 
     #[test]
@@ -510,7 +515,7 @@ mod tests {
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
             .unwrap();
         let err = mux.set_can_spawn(&worker, true).unwrap_err();
-        assert!(err.contains("Only Orchestrator"));
+        assert!(err.contains("Only managing roles"));
     }
 
     #[test]

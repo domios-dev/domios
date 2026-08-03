@@ -159,21 +159,21 @@ fn spawn_agent_params_from_json_maps_plan_task() {
 }
 
 #[test]
-fn manager_requires_known_profile() {
+fn manager_requires_named_extensible_profile() {
     let missing = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Manager",
     }))
     .unwrap_err();
-    assert!(missing.contains("Manager requires a known role_profile"));
+    assert!(missing.contains("Manager requires a named role_profile"));
 
-    let unknown = SpawnAgentParams::from_json(&serde_json::json!({
+    let custom = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Manager",
-        "role_profile": "reviewer",
+        "role_profile": "Review Lead",
     }))
-    .unwrap_err();
-    assert!(unknown.contains("Manager requires a known role_profile"));
+    .unwrap();
+    assert_eq!(custom.role_profile.as_deref(), Some("review_lead"));
 }
 
 #[test]

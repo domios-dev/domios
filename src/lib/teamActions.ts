@@ -10,7 +10,7 @@ export interface TeamActions {
   onCloseTeam: (teamId: string, managerTabId: string) => Promise<void>;
 }
 
-export type TeamMemberRole = "planner" | "worker";
+export type TeamMemberRole = "orchestrator" | "planner" | "worker";
 
 type Invoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;
 
