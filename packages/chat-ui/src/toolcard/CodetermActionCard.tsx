@@ -1,6 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
-import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type TabNameResolver } from "../codeterm/templates";
+import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
@@ -21,6 +21,7 @@ interface Props {
   expanded: boolean;
   onToggle: () => void;
   resolveTabName?: TabNameResolver;
+  resolvePeerName?: PeerNameResolver;
   onFocusTab?: (tabRef: string) => void;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: PlanFocusKind) => ResolvedChatPlanRef | null;
@@ -109,6 +110,7 @@ export function CodetermActionCard({
   expanded,
   onToggle,
   resolveTabName,
+  resolvePeerName,
   onFocusTab,
   onOpenPlan,
   resolvePlanRef,
@@ -118,10 +120,10 @@ export function CodetermActionCard({
   onOpenSource,
 }: Props) {
   const inv = recognize(commandFor(event));
-  const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName) : undefined;
+  const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
   const sendSucceeded = sent?.status?.ok === true;
   const target = inv ? navigationTarget(inv, event.result) : null;
-  const descriptor = inv ? describeAction(inv, event.result, resolveTabName) : { lead: "codeterm", chips: [] };
+  const descriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName) : { lead: "codeterm", chips: [] };
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
   const canNavigate = target != null && (
     target.kind === "tab" ? Boolean(onFocusTab) :

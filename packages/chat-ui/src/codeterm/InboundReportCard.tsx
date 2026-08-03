@@ -8,6 +8,7 @@ import { decodeCliMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CoordinationReportCard } from "./CoordinationReportCard";
 import { parseCoordinationReport } from "./coordinationReport";
+import { formatCommunicationEndpoint } from "./templates";
 
 interface ReportField {
   label: string;
@@ -89,7 +90,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
   }
   const descriptor = parseInboundReport(message.content);
   const failed = /^(?:blocked|error|failed)$/i.test(descriptor.status ?? "");
-  const chips = [descriptor.status].filter((value): value is string => Boolean(value));
+  const chips = [descriptor.status, descriptor.sha].filter((value): value is string => Boolean(value));
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
   return (
@@ -99,7 +100,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       status={failed ? "error" : "success"}
       expanded={expanded}
       onToggle={onToggle}
-      title={`report · ${sender}`}
+      title={`Report from ${formatCommunicationEndpoint(sender)}`}
       summary={taskObject(descriptor.task)}
       visual={{ glyph: MessageSquareText, color: "var(--ct-magenta)", label: "report" }}
       chips={chips}

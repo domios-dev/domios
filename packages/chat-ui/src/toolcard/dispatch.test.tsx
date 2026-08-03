@@ -11,11 +11,11 @@ function tool(kind: ToolEventKind, detail = `${kind} detail`): ToolEvent {
 const expectedLabels: Record<ToolEventKind, string> = {
   command: "command",
   edit: "edit",
-  read: "read",
-  search: "search",
+  read: "Read",
+  search: "Search",
   task: "task",
   fetch: "fetch",
-  codeterm: "send",
+  codeterm: "Sent to",
   generic: "generic summary",
 };
 
@@ -46,6 +46,16 @@ await act(async () => focusButton.click());
 if (focusCalls.join() !== "e3fa0754") throw new Error("tab focus resolver did not fire");
 if (!resolverHost.textContent?.includes("Hugo")) throw new Error("tab-name resolver did not reach the CodetermActionCard");
 
+const searchHost = await render(
+  <ToolCallBubble event={tool("command", 'rg -n "needle" src')} expanded={false} onToggle={() => {}} />,
+);
+if (!searchHost.textContent?.includes("Search")) throw new Error("rg command did not use SearchCard");
+
+const readHost = await render(
+  <ToolCallBubble event={tool("command", "sed -n '1,80p' src/main.ts && tail -20 src/lib.ts")} expanded={false} onToggle={() => {}} />,
+);
+if (!readHost.textContent?.includes("Read") || !readHost.textContent.includes("main.ts, lib.ts")) throw new Error("read-only shell pipeline did not use a named ReadCard");
+
 const commandEvent = tool("command", "echo hidden");
 function ToggleProvider() {
   const [showCommands, setShowCommands] = useState(false);
@@ -67,4 +77,4 @@ if (!toggle) throw new Error("global toggle missing");
 await act(async () => toggle.click());
 if (globalHost.querySelectorAll('[data-testid="toolcard-command"]').length !== 2) throw new Error("global command toggle did not reveal all commands");
 
-console.log("tool card dispatch tests: 12 assertions passed");
+console.log("tool card dispatch tests: 14 assertions passed");

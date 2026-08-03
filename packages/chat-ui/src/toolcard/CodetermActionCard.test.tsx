@@ -52,6 +52,18 @@ const focusTab = sendHost.host.querySelector<HTMLButtonElement>('[data-testid="c
 if (!focusTab || focusTab.textContent !== "Show Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
 await act(async () => focusTab.click());
 if (focusCalls[0] !== "e3fa0754") throw new Error("tab focus callback regression");
+const meshId = "a35724e2-c7e3-486b-95d1-5edaa7f8d749";
+const meshSendHost = await render(
+  <CodetermActionCard
+    event={event(`codeterm send "hello" --tab 166df18d --mesh ${meshId}`)}
+    expanded={false}
+    onToggle={() => {}}
+    resolveTabName={(ref) => ref === "166df18d" ? "Dumas" : undefined}
+    resolvePeerName={(ref) => ref === meshId ? "BLACKSTAR" : undefined}
+  />,
+);
+const meshHeader = meshSendHost.host.querySelector("button")?.textContent ?? "";
+if (!meshHeader.includes("Sent to") || !meshHeader.includes("Dumas @ BLACKSTAR") || meshHeader.includes(meshId)) throw new Error("mesh send header must use human endpoint names");
 const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
 const contradictorySendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: 'Exit code: 2\nOK (sent)\nCODETERM_RESOLVED_TEXT="hello"' }} expanded onToggle={() => {}} />);
@@ -136,7 +148,7 @@ const descriptorCases: Array<[string, string]> = [
   ["codeterm plan task add pl_d17yp2 --name \"Implement card\"", "plan task"],
   ["codeterm plan record pl_d17yp2 --task task_4orgnd --step \"decision\"", "decision"],
   ["codeterm agent report --status in_review --sha abc123", "report"],
-  ["codeterm send --tab e3fa0754 \"hello\"", "send"],
+  ["codeterm send --tab e3fa0754 \"hello\"", "Sent to"],
   ["codeterm mem save --kind fact \"remember this\"", "mem save"],
   ["codeterm tab list", "tab list"],
   ["codeterm workspace focus ws_codeterm", "workspace"],
