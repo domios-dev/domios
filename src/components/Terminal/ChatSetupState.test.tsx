@@ -110,6 +110,15 @@ async function main() {
     assert(!host.textContent?.includes("SYSTEM REMINDER"), "raw failure detail is hidden");
   });
 
+  await test("missing provider art uses a contained diamond fallback", async () => {
+    const host = await render(
+      <ChatSetupState tab={tab("agent_launching")} view={chatSetupView(tab("agent_launching"))} providerName="Codex" providerIconHint="</>" />,
+    );
+    const glyph = host.querySelector(".chat-launch-glyph .agent-icon");
+    assert(glyph?.textContent === "◆", "fallback is a single diamond");
+    assert(glyph?.classList.contains("text-[18px]"), "fallback stays inside the launch ring");
+  });
+
   await test("ready removes the setup overlay in the transcript commit", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
