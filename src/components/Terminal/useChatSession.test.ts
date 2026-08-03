@@ -524,9 +524,9 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-1", false);
     await session.render("sid-1", true);
     assert(stops === 1 && starts === 2, "T5 visibility transition performs one stop/start pair");
-    assert(session.latest().messages[0]?.content === "kept", "T5 visibility transition retains transcript");
+    assert(session.latest().messages[0]?.content === "kept", "T5 visibility transition restores the authoritative snapshot");
     await act(async () => session.root.unmount());
-    console.log("PASS T5 visibility restart retains transcript");
+    console.log("PASS T5 visibility restart rebuilds the transcript");
   }
 
   {

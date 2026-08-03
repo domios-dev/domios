@@ -176,6 +176,9 @@ async function main(): Promise<void> {
     server.emit([msg("m2", "live-1", "2")]);
     await flush();
     assert(app.messages().some((m) => m.content === "live-1"), "live delta lands while active");
+    server.emit([msg("stale", "stale-cache-only", "3")]);
+    await flush();
+    assert(app.messages().some((m) => m.content === "stale-cache-only"), "stale fixture entered the prior epoch");
 
     await app.render(server.sessionId, false);
     assert(!server.tailing(), "hidden tab must not keep a subscription (no background tail)");
@@ -188,6 +191,10 @@ async function main(): Promise<void> {
     assert(
       app.messages().some((m) => m.content === "while-hidden"),
       "accumulated deltas render immediately from the reattach snapshot",
+    );
+    assert(
+      !app.messages().some((m) => m.content === "stale-cache-only"),
+      "reattach snapshot replaces the prior epoch instead of preserving stale cached tail",
     );
     server.emit([msg("m4", "live-2", "4")]);
     await flush();

@@ -34,9 +34,8 @@ export function chatWindowProjection(
   const readingItems = anchorIndex >= 0
     ? items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1)
     : cachedReadingItems.map((item) => currentItems.get(timelineItemKey(item)) ?? item);
-  const tailKeys = new Set(tail.map(timelineItemKey));
   return {
-    items: [...readingItems.filter((item) => !tailKeys.has(timelineItemKey(item))), ...tail],
+    items: readingItems,
     readingItems,
   };
 }
