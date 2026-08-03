@@ -9,6 +9,18 @@ import { pickUiFontScaleValue } from "../uiFontScale";
 import { CoordinationReportCard } from "./CoordinationReportCard";
 import { parseCoordinationReport } from "./coordinationReport";
 import { formatCommunicationEndpoint } from "./templates";
+import {
+  parseDeliveredTaskOutcome,
+  reportContentBody,
+  reportIncidentLine,
+  reportVerdict,
+  shortSha,
+  type ReportTaskOutcome,
+} from "./reportOutcome";
+
+/** Identity the dense header row already states; repeating it as body rows is
+ *  what made the card four lines of metadata before its first sentence. */
+const HEADER_FIELDS = new Set(["task", "status", "branch", "sha"]);
 
 interface ReportField {
   label: string;
@@ -64,6 +76,9 @@ interface Props {
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
+  /** Structured truth when the report event is linked; the delivered incident
+   *  header is the fallback so a refused transition is never silently dropped. */
+  taskOutcome?: ReportTaskOutcome | null;
 }
 
 function taskObject(task: string | undefined): string {
@@ -72,7 +87,7 @@ function taskObject(task: string | undefined): string {
   return parts[parts.length - 1] || task;
 }
 
-export function InboundReportCard({ message, sender, expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale }: Props) {
+export function InboundReportCard({ message, sender, expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, taskOutcome }: Props) {
   const coordination = parseCoordinationReport(message.content);
   if (coordination) {
     return (
@@ -89,9 +104,14 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
     );
   }
   const descriptor = parseInboundReport(message.content);
+  const outcome = taskOutcome ?? parseDeliveredTaskOutcome(descriptor.body);
   const failed = /^(?:blocked|error|failed)$/i.test(descriptor.status ?? "");
-  const chips = [descriptor.status, descriptor.sha].filter((value): value is string => Boolean(value));
+  const chips = [reportVerdict(descriptor.status, outcome), shortSha(descriptor.sha)]
+    .filter((value): value is string => Boolean(value));
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+  const body = reportContentBody(descriptor.body);
+  const incident = reportIncidentLine(outcome);
+  const detailFields = descriptor.fields.filter((field) => !HEADER_FIELDS.has(field.label));
 
   return (
     <InboundActivityCard
@@ -108,9 +128,27 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       disclosureLabel="report Details"
     >
       <div className={`grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
-        {descriptor.fields.length > 0 && (
+        {incident && (
+          <div
+            data-testid="chat-inbound-report-incident"
+            className="min-w-0 break-words"
+            style={{ color: "var(--ct-red)" }}
+          >
+            {incident}
+          </div>
+        )}
+        {body && (
+          <div
+            data-testid="chat-inbound-report-body"
+            className="min-w-0 whitespace-pre-wrap break-words"
+            style={{ color: "var(--ct-fg)" }}
+          >
+            {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
+          </div>
+        )}
+        {detailFields.length > 0 && (
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
-            {descriptor.fields.map((field, index) => (
+            {detailFields.map((field, index) => (
               <div key={`${field.label}-${index}`} className="contents">
                 <dt className="font-mono" style={{ color: "var(--ct-muted-fg)" }}>{field.label}</dt>
                 <dd className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
@@ -119,15 +157,6 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
               </div>
             ))}
           </dl>
-        )}
-        {descriptor.body && (
-          <div
-            data-testid="chat-inbound-report-body"
-            className="min-w-0 whitespace-pre-wrap break-words"
-            style={{ color: "var(--ct-fg)" }}
-          >
-            {hasPlanRefs(descriptor.body) ? <LinkedText text={descriptor.body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : descriptor.body}
-          </div>
         )}
       </div>
     </InboundActivityCard>

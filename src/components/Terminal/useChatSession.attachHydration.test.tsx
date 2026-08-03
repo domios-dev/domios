@@ -272,6 +272,7 @@ async function main(): Promise<void> {
   assert(app.messageIds().join(",") === "history", "pre-existing transcript did not render once");
   assert(Number(server.subscribers.size) === 1, "visible Chat did not own exactly one subscription");
 
+  const startsBeforeDeltas = server.starts.length;
   await act(async () => {
     server.emit([message("wrong-tab")], "sid-live", "nonce-live", "foreign-tab");
     server.emit([message("wrong-session")], "sid-foreign", "nonce-live");
@@ -282,8 +283,16 @@ async function main(): Promise<void> {
     app.messageIds().join(",") === "history,current-delta",
     `authority filter adopted a foreign or stale delta (${app.messageIds()})`,
   );
+  assert(
+    server.starts.length === startsBeforeDeltas,
+    `a dropped delta forced a re-attach (starts=${server.starts.length})`,
+  );
 
   const startsBeforeResync = server.starts.length;
+  // Superseded starts never become subscribers, so the requested-start order is
+  // not an index into adoption; the live subscriber is the id resync must stop.
+  assert(Number(server.subscribers.size) === 1, "pre-resync attach did not own one subscription");
+  const adoptedBeforeResync = [...server.subscribers][0] ?? "";
   server.queueStart((subscriptionId) => ({
     text: "",
     start_offset: 0,
@@ -299,7 +308,8 @@ async function main(): Promise<void> {
   assert(server.starts.length === startsBeforeResync + 1, "resync did not request one snapshot");
   assert(app.messageIds().join(",") === "history,current-delta", "resync duplicated transcript rows");
   assert(Number(server.subscribers.size) === 1, "resync left overlapping subscriptions");
-  assert(server.stops.includes(server.starts[startsBeforeResync - 1]), "resync did not stop prior subscription");
+  assert(server.stops.includes(adoptedBeforeResync), "resync did not stop prior subscription");
+  assert(!server.subscribers.has(adoptedBeforeResync), "stopped subscription stayed registered");
 
   const late = deferred<StartResult>();
   await app.render("sid-live", "nonce-live", false);
