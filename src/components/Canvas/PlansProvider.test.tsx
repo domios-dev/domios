@@ -32,6 +32,8 @@ const API: ApiConfig = {
 
 let indexCalls = 0;
 let fullCalls = 0;
+let fullFixturePlans = [FIXTURE_PLAN];
+let lastFullProject: string | null = null;
 type ListenHandler = (ev: { payload: unknown }) => void;
 const listenHandlers = new Map<string, Set<ListenHandler>>();
 
@@ -75,7 +77,28 @@ function setupDom() {
 }
 
 async function installListenMock() {
-  const { __setListenForTest } = await import("../../lib/bridge");
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(async (command, args) => {
+    if (command === "list_plans_full") {
+      fullCalls++;
+      lastFullProject = (args?.project as string | null | undefined) ?? null;
+      return fullFixturePlans as never;
+    }
+    if (command === "list_plan_index") {
+      indexCalls++;
+      return [{
+        plan_id: FIXTURE_PLAN.id,
+        file_path: "/tmp/plan.json",
+        owner: FIXTURE_PLAN.owner,
+        title: FIXTURE_PLAN.title,
+        status: FIXTURE_PLAN.status,
+        updated_at: FIXTURE_PLAN.updated_at,
+        assigned_tab_ids: [],
+      }] as never;
+    }
+    if (command === "get_plan_full") return FIXTURE_PLAN as never;
+    throw new Error(`unexpected invoke: ${command}`);
+  });
   __setListenForTest(async (event, handler) => {
     if (!listenHandlers.has(event)) listenHandlers.set(event, new Set());
     listenHandlers.get(event)!.add(handler as ListenHandler);
@@ -187,15 +210,13 @@ test("sidebar owns full plans without mounting canvas", async () => {
   await act(async () => root.unmount());
 });
 
-test("plan queries wait for authenticated config", async () => {
+test("desktop plan queries wait for config and bypass REST", async () => {
   indexCalls = 0;
   fullCalls = 0;
-  const seenAuthorization: string[] = [];
+  let restCalls = 0;
   const prevFetch = globalThis.fetch;
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const headers = new Headers(init?.headers);
-    const authorization = headers.get("authorization");
-    if (authorization) seenAuthorization.push(authorization);
+    restCalls++;
     return prevFetch(input, init);
   };
   const unauthenticatedApi = { ...API, token: null };
@@ -215,8 +236,8 @@ test("plan queries wait for authenticated config", async () => {
     await flushAsyncWork();
   });
   const callsAfterEnable: number = fullCalls;
-  assert(callsAfterEnable === 1, "authenticated config enables one full request");
-  assert(seenAuthorization.includes("Bearer test-token"), "full request carries bearer token");
+  assert(callsAfterEnable === 1, "loaded config enables one full IPC read");
+  assert(restCalls === 0, "desktop Plan reads never cross the REST auth boundary");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
     "sidebar receives plans after authentication",
@@ -264,22 +285,7 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
 test("workspace canvas does not rescope the shared full-plan query", async () => {
   indexCalls = 0;
   fullCalls = 0;
-  let seenProject: string | null = null;
-  const prevFetch = globalThis.fetch;
-  globalThis.fetch = async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.includes("/api/plans?")) {
-      fullCalls++;
-      const parsed = new URL(url, "http://127.0.0.1");
-      seenProject = parsed.searchParams.get("project");
-      return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
-    }
-    if (url.endsWith("/api/plans")) {
-      indexCalls++;
-      return new Response(JSON.stringify({ plans: [] }), { status: 200 });
-    }
-    return prevFetch(input);
-  };
+  lastFullProject = "unset";
 
   const { root } = await renderTree(
     <PlansProvider api={API}>
@@ -287,28 +293,14 @@ test("workspace canvas does not rescope the shared full-plan query", async () =>
     </PlansProvider>,
   );
   assert(fullCalls === 1, "one scoped full fetch");
-  assert(seenProject === null, "shared query remains global while canvas filters locally");
-  globalThis.fetch = prevFetch;
+  assert(lastFullProject === null, "shared IPC query remains global while canvas filters locally");
   await act(async () => root.unmount());
 });
 
 test("two projects: workspace canvas consumer only loads matching project plans", async () => {
   const planA = { ...FIXTURE_PLAN, id: "plan-a", project_path: "/repo/a", title: "Plan A" };
   const planB = { ...FIXTURE_PLAN, id: "plan-b", project_path: "/repo/b", title: "Plan B" };
-  const prevFetch = globalThis.fetch;
-  globalThis.fetch = async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.includes("/api/plans?")) {
-      const parsed = new URL(url, "http://127.0.0.1");
-      const project = parsed.searchParams.get("project");
-      const plans = project === "/repo/a" ? [planA] : project === "/repo/b" ? [planB] : [planA, planB];
-      return new Response(JSON.stringify({ plans }), { status: 200 });
-    }
-    if (url.endsWith("/api/plans")) {
-      return new Response(JSON.stringify({ plans: [] }), { status: 200 });
-    }
-    return prevFetch(input);
-  };
+  fullFixturePlans = [planA, planB];
 
   const seen: string[] = [];
   function CapturePlans() {
@@ -334,7 +326,7 @@ test("two projects: workspace canvas consumer only loads matching project plans"
   });
   assert(seen.includes("plan-a"), "plan A loaded for project /repo/a");
   assert(!seen.includes("plan-b"), "plan B excluded for project /repo/a");
-  globalThis.fetch = prevFetch;
+  fullFixturePlans = [FIXTURE_PLAN];
   await act(async () => root.unmount());
 });
 
