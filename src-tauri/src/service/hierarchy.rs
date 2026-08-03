@@ -4,6 +4,7 @@ mod first_plan;
 mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+mod report_event;
 mod report_persistence;
 mod status;
 mod worker_handoff;
@@ -590,23 +591,28 @@ impl ServiceContext {
         self.report_store.lock().claim(&report.id);
         report_requirement.accept();
 
+        let task_report = report_event::task_report_outcome(
+            persisted_task.as_ref(),
+            rejected_task_transition.as_ref(),
+        );
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
                 "target_tab_id": storage_key,
                 "report": report.clone(),
+                "task_report": task_report.clone(),
             }),
         );
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "agent-report",
-            serde_json::json!({
-                "target_tab_id": storage_key,
-                "from_tab_id": tab_id,
-                "from_title": from_title,
-                "message": report.message.clone(),
-                "report": report.clone(),
-            }),
+            report_event::agent_report_event(
+                &storage_key,
+                tab_id,
+                &from_title,
+                &report,
+                task_report,
+            ),
         );
 
         match target {
