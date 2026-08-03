@@ -31,9 +31,11 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  resetTranscriptWindow,
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
+import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
 export {
@@ -124,6 +126,7 @@ export function useChatSession({
   const followTailRef = suppliedFollowTailRef ?? internalFollowTailRef;
   const rotationQueuedRef = useRef(false);
   const recoveryQueuedRef = useRef(false);
+  const pendingLiveEventsRef = useRef<ChatMsgEvent[]>([]);
 
   onErrorRef.current = onError;
   diagnosticSinkRef.current = diagnosticSink;
@@ -162,8 +165,12 @@ export function useChatSession({
     rows: ChatMessage[],
   ) => commitTranscriptBatch(windowKeyRef.current, { kind, authority, range, rows }), []);
 
-  const requestAttach = useCallback(() => {
+  const requestAttach = useCallback((preserveViewport = false) => {
+    pendingLiveEventsRef.current = [];
+    resetTranscriptWindow(windowKeyRef.current, preserveViewport);
+    if (!preserveViewport) clearPersistedChatScrollState(windowKeyRef.current);
     setError(null);
+    attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
     beginAttach();
   }, [beginAttach]);
@@ -175,11 +182,12 @@ export function useChatSession({
     recoveryQueuedRef.current = true;
     queueMicrotask(() => {
       recoveryQueuedRef.current = false;
-      if (activeRef.current) requestAttach();
+      if (activeRef.current) requestAttach(true);
     });
   }, [requestAttach]);
 
   const markAttached = useCallback(() => {
+    attachmentStateRef.current = "attached";
     setAttachmentState("attached");
     setLoading(false);
   }, []);
@@ -244,8 +252,13 @@ export function useChatSession({
 
   useEffect(() => {
     if (!active) {
+      pendingLiveEventsRef.current = [];
+      adoptedBindingsRef.current.clear();
+      resetTranscriptWindow(windowKeyRef.current);
+      clearPersistedChatScrollState(windowKeyRef.current);
       setListenerReady(false);
       setLoading(false);
+      attachmentStateRef.current = "idle";
       setAttachmentState("idle");
       return;
     }
@@ -293,6 +306,10 @@ export function useChatSession({
               sourceSessionId: ev.payload.source_session_id,
               sessionBindingNonce: ev.payload.session_binding_nonce,
             };
+            if (attachmentStateRef.current === "attaching") {
+              pendingLiveEventsRef.current.push(ev.payload);
+              return;
+            }
             if (needsRecovery(commitLiveEvent(ev.payload))) requestRecoveryAttach();
             emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();
@@ -304,8 +321,8 @@ export function useChatSession({
         }
         emitDiagnostic({ edge: "listener_owned", tabId });
         unlistenTest = listenForTestChatReplies(tabId, commitLiveEvent);
+        requestAttach(false);
         setListenerReady(true);
-        setAttachmentState("idle");
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -322,6 +339,10 @@ export function useChatSession({
       unlistenTest?.();
       setListenerReady(false);
       attachmentRef.current.release();
+      pendingLiveEventsRef.current = [];
+      adoptedBindingsRef.current.clear();
+      resetTranscriptWindow(windowKeyRef.current);
+      clearPersistedChatScrollState(windowKeyRef.current);
     };
   }, [
     active,
@@ -329,6 +350,7 @@ export function useChatSession({
     emitDiagnostic,
     markAttached,
     requestRecoveryAttach,
+    requestAttach,
     tabId,
   ]);
 
@@ -380,6 +402,7 @@ export function useChatSession({
           });
           if (requestedSessionId == null && !allowUnboundAuthorityRef.current) {
             owner.adopt(null);
+            attachmentStateRef.current = "awaiting_session";
             setAttachmentState("awaiting_session");
             setLoading(false);
             setError(null);
@@ -411,10 +434,15 @@ export function useChatSession({
         if (res.pending) {
           // The store has no transcript yet; the first live event completes the
           // attach. Nothing here waits on elapsed time.
+          attachmentStateRef.current = "awaiting_store";
           setAttachmentState("awaiting_store");
+          const pending = pendingLiveEventsRef.current.splice(0);
+          if (pending.length > 0) {
+            for (const event of pending) commitLiveEvent(event);
+            markAttached();
+          }
           return;
         }
-        markAttached();
         commitBatch(
           "snapshot",
           {
@@ -424,9 +452,17 @@ export function useChatSession({
           batchRange(res.start_offset, res.offset),
           res.messages ?? [],
         );
+        const pending = pendingLiveEventsRef.current.splice(0);
+        let recover = false;
+        for (const event of pending) {
+          if (needsRecovery(commitLiveEvent(event))) recover = true;
+        }
+        markAttached();
+        if (recover) requestRecoveryAttach();
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
         const msg = e instanceof Error ? e.message : String(e);
+        attachmentStateRef.current = "failed";
         setAttachmentState("failed");
         setError(msg);
         setLoading(false);
@@ -439,10 +475,12 @@ export function useChatSession({
   }, [
     active,
     commitBatch,
+    commitLiveEvent,
     emitDiagnostic,
     generation,
     listenerReady,
     markAttached,
+    requestRecoveryAttach,
     tabId,
   ]);
 

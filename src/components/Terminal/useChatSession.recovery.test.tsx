@@ -136,8 +136,8 @@ async function main() {
   assert(!latest.recovering, "the re-attached chat stayed recovering");
   assert(latest.error == null, "the re-attached chat surfaced an error");
   assert(
-    latest.messages.join(",") === "history restored,tail restored",
-    `re-attach lost or duplicated transcript rows (${latest.messages})`,
+    latest.messages.join(",") === "tail restored",
+    `re-attach preserved rows outside the new authoritative epoch (${latest.messages})`,
   );
 
   await act(async () => root.unmount());

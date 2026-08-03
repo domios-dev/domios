@@ -42,13 +42,16 @@ export function useChatAttachment(
   }, [tabId]);
 
   const begin = useCallback(() => {
+    const adopted = adoptedIdRef.current;
+    adoptedIdRef.current = null;
+    if (adopted) stop(adopted);
     requestedIdRef.current = newSubscriptionId(tabId);
     setGeneration((previous) => {
       const next = previous + 1;
       generationRef.current = next;
       return next;
     });
-  }, [tabId]);
+  }, [stop, tabId]);
 
   const isCurrent = useCallback((candidate: number) => generationRef.current === candidate, []);
 
