@@ -32,7 +32,7 @@ export function roleBadgeLabel(
   if (tab.role === "Orchestrator") return "ORCHESTRATOR";
   if (tab.role === "Manager") {
     const profile = (tab.role_profile ?? "").trim();
-    return profile ? profile.toUpperCase() : "MANAGER";
+    return profile ? profile.toUpperCase() : null;
   }
   return null;
 }
@@ -45,7 +45,7 @@ export function roleShieldLabel(
   if (tab.role === "Orchestrator") return "ORCHESTRATOR";
   if (tab.role === "Manager") {
     const profile = (tab.role_profile ?? "").trim();
-    return profile ? profile.toUpperCase() : "MANAGER";
+    return profile ? profile.toUpperCase() : null;
   }
   return null;
 }

@@ -649,7 +649,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws?.tabs.includes(tabId)) return;
       const remote = stateRef.current.tabs[tabId];
-      if (remote?.remote_peer_id && remote.remote_availability !== "available") return;
       const isRemote = Boolean(remote?.remote_peer_id);
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
       // Refresh only after the close is acknowledged; on rejection the tab
@@ -671,7 +670,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
     const remote = stateRef.current.tabs[tabId];
     if (remote?.remote_peer_id) {
-      if (remote.remote_availability !== "available") return;
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
       dispatch({ type: "SET_FOCUSED_TAB", tabId });
@@ -790,8 +788,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const setTabTitle = useCallback((workspaceId: string, tabId: string, title: string) => {
     const workspace = stateRef.current.workspaces.find((ws) => ws.id === workspaceId);
     if (!workspace?.tabs.includes(tabId)) return;
-    const remote = stateRef.current.tabs[tabId];
-    if (remote?.remote_peer_id && remote.remote_availability !== "available") return;
     dispatch({ type: "SET_TAB_TITLE", tabId, title, level: TitleLevel.User });
   }, []);
 

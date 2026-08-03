@@ -1,6 +1,8 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { Tab } from "../../lib/types";
-import { remoteTabSubtitle } from "./TabItem";
+import { TabItem } from "./TabItem";
+import { managedByLabel, remoteIdentity } from "./remoteOwnership";
 
 const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
   id: "mesh:peer/one",
@@ -19,16 +21,36 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
 
 finish();
 
-describe("remote tab subtitle", () => {
-  it("shows one canonical managed-by attribution without repeating the peer", () => {
-    expect(remoteTabSubtitle(remote("Manager", "planner"), "PLANNER")).toBe("managed by Hubble");
-    expect(remoteTabSubtitle(remote("Orchestrator"), "ORCHESTRATOR")).toBe("managed by Hubble");
-    expect(remoteTabSubtitle({ ...remote(), remote_availability: "reconnecting" }, null))
-      .toBe("managed by Hubble · Reconnecting");
+describe("remote tab metadata", () => {
+  it("keeps peer identity and controller attribution on separate lines", () => {
+    expect(remoteIdentity(remote("Worker"))).toEqual({ role: null, peer: "@ROG" });
+    expect(remoteIdentity(remote("Manager", "planner"))).toEqual({ role: "Planner", peer: "@ROG" });
+    expect(remoteIdentity(remote("Orchestrator"))).toEqual({ role: "Orchestrator", peer: "@ROG" });
+    expect(managedByLabel(remote("Worker"))).toBe("managed by Hubble");
   });
 
-  it("falls back to the role shield when there is no ownership", () => {
-    const local = { ...remote("Manager", "planner"), ownership: undefined };
-    expect(remoteTabSubtitle(local, "PLANNER")).toBe("PLANNER");
+  it("does not mix stream availability into identity", () => {
+    expect(remoteIdentity({ ...remote("Worker"), remote_availability: "unavailable" }))
+      .toEqual({ role: null, peer: "@ROG" });
+  });
+
+  it("renders peer and managed-by as two distinct visual rows", () => {
+    const html = renderToStaticMarkup(
+      <TabItem
+        tab={remote("Manager", "planner")}
+        index={0}
+        isActive
+        onClick={() => undefined}
+        onClose={() => undefined}
+        canClose
+        workspaceId="workspace"
+        hasAgent
+      />,
+    );
+    expect(html).toContain('data-testid="remote-tab-identity"');
+    expect(html).toContain("PLANNER");
+    expect(html).toContain("@ROG");
+    expect(html).toContain('data-testid="remote-managed-by"');
+    expect(html).toContain("managed by Hubble");
   });
 });
