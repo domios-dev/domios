@@ -259,7 +259,6 @@ enum LaunchFailure {
     PtyEof,
     TabClosed,
     LaunchWrite(String),
-    ProviderReadyTimeout,
     TaskDelivery(String),
 }
 impl LaunchFailure {
@@ -273,23 +272,8 @@ impl LaunchFailure {
             Self::PtyEof => "PtyEof".into(),
             Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
-            Self::ProviderReadyTimeout => "ProviderReadyTimeout".into(),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
         }
-    }
-}
-
-fn provider_launch_failure(
-    reader_closed: bool,
-    provider_hook_ready: bool,
-    provider_tui_ready: bool,
-) -> Option<LaunchFailure> {
-    if reader_closed {
-        Some(LaunchFailure::PtyEof)
-    } else if provider_hook_ready || provider_tui_ready {
-        None
-    } else {
-        Some(LaunchFailure::ProviderReadyTimeout)
     }
 }
 
@@ -962,6 +946,16 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
 
+        if reader_monitor.closed() {
+            let error = LaunchFailure::PtyEof.reason();
+            launch.fail(&svc, LaunchFailure::PtyEof);
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
+
         let provider_readiness = svc
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -975,43 +969,34 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness,
             provider_readiness.requires_composer(),
         );
-        let provider_hook_ready = launch.await_provider_ack(std::time::Duration::ZERO);
-        log::info!(
-            "[provider-readiness-stage] tab={} pty={} hook_check_complete ready={}",
-            tab_id,
-            pty_id,
-            provider_hook_ready,
-        );
-        let provider_hook_satisfies_readiness =
-            provider_hook_ready && !provider_readiness.requires_composer();
-        let provider_tui_ready = provider_hook_satisfies_readiness
-            || svc.await_provider_readiness_on_screen(&pty_id, &agent_cmd, provider_readiness);
-        if let Some(failure) = provider_launch_failure(
-            reader_monitor.closed(),
-            provider_hook_satisfies_readiness,
-            provider_tui_ready,
-        ) {
-            let error = failure.reason();
-            launch.fail(&svc, failure);
-            set_booting(false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
-            }
-            return;
-        }
-        if !provider_hook_ready {
-            log::warn!(
-                "launch_agent: Tab {} accepted live {} TUI before session binding",
-                tab_id,
-                agent_cmd
+        let diagnostic_svc = svc.clone();
+        let diagnostic_launch = launch.clone();
+        let diagnostic_tab_id = tab_id.clone();
+        let diagnostic_pty_id = pty_id.clone();
+        let diagnostic_agent_cmd = agent_cmd.clone();
+        std::thread::spawn(move || {
+            let hook_ready = diagnostic_launch.await_provider_ack(std::time::Duration::ZERO);
+            let hook_satisfies = hook_ready && !provider_readiness.requires_composer();
+            let screen_ready = hook_satisfies
+                || diagnostic_svc.await_provider_readiness_on_screen(
+                    &diagnostic_pty_id,
+                    &diagnostic_agent_cmd,
+                    provider_readiness,
+                );
+            log::info!(
+                "[provider-readiness-diagnostic] tab={} pty={} hook_ready={} screen_ready={}",
+                diagnostic_tab_id,
+                diagnostic_pty_id,
+                hook_ready,
+                screen_ready,
             );
-        }
+        });
         if !launch.emit(&svc, BootStage::ProviderReady) {
             return;
         }
         delivery_gate.mark_provider_ready();
 
-        // The fallback is allowed only after launch and a provider-ready TUI.
+        // Launch bytes own queue order; visual readiness is diagnostic only.
         if matches!(
             delivery,
             crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
