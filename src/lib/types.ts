@@ -1,3 +1,5 @@
+import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
+
 /** Title priority: higher levels cannot be overwritten by lower ones. */
 export enum TitleLevel {
   Default = "Default",
@@ -211,8 +213,7 @@ export interface Tab {
   remote_peer_id?: string;
   remote_peer_name?: string;
   remote_tab_id?: string;
-  remote_availability?: "available" | "reconnecting" | "unavailable";
-  remote_channels?: Partial<Record<"control" | "output" | "chat", "available" | "reconnecting" | "unavailable">>;
+  remote_channels?: RemoteChannelAvailabilityMap;
   ownership?: RemoteOwnership;
 }
 

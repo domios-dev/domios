@@ -507,7 +507,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.machine_agent_identity === np.machine_agent_identity &&
     pp.role === np.role &&
     pp.role_profile === np.role_profile &&
-    pp.remote_availability === np.remote_availability &&
+    JSON.stringify(pp.remote_channels) === JSON.stringify(np.remote_channels) &&
     pp.ownership?.controller_title === np.ownership?.controller_title &&
     pp.ownership?.team?.id === np.ownership?.team?.id &&
     pp.remote_peer_name === np.remote_peer_name &&
