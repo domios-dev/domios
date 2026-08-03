@@ -772,7 +772,6 @@ export function Sidebar({
             )}
             {!isCompact && (() => {
               const views = state.recently_closed ?? [];
-              if (views.length === 0) return null;
               const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed
