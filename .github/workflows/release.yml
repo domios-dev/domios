@@ -150,7 +150,7 @@ jobs:
           gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
             --repo rollacode/codeterm-releases --clobber
 
-      - name: Resolve included private PR public issues
+      - name: Resolve included private source public issues
         run: |
           CURRENT="release-${{ steps.ver.outputs.ver }}"
           printf '[]' > "$RUNNER_TEMP/release-history.json"
@@ -197,15 +197,23 @@ jobs:
               "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
             mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
           done
-          START=$(python scripts/release_issue_contract.py range-start \
+          START=$(python3 scripts/release_issue_contract.py range-start \
             --releases-file "$RUNNER_TEMP/release-history.json")
           if [ -n "$START" ]; then
             RANGE="$START..$GITHUB_SHA"
           else
             RANGE="$GITHUB_SHA"
           fi
+          printf '[]' > "$RUNNER_TEMP/release-commits.json"
           printf '[]' > "$RUNNER_TEMP/release-prs.json"
           for sha in $(git rev-list "$RANGE"); do
+            git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
+            jq --arg sha "$sha" \
+              --arg url "https://github.com/${GITHUB_REPOSITORY}/commit/$sha" \
+              --rawfile body "$RUNNER_TEMP/commit-body.txt" \
+              '. + [{sha: $sha, url: $url, body: $body}]' \
+              "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
+            mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
             gh api "repos/${GITHUB_REPOSITORY}/commits/$sha/pulls" \
               --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body}]' \
               > "$RUNNER_TEMP/commit-prs.json"
@@ -214,7 +222,8 @@ jobs:
               > "$RUNNER_TEMP/release-prs.next.json"
             mv "$RUNNER_TEMP/release-prs.next.json" "$RUNNER_TEMP/release-prs.json"
           done
-          python scripts/release_issue_contract.py resolve \
+          python3 scripts/release_issue_contract.py resolve \
+            --commits-file "$RUNNER_TEMP/release-commits.json" \
             --prs-file "$RUNNER_TEMP/release-prs.json" \
             > "$RUNNER_TEMP/resolved-public-issues.json"
           jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
@@ -230,7 +239,7 @@ jobs:
             printf '%s\t%s\n' "$reference" "$state"
           done | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' \
             > "$RUNNER_TEMP/public-issue-states.json"
-          python scripts/release_issue_contract.py plan-close \
+          python3 scripts/release_issue_contract.py plan-close \
             --resolved-file "$RUNNER_TEMP/resolved-public-issues.json" \
             --states-file "$RUNNER_TEMP/public-issue-states.json" \
             --version "${{ steps.ver.outputs.ver }}" \
