@@ -699,14 +699,17 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      <AgentStateIndicator
-        state={statusRowState}
-        model={workingModelBadge}
-        className="w-full"
-        onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
-        onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
-        onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-      />
+      <div className="w-full px-3">
+        <AgentStateIndicator
+          state={statusRowState}
+          providerName={provider?.displayName ?? tabProvider}
+          model={workingModelBadge}
+          className="mx-auto w-full max-w-4xl"
+          onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+          onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+          onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        />
+      </div>
       <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}

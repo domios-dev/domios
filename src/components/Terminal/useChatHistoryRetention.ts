@@ -43,9 +43,9 @@ export function useChatHistoryRetention({
       const next = typeof action === "function" ? action(previousMessages) : action;
       if (next == null) return null;
       if (!previous) return retainChatSnapshotTail(next);
-      return mergeRetainedChatLive(previous, next, followTailRef.current);
+      return mergeRetainedChatLive(previous, next);
     });
-  }, [followTailRef]);
+  }, []);
 
   const updateWindowAnchor = useCallback((action: SetStateAction<string | null>) => {
     setWindowAnchorKey((previous) => (
@@ -57,7 +57,7 @@ export function useChatHistoryRetention({
     if (retainedHistoryCacheKeyRef.current !== historyCacheKey) return;
     setCachedChatHistoryWindow(
       historyCacheKey,
-      retainedHistory && windowAnchorKey
+      retainedHistory
         ? { history: retainedHistory, anchorKey: windowAnchorKey }
         : null,
     );
@@ -66,9 +66,10 @@ export function useChatHistoryRetention({
   useEffect(() => {
     if (retainedHistoryCacheKeyRef.current === historyCacheKey) return;
     retainedHistoryCacheKeyRef.current = historyCacheKey;
-    followTailRef.current = true;
-    setRetainedHistory(null);
-    updateWindowAnchor(null);
+    const cached = getCachedChatHistoryWindow(historyCacheKey);
+    followTailRef.current = cached?.anchorKey == null;
+    setRetainedHistory(cached?.history ?? null);
+    updateWindowAnchor(cached?.anchorKey ?? null);
   }, [followTailRef, historyCacheKey, updateWindowAnchor]);
 
   return {

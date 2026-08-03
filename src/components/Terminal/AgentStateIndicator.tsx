@@ -55,6 +55,7 @@ function questionStatus(subtype: AgentQuestionSubtype | undefined): string {
 
 export function AgentStateIndicator({
   state,
+  providerName,
   model,
   className,
   onStop,
@@ -62,6 +63,7 @@ export function AgentStateIndicator({
   onOpenTerminal,
 }: {
   state: AgentState;
+  providerName?: string | null;
   model?: string | null;
   className?: string;
   onStop?: () => void;
@@ -73,7 +75,7 @@ export function AgentStateIndicator({
   const phase = workPhaseOf(state.phase);
   const status = state.status_line?.trim()
     || (isWorking ? "Working" : isQuestion ? questionStatus(state.subtype) : "");
-  const text = [model?.trim(), status].filter(Boolean).join(" · ");
+  const text = [providerName?.trim(), model?.trim(), status].filter(Boolean).join(" · ");
 
   return (
     <div

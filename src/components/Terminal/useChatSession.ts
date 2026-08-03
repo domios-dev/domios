@@ -18,7 +18,6 @@ import {
   mergeById,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
-  collapseDuplicateUserMessages,
   type NormalizedChatMessage as ChatMessage,
   type TimelineItem,
   type OptimisticEcho,
@@ -42,7 +41,6 @@ import {
 import { useChatHistoryRetention } from "./useChatHistoryRetention";
 import {
   mergeSnapshotWindow,
-  replaceSnapshotWindow,
   withPreservedClientOrder,
 } from "./chatHistoryMerge";
 import {
@@ -407,9 +405,6 @@ export function useChatSession({
     hadBoundSession: agentSessionId != null,
   });
   const lifecycleRef = useRef(0);
-  /** Lifecycle of the last merged snapshot: unchanged => resync (merge),
-   *  new => fresh listener attach (replace). */
-  const snapshotLifecycleRef = useRef<number | null>(null);
   const knownTabIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
   const attachGenerationRef = useRef(attachGeneration);
@@ -666,7 +661,6 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
-    const requestOrder = nextClientOrderRef.current;
     const requestedSessionId = agentSessionIdRef.current;
     const requestedSessionBindingNonce = sessionBindingNonceRef.current ?? null;
     const requestedSubscriptionId =
@@ -764,8 +758,6 @@ export function useChatSession({
           return;
         }
         markAttached();
-        const isFreshAttach = snapshotLifecycleRef.current !== lifecycle;
-        snapshotLifecycleRef.current = lifecycle;
         const snapshotMode = pendingSnapshotModeRef.current;
         pendingSnapshotModeRef.current = null;
         const snapshotBackfillCursor = res.start_offset != null && res.start_offset > 0
@@ -784,24 +776,20 @@ export function useChatSession({
             if (refilled.messages !== previous.messages) pendingRevealRef.current = true;
             return refilled === previous ? previous : { ...refilled, predecessorRange: snapshotRange };
           }
-          const merged = isFreshAttach
-            ? replaceSnapshotWindow(
-                previousMessages,
-                snapshot,
-                requestOrder,
-                nextClientOrder,
-                res.source_session_id,
-              )
-            : mergeSnapshotWindow(
-                previousMessages,
-                snapshot,
-                nextClientOrder,
-                res.source_session_id,
-              );
+          const merged = mergeSnapshotWindow(
+            previousMessages,
+            snapshot,
+            nextClientOrder,
+            res.source_session_id,
+          );
           if (snapshotMode === "latest" || !previous || followTailRef.current) {
-            return retainChatSnapshotTail(merged, undefined, snapshotRange);
+            if (!previous) return retainChatSnapshotTail(merged, undefined, snapshotRange);
+            return {
+              ...mergeRetainedChatLive(previous, merged),
+              predecessorRange: snapshotRange ?? previous.predecessorRange,
+            };
           }
-          return mergeRetainedChatLive(previous, merged, followTailRef.current);
+          return mergeRetainedChatLive(previous, merged);
         });
         if (snapshotMode != null) setBackfillLoading(false);
       } catch (e) {
@@ -926,13 +914,12 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    if (liveOptimistic.length === 0) return projectContextEpochs(collapseDuplicateUserMessages(parsed));
-    // content-collapse that would swallow a legitimately repeated message).
+    if (liveOptimistic.length === 0) return projectContextEpochs(parsed);
     const parsedUsers = parsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return projectContextEpochs(collapseDuplicateUserMessages(mergeTimelineMessages(parsed, stillPending)));
+    return projectContextEpochs(mergeTimelineMessages(parsed, stillPending));
   }, [parsed, liveOptimistic]);
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
@@ -1097,7 +1084,7 @@ export function useChatSession({
     updateWindowAnchor(null);
     setRetainedHistory((previous) => (
       previous
-        ? mergeRetainedChatLive(previous, previous.messages, true)
+        ? mergeRetainedChatLive(previous, previous.messages)
         : previous
     ));
   }, [followTailRef, setRetainedHistory, updateWindowAnchor]);

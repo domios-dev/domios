@@ -106,6 +106,7 @@ export function useChatScroll({
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
     modeRef.current = mode;
+    el.style.overflowAnchor = mode === "detached" && prependSnapshotRef.current == null ? "auto" : "none";
     if (followTailRef) followTailRef.current = mode === "pinned";
     if (changed) onModeChangeRef.current?.(mode);
     persist(el);
@@ -127,6 +128,7 @@ export function useChatScroll({
   const prepareForHistoryPrepend = useCallback(() => {
     const el = scrollRef.current;
     if (!el || modeRef.current !== "detached") return;
+    el.style.overflowAnchor = "none";
     prependSnapshotRef.current = {
       scrollHeight: el.scrollHeight,
       scrollTop: el.scrollTop,
@@ -157,7 +159,7 @@ export function useChatScroll({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || !active || loading || messageCount === 0) return;
-    el.style.overflowAnchor = "none";
+    el.style.overflowAnchor = modeRef.current === "detached" ? "auto" : "none";
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
@@ -188,6 +190,7 @@ export function useChatScroll({
       prependSnapshotRef.current = null;
       el.scrollTop = resolvePrependAnchor(el, prependSnapshot)
         ?? chatScrollTopAfterPrepend(prependSnapshot, el.scrollHeight);
+      el.style.overflowAnchor = "auto";
       lastScrollTopRef.current = el.scrollTop;
       persist(el);
       return;
