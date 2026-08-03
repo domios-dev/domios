@@ -6,11 +6,20 @@ pub fn current_pad() -> Result<PathBuf, String> {
         .ok()
         .filter(|v| !v.trim().is_empty())
         .ok_or("AgentPad requires CODETERM_TAB_ID; focused-tab fallback is not allowed")?;
-    let configured = std::env::var_os("CODETERM_PAD_DIR")
-        .ok_or("AgentPad is unavailable: CODETERM_PAD_DIR is not set")?;
-    let path = PathBuf::from(configured);
+    let socket = crate::client::discover_socket()?;
+    let mut client = crate::client::SocketClient::connect(&socket)?;
+    let resolved = client.call(
+        "tab.agent_pad",
+        Some(serde_json::json!({ "tab_id": tab_id })),
+    )?;
+    let path = PathBuf::from(
+        resolved
+            .get("path")
+            .and_then(|value| value.as_str())
+            .ok_or("tab.agent_pad returned no path")?,
+    );
     if !path.is_absolute() || path.file_name().and_then(|v| v.to_str()) != Some(tab_id.as_str()) {
-        return Err("CODETERM_PAD_DIR does not belong to the current full tab id".into());
+        return Err("resolved AgentPad does not belong to the current full tab id".into());
     }
     let canonical = path
         .canonicalize()
@@ -22,6 +31,10 @@ pub fn current_pad() -> Result<PathBuf, String> {
 }
 
 pub fn read_from_pad(relative: &str) -> Result<String, String> {
+    read_from_pad_root(&current_pad()?, relative)
+}
+
+fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, String> {
     let relative = Path::new(relative);
     if relative.as_os_str().is_empty()
         || relative.is_absolute()
@@ -31,12 +44,14 @@ pub fn read_from_pad(relative: &str) -> Result<String, String> {
     {
         return Err("--from-pad must be a non-empty relative file path without traversal".into());
     }
-    let root = current_pad()?;
-    let file = root
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| format!("resolve AgentPad root: {e}"))?;
+    let file = canonical_root
         .join(relative)
         .canonicalize()
         .map_err(|e| format!("resolve --from-pad {}: {e}", relative.display()))?;
-    if file == root || !file.starts_with(&root) {
+    if file == canonical_root || !file.starts_with(&canonical_root) {
         return Err("--from-pad path escapes the current tab pad".into());
     }
     if !fs::metadata(&file)
@@ -106,16 +121,14 @@ mod tests {
         fs::create_dir(&pad).unwrap();
         fs::create_dir(pad.join("nested")).unwrap();
         fs::write(pad.join("nested/report.md"), "quotes ` $ Привіт\n\n").unwrap();
-        std::env::set_var("CODETERM_TAB_ID", "full-tab-id");
-        std::env::set_var("CODETERM_PAD_DIR", &pad);
         assert_eq!(
-            read_from_pad("nested/report.md").unwrap(),
+            read_from_pad_root(&pad, "nested/report.md").unwrap(),
             "quotes ` $ Привіт\n\n"
         );
-        assert!(read_from_pad("../other.md").is_err());
-        assert!(read_from_pad("nested").is_err());
+        assert!(read_from_pad_root(&pad, "../other.md").is_err());
+        assert!(read_from_pad_root(&pad, "nested").is_err());
         assert_eq!(
-            read_from_pad("nested/report.md").unwrap(),
+            read_from_pad_root(&pad, "nested/report.md").unwrap(),
             "quotes ` $ Привіт\n\n"
         );
     }
@@ -142,9 +155,7 @@ mod tests {
         let outside = temp.path().join("outside.md");
         fs::write(&outside, "outside").unwrap();
         symlink(outside, pad.join("escape.md")).unwrap();
-        std::env::set_var("CODETERM_TAB_ID", "full-tab-symlink");
-        std::env::set_var("CODETERM_PAD_DIR", &pad);
-        assert!(read_from_pad("escape.md").is_err());
+        assert!(read_from_pad_root(&pad, "escape.md").is_err());
     }
 
     #[test]
@@ -154,10 +165,8 @@ mod tests {
         fs::create_dir(&pad).unwrap();
         let expected = "reusable `payload` $value Привіт\nsecond line\n";
         fs::write(pad.join("message.md"), expected).unwrap();
-        std::env::set_var("CODETERM_TAB_ID", "send-owner-full-id");
-        std::env::set_var("CODETERM_PAD_DIR", &pad);
-        let first = read_from_pad("message.md").unwrap();
-        let second = read_from_pad("message.md").unwrap();
+        let first = read_from_pad_root(&pad, "message.md").unwrap();
+        let second = read_from_pad_root(&pad, "message.md").unwrap();
         let mut transport = FakeDestination::default();
         transport.accept(first, "accepted");
         assert_eq!(transport.payload.as_deref(), Some(expected));
@@ -176,9 +185,7 @@ mod tests {
         fs::create_dir(&pad).unwrap();
         let expected = "STATUS: in_review\n\n- quotes: '\"'\n- code: `x`\n- dollar: $HOME\n- Unicode: Привіт\n";
         fs::write(pad.join("report.md"), expected).unwrap();
-        std::env::set_var("CODETERM_TAB_ID", "worker-full-id");
-        std::env::set_var("CODETERM_PAD_DIR", &pad);
-        let resolved = read_from_pad("report.md").unwrap();
+        let resolved = read_from_pad_root(&pad, "report.md").unwrap();
         let mut parent = FakeDestination::default();
         parent.accept(resolved, "in_review");
         fs::remove_dir_all(&pad).unwrap();

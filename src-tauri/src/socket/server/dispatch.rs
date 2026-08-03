@@ -38,6 +38,7 @@ pub(super) fn dispatch(
                 "workspace.reopen_closed_group",
                 "tab.list",
                 "tab.inspect",
+                "tab.agent_pad",
                 "tab.focus",
                 "tab.close",
                 "tab.send_text",

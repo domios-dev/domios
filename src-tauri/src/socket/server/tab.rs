@@ -75,6 +75,28 @@ pub(super) fn dispatch(
             })
         }
 
+        "tab.agent_pad" => {
+            let tab_id = get_string_param(params, "tab_id")?;
+            if mux.read().get_tab(&tab_id).is_none() {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: format!("Tab {tab_id} not found"),
+                    data: None,
+                });
+            }
+            let pad = svc
+                .ensure_agent_pad(&tab_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({
+                "tab_id": tab_id,
+                "path": pad.path(),
+            }))
+        }
+
         "tab.create" | "tab.new" => {
             let workspace_id = params
                 .as_ref()

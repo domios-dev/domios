@@ -218,12 +218,35 @@ pub(crate) fn init_states() -> AppStates {
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
-    let live_agent_tabs = mux_state_inner
+    let restored_agent_tabs = mux_state_inner
         .snapshot()
         .tabs
         .into_values()
-        .filter(|tab| tab.agent_type.is_some() || tab.is_chat_backend())
-        .map(|tab| tab.id)
+        .filter(|tab| tab.agent_type.is_some() || tab.role.is_some() || tab.is_chat_backend())
+        .map(|tab| {
+            let role = match tab.role {
+                Some(crate::multiplexer::types::AgentRole::Worker) => {
+                    service::agent_pad::AgentPadRole::Worker
+                }
+                Some(crate::multiplexer::types::AgentRole::Orchestrator) => {
+                    service::agent_pad::AgentPadRole::Orchestrator
+                }
+                Some(crate::multiplexer::types::AgentRole::Manager) => {
+                    service::agent_pad::AgentPadRole::Planner
+                }
+                None => service::agent_pad::AgentPadRole::General,
+            };
+            (tab.id, role)
+        })
+        .collect::<Vec<_>>();
+    for (tab_id, role) in &restored_agent_tabs {
+        if let Err(error) = service::agent_pad::restore(&crate::paths::data_dir(), tab_id, *role) {
+            log::warn!("[agent-pad] restore failed for Tab {tab_id}: {error}");
+        }
+    }
+    let live_agent_tabs = restored_agent_tabs
+        .into_iter()
+        .map(|(tab_id, _)| tab_id)
         .collect();
     if let Err(error) = service::agent_pad::reconcile(&crate::paths::data_dir(), &live_agent_tabs) {
         log::warn!("[agent-pad] startup reconciliation failed: {error}");

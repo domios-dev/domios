@@ -131,6 +131,22 @@ fn provider_restart_retains_pad_and_final_close_revokes_it() {
 }
 
 #[test]
+fn restore_reuses_existing_pad_and_creates_only_when_missing() {
+    let temp = tempfile::tempdir().unwrap();
+    let existing = AgentPad::create(temp.path(), "existing-tab", AgentPadRole::Worker).unwrap();
+    fs::write(existing.path().join("report.md"), "preserved").unwrap();
+
+    let restored = restore(temp.path(), "existing-tab", AgentPadRole::General).unwrap();
+    assert_eq!(
+        restored.read_utf8(Path::new("report.md")).unwrap(),
+        "preserved"
+    );
+
+    let created = restore(temp.path(), "missing-tab", AgentPadRole::Orchestrator).unwrap();
+    assert!(created.path().join("dispatch.md").is_file());
+}
+
+#[test]
 fn startup_reconciliation_removes_prior_tombstones() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join(PAD_SUBDIR);
