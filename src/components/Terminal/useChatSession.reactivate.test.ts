@@ -32,12 +32,20 @@ interface ServerLog {
   unlistens: number;
 }
 
+let fakeServerSequence = 0;
+
 /** Minimal fake of the daemon seam: registry semantics for one tab. */
 class FakeChatServer {
+  /** Distinct per instance: the projection cache is keyed by tab+session and
+   *  must not leak one scenario's committed byte range into the next. */
+  tabId = `tab-${(fakeServerSequence += 1)}`;
   log: ServerLog = { starts: [], stops: [], listens: 0, unlistens: 0 };
   handler: ChatHandler | null = null;
   sessionId = "sid-1";
   snapshot: NormalizedChatMessage[] = [];
+  /** Byte range of the parsed snapshot window; live deltas extend it. */
+  snapshotStart = 0;
+  offset = 100;
   subscribers = new Set<string>();
   startGate: (() => Promise<void>) | null = null;
 
@@ -57,18 +65,21 @@ class FakeChatServer {
       if (command === "chat_start") {
         const subscriptionId = String(args.subscriptionId ?? "");
         this.log.starts.push({ subscriptionId });
-        if (this.startGate) await this.startGate();
-        this.subscribers.add(subscriptionId);
-        return {
+        // The window is parsed before the response travels, exactly like the
+        // daemon: a delta racing the reply lands beyond this range.
+        const parsed = {
           text: "",
-          start_offset: 0,
-          offset: 1,
+          start_offset: this.snapshotStart,
+          offset: this.offset,
           pending: false,
           messages: [...this.snapshot],
           source_session_id: this.sessionId,
           session_binding_nonce: "nonce-1",
           subscription_id: subscriptionId,
         };
+        if (this.startGate) await this.startGate();
+        this.subscribers.add(subscriptionId);
+        return parsed;
       }
       if (command === "chat_stop") {
         const subscriptionId = String(args.subscriptionId ?? "");
@@ -80,12 +91,21 @@ class FakeChatServer {
     });
   }
 
-  /** Emit a live delta exactly like the daemon sink: tab event with authority stamp. */
-  emit(messages: NormalizedChatMessage[], sourceSessionId: string | null = this.sessionId): void {
+  /** Emit a live delta exactly like the daemon sink: tab event with authority
+   *  stamp and the exact byte range the tailer consumed. */
+  emit(
+    messages: NormalizedChatMessage[],
+    sourceSessionId: string | null = this.sessionId,
+    span = 20,
+  ): void {
+    const start = this.offset;
+    this.offset = start + span;
     this.handler?.({
       payload: {
-        tab_id: "tab",
+        tab_id: this.tabId,
         messages,
+        start_offset: start,
+        offset: this.offset,
         source_session_id: sourceSessionId,
         session_binding_nonce: "nonce-1",
       },
@@ -125,7 +145,7 @@ async function main(): Promise<void> {
     server.install(bridge as never);
     function Harness({ sid, active }: { sid: string | null; active: boolean }) {
       const session = useChatSession({
-        tabId: "tab",
+        tabId: server.tabId,
         agentSessionId: sid,
         sessionBindingNonce: "nonce-1",
         active,
@@ -278,24 +298,72 @@ async function main(): Promise<void> {
     await act(async () => app.root.unmount());
   }
 
-  // --- 5. return replaces the bounded snapshot window instead of retaining evicted rows ---
+  // --- 5. an advanced bounded window with reused window-local seq keeps the
+  // prior completed turn and adopts the new tail instead of replacing rows ---
   {
     const server = new FakeChatServer();
+    server.snapshotStart = 1_000;
+    server.offset = 1_400;
     server.snapshot = [
-      { ...msg("old-1", "old", "1"), timestamp: undefined, seq: 900 },
-      { ...msg("old-2", "stale-tail", "2"), timestamp: undefined, seq: 901 },
+      { ...msg("0-0", "older question", "1"), timestamp: undefined, seq: 0 },
+      { ...msg("1-0", "prior answer", "2"), timestamp: undefined, seq: 1 },
     ];
     const app = await mount(server);
     await app.render(server.sessionId, false);
 
+    // The source window advanced: same session, new start offset, and the
+    // parser restarted its window-local ids and seq from zero.
+    server.snapshotStart = 1_200;
+    server.offset = 1_800;
     server.snapshot = [
-      { ...msg("new-1", "fresh", "3"), timestamp: undefined, seq: 0 },
-      { ...msg("new-2", "fresh-tail", "4"), timestamp: undefined, seq: 1 },
+      { ...msg("0-0", "prior answer", "3"), timestamp: undefined, seq: 0 },
+      { ...msg("1-0", "new tool run", "4"), timestamp: undefined, seq: 1 },
     ];
     await app.render(server.sessionId, true);
     assert(
-      app.messages().map((message) => message.content).join(",") === "fresh,fresh-tail",
-      `reactivation must replace the bounded window (${app.messages().map((message) => message.content)})`,
+      app.messages().map((message) => message.content).join(",") === "prior answer,new tool run",
+      `advanced window keeps the prior turn and appends the tail (${app.messages().map((m) => m.content)})`,
+    );
+    await act(async () => app.root.unmount());
+  }
+
+  // --- 6. reattach + live/send race cannot project a duplicate row, and does
+  // not collapse genuinely repeated authored content ---
+  {
+    const server = new FakeChatServer();
+    server.snapshotStart = 0;
+    server.offset = 300;
+    server.snapshot = [
+      { ...msg("0-0", "continue", "1"), type: "user", timestamp: undefined, seq: 0 },
+      { ...msg("1-0", "continue", "2"), type: "user", timestamp: undefined, seq: 1 },
+      { ...msg("2-0", "on it", "3"), timestamp: undefined, seq: 2 },
+    ];
+    const app = await mount(server);
+    server.emit([{ ...msg("300-0", "live answer", "4"), timestamp: undefined, seq: 0 }]);
+    await flush();
+    await app.render(server.sessionId, false);
+
+    // Reattach: the transport mints new ids for the same bytes and reuses seq.
+    server.snapshot = [
+      { ...msg("a-0", "continue", "1"), type: "user", timestamp: undefined, seq: 0 },
+      { ...msg("a-1", "continue", "2"), type: "user", timestamp: undefined, seq: 1 },
+      { ...msg("a-2", "on it", "3"), timestamp: undefined, seq: 2 },
+      { ...msg("a-3", "live answer", "4"), timestamp: undefined, seq: 3 },
+    ];
+    await app.render(server.sessionId, true);
+    const projected = app.messages().map((message) => message.content);
+    assert(
+      projected.join(",") === "continue,continue,on it,live answer",
+      `reattachment projects each row once and keeps real repeats (${projected})`,
+    );
+
+    // A new send of identical text is a real new row, not a duplicate to drop.
+    server.emit([{ ...msg("320-0", "continue", "5"), type: "user", timestamp: undefined, seq: 0 }]);
+    await flush();
+    assert(
+      app.messages().map((message) => message.content).join(",")
+        === "continue,continue,on it,live answer,continue",
+      "a genuinely repeated send is adopted after the committed turn",
     );
     await act(async () => app.root.unmount());
   }

@@ -28,6 +28,25 @@ export {
 export { matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
 export { mergeById } from "./merge";
+export {
+  TRANSCRIPT_RETENTION_LIMIT,
+  createTranscriptState,
+  projectTranscript,
+  reduceTranscript,
+  transcriptBackfillCursor,
+  transcriptCommittedEnd,
+  transcriptRowCount,
+  transcriptRows,
+  type TranscriptAuthority,
+  type TranscriptBatch,
+  type TranscriptBatchKind,
+  type TranscriptOutcome,
+  type TranscriptProjection,
+  type TranscriptRange,
+  type TranscriptResult,
+  type TranscriptSegment,
+  type TranscriptState,
+} from "./transcript";
 export { attachToolResults, isRenderableChatMessage } from "./toolResults";
 export { countAddedLines, countRemovedLines, countAdded, countRemoved, type EditPair } from "./toolNormalize";
 export { parseCodexPatch, patchTextFromToolInput, type ParsedPatchFile } from "./toolPatches";

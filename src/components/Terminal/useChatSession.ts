@@ -1,7 +1,5 @@
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,43 +13,35 @@ import {
   stabilizeTimelineItems,
   lastSessionResetIndex,
   projectContextEpochs,
-  mergeById,
-  mergeTimelineMessages,
   matchedOptimisticEchoes,
+  projectTranscript,
+  transcriptBackfillCursor,
+  transcriptRows,
   type NormalizedChatMessage as ChatMessage,
   type TimelineItem,
   type OptimisticEcho,
+  type TranscriptAuthority,
+  type TranscriptBatch,
+  type TranscriptRange,
 } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
-  CHAT_WINDOW_STEP,
-  chatPredecessorRange,
   chatWindowRange,
   chatWindowProjection,
-  mergeRetainedChatLive,
-  prependRetainedChatHistory,
-  refillRetainedChatHistory,
-  retainChatSnapshotTail,
-  seekRetainedChatPredecessor,
   slideChatWindowOlder,
   timelineItemKey,
 } from "./chatWindow";
 import { useChatHistoryRetention } from "./useChatHistoryRetention";
-import {
-  mergeSnapshotWindow,
-  withPreservedClientOrder,
-} from "./chatHistoryMerge";
+import { withPreservedClientOrder } from "./chatHistoryMerge";
 import {
   canAdoptTranscriptAuthority,
   newChatSubscriptionId,
   useChatSubscription,
   type ChatAttachmentState,
 } from "./chatSessionAuthority";
-import { advanceChatCursor, classifyChatCursor } from "./chatLiveCursor";
 
-const BACKFILL_PAGE_MAX_BYTES = 256 * 1024;
 const MAX_RETAINED_OPTIMISTIC_MESSAGES = 16;
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
 const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
@@ -274,11 +264,9 @@ function dispatchTestChatReply(detail: TestChatReplyDetail): void {
   );
 }
 
-function drainPendingTestChatReplies(
-  tabId: string,
-  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
-  nextOrder: () => number,
-): void {
+export type ChatEventCommit = (payload: ChatMsgEvent) => void;
+
+function drainPendingTestChatReplies(tabId: string, commit: ChatEventCommit): void {
   for (let i = 0; i < pendingTestChatReplies.length;) {
     const detail = pendingTestChatReplies[i];
     if (!detail || detail.tabId !== tabId) {
@@ -286,40 +274,24 @@ function drainPendingTestChatReplies(
       continue;
     }
     pendingTestChatReplies.splice(i, 1);
-    applyChatMsgEvent(testChatReplyPayload(detail), tabId, setStructured, nextOrder);
+    commit(testChatReplyPayload(detail));
   }
-}
-
-function applyChatMsgEvent(
-  payload: ChatMsgEvent,
-  tabId: string,
-  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
-  nextOrder: () => number,
-  sourceSessionId: string | null = null,
-): void {
-  if (payload.tab_id !== tabId) return;
-  if (!payload.messages.length) return;
-  setStructured((prev) => {
-    const existing = prev ?? [];
-    return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder, sourceSessionId));
-  });
 }
 
 export function listenForTestChatReplies(
   tabId: string,
-  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
-  nextOrder: () => number,
+  commit: ChatEventCommit,
 ): (() => void) | null {
   if (!isCodeTermFrontendTestMode() || typeof window === "undefined") return null;
   installCodeTermTestChatHandle();
   const handler = (event: Event) => {
     const detail = (event as CustomEvent<TestChatReplyDetail>).detail;
     if (!detail || detail.tabId !== tabId) return;
-    applyChatMsgEvent(testChatReplyPayload(detail), tabId, setStructured, nextOrder);
+    commit(testChatReplyPayload(detail));
   };
   testChatListenerCounts.set(tabId, (testChatListenerCounts.get(tabId) ?? 0) + 1);
   window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
-  drainPendingTestChatReplies(tabId, setStructured, nextOrder);
+  drainPendingTestChatReplies(tabId, commit);
   return () => {
     const nextCount = (testChatListenerCounts.get(tabId) ?? 1) - 1;
     if (nextCount <= 0) testChatListenerCounts.delete(tabId);
@@ -371,15 +343,14 @@ export function useChatSession({
   followTailRef?: MutableRefObject<boolean>;
 }) {
   const {
+    commitTranscript,
     followTailRef,
     initialCachedWindow,
-    retainedHistory,
-    setRetainedHistory,
-    setRetainedStructured,
+    resetTranscript,
+    transcript,
     updateWindowAnchor,
     windowAnchorKey,
   } = useChatHistoryRetention({ tabId, agentSessionId, suppliedFollowTailRef });
-  const [backfillCursor, setBackfillCursor] = useState<number | null>(null);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recovering, setRecovering] = useState(false);
@@ -419,14 +390,8 @@ export function useChatSession({
   const recoveryDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rotationQueuedRef = useRef(false);
   const recoveryQueuedRef = useRef(false);
-  const liveOffsetRef = useRef<number | null>(null);
   const backfillInFlightRef = useRef(false);
-  const backfillPageAnchorRef = useRef<string | null>(null);
-  /** Backfilled pages get negative descending seq so equal-second boundary
-   *  timestamps still sort before the snapshot (snapshot seq is 0-based). */
-  const backfillSeqBaseRef = useRef(0);
   const pendingRevealRef = useRef(false);
-  const pendingSnapshotModeRef = useRef<"latest" | "older" | null>(null);
   const nextClientOrder = useCallback(() => {
     const value = nextClientOrderRef.current;
     nextClientOrderRef.current += 1;
@@ -436,6 +401,46 @@ export function useChatSession({
   const emitDiagnostic = useCallback((event: ChatSessionDiagnosticEvent) => {
     diagnosticSinkRef.current?.(event);
   }, []);
+
+  const committedRows = useMemo(() => transcriptRows(transcript), [transcript]);
+  const committedRowsRef = useRef(committedRows);
+  committedRowsRef.current = committedRows;
+
+  /** Only live arrivals carry an arrival ordinal: it is what keeps an optimistic
+   *  row above the rows that arrive after the send. Snapshot and backfill rows
+   *  are history and must never push a pending row upward. */
+  const commitBatch = useCallback((
+    kind: TranscriptBatch["kind"],
+    authority: TranscriptAuthority,
+    range: TranscriptRange | null,
+    rows: ChatMessage[],
+  ) => commitTranscript({
+    kind,
+    authority,
+    range,
+    rows: kind === "delta"
+      ? withPreservedClientOrder(rows, committedRowsRef.current, nextClientOrder, authority.sourceSessionId)
+      : rows.map((row) => (
+          row.sourceSessionId === (authority.sourceSessionId ?? undefined)
+            ? row
+            : { ...row, sourceSessionId: row.sourceSessionId ?? authority.sourceSessionId ?? undefined }
+        )),
+  }), [commitTranscript, nextClientOrder]);
+
+  const commitLiveEvent = useCallback((payload: ChatMsgEvent) => {
+    if (payload.tab_id !== tabId || payload.messages.length === 0) return "ignored_empty" as const;
+    return commitBatch(
+      "delta",
+      {
+        sourceSessionId: payload.source_session_id,
+        sessionBindingNonce: payload.session_binding_nonce,
+      },
+      payload.start_offset != null && payload.offset != null
+        ? { start: payload.start_offset, end: payload.offset }
+        : null,
+      payload.messages,
+    );
+  }, [commitBatch, tabId]);
 
   const observeSubscription = useCallback((
     edge: "owned" | "released",
@@ -554,18 +559,14 @@ export function useChatSession({
     let unlistenTest: (() => void) | null = null;
     if (knownTabIdRef.current !== tabId) {
       knownTabIdRef.current = tabId;
-      liveOffsetRef.current = null;
-      nextClientOrderRef.current = initialCachedWindow?.history.messages.reduce(
+      nextClientOrderRef.current = committedRowsRef.current.reduce(
         (next, message) => Math.max(next, (message.clientOrder ?? -1) + 1),
         0,
-      ) ?? 0;
-      backfillSeqBaseRef.current = 0;
-      backfillPageAnchorRef.current = null;
+      );
       if (!initialCachedWindow) {
-        setRetainedHistory(null);
+        resetTranscript();
         updateWindowAnchor(null);
       }
-      setBackfillCursor(null);
       setLoading(true);
     }
     (async () => {
@@ -574,14 +575,6 @@ export function useChatSession({
           `tab-chat-msg-${tabId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
-            const cursorDecision = classifyChatCursor(
-              liveOffsetRef.current,
-              ev.payload.start_offset,
-              ev.payload.offset,
-            );
-            if (cursorDecision === "stale") return;
-            liveOffsetRef.current = advanceChatCursor(liveOffsetRef.current, ev.payload.offset);
-            if (cursorDecision === "gap") requestRecoveryAttach();
             const diagnosticBase = {
               tabId,
               sourceSessionId: ev.payload.source_session_id,
@@ -612,7 +605,10 @@ export function useChatSession({
             if (ev.payload.source_session_id != null) {
               attachmentSourceSessionIdRef.current = ev.payload.source_session_id;
             }
-            applyChatMsgEvent(ev.payload, tabId, setRetainedStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
+            const outcome = commitLiveEvent(ev.payload);
+            if (outcome === "recover_gap" || outcome === "recover_overlap") {
+              requestRecoveryAttach();
+            }
             emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -622,7 +618,7 @@ export function useChatSession({
           return;
         }
         emitDiagnostic({ edge: "listener_owned", tabId });
-        unlistenTest = listenForTestChatReplies(tabId, setRetainedStructured, nextClientOrder);
+        unlistenTest = listenForTestChatReplies(tabId, commitLiveEvent);
         setListenerReady(true);
         setAttachmentState("idle");
       } catch (e) {
@@ -646,13 +642,13 @@ export function useChatSession({
   }, [
     active,
     clearRecoveryDeadline,
+    commitLiveEvent,
     emitDiagnostic,
     initialCachedWindow,
     markAttached,
-    nextClientOrder,
     releaseActiveSubscription,
     requestRecoveryAttach,
-    setRetainedStructured,
+    resetTranscript,
     tabId,
     updateWindowAnchor,
   ]);
@@ -744,7 +740,6 @@ export function useChatSession({
           startOffset: res.start_offset ?? null,
         });
         attachmentSourceSessionIdRef.current = res.source_session_id;
-        liveOffsetRef.current = advanceChatCursor(liveOffsetRef.current, res.offset);
         setError(null);
         setLoading(false);
         if (res.pending) {
@@ -758,44 +753,19 @@ export function useChatSession({
           return;
         }
         markAttached();
-        const snapshotMode = pendingSnapshotModeRef.current;
-        pendingSnapshotModeRef.current = null;
-        const snapshotBackfillCursor = res.start_offset != null && res.start_offset > 0
-          ? res.start_offset
-          : null;
-        const snapshotRange = chatPredecessorRange(res.start_offset ?? 0, res.offset);
-        if (snapshotMode !== "older" && followTailRef.current) {
-          backfillPageAnchorRef.current = null;
-          setBackfillCursor(snapshotBackfillCursor);
-        }
-        setRetainedHistory((previous) => {
-          const previousMessages = previous?.messages ?? [];
-          const snapshot = res.messages ?? [];
-          if (snapshotMode === "older" && previous) {
-            const refilled = refillRetainedChatHistory(previous, snapshot);
-            if (refilled.messages !== previous.messages) pendingRevealRef.current = true;
-            return refilled === previous ? previous : { ...refilled, predecessorRange: snapshotRange };
-          }
-          const merged = mergeSnapshotWindow(
-            previousMessages,
-            snapshot,
-            nextClientOrder,
-            res.source_session_id,
-          );
-          if (snapshotMode === "latest" || !previous || followTailRef.current) {
-            if (!previous) return retainChatSnapshotTail(merged, undefined, snapshotRange);
-            return {
-              ...mergeRetainedChatLive(previous, merged),
-              predecessorRange: snapshotRange ?? previous.predecessorRange,
-            };
-          }
-          return mergeRetainedChatLive(previous, merged);
-        });
-        if (snapshotMode != null) setBackfillLoading(false);
+        commitBatch(
+          "snapshot",
+          {
+            sourceSessionId: res.source_session_id,
+            sessionBindingNonce: res.session_binding_nonce,
+          },
+          res.start_offset != null && res.offset > 0
+            ? { start: res.start_offset, end: res.offset }
+            : null,
+          res.messages ?? [],
+        );
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
-        pendingSnapshotModeRef.current = null;
-        setBackfillLoading(false);
         const msg = e instanceof Error ? e.message : String(e);
         clearRecoveryDeadline();
         setAttachmentState("failed");
@@ -813,11 +783,10 @@ export function useChatSession({
     armRecoveryDeadline,
     attachGeneration,
     clearRecoveryDeadline,
+    commitBatch,
     emitDiagnostic,
-    followTailRef,
     listenerReady,
     markAttached,
-    nextClientOrder,
     tabId,
     replaceActiveSubscription,
     stopUnadoptedSubscription,
@@ -838,7 +807,6 @@ export function useChatSession({
       || !active
       || !listenerReady
     ) return;
-    liveOffsetRef.current = null;
     if (rotationQueuedRef.current) return;
     rotationQueuedRef.current = true;
     queueMicrotask(() => {
@@ -886,21 +854,20 @@ export function useChatSession({
     if (error?.includes("chat_send_raw")) setError(null);
   }, [error]);
 
-  const structured = retainedHistory?.messages ?? null;
+  const parsed = committedRows;
 
   useLayoutEffect(() => {
-    if (structured == null) return;
+    if (transcript.segments.length === 0) return;
     emitDiagnostic({
       edge: "state_commit",
       tabId,
       sourceSessionId: pendingAuthorityRef.current.sourceSessionId,
       sessionBindingNonce: pendingAuthorityRef.current.sessionBindingNonce,
-      messageIds: structured.map((message) => message.id),
-      tailSignature: tailSignatureOf(structured),
+      messageIds: parsed.map((message) => message.id),
+      tailSignature: tailSignatureOf(parsed),
     });
-  }, [emitDiagnostic, tabId, structured]);
+  }, [emitDiagnostic, tabId, parsed, transcript]);
 
-  const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
   const resetCutoffMs = useMemo(() => {
     const index = lastSessionResetIndex(parsed);
     return index >= 0 ? timestampMs(parsed[index]?.timestamp) : null;
@@ -913,14 +880,10 @@ export function useChatSession({
     });
   }, [optimistic, resetCutoffMs]);
 
-  const allMessages = useMemo(() => {
-    if (liveOptimistic.length === 0) return projectContextEpochs(parsed);
-    const parsedUsers = parsed.filter((m) => m.type === "user" || m.type === "local_command");
-    const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
-    const matched = new Set(matchedIds);
-    const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return projectContextEpochs(mergeTimelineMessages(parsed, stillPending));
-  }, [parsed, liveOptimistic]);
+  const allMessages = useMemo(
+    () => projectContextEpochs(projectTranscript(transcript, liveOptimistic).rows),
+    [transcript, liveOptimistic],
+  );
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
@@ -954,9 +917,9 @@ export function useChatSession({
     return enrichTimelineItems(projectedTimelineItems, enrichmentCacheRef.current);
   }, [projectedTimelineItems]);
 
-  const hiddenMessageCount = (retainedHistory?.omittedOlder ?? 0) + windowRange.start;
-  const durableBackfillCursor = retainedHistory?.predecessorRange?.startOffset ?? backfillCursor;
-  const canBackfillOlder = durableBackfillCursor != null && durableBackfillCursor > 0;
+  const hiddenMessageCount = transcript.evictedOlder + windowRange.start;
+  const backfillCursor = transcriptBackfillCursor(transcript);
+  const canBackfillOlder = backfillCursor != null && backfillCursor > 0;
 
   const loadOlder = useCallback(async () => {
     followTailRef.current = false;
@@ -964,18 +927,7 @@ export function useChatSession({
       updateWindowAnchor((previous) => slideChatWindowOlder(allTimelineItems, previous));
       return;
     }
-    const predecessorRange = retainedHistory?.predecessorRange;
-    const seekingRetainedBoundary = (retainedHistory?.omittedOlder ?? 0) > 0 && predecessorRange != null;
-    if ((retainedHistory?.omittedOlder ?? 0) > 0 && !seekingRetainedBoundary) {
-      pendingSnapshotModeRef.current = "older";
-      setBackfillLoading(true);
-      requestAttach();
-      return;
-    }
-    const cursor = seekingRetainedBoundary
-      ? predecessorRange?.seekBeforeOffset
-      : durableBackfillCursor;
-    if (cursor == null || cursor <= 0 || backfillInFlightRef.current) return;
+    if (backfillCursor == null || backfillCursor <= 0 || backfillInFlightRef.current) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGenerationRef.current;
     backfillInFlightRef.current = true;
@@ -983,8 +935,7 @@ export function useChatSession({
     try {
       const res = await invoke<ChatBackfillResult>("chat_backfill", {
         tabId,
-        beforeOffset: cursor,
-        maxBytes: BACKFILL_PAGE_MAX_BYTES,
+        beforeOffset: backfillCursor,
       });
       if (
         lifecycleRef.current !== lifecycle
@@ -1001,68 +952,18 @@ export function useChatSession({
       ) {
         return;
       }
-      const parsed = res.messages ?? [];
-      const nextCursor = res.start_offset > 0 && res.start_offset < cursor ? res.start_offset : null;
-      if (parsed.length === 0) {
-        if (seekingRetainedBoundary) {
-          setRetainedHistory((previous) => (
-            previous ? seekRetainedChatPredecessor(previous, [], res.start_offset).history : previous
-          ));
-          return;
-        }
-        backfillPageAnchorRef.current = null;
-        setBackfillCursor(nextCursor);
-        setRetainedHistory((previous) => {
-          if (!previous?.predecessorRange) return previous;
-          return {
-            ...previous,
-            predecessorRange: {
-              ...previous.predecessorRange,
-              startOffset: nextCursor ?? 0,
-            },
-          };
-        });
-        return;
-      }
-      const seqBase = backfillSeqBaseRef.current - parsed.length;
-      backfillSeqBaseRef.current = seqBase;
-      const stamped = parsed.map((m, index) => ({
-        ...m,
-        seq: seqBase + index,
-        sourceSessionId: m.sourceSessionId ?? res.source_session_id ?? undefined,
-      }));
-      if (seekingRetainedBoundary) {
-        setRetainedHistory((previous) => {
-          if (!previous) return previous;
-          const result = seekRetainedChatPredecessor(previous, stamped, res.start_offset);
-          if (result.prepended) pendingRevealRef.current = true;
-          return result.history;
-        });
-        return;
-      }
-      const priorAnchor = backfillPageAnchorRef.current;
-      const priorAnchorIndex = priorAnchor == null
-        ? stamped.length
-        : stamped.findIndex((message) => message.id === priorAnchor);
-      const pageEnd = priorAnchorIndex < 0 ? stamped.length : priorAnchorIndex;
-      const pageStart = Math.max(0, pageEnd - CHAT_WINDOW_STEP);
-      const selected = stamped.slice(pageStart, pageEnd);
-      backfillPageAnchorRef.current = pageStart > 0 ? selected[0]?.id ?? null : null;
-      setBackfillCursor(pageStart > 0 ? cursor : nextCursor);
-      if (selected.length === 0) return;
-      pendingRevealRef.current = true;
-      setRetainedHistory((previous) => {
-        if (!previous) return retainChatSnapshotTail(selected);
-        const prepended = prependRetainedChatHistory(previous, selected);
-        if (!prepended.predecessorRange) return prepended;
-        return {
-          ...prepended,
-          predecessorRange: {
-            ...prepended.predecessorRange,
-            startOffset: pageStart > 0 ? cursor : nextCursor ?? 0,
-          },
-        };
-      });
+      const page = res.messages ?? [];
+      if (page.length === 0) return;
+      const outcome = commitBatch(
+        "backfill",
+        {
+          sourceSessionId: res.source_session_id,
+          sessionBindingNonce: res.session_binding_nonce,
+        },
+        { start: res.start_offset, end: res.end_offset },
+        page,
+      );
+      if (outcome === "adopted") pendingRevealRef.current = true;
     } catch (e) {
       onErrorRef.current?.(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1072,10 +973,8 @@ export function useChatSession({
   }, [
     allTimelineItems,
     backfillCursor,
+    commitBatch,
     followTailRef,
-    requestAttach,
-    durableBackfillCursor,
-    retainedHistory,
     tabId,
     updateWindowAnchor,
     windowAnchorIsLoaded,
@@ -1093,12 +992,7 @@ export function useChatSession({
   const showLatest = useCallback(() => {
     followTailRef.current = true;
     updateWindowAnchor(null);
-    setRetainedHistory((previous) => (
-      previous
-        ? mergeRetainedChatLive(previous, previous.messages)
-        : previous
-    ));
-  }, [followTailRef, setRetainedHistory, updateWindowAnchor]);
+  }, [followTailRef, updateWindowAnchor]);
 
   const setHistoryReading = useCallback((reading: boolean) => {
     if (!reading) {

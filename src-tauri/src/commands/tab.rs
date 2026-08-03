@@ -465,7 +465,6 @@ pub fn chat_start_core(
             let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 svc.mux.clone(),
-                0,
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
                 Some(svc.chat_send_ledger.clone()),
@@ -507,7 +506,10 @@ pub fn chat_start_core(
     );
     crate::service::tab_chat::session_window::log_bounded_snapshot(&tab_id, &provider_id, &snap);
     let read_ms = read_started.elapsed().as_millis();
-    let (total, tailer_start_offset, bytes_read) = (snap.total, snap.total, snap.bytes_read);
+    // The tailer resumes at the parsed end, not the file size: a half-written
+    // trailing record is held back by the parser and must be consumed once by
+    // the tailer instead of being skipped.
+    let (total, tailer_start_offset, bytes_read) = (snap.total, snap.end_offset, snap.bytes_read);
     // Backfill cursor: >0 means the bounded snapshot truncated older history.
     let snapshot_start = snap.start_offset;
     let msg_count = snap.messages.len();
@@ -523,7 +525,6 @@ pub fn chat_start_core(
         let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             svc.mux.clone(),
-            msg_count,
             Some(session_id.clone()),
             session_binding_nonce.clone(),
             Some(svc.chat_send_ledger.clone()),
@@ -566,11 +567,12 @@ pub fn chat_start_core(
     }
 
     Ok(ChatStartResult {
-        // start_offset > 0 tells the client older JSONL exists below the parsed
-        // window — its cursor for the bounded chat_backfill pager.
+        // `[start_offset, offset)` is the snapshot's exact record-bounded byte
+        // range: the client reconciles overlap and adoption from it, and
+        // start_offset > 0 is its chat_backfill paging cursor.
         start_offset: snapshot_start,
         text: String::new(),
-        offset: total,
+        offset: tailer_start_offset,
         pending: false,
         messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
         cursor: None,
@@ -660,23 +662,16 @@ pub struct ChatBackfillResult {
     pub session_binding_nonce: Option<String>,
 }
 
-const BACKFILL_DEFAULT_BYTES: u64 = 128 * 1024;
-/// A client-supplied `max_bytes` is untrusted input against a multi-GB file.
-const BACKFILL_MAX_BYTES: u64 = 8 * 1024 * 1024;
-
 #[tauri::command]
 pub async fn chat_backfill(
     svc: tauri::State<'_, ServiceState>,
     tab_id: String,
     before_offset: u64,
-    max_bytes: Option<u64>,
 ) -> Result<ChatBackfillResult, String> {
     let svc_owned = svc.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        chat_backfill_core(&svc_owned, tab_id, before_offset, max_bytes)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || chat_backfill_core(&svc_owned, tab_id, before_offset))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Shared by the Tauri command and the web mirror's
@@ -685,7 +680,6 @@ pub fn chat_backfill_core(
     svc: &ServiceState,
     tab_id: String,
     before_offset: u64,
-    max_bytes: Option<u64>,
 ) -> Result<ChatBackfillResult, String> {
     let (provider_id, cwd, session_id, session_binding_nonce) = {
         let m = svc.mux.write();
@@ -703,31 +697,34 @@ pub fn chat_backfill_core(
         .flatten()
         .ok_or("no JSONL")?;
 
-    let max_bytes = max_bytes
-        .unwrap_or(BACKFILL_DEFAULT_BYTES)
-        .min(BACKFILL_MAX_BYTES);
-    let (text, aligned_start) = backfill_window_slice(&path, before_offset, max_bytes)
+    let page_bytes = crate::service::tab_chat::session_window::BACKFILL_PAGE_BYTES;
+    let (text, aligned_start) = backfill_window_slice(&path, before_offset, page_bytes)
         .map_err(|e| format!("read jsonl: {e}"))?;
-    // Parse the same span with the tab's own provider parser, bounded by
-    // `until`; client id-dedupe absorbs any trailing delta-chunk overshoot.
-    let rich = crate::service::tab_chat::session_window::parse_window(
+    let page = crate::service::tab_chat::session_window::parse_page_before(
         &svc.agent_registry,
         &provider_id,
         &path,
-        aligned_start,
         before_offset,
-    )
-    .0;
-    let messages = rich
+    );
+    let messages = page
+        .messages
         .iter()
         .enumerate()
-        .flat_map(|(i, r)| crate::service::tab_chat::rich_to_chat_msgs(r, i))
+        .flat_map(|(i, r)| {
+            crate::service::tab_chat::rich_to_chat_msgs_at(
+                r,
+                crate::service::tab_chat::RowOrigin::at(aligned_start, i),
+            )
+        })
         .collect();
 
     Ok(ChatBackfillResult {
         text,
+        // The page's exact record boundaries: `aligned_start` is the first
+        // complete record read, so the next page ends there and the partial
+        // head this read dropped is parsed as that page's last record.
         start_offset: aligned_start,
-        end_offset: before_offset,
+        end_offset: page.end_offset,
         messages,
         source_session_id: Some(session_id),
         session_binding_nonce,
@@ -735,8 +732,10 @@ pub fn chat_backfill_core(
 }
 
 /// Seek+align one backfill page: `[before_offset - max_bytes, before_offset)`
-/// aligned forward to a line start, so consecutive pages stay exactly
-/// contiguous and the parser never sees a partial first line.
+/// aligned forward to the first COMPLETE record, which is the exact boundary
+/// the page's reported range starts at. A read that already begins on a
+/// boundary keeps it, so the returned range never excludes a record the parser
+/// emitted, and the record straddling the read start belongs to the next page.
 fn backfill_window_slice(
     path: &std::path::Path,
     before_offset: u64,
@@ -747,7 +746,8 @@ fn backfill_window_slice(
     let (window, clamped_start) =
         codeterm_plugin::jsonl_window::read_range(path, start, before_offset)
             .map_err(|e| e.to_string())?;
-    let aligned_offset = if clamped_start == 0 {
+    let already_aligned = clamped_start == 0 || record_starts_at(path, clamped_start);
+    let aligned_offset = if already_aligned {
         0usize
     } else {
         window
@@ -758,6 +758,20 @@ fn backfill_window_slice(
     };
     let text = String::from_utf8_lossy(&window[aligned_offset.min(window.len())..]).to_string();
     Ok((text, clamped_start + aligned_offset as u64))
+}
+
+/// True when `offset` is itself a record start (the byte before it terminates
+/// the previous record).
+fn record_starts_at(path: &std::path::Path, offset: u64) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    if file.seek(SeekFrom::Start(offset - 1)).is_err() {
+        return false;
+    }
+    let mut byte = [0u8; 1];
+    file.read_exact(&mut byte).is_ok() && byte[0] == b'\n'
 }
 
 #[tauri::command]
@@ -883,7 +897,7 @@ pub async fn chatbackend_switch_model(
 mod tests {
     use super::backfill_window_slice;
     use crate::service::tab_chat::session_window::{
-        self, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
+        self, SNAPSHOT_ANCHOR_STRIDE_BYTES, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
     };
     use std::sync::Arc;
 
@@ -1112,7 +1126,7 @@ mod tests {
             "oversized session must use the tail window"
         );
         assert!(
-            snap.bytes_read <= SNAPSHOT_WINDOW_BYTES,
+            snap.bytes_read <= SNAPSHOT_WINDOW_BYTES + SNAPSHOT_ANCHOR_STRIDE_BYTES,
             "read {} bytes",
             snap.bytes_read
         );

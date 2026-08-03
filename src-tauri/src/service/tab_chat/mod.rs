@@ -156,22 +156,54 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 /// structured path and the frontend `NormalizedChatMessage`. This is the one
 /// place JSONL providers' rich rendering lives; the desktop renders the same
 /// output, so there is no second parser.
+/// Byte origin of one parsed row: `offset` is the complete-record boundary the
+/// batch started at, `ordinal` the row's position inside that batch.
+#[derive(Clone, Copy, Debug)]
+pub struct RowOrigin {
+    pub offset: u64,
+    pub ordinal: usize,
+}
+
+impl RowOrigin {
+    pub fn at(offset: u64, ordinal: usize) -> Self {
+        Self { offset, ordinal }
+    }
+
+    fn id_base(&self) -> String {
+        format!("{}-{}", self.offset, self.ordinal)
+    }
+}
+
+/// Flatten a row parsed from a session byte range. Ids anchor to the batch's
+/// record boundary, so independently parsed windows never mint the same id for
+/// different rows; `seq` stays an ordinal within the batch.
+pub fn rich_to_chat_msgs_at(rich: &RichMessage, origin: RowOrigin) -> Vec<ChatMsg> {
+    let mut out = rich_to_chat_msgs_blocks(rich, &origin.id_base());
+    for m in &mut out {
+        m.seq = origin.ordinal as i64;
+    }
+    out
+}
+
+/// Unanchored flatten for callers that have no session byte range: ids and
+/// `seq` are meaningful only inside the caller's own batch. Send-evidence
+/// content extraction only — transcript ingestion uses [`rich_to_chat_msgs_at`].
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
-    let mut out = rich_to_chat_msgs_blocks(rich, base_id);
+    let mut out = rich_to_chat_msgs_blocks(rich, &base_id.to_string());
     for m in &mut out {
         m.seq = base_id as i64;
     }
     out
 }
 
-fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
+fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<ChatMsg> {
     let mut out = Vec::new();
     let role = rich.role.as_str();
     let base = rich
         .uuid
         .clone()
         .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| base_id.to_string());
+        .unwrap_or_else(|| fallback_base.to_string());
     let id_at = |i: usize| format!("{base}-{i}");
     let ts = rich.timestamp.clone();
     let source_subtype = rich.source_subtype.as_deref();
