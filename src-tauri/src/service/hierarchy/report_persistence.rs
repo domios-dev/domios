@@ -38,8 +38,20 @@ pub(super) fn persist_authorized_local_task_report(
     milestone_kind: Option<&str>,
     now_ms: u64,
 ) -> Result<(), String> {
-    let authority = report_authority(details, tab_id, plan_id, task_id)?;
     let mux = svc.mux.read();
+    let mut effective_details = details.clone();
+    if effective_details.caller_session_id.is_none() {
+        let supplied_nonce = effective_details.session_binding_nonce.as_deref();
+        let live_session = mux.get_tab(tab_id).and_then(|tab| {
+            (effective_details.caller_tab_id.as_deref() == Some(tab_id)
+                && tab.session_binding_nonce.as_deref() == supplied_nonce
+                && tab.reported_session_binding_nonce.as_deref() == supplied_nonce)
+                .then(|| tab.agent_session_id.clone())
+                .flatten()
+        });
+        effective_details.caller_session_id = live_session;
+    }
+    let authority = report_authority(&effective_details, tab_id, plan_id, task_id)?;
     let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(&authority.session_id)
             && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
@@ -61,7 +73,7 @@ pub(super) fn persist_authorized_local_task_report(
         task_id,
         from,
         message,
-        details,
+        &effective_details,
         task_status,
         milestone_kind,
         now_ms,
@@ -475,5 +487,74 @@ mod tests {
             .task
             .milestones
             .is_empty());
+    }
+
+    #[test]
+    fn verified_nonce_resolves_missing_report_session_id() {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let workspace = fixture
+            .service
+            .mux
+            .write()
+            .create_workspace("reports".into(), None)
+            .id;
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("live-session".into());
+            tab.session_binding_nonce = Some("live-nonce".into());
+            tab.reported_session_binding_nonce = Some("live-nonce".into());
+        }
+        let mut plan = Plan::new(
+            "reports".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = add_task(&fixture.service.plan_store, &plan.id, "report", 2);
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                None,
+                Some("live-session"),
+                Some("live-nonce"),
+                4,
+            )
+            .unwrap();
+        let details = ReportDetails {
+            caller_tab_id: Some(tab_id.clone()),
+            caller_session_id: None,
+            session_binding_nonce: Some("live-nonce".into()),
+            owner_epoch: Some(0),
+            ..Default::default()
+        };
+        persist_authorized_local_task_report(
+            &fixture.service,
+            &tab_id,
+            &plan.id,
+            &task_id,
+            &AgentRef::from_tab(&tab_id),
+            "report persisted",
+            &details,
+            None,
+            None,
+            5,
+        )
+        .unwrap();
+        assert_eq!(
+            fixture.service.plan_store.get(&plan.id).unwrap().tasks[0].milestones[0].text,
+            "report persisted"
+        );
     }
 }
