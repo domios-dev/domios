@@ -1,8 +1,7 @@
 use super::{
-    build_agent_command, command_with_binding_nonce_for_shell, provider_launch_failure,
-    replacement_pty_candidate, spawn_onboarding_task, take_reader_termination,
-    worker_brief_delivery_incident, AgentRegistry, LaunchFailure, LaunchGeneration, LaunchRegistry,
-    ProviderSessionBinding,
+    build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
+    spawn_onboarding_task, take_reader_termination, worker_brief_delivery_incident, AgentRegistry,
+    LaunchFailure, LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
@@ -292,10 +291,6 @@ fn production_driver_uses_typed_terminal_causes() {
         LaunchFailure::ReaderSetup("closed".into()).reason(),
         "ReaderSetupFailed: closed"
     );
-    assert_eq!(
-        LaunchFailure::ProviderReadyTimeout.reason(),
-        "ProviderReadyTimeout"
-    );
     assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
     assert_eq!(
         LaunchFailure::ShellReadyTimeout.reason(),
@@ -368,27 +363,6 @@ fn matching_authenticated_session_binding_resolves_readiness() {
         }
     ));
     assert!(launch.await_provider_ack(std::time::Duration::ZERO));
-}
-
-#[test]
-fn live_provider_tui_is_ready_before_session_hook() {
-    assert_eq!(provider_launch_failure(false, false, true), None);
-}
-
-#[test]
-fn missing_hook_and_tui_is_a_real_timeout() {
-    assert_eq!(
-        provider_launch_failure(false, false, false),
-        Some(LaunchFailure::ProviderReadyTimeout)
-    );
-}
-
-#[test]
-fn reader_eof_overrides_visual_readiness() {
-    assert_eq!(
-        provider_launch_failure(true, false, true),
-        Some(LaunchFailure::PtyEof)
-    );
 }
 
 #[test]
