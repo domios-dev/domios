@@ -21,6 +21,15 @@ class ReleaseIssueContractTest(unittest.TestCase):
             check=False,
         )
 
+    def resolve_fixture(self, prs: str = "release-prs.json", commits: str = "release-commits.json"):
+        return self.run_contract(
+            "resolve",
+            "--commits-file",
+            str(FIXTURES / commits),
+            "--prs-file",
+            str(FIXTURES / prs),
+        )
+
     def test_valid_and_zero_references_normalize(self):
         valid = self.run_contract("parse", "--body-file", str(FIXTURES / "valid-pr.md"))
         self.assertEqual(valid.returncode, 0, valid.stderr)
@@ -47,14 +56,26 @@ class ReleaseIssueContractTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
 
     def test_release_range_unions_only_declared_references(self):
-        result = self.run_contract("resolve", "--prs-file", str(FIXTURES / "release-prs.json"))
+        result = self.resolve_fixture()
         self.assertEqual(result.returncode, 0, result.stderr)
         resolved = json.loads(result.stdout)
         self.assertEqual([item["reference"] for item in resolved["issues"]], [
             "rollacode/codeterm-releases#2",
             "rollacode/codeterm-releases#17",
+            "rollacode/codeterm-releases#32",
         ])
         self.assertNotIn("#99", result.stdout)
+        issue_17 = next(issue for issue in resolved["issues"] if issue["reference"].endswith("#17"))
+        self.assertEqual([source["kind"] for source in issue_17["sources"]], [
+            "pull_request",
+            "commit",
+        ])
+
+    def test_commit_rejects_malformed_metadata_but_ignores_incidental_issue_prose(self):
+        result = self.resolve_fixture(commits="malformed-release-commits.json")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("commit 4444444444444444444444444444444444444444", result.stderr)
+        self.assertIn("malformed Public-Issue metadata", result.stderr)
 
     def test_failed_tag_does_not_advance_successful_release_range(self):
         start = self.run_contract(
@@ -66,6 +87,8 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertEqual(start.stdout.strip(), "1111111111111111111111111111111111111111")
         resolved_result = self.run_contract(
             "resolve",
+            "--commits-file",
+            str(FIXTURES / "empty-commits.json"),
             "--prs-file",
             str(FIXTURES / "failed-then-successful-prs.json"),
         )
@@ -109,7 +132,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
             self.assertEqual(json.loads(second.stdout), [])
 
     def test_close_plan_is_idempotent_and_has_no_mutation_command(self):
-        resolved = json.loads(self.run_contract("resolve", "--prs-file", str(FIXTURES / "release-prs.json")).stdout)
+        resolved = json.loads(self.resolve_fixture().stdout)
         with tempfile.TemporaryDirectory() as directory:
             resolved_path = Path(directory) / "resolved.json"
             states_path = Path(directory) / "states.json"
@@ -133,7 +156,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         publish = workflow.index("- name: Publish (private archive + public mirror + signed latest.json)")
         verify = workflow.index("- name: Verify published public mirror")
-        resolve = workflow.index("- name: Resolve included private PR public issues")
+        resolve = workflow.index("- name: Resolve included private source public issues")
         close = workflow.index("- name: Close shipped public issues")
         self.assertLess(publish, verify)
         self.assertLess(verify, resolve)
@@ -143,6 +166,12 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertNotIn("continue-on-error", close_step)
         self.assertIn("--repo rollacode/codeterm-releases", close_step)
         self.assertNotIn("gh issue close \"$number\" \\\n+              --repo \"$GITHUB_REPOSITORY\"", close_step)
+
+    def test_pr_validation_includes_commit_metadata(self):
+        workflow = (ROOT / ".github" / "workflows" / "ready-for-release.yml").read_text(encoding="utf-8")
+        self.assertIn("git rev-list", workflow)
+        self.assertIn('--commits-file "$RUNNER_TEMP/release-commits.json"', workflow)
+        self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
 
 
 if __name__ == "__main__":

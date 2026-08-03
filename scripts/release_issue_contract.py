@@ -26,7 +26,7 @@ class ContractError(ValueError):
     pass
 
 
-def parse_body(body: str) -> list[str]:
+def parse_body(body: str, *, reject_incidental_references: bool = True) -> list[str]:
     references: list[str] = []
     seen: set[str] = set()
     errors: list[str] = []
@@ -42,16 +42,16 @@ def parse_body(body: str) -> list[str]:
             continue
         if REFERENCE_MARKER.search(line):
             errors.append(f"line {line_number}: malformed Public-Issue metadata")
-        elif CLOSING_KEYWORD.search(line):
+        elif reject_incidental_references and CLOSING_KEYWORD.search(line):
             errors.append(f"line {line_number}: GitHub closing keywords are forbidden")
-        elif ISSUE_LIKE.search(line) or PUBLIC_ISSUE_URL.search(line):
+        elif reject_incidental_references and (ISSUE_LIKE.search(line) or PUBLIC_ISSUE_URL.search(line)):
             errors.append(f"line {line_number}: issue references must use Public-Issue metadata")
     if errors:
         raise ContractError("\n".join(errors))
     return sorted(references, key=lambda value: int(value.rsplit("#", 1)[1]))
 
 
-def resolve_prs(prs: list[dict]) -> dict:
+def resolve_sources(commits: list[dict], prs: list[dict]) -> dict:
     issues: dict[str, list[dict]] = {}
     for pr in prs:
         number = pr.get("number")
@@ -64,11 +64,36 @@ def resolve_prs(prs: list[dict]) -> dict:
         except ContractError as error:
             raise ContractError(f"PR #{number}: {error}") from error
         for reference in references:
-            issues.setdefault(reference, []).append({"number": number, "url": url})
+            issues.setdefault(reference, []).append(
+                {"kind": "pull_request", "number": number, "url": url}
+            )
+    for commit in commits:
+        sha = commit.get("sha")
+        url = commit.get("url")
+        body = commit.get("body") or ""
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ContractError("each commit requires a full lowercase sha")
+        if not isinstance(url, str):
+            raise ContractError("each commit requires a string url")
+        try:
+            references = parse_body(body, reject_incidental_references=False)
+        except ContractError as error:
+            raise ContractError(f"commit {sha}: {error}") from error
+        for reference in references:
+            issues.setdefault(reference, []).append(
+                {"kind": "commit", "sha": sha, "url": url}
+            )
+
+    for sources in issues.values():
+        unique = {source["url"]: source for source in sources}
+        sources[:] = sorted(
+            unique.values(),
+            key=lambda source: (source["kind"] != "pull_request", source["url"]),
+        )
     return {
         "repository": PUBLIC_REPOSITORY,
         "issues": [
-            {"reference": reference, "prs": issues[reference]}
+            {"reference": reference, "sources": issues[reference]}
             for reference in sorted(issues, key=lambda value: int(value.rsplit("#", 1)[1]))
         ],
     }
@@ -81,12 +106,12 @@ def plan_close(resolved: dict, states: dict, version: str) -> list[dict]:
         if states.get(reference) != "OPEN":
             continue
         number = int(reference.rsplit("#", 1)[1])
-        for pr in issue["prs"]:
+        for source in issue["sources"]:
             actions.append(
                 {
                     "number": number,
                     "reference": reference,
-                    "comment": f"Released in v{version}\n\n{pr['url']}",
+                    "comment": f"Released in v{version}\n\n{source['url']}",
                 }
             )
             break
@@ -126,6 +151,7 @@ def main() -> int:
     parse_parser = subparsers.add_parser("parse")
     parse_parser.add_argument("--body-file", required=True)
     resolve_parser = subparsers.add_parser("resolve")
+    resolve_parser.add_argument("--commits-file", required=True)
     resolve_parser.add_argument("--prs-file", required=True)
     plan_parser = subparsers.add_parser("plan-close")
     plan_parser.add_argument("--resolved-file", required=True)
@@ -139,7 +165,7 @@ def main() -> int:
             for reference in parse_body(Path(args.body_file).read_text(encoding="utf-8")):
                 print(reference)
         elif args.command == "resolve":
-            print(json.dumps(resolve_prs(read_json(args.prs_file)), indent=2))
+            print(json.dumps(resolve_sources(read_json(args.commits_file), read_json(args.prs_file)), indent=2))
         elif args.command == "plan-close":
             print(json.dumps(plan_close(read_json(args.resolved_file), read_json(args.states_file), args.version), indent=2))
         else:
