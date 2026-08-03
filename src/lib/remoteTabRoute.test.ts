@@ -11,7 +11,7 @@ describe("remote tab routing", () => {
       id: "mesh:peer-a/same",
       remote_peer_id: "peer-a",
       remote_tab_id: "same",
-      remote_availability: "available",
+      remote_channels: { control: "available", output: "available", chat: "available" },
     })).toEqual({ peerId: "peer-a", tabId: "same" });
     expect(remoteTabStreamPath({ peerId: "peer-a", tabId: "same" }))
       .toContain("peer=peer-a&path=%2Fapi%2Foutput%2Fstream&tab=mesh%3Apeer-a%2Fsame");
@@ -24,7 +24,7 @@ describe("remote tab routing", () => {
       id: "mesh:peer-a/same",
       remote_peer_id: "peer-a",
       remote_tab_id: "same",
-      remote_availability: "reconnecting",
+      remote_channels: { control: "reconnecting", output: "reconnecting", chat: "reconnecting" },
     })).toEqual({ peerId: "peer-a", tabId: "same" });
   });
 

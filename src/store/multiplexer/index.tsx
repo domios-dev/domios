@@ -218,7 +218,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
     void listen("mesh-state-changed", () => {
       for (const tab of Object.values(stateRef.current.tabs)) {
-        if (tab.remote_peer_id) dispatch({ type: "UPDATE_REMOTE_AVAILABILITY", tabId: tab.id, availability: "reconnecting" });
+        if (!tab.remote_peer_id) continue;
+        for (const channel of ["control", "output", "chat"] as const) {
+          dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: tab.id, channel, availability: "reconnecting" });
+        }
       }
       void refreshRemoteTabs();
     }).then((fn) => { unlisten = fn; });
