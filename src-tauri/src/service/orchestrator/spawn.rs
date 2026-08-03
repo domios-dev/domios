@@ -414,6 +414,11 @@ impl ServiceContext {
                     }
                 }
             }
+            if let Some(ref ownership) = params.ownership {
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.ownership = Some(ownership.clone());
+                }
+            }
             result
         };
         if emit_state_change {
@@ -428,12 +433,9 @@ impl ServiceContext {
                 params.parent_tab_id.as_deref(),
                 params.report_target_mesh_peer.as_deref(),
             ) {
-                log::info!(
-                    "[spawn] cross-mesh worker {} → {}@{}: skipping local Worker hierarchy (no local parent)",
-                    tab_id,
-                    params.report_target_tab_id.as_deref().unwrap_or("?"),
-                    params.report_target_mesh_peer.as_deref().unwrap_or("?"),
-                );
+                // Cross-mesh worker: semantic Worker identity, no target-local parent.
+                let mut mux = self.mux.write();
+                mux.set_detached_worker_role(&tab_id, params.role_profile.as_deref())?;
             } else if let Err(error) = self.assign_spawn_role_hierarchy(
                 &tab_id,
                 role_str,

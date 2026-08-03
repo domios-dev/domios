@@ -543,6 +543,11 @@ export function TeamUnit({
       ) : (
         <span className="sidebar-team-title-row">
           <span data-testid="team-name" className="sidebar-team-name">{displayTitle}</span>
+          {team.remote_peer_name && (
+            <span data-testid="team-remote-peer" className="sidebar-team-remote-peer text-[10px] text-[var(--ct-muted-fg)]">
+              @{team.remote_peer_name}
+            </span>
+          )}
           {workingWorkerCount > 0 && (
             <span
               data-testid="team-working-indicator"
