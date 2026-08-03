@@ -26,6 +26,46 @@ describe("remote tab transport adapter", () => {
     expect(claim?.body).toMatchObject({ client_id: "client-1", cols: 91, rows: 33 });
   });
 
+  it("composite to raw and raw to composite identity mapping both directions", () => {
+    const peerId = "home-laptop";
+    const rawTabId = "tab-42";
+    const composite = `mesh:${peerId}/${rawTabId}`;
+    const commands = [
+      "mux_close_tab", "mux_rename_tab", "mux_set_focused_tab", "get_tab_text",
+      "get_tab_output", "get_tab_history_raw", "write_pty_string", "interrupt_agent",
+      "resize_pty", "read_pty", "claim_resize_owner", "chat_start", "chat_stop",
+      "chat_backfill", "chat_send_text", "chat_send_status", "shell_command_snapshot",
+      "delayed_send_list", "delayed_send_create", "mux_respond_prompt", "restart_agent_tab",
+    ];
+
+    // OUTBOUND: every command kind rewrites the composite owner to the raw peer tab id.
+    for (const command of commands) {
+      const call = remoteTransportCall(command, { tabId: composite, ptyId: composite });
+      expect(call).not.toBeNull();
+      expect(call?.peerId).toBe(peerId);
+      expect(call?.ordinaryTabId).toBe(composite);
+      expect(call?.remoteTabId).toBe(rawTabId);
+      // send path derives the raw id as ordinary.slice(`mesh:${peer}/`.length); prove they agree.
+      expect(call?.ordinaryTabId.slice(`mesh:${peerId}/`.length)).toBe(call?.remoteTabId);
+    }
+
+    // INBOUND: parse is the exact inverse, so a raw peer tab id remaps only to its composite owner.
+    const identity = parseCompositeTabId(composite);
+    expect(identity).not.toBeNull();
+    expect(identity?.peerId).toBe(peerId);
+    expect(identity?.remoteTabId).toBe(rawTabId);
+    expect(identity?.ordinaryTabId).toBe(composite);
+    expect(`mesh:${identity?.peerId}/${identity?.remoteTabId}`).toBe(composite);
+    expect(parseCompositeTabId(`mesh:${peerId}/${rawTabId}`)?.ordinaryTabId).toBe(composite);
+
+    // MALFORMED: reject in both directions, never silently fall back to a local target.
+    for (const bad of ["mesh:peer/shared/extra", "mesh:/shared", "mesh:peer/", "mesh:peer/a b", "mesh:peer/a?b"]) {
+      expect(parseCompositeTabId(bad)).toBeNull();
+      expect(classifyTabTarget(bad).kind).toBe("invalid-remote");
+      expect(remoteTransportCall("get_tab_output", { tabId: bad })).toBeNull();
+    }
+  });
+
   it("never treats a colliding local id or malformed owner as remote", () => {
     expect(remoteTransportCall("get_tab_output", { tabId: "shared" })).toBeNull();
     expect(parseCompositeTabId("mesh:peer/shared/extra")).toBeNull();
