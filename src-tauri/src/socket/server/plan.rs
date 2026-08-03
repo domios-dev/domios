@@ -6,7 +6,7 @@ use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service::plan::adopt::AdoptPlanExt;
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::{hints, PlanError};
-use crate::service::{FirstPlanTeamError, ServiceState};
+use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
@@ -71,7 +71,19 @@ pub(super) fn dispatch(
     let store = &svc.plan_store;
 
     match method {
-        "plan.binding.resolve" => plan_refs::task_binding(store, params),
+        "plan.binding.resolve" => {
+            let tab_id = params
+                .as_ref()
+                .and_then(|value| value.get("tab_id"))
+                .and_then(|value| value.as_str());
+            let team_id = tab_id.and_then(|tab_id| {
+                svc.mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.team_id.clone())
+            });
+            plan_refs::task_binding(store, params, team_id.as_deref())
+        }
         "plan.batch" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
@@ -134,11 +146,11 @@ pub(super) fn dispatch(
                 .map(str::to_string);
             let owner = owner_from_params(body);
             let outcome = svc
-                .create_first_plan_for_caller(
+                .create_team_plan_for_caller(
                     title,
                     project,
                     owner,
-                    crate::service::FirstPlanCaller {
+                    crate::service::TeamPlanCaller {
                         tab_id: body
                             .get("caller_tab_id")
                             .and_then(|value| value.as_str())
@@ -157,8 +169,8 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(|error| match error {
-                    FirstPlanTeamError::Plan(error) => plan_rpc_err(error),
-                    FirstPlanTeamError::Team(message) => JsonRpcError {
+                    TeamPlanCreationError::Plan(error) => plan_rpc_err(error),
+                    TeamPlanCreationError::Team(message) => JsonRpcError {
                         code: -32602,
                         message,
                         data: None,
@@ -166,7 +178,6 @@ pub(super) fn dispatch(
                 })?;
             let plan = outcome.plan.clone();
             let plan_id = plan.id.clone();
-            let _ = svc.bind_pending_paired_planner(&plan_id, &plan.owner, now);
             let empty_sections = plan.sections.is_empty();
             let mut response = json!({
                 "plan_id": plan_id.clone(),

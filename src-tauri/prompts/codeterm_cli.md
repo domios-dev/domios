@@ -28,7 +28,7 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 |---|---|---|
 | Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
 | Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. | `docs ROUTING` |
-| Long-running processes (servers, watchers) | `tab new --cmd "..."` — own visible tab, not your shell | — |
+| Long-running processes (servers, watchers) | `tab new --cmd "..."`; later use `tab restart --tab ID --cmd "..."` to replace that shell without creating another tab | — |
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |
 | Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or `--role Orchestrator` flag, then read `codeterm docs ORCHESTRATION`. | `codeterm docs ORCHESTRATION` |

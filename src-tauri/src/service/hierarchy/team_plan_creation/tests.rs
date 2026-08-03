@@ -4,20 +4,20 @@ use crate::lock_hold::TimedRwLock;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{Goal, OrchestratorRef, PlannerRef};
-use crate::service::hierarchy::first_plan::{
-    create_first_plan_for_caller, create_first_plan_for_orchestrator, FirstPlanCaller,
+use crate::plan::{Goal, OrchestratorRef};
+use crate::service::hierarchy::team_plan_creation::{
+    create_team_plan_for_caller, create_team_plan_for_orchestrator, TeamPlanCaller,
 };
 use crate::service::plan::{PlanError, PlanStore};
-use crate::service::FirstPlanTeamError;
+use crate::service::TeamPlanCreationError;
 
-struct FirstPlanHarness {
+struct TeamPlanHarness {
     mux: MuxState,
     plan_store: Arc<PlanStore>,
     root: std::path::PathBuf,
 }
 
-impl FirstPlanHarness {
+impl TeamPlanHarness {
     fn new(root: &std::path::Path) -> Self {
         let (state, _) = MultiplexerState::new();
         Self {
@@ -37,7 +37,7 @@ fn teamless_orchestrator(mux: &MuxState) -> String {
     owner_tab_id
 }
 
-fn bound_pair(mux: &MuxState, suffix: &str) -> (String, String, FirstPlanCaller) {
+fn bound_pair(mux: &MuxState, suffix: &str) -> (String, String, TeamPlanCaller) {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let orchestrator = mux.create_tab(&workspace_id).unwrap();
@@ -55,13 +55,15 @@ fn bound_pair(mux: &MuxState, suffix: &str) -> (String, String, FirstPlanCaller)
     }
     {
         let tab = mux.get_tab_mut(&planner).unwrap();
+        tab.role = Some(AgentRole::Manager);
+        tab.role_profile = Some("planner".into());
         tab.parent_tab_id = Some(orchestrator.clone());
         tab.team_id = Some(team_id);
         tab.agent_session_id = Some(format!("planner-session-{suffix}"));
         tab.session_binding_nonce = Some(format!("nonce-{suffix}"));
         tab.reported_session_binding_nonce = Some(format!("nonce-{suffix}"));
     }
-    let caller = FirstPlanCaller {
+    let caller = TeamPlanCaller {
         tab_id: Some(planner.clone()),
         session_id: Some(format!("planner-session-{suffix}")),
         binding_nonce: Some(format!("nonce-{suffix}")),
@@ -70,12 +72,12 @@ fn bound_pair(mux: &MuxState, suffix: &str) -> (String, String, FirstPlanCaller)
 }
 
 fn planner_create(
-    harness: &FirstPlanHarness,
-    caller: FirstPlanCaller,
+    harness: &TeamPlanHarness,
+    caller: TeamPlanCaller,
     title: &str,
     now_ms: u64,
-) -> Result<super::FirstPlanTeamOutcome, FirstPlanTeamError> {
-    create_first_plan_for_caller(
+) -> Result<super::TeamPlanCreationOutcome, TeamPlanCreationError> {
+    create_team_plan_for_caller(
         &harness.mux,
         &harness.plan_store,
         title.into(),
@@ -91,7 +93,7 @@ fn planner_create(
 #[test]
 fn own_team_planner_can_create_plan_without_orchestrator_placeholder() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let (orchestrator, planner, caller) = bound_pair(&harness.mux, "own");
     let outcome = planner_create(&harness, caller, "Planner-authored", 1).unwrap();
     assert_eq!(harness.plan_store.list_index().len(), 1);
@@ -99,17 +101,31 @@ fn own_team_planner_can_create_plan_without_orchestrator_placeholder() {
         outcome.plan.owner.tab_id.as_deref(),
         Some(orchestrator.as_str())
     );
-    assert!(matches!(
-        outcome.plan.planner,
-        Some(PlannerRef::Tab { ref tab_id, ref session_id, .. })
-            if tab_id == &planner && session_id.as_deref() == Some("planner-session-own")
-    ));
+    assert_eq!(outcome.plan.planner, None);
+    assert_eq!(
+        harness.mux.read().get_tab(&planner).unwrap().team_id,
+        outcome.plan.team_id
+    );
+}
+
+#[test]
+fn team_planner_creates_first_plan_without_plan_or_session_env() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = TeamPlanHarness::new(dir.path());
+    let (_, _, mut caller) = bound_pair(&harness.mux, "team");
+    caller.session_id = None;
+    let outcome = planner_create(&harness, caller, "Team plan", 1).unwrap();
+    assert_eq!(
+        harness.plan_store.active_plan_for_team(&outcome.team_id),
+        Some((outcome.plan.id.clone(), "Team plan".into()))
+    );
+    assert_eq!(outcome.plan.planner, None);
 }
 
 #[test]
 fn stale_foreign_or_unassigned_planner_cannot_create_plan() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let (_, _, caller) = bound_pair(&harness.mux, "valid");
     let mut stale = caller.clone();
     stale.binding_nonce = Some("stale".into());
@@ -117,7 +133,7 @@ fn stale_foreign_or_unassigned_planner_cannot_create_plan() {
     let mut foreign = caller.clone();
     foreign.session_id = Some("foreign".into());
     assert!(planner_create(&harness, foreign, "Foreign", 2).is_err());
-    let unassigned = FirstPlanCaller {
+    let unassigned = TeamPlanCaller {
         tab_id: Some(teamless_orchestrator(&harness.mux)),
         session_id: Some("none".into()),
         binding_nonce: Some("none".into()),
@@ -129,7 +145,7 @@ fn stale_foreign_or_unassigned_planner_cannot_create_plan() {
 #[test]
 fn planner_plan_creation_does_not_grant_execution_authority() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let (orchestrator, planner, caller) = bound_pair(&harness.mux, "authority");
     let plan = planner_create(&harness, caller, "Authority", 1)
         .unwrap()
@@ -141,7 +157,7 @@ fn planner_plan_creation_does_not_grant_execution_authority() {
 #[test]
 fn concurrent_planner_plan_create_never_duplicates_team_plan() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = Arc::new(FirstPlanHarness::new(dir.path()));
+    let harness = Arc::new(TeamPlanHarness::new(dir.path()));
     let (_, _, caller) = bound_pair(&harness.mux, "race");
     let barrier = Arc::new(std::sync::Barrier::new(2));
     let threads: Vec<_> = (0..2)
@@ -165,7 +181,7 @@ fn concurrent_planner_plan_create_never_duplicates_team_plan() {
             .iter()
             .filter(|result| matches!(
                 result,
-                Err(FirstPlanTeamError::Plan(
+                Err(TeamPlanCreationError::Plan(
                     PlanError::TeamAlreadyHasActivePlan { .. }
                 ))
             ))
@@ -178,13 +194,13 @@ fn concurrent_planner_plan_create_never_duplicates_team_plan() {
 #[test]
 fn plan_create_uses_atomic_team_outcome() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let owner_tab_id = teamless_orchestrator(&harness.mux);
     let spec = harness
         .plan_store
         .create_spec("Requirements".into(), dir.path().display().to_string(), 1)
         .unwrap();
-    let outcome = create_first_plan_for_orchestrator(
+    let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Spec effort".into(),
@@ -209,9 +225,9 @@ fn plan_create_uses_atomic_team_outcome() {
 #[test]
 fn plan_goal_autocreate_uses_atomic_team_outcome() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let owner_tab_id = teamless_orchestrator(&harness.mux);
-    let outcome = create_first_plan_for_orchestrator(
+    let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Goal effort".into(),
@@ -243,9 +259,9 @@ fn plan_goal_autocreate_uses_atomic_team_outcome() {
 #[test]
 fn first_plan_response_has_team_naming_reminder() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let owner_tab_id = teamless_orchestrator(&harness.mux);
-    let outcome = create_first_plan_for_orchestrator(
+    let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Named effort".into(),
@@ -266,9 +282,9 @@ fn first_plan_response_has_team_naming_reminder() {
 #[test]
 fn existing_team_second_plan_preserves_hard_refuse() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let owner_tab_id = teamless_orchestrator(&harness.mux);
-    let first = create_first_plan_for_orchestrator(
+    let first = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "First".into(),
@@ -279,7 +295,7 @@ fn existing_team_second_plan_preserves_hard_refuse() {
         1,
     )
     .unwrap();
-    let error = create_first_plan_for_orchestrator(
+    let error = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Second".into(),
@@ -292,7 +308,7 @@ fn existing_team_second_plan_preserves_hard_refuse() {
     .unwrap_err();
     assert!(matches!(
         error,
-        FirstPlanTeamError::Plan(PlanError::TeamAlreadyHasActivePlan {
+        TeamPlanCreationError::Plan(PlanError::TeamAlreadyHasActivePlan {
             team_id,
             existing_plan_id,
             ..
@@ -309,7 +325,7 @@ fn plan_entrypoints_use_shared_team_service_and_response() {
         include_str!("../../../socket/server/plan_goal.rs"),
     ];
     for source in sources {
-        assert!(source.contains("create_first_plan_for_orchestrator"));
+        assert!(source.contains("create_team_plan_for_"));
         assert!(source.contains("apply_to_response"));
         assert!(!source.contains(".create_plan("));
         assert!(!source.contains(".create_plan_from_spec("));

@@ -119,6 +119,18 @@ pub enum TabAction {
         #[arg(long = "tab", value_name = "ID")]
         tab: Option<String>,
     },
+    /// Replace a plain shell's process in the same tab, preserving tab identity and metadata.
+    Restart {
+        /// Tab ID to restart (default: current tab).
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+        /// Working directory for the replacement shell.
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Command to execute after the replacement shell is ready.
+        #[arg(long, allow_hyphen_values = true)]
+        cmd: Option<String>,
+    },
     /// Close a tab by ID
     Close {
         /// Temporary positional alias for the tab id. Prefer --tab.
