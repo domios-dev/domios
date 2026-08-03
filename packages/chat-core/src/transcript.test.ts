@@ -216,9 +216,9 @@ function contents(state: TranscriptState): string[] {
   const first = reduceTranscript(createTranscriptState(), batch("snapshot", 100, 500, win("a", 4)), 4);
   const second = reduceTranscript(first.state, batch("delta", 500, 900, win("b", 4)), 4);
   eq(
-    contents(second.state).length,
-    8,
-    "a window is never sliced to satisfy the bound — that would strand its byte range",
+    contents(second.state),
+    ["b-0", "b-1", "b-2", "b-3"],
+    "two whole windows over the bound evict the oldest entirely, never a slice",
   );
   const third = reduceTranscript(second.state, batch("delta", 900, 1_000, win("c", 1)), 4);
   eq(

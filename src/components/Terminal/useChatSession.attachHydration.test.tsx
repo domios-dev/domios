@@ -111,16 +111,30 @@ class FakeChatServer {
     });
   }
 
+  offset = 1;
+  foreignOffset = 0;
+
+  /** Live deltas carry the byte range the tailer consumed, like the production
+   *  sink; a foreign stream never advances the own-session cursor. */
   emit(
     messages: NormalizedChatMessage[],
     sourceSessionId: string | null,
     sessionBindingNonce: string | null,
     tabId = "tab",
   ): void {
+    const own = tabId === "tab"
+      && sourceSessionId === "sid-live"
+      && sessionBindingNonce === "nonce-live";
+    const start = own ? this.offset : this.foreignOffset;
+    const end = start + messages.length;
+    if (own) this.offset = end;
+    else this.foreignOffset = end;
     this.handler?.({
       payload: {
         tab_id: tabId,
         messages,
+        start_offset: start,
+        offset: end,
         source_session_id: sourceSessionId,
         session_binding_nonce: sessionBindingNonce,
       },
