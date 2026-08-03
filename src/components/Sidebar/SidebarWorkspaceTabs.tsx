@@ -8,6 +8,7 @@ import type {
   Team,
   Workspace,
 } from "../../lib/types";
+import type { TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
@@ -23,10 +24,7 @@ import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
-import {
-  TeamUnit,
-  type TeamMemberRole,
-} from "./TeamUnit";
+import { TeamUnit } from "./TeamUnit";
 
 type TeamTab = Tab & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
@@ -55,8 +53,8 @@ interface TeamTabMember {
 }
 
 function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
-  return member.tab.role === "Orchestrator"
-    || (member.tab.role === "Manager" && member.tab.role_profile === "planner");
+  return member.tab.can_spawn === true
+    && (member.tab.role === "Orchestrator" || member.tab.role === "Manager");
 }
 
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {

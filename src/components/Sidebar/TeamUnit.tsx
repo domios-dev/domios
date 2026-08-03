@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { Tab, ProviderDescriptor, Team } from "../../lib/types";
+import type { TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { TaskStatus, type Plan } from "../Canvas/types";
 import { summarizeWorkers } from "./orchestrationSections";
@@ -18,8 +19,6 @@ import {
   type PlanStatusCounts,
 } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
-
-export type TeamMemberRole = "planner" | "worker";
 
 export interface SidebarTeamActions {
   onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
@@ -339,7 +338,7 @@ function TeamMenu({
             <>
               {onOpenPlan && <button type="button" role="menuitem" onClick={() => run(onOpenPlan)}><ClipboardList size={11} /> Open Plan</button>}
               {onRename && <button type="button" role="menuitem" onClick={() => run(onRename)}>Rename</button>}
-              {onAddMember && (["planner", "worker"] as const).map((role) => (
+              {onAddMember && (["orchestrator", "planner", "worker"] as const).map((role) => (
                 <button type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>

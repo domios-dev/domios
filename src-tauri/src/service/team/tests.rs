@@ -28,10 +28,16 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
 
 #[test]
 fn team_manager_permission_allows_orchestrator_and_planner() {
-    let (mux, team_id, orchestrator, planner, _) = team_members();
+    let (mut mux, team_id, orchestrator, planner, _) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let custom_manager = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&custom_manager, AgentRole::Manager, Some(&orchestrator))
+        .unwrap();
+    mux.get_tab_mut(&custom_manager).unwrap().role_profile = Some("review_lead".into());
     assert!(authorize_team_manager(&mux, &team_id, None).is_ok());
     assert!(authorize_team_manager(&mux, &team_id, Some(&orchestrator)).is_ok());
     assert!(authorize_team_manager(&mux, &team_id, Some(&planner)).is_ok());
+    assert!(authorize_team_manager(&mux, &team_id, Some(&custom_manager)).is_ok());
     assert!(
         authorize_team_mutation(&mux, &team_id, TeamMutationCaller::AgentTab(planner),).is_ok()
     );
@@ -47,13 +53,96 @@ fn mux_rename_team_rejects_worker_and_foreign_tab() {
 }
 
 #[test]
-fn team_member_role_accepts_only_worker_or_planner() {
+fn team_member_role_accepts_builtin_team_roles() {
     assert_eq!(team_member_role("worker").unwrap(), ("Worker".into(), None));
     assert_eq!(
         team_member_role("planner").unwrap(),
         ("Manager".into(), Some("planner".into()))
     );
+    assert_eq!(
+        team_member_role("orchestrator").unwrap(),
+        ("Orchestrator".into(), None)
+    );
     assert!(team_member_role("manager").is_err());
+}
+
+#[test]
+fn multiple_orchestrators_keep_team_membership_and_spawner_routing_separate() {
+    let (mut mux, team_id, first_orchestrator, _, _) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&first_orchestrator).unwrap();
+    let prepared = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        &first_orchestrator,
+        AddTeamMemberParams {
+            provider: "spawn-capable".into(),
+            role: "orchestrator".into(),
+            title: None,
+            task: None,
+            model: None,
+        },
+    )
+    .unwrap();
+    assert!(prepared.spawn_params.parent_tab_id.is_none());
+    assert_eq!(
+        prepared.spawn_params.report_target_tab_id.as_deref(),
+        Some(first_orchestrator.as_str())
+    );
+    assert_eq!(
+        prepared.spawn_params.workspace_id.as_deref(),
+        Some(workspace_id.as_str())
+    );
+
+    let second_orchestrator = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&second_orchestrator, AgentRole::Orchestrator, None)
+        .unwrap();
+    mux.get_tab_mut(&second_orchestrator)
+        .unwrap()
+        .spawned_by_tab_id = Some(first_orchestrator.clone());
+    let events = crate::api::events::EventBroadcaster::new();
+    commit_team_member_spawn(
+        &mut mux,
+        &events,
+        &team_id,
+        &first_orchestrator,
+        &second_orchestrator,
+        &prepared.expected_role,
+        &prepared.expected_profile,
+    )
+    .unwrap();
+    assert_eq!(
+        mux.get_tab(&second_orchestrator)
+            .unwrap()
+            .team_id
+            .as_deref(),
+        Some(team_id.as_str())
+    );
+
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&worker, AgentRole::Worker, Some(&second_orchestrator))
+        .unwrap();
+    let worker = mux.get_tab(&worker).unwrap();
+    assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(
+        worker.parent_tab_id.as_deref(),
+        Some(second_orchestrator.as_str())
+    );
+}
+
+#[test]
+fn plan_owner_uses_the_acting_orchestrator_when_team_has_multiple() {
+    let (mut mux, team_id, first_orchestrator, planner, _) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&first_orchestrator).unwrap();
+    let second_orchestrator = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&second_orchestrator, AgentRole::Orchestrator, None)
+        .unwrap();
+    mux.get_tab_mut(&second_orchestrator).unwrap().team_id = Some(team_id.clone());
+
+    assert_eq!(
+        team_plan_owner(&mux, &team_id, &second_orchestrator).unwrap(),
+        second_orchestrator
+    );
+    assert!(team_plan_owner(&mux, &team_id, &planner).is_err());
 }
 
 #[test]
@@ -858,14 +947,6 @@ fn add_team_member_sets_exact_planner_role_and_emits_one_state_change() {
         subscription.try_recv(),
         Err(tokio::sync::broadcast::error::TryRecvError::Empty)
     ));
-}
-
-#[test]
-fn team_member_role_accepts_orchestrator() {
-    assert_eq!(
-        team_member_role("orchestrator").unwrap(),
-        ("Orchestrator".into(), None)
-    );
 }
 
 #[test]
