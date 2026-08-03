@@ -118,6 +118,8 @@ export function useChatSession({
   /** Bindings this hook has actually subscribed to. An event carrying one of
    *  them after the tab moved on is proof our own subscription went stale. */
   const adoptedBindingsRef = useRef(new Set<string>());
+  /** A chat that never held a session is not recovering history, it is new. */
+  const hadBoundSessionRef = useRef(agentSessionId != null);
   const internalFollowTailRef = useRef(true);
   const followTailRef = suppliedFollowTailRef ?? internalFollowTailRef;
   const rotationQueuedRef = useRef(false);
@@ -131,6 +133,7 @@ export function useChatSession({
   allowUnboundAuthorityRef.current = allowUnboundAuthority;
   attachmentStateRef.current = attachmentState;
   windowKeyRef.current = windowKey;
+  if (agentSessionId != null) hadBoundSessionRef.current = true;
 
   const emitDiagnostic = useCallback((event: ChatSessionDiagnosticEvent) => {
     diagnosticSinkRef.current?.(event);
@@ -504,8 +507,9 @@ export function useChatSession({
 
   return {
     loading,
-    /** Attached history is not on screen yet; there is no deadline behind it. */
-    recovering: attachmentState === "awaiting_store" || attachmentState === "awaiting_session",
+    /** Waiting on history we once had; a first attach is not a recovery. */
+    recovering: hadBoundSessionRef.current
+      && (attachmentState === "awaiting_store" || attachmentState === "awaiting_session"),
     error,
     attachmentState,
     retry,
