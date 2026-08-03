@@ -20,12 +20,13 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
 finish();
 
 describe("remote tab subtitle", () => {
-  it("shows role plus peer or peer alone", () => {
-    expect(remoteTabSubtitle(remote("Manager", "planner"), "PLANNER")).toBe("Planner · @ROG · by Hubble");
-    expect(remoteTabSubtitle(remote("Orchestrator"), "ORCHESTRATOR")).toBe("Orchestrator · @ROG · by Hubble");
-    expect(remoteTabSubtitle(remote(), null)).toBe("@ROG · by Hubble");
+  it("shows one canonical managed-by attribution without repeating the peer", () => {
+    expect(remoteTabSubtitle(remote("Manager", "planner"), "PLANNER")).toBe("managed by Hubble");
+    expect(remoteTabSubtitle(remote("Orchestrator"), "ORCHESTRATOR")).toBe("managed by Hubble");
+    expect(remoteTabSubtitle({ ...remote(), remote_controller_title: undefined }, null))
+      .toBe("managed by @ROG");
     expect(remoteTabSubtitle({ ...remote(), remote_availability: "reconnecting" }, null))
-      .toBe("@ROG · by Hubble · Reconnecting");
+      .toBe("managed by Hubble · Reconnecting");
   });
 
   it("leaves local subtitle byte-for-byte unchanged", () => {

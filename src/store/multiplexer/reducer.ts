@@ -75,6 +75,25 @@ function reconcileTabStatuses(
   return merged;
 }
 
+function attachRemoteTabs(
+  workspaces: Workspace[],
+  baseTabs: Record<string, Tab>,
+  remoteTabs: Record<string, Tab>,
+): { workspaces: Workspace[]; tabs: Record<string, Tab> } {
+  const remoteIds = Object.keys(remoteTabs);
+  const nextWorkspaces = workspaces.map((workspace, index) => ({
+    ...workspace,
+    tabs: [
+      ...workspace.tabs.filter((id) => baseTabs[id]),
+      ...remoteIds.filter((id) => {
+        const target = remoteTabs[id]?.workspace_id;
+        return target ? target === workspace.id : index === 0;
+      }),
+    ],
+  }));
+  return { workspaces: nextWorkspaces, tabs: { ...baseTabs, ...remoteTabs } };
+}
+
 function addPendingCloses(current: string[], tabIds: string[]): string[] {
   if (tabIds.length === 0) return current;
   const next = new Set(current);
@@ -93,18 +112,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const localTabs = Object.fromEntries(
         Object.entries(state.tabs).filter(([, tab]) => !tab.remote_peer_id),
       );
-      const remoteIds = Object.keys(action.tabs);
-      const workspaces = state.workspaces.map((workspace, index) => ({
-        ...workspace,
-        tabs: [
-          ...workspace.tabs.filter((id) => !state.tabs[id]?.remote_peer_id),
-          ...remoteIds.filter((id) => {
-            const targetWorkspace = action.tabs[id]?.workspace_id;
-            return targetWorkspace ? targetWorkspace === workspace.id : index === 0;
-          }),
-        ],
-      }));
-      return { ...state, workspaces, tabs: { ...localTabs, ...action.tabs } };
+      const merged = attachRemoteTabs(state.workspaces, localTabs, action.tabs);
+      return { ...state, workspaces: merged.workspaces, tabs: merged.tabs };
     }
     case "RESET_PEER_CONTEXT":
       return {
@@ -192,22 +201,33 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           });
         }
       }
+      // Remote-projected tabs live outside the local snapshot; re-attach them so an
+      // authoritative local snapshot never drops their identity, selection, or focus.
+      const remoteTabs = Object.fromEntries(
+        Object.entries(state.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
+      );
+      const attached = attachRemoteTabs(mergedWorkspaces, mergedTabs, remoteTabs);
       const activeTabIds: Record<string, string> = {};
-      for (const w of mergedWorkspaces) {
-        if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
+      for (const w of attached.workspaces) {
+        const prevActive = state.activeTabIds[w.id];
+        if (prevActive && attached.tabs[prevActive]?.remote_peer_id && w.tabs.includes(prevActive)) {
+          activeTabIds[w.id] = prevActive;
+        } else if (w.active_tab_id) {
+          activeTabIds[w.id] = w.active_tab_id;
+        }
       }
       // Preserve prior focus only while its tab still exists.
       const incomingFocus = action.state.focused_tab_id;
       const focused_tab_id =
-        incomingFocus && mergedTabs[incomingFocus]
+        incomingFocus && attached.tabs[incomingFocus]
           ? incomingFocus
-          : state.focused_tab_id && mergedTabs[state.focused_tab_id]
+          : state.focused_tab_id && attached.tabs[state.focused_tab_id]
             ? state.focused_tab_id
             : null;
       return {
         ...state,
-        workspaces: mergedWorkspaces,
-        tabs: mergedTabs,
+        workspaces: attached.workspaces,
+        tabs: attached.tabs,
         teams: action.state.teams ?? [],
         focused_tab_id,
         active_workspace_id: action.state.active_workspace_id,
