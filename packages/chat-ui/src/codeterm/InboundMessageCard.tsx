@@ -4,6 +4,7 @@ import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { CompactMessageContent } from "./CompactMessageContent";
 import { InboundActivityCard } from "./InboundActivityCard";
 import { decodeCliMessageText } from "./messageText";
+import { formatCommunicationEndpoint } from "./templates";
 
 interface Props {
   message: ChatMessage;
@@ -25,7 +26,7 @@ export function InboundMessageCard({ message, sender, model, channel = "tab", ex
     <InboundActivityCard
       message={message}
       testId="chat-inbound-message"
-      title={`from ${sender}`}
+      title={`Received from ${formatCommunicationEndpoint(sender)}`}
       summary={summary}
       chips={[isMesh ? "mesh" : "tab"]}
       visual={{ glyph: isMesh ? Network : MessageSquareReply, color: isMesh ? "var(--ct-cyan)" : "var(--ct-green)", label: "inbound" }}

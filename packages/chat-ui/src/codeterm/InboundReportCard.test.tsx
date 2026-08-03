@@ -88,7 +88,7 @@ await act(async () => root.render(
   />,
 ));
 if (!host.querySelector('[data-testid="chat-inbound-report"]')) throw new Error("typed report card missing");
-if (!host.textContent?.includes("report · Hugo") || !host.textContent.includes("task_2iw42e") || !host.textContent.includes("1e096cba6")) throw new Error("report header regression");
+if (!host.textContent?.includes("Report from Hugo") || !host.textContent.includes("task_2iw42e") || !host.textContent.includes("1e096cba6")) throw new Error("report header regression");
 if (host.querySelector('[data-testid="chat-cross-tab-bubble"]')) throw new Error("report must not contain a nested message bubble");
 const focus = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Show Tab");
 if (!focus) throw new Error("report source navigation missing");
@@ -107,7 +107,7 @@ await act(async () => dispatchRoot.render(
 ));
 if (!dispatchHost.querySelector('[data-testid="chat-inbound-report"]')) throw new Error("MessageBubble report dispatch regression");
 if (dispatchHost.querySelector('[data-testid="chat-cross-tab-bubble"]')) throw new Error("MessageBubble routed report through generic bubble");
-if (dispatchHost.textContent?.includes("Added provider matrix") || dispatchHost.textContent?.includes("1e096cba6")) throw new Error("in_review report leaked diagnostics while collapsed");
+if (dispatchHost.textContent?.includes("Added provider matrix") || !dispatchHost.textContent?.includes("1e096cba6")) throw new Error("collapsed report must hide diagnostics but retain its SHA");
 const reportDetails = dispatchHost.querySelector('button[aria-label="Show report Details"]') as HTMLButtonElement | null;
 if (!reportDetails) throw new Error("in_review report Details disclosure missing");
 await act(async () => reportDetails.click());

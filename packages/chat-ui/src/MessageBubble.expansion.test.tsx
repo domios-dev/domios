@@ -71,9 +71,9 @@ async function run() {
   });
 
   const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'));
-  const send = cards.find((card) => card.textContent?.includes("send"));
+  const send = cards.find((card) => card.textContent?.includes("Sent to"));
   const list = cards.find((card) => card.textContent?.includes("tab list"));
-  const read = cards.find((card) => card.textContent?.includes("src/coordination.ts") && !card.querySelector('[data-testid="toolcard-edit-summary"]'));
+  const read = cards.find((card) => card.textContent?.includes("Read") && card.textContent.includes("coordination.ts"));
   const completedCommandCard = cards.find((card) => card.textContent?.includes("git status --short"));
   const edit = cards.find((card) => card.querySelector('[data-testid="toolcard-edit-summary"]'));
   assert(send?.querySelector('[aria-label="Collapse tool details"]'), "outbound message should start expanded");
