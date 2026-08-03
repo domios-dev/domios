@@ -37,6 +37,7 @@ pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
 
 const SOCKET_CONTEXT_KEYS: &[&str] = &[
     "caller_tab_id",
+    "owner_epoch",
     "plan_id",
     "session_binding_nonce",
     "session_id",
@@ -235,6 +236,7 @@ mod tests {
         let body = serde_json::json!({
             "task_id": "task",
             "caller_tab_id": "planner",
+            "owner_epoch": 0,
             "session_id": "session",
             "session_binding_nonce": "nonce",
             "name": "Structural update",

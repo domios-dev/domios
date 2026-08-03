@@ -79,6 +79,8 @@ const typedSendHost = await render(<CodetermActionCard event={event('codeterm se
 if (!typedSendHost.host.textContent?.includes("Source as typed") || !typedSendHost.host.textContent.includes("$VAR")) throw new Error("missing resolved output must honestly show source as typed");
 const padSendHost = await render(<CodetermActionCard event={event("codeterm send --tab e3fa0754 --from-pad message.md")} expanded onToggle={() => {}} />);
 if (!padSendHost.host.textContent?.includes("AgentPad source") || !padSendHost.host.textContent.includes("message.md") || padSendHost.host.textContent.includes("Message content unavailable")) throw new Error("AgentPad send must show its staged source");
+const padRedirectHost = await render(<CodetermActionCard event={event("codeterm send --from-pad dumas-final-report.txt --tab 166df18d --mesh BLACKSTAR 2>&1")} expanded onToggle={() => {}} />);
+if (!padRedirectHost.host.textContent?.includes("AgentPad source") || !padRedirectHost.host.textContent.includes("dumas-final-report.txt") || padRedirectHost.host.textContent.includes("2>&1")) throw new Error("AgentPad send with a trailing shell redirect must show its staged source, never the redirect");
 const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help; codeterm docs ROUTING")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);

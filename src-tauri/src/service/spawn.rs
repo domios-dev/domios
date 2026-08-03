@@ -392,9 +392,10 @@ impl ServiceContext {
 
         // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
-            if let Err(e) = self.set_tab_role(
+            if let Err(e) = self.set_tab_role_with_profile(
                 &tab_id,
                 role_str,
+                agent.role_profile.as_deref(),
                 spec.parent_tab_id.as_deref(),
                 agent.can_spawn,
             ) {

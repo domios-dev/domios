@@ -31,7 +31,7 @@ impl ServiceContext {
     ) -> Result<PlanningAuthor, String> {
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
         let tab_id = caller.tab_id.as_deref().filter(|value| !value.is_empty());
-        let session_id = caller
+        let requested_session_id = caller
             .session_id
             .as_deref()
             .filter(|value| !value.is_empty());
@@ -43,7 +43,9 @@ impl ServiceContext {
         let tab = tab_id
             .and_then(|id| mux.get_tab(id))
             .ok_or("the live bound planning session is required")?;
-        let live = tab.agent_session_id.as_deref() == session_id
+        let session_id = requested_session_id.or(tab.agent_session_id.as_deref());
+        let live = requested_session_id.is_none_or(|requested| Some(requested) == session_id)
+            && tab.agent_session_id.as_deref() == session_id
             && tab.session_binding_nonce.as_deref() == nonce
             && tab.reported_session_binding_nonce.as_deref() == nonce
             && session_id.is_some()
@@ -280,6 +282,18 @@ mod tests {
         assert!(matches!(
             fixture.service.ensure_task_dispatchable(&plan_id),
             Err(PlanError::TaskDispatchRequiresApproval)
+        ));
+    }
+
+    #[test]
+    fn bound_nonce_resolves_live_planner_session_when_shell_env_lacks_session_id() {
+        let (fixture, plan_id, mut planner, _) = fixture();
+        planner.session_id = None;
+        assert!(matches!(
+            fixture
+                .service
+                .authorize_draft_structure_mutation(&plan_id, &planner),
+            Ok(PlanningAuthor::Planner { .. })
         ));
     }
 
