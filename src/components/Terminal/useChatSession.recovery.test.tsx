@@ -14,15 +14,25 @@ Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, co
 Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
 Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
 
+function assert(condition: unknown, label: string): asserts condition {
+  if (!condition) throw new Error(label);
+}
+
+interface ChatEventPayload {
+  tab_id: string;
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
+  messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }>;
+}
+
 async function main() {
-  let recoveryDeadline: (() => void) | null = null;
+  // Attach readiness is proven by an observed event or attach edge, never by a
+  // deadline, so any scheduled wait is itself the contract violation.
+  const scheduledWaits: number[] = [];
   const nativeSetTimeout = globalThis.setTimeout;
   Object.defineProperty(globalThis, "setTimeout", {
     value: ((callback: () => void, delay?: number) => {
-      if (delay === 15_000) {
-        recoveryDeadline = callback;
-        return 1;
-      }
+      if ((delay ?? 0) >= 1_000) scheduledWaits.push(delay ?? 0);
       return nativeSetTimeout(callback, delay);
     }) as typeof setTimeout,
     configurable: true,
@@ -30,7 +40,7 @@ async function main() {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   let starts = 0;
   let stops = 0;
-  let listener: ((event: { payload: { tab_id: string; source_session_id: string | null; session_binding_nonce: string | null; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }> } }) => void) | null = null;
+  let listener: ((event: { payload: ChatEventPayload }) => void) | null = null;
   __setListenForTest(async (_event, handler) => {
     listener = handler as typeof listener;
     return () => {};
@@ -45,7 +55,7 @@ async function main() {
         pending: true,
         source_session_id: sourceSessionId,
         session_binding_nonce: null,
-        subscription_id: sourceSessionId == null ? null : "test-subscription",
+        subscription_id: sourceSessionId == null ? null : `sub-${starts}`,
       };
     }
     if (cmd === "chat_stop") stops += 1;
@@ -71,43 +81,65 @@ async function main() {
     return null;
   }
 
+  const deliver = async (id: string, content: string) => {
+    await act(async () => listener?.({
+      payload: {
+        tab_id: "tab",
+        source_session_id: "bound-session",
+        session_binding_nonce: null,
+        messages: [{ id, type: "assistant", content, timestamp: id }],
+      },
+    }));
+  };
+
   const host = document.createElement("div");
   const root = createRoot(host);
   await act(async () => root.render(<Harness sessionId={null} />));
-  if (starts !== 1) throw new Error("fresh snapshot started more than once");
-  if (latest.attachmentState !== "awaiting_session") throw new Error("fresh chat did not await its first session");
-  if (latest.recovering) throw new Error("fresh chat was misclassified as recovering history");
-  if (latest.error != null) throw new Error("fresh chat surfaced a history error");
-  if (recoveryDeadline != null) throw new Error("fresh chat armed a missing-session deadline");
+  assert(starts === 1, "fresh snapshot started more than once");
+  assert(latest.attachmentState === "awaiting_session", "fresh chat did not await its first session");
+  assert(!latest.recovering, "fresh chat was misclassified as recovering history");
+  assert(latest.error == null, "fresh chat surfaced a history error");
+  assert(scheduledWaits.length === 0, "awaiting a first session scheduled a wait");
 
   await act(async () => root.render(<Harness sessionId="bound-session" />));
-  if (Number(starts) !== 2) throw new Error("bound snapshot did not start exactly once");
-  if (stops !== 0) throw new Error("pending snapshot stopped the listener");
-  await act(async () => listener?.({
-    payload: {
-      tab_id: "tab",
-      source_session_id: "bound-session",
-      session_binding_nonce: null,
-      messages: [{ id: "history", type: "assistant", content: "history restored", timestamp: "1" }],
-    },
-  }));
-  if (latest.recovering) throw new Error("chat stayed in recovering state");
-  if (latest.messages[0] !== "history restored") throw new Error("history was not restored");
+  assert(Number(starts) === 2, "bound snapshot did not start exactly once");
+  assert(stops === 0, "pending snapshot stopped the listener");
+  assert(latest.attachmentState === "awaiting_store", "bound pending snapshot did not await its store");
+  assert(latest.recovering, "a bound chat awaiting its store is recovering history");
+  assert(scheduledWaits.length === 0, "a pending attach scheduled a wait");
+
+  await deliver("history", "history restored");
+  assert(!latest.recovering, "chat stayed in recovering state");
+  assert(latest.attachmentState === "attached", "an observed event did not complete the attach");
+  assert(latest.messages[0] === "history restored", "history was not restored");
+  assert(latest.error == null, "a completed attach surfaced an error");
 
   await act(async () => latest.retry());
-  if (Number(starts) !== 3) throw new Error("retry did not request a fresh snapshot");
-  if (!recoveryDeadline) throw new Error("pending recovery did not arm a failure deadline");
-  await act(async () => recoveryDeadline?.());
-  if (String(latest.attachmentState) !== "failed") throw new Error("deadline did not fail the attachment");
-  if (latest.recovering) throw new Error("deadline left the chat recovering");
-  if (!String(latest.error).includes("timed out")) throw new Error("deadline did not surface a retryable error");
+  assert(Number(starts) === 3, "retry did not request a fresh snapshot");
+  assert(Number(stops) === 1, "retry did not stop exactly the prior subscription");
+  assert(latest.attachmentState === "awaiting_store", "retry did not re-enter the awaiting state");
+  assert(latest.recovering, "a re-attaching bound chat is recovering history");
+  assert(scheduledWaits.length === 0, "a re-attach scheduled a failure deadline");
+
+  // The only thing that resolves the pending re-attach is the next observed
+  // event; nothing here can be advanced by elapsed time.
+  await deliver("tail", "tail restored");
+  assert(latest.attachmentState === "attached", "the observed event did not resolve the re-attach");
+  assert(!latest.recovering, "the re-attached chat stayed recovering");
+  assert(latest.error == null, "the re-attached chat surfaced an error");
+  assert(
+    latest.messages.join(",") === "history restored,tail restored",
+    `re-attach lost or duplicated transcript rows (${latest.messages})`,
+  );
 
   await act(async () => root.unmount());
+  assert(Number(stops) === 2, "unmount did not release the live subscription");
+  assert(scheduledWaits.length === 0, `attach scheduled ${scheduledWaits.length} timed waits`);
   Object.defineProperty(globalThis, "setTimeout", {
     value: nativeSetTimeout,
     configurable: true,
   });
-  console.log("PASS fresh chat stays idle; known-session recovery restores or fails on a bounded deadline");
+  console.log("PASS attach readiness comes from observed events, never from a deadline");
 }
 
 void main();
