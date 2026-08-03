@@ -197,11 +197,7 @@ fn public_agent_input_readiness(
         return Some(Ok(()));
     }
     match tab.boot_stage {
-        Some(codeterm_types::pty::BootStage::AgentReady)
-            if !crate::service::boot_stage::blocking_prompt_owns_input(tab) =>
-        {
-            Some(Ok(()))
-        }
+        Some(codeterm_types::pty::BootStage::AgentReady) => Some(Ok(())),
         Some(codeterm_types::pty::BootStage::SpawnFailed) => Some(Err(tab
             .boot_failure_reason
             .clone()
