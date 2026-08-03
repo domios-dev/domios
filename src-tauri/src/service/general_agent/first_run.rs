@@ -376,6 +376,7 @@ mod tests {
                         spawned_by_tab_id: None,
                         report_target_tab_id: None,
                         report_target_mesh_peer: None,
+                        ownership: None,
                         can_spawn: false,
                         depth: 0,
                         chat_view: Some(false),
