@@ -1,18 +1,18 @@
 //! Agent hierarchy: roles, reports, status queries.
 
-mod first_plan;
 mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
 mod report_event;
 mod report_persistence;
 mod status;
+mod team_plan_creation;
 mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
-pub(crate) use first_plan::{FirstPlanCaller, FirstPlanTeamError};
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub use status::TabStatusInfo;
+pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,

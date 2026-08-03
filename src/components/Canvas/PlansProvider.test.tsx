@@ -6,7 +6,12 @@ import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { PlanButton } from "./PlanButton";
-import { PlansProvider, useCanvasPlans, useFullPlans } from "./PlansProvider";
+import {
+  PlansProvider,
+  useCanvasPlans,
+  useFullPlans,
+  useSidebarPlansOptional,
+} from "./PlansProvider";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -91,6 +96,16 @@ function FullProbe() {
   return null;
 }
 
+function SidebarProbe() {
+  const { plans } = useSidebarPlansOptional();
+  return <output data-testid="sidebar-plan-count">{plans.length}</output>;
+}
+
+async function flushAsyncWork() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 async function renderTree(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -99,12 +114,12 @@ async function renderTree(ui: ReactElement): Promise<{ host: HTMLDivElement; roo
     root.render(ui);
   });
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 30));
+    await flushAsyncWork();
   });
   return { host, root };
 }
 
-test("N PlanButton consumers trigger exactly ONE index fetch", async () => {
+test("provider fetches one index and one full snapshot regardless of consumer count", async () => {
   indexCalls = 0;
   fullCalls = 0;
   const { host, root } = await renderTree(
@@ -119,7 +134,7 @@ test("N PlanButton consumers trigger exactly ONE index fetch", async () => {
   const buttons = host.querySelectorAll('[data-testid="plan-button"]');
   assert(buttons.length === 5, "five buttons rendered");
   assert(indexCalls === 1, `one index fetch for N consumers (got ${indexCalls})`);
-  assert(fullCalls === 0, `no full fetch without an open canvas (got ${fullCalls})`);
+  assert(fullCalls === 1, `one shared full fetch (got ${fullCalls})`);
   await act(async () => root.unmount());
 });
 
@@ -134,7 +149,7 @@ test("plans-loaded event refetches the sidebar plan index immediately", async ()
   assert(indexCalls === 1, `one index fetch before event (got ${indexCalls})`);
   await act(async () => {
     emitPlansLoaded();
-    await new Promise((r) => setTimeout(r, 20));
+    await flushAsyncWork();
   });
   const callsAfterEvent: number = indexCalls;
   assert(callsAfterEvent === 2, `plans-loaded refetches index (got ${indexCalls})`);
@@ -156,7 +171,97 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   await act(async () => root.unmount());
 });
 
-test("workspace canvas fetch scopes by project query param", async () => {
+test("sidebar owns full plans without mounting canvas", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const { host, root } = await renderTree(
+    <PlansProvider api={API}>
+      <SidebarProbe />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 1, `sidebar triggers one full fetch (got ${fullCalls})`);
+  assert(
+    host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
+    "sidebar receives the full plan body",
+  );
+  await act(async () => root.unmount());
+});
+
+test("plan queries wait for authenticated config", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const seenAuthorization: string[] = [];
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    const authorization = headers.get("authorization");
+    if (authorization) seenAuthorization.push(authorization);
+    return prevFetch(input, init);
+  };
+  const unauthenticatedApi = { ...API, token: null };
+  const { host, root } = await renderTree(
+    <PlansProvider api={unauthenticatedApi} enabled={false}>
+      <SidebarProbe />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 0, "disabled provider makes no unauthenticated full request");
+
+  await act(async () => {
+    root.render(
+      <PlansProvider api={API} enabled>
+        <SidebarProbe />
+      </PlansProvider>,
+    );
+    await flushAsyncWork();
+  });
+  const callsAfterEnable: number = fullCalls;
+  assert(callsAfterEnable === 1, "authenticated config enables one full request");
+  assert(seenAuthorization.includes("Bearer test-token"), "full request carries bearer token");
+  assert(
+    host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
+    "sidebar receives plans after authentication",
+  );
+  globalThis.fetch = prevFetch;
+  await act(async () => root.unmount());
+});
+
+test("canvas release cannot drop plans while sidebar remains mounted", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const { host, root } = await renderTree(
+    <PlansProvider api={API}>
+      <SidebarProbe />
+      <FullProbe />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 1, `shared consumers trigger one full fetch (got ${fullCalls})`);
+
+  await act(async () => {
+    root.render(
+      <PlansProvider api={API}>
+        <SidebarProbe />
+      </PlansProvider>,
+    );
+    await flushAsyncWork();
+  });
+  await act(async () => {
+    emitPlansLoaded();
+    await flushAsyncWork();
+  });
+
+  const callsAfterCanvasRelease: number = fullCalls;
+  assert(
+    callsAfterCanvasRelease === 2,
+    `sidebar refetches after canvas release (got ${fullCalls})`,
+  );
+  assert(
+    host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
+    "sidebar retains the full plan body after canvas release",
+  );
+  await act(async () => root.unmount());
+});
+
+test("workspace canvas does not rescope the shared full-plan query", async () => {
   indexCalls = 0;
   fullCalls = 0;
   let seenProject: string | null = null;
@@ -167,8 +272,7 @@ test("workspace canvas fetch scopes by project query param", async () => {
       fullCalls++;
       const parsed = new URL(url, "http://127.0.0.1");
       seenProject = parsed.searchParams.get("project");
-      const plan = { ...FIXTURE_PLAN, project_path: seenProject ?? FIXTURE_PLAN.project_path };
-      return new Response(JSON.stringify({ plans: [plan] }), { status: 200 });
+      return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
     }
     if (url.endsWith("/api/plans")) {
       indexCalls++;
@@ -183,7 +287,7 @@ test("workspace canvas fetch scopes by project query param", async () => {
     </PlansProvider>,
   );
   assert(fullCalls === 1, "one scoped full fetch");
-  assert(seenProject === "/repo/a", "project query param matches workspace cwd");
+  assert(seenProject === null, "shared query remains global while canvas filters locally");
   globalThis.fetch = prevFetch;
   await act(async () => root.unmount());
 });
@@ -226,7 +330,7 @@ test("two projects: workspace canvas consumer only loads matching project plans"
     );
   });
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 40));
+    await flushAsyncWork();
   });
   assert(seen.includes("plan-a"), "plan A loaded for project /repo/a");
   assert(!seen.includes("plan-b"), "plan B excluded for project /repo/a");

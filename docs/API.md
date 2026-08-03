@@ -168,6 +168,7 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
 | POST | `/api/tabs/{id}/focus` | — | Focus tab |
 | POST | `/api/tabs/{id}/close` | — | Close tab + kill PTY |
+| POST | `/api/tabs/{id}/restart` | `{cwd?}` | Replace a plain shell PTY in the same tab while preserving tab and Team metadata. Agent and chat-backend tabs are rejected. |
 | POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab |
 | POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
@@ -246,4 +247,4 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 110 -->
+<!-- revision: 111 -->

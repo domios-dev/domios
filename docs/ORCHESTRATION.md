@@ -78,11 +78,12 @@ goal.
 
 ## Planning ownership
 
-When a Planner is bound:
+When a Planner is present:
 
-- send new requirements, evidence, and structural corrections to the Planner;
-- do not silently add GOAL, Spec, Plan sections, or execution tasks yourself;
-- let the Planner create and revise the draft sections and tasks;
+- the active Plan belongs to the Team and is visible through Team membership;
+- the Orchestrator creates and owns the Plan and may edit its full structure;
+- delegate structural refinement to the Planner when useful;
+- never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
 - never ask the Planner to self-approve or manually set `structure_ready`;
@@ -169,4 +170,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->

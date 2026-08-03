@@ -55,6 +55,7 @@ pub mod sessions;
 pub mod spec;
 pub mod system;
 pub mod tab;
+mod tab_restart;
 pub mod task;
 pub mod task_list_render;
 pub mod team;

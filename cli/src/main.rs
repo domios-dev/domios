@@ -807,10 +807,8 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     let Some(binding) = response.get("binding").and_then(|value| value.as_object()) else {
         return;
     };
-    if nonempty_env("CODETERM_PLAN_ID").is_none() {
-        if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
-            std::env::set_var("CODETERM_PLAN_ID", plan_id);
-        }
+    if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
+        std::env::set_var("CODETERM_PLAN_ID", plan_id);
     }
     if nonempty_env("CODETERM_TASK_ID").is_none() {
         if let Some(task_id) = binding.get("task_id").and_then(|value| value.as_str()) {

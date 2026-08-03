@@ -111,7 +111,10 @@ does not publish a release or alter GitHub assets.
    is intentional.
    A successful self-install is proven by `self-install.log` reaching
    `installer exited 0` and `launched`, followed by port 7685 health reporting
-   the installed source SHA.
+   the installed source SHA. The build gateway records the verified artifact as
+   complete and releases its machine slot before the detached installer starts;
+   the expected daemon restart therefore cannot misclassify that build as
+   `owner_lost`.
 
 4. Use the clean-room route when validating a public-release-equivalent
    artifact:
@@ -135,6 +138,7 @@ does not publish a release or alter GitHub assets.
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
 | Self-install logs `starting` and the window never returns | A helper inherited the calling PTY Job and died when `taskkill` closed that Job | Rebuild the current CLI; it creates the helper through the out-of-job Windows process broker. Re-run `install-local`, inspect `%LOCALAPPDATA%\codeterm\self-install.log`, and verify port 7685 health. |
 | CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
+| Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted CodeTerm and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same capped focused test. Do not substitute a frontend build or raise the cap. |
@@ -181,7 +185,7 @@ Gateway-backed commands fail fast when another job owns the machine slot, so
 an agent turn never blocks silently behind a long-lived dev process. Add
 `--wait-build` only when synchronous queueing is intentional.
 
-Use `./build.sh help` as the command index. `test-one <app|plan|pty|mem|plugin|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|plugin|cli> <filter>`
 hides manifest/package details for focused capped tests; `verify` runs the
 standard check, unit-test, and source-size integration gate.
 
@@ -208,4 +212,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 53 -->
+<!-- revision: 55 -->

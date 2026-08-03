@@ -10,9 +10,9 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{
     Goal, Milestone, OrchestratorRef, Plan, PlannerRequest, PlannerRequestState, Spec,
 };
-use crate::service::hierarchy::first_plan::create_first_plan_for_orchestrator;
+use crate::service::hierarchy::team_plan_creation::create_team_plan_for_orchestrator;
 use crate::service::plan::{NewTask, PlanError, PlanStore};
-use crate::service::FirstPlanTeamError;
+use crate::service::TeamPlanCreationError;
 use crate::{lock_hold::TimedRwLock, multiplexer::commands::MuxState};
 use std::path::Path;
 use std::sync::{Arc, Barrier};
@@ -895,12 +895,12 @@ fn resolve_plan_ctx_explicit_plan_overridden_by_binding_triggers_foreign() {
     );
 }
 
-struct FirstPlanHarness {
+struct TeamPlanHarness {
     mux: MuxState,
     plan_store: Arc<PlanStore>,
 }
 
-impl FirstPlanHarness {
+impl TeamPlanHarness {
     fn new(root: &Path) -> Self {
         let (state, _) = MultiplexerState::new();
         Self {
@@ -922,10 +922,10 @@ fn teamless_orchestrator(mux: &MuxState) -> (String, String) {
 #[test]
 fn first_plan_mints_team_enrolls_manager_and_binds() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let (_workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
 
-    let outcome = create_first_plan_for_orchestrator(
+    let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "First effort".into(),
@@ -953,7 +953,7 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
 #[test]
 fn concurrent_first_plan_and_first_child_converge() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let (workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
     let child_tab_id = harness.mux.write().create_tab(&workspace_id).unwrap();
     let barrier = Arc::new(Barrier::new(3));
@@ -964,7 +964,7 @@ fn concurrent_first_plan_and_first_child_converge() {
     let plan_barrier = barrier.clone();
     let plan_thread = std::thread::spawn(move || {
         plan_barrier.wait();
-        create_first_plan_for_orchestrator(
+        create_team_plan_for_orchestrator(
             &plan_mux,
             &plan_store,
             "Concurrent effort".into(),
@@ -1009,12 +1009,12 @@ fn concurrent_first_plan_and_first_child_converge() {
 #[test]
 fn first_plan_failure_is_atomic() {
     let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
+    let harness = TeamPlanHarness::new(dir.path());
     let (_workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
     let invalid_project = dir.path().join("not-a-directory");
     std::fs::write(&invalid_project, "file").unwrap();
 
-    let error = create_first_plan_for_orchestrator(
+    let error = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Failure".into(),
@@ -1026,7 +1026,10 @@ fn first_plan_failure_is_atomic() {
     )
     .unwrap_err();
 
-    assert!(matches!(error, FirstPlanTeamError::Plan(PlanError::Io(_))));
+    assert!(matches!(
+        error,
+        TeamPlanCreationError::Plan(PlanError::Io(_))
+    ));
     assert!(harness.plan_store.list_index().is_empty());
     let mux = harness.mux.read();
     assert_eq!(mux.team_count(), 0);

@@ -31,21 +31,6 @@ impl PlanStore {
         kinds: Vec<crate::plan::MilestoneKind>,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, PlanError> {
-        self.create_plan_from_spec_for_team_with_planner(
-            spec_id, title, owner, None, team_id, kinds, now_ms,
-        )
-    }
-
-    pub fn create_plan_from_spec_for_team_with_planner(
-        &self,
-        spec_id: &str,
-        title: String,
-        owner: crate::plan::OrchestratorRef,
-        planner: Option<crate::plan::PlannerRef>,
-        team_id: String,
-        kinds: Vec<crate::plan::MilestoneKind>,
-        now_ms: u64,
-    ) -> Result<crate::plan::Plan, PlanError> {
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
         // Claim ownership before inserting the plan row: a spec-conflict must
         // leave zero orphan plans behind.
@@ -54,25 +39,14 @@ impl PlanStore {
                 "spec {spec_id} already owned by plan {owner}"
             )));
         }
-        let mut plan = match planner {
-            Some(planner) => self.create_first_plan_for_team_with_planner(
-                title,
-                spec.project_path.clone(),
-                owner,
-                planner,
-                team_id,
-                kinds,
-                now_ms,
-            )?,
-            None => self.create_plan_for_team(
-                title,
-                spec.project_path.clone(),
-                owner,
-                team_id,
-                kinds,
-                now_ms,
-            )?,
-        };
+        let mut plan = self.create_plan_for_team(
+            title,
+            spec.project_path.clone(),
+            owner,
+            team_id,
+            kinds,
+            now_ms,
+        )?;
         plan.primary_spec_id = Some(spec_id.to_string());
         if !plan.spec_refs.iter().any(|id| id == spec_id) {
             plan.spec_refs.push(spec_id.to_string());

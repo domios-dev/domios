@@ -87,7 +87,7 @@ When you're about to add or move a piece of prompt content, ask:
 | Is it a **decision policy** that's GA-specific (implicit→ask, recon-before-action, mesh→Orchestrator, workspaces-are-commitments)? | `prompts/general_agent.md` |
 | Is it a **lifecycle hook** that only the GA bridges (forward report to originating channel, init handshake, voice transcribe awareness)? | `prompts/general_agent.md` |
 | Is it an **operational ladder** that fires rarely (Telegram bot setup, secrets store CLI, hook daemon config)? | `docs/<TOPIC>.md` + register in `cli/src/cmd/docs.rs` |
-| Is it **project-agent framing** (what your scope is, how to ask the GA for help)? | `skills/codeterm/SKILL.md` (the non-template intro and outro around `{codeterm_cli}`) |
+| Is it **project-agent framing** (workspace/Team authority and the no-General-Agent fallback boundary)? | `skills/codeterm/SKILL.md` (the non-template intro and outro around `{codeterm_cli}`) |
 | Is it **mem protocol** (English-only, search-first, no fabrication)? | `prompts/bridge_mem.md` (installed into provider rules dirs by `service::bridge_rule`) |
 | Is it **a worker-task addendum** (must report, ack receipt, return exit code)? | `prompts/worker_suffix.md` / `orchestrator_suffix.md` |
 | Is it **per-cron-task boilerplate** (run id, completion call, report hint)? | `prompts/cron_complete_suffix.md` / `cron_report_hint.md` |
@@ -131,4 +131,4 @@ Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revisio
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
