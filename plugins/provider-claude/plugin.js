@@ -50,11 +50,11 @@ function usageNormalize(raw) {
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function fetchClaudeUsage(host2) {
   const credentialsPath = host2.expandHome("~/.claude/.credentials.json");
-  if (!credentialsPath) return null;
-  const credentials = safeJson(host2.fs.readFile(credentialsPath));
+  const fileCredentials = credentialsPath ? safeJson(host2.fs.readFile(credentialsPath)) : null;
+  const credentials = readMacOsCredentials(host2) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
-  if (!accessToken) return null;
+  if (!accessToken) throw new Error("usage credentials unavailable");
   const response = safeJson(host2.fetch(JSON.stringify({
     url: "https://api.anthropic.com/api/oauth/usage",
     method: "GET",
@@ -65,11 +65,14 @@ function fetchClaudeUsage(host2) {
       "User-Agent": "codeterm-usage/1.7.8"
     }
   })));
-  if (numberAt(response, "status") !== 200) return null;
+  const fetchError = stringAt(response, "error");
+  if (fetchError) throw new Error(`usage request failed: ${fetchError}`);
+  const status = numberAt(response, "status");
+  if (status !== 200) throw new Error(`usage request failed: HTTP ${status ?? "unknown"}`);
   const body = safeJson(stringAt(response, "body"));
   const session = objectAt(body, "five_hour");
   const weekly = objectAt(body, "seven_day");
-  if (!session && !weekly) return null;
+  if (!session && !weekly) throw new Error("usage response missing quota windows");
   return JSON.stringify({
     kind: CLAUDE_USAGE_KIND,
     session_pct: numberAt(session, "utilization"),
@@ -77,6 +80,16 @@ function fetchClaudeUsage(host2) {
     weekly_pct: numberAt(weekly, "utilization"),
     weekly_resets_at_ms: isoToMs(stringAt(weekly, "resets_at"))
   });
+}
+function readMacOsCredentials(host2) {
+  if (host2.platform() !== "macos") return null;
+  const user = host2.envGet("USER");
+  const args = ["find-generic-password"];
+  if (user) args.push("-a", user);
+  args.push("-w", "-s", "Claude Code-credentials");
+  const result = safeJson(host2.exec(JSON.stringify({ bin: "security", args, timeoutMs: 5e3 })));
+  if (numberAt(result, "code") !== 0) return null;
+  return safeJson(stringAt(result, "stdout"));
 }
 function parseFetchedClaudeUsage(raw, nowMs) {
   const fetched = safeJson(raw);

@@ -96,6 +96,11 @@
     ]
   },
   "permissions": {
+    "subprocess": {
+      "allow": [
+        "security"
+      ]
+    },
     "network": {
       "allow": [
         "api.anthropic.com"

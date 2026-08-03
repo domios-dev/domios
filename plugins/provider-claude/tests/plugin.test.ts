@@ -81,6 +81,7 @@ const baseHost = (over: Record<string, unknown>) => ({
   platform: () => "linux",
   unixNowMs: () => 0,
   envGet: () => null,
+  exec: () => JSON.stringify({ error: "not configured" }),
   fetch: () => JSON.stringify({ error: "not configured" }),
   shell: {
     quoteFor: (value: unknown) => String(value),
@@ -661,6 +662,62 @@ console.log("\n--- quota-free usage fetch ---\n");
   eq(fetched?.weekly_pct, 92, "fetchUsage maps the seven-day window");
   eq(fetched?.weekly_resets_at_ms, Date.parse("2026-08-02T16:59:59.000Z"), "fetchUsage maps ISO reset time");
   assert(!raw.includes("secret-token"), "fetchUsage output never persists credentials");
+}
+
+{
+  let execRequest: Record<string, unknown> | null = null;
+  let fetchRequest: Record<string, unknown> | null = null;
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "macos",
+    envGet: (name: string) => name === "USER" ? "mac-user" : null,
+    exec: (raw: string) => {
+      execRequest = JSON.parse(raw);
+      return JSON.stringify({
+        code: 0,
+        stdout: JSON.stringify({ claudeAiOauth: { accessToken: "keychain-token" } }),
+      });
+    },
+    fetch: (raw: string) => {
+      fetchRequest = JSON.parse(raw);
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({ five_hour: { utilization: 8 }, seven_day: { utilization: 7 } }),
+      });
+    },
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-file-token" } }),
+    },
+  }));
+  const raw = p.fetchUsage();
+  eq(execRequest?.bin, "security", "fetchUsage reads current macOS Claude credentials from Keychain");
+  assert(
+    Array.isArray(execRequest?.args) && execRequest.args.includes("Claude Code-credentials"),
+    "fetchUsage requests Claude's scoped Keychain service",
+  );
+  eq(
+    (fetchRequest?.headers as Record<string, string>)?.Authorization,
+    "Bearer keychain-token",
+    "macOS Keychain credentials take precedence over a stale legacy file",
+  );
+  assert(!raw.includes("keychain-token"), "Keychain credentials never persist in usage output");
+}
+
+for (const [label, response, expected] of [
+  ["network timeout", { error: "request failed: operation timed out" }, "operation timed out"],
+  ["HTTP failure", { status: 503, body: "unavailable" }, "HTTP 503"],
+] as const) {
+  const p = loadClaudeWithHost(baseHost({
+    fetch: () => JSON.stringify(response),
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: "secret-token" } }),
+    },
+  }));
+  let message = "";
+  try { p.fetchUsage(); } catch (error) { message = String(error); }
+  assert(message.includes(expected), `fetchUsage reports ${label} without collapsing it to null`);
+  assert(!message.includes("secret-token"), `${label} diagnostics omit credentials`);
 }
 
 console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
