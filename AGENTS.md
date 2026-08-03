@@ -291,6 +291,8 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
 
+**Where plugin source lives — not all of it is in this repo.** The bundled system provider plugins ship from the in-repo `plugins/` channel (`codeterm-core`: claude / codex / opencode / git / chat-preprocessor). The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, LM Studio, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. To fix a non-bundled plugin (e.g. Bitwarden's connection view), edit it in `codeterm-plugins`, rebuild, and `codeterm plugin install --from-dir <path>` to test — do not look for it here.
+
 ## Code navigation
 
 Prefer cached SCIP indexes for definitions, references, and implementation graphs; use `rg` for exact text. Build/query details and fallbacks live in `docs/spikes/llm-codemap-eval.md`.
