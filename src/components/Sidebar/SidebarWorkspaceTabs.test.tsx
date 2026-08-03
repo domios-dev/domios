@@ -241,17 +241,16 @@ test("plans have only a Team-owned sidebar home", async () => {
   const { host, root, rerender } = await renderSidebar({
     sortedTabs,
     tabs,
-    plans: [bound],
+    plans: [],
     planIndex: [planIndexEntry()],
   });
-
+  assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "the plan index keeps the Team plan visible before its full body arrives");
+  await rerender([bound], [planIndexEntry()]);
   assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "bound plan is owned by its Team card");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "bound plan has no standalone row");
-
   await rerender([detached], [planIndexEntry("plan-team", null)]);
   assert(!host.querySelector('[data-testid="team-card-activation"]'), "detach removes the plan from the Team card");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "orphan plan has no workspace home");
-
   await rerender([bound], [planIndexEntry()]);
   assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "adopt restores the Team-owned plan");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "adopt removes the standalone row without reload");
