@@ -105,16 +105,10 @@ export function useChatWindowView({
     (item) => timelineItemKey(item) === anchorKey,
   );
 
-  const detachedReadingItemsRef = useRef<TimelineItem[]>([]);
-  const projectedTimelineItems = useMemo(() => {
-    const projection = chatWindowProjection(
-      allTimelineItems,
-      anchorKey,
-      detachedReadingItemsRef.current,
-    );
-    detachedReadingItemsRef.current = projection.readingItems;
-    return projection.items;
-  }, [allTimelineItems, anchorKey]);
+  const projectedTimelineItems = useMemo(
+    () => chatWindowProjection(allTimelineItems, anchorKey).items,
+    [allTimelineItems, anchorKey],
+  );
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(
     () => enrichTimelineItems(projectedTimelineItems, enrichmentCacheRef.current),
@@ -163,6 +157,11 @@ export function useChatWindowView({
     followTailRef.current = true;
     updateWindowAnchor(null);
   }, [followTailRef, updateWindowAnchor]);
+
+  useLayoutEffect(() => {
+    if (anchorKey == null || windowAnchorIsLoaded) return;
+    showLatest();
+  }, [anchorKey, showLatest, windowAnchorIsLoaded]);
 
   const setHistoryReading = useCallback((reading: boolean) => {
     if (!reading) {

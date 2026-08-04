@@ -43,9 +43,10 @@ function items(count: number, offset = 0): TimelineItem[] {
   assert(timelineItemKey(projection.items[projection.items.length - 1]!) === anchor, "new arrivals do not move detached reading");
 
   const replaced = items(550, 1_000);
-  const recovered = chatWindowProjection(replaced, anchor, projection.readingItems);
-  assert(timelineItemKey(recovered.items[219]) === anchor, "vanished source anchor keeps the cached reading window");
-  assert(recovered.items.length === CHAT_WINDOW_SIZE, "cached reading remains one bounded window");
+  const recovered = chatWindowProjection(replaced, anchor);
+  assert(timelineItemKey(recovered.items[0]) === "m-1330", "vanished source anchor reveals the current tail");
+  assert(timelineItemKey(recovered.items[219]) === "m-1549", "current tail includes the newest row");
+  assert(recovered.items.length === CHAT_WINDOW_SIZE, "replacement tail remains one bounded window");
 }
 
 // --- a detached projection never mounts rows outside its reading window ---

@@ -132,16 +132,14 @@ function HistoryHarness({ cacheKey }: { cacheKey: string }) {
     [cacheKey],
   );
   const followTailRef = useRef(windowAnchorKey == null);
-  const detachedReadingItemsRef = useRef<TimelineItem[]>([]);
   const pendingRevealRef = useRef(false);
   const rows = useMemo(() => transcriptRows(transcript), [transcript]);
   const timeline = useMemo(() => reduceToolEvents(rows), [rows]);
   const range = useMemo(() => chatWindowRange(timeline, windowAnchorKey), [timeline, windowAnchorKey]);
-  const visible = useMemo(() => {
-    const projection = chatWindowProjection(timeline, windowAnchorKey, detachedReadingItemsRef.current);
-    detachedReadingItemsRef.current = projection.readingItems;
-    return projection.items;
-  }, [timeline, windowAnchorKey]);
+  const visible = useMemo(
+    () => chatWindowProjection(timeline, windowAnchorKey).items,
+    [timeline, windowAnchorKey],
+  );
 
   const handleModeChange = useCallback((mode: "pinned" | "detached") => {
     if (mode === "pinned") {
@@ -294,8 +292,13 @@ async function main(): Promise<void> {
     view().append(Array.from({ length: 500 }, (_, index) => message(1_001 + index)), 1_001);
   });
   assert(
-    document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId === detachedFirstId,
-    "detached capacity pressure preserves the stable reading projection",
+    document.querySelector<HTMLElement>("[data-message-id]")?.dataset.messageId !== detachedFirstId,
+    "eviction of a detached anchor replaces stale history with the current tail",
+  );
+  const visibleAfterEviction = Array.from(document.querySelectorAll<HTMLElement>("[data-message-id]"));
+  assert(
+    visibleAfterEviction[visibleAfterEviction.length - 1]?.textContent === "message 1500",
+    "anchor eviction reveals the newest live row immediately",
   );
   assert(
     rows().length < 941 && view().transcript.evictedOlder > 0,
