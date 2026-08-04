@@ -515,14 +515,17 @@ fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
 
     for (recipient, composed) in [
         ("spawned non-worker", super::agent_system_prompt(None)),
-        ("spawned worker", super::worker_agent_system_prompt(None)),
+        (
+            "spawned worker",
+            super::worker_agent_system_prompt(None, None),
+        ),
         (
             "spawned non-worker with assignment",
             super::agent_system_prompt(Some("do the thing")),
         ),
         (
             "spawned worker with assignment",
-            super::worker_agent_system_prompt(Some("do the thing")),
+            super::worker_agent_system_prompt(Some("do the thing"), None),
         ),
     ] {
         assert_eq!(
@@ -537,7 +540,7 @@ fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
 /// skill that carries the full reference.
 #[test]
 fn spawned_worker_receives_the_codeterm_primer() {
-    let composed = super::worker_agent_system_prompt(Some("do the thing"));
+    let composed = super::worker_agent_system_prompt(Some("do the thing"), None);
     assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(composed.contains("provider skill named `codeterm`"));
 }
@@ -551,7 +554,10 @@ fn every_spawned_recipient_receives_rich_rendering_guidance() {
 
     for (recipient, composed) in [
         ("spawned non-worker", super::agent_system_prompt(None)),
-        ("spawned worker", super::worker_agent_system_prompt(None)),
+        (
+            "spawned worker",
+            super::worker_agent_system_prompt(None, None),
+        ),
     ] {
         assert_eq!(
             composed.matches(guidance).count(),
