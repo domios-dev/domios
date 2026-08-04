@@ -4657,6 +4657,68 @@
       ]
     },
     {
+      "name": "persona",
+      "about": "Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List every role kind the resolver can reach, with refused overlays",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "reload",
+          "about": "Re-read the overlay directory without restarting or rebuilding",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Render the exact preset text a role kind receives at each delivery occasion",
+          "aliases": [],
+          "args": [
+            {
+              "name": "guidance",
+              "positional": false,
+              "value_name": "GUIDANCE",
+              "default": null,
+              "help": "Task-owned persona layered over the kind's base, as a dispatch supplies it",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)",
+              "aliases": []
+            },
+            {
+              "name": "occasion",
+              "positional": false,
+              "value_name": "OCCASION",
+              "default": null,
+              "help": "Render only this occasion",
+              "aliases": []
+            },
+            {
+              "name": "role",
+              "positional": false,
+              "value_name": "ROLE",
+              "default": "Worker",
+              "help": "Structural role — Manager or Worker",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "plan",
       "about": "Canvas plans — persistent orchestration boards",
       "aliases": [],

@@ -15,6 +15,7 @@ mod local_api;
 mod mem;
 mod notification;
 mod orchestration;
+mod persona;
 mod orchestrator;
 mod plan;
 mod plan_archive;

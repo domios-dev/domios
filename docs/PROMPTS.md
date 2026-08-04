@@ -83,12 +83,74 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 `codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows on fresh install. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
 
-## Role guidance is assigned at spawn
+## Role presets — one resolver, one composition table
 
-Structural roles are `Orchestrator`, `Worker`, and the Planner profile. Specialized
-worker stance lives in the task prompt and task `role_guidance`, not in a mem role
-registry. When spawning a worker, include the relevant guidance inline: for example,
-"You are a Rust backend worker focused only on `src-tauri/`".
+There is exactly one persona registry. `service/role_preset.rs` resolves a
+`(role, role_profile)` pair to a `RolePreset { role, kind_id, label, fragments }`,
+keyed by kind id and never by a role or provider literal. Every Manager kind and
+every Worker subtype goes through it; there is no separate Worker path.
+
+A preset's guidance is a list of fragments, each with its own provenance, joined
+with a blank line in this order:
+
+| Fragment | Source | Meaning |
+|---|---|---|
+| `builtin` | `role_preset::builtin_guidance` | Bundled text for a builtin kind |
+| `inherited_base` | `worker_suffix.md` | The base a leaf kind inherits when it ships no bundled text |
+| `disk_overlay` | `<data-dir>/role-presets/*.toml` | Runtime-declared leaf guidance |
+| `task_overlay` | The dispatch | Task personality, `role_guidance`, and `executor_role` for this one delivery |
+
+`service/persona/occasion.rs` holds the single declarative table mapping a
+delivery occasion to the fragments it carries, the separator it uses, and whether
+it speaks with no payload. Occasions:
+
+| Occasion | Injection point | Fragments | Declared fallback |
+|---|---|---|---|
+| `launch_assignment` | `service/orchestrator/launch.rs` | contract (`builtin`/`inherited_base` + `disk_overlay`) | the assignment alone |
+| `worker_launch_identity` | `service/orchestrator/launch.rs` | `task_overlay` only | `You are a CodeTerm Worker.` |
+| `manager_bootstrap` | `service/role_identity.rs` | contract | `planner_suffix.md` |
+
+Every occasion declares a fallback, and an unmatched `(occasion, kind)` pair
+lands on it rather than on silence. Worker task personality is not a private
+path: it enters as the `task_overlay` fragment of the same `RolePreset` a
+manager kind resolves, and only the `worker_launch_identity` occasion places it.
+
+### Runtime overlays
+
+Files in `<data-dir>/role-presets/*.toml` add leaf kinds without a rebuild
+(`codeterm persona reload` re-reads them):
+
+```toml
+id = "rust-backend-dev"
+label = "Rust Backend Dev"
+base = "worker"                        # optional; only a leaf base is admissible
+guidance = "Stay inside src-tauri/."
+```
+
+An overlay may add a kind id, a label, and layered guidance. It may never do
+anything else, and each refusal has its own reason, reported by
+`codeterm persona list`:
+
+| Reason | Trigger |
+|---|---|
+| `builtin_override` | `id` names a builtin kind |
+| `capability_escalation` | declares `anchors_team`, `can_spawn`, `team_authority`, `requires_parent`, `capability`, `origin`, or claims an anchoring base |
+| `team_authority_claim` | claims the `planner` or `watcher` base |
+| `missing_core` | the contract it claims would ship without the Worker framework rule or the report protocol |
+| `malformed` / `unreadable` / `empty_guidance` | the file cannot be used at all |
+
+A refused file is skipped and logged; it never blocks a healthy sibling, and an
+overlay kind always resolves to leaf capability — it can never anchor a Team,
+spawn, or hold Team authority.
+
+### Inspecting the resolver
+
+`codeterm persona list` shows every reachable kind with its capability columns
+and the refused overlays. `codeterm persona show --role Worker --kind
+rust-backend-dev --guidance "You are Mira."` renders the exact text each
+occasion emits, which fragment supplied it, and whether the declared fallback
+was used. The text comes from the shared resolver, so what it prints is what the
+agent receives.
 
 Reusable operational knowledge belongs in a named embedded document or
 folder skills when runnable files are required. Machine-local preferences such as
@@ -173,4 +235,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

@@ -12,8 +12,15 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/lib.sh"
+# shellcheck source=/dev/null
+source "$HERE/../_lib/role_preset.sh"
 
 dev_alive || { echo "ERROR: dev not running on 7686. ./build.sh dev" >&2; exit 1; }
+
+# A refreshed Orchestrator must re-orient from the same resolver it launched
+# with; a drifted kind here would silently reseed a different charter.
+assert_manager_kinds_resolve || { echo "ERROR: manager preset resolution drifted" >&2; exit 1; }
+assert_planner_team_authority || { echo "ERROR: role kind capability drifted" >&2; exit 1; }
 
 PROVIDER="${PROVIDER:-claude}"
 CWD="$(pwd)/target-check/evals/orchestrator-refresh"

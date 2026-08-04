@@ -995,6 +995,15 @@ pub fn run() {
                 });
             }
 
+            let overlays = service::persona::overlay::reload();
+            for rejection in overlays.rejected() {
+                log::warn!(
+                    "[role-preset] refused {} [{}] {}",
+                    rejection.path,
+                    rejection.reason.code(),
+                    rejection.reason.detail()
+                );
+            }
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
             // Tab-state reactor: classify parked tabs and auto-advance via the provider's recommendation.

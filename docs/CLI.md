@@ -1254,6 +1254,27 @@ Explicit delete
 
 - `<id>` — Paste id
 
+#### `codeterm persona`
+
+Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
+
+#### `codeterm persona list`
+
+List every role kind the resolver can reach, with refused overlays
+
+#### `codeterm persona reload`
+
+Re-read the overlay directory without restarting or rebuilding
+
+#### `codeterm persona show`
+
+Render the exact preset text a role kind receives at each delivery occasion
+
+- `--guidance` — Task-owned persona layered over the kind's base, as a dispatch supplies it
+- `--kind` — Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)
+- `--occasion` — Render only this occasion
+- `--role` — Structural role — Manager or Worker
+
 #### `codeterm plan`
 
 Canvas plans — persistent orchestration boards

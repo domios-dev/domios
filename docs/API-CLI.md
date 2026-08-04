@@ -127,4 +127,23 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 2 -->
+Which suffix a launch gets is decided by one resolver and one composition table,
+never by a role literal: `service/role_preset.rs` resolves `(role, role_profile)`
+to a `RolePreset`, and `service/persona/occasion.rs` places its fragments per
+delivery occasion. Task personality, `role_guidance`, and `executor_role` enter
+as that preset's task overlay, so a Worker subtype and a Manager kind compose the
+same way. `codeterm docs PROMPTS` has the fragment/occasion tables.
+
+### Role preset inspection
+
+| Command | RPC | Purpose |
+|---|---|---|
+| `codeterm persona list` | `persona.list` | Every reachable role kind with capability columns, plus refused overlays and why |
+| `codeterm persona show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `persona.show` | The exact text each occasion emits, its fragments, and their provenance |
+| `codeterm persona reload` | `persona.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
+
+Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or
+Team-authority base, overriding a builtin kind, or asking to own a contract
+without the coordination core is refused with a named reason and skipped.
+
+<!-- revision: 3 -->
