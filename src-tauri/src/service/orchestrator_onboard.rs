@@ -233,6 +233,8 @@ mod tests {
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
+            lifecycle_epoch: None,
+            lifecycle_operation_id: None,
             role: None,
             role_profile: None,
             team_id: None,

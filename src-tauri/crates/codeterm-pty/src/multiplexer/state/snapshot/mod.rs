@@ -157,6 +157,8 @@ impl MultiplexerState {
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
                     context_epochs: p.context_epoch_archives.clone(),
+                    lifecycle_epoch: p.lifecycle_epoch,
+                    lifecycle_operation_id: p.lifecycle_operation_id.clone(),
                 }),
                 role: tab.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 role_profile: tab.and_then(|p| p.role_profile.clone()),
@@ -356,11 +358,9 @@ impl MultiplexerState {
                 }
             });
             let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
-            let restored_agent_type = agent_type
-                .clone()
-                .or_else(|| derive_agent_type_from_title(title.as_deref()));
-            let restored_locked =
-                *agent_type_locked || (!*agent_type_locked && restored_agent_type.is_some());
+            // Provider identity is committed state, never read off a title.
+            let restored_agent_type = agent_type.clone();
+            let restored_locked = *agent_type_locked || restored_agent_type.is_some();
             tabs.insert(
                 tab_id.clone(),
                 Tab {
@@ -398,6 +398,10 @@ impl MultiplexerState {
                     reported_session_binding_nonce: restored_identity
                         .and_then(|identity| identity.reported_session_binding_nonce.clone()),
                     shell_integration_nonce: None,
+                    lifecycle_epoch: restored_identity
+                        .and_then(|identity| identity.lifecycle_epoch),
+                    lifecycle_operation_id: restored_identity
+                        .and_then(|identity| identity.lifecycle_operation_id.clone()),
                     role: parsed_role,
                     role_profile: restored_role_profile,
                     // Membership is not authority: a roleless Team utility tab

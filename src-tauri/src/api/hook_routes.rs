@@ -332,6 +332,23 @@ pub async fn hook_session_start(
         claim.nonce_verified,
         claim.changed,
     );
+    // Authoritative identity commit: journaled only on a nonce-proven binding,
+    // so an unverified report can never become restorable authority.
+    if let (true, Some(binding_nonce)) = (claim.nonce_verified, reported_nonce.clone()) {
+        state.svc.record_lifecycle(
+            &tab_id,
+            crate::session::lifecycle::LifecycleTransition::ProviderIdentityCommitted {
+                provider: provider_id.clone(),
+            },
+        );
+        state.svc.record_lifecycle(
+            &tab_id,
+            crate::session::lifecycle::LifecycleTransition::SessionBound {
+                session_id: sid.clone(),
+                binding_nonce,
+            },
+        );
+    }
     crate::service::general_agent::binding_wait::notify_session_bound();
     acknowledge_authenticated_launch(&state.svc.mux, &tab_id, &claim, report_nonce.as_deref());
     if claim.nonce_verified {
