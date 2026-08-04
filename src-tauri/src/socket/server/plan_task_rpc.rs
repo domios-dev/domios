@@ -718,7 +718,7 @@ pub(super) fn dispatch(
                 .map(|detail| detail.task.interruption.owner_epoch)
                 .unwrap_or(0);
             let id = if owner_epoch > 0 {
-                let authority = task_mutation_authority(params)?;
+                let authority = task_mutation_authority(params, svc)?;
                 let mux = svc.mux.read();
                 let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
                     tab.agent_session_id.as_deref() == Some(&authority.session_id)

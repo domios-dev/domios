@@ -279,6 +279,16 @@
         task.interruption.owner_session_id = Some("owner-session".into());
         fixture.service.plan_store.save(&mut plan, 5).unwrap();
         let service = Arc::new(fixture.service.clone());
+        let shell_env = Some(json!({
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "caller_tab_id": tab_id,
+            "session_binding_nonce": "nonce",
+            "owner_epoch": 2
+        }));
+        assert!(
+            verify_owner_epoch_for_task_mutation("plan.task.update", &shell_env, &service).is_ok()
+        );
         let missing = Some(json!({ "plan_id": plan_id, "task_id": task_id }));
         assert!(
             verify_owner_epoch_for_task_mutation("plan.task.update", &missing, &service).is_err()
