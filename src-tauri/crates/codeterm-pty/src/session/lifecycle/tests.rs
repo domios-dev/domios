@@ -23,8 +23,8 @@ fn gate(
     snapshot: &mut SessionSnapshot,
 ) -> Vec<TabRecoveryOutcome> {
     snapshot.lifecycle_coverage = Some(coverage.to_string());
-    let gated = gate_session_snapshot(snapshot, &journal.load(), coverage);
-    assert!(gated.covered, "fixture must run under active coverage");
+    let gated = gate_session_snapshot(snapshot, &journal.load(), Some(coverage));
+    assert_eq!(gated.coverage, SnapshotCoverage::Active);
     gated.tabs
 }
 
@@ -248,9 +248,13 @@ fn first_install_leaves_a_legacy_snapshot_untouched() {
     ]);
 
     let coverage = journal.ensure_coverage().unwrap();
-    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), &coverage);
+    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), Some(&coverage));
 
-    assert!(!gated.covered, "coverage cannot reach an earlier snapshot");
+    assert_eq!(
+        gated.coverage,
+        SnapshotCoverage::PreCoverage,
+        "coverage cannot reach an earlier snapshot"
+    );
     assert!(gated.tabs.is_empty());
     let SplitNodeSnapshot::Leaf { role, can_spawn, .. } = authority_of(&snapshot, "db79d2da") else {
         panic!("expected leaf");
@@ -276,9 +280,9 @@ fn the_restart_after_activation_enforces_checkpoints() {
         committed_leaf("tab-live", 1, "op-live", "session-live"),
     ]);
     snapshot.lifecycle_coverage = Some(coverage.clone());
-    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), &coverage);
+    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), Some(&coverage));
 
-    assert!(gated.covered);
+    assert_eq!(gated.coverage, SnapshotCoverage::Active);
     assert_eq!(
         verdict_for(&gated.tabs, "db79d2da"),
         RecoveryVerdict::Stripped(RecoveryRefusal::UnbackedRoleAuthority)
@@ -301,7 +305,7 @@ fn coverage_opens_once_and_survives_compaction() {
 }
 
 #[test]
-fn a_rebuilt_journal_mints_new_coverage_and_stops_enforcing() {
+fn a_rebuilt_journal_strips_a_previously_covered_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let first = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
     let old_coverage = first.ensure_coverage().unwrap();
@@ -311,10 +315,55 @@ fn a_rebuilt_journal_mints_new_coverage_and_stops_enforcing() {
     let new_coverage = rebuilt.ensure_coverage().unwrap();
     assert_ne!(new_coverage, old_coverage);
 
-    let mut snapshot = snapshot(vec![partial_launch_leaf("db79d2da")]);
-    snapshot.lifecycle_coverage = Some(old_coverage);
-    let gated = gate_session_snapshot(&mut snapshot, &rebuilt.load(), &new_coverage);
-    assert!(!gated.covered, "a lost journal cannot judge an old snapshot");
+    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
+    snapshot.lifecycle_coverage = Some(old_coverage.clone());
+    let gated = gate_session_snapshot(&mut snapshot, &rebuilt.load(), Some(&new_coverage));
+
+    assert_eq!(
+        gated.coverage,
+        SnapshotCoverage::Lost {
+            snapshot_coverage: old_coverage.clone()
+        },
+        "deleting the journal must not buy an exemption"
+    );
+    assert_eq!(
+        verdict_for(&gated.tabs, "tab-a"),
+        RecoveryVerdict::Stripped(RecoveryRefusal::CoverageLost {
+            snapshot: old_coverage,
+            active: Some(new_coverage),
+        })
+    );
+    let SplitNodeSnapshot::Leaf {
+        role, agent_type, ..
+    } = authority_of(&snapshot, "tab-a")
+    else {
+        panic!("expected leaf");
+    };
+    assert_eq!(role, None);
+    assert_eq!(agent_type, None);
+}
+
+#[test]
+fn an_unavailable_journal_strips_a_covered_snapshot() {
+    let (journal, coverage, _dir) = new_journal();
+    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
+    snapshot.lifecycle_coverage = Some(coverage.clone());
+
+    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), None);
+
+    assert_eq!(
+        gated.coverage,
+        SnapshotCoverage::Lost {
+            snapshot_coverage: coverage.clone()
+        }
+    );
+    assert_eq!(
+        verdict_for(&gated.tabs, "tab-a"),
+        RecoveryVerdict::Stripped(RecoveryRefusal::CoverageLost {
+            snapshot: coverage,
+            active: None,
+        })
+    );
 }
 
 #[test]
@@ -543,7 +592,7 @@ fn truncated_tail_refuses_every_claim() {
     assert!(!load.tail.is_intact());
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
     snapshot.lifecycle_coverage = Some(coverage.clone());
-    let outcomes = gate_session_snapshot(&mut snapshot, &load, &coverage).tabs;
+    let outcomes = gate_session_snapshot(&mut snapshot, &load, Some(&coverage)).tabs;
     assert!(matches!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::JournalTailRefused { .. })

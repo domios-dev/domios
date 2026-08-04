@@ -103,22 +103,26 @@ The journal opens exactly one coverage id the first time a daemon starts with
 this feature. From then on every session snapshot it writes carries that id in
 its top-level `lifecycle_coverage` field.
 
-A snapshot is **covered** only when its `lifecycle_coverage` equals the journal's
-current coverage id. Otherwise the journal has never covered that snapshot, the
-gate examines nothing, and the restore keeps whatever the pre-journal contract
-already allowed — a role still requires a persisted provider identity, and a
-title is still not evidence.
+A snapshot falls into exactly one of three states:
+
+| `lifecycle_coverage` | State | Effect |
+|----------------------|-------|--------|
+| absent | pre-coverage | Written before coverage existed. The gate examines nothing and strips nothing; the pre-journal contract still applies, so a role still needs a persisted provider identity and a title is still not evidence. |
+| equals the journal's id | covered | Enforced exactly. |
+| present but different, or the journal has no usable coverage | **coverage lost** | The snapshot *was* covered and its proof is gone. Every authority claim fails closed with `journal no longer carries coverage <id>`. |
+
+The third row is the security edge: deleting or replacing the journal must never
+buy an exemption. Only a snapshot that never claimed coverage may skip
+enforcement.
 
 This makes activation explicit rather than a rollout side effect. The install
 that adds the journal restores its existing session untouched and logs
 `snapshot predates journal coverage`; the next restart is fully enforced,
 because by then every snapshot on disk was written under coverage.
 
-Coverage survives compaction. If the journal file is lost, the rebuilt journal
-mints a **new** id, so snapshots stamped with the old one become uncovered and a
-lost journal can never mass-strip a session it cannot account for. Coverage is
-not a compatibility inference and never looks at a tab: it is a property of the
-journal and the snapshot generation it wrote.
+Coverage survives compaction. Coverage is not a compatibility inference and
+never looks at a tab: it is a property of the journal and the snapshot
+generation it wrote.
 
 ## The recovery rule
 
@@ -155,8 +159,9 @@ stage, agent state, and chatBackend binding, and logs the refusal:
 
 Refusal reasons are `no committed lifecycle checkpoint`, `no lifecycle
 epoch/operation lineage`, `role authority claimed without a committed provider
-identity and session`, `epoch mismatch`, `operation mismatch`, a named field
-disagreement, or `journal tail refused`.
+identity and session`, `journal no longer carries coverage <id>`, `epoch
+mismatch`, `operation mismatch`, a named field disagreement, or `journal tail
+refused`.
 
 A role, Team, parent, `can_spawn`, or `depth` claim is refused outright unless
 the same snapshot also claims the provider and session behind it. A role-bearing
@@ -226,4 +231,4 @@ to render.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
