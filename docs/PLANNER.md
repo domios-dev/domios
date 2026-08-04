@@ -64,6 +64,23 @@ in sections) ⟶ Tasks ⟶ Strides. Spec and Plan are perpendicular surfaces —
 WHAT/WHY lives ONLY in the spec, HOW/phases ONLY in plan sections. Ingesting
 WHAT/WHY into plan sections is the classic mistake the approval gate blocks.
 
+## Task shape — cohesive vertical capabilities
+
+Default to **4-6 cohesive vertical tasks**. Each one delivers a reviewable
+capability, and its ordinary discovery, tests, docs, and review belong inside
+that slice — never as tasks of their own. Red/green is an acceptance technique
+inside a task, not a task.
+
+A standalone discovery, test-author, or review task is legitimate only across a
+concrete independent boundary: a distinct security or authority owner, or
+independently owned Windows/macOS/Linux rollout. "It is a separate phase" is not
+a boundary.
+
+Justify every task beyond five in its own body, naming the boundary rather than
+restating the work. An unjustifiable task merges back into the capability it
+belongs to. Splitting one capability into a discovery/test/implement/docs/
+review/QA chain is the failure this rule exists to stop.
+
 `test_plan_vague` is the doctor warning for task test plans that are too loose
 for a worker handoff. A concrete test plan is at least 120 characters and names
 a runnable oracle, currently a backticked command or one of `npx`, `cargo`,
@@ -172,4 +189,4 @@ they shape how the worker approaches the job. Never leave them empty.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 11 -->
+<!-- revision: 12 -->
