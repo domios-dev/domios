@@ -30,6 +30,7 @@ impl ServiceContext {
             return None;
         }
         append(journal, key.clone(), LifecycleTransition::EpochOpened);
+        self.record_role_transition(tab_id);
         Some(key)
     }
 
