@@ -24,7 +24,12 @@ pub(crate) fn resolved_effort_provenance(
     }
 }
 
-fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
+/// An idle Team bootstrap is instructions, not work: a provider that can carry
+/// it as a system prompt needs no visible starter turn to repeat it.
+fn prepare_manager_bootstrap(
+    params: &mut SpawnAgentParams,
+    system_prompt_capable: bool,
+) -> Option<String> {
     let has_assignment = params
         .task
         .as_deref()
@@ -35,10 +40,10 @@ fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
         None => bootstrap.clone(),
         Some(_) => bootstrap.clone(),
     });
-    params.starter_prompt = if has_assignment {
-        crate::agent::provider::StarterPrompt::AssignedTask
-    } else {
-        crate::agent::provider::StarterPrompt::TeamBootstrap
+    params.starter_prompt = match (has_assignment, system_prompt_capable) {
+        (true, _) => crate::agent::provider::StarterPrompt::AssignedTask,
+        (false, true) => crate::agent::provider::StarterPrompt::NoStarter,
+        (false, false) => crate::agent::provider::StarterPrompt::TeamBootstrap,
     };
     Some(bootstrap)
 }
@@ -540,18 +545,6 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        let fallback_bootstrap = if params.manager_bootstrap.is_some() {
-            self.emit_boot_stage(
-                &tab_id,
-                crate::service::boot_stage::BootStage::PreparingRoleInstructions,
-                None,
-            );
-            prepare_manager_bootstrap(&mut params)
-        } else {
-            prepare_standard_starter_prompt(&mut params);
-            None
-        };
-
         let system_prompt_capable = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -563,6 +556,17 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(false);
+        let fallback_bootstrap = if params.manager_bootstrap.is_some() {
+            self.emit_boot_stage(
+                &tab_id,
+                crate::service::boot_stage::BootStage::PreparingRoleInstructions,
+                None,
+            );
+            prepare_manager_bootstrap(&mut params, system_prompt_capable)
+        } else {
+            prepare_standard_starter_prompt(&mut params);
+            None
+        };
         let fallback_bootstrap = fallback_bootstrap
             .map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {
@@ -914,275 +918,7 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
 }
 
 #[cfg(test)]
-mod hierarchy_defaults_tests {
-    use super::*;
-
-    #[test]
-    fn effort_provenance_keeps_plan_and_request_distinct() {
-        let planned = resolved_effort_provenance(Some("high".into()), Some("medium".into()));
-        assert_eq!(planned.planned.as_deref(), Some("high"));
-        assert_eq!(planned.requested.as_deref(), Some("medium"));
-        assert_eq!(planned.resolved.as_deref(), Some("medium"));
-
-        let ordinary = resolved_effort_provenance(None, Some("high".into()));
-        assert_eq!(ordinary.planned, None);
-        assert_eq!(ordinary.requested.as_deref(), Some("high"));
-    }
-
-    fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
-        SpawnAgentParams {
-            role: Some("Worker".into()),
-            spawned_by_tab_id: spawned_by.map(str::to_string),
-            ..Default::default()
-        }
-    }
-
-    // Live bounce oracle (dev aa793130a, notification 958a78b0): POST
-    // /api/agents/spawn with audience=automation still minted a user bell.
-    #[test]
-    fn ordinary_pty_tab_creation_carries_automation_audience_from_params() {
-        use crate::multiplexer::types::TabAudience;
-        let mut state = crate::multiplexer::state::MultiplexerState::empty();
-        let ws_id = state.create_workspace("ws".to_string(), None).id;
-        let tab_id = state.create_tab(&ws_id).expect("tab created");
-        let params = SpawnAgentParams {
-            agent: Some("claude".into()),
-            audience: TabAudience::Automation,
-            ..Default::default()
-        };
-
-        initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
-
-        assert_eq!(
-            state.get_tab(&tab_id).expect("tab").audience,
-            TabAudience::Automation,
-            "audience declared on SpawnAgentParams must survive into the ordinary PTY tab record"
-        );
-    }
-
-    // Negative control: an undeclared spawn stays user-facing on the same path.
-    #[test]
-    fn ordinary_pty_tab_creation_defaults_to_user_audience() {
-        use crate::multiplexer::types::TabAudience;
-        let mut state = crate::multiplexer::state::MultiplexerState::empty();
-        let ws_id = state.create_workspace("ws".to_string(), None).id;
-        let tab_id = state.create_tab(&ws_id).expect("tab created");
-        let params = SpawnAgentParams {
-            agent: Some("claude".into()),
-            ..Default::default()
-        };
-
-        initialize_ordinary_pty_agent_tab(state.get_tab_mut(&tab_id).expect("tab"), &params);
-
-        assert_eq!(
-            state.get_tab(&tab_id).expect("tab").audience,
-            TabAudience::User,
-            "an undeclared spawn keeps the user audience and still bells"
-        );
-    }
-
-    #[test]
-    fn worker_without_parent_defaults_to_caller_and_reports_to_parent() {
-        let mut p = worker_params(Some("caller-tab"));
-        apply_worker_hierarchy_defaults(&mut p);
-        assert_eq!(p.parent_tab_id.as_deref(), Some("caller-tab"));
-        assert_eq!(p.report_target_tab_id.as_deref(), Some("caller-tab"));
-    }
-
-    #[test]
-    fn explicit_parent_and_report_target_are_untouched() {
-        let mut p = worker_params(Some("caller-tab"));
-        p.parent_tab_id = Some("boss".into());
-        p.report_target_tab_id = Some("boss".into());
-        apply_worker_hierarchy_defaults(&mut p);
-        assert_eq!(p.parent_tab_id.as_deref(), Some("boss"));
-        assert_eq!(p.report_target_tab_id.as_deref(), Some("boss"));
-    }
-
-    #[test]
-    fn cross_mesh_and_non_worker_are_skipped() {
-        let mut mesh = worker_params(Some("caller"));
-        mesh.report_target_mesh_peer = Some("peer".into());
-        apply_worker_hierarchy_defaults(&mut mesh);
-        assert_eq!(mesh.parent_tab_id, None);
-
-        let mut orch = SpawnAgentParams {
-            role: Some("Orchestrator".into()),
-            spawned_by_tab_id: Some("caller".into()),
-            ..Default::default()
-        };
-        apply_worker_hierarchy_defaults(&mut orch);
-        assert_eq!(orch.parent_tab_id, None);
-    }
-
-    #[test]
-    fn chatbackend_worker_receives_identity_context_contract_and_assignment_once() {
-        let mut params = SpawnAgentParams {
-            role: Some("Worker".into()),
-            task: Some("repair transport".into()),
-            ..Default::default()
-        };
-
-        let prompt = compose_chatbackend_system_prompt(&mut params).unwrap();
-
-        assert!(prompt.starts_with("You are a CodeTerm Worker."));
-        assert_eq!(
-            prompt
-                .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
-                .count(),
-            1
-        );
-        assert_eq!(
-            prompt
-                .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-                .count(),
-            1
-        );
-        assert_eq!(
-            prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
-            1
-        );
-        assert_eq!(prompt.matches("repair transport").count(), 1);
-        assert_eq!(params.task, None);
-    }
-
-    #[test]
-    fn idle_manager_bootstrap_is_one_team_launch_turn_with_coordination() {
-        let coordination = "Your Planner counterpart is Euler (tab planner-1).";
-        let mut params = SpawnAgentParams {
-            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
-                role: "Orchestrator".into(),
-                role_kind: "orchestrator".into(),
-                team_id: "not yet established".into(),
-                team_name: "not yet established".into(),
-                plan_id: "no plan bound yet".into(),
-                project: "CodeTerm".into(),
-                coordination: Some(coordination.into()),
-            }),
-            ..Default::default()
-        };
-
-        let bootstrap = prepare_manager_bootstrap(&mut params).unwrap();
-        assert_eq!(
-            params.starter_prompt,
-            crate::agent::provider::StarterPrompt::TeamBootstrap
-        );
-        assert_eq!(params.task.as_deref(), Some(bootstrap.as_str()));
-        assert_eq!(bootstrap.matches(coordination).count(), 1);
-    }
-
-    #[test]
-    fn assigned_manager_bootstrap_keeps_the_assigned_task_starter() {
-        let mut params = SpawnAgentParams {
-            task: Some("Audit the delivery path.".into()),
-            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
-                role: "Orchestrator".into(),
-                role_kind: "orchestrator".into(),
-                team_id: "team-1".into(),
-                team_name: "Delivery".into(),
-                plan_id: "plan-1".into(),
-                project: "CodeTerm".into(),
-                coordination: None,
-            }),
-            ..Default::default()
-        };
-
-        let bootstrap = prepare_manager_bootstrap(&mut params).unwrap();
-        let expected = format!("{bootstrap}\n\nAudit the delivery path.");
-        assert_eq!(
-            params.starter_prompt,
-            crate::agent::provider::StarterPrompt::AssignedTask
-        );
-        assert_eq!(params.task.as_deref(), Some(expected.as_str()));
-    }
-
-    #[test]
-    fn native_planner_startup_keeps_manager_contract_and_onboarding() {
-        let payload = planner_startup_payload(
-            true,
-            Some("system contract".into()),
-            "planner startup",
-        );
-
-        assert!(payload.starts_with("system contract"));
-        assert!(payload.ends_with("planner startup"));
-        assert!(!payload.contains("codeterm:system"));
-    }
-
-    #[test]
-    fn team_bootstrap_marks_only_the_fallback_transport() {
-        let system_prompt = team_bootstrap_payload(true, "system contract".into());
-        assert_eq!(system_prompt, "system contract");
-        assert!(!system_prompt.contains("codeterm:system"));
-
-        let fallback = team_bootstrap_payload(false, "fallback contract".into());
-        assert_eq!(
-            fallback,
-            "-=-codeterm:system context=team-bootstrap-=-fallback contract"
-        );
-        assert!(!fallback.contains("tab="));
-        assert!(!fallback.contains("[to reply"));
-    }
-
-    #[test]
-    fn roleless_agent_starts_without_a_visible_turn() {
-        let mut params = SpawnAgentParams::default();
-
-        prepare_standard_starter_prompt(&mut params);
-
-        assert_eq!(
-            params.starter_prompt,
-            crate::agent::provider::StarterPrompt::NoStarter
-        );
-    }
-
-    #[test]
-    fn roleless_task_is_system_context_without_a_visible_turn() {
-        let mut params = SpawnAgentParams {
-            task: Some("Inspect the launch path.".into()),
-            ..Default::default()
-        };
-
-        prepare_standard_starter_prompt(&mut params);
-
-        assert_eq!(
-            params.starter_prompt,
-            crate::agent::provider::StarterPrompt::NoStarter
-        );
-    }
-
-    #[test]
-    fn role_assignment_keeps_the_assigned_task_turn() {
-        let mut params = SpawnAgentParams {
-            task: Some("Inspect the launch path.".into()),
-            role: Some("Worker".into()),
-            ..Default::default()
-        };
-
-        prepare_standard_starter_prompt(&mut params);
-
-        assert_eq!(
-            params.starter_prompt,
-            crate::agent::provider::StarterPrompt::AssignedTask
-        );
-    }
-
-    // Pin the daemon cwd when both inputs are absent; `None` desyncs the tab
-    // from the inherited PTY cwd and points chat at the wrong session store.
-    #[test]
-    fn no_cwd_and_no_workspace_pins_the_daemon_cwd() {
-        let (resolved, warning) = ServiceContext::resolve_agent_cwd(&None, &None);
-        assert!(warning.is_none());
-        let expected = std::env::current_dir()
-            .ok()
-            .and_then(|p| p.to_str().map(String::from));
-        assert_eq!(resolved, expected);
-        assert!(
-            resolved.as_deref().is_none_or(|d| !d.is_empty()),
-            "resolved cwd must never be an empty string"
-        );
-    }
-}
+mod tests;
 
 #[cfg(unix)]
 fn free_disk_gb(path: &str) -> Option<u64> {
