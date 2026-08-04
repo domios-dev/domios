@@ -2,6 +2,9 @@ use super::*;
 
 #[test]
 fn plan_record_parses_without_plan_id() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let previous = std::env::var("CODETERM_PLAN_ID").ok();
+    std::env::remove_var("CODETERM_PLAN_ID");
     let parsed = Cli::try_parse_from([
         "codeterm",
         "plan",
@@ -12,8 +15,12 @@ fn plan_record_parses_without_plan_id() {
         "Handoff CLI",
         "--status",
         "in_progress",
-    ])
-    .expect("plan record parses without plan id");
+    ]);
+    match previous {
+        Some(value) => std::env::set_var("CODETERM_PLAN_ID", value),
+        None => std::env::remove_var("CODETERM_PLAN_ID"),
+    }
+    let parsed = parsed.expect("plan record parses without plan id");
     match parsed.command {
         Commands::Plan {
             action:
