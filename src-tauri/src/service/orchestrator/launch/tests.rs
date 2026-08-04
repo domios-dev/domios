@@ -328,9 +328,10 @@ fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     mux.set_orchestrator_role(&tab_id)
         .unwrap();
     let tab = mux.get_tab(&tab_id).unwrap();
+    // The identity channel carries structural authority, not the display label.
     assert_eq!(
         tab_identity_env(tab).get("CODETERM_ROLE"),
-        Some(&"Orchestrator".to_string())
+        Some(&"Manager".to_string())
     );
 }
 

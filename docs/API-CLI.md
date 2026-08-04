@@ -50,8 +50,8 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
 | `CODETERM_TAB_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
-| `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator` or `Worker` (empty if no role). Set at PTY spawn. |
-| `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
+| `CODETERM_ROLE` | `Manager` | Structural agent role: `Manager` or `Worker` (empty if no role). The finer kind (`orchestrator`, `planner`, `watcher`, …) lives in `role_profile`, not here; display surfaces render that kind's label. Set at PTY spawn. |
+| `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
 | `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
@@ -146,4 +146,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
