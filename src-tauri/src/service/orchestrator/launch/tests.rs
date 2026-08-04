@@ -505,3 +505,58 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
         other => panic!("expected chatBackend route, got {other:?}"),
     }
 }
+
+/// The delivery half of the AgentPad invariant. The pre-existing prompt test
+/// only forbade duplication, so a recipient that never received the rule was
+/// invisible — which is exactly how spawned agents went without it.
+#[test]
+fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
+    let rule = crate::prompts::AGENT_PAD_RULE.trim();
+
+    for (recipient, composed) in [
+        ("spawned non-worker", super::agent_system_prompt(None)),
+        ("spawned worker", super::worker_agent_system_prompt(None)),
+        (
+            "spawned non-worker with assignment",
+            super::agent_system_prompt(Some("do the thing")),
+        ),
+        (
+            "spawned worker with assignment",
+            super::worker_agent_system_prompt(Some("do the thing")),
+        ),
+    ] {
+        assert_eq!(
+            composed.matches(rule).count(),
+            1,
+            "{recipient} must receive the AgentPad rule exactly once"
+        );
+    }
+}
+
+/// A Worker is the recipient that had neither the rule nor the pointer to the
+/// skill that carries the full reference.
+#[test]
+fn spawned_worker_receives_the_codeterm_primer() {
+    let composed = super::worker_agent_system_prompt(Some("do the thing"));
+    assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(composed.contains("provider skill named `codeterm`"));
+}
+
+/// Rich-rendering guidance is a delivery fact. Two tests in prompts.rs were named
+/// for the primer and the worker context but asserted phrases inside
+/// RICH_RENDERING_GUIDANCE itself, so they proved nothing about either recipient.
+#[test]
+fn every_spawned_recipient_receives_rich_rendering_guidance() {
+    let guidance = crate::prompts::RICH_RENDERING_GUIDANCE.trim();
+
+    for (recipient, composed) in [
+        ("spawned non-worker", super::agent_system_prompt(None)),
+        ("spawned worker", super::worker_agent_system_prompt(None)),
+    ] {
+        assert_eq!(
+            composed.matches(guidance).count(),
+            1,
+            "{recipient} must receive the rich-rendering guidance exactly once"
+        );
+    }
+}

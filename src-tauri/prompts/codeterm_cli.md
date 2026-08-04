@@ -15,7 +15,6 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 - ROUTING: THE PREFIX IS THE RETURN ADDRESS. Reply on the channel named by the `-=-codeterm:...-=-` marker (see `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your tab afterward.
 - `chat_backend` TABS HAVE NO SHELL. Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
-- AGENTPAD IS MANDATORY FOR AGENT-AUTHORED CODETERM PAYLOADS: write every message, report, delayed message, paste, and bridge body to the current pad, then pass its relative path with `--from-pad`, including short payloads. Use `codeterm pad path` to locate it; never inline authored payload text.
 - NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`.
 - Version/quota questions: `codeterm identify` (not `--version`, not curl) and `codeterm usage latest` (never `ccusage` or parsing `~/.claude`).
 - System sleep: `codeterm keepawake ...` — never `caffeinate`/`powercfg`/`systemd-inhibit`.

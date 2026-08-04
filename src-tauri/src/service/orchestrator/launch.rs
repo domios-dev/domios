@@ -98,6 +98,7 @@ pub(crate) fn provider_launch_task(
 pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
     let mut sections = vec![
         crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+        crate::prompts::AGENT_PAD_RULE.trim().to_string(),
         crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
     ];
     if let Some(assignment) = assignment.filter(|text| !text.trim().is_empty()) {
@@ -118,7 +119,9 @@ fn worker_agent_system_prompt(assignment: Option<&str>, role_profile: Option<&st
         role_profile,
         identity,
     )];
+    sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
+    sections.push(crate::prompts::AGENT_PAD_RULE.trim().to_string());
     sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());
     if !assignment.trim().is_empty() {
         sections.push(format!("## Assignment\n\n{}", assignment.trim()));

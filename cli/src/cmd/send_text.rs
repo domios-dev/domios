@@ -512,7 +512,34 @@ pub fn resolve_send_text_input<R: std::io::Read>(
             .map(|s| (s, "--from-file"))
             .map_err(|e| format!("failed to read --from-file {}: {}", path, e));
     }
-    Ok((text.unwrap_or_default(), "positional"))
+    let text = text.unwrap_or_default();
+    if let Some(hint) = pad_nudge("positional", &text) {
+        eprintln!("{hint}");
+    }
+    Ok((text, "positional"))
+}
+
+/// Soft nudge toward the pad when an authored payload was inlined. Advisory
+/// only — a short scalar argument stays inline, so the shape of the payload
+/// decides, not the caller.
+pub fn pad_nudge(source: &str, text: &str) -> Option<String> {
+    const INLINE_BUDGET: usize = 240;
+    if source != "positional" {
+        return None;
+    }
+    let multiline = text.contains('\n');
+    if !multiline && text.chars().count() <= INLINE_BUDGET {
+        return None;
+    }
+    let shape = if multiline {
+        "multiline"
+    } else {
+        "over 240 characters"
+    };
+    Some(format!(
+        "hint: this payload is {shape} and went inline — the shell mangles backticks, $, quotes, \
+         and newlines on the way. Stage it in the pad (`codeterm pad path`) and pass --from-pad."
+    ))
 }
 
 #[cfg(test)]
@@ -686,5 +713,34 @@ mod tests {
         assert!(body.get("text").is_none());
         assert!(body.get("source_tab").is_none());
         assert_eq!(body["actions"], super::actions_to_json(&actions));
+    }
+
+    #[test]
+    fn pad_nudge_fires_only_for_inlined_authored_payloads() {
+        // Short scalar arguments are exactly what may stay inline.
+        assert!(super::pad_nudge("positional", "tab_9").is_none());
+        assert!(super::pad_nudge("positional", "done").is_none());
+
+        // Multiline is authored prose regardless of length.
+        let nudge = super::pad_nudge("positional", "line one\nline two")
+            .expect("multiline inline payload is nudged");
+        assert!(nudge.contains("--from-pad"));
+        assert!(nudge.contains("codeterm pad path"));
+        assert!(nudge.contains("multiline"));
+
+        // A long single line is authored too.
+        let long = "x".repeat(241);
+        assert!(super::pad_nudge("positional", &long)
+            .expect("long inline payload is nudged")
+            .contains("over 240 characters"));
+        assert!(super::pad_nudge("positional", &"y".repeat(240)).is_none());
+
+        // Every non-inline source already did the right thing.
+        for source in ["--from-pad", "--stdin", "--from-file"] {
+            assert!(
+                super::pad_nudge(source, "line one\nline two").is_none(),
+                "{source} must not be nudged"
+            );
+        }
     }
 }
