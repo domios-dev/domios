@@ -414,6 +414,12 @@ fn main_impl() {
             }
         }
 
+        Commands::Persona { action } => match cmd::persona::handle(&mut client, cli.json, action) {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => return,
+            Err(e) => Err(e),
+        },
+
         Commands::Tab { action } => {
             cmd::tab::handle_tab(&mut client, cli.json, action);
             return;

@@ -24,7 +24,12 @@ pub(crate) struct ManagerBootstrapInputs {
 
 impl ManagerBootstrapInputs {
     pub(crate) fn compose(&self) -> String {
-        let role_guidance = crate::service::role_preset::manager_guidance(&self.role_kind);
+        let role_guidance = crate::service::persona::guidance_for(
+            crate::service::persona::Occasion::ManagerBootstrap,
+            Some(crate::multiplexer::types::AgentRole::Manager),
+            Some(&self.role_kind),
+            None,
+        );
         let identity = compose_role_identity(RoleIdentityContext {
             role: &self.role,
             team_id: &self.team_id,

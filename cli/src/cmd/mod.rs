@@ -20,6 +20,7 @@ pub mod orchestrator;
 pub mod pad;
 pub mod paste;
 pub mod payload_source;
+pub mod persona;
 pub mod plan;
 pub mod plan_doctor;
 pub mod plan_doctor_competition;

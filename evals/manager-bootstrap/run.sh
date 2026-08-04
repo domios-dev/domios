@@ -2,6 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+source "$ROOT/evals/_lib/role_preset.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 CREATED=()
 TEAM_ID=""
@@ -17,6 +18,11 @@ cleanup() {
 }
 trap cleanup EXIT
 dev_get /api/health >/dev/null || { echo "dev 7686 unavailable" >&2; exit 7; }
+# Every manager kind bootstraps from the one shared resolver, and an unmatched
+# kind lands on the declared fallback instead of an empty identity.
+assert_manager_kinds_resolve
+assert_planner_team_authority
+assert_declared_fallback
 WS=$(new_workspace "manager-bootstrap-eval" "$ROOT")
 TEAMS_BEFORE=$(capture_json dc team list --json)
 PROVIDERS=$(capture_json dc agent providers --json)
