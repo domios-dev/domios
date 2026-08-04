@@ -6,7 +6,7 @@ use super::{
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
-    AgentRole, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+    PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
 };
 use crate::service::boot_stage::BootStageSink;
 use crate::service::inject_verify::InjectionResult;

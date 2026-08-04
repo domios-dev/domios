@@ -779,10 +779,9 @@ mod tests {
         tab.archive_context_epoch("claude", "prior-session");
         let planner = state.create_tab(&workspace).unwrap();
         state
-            .set_tab_role(&planner, AgentRole::Manager, Some(&parent))
+            .set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&parent))
             .unwrap();
         let planner_tab = state.get_tab_mut(&planner).unwrap();
-        planner_tab.role_profile = Some("planner".into());
         planner_tab.agent_type = Some("claude".into());
         planner_tab.agent_session_id = Some("session-planner".into());
         planner_tab.session_binding_nonce = Some("binding-planner".into());
@@ -805,7 +804,8 @@ mod tests {
         let orchestrator = store
             .load_agent_session_identity("claude", "session-orchestrator")
             .expect("orchestrator identity");
-        assert_eq!(orchestrator.role, "Orchestrator");
+        assert_eq!(orchestrator.role, "Manager");
+        assert_eq!(orchestrator.role_profile.as_deref(), Some("orchestrator"));
         assert!(orchestrator.can_spawn);
         let planner_identity = store
             .load_agent_session_identity("claude", "session-planner")

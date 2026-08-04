@@ -89,6 +89,7 @@ fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() 
 fn chatbackend_session_config_carries_composed_manager_bootstrap() {
     let content = crate::service::role_identity::ManagerBootstrapInputs {
         role: "Planner".into(),
+        role_kind: "planner".into(),
         team_id: "team_alpha".into(),
         team_name: "Alpha".into(),
         plan_id: "pl_alpha".into(),
