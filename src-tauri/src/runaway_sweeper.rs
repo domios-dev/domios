@@ -255,18 +255,24 @@ mod tests {
         assert_eq!(parse_etime(""), None);
     }
 
-    // ── Scenario 5: prompt constant wiring test ───────────────────────
+    // ── Scenario 5: bounded-run contract wiring ───────────────────────
 
+    /// The sweeper is the runtime half of the bounded-run contract; the prompt
+    /// fragment is its instruction half and stays an opaque token here.
     #[test]
     fn runaway_sweeper_testing_discipline_carries_capped_script_rule() {
+        let discipline = crate::prompts::TESTING_DISCIPLINE.trim();
+        assert!(!discipline.is_empty());
         assert!(
-            crate::prompts::TESTING_DISCIPLINE.contains("scripts/test-capped.sh"),
-            "testing_discipline.md must mention scripts/test-capped.sh"
+            crate::prompts::worker_suffix().contains(discipline),
+            "the bounded-run discipline the sweeper backstops never reaches a Worker"
         );
-        assert!(
-            crate::prompts::TESTING_DISCIPLINE
-                .contains("bare `cargo test` in a lane is a violation"),
-            "testing_discipline.md must forbid bare cargo test in lanes"
-        );
+
+        // The cap alone selects: an unreachable threshold reaps nothing, while
+        // the orphan class the cap produces is still recognized.
+        assert!(is_runaway_test_binary(
+            "/repo/target/debug/deps/codeterm-b2534ae3cdc1559f"
+        ));
+        assert!(scan_runaway_processes(u64::MAX).is_empty());
     }
 }
