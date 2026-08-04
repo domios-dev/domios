@@ -74,6 +74,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 )
             }
         },
+        // Every persona answer is about the serving daemon: its compiled prompt
+        // text and its own overlay directory. A remote answer would be a lie.
+        Commands::Persona { .. } => unsupported(
+            "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
+        ),
         Commands::Task { .. } => {
             unsupported("task management is local-only — run it on the target machine")
         }
