@@ -1,14 +1,13 @@
-//! The single funnel every tab lifecycle commit goes through. Callers journal
-//! the transition they just committed, in the same operation that committed it
-//! — nothing here observes state and infers a transition from it.
+//! The funnel every tab lifecycle commit goes through. Callers journal what
+//! they just committed; nothing here infers a transition from state.
 
 use crate::session::lifecycle::{LifecycleKey, LifecycleTransition, TabLifecycleJournal};
 
 use super::ServiceContext;
 
 impl ServiceContext {
-    /// Open a fresh lifecycle operation for a tab and bind the tab to it. Every
-    /// later transition in this operation keys off the returned lineage.
+    /// Open a lifecycle operation and bind the tab to it. Later transitions
+    /// key off the returned lineage.
     pub(crate) fn open_lifecycle_epoch(&self, tab_id: &str) -> Option<LifecycleKey> {
         let journal = TabLifecycleJournal::shared();
         let epoch = crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id);
@@ -24,9 +23,8 @@ impl ServiceContext {
         Some(key)
     }
 
-    /// Journal a committed transition against the tab's current operation. A tab
-    /// with no open operation records nothing, so it can never earn authority it
-    /// did not commit.
+    /// Journal a transition against the tab's current operation. No open
+    /// operation records nothing, so nothing unearned becomes authority.
     pub(crate) fn record_lifecycle(&self, tab_id: &str, transition: LifecycleTransition) {
         let open_operation = self.mux.read().lifecycle_key(tab_id);
         let Some(key) = open_operation else {
@@ -40,8 +38,8 @@ impl ServiceContext {
         append(TabLifecycleJournal::shared(), key, transition);
     }
 
-    /// Record a transition that ends the tab's authority and drop its lineage,
-    /// so nothing downstream can match a snapshot against a dead operation.
+    /// End the tab's authority and drop its lineage, so no snapshot can match
+    /// a dead operation.
     pub(crate) fn record_lifecycle_end(&self, tab_id: &str, transition: LifecycleTransition) {
         self.record_lifecycle(tab_id, transition);
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
@@ -49,11 +47,8 @@ impl ServiceContext {
             tab.lifecycle_operation_id = None;
         }
     }
-}
 
-impl ServiceContext {
-    /// Journal the role/Team authority this operation just committed, read back
-    /// from the record the same operation wrote.
+    /// Journal the role/Team authority this operation just committed.
     pub(crate) fn record_role_transition(&self, tab_id: &str) {
         let committed = {
             let mux = self.mux.read();

@@ -72,10 +72,8 @@ impl OperationBuilder {
     }
 }
 
-/// Replay records in journal order and return the newest sealed checkpoint per
-/// tab. A tab whose newest operation never sealed has no checkpoint — the
-/// previous operation's checkpoint is kept on record, but a snapshot from a
-/// different operation can never match it.
+/// Newest sealed checkpoint per tab, replayed in journal order. An unsealed
+/// newer operation leaves the previous checkpoint standing under its own epoch.
 pub fn sealed_checkpoints(records: &[JournalRecord]) -> Vec<LifecycleCheckpoint> {
     let mut sealed: HashMap<String, LifecycleCheckpoint> = HashMap::new();
     let mut open: HashMap<String, OperationBuilder> = HashMap::new();
@@ -166,9 +164,8 @@ fn apply(
     }
 }
 
-/// Compaction output: every surviving checkpoint, then the transitions that
-/// belong to operations no checkpoint covers. Replaying it yields exactly the
-/// checkpoints the full history yields.
+/// Surviving checkpoints plus the transitions no checkpoint covers. Replaying
+/// this yields exactly the checkpoints the full history yields.
 pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let checkpoints = sealed_checkpoints(records);
     let covered: HashMap<&str, JournalSeq> = checkpoints

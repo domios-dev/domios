@@ -39,8 +39,8 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
-/// Reduce a covered snapshot to the authority the lifecycle journal proves.
-/// A snapshot written before coverage opened is left alone.
+/// Reduce a covered snapshot to the authority the journal proves. A snapshot
+/// written before coverage opened is left alone.
 fn quarantine_unproven_authority(
     snapshot: &mut crate::session::store::SessionSnapshot,
     coverage_id: &str,

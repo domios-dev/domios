@@ -1,7 +1,5 @@
-//! Durable tab lifecycle audit. One append-only journal keyed by tab id plus a
-//! lifecycle epoch and operation id; a restart may restore authority only from
-//! a complete committed checkpoint whose lineage is exactly the snapshot's.
-//! Contract and file format: `docs/TAB-LIFECYCLE.md`.
+//! Durable tab lifecycle audit: one append-only journal, and a restore that
+//! accepts only an exactly matching checkpoint. See `docs/TAB-LIFECYCLE.md`.
 
 mod gate;
 mod journal;

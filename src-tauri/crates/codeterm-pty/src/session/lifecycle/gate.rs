@@ -13,8 +13,8 @@ pub struct TabRecoveryOutcome {
     pub verdict: RecoveryVerdict,
 }
 
-/// Gate result. `covered: false` means this snapshot was written before the
-/// journal began covering, so nothing was examined and nothing was stripped.
+/// `covered: false` means the snapshot predates coverage, so nothing was
+/// examined and nothing was stripped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotGate {
     pub covered: bool,
@@ -119,9 +119,8 @@ fn claim_from_leaf(leaf: &SplitNodeSnapshot) -> SnapshotAuthorityClaim {
     }
 }
 
-/// Remove every authority field. Presentation (title, cwd, description) and the
-/// tab's own identity survive: a quarantined tab still comes back, as a plain
-/// shell with nothing it can act on.
+/// Drop every authority field. Presentation and the tab id survive, so the tab
+/// comes back as a plain shell.
 fn strip_authority(leaf: &mut SplitNodeSnapshot) {
     let SplitNodeSnapshot::Leaf {
         agent_type,

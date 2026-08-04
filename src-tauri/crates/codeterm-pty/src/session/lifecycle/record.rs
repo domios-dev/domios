@@ -1,12 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-/// Monotonic position in the journal. Ordering is by this value only — the
-/// journal deliberately records no wall clock, so nothing downstream can fall
-/// back to temporal proximity as evidence.
+/// Monotonic position in the journal, and the only ordering authority.
 pub type JournalSeq = u64;
 
-/// Generation counter for one tab. A new epoch opens whenever a tab starts a
-/// fresh lifecycle operation (a launch, or the relaunch half of a restart).
+/// Per-tab generation. A new epoch opens at every launch.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
@@ -52,9 +49,8 @@ impl LifecycleKey {
     }
 }
 
-/// One authoritative committed transition. Every variant is written by the code
-/// that owns the mutation, in the same operation that performs it — never
-/// derived by observing state afterwards.
+/// A committed transition, written by the owner of the mutation in the same
+/// operation that performs it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "transition", rename_all = "snake_case")]
 pub enum LifecycleTransition {
