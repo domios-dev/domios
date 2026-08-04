@@ -90,6 +90,17 @@
         "Does NOT force the plan back down merely to satisfy the default count.",
         "Still requires the sixth task's justification to name that concrete boundary, not restate the work."
       ]
+    },
+    {
+      "id": 14,
+      "name": "orchestrator-requests-user-approval-and-verifies-durable-state",
+      "prompt": "You are the Orchestrator for pl_demo. The Planner returned a coherent draft and plan doctor is green, but planning_state is still drafting. Respond to the user with the next action; do not dispatch yet.",
+      "expected_output": "Shows the plan is ready, asks the user to approve it, and requires durable approved state before dispatch.",
+      "expectations": [
+        "Summarizes that the plan is ready and explicitly asks the user for approval.",
+        "Does NOT dispatch while planning_state is drafting.",
+        "States that UI approval must be verified as planning_state approved, or that explicit conversational approval is followed by the approve action and readback."
+      ]
     }
   ]
 }

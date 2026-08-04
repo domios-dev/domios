@@ -21,6 +21,8 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
+pub const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+
 /// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
 pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
 
@@ -29,6 +31,8 @@ pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
+
+pub const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
@@ -163,9 +167,14 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 }
 
 pub fn orchestrator_suffix() -> String {
-    ORCHESTRATOR_SUFFIX.replace(
+    let role_prompt = ORCHESTRATOR_SUFFIX.replace(
         "{planning_compaction_contract}",
         PLANNING_COMPACTION_CONTRACT.trim(),
+    );
+    format!(
+        "{}\n\n## Canonical Orchestrator manual\n\n{}",
+        role_prompt.trim(),
+        ORCHESTRATION_DOC.trim()
     )
 }
 
@@ -176,12 +185,17 @@ pub fn orchestrator_onboarding(planner_spawn_cmd: &str) -> String {
 }
 
 pub fn planner_suffix() -> String {
-    PLANNER_SUFFIX
+    let role_prompt = PLANNER_SUFFIX
         .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
         .replace(
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
-        )
+        );
+    format!(
+        "{}\n\n## Canonical Planner manual\n\n{}",
+        role_prompt.trim(),
+        PLANNER_DOC.trim()
+    )
 }
 
 #[cfg(test)]
@@ -374,11 +388,10 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_suffix_is_bounded_and_fully_rendered() {
+    fn orchestrator_suffix_embeds_the_canonical_manual() {
         let rendered = orchestrator_suffix();
-        assert!(rendered.split_whitespace().count() < 650);
-        assert!(rendered.contains('\n'), "suffix rendered to a single line");
-        assert!(!rendered.contains('{'), "unsubstituted placeholder remains");
+        assert!(rendered.ends_with(ORCHESTRATION_DOC.trim()));
+        assert!(!rendered.contains("{planning_compaction_contract}"));
     }
 
     // Rich-rendering delivery is a composition fact, so it is asserted where the
@@ -405,10 +418,11 @@ mod tests {
     }
 
     #[test]
-    fn planner_suffix_is_bounded_and_fully_rendered() {
+    fn planner_suffix_embeds_the_canonical_manual() {
         let rendered = planner_suffix();
-        assert!(rendered.split_whitespace().count() < 800);
-        assert!(!rendered.contains('{'), "unsubstituted placeholder remains");
+        assert!(rendered.ends_with(PLANNER_DOC.trim()));
+        assert!(!rendered.contains("{planning_compaction_contract}"));
+        assert!(!rendered.contains("{test_author_guidance}"));
     }
 
     #[test]

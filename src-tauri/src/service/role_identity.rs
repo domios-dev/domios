@@ -69,6 +69,31 @@ mod tests {
     }
 
     #[test]
+    fn manager_bootstrap_embeds_the_matching_canonical_manual() {
+        for (role, role_kind, manual) in [
+            (
+                "Orchestrator",
+                "orchestrator",
+                crate::prompts::ORCHESTRATION_DOC,
+            ),
+            ("Planner", "planner", crate::prompts::PLANNER_DOC),
+        ] {
+            let rendered = ManagerBootstrapInputs {
+                role: role.into(),
+                role_kind: role_kind.into(),
+                team_id: "team-1".into(),
+                team_name: "Team".into(),
+                plan_id: "plan-1".into(),
+                project: "CodeTerm".into(),
+                coordination: None,
+            }
+            .compose();
+
+            assert_eq!(rendered.matches(manual.trim()).count(), 1);
+        }
+    }
+
+    #[test]
     fn shared_builder_reminder_output_byte_identical() {
         let fixtures = [
             (

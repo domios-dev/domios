@@ -146,6 +146,17 @@
         "Ends at six tasks and justifies every task beyond five explicitly by naming its independent ownership boundary.",
         "Does NOT add standalone discovery, test-author, docs, review, or QA tasks alongside the platform ones."
       ]
+    },
+    {
+      "id": 14,
+      "name": "planner-hands-off-draft-with-explicit-user-approval-wait",
+      "prompt": "You are the Planner for pl_demo. The task graph is complete and plan doctor is green. Tell the Orchestrator what happens next. Do not approve or dispatch anything.",
+      "expected_output": "Summarizes the ready draft and explicitly says execution is waiting for user approval.",
+      "expectations": [
+        "Gives the Orchestrator a concise summary of the ready plan.",
+        "Explicitly states that execution is waiting for user approval rather than silently waiting.",
+        "Does NOT approve the plan or dispatch workers."
+      ]
     }
   ]
 }

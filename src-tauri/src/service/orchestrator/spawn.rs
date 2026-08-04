@@ -60,6 +60,20 @@ fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
     .wrap(&body)
 }
 
+fn planner_startup_payload(
+    system_prompt_capable: bool,
+    manager_prompt: Option<String>,
+    onboarding: &str,
+) -> String {
+    if !system_prompt_capable {
+        return team_bootstrap_payload(false, onboarding.to_string());
+    }
+    match manager_prompt {
+        Some(prompt) => format!("{prompt}\n\n## Planner startup\n\n{onboarding}"),
+        None => agent_system_prompt(Some(onboarding)),
+    }
+}
+
 fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
     let assignment = params.system_prompt.take().or_else(|| params.task.take());
     let assignment = match params.manager_bootstrap.as_ref() {
@@ -549,6 +563,8 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(false);
+        let fallback_bootstrap = fallback_bootstrap
+            .map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {
             if system_prompt_capable {
                 Some(agent_system_prompt(params.task.as_deref()))
@@ -575,11 +591,8 @@ impl ServiceContext {
                     let orch_tab = orch_tab.as_deref().unwrap_or("unknown");
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
-                    let onboarding = if system_prompt_capable {
-                        agent_system_prompt(Some(&onboard))
-                    } else {
-                        onboard
-                    };
+                    let onboarding =
+                        planner_startup_payload(system_prompt_capable, bg_task, &onboard);
                     Some(team_bootstrap_payload(system_prompt_capable, onboarding))
                 }
                 None => bg_task,
@@ -1081,6 +1094,19 @@ mod hierarchy_defaults_tests {
             crate::agent::provider::StarterPrompt::AssignedTask
         );
         assert_eq!(params.task.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn native_planner_startup_keeps_manager_contract_and_onboarding() {
+        let payload = planner_startup_payload(
+            true,
+            Some("system contract".into()),
+            "planner startup",
+        );
+
+        assert!(payload.starts_with("system contract"));
+        assert!(payload.ends_with("planner startup"));
+        assert!(!payload.contains("codeterm:system"));
     }
 
     #[test]
