@@ -22,6 +22,7 @@ use super::misc::{
 use super::orchestration::OrchestrationAction;
 use super::orchestrator::OrchestratorAction;
 use super::pad::PadAction;
+use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
@@ -109,6 +110,12 @@ pub enum Commands {
     Orchestration {
         #[command(subcommand)]
         action: OrchestrationAction,
+    },
+
+    /// Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
+    Persona {
+        #[command(subcommand)]
+        action: PersonaAction,
     },
 
     /// Tab management

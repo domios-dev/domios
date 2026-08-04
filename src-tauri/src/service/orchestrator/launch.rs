@@ -20,26 +20,15 @@ fn role_assignment_task(
     // Resolve the pair, not the role alone: `from_str_compat` folds the
     // Orchestrator literal into Manager and the kind is unrecoverable after.
     let resolved = codeterm_types::agent::restore_role(role, role_profile);
-    let role = resolved.as_ref().map(|resolved| resolved.role);
-    let kind = resolved
-        .as_ref()
-        .and_then(|resolved| resolved.role_profile.as_deref());
-    // An anchor states its charter even with no assignment; every other kind
-    // only decorates work it was actually given.
-    if kind == Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR) {
-        let suffix = crate::prompts::orchestrator_suffix();
-        return Some(match task {
-            Some(task) => format!("{task}\n\n{suffix}"),
-            None => suffix,
-        });
-    }
-    if kind == Some(codeterm_types::agent::role_kind::builtins::PLANNER) {
-        return task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()));
-    }
-    if role == Some(crate::multiplexer::types::AgentRole::Worker) {
-        return task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix()));
-    }
-    task.map(str::to_string)
+    crate::service::persona::deliver(
+        crate::service::persona::Occasion::LaunchAssignment,
+        resolved.as_ref().map(|resolved| resolved.role),
+        resolved
+            .as_ref()
+            .and_then(|resolved| resolved.role_profile.as_deref()),
+        None,
+        task,
+    )
 }
 
 pub(crate) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {
@@ -60,8 +49,14 @@ pub(crate) fn role_onboarding_task(
     role_profile: Option<&str>,
 ) -> Option<String> {
     let assignment = role_assignment_task(task, role, role_profile);
-    if role == Some("Worker") {
-        Some(worker_agent_system_prompt(assignment.as_deref()))
+    let resolved = codeterm_types::agent::restore_role(role, role_profile);
+    let kind = resolved
+        .as_ref()
+        .and_then(|resolved| resolved.role_profile.as_deref());
+    if resolved.as_ref().map(|resolved| resolved.role)
+        == Some(crate::multiplexer::types::AgentRole::Worker)
+    {
+        Some(worker_agent_system_prompt(assignment.as_deref(), kind))
     } else {
         Some(agent_system_prompt(assignment.as_deref()))
     }
@@ -111,11 +106,18 @@ pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
     sections.join("\n\n")
 }
 
-fn worker_agent_system_prompt(assignment: Option<&str>) -> String {
+/// The task-owned persona is the Worker preset's overlay: it enters the launch
+/// prompt through the same seam manager kinds use, never a private path.
+fn worker_agent_system_prompt(assignment: Option<&str>, role_profile: Option<&str>) -> String {
     let (identity, assignment) = assignment
         .map(crate::service::plan::worker_identity::split_worker_identity)
         .unwrap_or((None, ""));
-    let mut sections = vec![identity.unwrap_or("You are a CodeTerm Worker.").to_string()];
+    let mut sections = vec![crate::service::persona::guidance_for(
+        crate::service::persona::Occasion::WorkerLaunchIdentity,
+        Some(crate::multiplexer::types::AgentRole::Worker),
+        role_profile,
+        identity,
+    )];
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
     sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());
     if !assignment.trim().is_empty() {
