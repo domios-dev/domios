@@ -6,11 +6,44 @@ use codeterm_types::agent::role_kind::builtins;
 
 use crate::multiplexer::types::AgentRole;
 use crate::service::orchestrator::role_onboarding_task;
-use crate::service::persona::{guidance_for, Occasion};
+use crate::service::persona::{deliver, guidance_for, Occasion};
 
-/// The launch assignment decoration exactly as it read before the occasion
-/// table existed.
+/// The launch assignment decoration as it read before the occasion table
+/// existed, applied to the kind Task 1 resolves rather than the raw stored
+/// profile. `pre_table_raw_profile_assignment` keeps the raw reading so the one
+/// pair where the two disagree stays pinned instead of silently absorbed.
 fn legacy_role_assignment_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    let resolved = codeterm_types::agent::restore_role(role, role_profile);
+    let role = resolved.as_ref().map(|resolved| resolved.role);
+    let kind = codeterm_types::agent::role_kind::kind_id(
+        role,
+        resolved
+            .as_ref()
+            .and_then(|resolved| resolved.role_profile.as_deref()),
+    );
+    if kind == Some(builtins::ORCHESTRATOR) {
+        let suffix = crate::prompts::orchestrator_suffix();
+        return Some(match task {
+            Some(task) => format!("{task}\n\n{suffix}"),
+            None => suffix,
+        });
+    }
+    if kind == Some(builtins::PLANNER) {
+        return task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()));
+    }
+    if role == Some(AgentRole::Worker) {
+        return task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix()));
+    }
+    task.map(str::to_string)
+}
+
+/// Byte-for-byte the base branch chain, reading the raw stored profile. A
+/// Worker naming a manager kind borrowed that manager's charter here.
+fn pre_table_raw_profile_assignment(
     task: Option<&str>,
     role: Option<&str>,
     role_profile: Option<&str>,
@@ -180,6 +213,48 @@ fn the_worker_identity_slot_keeps_its_exact_default_and_persona() {
     );
 }
 
+/// The one pair where the table deliberately does not reproduce the base bytes:
+/// a Worker whose stored profile names a manager kind. Both halves are pinned.
+#[test]
+fn a_worker_naming_a_manager_kind_consumes_the_worker_contract_not_the_managers() {
+    for (profile, borrowed) in [
+        (builtins::ORCHESTRATOR, crate::prompts::orchestrator_suffix()),
+        (builtins::PLANNER, crate::prompts::planner_suffix()),
+    ] {
+        // What the base shipped: the Worker was handed the manager's charter.
+        let leaked = pre_table_raw_profile_assignment(Some("fix it"), Some("Worker"), Some(profile))
+            .expect("pre-table assignment");
+        assert!(
+            leaked.contains(&borrowed),
+            "the pre-table reading is expected to leak {profile} text"
+        );
+
+        // What ships now: Task 1 collapses the kind, so the Worker contract is
+        // what the assignment occasion consumes.
+        let assignment = deliver(
+            Occasion::LaunchAssignment,
+            Some(AgentRole::Worker),
+            Some(profile),
+            None,
+            Some("fix it"),
+        )
+        .expect("worker assignment");
+        assert_eq!(
+            assignment,
+            format!("fix it{}", crate::prompts::worker_suffix()),
+            "a collapsed Worker kind must consume the Worker contract"
+        );
+        assert!(!assignment.contains(&borrowed));
+
+        // The collapse never invents an assignment a plain Worker would not get.
+        assert_eq!(
+            role_onboarding_task(None, Some("Worker"), Some(profile)),
+            role_onboarding_task(None, Some("Worker"), None),
+            "a hostile profile must launch exactly like a plain Worker"
+        );
+    }
+}
+
 /// Separator, ordering and standalone behaviour are the parts a refactor is
 /// most likely to drift on, so they are pinned literally.
 #[test]
@@ -195,9 +270,11 @@ fn assignment_separators_and_ordering_are_pinned() {
         .expect("planner prompt");
     assert!(planner.contains(&format!("plan it{}", crate::prompts::planner_suffix())));
 
+    // The Worker system prompt trims its assignment section; the manager paths
+    // do not. Pin the trimmed form so the separator stays asserted either way.
     let worker =
         role_onboarding_task(Some("fix it"), Some("Worker"), None).expect("worker prompt");
-    assert!(worker.contains(&format!("fix it{}", crate::prompts::worker_suffix())));
+    assert!(worker.contains(format!("fix it{}", crate::prompts::worker_suffix()).trim()));
 
     let watcher = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher"))
         .expect("watcher prompt");
