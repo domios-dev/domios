@@ -36,4 +36,11 @@ for (const detail of ["git status --short", 'cat notes.txt | codeterm mem save "
   if (!host.querySelector(".lucide-terminal") || host.querySelector(".lucide-brain")) throw new Error(`non-action command was misclassified: ${detail}`);
 }
 
-console.log("provider-neutral CodeTerm action matrix: 7/7 passed");
+// Piping into a reader still reads; only a pipeline with a non-reader stage
+// falls back to the plain command card.
+for (const [detail, icon] of [["rg TODO src | head -20", ".lucide-search"], ["cat notes.txt | head -40", ".lucide-file-search"]] as const) {
+  const host = await render(<ToolCallBubble event={command(detail)} expanded={false} onToggle={() => {}} />);
+  if (!host.querySelector(icon)) throw new Error(`reader-only pipeline lost its card: ${detail}`);
+}
+
+console.log("provider-neutral CodeTerm action matrix: 9/9 passed");
