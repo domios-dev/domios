@@ -25,7 +25,7 @@ describe("remote tab metadata", () => {
   it("keeps peer identity and controller attribution on separate lines", () => {
     expect(remoteIdentity(remote("Worker"))).toEqual({ role: null, peer: "@ROG" });
     expect(remoteIdentity(remote("Manager", "planner"))).toEqual({ role: "Planner", peer: "@ROG" });
-    expect(remoteIdentity(remote("Orchestrator"))).toEqual({ role: "Manager", role_profile: "orchestrator", peer: "@ROG" });
+    expect(remoteIdentity(remote("Manager", "orchestrator"))).toEqual({ role: "Orchestrator", peer: "@ROG" });
     expect(managedByLabel(remote("Worker"))).toBe("managed by Hubble");
   });
 

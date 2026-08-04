@@ -109,8 +109,8 @@ function snapshot(teamName: string): MultiplexerState {
     tab_type: "Terminal",
     title: "Orchestrator",
     cwd: "/workspace",
-    role: "Manager", role_profile: "orchestrator",
-    role_profile: null,
+    role: "Manager",
+    role_profile: "orchestrator",
     parent_tab_id: null,
     team_id: TEAM_ID,
   } as Tab & { team_id: string };

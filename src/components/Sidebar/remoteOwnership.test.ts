@@ -25,7 +25,7 @@ describe("canonical remote ownership presentation", () => {
   it("shows the peer alone for workers and a named profile for managing roles", () => {
     const worker = targetOwned({ remote_peer_id: "peer-123", remote_peer_name: "BLACKSTAR", role: "Worker" });
     const planner = { ...worker, role: "Manager" as const, role_profile: "planner" };
-    const orchestrator = { ...worker, role: "Manager", role_profile: "orchestrator" as const };
+    const orchestrator = { ...worker, role: "Manager" as const, role_profile: "orchestrator" as const };
     expect(remoteIdentity(worker)).toEqual({ role: null, peer: "@BLACKSTAR" });
     expect(remoteIdentity(planner)).toEqual({ role: "Planner", peer: "@BLACKSTAR" });
     // Stored authority stays Manager + role_profile; this surface is a display label.
