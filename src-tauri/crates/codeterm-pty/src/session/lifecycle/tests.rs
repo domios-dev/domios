@@ -170,6 +170,41 @@ fn partial_launch_leaf(tab_id: &str) -> SplitNodeSnapshot {
     node
 }
 
+/// A chatBackend-backed tab. Its transport commits no lifecycle transitions,
+/// so it never carries lineage.
+fn chat_backend_leaf(tab_id: &str, lineage: Option<(u64, &str)>) -> SplitNodeSnapshot {
+    let mut node = leaf(tab_id);
+    if let SplitNodeSnapshot::Leaf {
+        chatbackend_plugin_id,
+        chatbackend_session_id,
+        agent_type,
+        claude_session_id,
+        agent_identity,
+        role,
+        role_profile,
+        team_id,
+        can_spawn,
+        depth,
+        ..
+    } = &mut node
+    {
+        *chatbackend_plugin_id = Some("lmstudio".into());
+        *chatbackend_session_id = Some("plugin-session".into());
+        *agent_type = Some("lmstudio".into());
+        *claude_session_id = Some("plugin-session".into());
+        *agent_identity = Some(identity(
+            lineage.map(|(epoch, _)| epoch),
+            lineage.map(|(_, operation)| operation),
+        ));
+        *role = Some("Worker".into());
+        *role_profile = Some("executor".into());
+        *team_id = Some("team-1".into());
+        *can_spawn = false;
+        *depth = 2;
+    }
+    node
+}
+
 fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
     SessionSnapshot {
         version: "test".into(),
@@ -333,6 +368,60 @@ fn a_covered_tab_with_no_journal_at_all_is_stripped() {
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
     );
+}
+
+#[test]
+fn a_legacy_chat_backend_tab_is_neither_stripped_nor_claimed_as_proven() {
+    let (journal, _dir) = new_journal();
+    commit_full_launch(&journal, &key("tab-pty", 1, "op-pty"), "session-pty");
+    let mut snapshot = snapshot(vec![chat_backend_leaf("tab-chat", None)]);
+
+    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+
+    assert_eq!(
+        verdict_for(&outcomes, "tab-chat"),
+        RecoveryVerdict::PreJournal,
+        "a transport that commits nothing is never journal-proven"
+    );
+    let SplitNodeSnapshot::Leaf {
+        chatbackend_plugin_id,
+        chatbackend_session_id,
+        role,
+        team_id,
+        ..
+    } = authority_of(&snapshot, "tab-chat")
+    else {
+        panic!("expected leaf");
+    };
+    assert_eq!(chatbackend_plugin_id.as_deref(), Some("lmstudio"));
+    assert_eq!(chatbackend_session_id.as_deref(), Some("plugin-session"));
+    assert_eq!(role.as_deref(), Some("Worker"));
+    assert_eq!(team_id.as_deref(), Some("team-1"));
+}
+
+#[test]
+fn a_chat_backend_tab_carrying_lineage_is_unprovable() {
+    let (journal, _dir) = new_journal();
+    commit_full_launch(&journal, &key("tab-chat", 1, "op-chat"), "plugin-session");
+    let mut snapshot = snapshot(vec![chat_backend_leaf("tab-chat", Some((1, "op-chat")))]);
+
+    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+
+    assert_eq!(
+        verdict_for(&outcomes, "tab-chat"),
+        RecoveryVerdict::Stripped(RecoveryRefusal::UnjournaledTransport),
+        "a PTY-shaped checkpoint must never stand in for a plugin binding"
+    );
+    let SplitNodeSnapshot::Leaf {
+        chatbackend_plugin_id,
+        role,
+        ..
+    } = authority_of(&snapshot, "tab-chat")
+    else {
+        panic!("expected leaf");
+    };
+    assert_eq!(chatbackend_plugin_id, None);
+    assert_eq!(role, None);
 }
 
 #[test]
