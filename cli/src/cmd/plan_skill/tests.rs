@@ -129,6 +129,19 @@ fn list_show_and_new_route_explicit_plan_to_rpc() {
 #[test]
 fn list_show_and_new_use_plan_id_from_environment() {
     let _guard = crate::test_env_lock().lock().unwrap();
+    // The gate runs inside a live Orchestrator, so an inherited partial worker
+    // binding would be refused before the RPC this test is about.
+    let cleared = [
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+    ];
+    let restore = cleared.map(|key| (key, std::env::var(key).ok()));
+    for key in cleared {
+        std::env::remove_var(key);
+    }
     let previous = std::env::var("CODETERM_PLAN_ID").ok();
     std::env::set_var("CODETERM_PLAN_ID", "plan_environment");
     let mut client = FakeRpc::default();
@@ -166,6 +179,12 @@ fn list_show_and_new_use_plan_id_from_environment() {
     match previous {
         Some(value) => std::env::set_var("CODETERM_PLAN_ID", value),
         None => std::env::remove_var("CODETERM_PLAN_ID"),
+    }
+    for (key, value) in restore {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
     }
 }
 
