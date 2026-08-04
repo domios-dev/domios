@@ -1011,7 +1011,12 @@ mod hierarchy_defaults_tests {
                 .count(),
             1
         );
-        assert!(!prompt.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+        assert_eq!(
+            prompt
+                .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                .count(),
+            1
+        );
         assert_eq!(
             prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
             1

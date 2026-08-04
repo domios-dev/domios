@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Terminal/useChatSession.backfill.test.ts
 // Bounded "Show older" backfill: cursor from chat_start.start_offset, paged
 // chat_backfill fetches, byte-range ordering at the page/snapshot boundary,
-// own-session authority, and bounded detached history with a live tail.
+// own-session authority, and one bounded detached reading window.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -204,7 +204,7 @@ async function main(): Promise<void> {
   await act(async () => root.unmount());
   host.remove();
 
-  // --- detached history remains bounded while the newest tail stays projected ---
+  // --- detached history is one bounded reading window; show-latest returns to the tail ---
   {
     state.snapshot = Array.from({ length: 300 }, (_, i) => msg(`b-${i}`, `bulk-${i}`, 30_000 + i, i));
     state.startOffset = 0;
@@ -229,8 +229,8 @@ async function main(): Promise<void> {
     });
     await flush();
     assert((state.backfillCalls.length as number) === 0, "local hidden items slide without a backfill request");
-    assert(v().enrichedCount <= CHAT_WINDOW_SIZE * 2, "reading and tail windows remain bounded");
-    assert(v().enrichedCount === loadedMessageCount, "detached projection still contains the newest tail");
+    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, "detached reading mounts one bounded window");
+    assert(v().enrichedCount < loadedMessageCount, "detached reading never mounts rows outside its window");
     assert(v().allMessages.length === loadedMessageCount, "sliding never drops data, only DOM");
 
     await act(async () => {
