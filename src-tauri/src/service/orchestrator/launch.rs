@@ -17,8 +17,13 @@ fn role_assignment_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
-    let role = role.and_then(crate::multiplexer::types::AgentRole::from_str_compat);
-    let kind = codeterm_types::agent::role_kind::kind_id(role, role_profile);
+    // Resolve the pair, not the role alone: `from_str_compat` folds the
+    // Orchestrator literal into Manager and the kind is unrecoverable after.
+    let resolved = codeterm_types::agent::restore_role(role, role_profile);
+    let role = resolved.as_ref().map(|resolved| resolved.role);
+    let kind = resolved
+        .as_ref()
+        .and_then(|resolved| resolved.role_profile.as_deref());
     // An anchor states its charter even with no assignment; every other kind
     // only decorates work it was actually given.
     if kind == Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR) {

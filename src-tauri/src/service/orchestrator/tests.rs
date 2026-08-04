@@ -330,7 +330,10 @@ fn test_registry() -> AgentRegistry {
 #[test]
 fn test_build_claude_with_task() {
     let reg = test_registry();
-    let params = make_params("claude", Some("count files"));
+    let mut params = make_params("claude", Some("count files"));
+    params.skip_permissions = Some(true);
+    params.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
     let cmd = build_agent_command("claude", &params, Some("count files"), None, &reg);
     assert!(cmd.contains("--dangerously-skip-permissions"));
     assert!(cmd.contains(".ct-task-"), "task via temp file");
@@ -346,7 +349,10 @@ fn test_build_claude_with_task() {
 #[test]
 fn test_build_claude_no_task() {
     let reg = test_registry();
-    let params = make_params("claude", None);
+    let mut params = make_params("claude", None);
+    params.skip_permissions = Some(true);
+    params.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
     let cmd = build_agent_command("claude", &params, None, None, &reg);
     if cfg!(target_os = "windows") {
         assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
@@ -471,7 +477,10 @@ fn test_shell_quote() {
 #[test]
 fn test_build_claude_task_with_newlines() {
     let reg = test_registry();
-    let params = make_params("claude", Some("line1\nline2\nline3"));
+    let mut params = make_params("claude", Some("line1\nline2\nline3"));
+    params.skip_permissions = Some(true);
+    params.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
     let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
     assert!(
         cmd.contains(".ct-task-"),
