@@ -830,13 +830,22 @@ pub(super) fn dispatch(
     } else {
         None
     };
+    let mut warnings: Vec<String> = Vec::new();
+    if allowance
+        .as_ref()
+        .is_some_and(|allowance| allowance.is_stale(now))
+    {
+        warnings.push(
+            "provider allowance telemetry is stale; dispatch used the last known reserve value"
+                .into(),
+        );
+    }
     crate::service::plan::interruption::provider_allowance_preflight(
         &execution_intent,
         allowance.as_ref(),
         now,
     )
     .map_err(plan_rpc_err)?;
-    let mut warnings: Vec<String> = Vec::new();
     if let Some(notice) = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
