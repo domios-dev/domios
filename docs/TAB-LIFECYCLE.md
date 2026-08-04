@@ -148,7 +148,8 @@ shutdown). It may never hold more, and never something different.
 
 Otherwise the restore strips `agent_type`, `agent_session_id`, binding nonces,
 `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, boot
-stage, agent state, and chatBackend binding, and logs the refusal:
+stage, agent state, model identity/provenance, and chatBackend binding, and logs
+the refusal:
 
 ```
 [tab-lifecycle] tab db79d2da restored without authority: role authority claimed without a provider identity
@@ -234,4 +235,4 @@ to render.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

@@ -566,6 +566,64 @@ fn restart_restores_only_the_snapshot_of_its_own_epoch() {
 }
 
 #[test]
+fn a_refused_checkpoint_leaves_no_agent_model_identity_on_the_plain_shell() {
+    let (journal, _dir) = new_journal();
+    commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
+    let mut stale = committed_leaf("tab-a", 1, "op-a", "session-a");
+    if let SplitNodeSnapshot::Leaf {
+        agent_session_model,
+        agent_planned_model,
+        agent_requested_model,
+        agent_provider_resolved_model,
+        model_fallback,
+        model_identity_mismatch,
+        ..
+    } = &mut stale
+    {
+        *agent_session_model = Some("actual".into());
+        *agent_planned_model = Some("planned".into());
+        *agent_requested_model = Some("requested".into());
+        *agent_provider_resolved_model = Some("resolved".into());
+        *model_fallback = Some(crate::multiplexer::types::ModelFallbackNotice {
+            planned_model: Some("planned".into()),
+            requested_model: "requested".into(),
+            provider_resolved_model: "resolved".into(),
+            actual_model: Some("actual".into()),
+            reason: "fixture".into(),
+        });
+        *model_identity_mismatch = Some(crate::multiplexer::types::ModelIdentityMismatch {
+            planned_model: Some("planned".into()),
+            requested_model: "requested".into(),
+            provider_resolved_model: Some("resolved".into()),
+            actual_model: "actual".into(),
+            reason: "fixture".into(),
+        });
+    }
+    let mut snapshot = snapshot(vec![stale]);
+
+    gate_session_snapshot(&mut snapshot, &journal.load());
+
+    let SplitNodeSnapshot::Leaf {
+        agent_session_model,
+        agent_planned_model,
+        agent_requested_model,
+        agent_provider_resolved_model,
+        model_fallback,
+        model_identity_mismatch,
+        ..
+    } = &snapshot.workspaces[0].tabs[0].split_tree
+    else {
+        panic!("fixture must remain a leaf");
+    };
+    assert!(agent_session_model.is_none());
+    assert!(agent_planned_model.is_none());
+    assert!(agent_requested_model.is_none());
+    assert!(agent_provider_resolved_model.is_none());
+    assert!(model_fallback.is_none());
+    assert!(model_identity_mismatch.is_none());
+}
+
+#[test]
 fn same_epoch_different_operation_is_refused() {
     let (journal, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
