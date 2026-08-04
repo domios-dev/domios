@@ -24,7 +24,10 @@
         let (mut mux, _) = MultiplexerState::new();
         let workspace = mux.list_workspaces()[0].id.clone();
         let owner = mux.create_tab(&workspace).unwrap();
+        // Anchoring a Team leader does not mint its Team; owner authority needs
+        // both, exactly as plan creation resolves them.
         mux.set_orchestrator_role(&owner).unwrap();
+        let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
         {
             let tab = mux.get_tab_mut(&owner).unwrap();
             tab.agent_session_id = Some("owner-session".into());
@@ -41,6 +44,7 @@
                 title: None,
             },
         );
+        plan.team_id = Some(team_id);
         fixture.service.plan_store.save(&mut plan, 1).unwrap();
         let parent_task_id = fixture
             .service
