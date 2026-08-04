@@ -90,6 +90,14 @@ When a Planner is present:
 - draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
 
+Judge structure before dispatch against the task-shape contract: 4-6 cohesive
+vertical tasks, each delivering a reviewable capability, with ordinary
+discovery, tests, docs, and review inside the slice that implements them.
+Standalone discovery, test-author, or review tasks need a concrete independent
+boundary — a distinct security or authority owner, or independently owned
+per-platform rollout — and every task beyond five needs a justification naming
+that boundary. Full rule: `codeterm docs PLANNER`.
+
 If the Planner is intentionally waived, record that explicitly on the plan.
 
 ## Task lifecycle
@@ -170,4 +178,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->
