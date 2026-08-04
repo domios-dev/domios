@@ -2755,6 +2755,14 @@ Rename a tab (default: current tab)
 - `--tab` — Tab ID to rename (default: current focused tab)
 - `<title>` — New title
 
+#### `codeterm tab restart`
+
+Replace a plain shell's process in the same tab, preserving tab identity and metadata
+
+- `--cmd` — Command to execute after the replacement shell is ready
+- `--cwd` — Working directory for the replacement shell
+- `--tab` — Tab ID to restart (default: current tab)
+
 #### `codeterm tab search`
 
 Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
