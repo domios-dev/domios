@@ -87,8 +87,9 @@ impl Placement {
     };
 }
 
-/// Applied when no row matches, or when a matching row's slot is empty.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Applied when no row matches, or when a matching row's slot is empty. Not
+/// comparable: equality on the declared `fn` pointer would be unpredictable.
+#[derive(Debug, Clone, Copy)]
 enum Fallback {
     /// Emit the payload alone. Non-empty whenever the occasion has a payload,
     /// which is the only case this occasion emits at all.
