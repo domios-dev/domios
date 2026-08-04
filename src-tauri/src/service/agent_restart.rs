@@ -139,6 +139,10 @@ impl ServiceContext {
         let snap = self.snapshot_tab_for_restart(tab_id)?;
 
         self.check_and_record_restart(&snap.tab_id)?;
+        self.record_lifecycle(
+            &snap.tab_id,
+            crate::session::lifecycle::LifecycleTransition::RestartRequested,
+        );
 
         let session_was_stale = !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);

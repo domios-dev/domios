@@ -1,3 +1,6 @@
+pub mod lifecycle {
+    pub use codeterm_pty::session::lifecycle::*;
+}
 pub mod store;
 
 use std::sync::Arc;

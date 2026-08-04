@@ -39,6 +39,38 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
+/// Reduce the snapshot to the authority the lifecycle journal proves. A tab
+/// whose claim has no exact committed checkpoint comes back as a plain shell;
+/// the journal and the snapshot file both keep the forensic record.
+fn quarantine_unproven_authority(snapshot: &mut crate::session::store::SessionSnapshot) {
+    use crate::session::lifecycle::{
+        gate_session_snapshot, RecoveryVerdict, TabLifecycleJournal,
+    };
+
+    let load = TabLifecycleJournal::shared().load();
+    if let crate::session::lifecycle::TailStatus::Refused { line, reason } = &load.tail {
+        log::error!(
+            "[tab-lifecycle] journal unreadable from line {line} ({reason}); every authority claim fails closed"
+        );
+    }
+    for outcome in gate_session_snapshot(snapshot, &load) {
+        match outcome.verdict {
+            RecoveryVerdict::Stripped(refusal) => log::warn!(
+                "[tab-lifecycle] tab {} restored without authority: {}",
+                outcome.tab_id,
+                refusal.reason()
+            ),
+            RecoveryVerdict::Restored(authority) => log::info!(
+                "[tab-lifecycle] tab {} restored from committed checkpoint (provider={}, session={})",
+                outcome.tab_id,
+                authority.provider,
+                authority.session_id
+            ),
+            RecoveryVerdict::NoAuthorityClaimed => {}
+        }
+    }
+}
+
 /// Orchestration bindings the dead epoch persisted, versus what came back.
 /// Roleless tabs are ordinary terminals, not in-flight work.
 fn snapshot_role_bindings(
@@ -168,7 +200,8 @@ pub(crate) fn init_states() -> AppStates {
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
-            Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+            Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
+                quarantine_unproven_authority(&mut snapshot);
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
