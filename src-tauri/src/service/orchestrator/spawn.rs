@@ -226,7 +226,7 @@ impl ServiceContext {
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
-        if params.role.as_deref() == Some("Orchestrator")
+        if params.spawns_anchor()
             && params.workspace_id.is_none()
             && params.parent_tab_id.is_none()
         {
@@ -549,12 +549,12 @@ impl ServiceContext {
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
         // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
-        let is_planner = params.role_profile.as_deref() == Some("planner");
+        let is_planner = params.role_kind() == Some(builtins::PLANNER);
         // A pair-spawned Orchestrator carries its onboarding in the launch task and
         // skips the separate deliver — attribute that onboarding to CodeTerm too, so
         // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
-        let is_orch_onboarding = params.role.as_deref() == Some("Orchestrator")
-            && params.skip_orchestrator_onboarding == Some(true);
+        let is_orch_onboarding =
+            params.spawns_anchor() && params.skip_orchestrator_onboarding == Some(true);
         let codeterm_pfx = crate::service::messenger::Messenger::codeterm_prefix();
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {

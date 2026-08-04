@@ -720,9 +720,8 @@ impl ServiceContext {
         })
     }
 
-    /// Resolve a wire `(role, role_profile)` pair into the structural role plus
-    /// the role kind that actually carries authority. The legacy
-    /// `Orchestrator`/`Conductor` literals name the orchestrator kind.
+    /// The one place wire role sugar resolves: legacy `Orchestrator`/`Conductor`
+    /// literals name the orchestrator kind. Core code branches on the kind.
     pub(crate) fn parse_role_kind(
         role_str: &str,
         role_profile: Option<&str>,

@@ -186,6 +186,7 @@ impl ServiceContext {
         self.transition_agent(crate::service::AgentTransitionRequest {
             tab_id: tab_id.to_string(),
             destination: crate::service::AgentPlacement::orchestrator(Some(true)),
+            plan_binding: None,
             require_verified_session: true,
             planner_replacement: None,
             plan_rebind: None,

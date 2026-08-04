@@ -1,9 +1,5 @@
-//! One seam for "what guidance does this role kind carry".
-//!
-//! Manager kinds and Worker subtypes resolve the same way: a builtin kind names
-//! bundled guidance, and anything else is an overlay preset whose text comes
-//! from the caller (a task's persona / executor role). Nothing here branches on
-//! a role literal — the kind id is the preset key.
+//! One seam for the guidance a role kind carries. Manager kinds and Worker
+//! subtypes resolve the same way, keyed by kind id and never a role literal.
 
 use codeterm_types::agent::role_kind::{self, builtins};
 
@@ -32,10 +28,8 @@ pub(crate) fn manager_guidance(kind_id: &str) -> String {
     builtin_guidance(kind_id).unwrap_or_else(crate::prompts::planner_suffix)
 }
 
-/// Resolve the preset a launched tab should receive. An overlay kind (a Worker
-/// subtype named by a task) has no bundled text, so it inherits its structural
-/// base and layers the supplied persona on top — the same composition managers
-/// get, through the same call.
+/// An overlay kind has no bundled text, so it inherits its structural base and
+/// layers the supplied persona on top — the same composition managers get.
 pub(crate) fn resolve(
     role: Option<AgentRole>,
     role_profile: Option<&str>,

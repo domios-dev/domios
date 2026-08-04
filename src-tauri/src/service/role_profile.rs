@@ -1,3 +1,5 @@
+use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER, WATCHER};
+
 use super::{json_str, orchestrator::SpawnAgentParams};
 use crate::service::SpawnIdentityProvenance;
 
@@ -122,27 +124,29 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
     match role {
         Some("Planner") | Some("planner") => {
             params.role = Some("Manager".into());
-            params.role_profile = Some("planner".into());
+            params.role_profile = Some(PLANNER.into());
         }
         Some("Watcher") | Some("watcher") => {
             params.role = Some("Manager".into());
-            params.role_profile = Some("watcher".into());
+            params.role_profile = Some(WATCHER.into());
         }
         Some("Manager") => {
             params.role = Some("Manager".into());
             match profile {
-                Some("planner" | "Planner") => params.role_profile = Some("planner".into()),
-                Some("watcher" | "Watcher") => params.role_profile = Some("watcher".into()),
+                Some("planner" | "Planner") => params.role_profile = Some(PLANNER.into()),
+                Some("watcher" | "Watcher") => params.role_profile = Some(WATCHER.into()),
                 Some(other) => params.role_profile = Some(normalize_manager_profile(other)?),
                 None => return Err("Manager requires a named role_profile".into()),
             }
         }
+        // Sugar resolves here, once: core code branches on the kind, never on
+        // the wire literal.
         Some("Orchestrator" | "Conductor") => {
-            params.role = Some("Orchestrator".into());
-            if profile.is_some() {
+            params.role = Some("Manager".into());
+            if profile.is_some_and(|profile| profile != ORCHESTRATOR) {
                 log::warn!("[spawn] ignoring role_profile on Orchestrator spawn");
             }
-            params.role_profile = None;
+            params.role_profile = Some(ORCHESTRATOR.into());
         }
         Some("Worker") => {
             params.role = Some("Worker".into());
@@ -186,4 +190,64 @@ fn normalize_manager_profile(profile: &str) -> Result<String, String> {
 
 fn json_u64(params: &serde_json::Value, key: &str) -> Option<u64> {
     params.get(key).and_then(|v| v.as_u64())
+}
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::*;
+    use crate::service::orchestrator::SpawnAgentParams;
+
+    fn normalized(role: &str, profile: Option<&str>) -> (Option<String>, Option<String>) {
+        let mut params = SpawnAgentParams {
+            role: Some(role.into()),
+            role_profile: profile.map(str::to_string),
+            ..Default::default()
+        };
+        params.normalize_role_profile().expect("normalizes");
+        (params.role, params.role_profile)
+    }
+
+    /// Role sugar resolves exactly once, here. Core code never sees the literal.
+    #[test]
+    fn orchestrator_sugar_resolves_to_the_manager_kind_pair() {
+        for literal in ["Orchestrator", "Conductor"] {
+            assert_eq!(
+                normalized(literal, None),
+                (Some("Manager".into()), Some(ORCHESTRATOR.into())),
+                "{literal}"
+            );
+        }
+    }
+
+    #[test]
+    fn planner_and_watcher_sugar_resolve_to_their_kinds() {
+        assert_eq!(
+            normalized("Planner", None),
+            (Some("Manager".into()), Some(PLANNER.into()))
+        );
+        assert_eq!(
+            normalized("Watcher", None),
+            (Some("Manager".into()), Some(WATCHER.into()))
+        );
+    }
+
+    #[test]
+    fn no_normalized_role_is_ever_an_orchestrator_literal() {
+        for literal in ["Orchestrator", "Conductor", "Planner", "Watcher", "Worker"] {
+            let (role, _) = normalized(literal, None);
+            assert_ne!(role.as_deref(), Some("Orchestrator"), "{literal}");
+            assert_ne!(role.as_deref(), Some("Conductor"), "{literal}");
+        }
+    }
+
+    #[test]
+    fn a_normalized_orchestrator_spawn_reports_as_an_anchor() {
+        let mut params = SpawnAgentParams {
+            role: Some("Orchestrator".into()),
+            ..Default::default()
+        };
+        params.normalize_role_profile().unwrap();
+        assert!(params.spawns_anchor());
+        assert_eq!(params.role_kind(), Some(ORCHESTRATOR));
+    }
 }

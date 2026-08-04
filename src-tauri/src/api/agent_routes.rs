@@ -457,10 +457,12 @@ pub async fn set_tab_role(
         let mux = state.svc.mux.read();
         mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
     };
+    let mut plan_binding: Option<String> = None;
     let destination = match parsed_role {
-        AgentRole::Manager if becomes_anchor => crate::service::AgentPlacement::Anchor {
+        AgentRole::Manager if becomes_anchor => crate::service::AgentPlacement::Manager {
             role_profile: parsed_profile.clone().unwrap_or_default(),
-            can_spawn: body.can_spawn.unwrap_or(true),
+            parent_tab_id: None,
+            can_spawn: body.can_spawn,
         },
         AgentRole::Worker => crate::service::AgentPlacement::Worker {
             parent_tab_id: body.parent_tab_id.ok_or_else(|| {
@@ -469,25 +471,32 @@ pub async fn set_tab_role(
                     "Worker requires a parent_tab_id".to_string(),
                 )
             })?,
+            role_profile: parsed_profile.clone(),
         },
+        // A Planner names its plan instead of a parent; the plan record owns
+        // the anchor it binds under.
         AgentRole::Manager if parsed_profile.as_deref() == Some(PLANNER) => {
-            crate::service::AgentPlacement::Planner {
-                plan_id: body.plan_id.ok_or_else(|| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        "Planner requires a plan_id".to_string(),
-                    )
-                })?,
+            plan_binding = Some(body.plan_id.clone().ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Planner requires a plan_id".to_string(),
+                )
+            })?);
+            crate::service::AgentPlacement::Manager {
+                role_profile: PLANNER.to_string(),
+                parent_tab_id: body.parent_tab_id.clone(),
+                can_spawn: body.can_spawn,
             }
         }
         AgentRole::Manager => crate::service::AgentPlacement::Manager {
-            parent_tab_id: body.parent_tab_id.ok_or_else(|| {
+            parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
                     "Manager requires a parent_tab_id".to_string(),
                 )
-            })?,
-            role_profile: parsed_profile.clone(),
+            })?),
+            role_profile: parsed_profile.clone().unwrap_or_default(),
+            can_spawn: body.can_spawn,
         },
     };
     state
@@ -495,6 +504,7 @@ pub async fn set_tab_role(
         .transition_agent(crate::service::AgentTransitionRequest {
             tab_id: id.clone(),
             destination,
+            plan_binding,
             require_verified_session: true,
             planner_replacement: None,
             plan_rebind: None,

@@ -467,12 +467,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let role = match parent_resp {
                 Ok(resp) => {
                     let val: serde_json::Value = resp.json().unwrap_or_default();
-                    match val.get("role").and_then(|v| v.as_str()) {
-                        Some("Orchestrator") | Some("Conductor") => "Worker",
-                        _ => {
-                            eprintln!("Parent must be an Orchestrator");
-                            std::process::exit(1);
-                        }
+                    let anchors = val
+                        .get("role_profile")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|kind| kind == "orchestrator" || kind == "general_agent");
+                    if anchors {
+                        "Worker"
+                    } else {
+                        eprintln!("Parent must be an Orchestrator");
+                        std::process::exit(1);
                     }
                 }
                 Err(e) => {

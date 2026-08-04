@@ -312,10 +312,8 @@ impl MultiplexerState {
                 role.as_deref(),
                 role_profile.as_deref(),
             )
-            // Identity before authority: residue from a partial launch carries a
-            // role but no provider, so it would restore as a role-bearing shell
-            // claiming Team authority it can never exercise. The title is not
-            // evidence — an incomplete tab never gets a guessed provider.
+            // Residue from a partial launch would restore as a role-bearing
+            // shell; a title is not evidence, so no provider is ever guessed.
             .filter(|_| agent_type.is_some() || chatbackend_plugin_id.is_some());
             let parsed_role = restored_role.as_ref().map(|restored| restored.role);
             let restored_role_profile = restored_role
