@@ -1,2 +1,2 @@
-pub use codeterm_types::pty::PaneStatus;
-pub use codeterm_types::pty::PaneStatusTracker;
+pub use codeterm_types::pty::TabStatus;
+pub use codeterm_types::pty::TabStatusTracker;

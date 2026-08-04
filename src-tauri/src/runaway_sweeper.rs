@@ -4,8 +4,8 @@
 //! whose elapsed time exceeds the configured threshold.  Only test-binary
 //! orphans are targeted — cargo, rustc, link, and the daemon itself are
 //! never touched.  On a match the process is sent SIGKILL, a WARN is logged,
-//! and (when the owning pane can be resolved) a nudge is injected into the
-//! agent pane so the worker knows to clean up.
+//! and (when the owning tab can be resolved) a nudge is injected into the
+//! agent tab so the worker knows to clean up.
 //!
 //! macOS + Linux only.  Windows is a follow-up (ConPTY process-tree teardown
 //! differs significantly; Windows workers use PowerShell foreground which

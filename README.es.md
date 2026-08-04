@@ -35,7 +35,7 @@
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "Descarga": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
-     3. Rename the "Navegador Integrado" section to match English `### Canvas Panels` (the feature was renamed). -->
+     3. Rename the "Navegador Integrado" section to match English `### Canvas Tabls` (the feature was renamed). -->
 
 ---
 
@@ -43,7 +43,7 @@
 
 CodeTerm es un multiplexor de terminal multiplataforma diseñado desde cero para el desarrollo asistido por IA. Combina la potencia de un multiplexor de terminal (como tmux) con soporte nativo para agentes de codificación con IA como Claude Code.
 
-**Diferencia clave con otros terminales:** CodeTerm expone una API REST completa, CLI y API de sockets — para que los agentes de IA puedan crear espacios de trabajo, dividir paneles, ejecutar comandos, leer la salida y gestionar todo el terminal de forma programática. Tu asistente de IA se convierte en un ciudadano de primera clase en tu flujo de trabajo en la terminal.
+**Diferencia clave con otros terminales:** CodeTerm expone una API REST completa, CLI y API de sockets — para que los agentes de IA puedan crear espacios de trabajo, dividir tables, ejecutar comandos, leer la salida y gestionar todo el terminal de forma programática. Tu asistente de IA se convierte en un ciudadano de primera clase en tu flujo de trabajo en la terminal.
 
 Construido con **Tauri v2** (Rust) + **React** + **xterm.js**.
 
@@ -51,16 +51,16 @@ Construido con **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ### Multiplexor de Terminal
 - **Espacios de trabajo y pestañas** — organiza proyectos en espacios de trabajo separados, cada uno con múltiples pestañas
-- **División de paneles** — divide horizontal y verticalmente con separadores arrastrables
-- **Persistencia de sesión** — los espacios de trabajo, pestañas, diseño de paneles y directorios de trabajo se guardan y restauran entre reinicios
-- **Navegación espacial de paneles** — muévete entre paneles con Alt+Flechas
+- **División de tables** — divide horizontal y verticalmente con separadores arrastrables
+- **Persistencia de sesión** — los espacios de trabajo, pestañas, diseño de tables y directorios de trabajo se guardan y restauran entre reinicios
+- **Navegación espacial de tables** — muévete entre tables con Alt+Flechas
 
 ### Integración con Agentes de IA
-- **Detección de agentes** — detecta automáticamente Claude Code ejecutándose en un panel (indicador naranja)
+- **Detección de agentes** — detecta automáticamente Claude Code ejecutándose en un tabl (indicador naranja)
 - **Reanudación de sesión** — guarda los IDs de sesión de Claude Code y los reanuda al reiniciar con `--resume`
 - **Notificaciones de permisos** — muestra las solicitudes de permisos de Claude Code como notificaciones de escritorio
 - **Sistema de webhooks** — registra webhooks para eventos de agentes (solicitudes de permisos, finalización de tareas)
-- **Control programático** — los agentes pueden crear paneles, ejecutar comandos y leer la salida a través de la API
+- **Control programático** — los agentes pueden crear tables, ejecutar comandos y leer la salida a través de la API
 - **Reinicio de agente** — `codeterm agent restart --tab ID` ejecuta un `/exit` ordenado con auto-reanudación en cualquier pestaña (`--force` mata un agente colgado); reutiliza el mismo mecanismo que el auto-update
 
 ### API Completa
@@ -71,12 +71,12 @@ Construido con **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Captura de salida** — paginación basada en cursor, eliminación de ANSI, capturas de pantalla
 
 ### Puentes y servicios externos
-- **Puente Telegram** — bidireccional. Los mensajes entrantes llegan al panel del General Agent como `[Telegram: USER_ID] text`; las respuestas salen mediante `codeterm bridge send` con formato HTML (el sanitizador escapa automáticamente subcadenas `<word>` no soportadas para que tokens desconocidos no rompan el parser)
+- **Puente Telegram** — bidireccional. Los mensajes entrantes llegan al tabl del General Agent como `[Telegram: USER_ID] text`; las respuestas salen mediante `codeterm bridge send` con formato HTML (el sanitizador escapa automáticamente subcadenas `<word>` no soportadas para que tokens desconocidos no rompan el parser)
 - **Transcripción de voz** — cuando `integrations.voice_transcribe.enabled = true`, los mensajes de voz / video-nota se transcriben mediante un daemon Whisper local (por defecto `http://127.0.0.1:7891`) antes de llegar a cualquier agente — Claude, Codex y futuros clientes quedan cubiertos con un único cambio aguas arriba
 - **Puente de webhooks** — registra URLs para eventos de agente (`agent.permission_request`, `agent.task_complete`, `agent.report`)
 
 ### Auto-actualización y resiliencia
-- **Auto-actualización** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Los manifiestos están firmados con ed25519 y se verifican antes de tocar cualquier binario; la auto-instalación realiza un apagado ordenado de 9 pasos (checkpoint del WAL de mem, parada del supervisor, intercambio del binario firmado), tras lo cual los paneles se auto-reanudan — el contexto sobrevive a la actualización
+- **Auto-actualización** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Los manifiestos están firmados con ed25519 y se verifican antes de tocar cualquier binario; la auto-instalación realiza un apagado ordenado de 9 pasos (checkpoint del WAL de mem, parada del supervisor, intercambio del binario firmado), tras lo cual los tables se auto-reanudan — el contexto sobrevive a la actualización
 - **Supervisor de subprocesos** — las operaciones pesadas de mem (dreaming, extracción del Librarian) se ejecutan como procesos hijos con disyuntor (3 fallos en 60 s → abierto). La muerte de un worker no derriba la API; los timeouts `503` sobre solicitudes pesadas mantienen el daemon receptivo
 - **Watchdog externo** — sonda de salud en `/api/health`; recetas de configuración para Windows Task Scheduler, launchd y systemd en [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
@@ -88,8 +88,8 @@ Construido con **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Soporte para temas claros** — la derivación automática de colores funciona tanto para temas claros como oscuros
 
 ### Navegador Integrado
-- **Paneles de navegador** — abre páginas web junto a tu terminal
-- **Servicio de archivos locales** — renderiza HTML/visualizaciones locales en paneles de navegador
+- **Tables de navegador** — abre páginas web junto a tu terminal
+- **Servicio de archivos locales** — renderiza HTML/visualizaciones locales en tables de navegador
 - **Controles de navegación** — atrás, adelante, actualizar, barra de URL
 
 ### Experiencia de Desarrollo
@@ -151,7 +151,7 @@ cd cli && cargo build --release
 | `Cmd/Ctrl+W` | Cerrar pestaña |
 | `Cmd/Ctrl+Shift+→` | Dividir a la derecha |
 | `Cmd/Ctrl+Shift+↓` | Dividir hacia abajo |
-| `Cmd/Ctrl+Shift+Q` | Cerrar panel |
+| `Cmd/Ctrl+Shift+Q` | Cerrar tabl |
 | `Cmd/Ctrl+Shift+N` | Nuevo espacio de trabajo |
 | `Cmd/Ctrl+Shift+F` | Buscar en la terminal |
 | `Ctrl+Tab` | Siguiente pestaña |
@@ -160,7 +160,7 @@ cd cli && cargo build --release
 | `Cmd/Ctrl+,` | Configuración |
 | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | Acercar/alejar |
 | `Cmd/Ctrl+0` | Restablecer zoom |
-| `Alt+Flechas` | Navegar entre paneles |
+| `Alt+Flechas` | Navegar entre tables |
 
 ## API
 
@@ -169,16 +169,16 @@ CodeTerm expone tres APIs para integración:
 ### API REST (puerto 7685)
 
 ```bash
-# Listar paneles
-curl http://localhost:7685/api/panes
+# Listar tables
+curl http://localhost:7685/api/tabs
 
 # Ejecutar un comando y obtener la salida
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # Enviar texto a la terminal
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -187,13 +187,13 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "Mi Proyecto"}'
 
-# Iniciar un agente en un nuevo panel junto al panel padre
+# Iniciar un agente en un nuevo tabl junto al tabl padre
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # Streaming de salida en tiempo real (SSE)
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### Herramienta CLI
@@ -206,7 +206,7 @@ codeterm workspace create "Project"
 # Control de la terminal
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # Notificaciones
 codeterm notify "Build complete" --level info
@@ -222,7 +222,7 @@ CodeTerm establece estas variables en cada sesión PTY:
 | Variable | Descripción |
 |----------|-------------|
 | `CODETERM` | Siempre `1` — detecta si se ejecuta dentro de CodeTerm |
-| `CODETERM_PANE_ID` | UUID del panel actual |
+| `CODETERM_TAB_ID` | UUID del tabl actual |
 | `CODETERM_SOCKET_PATH` | Ruta del socket para la API JSON-RPC |
 | `TERM_PROGRAM` | `CodeTerm` |
 

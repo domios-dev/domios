@@ -9,7 +9,7 @@ export interface MissionControlStageProps {
   qaBottleneck: boolean;
   showEvents: boolean;
   onTaskClick?: (taskId: string) => void;
-  onAgentClick?: (paneId: string) => void;
+  onAgentClick?: (tabId: string) => void;
 }
 
 export const MissionControlStage = memo(function MissionControlStage({

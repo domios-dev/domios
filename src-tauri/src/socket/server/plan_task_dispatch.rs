@@ -2,12 +2,10 @@ use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-use crate::agent::reports::ReportDetails;
 use crate::plan::{Task, TaskLaneMetadata};
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
 };
-use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::PlanError;
 use crate::service::{
     verify_worker_lane, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
@@ -40,6 +38,23 @@ fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
 
 fn preflight_review_capacity(plan: &crate::plan::Plan, task: &Task) -> Result<(), PlanError> {
     crate::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
+}
+
+fn verify_dispatched_task_binding(
+    store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+) -> Result<(), String> {
+    match store.task_binding_for_tab(tab_id) {
+        Some((bound_plan, bound_task)) if bound_plan == plan_id && bound_task == task_id => Ok(()),
+        binding => Err(format!(
+            "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no matching \
+             authoritative task binding. Impact: zero-flag reports cannot be attached safely. \
+             Fallback: pass explicit --plan {plan_id} --task {task_id} and alert the Orchestrator; \
+             no plan or task was guessed. Resolved binding: {binding:?}"
+        )),
+    }
 }
 
 fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
@@ -107,6 +122,79 @@ fn resolve_dispatch_lane(
     })
 }
 
+fn preflight_checkout_occupancy(
+    plan: &crate::plan::Plan,
+    dispatched_task_id: &str,
+    checkout_path: &str,
+) -> Result<(), JsonRpcError> {
+    let canonical_path = if plan.canonical_project_path.trim().is_empty() {
+        plan.project_path.as_str()
+    } else {
+        plan.canonical_project_path.as_str()
+    };
+    let normalized_checkout = codeterm_paths::normalize_cwd(checkout_path);
+    let occupant = plan.tasks.iter().find_map(|task| {
+        task.execution_attempts.iter().find_map(|attempt| {
+            if attempt.closed_at.is_some() {
+                return None;
+            }
+            let attempt_path = attempt
+                .worktree_path
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+                .unwrap_or(canonical_path);
+            (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path))
+                .then_some((task.id.as_str(), attempt.id.as_str()))
+        })
+    });
+    let Some((occupying_task_id, occupying_attempt_id)) = occupant else {
+        return Ok(());
+    };
+    let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
+    let dispatch_command = format!(
+        "codeterm plan task dispatch {} {}",
+        plan.id, dispatched_task_id
+    );
+    let message = format!(
+        "dispatch refused: checkout '{checkout_path}' is occupied by live attempt \
+         '{occupying_attempt_id}' of task '{occupying_task_id}' in plan '{}'. No worker was \
+         spawned. Assign an existing isolated lane, then dispatch again:\n  {update_command}\n  \
+         {dispatch_command}",
+        plan.id
+    );
+    Err(JsonRpcError {
+        code: -32011,
+        message: message.clone(),
+        data: Some(json!({
+            "type": "checkout_occupied",
+            "stage": "checkout_occupancy",
+            "reason": message,
+            "occupying_task_id": occupying_task_id,
+            "occupying_attempt_id": occupying_attempt_id,
+            "checkout_path": checkout_path,
+            "update_command": update_command,
+            "dispatch_command": dispatch_command,
+        })),
+    })
+}
+
+#[cfg(windows)]
+fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
+    format!(
+        "codeterm plan task update {plan_id} {task_id} --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')"
+    )
+}
+
+#[cfg(not(windows))]
+fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
+    format!(
+        "codeterm plan task update {plan_id} {task_id} \
+         --worktree \"$(printf 'Existing isolated worktree path: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
+         --branch \"$(printf 'Existing isolated branch: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
+         --base \"$(printf 'Base ref: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\""
+    )
+}
+
 fn lane_metadata_for_dispatch(
     original: &TaskLaneMetadata,
     provenance: &WorkerLaneProvenance,
@@ -129,7 +217,19 @@ fn lane_metadata_for_dispatch(
     lane
 }
 
-fn await_agent_ready(
+fn task_launch_authority_for_dispatch(
+    plan_id: &str,
+    task_id: &str,
+    lane: &TaskLaneMetadata,
+) -> crate::service::TaskLaunchAuthority {
+    crate::service::TaskLaunchAuthority {
+        plan_id: plan_id.to_string(),
+        task_id: task_id.to_string(),
+        lane_base: lane.base.clone(),
+    }
+}
+
+pub(super) fn await_agent_ready(
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
     deadline: Instant,
 ) -> Result<(), String> {
@@ -147,32 +247,32 @@ fn await_agent_ready(
     }
 }
 
-fn wait_for_pane_session(
+pub(super) fn wait_for_tab_session(
     svc: &ServiceState,
-    pane_id: &str,
+    tab_id: &str,
     deadline: Instant,
 ) -> Result<String, String> {
     crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
         svc.mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.agent_session_id.clone())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_session_id.clone())
             .filter(|session| !session.trim().is_empty())
     })
     .ok_or_else(|| {
-        if svc.mux.read().get_pane(pane_id).is_none() {
-            format!("spawned pane '{pane_id}' was removed before session binding")
+        if svc.mux.read().get_tab(tab_id).is_none() {
+            format!("spawned tab '{tab_id}' was removed before session binding")
         } else {
-            format!("spawned pane '{pane_id}' did not bind a session before the deadline")
+            format!("spawned tab '{tab_id}' did not bind a session before the deadline")
         }
     })
 }
 
-fn close_pane_if_present(svc: &ServiceState, pane_id: &str) -> Result<(), String> {
-    if svc.mux.read().get_pane(pane_id).is_none() {
+fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> {
+    if svc.mux.read().get_tab(tab_id).is_none() {
         Ok(())
     } else {
-        svc.close_pane(pane_id)
+        svc.close_tab(tab_id)
     }
 }
 
@@ -182,6 +282,48 @@ struct DispatchEvidence {
     lane: WorkerLaneProvenance,
 }
 
+fn apply_dispatch_starting_contract(
+    result: &mut Value,
+    tab_id: &str,
+    spawn: &crate::service::SpawnResult,
+) {
+    let mut spawn_metadata = json!(spawn);
+    if let Some(fields) = spawn_metadata.as_object_mut() {
+        fields.remove("tab_id");
+    }
+    result["accepted"] = json!(true);
+    result["state"] = json!("awaiting_dispatch_ready");
+    result["readiness"] = json!({
+        "ready": false,
+        "awaiting_event": "dispatch_ready",
+    });
+    result["tab_id"] = json!(tab_id);
+    result["spawn"] = spawn_metadata;
+}
+
+fn dispatch_ready_event(
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    attempt_id: &str,
+    evidence: &DispatchEvidence,
+) -> Value {
+    json!({
+        "kind": "dispatch_ready",
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "tab_id": tab_id,
+        "attempt_id": attempt_id,
+        "session_id": evidence.session_id,
+        "lane": {
+            "worktree_path": evidence.lane.worktree_path,
+            "branch": evidence.lane.branch,
+            "base": evidence.lane.base,
+            "canonical_project_path": evidence.lane.canonical_cwd,
+        },
+    })
+}
+
 fn epoch_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -189,154 +331,114 @@ fn epoch_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn publish_startup_report(
+pub(super) fn publish_startup_report(
     svc: &ServiceState,
-    parent_pane_id: &str,
-    worker_pane_id: &str,
+    parent_tab_id: &str,
+    worker_tab_id: &str,
     worker_title: &str,
     plan_id: &str,
     task_id: &str,
     payload: Value,
 ) {
-    let message = payload.to_string();
-    let details = ReportDetails {
-        plan_id: Some(plan_id.to_string()),
-        task_id: Some(task_id.to_string()),
-        ..Default::default()
-    };
-    let report = svc.report_store.lock().add_detailed(
-        parent_pane_id,
-        worker_pane_id,
+    svc.publish_worker_lifecycle_report(
+        parent_tab_id,
+        worker_tab_id,
         worker_title,
-        &message,
-        details,
-        None,
+        plan_id,
+        task_id,
+        payload,
     );
-    if !svc.report_store.lock().claim(&report.id) {
-        return;
-    }
-    svc.events.broadcast(
-        "agent.report",
-        json!({
-            "target_pane_id": parent_pane_id,
-            "report": report.clone(),
-        }),
-    );
-    crate::api::events::emit_everywhere(
-        &svc.app_handle,
-        "agent-report",
-        json!({
-            "target_pane_id": parent_pane_id,
-            "from_pane_id": worker_pane_id,
-            "from_title": worker_title,
-            "message": message,
-            "report": report.clone(),
-        }),
-    );
-    let envelope = crate::service::messenger::MessageEnvelope::report(worker_title, worker_pane_id);
-    if let Err(error) = svc.gateway_deliver(
-        parent_pane_id,
-        envelope,
-        &report.inject_body(),
-        crate::service::message_gateway::DeliveryClass::AgentTraffic,
-    ) {
-        svc.report_store.lock().release_delivery(&report.id);
-        log::warn!(
-            "[dispatch-startup] parent delivery failed task={} pane={}: {}",
-            task_id,
-            worker_pane_id,
-            error
-        );
-    } else {
-        svc.report_store.lock().mark_delivered(&report.id);
-    }
 }
 
-struct DispatchStartup {
-    app: AppHandle,
-    svc: ServiceState,
-    plan_id: String,
-    task_id: String,
-    pane_id: String,
-    attempt_id: String,
-    parent_pane_id: String,
-    worker_title: String,
-    original_task: Task,
-    original_plan_mode: crate::plan::PlanMode,
-    lane_for_commit: TaskLaneMetadata,
-    provenance: WorkerLaneProvenance,
-    provisioned_lane: Option<ProvisionedWorkerLane>,
+pub(super) fn arm_worker_ack_deadline(
+    svc: &ServiceState,
+    parent_tab_id: &str,
+    worker_tab_id: &str,
+    worker_title: &str,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    spawn_command: String,
+) {
+    svc.arm_worker_ack_deadline(
+        parent_tab_id,
+        worker_tab_id,
+        worker_title,
+        plan_id,
+        task_id,
+        attempt_id,
+        spawn_command,
+    );
+}
+
+#[cfg(test)]
+fn worker_ack_timeout_event(
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    attempt_id: &str,
+    spawn_command: &str,
+) -> Value {
+    crate::service::worker_ack::worker_ack_timeout_event(
+        plan_id,
+        task_id,
+        tab_id,
+        attempt_id,
+        spawn_command,
+    )
+}
+
+pub(super) struct DispatchStartup {
+    pub(super) app: AppHandle,
+    pub(super) svc: ServiceState,
+    pub(super) plan_id: String,
+    pub(super) task_id: String,
+    pub(super) tab_id: String,
+    pub(super) attempt_id: String,
+    pub(super) parent_tab_id: String,
+    pub(super) worker_title: String,
+    pub(super) original_task: Task,
+    pub(super) original_plan_mode: crate::plan::PlanMode,
+    pub(super) lane_for_commit: TaskLaneMetadata,
+    pub(super) provenance: WorkerLaneProvenance,
+    pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
+    pub(super) spawn_command: String,
 }
 
 impl DispatchStartup {
-    fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
+    pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
         let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
-        let outcome: Result<DispatchEvidence, JsonRpcError> = (|| {
-            await_agent_ready(ready_rx, deadline)
-                .map_err(|error| dispatch_failed("agent_ready", error))?;
-            let session_id = wait_for_pane_session(&self.svc, &self.pane_id, deadline)
-                .map_err(|error| dispatch_failed("session_binding", error))?;
-            let lane = verify_worker_lane(
-                &self.provenance.canonical_cwd,
-                &self.provenance.worktree_path,
-                Some(&self.provenance.branch),
-                Some(&self.provenance.base),
-            )
-            .map_err(|error| dispatch_failed("provenance_readback", error))?;
-            let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, &lane);
-            self.svc
-                .plan_store
-                .finish_task_dispatch(
-                    &self.plan_id,
-                    &self.task_id,
-                    &self.pane_id,
-                    &self.attempt_id,
-                    &session_id,
-                    lane_metadata,
-                    epoch_ms(),
+        let provisioned_lane = self.provisioned_lane;
+        let outcome = complete_dispatch_transaction(
+            deadline,
+            |deadline| await_agent_ready(ready_rx, deadline),
+            |deadline| wait_for_tab_session(&self.svc, &self.tab_id, deadline),
+            || {
+                verify_worker_lane(
+                    &self.provenance.canonical_cwd,
+                    &self.provenance.worktree_path,
+                    Some(&self.provenance.branch),
+                    Some(&self.provenance.base),
                 )
-                .map_err(|error| dispatch_failed("task_commit", error.to_string()))?;
-            Ok(DispatchEvidence { session_id, lane })
-        })();
-
-        match outcome {
-            Ok(evidence) => {
-                self.svc.gateway.require_worker_report(&self.pane_id);
-                emit_plan_changed(&self.app, &self.plan_id);
-                publish_startup_report(
-                    &self.svc,
-                    &self.parent_pane_id,
-                    &self.pane_id,
-                    &self.worker_title,
-                    &self.plan_id,
-                    &self.task_id,
-                    json!({
-                        "kind": "dispatch_ready",
-                        "plan_id": self.plan_id,
-                        "task_id": self.task_id,
-                        "tab_id": self.pane_id,
-                        "attempt_id": self.attempt_id,
-                        "session_id": evidence.session_id,
-                        "lane": {
-                            "worktree_path": evidence.lane.worktree_path,
-                            "branch": evidence.lane.branch,
-                            "base": evidence.lane.base,
-                            "canonical_project_path": evidence.lane.canonical_cwd,
-                        },
-                    }),
-                );
-            }
-            Err(error) => {
-                let stage = error
-                    .data
-                    .as_ref()
-                    .and_then(|data| data.get("stage"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("startup")
-                    .to_string();
-                let reason = error.message.clone();
-                let cleanup = rollback_failed_dispatch(
-                    self.provisioned_lane,
+            },
+            |lane, session_id| {
+                let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, lane);
+                self.svc
+                    .plan_store
+                    .finish_task_dispatch(
+                        &self.plan_id,
+                        &self.task_id,
+                        &self.tab_id,
+                        &self.attempt_id,
+                        session_id,
+                        lane_metadata,
+                        epoch_ms(),
+                    )
+                    .map_err(|error| error.to_string())
+            },
+            || {
+                rollback_failed_dispatch(
+                    provisioned_lane,
                     || {
                         self.svc
                             .plan_store
@@ -348,13 +450,54 @@ impl DispatchStartup {
                             )
                             .map_err(|error| error.to_string())
                     },
-                    || close_pane_if_present(&self.svc, &self.pane_id),
+                    || close_tab_if_present(&self.svc, &self.tab_id),
+                )
+            },
+        );
+
+        match outcome {
+            Ok(evidence) => {
+                arm_worker_ack_deadline(
+                    &self.svc,
+                    &self.parent_tab_id,
+                    &self.tab_id,
+                    &self.worker_title,
+                    &self.plan_id,
+                    &self.task_id,
+                    &self.attempt_id,
+                    self.spawn_command.clone(),
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
-                    &self.parent_pane_id,
-                    &self.pane_id,
+                    &self.parent_tab_id,
+                    &self.tab_id,
+                    &self.worker_title,
+                    &self.plan_id,
+                    &self.task_id,
+                    dispatch_ready_event(
+                        &self.plan_id,
+                        &self.task_id,
+                        &self.tab_id,
+                        &self.attempt_id,
+                        &evidence,
+                    ),
+                );
+            }
+            Err(error) => {
+                let stage = error
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("stage"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("startup")
+                    .to_string();
+                let reason = error.message.clone();
+                emit_plan_changed(&self.app, &self.plan_id);
+                publish_startup_report(
+                    &self.svc,
+                    &self.parent_tab_id,
+                    &self.tab_id,
                     &self.worker_title,
                     &self.plan_id,
                     &self.task_id,
@@ -362,14 +505,11 @@ impl DispatchStartup {
                         "kind": "dispatch_startup_failed",
                         "plan_id": self.plan_id,
                         "task_id": self.task_id,
-                        "tab_id": self.pane_id,
+                        "tab_id": self.tab_id,
                         "attempt_id": self.attempt_id,
                         "stage": stage,
                         "error": reason,
-                        "cleanup": match cleanup {
-                            Ok(()) => json!({"ok": true}),
-                            Err(error) => json!({"ok": false, "error": error}),
-                        },
+                        "cleanup": {"ok": stage != "compensation"},
                     }),
                 );
             }
@@ -377,7 +517,6 @@ impl DispatchStartup {
     }
 }
 
-#[cfg(test)]
 fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     deadline: Instant,
     await_ready: Ready,
@@ -418,7 +557,7 @@ fn gate_keys(gates: &[RegressionGate]) -> String {
         .join(", ")
 }
 
-// Refuse the dispatch loudly, naming every blocking gate — no pane is spawned.
+// Refuse the dispatch loudly, naming every blocking gate — no tab is spawned.
 fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
     let names = gate_keys(&gates);
     JsonRpcError {
@@ -436,20 +575,17 @@ fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
 pub(super) struct DispatchRouting {
     pub agent: Option<String>,
     pub model: Option<String>,
+    qualified_model: bool,
 }
 
 fn qualified_provider_model(model: &str, provider_ids: &[String]) -> Option<(String, String)> {
-    for separator in [':', '/'] {
-        let Some((provider, model)) = model.split_once(separator) else {
-            continue;
-        };
-        if provider_ids
-            .iter()
-            .any(|registered| registered.eq_ignore_ascii_case(provider))
-            && !model.trim().is_empty()
-        {
-            return Some((provider.to_string(), model.to_string()));
-        }
+    let (provider, model) = model.split_once(':')?;
+    if provider_ids
+        .iter()
+        .any(|registered| registered.eq_ignore_ascii_case(provider))
+        && !model.trim().is_empty()
+    {
+        return Some((provider.to_string(), model.to_string()));
     }
     None
 }
@@ -459,13 +595,13 @@ fn unqualified_model_error(
     provider: &str,
     notice: &crate::service::spawn::ModelFallbackNotice,
 ) -> Option<JsonRpcError> {
-    if routing.agent.is_some() {
+    if routing.qualified_model {
         return None;
     }
     Some(JsonRpcError {
         code: -32602,
         message: format!(
-            "model '{}' is unavailable for the default provider '{}'. Specify an explicit provider/model instead of silently substituting '{}'.",
+            "model '{}' is unavailable for provider '{}'. Specify <provider>:<model> instead of silently substituting '{}'.",
             notice.requested_model, provider, notice.provider_resolved_model
         ),
         data: Some(json!({
@@ -497,9 +633,9 @@ fn dispatch_worker_identity(task: &Task) -> (Option<String>, Option<SpawnIdentit
     (title, provenance)
 }
 
-/// Resolve the provider/model a dispatch should spawn. Precedence: an explicit
+/// Resolve the provider and model a dispatch should spawn. Precedence: an explicit
 /// `agent` provider wins (any model rides along verbatim); otherwise a requested
-/// provider/model prefix is resolved against the live registry. A bare provider
+/// `<provider>:<model>` prefix is resolved against the live registry. A bare provider
 /// name selects its default model; a bare model remains a request for the default
 /// provider and is rejected if that provider cannot resolve it.
 pub(super) fn resolve_dispatch_routing(
@@ -514,6 +650,7 @@ pub(super) fn resolve_dispatch_routing(
         return DispatchRouting {
             agent: Some(agent),
             model: requested_model,
+            qualified_model: false,
         };
     }
     if let Some(model) = requested_model {
@@ -521,28 +658,31 @@ pub(super) fn resolve_dispatch_routing(
             return DispatchRouting {
                 agent: Some(agent),
                 model: Some(model),
+                qualified_model: true,
             };
         }
         if provider_ids.iter().any(|p| p.eq_ignore_ascii_case(&model)) {
             return DispatchRouting {
                 agent: Some(model),
                 model: None,
+                qualified_model: true,
             };
         }
         return DispatchRouting {
             agent: None,
             model: Some(model),
+            qualified_model: false,
         };
     }
     DispatchRouting {
         agent: None,
         model: None,
+        qualified_model: false,
     }
 }
 
-/// Atomic: spawn a Worker pane, assign the task (in_progress + lane metadata),
-/// then deliver the brief. Any post-spawn failure reverts the task and closes
-/// the pane, so a task is never left in_progress without a live pane.
+/// Spawn a Worker and record runtime readiness without claiming ownership.
+/// Failure before ACK restores plan state and closes the spawned tab.
 pub(super) fn dispatch(
     params: &Option<Value>,
     app: &AppHandle,
@@ -557,7 +697,7 @@ pub(super) fn dispatch(
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
 
     // Frontier policy: a non-blocker cannot spawn while regression gates are
-    // pending. Decide BEFORE any pane is created so a block leaves no orphan.
+    // pending. Decide BEFORE any tab is created so a block leaves no orphan.
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
@@ -569,17 +709,17 @@ pub(super) fn dispatch(
             return Err(regression_blocked_error(blocking));
         }
     }
-    // Same frontier policy for the review WIP gate: decide before any pane
+    // Same frontier policy for the review WIP gate: decide before any tab
     // exists. A task resuming after a bounce already holds its slot.
     if detail.task.status == crate::plan::TaskStatus::Pending {
         preflight_review_capacity(&plan, &detail.task).map_err(plan_rpc_err)?;
     }
 
-    // Parent defaults to the dispatching (caller) pane, resolved server-side.
-    let parent = owned_str(p, "parent_pane_id").or_else(|| owned_str(p, "caller_pane_id"));
-    let parent_pane_id = parent
+    // Parent defaults to the dispatching (caller) tab, resolved server-side.
+    let parent = owned_str(p, "parent_tab_id").or_else(|| owned_str(p, "caller_tab_id"));
+    let parent_tab_id = parent
         .clone()
-        .or_else(|| plan.owner.pane_id.clone())
+        .or_else(|| plan.owner.tab_id.clone())
         .ok_or_else(|| invalid_dispatch("dispatch requires a parent Orchestrator tab"))?;
     let routing = resolve_dispatch_routing(
         owned_str(p, "agent"),
@@ -611,7 +751,7 @@ pub(super) fn dispatch(
         ));
     }
 
-    // A personality is the executor persona: it names the pane and opens the brief.
+    // A personality is the executor persona: it names the tab and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let brief = build_brief(&detail.task, &detail.sections);
 
@@ -623,20 +763,21 @@ pub(super) fn dispatch(
     };
     let lane_resolution =
         resolve_dispatch_lane(explicit_cwd.as_deref(), &canonical_cwd, &detail.task.lane)?;
+    preflight_checkout_occupancy(&plan, &task_id, &lane_resolution.spawn_cwd)?;
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: Some(lane_resolution.spawn_cwd.clone()),
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
-        parent_pane_id: parent,
+        parent_tab_id: parent,
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
         model: routing.model.clone(),
         planned_model: detail.task.model.clone(),
         reasoning_effort: owned_str(p, "reasoning_effort"),
-        spawned_by_pane_id: owned_str(p, "caller_pane_id"),
+        spawned_by_tab_id: owned_str(p, "caller_tab_id"),
         task: Some(brief),
         ..Default::default()
     };
@@ -669,6 +810,15 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("provenance_validation", error));
         }
     };
+    let original_task = detail.task.clone();
+    let original_plan_mode = plan.mode.clone();
+    let lane_for_commit = detail.task.lane.clone();
+    let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
+    spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
+        &plan_id,
+        &task_id,
+        &starting_lane,
+    ));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
@@ -684,15 +834,11 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("agent_spawn", error));
         }
     };
-    let pane_id = spawn.pane_id.clone();
-    let original_task = detail.task.clone();
-    let original_plan_mode = plan.mode.clone();
-    let lane_for_commit = detail.task.lane.clone();
-    let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
+    let tab_id = spawn.tab_id.clone();
     let attempt_id = match store.begin_task_dispatch(
         &plan_id,
         &task_id,
-        &pane_id,
+        &tab_id,
         &spawn.title,
         starting_lane,
         now,
@@ -702,7 +848,7 @@ pub(super) fn dispatch(
             let cleanup = rollback_failed_dispatch(
                 provisioned_lane,
                 || Ok(()),
-                || close_pane_if_present(svc, &pane_id),
+                || close_tab_if_present(svc, &tab_id),
             );
             emit_plan_changed(app, &plan_id);
             return Err(dispatch_failed(
@@ -714,36 +860,56 @@ pub(super) fn dispatch(
             ));
         }
     };
+    if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
+        let cleanup = rollback_failed_dispatch(
+            provisioned_lane,
+            || {
+                store
+                    .restore_task_dispatch_snapshot(
+                        &plan_id,
+                        &original_task,
+                        original_plan_mode.clone(),
+                        now,
+                    )
+                    .map_err(|error| error.to_string())
+            },
+            || close_tab_if_present(svc, &tab_id),
+        );
+        emit_plan_changed(app, &plan_id);
+        return Err(dispatch_failed(
+            "task_binding",
+            match cleanup {
+                Ok(()) => error,
+                Err(cleanup) => format!("{error}; {cleanup}"),
+            },
+        ));
+    }
     emit_plan_changed(app, &plan_id);
     let startup = DispatchStartup {
         app: app.clone(),
         svc: svc.clone(),
         plan_id: plan_id.clone(),
         task_id: task_id.clone(),
-        pane_id: pane_id.clone(),
+        tab_id: tab_id.clone(),
         attempt_id: attempt_id.clone(),
-        parent_pane_id,
+        parent_tab_id,
         worker_title: spawn.title.clone(),
         original_task,
         original_plan_mode,
         lane_for_commit,
         provenance: initial_provenance.clone(),
         provisioned_lane,
+        spawn_command: format!("codeterm plan task dispatch {plan_id} {task_id}"),
     };
     std::thread::spawn(move || startup.run(ready_rx));
 
     let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({
         "ok": true,
-        "accepted": true,
-        "state": "starting",
         "plan_id": plan_id,
         "task_id": task_id,
-        "tab_id": pane_id,
-        "pane_id": pane_id,
         "attempt_id": attempt_id,
         "agent": resolved_provider,
-        "spawn": spawn,
         "lane": {
             "worktree_path": initial_provenance.worktree_path,
             "branch": initial_provenance.branch,
@@ -754,6 +920,7 @@ pub(super) fn dispatch(
             "workspace_name": detail.task.lane.workspace_name,
         },
     });
+    apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
     }
@@ -772,7 +939,7 @@ pub(super) fn dispatch(
 fn rollback_failed_dispatch<R, C>(
     lane: Option<ProvisionedWorkerLane>,
     revert_task: R,
-    close_pane: C,
+    close_tab: C,
 ) -> Result<(), String>
 where
     R: FnOnce() -> Result<(), String>,
@@ -782,8 +949,8 @@ where
     if let Err(error) = revert_task() {
         errors.push(format!("task restore failed: {error}"));
     }
-    if let Err(error) = close_pane() {
-        errors.push(format!("pane close failed: {error}"));
+    if let Err(error) = close_tab() {
+        errors.push(format!("Tab close failed: {error}"));
     }
     if let Some(lane) = lane {
         if let Err(error) = lane.cleanup() {
@@ -799,69 +966,19 @@ where
 
 /// Assemble the worker brief: body, acceptance, test plan, section links,
 /// strides (milestones — T4 enriches later), and the mandatory report command.
-pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
+pub(super) fn build_brief(
+    task: &Task,
+    sections: &[crate::service::plan::task_queries::TaskSection],
+) -> String {
     build_brief_with_personality(task, sections, task.personality.as_deref())
 }
 
 pub(super) fn build_brief_with_personality(
     task: &Task,
-    sections: &[TaskSection],
+    sections: &[crate::service::plan::task_queries::TaskSection],
     effective_personality: Option<&str>,
 ) -> String {
-    let mut out = String::new();
-    if let Some(identity) = crate::service::plan::worker_identity::compose_worker_identity(
-        effective_personality,
-        task.role_guidance.as_deref(),
-        Some(task.name.as_str()),
-    ) {
-        out.push_str(&identity);
-        out.push_str("\n\n");
-    }
-    out.push_str(&format!("# {}\n\n", task.name));
-
-    let body = task.body.trim();
-    if !body.is_empty() {
-        out.push_str(body);
-        out.push_str("\n\n");
-    }
-
-    if !task.acceptance_criteria.is_empty() {
-        out.push_str("## Acceptance criteria\n");
-        for c in &task.acceptance_criteria {
-            out.push_str(&format!("- {c}\n"));
-        }
-        out.push('\n');
-    }
-
-    if let Some(tp) = task
-        .test_plan
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        out.push_str(&format!("## Test plan\n{tp}\n\n"));
-    }
-
-    if !sections.is_empty() {
-        out.push_str("## Sections\n");
-        for s in sections {
-            out.push_str(&format!("- {} ({})\n", s.title, s.id));
-        }
-        out.push('\n');
-    }
-
-    if !task.milestones.is_empty() {
-        out.push_str("## Strides\n");
-        for m in &task.milestones {
-            out.push_str(&format!("- [{}] {}\n", m.kind, m.text));
-        }
-        out.push('\n');
-    }
-
-    out.push_str(
-        "## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n",
-    );
-    out
+    crate::service::plan::task_brief::render_task_brief(task, sections, effective_personality, None)
 }
 
 #[cfg(test)]

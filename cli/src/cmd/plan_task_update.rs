@@ -1,5 +1,5 @@
 use crate::client::RpcClient;
-use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_tab, resolve_text};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
@@ -20,11 +20,12 @@ fn build_params(
     sections: Option<String>,
     criterion: Vec<String>,
     test_plan: Option<String>,
+    qa_plan_text: Option<String>,
     correctness: Option<String>,
     parent: Option<String>,
     depends_on: Vec<String>,
     clear_dependencies: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree: Option<String>,
@@ -38,6 +39,7 @@ fn build_params(
     tags: Vec<String>,
     primary: Option<String>,
     handle: Option<String>,
+    external_refs: Vec<String>,
 ) -> Value {
     let mut params = json!({ "task_id": task_id });
     if let Some(pid) = plan_id {
@@ -85,6 +87,9 @@ fn build_params(
     if let Some(t) = test_plan {
         params["test_plan"] = json!(t);
     }
+    if let Some(plan) = qa_plan_text {
+        params["qa_plan"] = json!(plan);
+    }
     if let Some(c) = correctness {
         params["correctness"] = json!(c);
     }
@@ -97,7 +102,7 @@ fn build_params(
         params["depends_on"] = json!(depends_on);
     }
     if let Some(lane) = crate::cmd::plan::lane_params(
-        pane,
+        tab,
         workspace_id,
         workspace_name,
         worktree,
@@ -124,7 +129,10 @@ fn build_params(
     if let Some(handle) = handle {
         params["handle"] = json!(handle);
     }
-    maybe_inject_caller_pane(&mut params);
+    if !external_refs.is_empty() {
+        params["external_refs"] = json!(external_refs);
+    }
+    maybe_inject_caller_tab(&mut params);
     params
 }
 
@@ -151,11 +159,13 @@ pub(crate) fn run(
     sections: Option<String>,
     criterion: Vec<String>,
     test_plan: Option<String>,
+    qa_plan: Option<String>,
+    qa_plan_file: Option<String>,
     correctness: Option<String>,
     parent: Option<String>,
     depends_on: Vec<String>,
     clear_dependencies: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree: Option<String>,
@@ -169,11 +179,13 @@ pub(crate) fn run(
     tags: Vec<String>,
     primary: Option<String>,
     handle: Option<String>,
+    external_refs: Vec<String>,
 ) -> Result<Value, String> {
     let why_text = resolve_text(why, why_file)?;
     let body_text = resolve_text(body, body_file)?;
     let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
+    let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
     let params = build_params(
         plan_id,
         task_id,
@@ -191,11 +203,12 @@ pub(crate) fn run(
         sections,
         criterion,
         test_plan,
+        qa_plan_text,
         correctness,
         parent,
         depends_on,
         clear_dependencies,
-        pane,
+        tab,
         workspace_id,
         workspace_name,
         worktree,
@@ -209,6 +222,7 @@ pub(crate) fn run(
         tags,
         primary,
         handle,
+        external_refs,
     );
     call_plan_rpc(client, "plan.task.update", params)
 }
@@ -219,7 +233,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn omitted_dependencies_leave_params_unchanged() {
+    fn external_ref_is_added_while_omitted_dependencies_stay_unchanged() {
         let params = build_params(
             Some("pl_1".into()),
             "task_1".into(),
@@ -239,6 +253,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             false,
             None,
@@ -255,8 +270,13 @@ mod tests {
             vec![],
             None,
             None,
+            vec!["rollacode/codeterm-releases#17".into()],
         );
         assert!(params.get("depends_on").is_none());
+        assert_eq!(
+            params.get("external_refs"),
+            Some(&json!(["rollacode/codeterm-releases#17"]))
+        );
     }
 
     #[test]
@@ -280,6 +300,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["task_a".into(), "task_b".into()],
             false,
             None,
@@ -296,6 +317,7 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(
             params.get("depends_on").cloned(),
@@ -324,6 +346,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["task_a".into()],
             true,
             None,
@@ -340,12 +363,13 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(params.get("depends_on").cloned(), Some(json!([])));
     }
 
     #[test]
-    fn status_and_pane_share_one_update_rpc_payload() {
+    fn status_and_tab_share_one_update_rpc_payload() {
         let params = build_params(
             Some("pl_1".into()),
             "task_1".into(),
@@ -365,9 +389,10 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             false,
-            Some("worker-pane".into()),
+            Some("worker-tab".into()),
             None,
             None,
             None,
@@ -381,8 +406,56 @@ mod tests {
             vec![],
             None,
             None,
+            vec![],
         );
         assert_eq!(params.get("status"), Some(&json!("in_progress")));
-        assert_eq!(params.pointer("/lane/pane_id"), Some(&json!("worker-pane")));
+        assert_eq!(params.pointer("/lane/tab_id"), Some(&json!("worker-tab")));
+    }
+
+    #[test]
+    fn qa_plan_is_independent_from_worker_test_plan() {
+        let params = build_params(
+            Some("pl_1".into()),
+            "task_1".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            Some("cargo test worker_oracle".into()),
+            Some("cargo test qa_oracle".into()),
+            None,
+            None,
+            vec![],
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+        );
+        assert_eq!(
+            params.get("test_plan"),
+            Some(&json!("cargo test worker_oracle"))
+        );
+        assert_eq!(params.get("qa_plan"), Some(&json!("cargo test qa_oracle")));
     }
 }

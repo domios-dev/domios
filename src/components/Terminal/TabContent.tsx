@@ -1,25 +1,25 @@
-import { TerminalPane } from "./TerminalPane";
-import { PaneSessionChat } from "./PaneSessionChat";
-import { PaneTopBar } from "./PaneTopBar";
-import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
+import { TerminalTab } from "./TerminalTab";
+import { TabSessionChat } from "./TabSessionChat";
+import { TabTopBar } from "./TabTopBar";
+import { isTabVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { FirstRunGeneralPicker, isFirstRunGeneralPane } from "../AgentPicker";
+import { FirstRunGeneralPicker, isFirstRunGeneralTab } from "../AgentPicker";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
   ApiConfig,
-  Pane,
+  Tab,
   ThemeConfig,
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
 import { usageTrackingEnabled } from "./usageTracking";
-import { paneSessionActionView } from "./paneSessionActions";
+import { tabSessionActionView } from "./tabSessionActions";
 
 interface TabContentProps {
-  pane: Pane | undefined;
+  tab: Tab | undefined;
   isFocused: boolean;
-  onFocusPane: (paneId: string) => void;
-  onPtySpawned: (paneId: string, ptyId: string) => void;
+  onFocusTab: (tabId: string) => void;
+  onPtySpawned: (tabId: string, ptyId: string) => void;
   theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
@@ -28,14 +28,12 @@ interface TabContentProps {
   workspaceCwd?: string | null;
   uiFontScale?: number;
   isVisible: boolean;
-  chatFirst: boolean;
-  chatDefaultPrompted: boolean;
 }
 
 export function TabContent({
-  pane,
+  tab,
   isFocused,
-  onFocusPane,
+  onFocusTab,
   onPtySpawned,
   theme,
   fontConfig,
@@ -44,46 +42,44 @@ export function TabContent({
   workspaceCwd,
   uiFontScale,
   isVisible,
-  chatFirst,
-  chatDefaultPrompted,
   api,
 }: TabContentProps) {
-  const descriptor = useAgentDescriptor(pane?.agent_type);
+  const descriptor = useAgentDescriptor(tab?.agent_type);
   const { providers } = useAgentProviders();
 
-  if (!pane) return null;
-  if (!isPaneVisible(pane)) return null;
+  if (!tab) return null;
+  if (!isTabVisible(tab)) return null;
 
-  if (isFirstRunGeneralPane(pane)) {
+  if (isFirstRunGeneralTab(tab)) {
     return (
-      <PaneWrapper paneId={pane.id}>
+      <TabWrapper tabId={tab.id}>
         <FirstRunGeneralPicker providers={providers} />
-      </PaneWrapper>
+      </TabWrapper>
     );
   }
 
-  const chatBacking = pane.backing?.kind === "chat_backend" ? pane.backing : null;
+  const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
-  const sessionActions = paneSessionActionView(pane);
+  const sessionActions = tabSessionActionView(tab);
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
-  const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
+  const usageProvider = !isChatBackend ? (tab.agent_type ?? null) : null;
   const usageVisible = usageTrackingEnabled(
     descriptor?.settings_schema ?? [],
     usageProvider ? usageEnabledByProvider?.[usageProvider] : false,
   );
-  const cwd = pane.cwd ?? workspaceCwd ?? null;
+  const cwd = tab.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (
-    <PaneSessionChat paneId={pane.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
+    <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
-    <TerminalPane
-      key={pane.id}
-      paneId={pane.id}
-      ptyId={pane.pty_id}
+    <TerminalTab
+      key={tab.id}
+      tabId={tab.id}
+      ptyId={tab.pty_id}
       isFocused={isFocused}
       isVisible={isVisible}
       hasSplits={false}
-      onFocus={onFocusPane}
+      onFocus={onFocusTab}
       onPtySpawned={onPtySpawned}
       theme={theme}
       fontConfig={fontConfig}
@@ -94,19 +90,17 @@ export function TabContent({
   );
 
   return (
-    <PaneWrapper paneId={pane.id}>
+    <TabWrapper tabId={tab.id}>
       <div className="flex h-full w-full flex-col">
-        <PaneTopBar
-          paneId={pane.id}
+        <TabTopBar
+          tabId={tab.id}
           cwd={cwd}
           showSwitch={showSwitch}
-          chatFirst={chatFirst}
-          chatDefaultPrompted={chatDefaultPrompted}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
           api={api}
-          isWatcherPane={pane.watcher != null}
-          watcherLastStatus={pane.watcher?.last_status ?? null}
+          isWatcherTab={tab.watcher != null}
+          watcherLastStatus={tab.watcher?.last_status ?? null}
           canReconnect={sessionActions.canReconnect}
           canRestartSession={sessionActions.canRestart}
           sessionId={sessionActions.sessionId}
@@ -116,20 +110,20 @@ export function TabContent({
           {body}
         </div>
       </div>
-    </PaneWrapper>
+    </TabWrapper>
   );
 }
 
-interface PaneWrapperProps {
-  paneId: string;
+interface TabWrapperProps {
+  tabId: string;
   children: React.ReactNode;
 }
 
-function PaneWrapper({ paneId, children }: PaneWrapperProps) {
+function TabWrapper({ tabId, children }: TabWrapperProps) {
   return (
     <div
-      data-pane-id={paneId}
-      className="w-full h-full relative group/pane"
+      data-tab-id={tabId}
+      className="w-full h-full relative group/Tab"
       style={{ outline: "none", boxShadow: "none", border: "none", background: "transparent" }}
     >
       {children}

@@ -11,17 +11,17 @@ Object.defineProperty(globalThis, "requestAnimationFrame", {
 });
 
 async function main() {
-  const { emitPaneUiMode } = await import("./chatUiMode");
+  const { emitTabUiMode } = await import("./chatUiMode");
   const events: string[] = [];
-  window.addEventListener("codeterm-pane-ui-mode", () => events.push("mode"));
-  window.addEventListener("codeterm-pane-resize", (event) => {
-    events.push(`resize:${(event as CustomEvent).detail.paneId}`);
+  window.addEventListener("codeterm-tab-ui-mode", () => events.push("mode"));
+  window.addEventListener("codeterm-tab-resize", (event) => {
+    events.push(`resize:${(event as CustomEvent).detail.tabId}`);
   });
 
-  emitPaneUiMode("pane-1", "terminal");
-  assert.deepEqual(events, ["mode", "resize:pane-1"]);
-  emitPaneUiMode("pane-1", "chat");
-  assert.deepEqual(events, ["mode", "resize:pane-1", "mode"]);
+  emitTabUiMode("tab-1", "terminal");
+  assert.deepEqual(events, ["mode", "resize:tab-1"]);
+  emitTabUiMode("tab-1", "chat");
+  assert.deepEqual(events, ["mode", "resize:tab-1", "mode"]);
 
   console.log("chat UI mode resize tests: passed");
 }

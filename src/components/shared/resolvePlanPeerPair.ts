@@ -1,56 +1,56 @@
-import type { Pane } from "../../lib/types";
-import { findPlansForPane, ownerIsPaneSelf } from "../Canvas/planPaneMatch";
+import type { Tab } from "../../lib/types";
+import { findPlansForTab, ownerIsTabSelf } from "../Canvas/planTabMatch";
 import type { Plan, PlannerRef } from "../Canvas/types";
 
 export interface PlanPeerPair {
   planId: string;
-  orchestratorPaneId: string;
-  plannerPaneId: string | null;
+  orchestratorTabId: string;
+  plannerTabId: string | null;
 }
 
-export function resolvePlannerPaneIdFromRef(planner: PlannerRef | null | undefined): string | null {
+export function resolvePlannerTabIdFromRef(planner: PlannerRef | null | undefined): string | null {
   if (!planner || planner.kind === "waived") return null;
-  const id = planner.pane_id?.trim();
+  const id = planner.tab_id?.trim();
   return id || null;
 }
 
-export function resolvePlannerPaneIdFromPlan(plan: Plan): string | null {
-  return resolvePlannerPaneIdFromRef(plan.planner);
+export function resolvePlannerTabIdFromPlan(plan: Plan): string | null {
+  return resolvePlannerTabIdFromRef(plan.planner);
 }
 
 export function findOwnedPlanForOrchestrator(
-  orchestratorPaneId: string,
+  orchestratorTabId: string,
   plans: Plan[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
 ): Plan | null {
-  const sessionId = panes[orchestratorPaneId]?.agent_session_id?.trim() || null;
-  const owned = findPlansForPane(plans, orchestratorPaneId, panes).filter((p) =>
-    ownerIsPaneSelf(p.owner, orchestratorPaneId, sessionId),
+  const sessionId = tabs[orchestratorTabId]?.agent_session_id?.trim() || null;
+  const owned = findPlansForTab(plans, orchestratorTabId, tabs).filter((p) =>
+    ownerIsTabSelf(p.owner, orchestratorTabId, sessionId),
   );
   if (owned.length === 0) return null;
   return owned.reduce((a, b) => (b.updated_at > a.updated_at ? b : a));
 }
 
 export function resolvePlanPeerPair(
-  orchestratorPaneId: string,
+  orchestratorTabId: string,
   plans: Plan[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
 ): PlanPeerPair | null {
-  const plan = findOwnedPlanForOrchestrator(orchestratorPaneId, plans, panes);
+  const plan = findOwnedPlanForOrchestrator(orchestratorTabId, plans, tabs);
   if (!plan) return null;
   return {
     planId: plan.id,
-    orchestratorPaneId,
-    plannerPaneId: resolvePlannerPaneIdFromPlan(plan),
+    orchestratorTabId,
+    plannerTabId: resolvePlannerTabIdFromPlan(plan),
   };
 }
 
-export function isPlannerPeerPane(
-  paneId: string,
-  orchestratorPaneId: string,
+export function isPlannerPeerTab(
+  tabId: string,
+  orchestratorTabId: string,
   plans: Plan[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
 ): boolean {
-  const pair = resolvePlanPeerPair(orchestratorPaneId, plans, panes);
-  return pair?.plannerPaneId === paneId;
+  const pair = resolvePlanPeerPair(orchestratorTabId, plans, tabs);
+  return pair?.plannerTabId === tabId;
 }

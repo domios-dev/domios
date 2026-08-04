@@ -4,7 +4,7 @@ export type DelayedMessageState = "queued" | "stashed" | "sending" | "failed";
 
 export interface DelayedMessage {
   id: string;
-  paneId: string;
+  tabId: string;
   workspaceId?: string | null;
   text: string;
   scheduledAtMs: number;
@@ -16,17 +16,17 @@ export interface DelayedMessage {
   sessionChanged: boolean;
 }
 
-export function listDelayedMessages(paneId: string): Promise<DelayedMessage[]> {
-  return invoke<DelayedMessage[]>("delayed_send_list", { paneId });
+export function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
+  return invoke<DelayedMessage[]>("delayed_send_list", { tabId });
 }
 
 export function createDelayedMessage(
-  paneId: string,
+  tabId: string,
   text: string,
   scheduledAtMs: number | null,
 ): Promise<DelayedMessage> {
   return invoke<DelayedMessage>("delayed_send_create", {
-    paneId,
+    tabId,
     text,
     scheduledAtMs: scheduledAtMs ?? undefined,
   });

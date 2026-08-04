@@ -16,15 +16,24 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-fn default_api_port() -> u16 {
-    #[cfg(debug_assertions)]
-    {
-        7686
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        7685
-    }
+fn runtime_api_port() -> Result<u16, String> {
+    let value = std::env::var("CODETERM_API_PORT")
+        .map_err(|_| "CODETERM_API_PORT is missing from the running instance".to_string())?;
+    value
+        .parse()
+        .map_err(|_| format!("CODETERM_API_PORT is invalid: {value}"))
+}
+
+pub(crate) fn install_provider_integration_for_launch(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) -> Result<(), String> {
+    let api_port = runtime_api_port()?;
+    registry
+        .with_provider(provider_id, |provider| {
+            provider.install_integration(api_port)
+        })
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
 }
 
 #[tauri::command]
@@ -43,7 +52,10 @@ pub fn install_provider_integration(
     provider_id: String,
     api_port: Option<u16>,
 ) -> Result<(), String> {
-    let port = api_port.unwrap_or_else(default_api_port);
+    let port = match api_port {
+        Some(port) => port,
+        None => runtime_api_port()?,
+    };
     svc.agent_registry
         .with_provider(&provider_id, |p| p.install_integration(port))
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
@@ -81,7 +93,13 @@ pub fn install_provider_rule(
 
 /// Repairs provider integrations without holding the registry lock or blocking startup.
 pub fn ensure_integrations_for_all(registry: &crate::agent::registry::AgentRegistry) {
-    let port = default_api_port();
+    let port = match runtime_api_port() {
+        Ok(port) => port,
+        Err(error) => {
+            log::warn!("[provider] integration repair skipped: {error}");
+            return;
+        }
+    };
     for provider in registry.all_provider_arcs() {
         let id = provider.id().to_string();
         if let Err(error) = std::thread::Builder::new()

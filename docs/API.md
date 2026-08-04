@@ -41,6 +41,27 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 
+The desktop REST listener has one monotonic runtime generation owner. A
+generation is reported as `listening` only after it owns the real socket and a
+real `GET /api/health` succeeds, its body is consumed, and the proof connection
+closes. This completion boundary keeps same-port Windows restarts from racing a
+lingering accepted health socket. Listener/server exit autonomously retires
+that generation and creates exactly one replacement; bind ownership failure
+waits for an explicit port-release or restart event instead of retrying on a timer.
+The internal `get_rest_api_status` command returns `generation`, `phase`,
+`diagnostic`, and `message`. Diagnostic values are `listener_exited`,
+`bind_ownership_failed`, or `workers_blocked`; the last means the listener
+remains bound but the four REST runtime workers cannot answer health.
+
+Each successful outage transition also owns a monotonic recovery id. Recovery
+events are queued, so two worker stalls recovered within one listener generation
+each produce one mesh resync while observing an event twice produces none.
+
+The representative worker-starvation cause is provider transcript parsing, not
+the listener: session JSONL can be hundreds of MiB. REST chat/transcript routes
+run the bounded 4 MiB tail parser on blocking workers, leaving all four REST
+runtime workers available for health, tab, and relay requests.
+
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -50,8 +71,8 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | — | Delete workspace |
-| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedPane[]` (see [Closed History & Restore](#closed-history--restore)). |
-| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, pane_id}`. |
+| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
+| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
 | POST | `/api/workspaces/{id}/tabs` | — | Create tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
@@ -62,15 +83,15 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen an entire closed group by its `group_id` (from the `recently_closed` snapshot). Recreates the workspace if it no longer exists; if a live workspace already exists at the same `cwd` it is reused — no duplicate is created. Returns `{workspace_id, tab_id, pane_id}` for the activated tab. |
+| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen an entire closed group by its `group_id` (from the `recently_closed` snapshot). Recreates the workspace if it no longer exists; if a live workspace already exists at the same `cwd` it is reused — no duplicate is created. Returns `{workspace_id, tab_id, tab_id}` for the activated tab. |
 
-**Path-match restore behavior.** When reopening any group or orphaned tab that records a `cwd`, CodeTerm calls `find_workspace_by_cwd` (normalised via `paths::normalize_cwd` — trailing slashes and case-folded) before creating a new workspace. If a live workspace already points at the same folder the tab(s) are inserted there instead of spawning a duplicate. This applies to `reopen_closed_group`, `reopen_closed_pane`, and `mux_restore_orphaned_pane` (commit 6115030e).
+**Path-match restore behavior.** When reopening any group or orphaned tab that records a `cwd`, CodeTerm calls `find_workspace_by_cwd` (normalised via `paths::normalize_cwd` — trailing slashes and case-folded) before creating a new workspace. If a live workspace already points at the same folder the tab(s) are inserted there instead of spawning a duplicate. This applies to `reopen_closed_group`, `reopen_closed_tab`, and `mux_restore_orphaned_tab` (commit 6115030e).
 
-**`ClosedPane` fields** (returned by `GET /api/workspaces/{id}/recently-closed`):
+**`ClosedTab` fields** (returned by `GET /api/workspaces/{id}/recently-closed`):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `pane_id` | `string` | Original tab id |
+| `tab_id` | `string` | Original tab id |
 | `title` | `string` | Tab title at close time |
 | `description` | `string?` | Tab description at close time |
 | `cwd` | `string?` | Working directory at close time |
@@ -81,73 +102,87 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 | `closed_at` | `u64` | Unix milliseconds |
 | `workspace_id` | `string` | Workspace the tab belonged to when closed |
 | `workspace_name` | `string` | Human-readable workspace name |
-| `parent_pane_id` | `string?` | Parent tab in hierarchy (preserved for cascade restore) |
+| `parent_tab_id` | `string?` | Parent tab in hierarchy (preserved for cascade restore) |
 
-**`ClosedPaneView` fields** — `ClosedPane` enriched for the sidebar. Returned in `mux_get_state` → `recently_closed[]` and in the `GET /api/mux/state` snapshot:
+**`ClosedTabView` fields** — `ClosedTab` enriched for the sidebar. Returned in `mux_get_state` → `recently_closed[]` and in the `GET /api/mux/state` snapshot:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| *(all ClosedPane fields above)* | | Flattened via `#[serde(flatten)]` |
+| *(all ClosedTab fields above)* | | Flattened via `#[serde(flatten)]` |
 | `index` | `number` | Position in the per-workspace reopen ring (`0` = most recent) |
 | `orphaned` | `bool` | `true` when the original workspace no longer exists |
 | `group_id` | `string` | Opaque group identifier (ULID) — pass to reopen-group endpoints |
 | `group_kind` | `string` | `"single"` \| `"cascade"` \| `"workspace"` |
 
-**`mux_get_state` / `GET /api/mux/state` snapshot** now includes a top-level `recently_closed: ClosedPaneView[]` field. The list is the union of all groups across all workspaces, sorted newest-first, with `orphaned` computed live against the current workspace set. Sidebar and web-mirror clients consume this field to render the closed-history panel.
+**`mux_get_state` / `GET /api/mux/state` snapshot** now includes a top-level `recently_closed: ClosedTabView[]` field. The list is the union of all groups across all workspaces, sorted newest-first, with `orphaned` computed live against the current workspace set. Sidebar and web-mirror clients consume this field to render the closed-history tabl.
 
 #### Tabs
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/panes` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact tab summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. |
-| GET | `/api/panes/inspect` | `?pane_ids=<id>,<id>` | Return the full tab payload for the selected tab IDs only. |
-| POST | `/api/panes` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh tab through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** tab is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
-| POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text or terminal actions to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written or queued. `actions` supports keys (`enter`, `esc`, arrows, `tab`, `backspace`, `delete`, `home/end`, `pageup/pagedown`, `space`, `ctrl-c`) and millisecond delays. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
-| POST | `/api/panes/{id}/stop` | — | Stop the tab's PTY process |
-| POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
-| GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
-| GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden tabs. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on tab remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
-| GET | `/api/panes/{id}/usage` | — | Latest usage/cost counters recorded for this tab |
-| GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
-| GET | `/api/agent-runs/{pane_id}/log` | — | Agent run log for a tab |
-| POST | `/api/panes/{id}/focus` | — | Focus tab |
-| POST | `/api/panes/{id}/close` | — | Close tab + kill PTY |
-| POST | `/api/panes/{id}/rename` | `{title}` | Rename tab |
-| POST | `/api/panes/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
-| POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
-| GET | `/api/panes/{id}/chat` | — | Chat snapshot for the tab |
-| POST | `/api/panes/{id}/chat/start` | — | Start chat JSONL tailing |
-| POST | `/api/panes/{id}/chat/stop` | — | Stop chat JSONL tailing |
-| POST | `/api/panes/{id}/chat/backfill` | `{before_offset, max_bytes?}` | Backfill older chat JSONL content |
-| GET | `/api/panes/{id}/delayed-messages` | — | List queued/failed delayed Chat UI messages for this tab |
-| POST | `/api/panes/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
+| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact tab summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. |
+| GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Return the full tab payload for the selected tab IDs only. |
+| POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh tab through the same verified send path used by `/api/tabs/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** tab is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
+| POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | Plain text and every batch item always submit. Use `actions` or `raw` only for explicit low-level terminal input. Returns `{ok:true}` after accepting delivery. |
+| POST | `/api/tabs/{id}/stop` | — | Stop the tab's PTY process |
+| POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
+| GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
+| GET | `/api/tabs/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden tabs. Response: `{"text": "...", "formatted": false, "tab_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on tab remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
+| GET | `/api/tabs/{id}/usage` | — | Latest usage/cost counters recorded for this tab |
+| GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
+| GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
+| POST | `/api/tabs/{id}/focus` | — | Focus tab |
+| POST | `/api/tabs/{id}/close` | — | Close tab + kill PTY |
+| POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab |
+| POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
+| POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
+| GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
+| GET | `/api/tabs/{id}/delayed-messages` | — | List queued/failed delayed Chat UI messages for this tab |
+| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
 | PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
 | DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
 | POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
-| POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that tab is showing a permission prompt (see below) |
-| POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
-| POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the tab; covers `/new` and `/clear` inside the TUI (see below) |
-| POST | `/api/panes/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apipanesidagentrestart). |
+| POST | `/api/tabs/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that tab is showing a permission prompt (see below) |
+| POST | `/api/tabs/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
+| POST | `/api/tabs/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the tab; covers `/new` and `/clear` inside the TUI (see below) |
+| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
+
+#### Chat attachment authority
+
+The desktop `chat_start` command and web-mirror
+`POST /api/tabs/{id}/chat-raw/start` return the same bounded snapshot shape.
+`source_session_id` and `session_binding_nonce` are derived from the Tab and
+form one authority generation. A client adopts snapshots and
+`tab-chat-msg-{id}` deltas only when both values match the Tab's current
+generation.
+
+`pending=true` with null session authority and no subscription means the Tab
+is still awaiting its own session; it is not attached and must not fall back to
+another provider session. `pending=true` with matching session authority and a
+subscription means the Tab is awaiting its own store. `pending=false` is a
+complete bounded snapshot, including a complete empty snapshot. Visible Chat
+owns one subscription, releases it when hidden, and obtains a fresh bounded
+snapshot on reactivation or event-stream resync.
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set tab role (`Orchestrator` or `Worker`; `Conductor` accepted as an alias for `Orchestrator`). |
-| DELETE | `/api/panes/{id}/role` | — | Clear role: detach a Worker from its Orchestrator, or orphan an Orchestrator's Workers |
-| GET | `/api/panes/{id}/status` | — | Tab status + role + children info |
-| POST | `/api/panes/{id}/report` | `{message}` | Send report to direct parent (cascade, not to Orchestrator). Auto-injected into parent's PTY. |
-| GET | `/api/panes/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
-| POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether tab can spawn children |
-| POST | `/api/panes/{id}/agent-type` | `{agent_type}` | Mark a tab as running a specific agent provider |
-| POST | `/api/panes/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
-| POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
+| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?}` | Set tab role (`Orchestrator` or `Worker`; `Conductor` accepted as an alias for `Orchestrator`). |
+| DELETE | `/api/tabs/{id}/role` | — | Clear role: detach a Worker from its Orchestrator, or orphan an Orchestrator's Workers |
+| GET | `/api/tabs/{id}/status` | — | Tab status + role + children info |
+| POST | `/api/tabs/{id}/report` | `{message}` | Send report to direct parent (cascade, not to Orchestrator). Auto-injected into parent's PTY. |
+| GET | `/api/tabs/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
+| POST | `/api/tabs/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether tab can spawn children |
+| POST | `/api/tabs/{id}/agent-type` | `{agent_type}` | Mark a tab as running a specific agent provider |
+| POST | `/api/tabs/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
+| POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `reasoning_efforts` (declared launch-time effort levels — empty ⇒ no effort selector), `default_reasoning_effort`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as tab description. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
-| GET | `/api/remote-workers` | `?pane=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?pane=` returns that orchestrator's workers; otherwise the full `{ pane_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_pane, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, can_spawn?, task?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?}` | One-call agent spawn (see below). `audience` accepts `user` (default) or `automation`; automation-owned prompts remain available to the harness but never raise user-visible Input-needed notifications. `description` follows the same trim/empty-clear/200-char validation as tab description. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (Tab id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
+| GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
 #### Interactive chat prompts (#162)
 
-Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream — populated via the `AgentProvider::parse_interactive_events` capability (native or JS `parseInteractiveEvents` + manifest `interactiveEvents` flag), never by branching on a provider id. It rides on both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and the live `pane-chat-msg-{paneId}` events (`ChatMsg[]`, attached to the tool-call message). First element type:
+Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream — populated via the `AgentProvider::parse_interactive_events` capability (native or JS `parseInteractiveEvents` + manifest `interactiveEvents` flag), never by branching on a provider id. It rides on both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and the live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, attached to the tool-call message). First element type:
 
 ```json
 { "type": "question", "id": "toolu_42-0", "toolUseId": "toolu_42",
@@ -155,7 +190,7 @@ Chat messages may carry an `interactive` array of answerable prompt widgets pars
   "options": [{ "label": "Postgres", "description": "Relational" }], "multiSelect": false }
 ```
 
-The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer back through the existing tab send path (`/api/panes/{id}/send`).
+The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer back through the existing tab send path (`/api/tabs/{id}/send`).
 
 #### Batch
 | Method | Path | Body | Description |
@@ -174,26 +209,25 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 
 ### Tab Fields
 
-Full fields returned by `GET /api/panes/inspect` for each selected tab:
+Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `string` | Unique tab ID (8-char hex, e.g. `a3f1b2c7`) |
 | `pty_id` | `string` | Associated PTY process ID |
-| `pane_type` | `string` | `"Terminal"` or `"Browser"` (canvas for visualizations) |
+| `tab_type` | `string` | `"Terminal"` or `"Choice"` |
 | `title` | `string` | Display title (user-pinned or auto-detected) |
 | `description` | `string?` | Short tab summary, max 200 chars. Shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
-| `url` | `string?` | URL for canvas tabs (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
 | `role` | `string?` | `"Orchestrator"`, `"Worker"`, or `null` |
-| `parent_pane_id` | `string?` | Parent tab ID in hierarchy, or `null` |
+| `parent_tab_id` | `string?` | Parent tab ID in hierarchy, or `null` |
 | `can_spawn` | `bool` | Whether this tab can spawn children. Orchestrator: true (default). Worker: always false. |
 | `connected_services` | `string[]` | External services connected to this tab (e.g. `["telegram"]`). Shown as icons in sidebar. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
 
-#### Permission Hook (POST /api/panes/{id}/hook/permission)
+#### Permission Hook (POST /api/tabs/{id}/hook/permission)
 
 Called by Claude Code hooks (or any agent integration) to notify CodeTerm that the agent is showing a permission prompt. This is a faster path than PTY auto-detection and bypasses the cooldown period.
 
@@ -204,34 +238,34 @@ Called by Claude Code hooks (or any agent integration) to notify CodeTerm that t
 
 ```bash
 # Auto-parse (most common — Claude hooks just ping the endpoint)
-curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
+curl -X POST "http://host:7685/api/tabs/$TAB/hook/permission" \
   -H "Content-Type: application/json" -d '{}'
 
 # Explicit prompt
-curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
+curl -X POST "http://host:7685/api/tabs/$TAB/hook/permission" \
   -H "Content-Type: application/json" \
   -d '{"question":"Allow file write?","options":[{"label":"Yes","value":"1"},{"label":"No","value":"3"}]}'
 ```
 
 Response: `{"detected": true}` or `{"detected": false}`. Even when `detected: false`, the hook still fires a `agent.permission_request` webhook event (the hook firing itself signals the agent is waiting).
 
-#### Stop Hook (POST /api/panes/{id}/hook/stop)
+#### Stop Hook (POST /api/tabs/{id}/hook/stop)
 
 Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. Triggers `agent.task_complete` webhook event and updates tab status. For protected tabs (e.g. General Agent), the stop hook does NOT clear `agent_type` — the tab retains its agent identity.
 
 ```bash
-curl -X POST "http://host:7685/api/panes/$PANE/hook/stop" \
+curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $CODETERM_API_TOKEN" -d '{}'
 ```
 
-#### SessionStart Hook (POST /api/panes/{id}/hook/session_start)
+#### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
 Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session.
 
 ```bash
 # Claude pipes its hook payload on stdin; the installed hook forwards it verbatim.
-curl -X POST "http://host:7685/api/panes/$PANE/hook/session_start" \
+curl -X POST "http://host:7685/api/tabs/$TAB/hook/session_start" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $CODETERM_API_TOKEN" \
   --data-binary @-
@@ -241,7 +275,7 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 
 #### Hook auth
 
-`/api/panes/*/hook/*` and `/api/mem/flush` require the standard Bearer token — there is no auth-exempt loopback path. CodeTerm injects `CODETERM_API_TOKEN` into every PTY (alongside `CODETERM_API_PORT` and `CODETERM_PANE_ID`), and the installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. External callers wiring custom hooks must set the same header.
+`/api/tabs/*/hook/*` and `/api/mem/flush` require the standard Bearer token — there is no auth-exempt loopback path. CodeTerm injects `CODETERM_API_TOKEN` into every PTY (alongside `CODETERM_API_PORT` and `CODETERM_TAB_ID`), and the installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. External callers wiring custom hooks must set the same header.
 
 #### File serving
 | Method | Path | Body | Description |
@@ -261,7 +295,7 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/webhooks` | — | List registered webhooks |
-| POST | `/api/webhooks` | `{url, events?, once?, pane_id?, headers?, payload_extra?}` | Register webhook |
+| POST | `/api/webhooks` | `{url, events?, once?, tab_id?, headers?, payload_extra?}` | Register webhook |
 | DELETE | `/api/webhooks/{id}` | — | Unregister webhook |
 
 Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report`
@@ -283,8 +317,6 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | GET | `/api/mesh/debug/sign` | — | Mint a signed mesh auth token for diagnostics |
 | GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
-| GET | `/api/mesh/web-token` | — | Mint a short-lived browser token for this daemon's web mirror |
-| GET | `/api/mesh/peers/{id}/web-token` | — | Ask a paired peer for a short-lived web token and browser host |
 | POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
 | POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
@@ -299,6 +331,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call. Sends a signed relay request without exposing the target token. Requires relay protocol version `1`. |
 | POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
@@ -308,7 +341,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/peers/approve/{id}` | — | Path-style alias for `POST /api/mesh/approve` (`request_id` in URL). |
 | POST | `/api/mesh/peers/reject/{id}` | — | Path-style alias for `POST /api/mesh/reject`. |
 | POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
-| POST | `/api/mesh/announce` | `PeerAnnounce` | Inbound peer address announcement |
+| POST | `/api/mesh/announce` | `PeerAnnounce` | Inbound peer announcement with addresses, `relay_protocol_version`, and optional typed `web_ui` endpoints |
 | POST | `/api/mesh/announce/all` | `?to=peer_id?` | Announce local addresses to one peer or all peers |
 | POST | `/api/mesh/peers/{id}/addr` | `{ip, port?}` | Override a paired peer's cached address |
 
@@ -317,6 +350,8 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 **Peer-ping scheduler.** A background scheduler (`mesh::ping_scheduler`) pings each paired peer's `/api/mesh/ping` every 20 s with a 4 s timeout. On any online/offline transition, the peer record's `online` flag flips, `last_seen` updates on coming back, and `mesh-state-changed` fires so the UI re-renders without polling.
 
 **Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only two whitelisted paths) and copies response bytes straight through — never buffered, filtered, or reordered — so the cursor/overflow contract of the underlying stream carries over unmodified. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) and exists because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via the `?token=` query — exempted from the normal bearer middleware by an exact prefix allowlist in `auth.rs`'s `is_custom_auth` — and the daemon then reaches the peer with a server-minted signed mesh token that is never serialized back to the browser.
+
+**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access-policy function. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset reject peers whose announced `relay_protocol_version` is not `1` with `426 Upgrade Required`.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -500,7 +535,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 
 #### Usage Tracker
 
-Per-provider usage snapshots scraped from the running agent (Claude `/usage`, Codex `/status`). The poller runs a hidden background tab, observes the provider's own usage screen, and persists `{used_pct, weekly_pct, weekly_opus_pct, ts_ms, resets_at, weekly_resets_at, account_id}` rows. Drives the in-app Usage bubble + history modal; everything is local — nothing is reported upstream.
+Per-provider usage snapshots come from each provider plugin's quota-free `fetchUsage` capability. Claude reads its OAuth usage endpoint, Codex reads its account rate-limit endpoint, and Cursor reads its dashboard endpoint. The poller never starts an agent or sends a metered prompt to observe usage. Plugins reduce account responses to meter percentages and reset timestamps before the core persists them; credentials and unrelated account fields are never stored. The snapshots drive the in-app Usage bubble and history modal.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -510,7 +545,7 @@ Per-provider usage snapshots scraped from the running agent (Claude `/usage`, Co
 | GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
 | POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe right now. Returns `{queued, probe_id}`; `503` if the poller isn't running. |
 
-**Adaptive polling.** A single background scheduler ticks every 30 s and decides which (provider, account) is due to probe. The base cadence steps through `[120 s, 300 s, 600 s, 1200 s, 2400 s]` (`BACKOFF_STEPS_S` in `src-tauri/src/usage/poller.rs`) with ±10% jitter at the top — dense while a tab for that provider is active, then stretches out the longer the user is idle. A tab is "active" when its activity timestamp is fresh (`PaneActivity::mark` on keypress / send / focus). After `PAUSE_AFTER_FAILURES = 3` consecutive probe failures the account is paused until manual refresh.
+**Adaptive polling.** A single background scheduler ticks every 30 s and decides which (provider, account) is due to probe. The cadence steps through `[600 s, 1200 s, 1800 s, 2400 s, 3000 s]` (`BACKOFF_STEPS_S` in `src-tauri/src/usage/poller.rs`) with ±10% jitter. A tab is "active" when its activity timestamp is fresh (`TabActivity::mark` on keypress, send, or focus). Providers without a quota-free `fetchUsage` capability are not scheduled.
 
 **Projection algorithm.** `src-tauri/src/usage/projection.rs` builds per-day-of-week medians from the last 4 weeks of snapshots, projects today's curve from the elapsed shape, and rejects "pair-noise" jumps wider than `SHAPE_PAIR_GAP_MS = 4h` apart with `SHAPE_PAIR_DELTA_MAX = 25 %` jump — typical of off-device usage gaps where two distant samples bracket someone else's activity on the same account. The frontend uses `activeWeeklyCycle()` in `src/components/Usage/cycle.ts` to discard stale `weekly_resets_at` values that lag the latest `resets_at`.
 
@@ -538,7 +573,7 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 
 Daemon-kind services are registered here; cron jobs are projected as virtual `cron`-kind services but managed via `/api/crons`. Only `daemon` can be created through this API.
 
-`POST /api/panes/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal access token. This lets a registered daemon write to a tab without holding the global access token.
+`POST /api/tabs/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal access token. This lets a registered daemon write to a tab without holding the global access token.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -558,12 +593,12 @@ Daemon-kind services are registered here; cron jobs are projected as virtual `cr
 - If the configured field is absent from the JSON body, the probe falls back to "2xx = Healthy".
 - CLI: `--health-json-field status --health-ok-values UP,ok --health-degraded-values STARTING`
 
-**Push-token middleware.** `POST /api/panes/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal API token. Token files live at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix), are 64-hex-char random, and are matched constant-time. Every accepted push is mirrored into the activity log as a `push` event.
+**Push-token middleware.** `POST /api/tabs/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal API token. Token files live at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix), are 64-hex-char random, and are matched constant-time. Every accepted push is mirrored into the activity log as a `push` event.
 
 **Tauri events:**
 - `service-health-changed` — `{service_id, status}` — fired by the health probe scheduler on confirmed status transitions only (3-tick debounced).
-- `service-pushed` — `{service_id, pane_id, body_preview}` — fired when a daemon writes to a tab via its push token. Also fired by the mesh-relay path when a paired peer relays a `/send` to us, so the activity log reflects cross-peer push traffic the same way as local pushes.
-- `remote-workers-changed` — `{orchestrator_pane_id, workers}` — fired when an inbound mesh report updates the remote-worker registry; `workers` is the full `{ pane_id: RemoteWorker[] }` map. Drives the sidebar's remote tab ghost nodes. See `GET /api/remote-workers`.
+- `service-pushed` — `{service_id, tab_id, body_preview}` — fired when a daemon writes to a tab via its push token. Also fired by the mesh-relay path when a paired peer relays a `/send` to us, so the activity log reflects cross-peer push traffic the same way as local pushes.
+- `remote-workers-changed` — `{orchestrator_tab_id, workers}` — fired when an inbound mesh report updates the remote-worker registry; `workers` is the full `{ tab_id: RemoteWorker[] }` map. Drives the sidebar's remote tab ghost nodes. See `GET /api/remote-workers`.
 
 #### Activity Log
 
@@ -603,7 +638,7 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
 
-**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab** (no UI surface); observe progress via the cron panel / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
+**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab** (no UI surface); observe progress via the cron tabl / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
 
 **Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
 
@@ -613,7 +648,7 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Tauri events:**
 - `cron-state-changed` — emitted on any cron CRUD operation
-- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, pane_id, tab_id}`
+- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, tab_id, tab_id}`
 
 #### Memory
 | Method | Path | Body / Query | Description |
@@ -694,10 +729,10 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) — the browser bundle's `mux_get_state`. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
-| POST | `/api/panes/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
+| POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
 | GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
-| GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/pane-status changes; the web bundle's `listen()`. |
-| GET | `/api/output/stream` | `?since=<b64url cursor>` | Multiplexed SSE: ONE connection carries every pane's PTY output as pane-tagged frames (`{pane_id, output, offset}`, plus per-pane `{truncated, from}` on ring eviction, `{ended}` on genuine PTY death, and a one-shot `{boot_changed, boot}` on daemon restart), replacing the per-pane long-poll below. `since` is a b64url `{boot, panes:{id:offset}}` cursor. Killswitch: browser localStorage `codeterm-web-output-stream=off` falls back to `/api/pty/{id}/read`. With a mesh relay target set, the browser instead streams via `/api/mesh/relay-stream?path=/api/output/stream` — same frames, same cursor. |
+| GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/tab-status changes; the web bundle's `listen()`. |
+| GET | `/api/output/stream` | `?since=<b64url cursor>` | Multiplexed SSE: ONE connection carries every Tab's PTY output as tab-tagged frames (`{tab_id, output, offset}`, plus per-tab `{truncated, from}` on ring eviction, `{ended}` on genuine PTY death, and a one-shot `{boot_changed, boot}` on daemon restart), replacing the per-tab long-poll below. `since` is a b64url `{boot, tabs:{id:offset}}` cursor. Killswitch: browser localStorage `codeterm-web-output-stream=off` falls back to `/api/pty/{id}/read`. With a mesh relay target set, the browser instead streams via `/api/mesh/relay-stream?path=/api/output/stream` — same frames, same cursor. |
 | GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop; fallback when the output-stream killswitch is off. |
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
@@ -754,7 +789,7 @@ Response shape:
 Response:
 ```json
 {
-  "pane_id": "a3f1b2c7",
+  "tab_id": "a3f1b2c7",
   "tab_id": "d5e6f7a8",
   "workspace_id": "b4e2c8d1",
   "provider": "claude",
@@ -793,7 +828,7 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
 
 **Auto install flow (`method=auto`).** The daemon spawns a background tokio runtime that calls `update::apply::check_and_apply`. This:
-1. Picks the manifest URL from `updater.channel` (or `manifest_url` query override — only honored when the binary is built with `dev-updater-allowlocal` for non-https schemes; release builds reject it).
+1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
 2. Downloads the platform asset, verifies the ed25519 signature, performs the platform-specific install (atomic binary swap on Windows, rsync into `.app` on macOS).
 3. Performs the 9-step graceful shutdown: tabs are signaled to exit, the mem WAL is checkpointed, the supervisor is stopped, then the app restarts.
 4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
@@ -807,9 +842,9 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 **Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
 
-#### Agent Restart (POST /api/panes/{id}/agent/restart)
+#### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart the agent in a tab. Default behaviour is graceful: send the provider-specific exit command, wait up to `grace_secs` for the PTY to return to a shell prompt, then relaunch. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
+Restart the agent in a tab. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -817,20 +852,29 @@ Restart the agent in a tab. Default behaviour is graceful: send the provider-spe
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `force` | `bool` | `false` | Skip the graceful exit and force-kill the PTY. Use only when the agent is hung / unresponsive. |
-| `grace_secs` | `u64` | `10` | Seconds to wait for graceful exit before force-killing. Ignored when `force=true`. |
+| `force` | `bool` | `false` | Skip the graceful exit event wait and tear down the old PTY immediately. Use only when the agent is hung or unresponsive. |
+| `grace_secs` | `u64` | `10` | Failure deadline around the shell-ready event wait before the old PTY is torn down. Ignored when `force=true`. |
 
-**Response** (`202 Accepted`):
+**Ready response** (`202 Accepted`):
 ```json
 {
-  "restarting": true,
-  "pane_id": "a3f1b2c7",
+  "restart_accepted": true,
+  "old_pty_torn_down": true,
+  "agent_ready": true,
+  "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e",
+  "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
+  "tab_id": "a3f1b2c7",
   "provider": "claude",
   "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "session_was_stale": false,
+  "session_action": "resume",
+  "auto_approve": true,
+  "permission_profile": "yolo",
   "force": false
 }
 ```
+
+The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`. A pre-restart `AgentReady` value attached to the old PTY never satisfies this contract.
 
 `session_was_stale` is `true` when the recorded session id pointed at a JSONL that no longer exists on disk; the restart proceeds without `--resume` and a fresh session is created.
 
@@ -838,13 +882,16 @@ Restart the agent in a tab. Default behaviour is graceful: send the provider-spe
 - `404` — tab id not found
 - `400` — tab has no agent to restart, or unsupported provider
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-tab to avoid restart loops
-- `500` — internal restart failure (PTY spawn error, etc.)
+- `500` — teardown or relaunch failed
+- `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
 
-This is the same flow `codeterm agent restart --tab PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
+Failures after acceptance include `error` plus the same transition fields. Every boolean remains false unless that leg was observed, and `new_pty_id` is included only if a replacement PTY was linked. Request rejections (`400`, `404`, and `429`) occur before acceptance and retain their compact error bodies. A failed restart is never returned in the ready `202` shape.
+
+This is the same flow `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]` invokes from the CLI.
 
 ### Plan Task Attempts
 
-Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_pane_id` remains the executor identity and is not the primary key. Respawning creates a new Worker tab and a new live attempt; it never reactivates the selected historical attempt.
+Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` remains the executor identity and is not the primary key. Respawning creates a new Worker tab and a new live attempt; it never reactivates the selected historical attempt.
 
 ### Team-bound plan creation
 
@@ -854,17 +901,17 @@ An orchestrator's first plan creation is atomic: its response includes `plan.tea
 
 Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
 
-`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Pane-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
+`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
 
 ### Close Team (POST /api/teams/{team_id}/close)
 
-Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team; ordinary tab closes always retain the Team record. The `X-CodeTerm-Pane-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
+Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team; ordinary tab closes always retain the Team record. The `X-CodeTerm-Tab-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
 | GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
-| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_pane_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
+| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
@@ -941,43 +988,44 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
   "title": "Worker-1",         // tab title (default: agent_name or agent command)
   "cwd": "C:/project",         // working directory
   "role": "Worker",            // Orchestrator or Worker (Conductor accepted as alias for Orchestrator)
-  "parent_pane_id": "a3f1b2c7", // parent Orchestrator for a Worker (8-char hex ID)
+  "parent_tab_id": "a3f1b2c7", // parent Orchestrator for a Worker (8-char hex ID)
   "can_spawn": true,           // allow spawning children
   "task": "analyze the code",  // baked into launch via -p flag (instant start)
   "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
-  "workspace_id": "b4e2c8d1"  // optional, defaults to active workspace
+  "workspace_id": "b4e2c8d1", // optional, defaults to active workspace
+  "audience": "automation"     // optional: suppress user bells for bench/probe tabs
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
+All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
-{"pane_id": "a3f1b2c7", "tab_id": "d5e6f7a8", "pty_id": "c9d0e1f2", "agent": "claude", "title": "Worker-1", "role": "Worker"}
+{"tab_id": "a3f1b2c7", "tab_id": "d5e6f7a8", "pty_id": "c9d0e1f2", "agent": "claude", "title": "Worker-1", "role": "Worker"}
 ```
 
 ### Remote mesh workers
 
-A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <pane|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned pane persists `report_target_mesh_peer = <caller's peer>` + `report_target_pane_id = <report_to>` (defaults to the caller's pane).
+A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <tab|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned Tab persists `report_target_mesh_peer = <caller's peer>` + `report_target_tab_id = <report_to>` (defaults to the caller's Tab).
 
 The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--tab`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
 
-Report routing precedence: **remote mesh target → `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`**; never self.
+Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
 Each inbound mesh report registers the worker in the orchestrator-side registry exposed by `GET /api/remote-workers` and the `remote-workers-changed` event, which the sidebar renders as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
 
 ### Batch Commands (POST /api/batch)
 
-Execute multiple operations in a single HTTP request. Commands run sequentially. Each command can have an `id` that other commands reference via `$id` (resolves to `pane_id` from that result).
+Execute multiple operations in a single HTTP request. Commands run sequentially. Each command can have an `id` that other commands reference via `$id` (resolves to `tab_id` from that result).
 
 **Request body:**
 ```json
 {
   "commands": [
     {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
-    {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude", "task": "analyze code"}},
-    {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude"}},
+    {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude", "task": "analyze code"}},
+    {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude"}},
     {"method": "notify", "params": {"title": "All spawned", "body": "4 agents ready"}}
   ]
 }
@@ -985,11 +1033,11 @@ Execute multiple operations in a single HTTP request. Commands run sequentially.
 
 **Available methods:** `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`
 
-**$ref syntax:** Any string value starting with `$` is replaced with the `pane_id` from the result of the command with that `id`. E.g. `"parent_pane_id": "$boss"` resolves to the pane_id returned by the "boss" spawn command.
+**$ref syntax:** Any string value starting with `$` is replaced with the `tab_id` from the result of the command with that `id`. E.g. `"parent_tab_id": "$boss"` resolves to the tab_id returned by the "boss" spawn command.
 
 **Response:**
 ```json
-{"results": [{"pane_id": "...", "tab_id": "...", ...}, {"ok": true}, ...]}
+{"results": [{"tab_id": "...", "tab_id": "...", ...}, {"ok": true}, ...]}
 ```
 
 On error, individual commands return `{"error": "message", "method": "..."}` but subsequent commands still execute.
@@ -998,39 +1046,39 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 | Method | Required params | Optional params |
 |--------|----------------|-----------------|
-| `spawn` | — | `agent`, `agent_name`, `title`, `cwd`, `role`, `parent_pane_id`, `can_spawn`, `task`, `args` |
-| `send` | `pane_id`, | `text`, `enter` (default: true) |
-| `rename` | `pane_id`, `title` | — |
-| `close` | `pane_id` | — |
-| `role` | `pane_id`, `role` | `parent_pane_id`, `can_spawn` |
+| `spawn` | — | `agent`, `agent_name`, `title`, `cwd`, `role`, `parent_tab_id`, `can_spawn`, `task`, `args` |
+| `send` | `tab_id`, | `text`, `enter` (default: true) |
+| `rename` | `tab_id`, `title` | — |
+| `close` | `tab_id` | — |
+| `role` | `tab_id`, `role` | `parent_tab_id`, `can_spawn` |
 | `notify` | — | `title`, `body`, `level` |
-| `can-spawn` | `pane_id` | `can_spawn` (default: true) |
-| `report` | `pane_id`, `message` | — |
+| `can-spawn` | `tab_id` | `can_spawn` (default: true) |
+| `report` | `tab_id`, `message` | — |
 
 ### Output Cursor Pattern
 
 Use `offset` parameter for efficient polling without fetching the full buffer:
 ```bash
 # First call — get all output
-curl "http://host:7685/api/panes/$PANE/output"
+curl "http://host:7685/api/tabs/$TAB/output"
 # Response: {"output": "...", "offset": 1234}
 
 # Subsequent calls — only new data
-curl "http://host:7685/api/panes/$PANE/output?offset=1234"
+curl "http://host:7685/api/tabs/$TAB/output?offset=1234"
 # Response: {"output": "new stuff", "offset": 1500}
 ```
 
 ### ANSI Stripping
 
 Add `strip_ansi=true` to get clean text without escape codes:
-- `GET /api/panes/:id/output?strip_ansi=true`
-- `POST /api/panes/:id/exec {"command": "...", "strip_ansi": true}`
+- `GET /api/tabs/:id/output?strip_ansi=true`
+- `POST /api/tabs/:id/exec {"command": "...", "strip_ansi": true}`
 
 ### Exec Pattern
 
 Send a command and wait for its output in one call:
 ```bash
-curl -X POST "http://host:7685/api/panes/$PANE/exec" \
+curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -H "Content-Type: application/json" \
   -d '{"command": "echo hello", "timeout_ms": 5000}'
 # Response: {"output": "hello\r\n...", "offset": 1600}
@@ -1041,7 +1089,7 @@ curl -X POST "http://host:7685/api/panes/$PANE/exec" \
 
 Subscribe to real-time output via Server-Sent Events:
 ```bash
-curl -N "http://host:7685/api/panes/$PANE/output/stream"
+curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 # data: {"output": "new text", "offset": 1234}
 # data: {"output": "more text", "offset": 1300}
 ```
@@ -1058,15 +1106,15 @@ WS=$(curl -s -X POST http://host:7685/api/workspaces \
   -d '{"name":"my-project"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 
 # Get tab and run command
-PANE=$(curl -s http://host:7685/api/panes | python3 -c "import sys,json;print(json.load(sys.stdin)[-1]['id'])")
-curl -X POST "http://host:7685/api/panes/$PANE/exec" \
+TAB=$(curl -s http://host:7685/api/tabs | python3 -c "import sys,json;print(json.load(sys.stdin)[-1]['id'])")
+curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -H "Content-Type: application/json" \
   -d '{"command": "npm test", "timeout_ms": 30000}'
 
 # Send with batch (e.g. launch Claude Code)
-curl -X POST "http://host:7685/api/panes/$PANE/send" \
+curl -X POST "http://host:7685/api/tabs/$TAB/send" \
   -H "Content-Type: application/json" \
-  -d '{"batch": [{"text": "claude", "enter": true}, {"text": "", "enter": true, "delay_ms": 8000}]}'
+  -d '{"batch": [{"text": "claude"}, {"text": "", "delay_ms": 8000}]}'
 
 # Register webhook for agent events
 curl -X POST http://host:7685/api/webhooks \
@@ -1076,7 +1124,7 @@ curl -X POST http://host:7685/api/webhooks \
 # One-shot webhook (fires once, then auto-deletes — like a Promise)
 curl -X POST http://host:7685/api/webhooks \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "pane_id": "'"$PANE"'"}'
+  -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
 
 # Network info
 curl http://host:7685/api/network
@@ -1123,22 +1171,22 @@ Newline-delimited JSON:
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
 | `workspace.rename` | `{workspace_id, name}` | Rename workspace |
 | `workspace.close` | `{workspace_id}` | Close workspace |
-| `workspace.recently_closed` | `{workspace_id}` | List recently-closed tab entries for a workspace. Returns `ClosedPane[]`. |
+| `workspace.recently_closed` | `{workspace_id}` | List recently-closed tab entries for a workspace. Returns `ClosedTab[]`. |
 | `workspace.reopen_closed` | `{workspace_id, index?}` | Reopen the nth recently-closed tab in a workspace (`index` 0 = most recent). Returns `TabInfo`. |
-| `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, pane_id}`. |
+| `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, tab_id}`. |
 | `workspace.move_tab` | `{tab_id, from_workspace_id, to_workspace_id}` | Move tab |
 | `team.list` | — | Return `{teams: Team[]}` from the live Team registry. |
 | `team.show` | `{team_id}` | Return `{team: Team}` or reject an unknown Team. |
-| `team.rename` | `{team_id, name, caller_pane_id?}` | Rename a Team and emit `mux-state-changed`. |
-| `team.close` | `{team_id, caller_pane_id?}` | Explicitly cascade-close Team members, remove the registry entry, archive/detach bound plans, retire owner/planner routing, and emit `mux-state-changed`. |
-| `team.adopt_plan` | `{team_id, plan_id, caller_pane_id}` | Atomically activate an existing plan 1:1 under the Team's sole live Orchestrator, replace owner/history, clear stale planner routing, relink hierarchy, and emit both `plan-changed` and `mux-state-changed`. The caller is required and must manage the destination Team. |
-| `plan.transfer` | `{plan_id, to: OrchestratorRef, reason?, caller_pane_id}` | Transfer atomically to the destination Orchestrator's live Team. The caller is required and must manage the source Team. |
-| `pane.list` | — | List tabs |
-| `pane.focus` | `{pane_id}` | Focus tab |
-| `pane.close` | `{pane_id}` | Close tab |
-| `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
-| `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
-| `pane.rename` | `{pane_id, title}` | Rename tab (pinned) |
+| `team.rename` | `{team_id, name, caller_tab_id?}` | Rename a Team and emit `mux-state-changed`. |
+| `team.close` | `{team_id, caller_tab_id?}` | Explicitly cascade-close Team members, remove the registry entry, archive/detach bound plans, retire owner/planner routing, and emit `mux-state-changed`. |
+| `team.adopt_plan` | `{team_id, plan_id, caller_tab_id}` | Atomically activate an existing plan 1:1 under the Team's sole live Orchestrator, replace owner/history, clear stale planner routing, relink hierarchy, and emit both `plan-changed` and `mux-state-changed`. The caller is required and must manage the destination Team. |
+| `plan.transfer` | `{plan_id, to: OrchestratorRef, reason?, caller_tab_id}` | Transfer atomically to the destination Orchestrator's live Team. The caller is required and must manage the source Team. |
+| `tab.list` | — | List tabs |
+| `tab.focus` | `{tab_id}` | Focus tab |
+| `tab.close` | `{tab_id}` | Close tab |
+| `tab.send_text` | `{tab_id, text}` | Send a text message to PTY; submission is mandatory |
+| `tab.get_output` | `{tab_id, max_bytes?}` | Read terminal output |
+| `tab.rename` | `{tab_id, title}` | Rename tab (pinned) |
 | `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
 | `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the daemon socket. |
 | `mem.get` | `{id}` | Fetch one mem item by id. |
@@ -1152,7 +1200,7 @@ Newline-delimited JSON:
 | `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
 | `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
 | `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
-| `mem.flush` | `{pane, title?}` | Flush a tab's PTY scrollback as a `conversation` mem item. |
+| `mem.flush` | `{tab, title?}` | Flush a tab's PTY scrollback as a `conversation` mem item. |
 | `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
 | `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
 | `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
@@ -1189,22 +1237,22 @@ Newline-delimited JSON:
 | `mem.graph.repair.orphan_blobs` | `{dry_run?, actor?}` | Find/delete unreferenced blob files. |
 
 `codeterm mem` routes its full item/history/taxonomy/tail/learn/wake-up/sync/skill/worker/calibration/graph surface over these socket methods — HTTP is no longer attempted for any of it, so a live socket with a dead HTTP API no longer breaks `mem`. A handful of `mem graph` subcommands (route, purge-invalidated, revive-broken, introduce-topic, hubs, islands, orphans, get) are local-only by design — the CLI opens `knowledge.db` directly and never touches either transport. `mem secret` is the one deliberate holdout: `mem.secret.*` gets an explicit `-32004` rejection over the socket (see `secret_socket_rejection` in `socket/server/mem/mod.rs`) because it's the only mem surface that can return plaintext credentials and the socket has no auth gate, so it stays on the bearer-token-gated `/api/secrets/*` HTTP API by design, not because it's unmigrated.
-| `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
+| `notification.create` | `{title, body?, level?, tab_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
 | `agent.list` | — | List all tabs with roles |
 | `agent.hierarchy` | — | Full hierarchy tree |
-| `agent.spawn` | `{agent?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | Spawn agent (same as REST) |
-| `agent.set_role` | `{pane_id, role, parent_pane_id?, can_spawn?}` | Set tab role |
-| `agent.clear_role` | `{pane_id}` | Clear tab role |
-| `agent.status` | `{pane_id}` | Get tab status + role |
-| `agent.children` | `{pane_id}` | List child tabs |
-| `agent.link` | `{pane_id, parent_pane_id}` | Link tab under parent tab |
-| `agent.report` | `{pane_id, message}` | Send report to direct parent |
-| `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a tab; resumes only when the recorded session is valid. |
+| `agent.spawn` | `{agent?, title?, cwd?, role?, parent_tab_id?, can_spawn?, task?, args?, workspace_id?}` | Spawn agent (same as REST) |
+| `agent.set_role` | `{tab_id, role, parent_tab_id?, can_spawn?}` | Set tab role |
+| `agent.clear_role` | `{tab_id}` | Clear tab role |
+| `agent.status` | `{tab_id}` | Get tab status + role |
+| `agent.children` | `{tab_id}` | List child tabs |
+| `agent.link` | `{tab_id, parent_tab_id}` | Link tab under parent tab |
+| `agent.report` | `{tab_id, message}` | Send report to direct parent |
+| `agent.restart` | `{tab_id, force?, grace_secs?}` | Restart the agent in a tab; resumes only when the recorded session is valid. |
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task |
 | `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
-| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_pane_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt and record a new live attempt |
+| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt and record a new live attempt |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -1225,7 +1273,7 @@ Newline-delimited JSON:
 | `activity.list` | `{source?, since?, limit?}` | Read recent activity events (push / health / peer / cron). Defaults: `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
-For `team.rename` and `team.close`, omitted `caller_pane_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
+For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
 ## CLI
 
@@ -1249,20 +1297,20 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 
 | Command | Params | Description |
 |---------|--------|-------------|
-| `mux_reopen_closed_pane` | `workspace_id: String, index: Option<usize>` | Reopen the nth recently-closed tab in a workspace (`index` 0 = most recent, default). Returns `TabInfo {id, title, pane_id}`. |
-| `mux_reopen_closed_group` | `group_id: String` | Reopen a closed group (single/cascade/workspace) by `group_id` from the snapshot. Returns `{workspace_id, tab_id, pane_id}`. |
-| `mux_restore_orphaned_pane` | `pane_id: String` | Reopen a tab from the orphaned ring (its original workspace was deleted). Reuses a live workspace at the same `cwd` if one exists, else recreates from the stored name + cwd. Returns `{workspace_id, tab_id, pane_id}`. Desktop (Tauri) only — no REST route; in web mode bridged via `mux_restore_orphaned_pane` invoke alias. |
-| `mux_update_pane_cwd` | `pane_id, cwd` | Updates tab's current working directory (called by OSC 7 handler in frontend) |
-| `mux_set_pane_agent_type` | `pane_id, agent_type` | Marks tab as running an agent (e.g. `"claude"`) |
+| `mux_reopen_closed_tab` | `workspace_id: String, index: Option<usize>` | Reopen the nth recently-closed tab in a workspace (`index` 0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
+| `mux_reopen_closed_group` | `group_id: String` | Reopen a closed group (single/cascade/workspace) by `group_id` from the snapshot. Returns `{workspace_id, tab_id, tab_id}`. |
+| `mux_restore_orphaned_tab` | `tab_id: String` | Reopen a tab from the orphaned ring (its original workspace was deleted). Reuses a live workspace at the same `cwd` if one exists, else recreates from the stored name + cwd. Returns `{workspace_id, tab_id, tab_id}`. Desktop (Tauri) only — no REST route; in web mode bridged via `mux_restore_orphaned_tab` invoke alias. |
+| `mux_update_tab_cwd` | `tab_id, cwd` | Updates tab's current working directory (called by OSC 7 handler in frontend) |
+| `mux_set_tab_agent_type` | `tab_id, agent_type` | Marks tab as running an agent (e.g. `"claude"`) |
 | `detect_claude_session_id` | `cwd, exclude?, max_age_secs?` | Finds Claude Code session ID by scanning `~/.claude/projects/` directory structure |
-| `mux_set_claude_session_id` | `pane_id, session_id` | Links tab to a Claude Code session for `--resume` support |
+| `mux_set_claude_session_id` | `tab_id, session_id` | Links tab to a Claude Code session for `--resume` support |
 | `get_default_cwd` | — | Returns the application's current working directory |
 | `mux_batch` | `commands: [{method, params, id?}]` | Execute batch commands with $ref resolution (same semantics as POST /api/batch). Delegates to the unified ServiceContext. |
 | `get_autostart_enabled` | — | Returns whether OS autostart (launch at login) is enabled |
 | `set_autostart_enabled` | `enabled: bool` | Enable/disable OS autostart. Windows: HKCU registry. macOS: LaunchAgent plist. Linux: .desktop file. |
 | `save_clipboard_file` | `bytes: Vec<u8>, filename: String` | Saves arbitrary clipboard file bytes to a managed temp bucket (`files`) under the OS temp dir and returns the absolute path. Used by clipboard paste / drag-drop to materialize attachments before sending to an agent. Eviction is handled by the shared `attachments` module. |
 | `read_clipboard_files` | — | Reads native OS clipboard file references and returns absolute paths. **Windows:** `CF_HDROP` via `clipboard-win`. **macOS:** `NSPasteboardTypeFileURL`. **Linux:** stub (returns empty). |
-| `get_pane_text` | `pane_id: String, formatted: Option<bool>` | Returns the tab's visible VT100-parsed text. With `formatted=true` the string contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility — used on tab remount to avoid the ConPTY double-cursor issue when TUI apps hide the cursor via DECTCEM. Default `formatted=false` returns plain text. |
+| `get_tab_text` | `tab_id: String, formatted: Option<bool>` | Returns the tab's visible VT100-parsed text. With `formatted=true` the string contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility — used on tab remount to avoid the ConPTY double-cursor issue when TUI apps hide the cursor via DECTCEM. Default `formatted=false` returns plain text. |
 
 ## Environment Variables
 
@@ -1273,12 +1321,12 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM` | `1` | Running inside CodeTerm |
 | `CODETERM_VERSION` | `0.4.0` | App version |
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
-| `CODETERM_PANE_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
+| `CODETERM_TAB_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator` or `Worker` (empty if no role). Set at PTY spawn. |
-| `CODETERM_PARENT_PANE_ID` | `b4e2c8d1` | Parent pane ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
+| `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
-| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/panes/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
+| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -1308,14 +1356,14 @@ surfaces as agents:
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
   no flag → the plugin's `defaultPreset`.
-- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
+- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
   `--charter-file PATH` may be used instead of `--charter`. The REST body fields
   are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and
   `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and
   `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends
   into the watcher tab, schedules `watcherTick`, parses `watcher_verdict`
   messages, and executes only host-allowlisted verdict actions.
-- **Open directly:** `POST /api/panes {chat_backend, system_prompt?, preset?, model?}`.
+- **Open directly:** `POST /api/tabs {chat_backend, system_prompt?, preset?, model?}`.
 - **Observe:** the shell emits a `system_prompt` marker message rendered as a
   collapsible "System prompt" card; tool-call / tool-result messages render via the
   existing chat-UI message rendering.
@@ -1352,4 +1400,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 88 -->
+<!-- revision: 103 -->

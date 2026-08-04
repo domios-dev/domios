@@ -1,6 +1,6 @@
 # Detection deepening loop — round log
 
-Loop Lead / fixer: pane `e6288f83`. Source of truth: `docs/plans/detection-rebuild-deepening-loop.md`
+Loop Lead / fixer: tab `e6288f83`. Source of truth: `docs/plans/detection-rebuild-deepening-loop.md`
 ("Live loop runbook — 2026-06-21", rev 5). Baseline commit `3f477246`.
 
 Measurement tool: `testbench/detect-rounds/seg.py <timeline.json>` — segments a replay's
@@ -12,7 +12,7 @@ counts, final state, sub-400ms blips (flicker), and last-question end.
 ## Round 1 — establish measurement + baseline; triage the 3 live P0s
 
 ### A. Defect picked
-Live P0s from Andrey: (1) Codex pane `2bace0d6`/pty `84f81602` visually idle but `/api/panes`
+Live P0s from Andrey: (1) Codex tab `2bace0d6`/pty `84f81602` visually idle but `/api/tabs`
 `agent_state={state:"working"}`; (3) OpenCode `40c87bb3` stayed Working after a normal answer.
 No per-frame state measurement existed, so the measurement was built first.
 
@@ -59,9 +59,9 @@ one extra blank row would break it.
 ### E. Open gaps for next rounds
 - The probe replay is NOT Andrey's real "A/B/C choice" prompt. Must capture real-prompt arcs
   (codex prose-answer; opencode interactive menu) and measure final state (Round 2).
-- `state=null` on freshly restored agent panes is a visibility gap (Round: task #5).
+- `state=null` on freshly restored agent tabs is a visibility gap (Round: task #5).
 - Codex ChatUI ordering: transcript data IS seq/timestamp-ordered correctly (verified via
-  `pane chat --json`), so the bug is in the render layer (`PaneSessionChat.tsx`), not detection.
+  `tab chat --json`), so the bug is in the render layer (`TabSessionChat.tsx`), not detection.
 
 ### Status: measurement established, baseline captured, no fix yet (correct — bug not yet
 reproduced on HEAD with real prompts). Proceeding to Round 2 (real-prompt corpus).
@@ -72,10 +72,10 @@ reproduced on HEAD with real prompts). Proceeding to Round 2 (real-prompt corpus
 
 ### A. Defect picked
 Confirm or deny the live stuck-Working / missing-Question P0s on HEAD using Andrey's REAL prompt
-(mined from the live panes), not the synthetic probe (which forces a CLI UI).
+(mined from the live tabs), not the synthetic probe (which forces a CLI UI).
 
 ### B. Real prompt (generator only, never hardcoded)
-All three panes used the same casual Russian prompt:
+All three tabs used the same casual Russian prompt:
 `"а ты можешь мне послать допустим в виде опросника A B C варианты как ты умеешь внутри[интерфейса]"`
 Scenario: `testbench/detect-scenarios/real_abc_poll_v1.yaml` (3 turns + acks + idle holds + focus
 churn). Captured via `testbench/replay-capture.py` (dev 7686), rendered with `render_timeline`.
@@ -128,7 +128,7 @@ reproduce it. Any "replay PASS" was vacuous.
 ### B. Fix 1 — oracle unification (the measurement)
 Exposed `classify_signals` (offline adapter: builds `ClassifyInput` from the replayed
 `SignalExtractor` + `detect_picker`, delegates to `classify_state`). `render_timeline` now threads
-`overlay.previous: PaneVerdict` frame-to-frame through `classify_signals` — the SAME stateful
+`overlay.previous: TabVerdict` frame-to-frame through `classify_signals` — the SAME stateful
 `classify_state` the live `service::output::recompute_agent_state` runs. Removed the hold-decay.
 status_line/summary kept as display-only, surfaced per verdict state (mirrors output.rs).
 
@@ -323,7 +323,7 @@ The chat-core sort layer is SOUND and now regression-locked with verbatim rollou
 "assistant above user" symptom is therefore a LIVE-RENDER / streaming-arrival transient, not a
 comparator bug — candidates: `matchedOptimisticEchoes` GC'ing the optimistic user bubble in the gap
 before the real user JSONL row is tailed (assistant briefly alone), or render-layer interleave in
-`PaneSessionChat`/the coordinator's `chatUiMode` path. Characterizing it needs a live ChatUI DOM
+`TabSessionChat`/the coordinator's `chatUiMode` path. Characterizing it needs a live ChatUI DOM
 capture during a codex turn (WebView Playwright). Handing the live-render investigation to the
 coordinator (owns chatUiMode/ChatUiDefaultPrompt); did NOT touch those files.
 
@@ -335,22 +335,22 @@ needs DOM capture + coordination with the owner. Next: Stop/Cancel/Esc→Idle (p
 ## Round 8 — Stop/Cancel button must force Idle + clear pending (priority 4, invariant 5)
 
 ### A. Defect (code-traced)
-`api/pane_routes::stop_pane` (the Stop/Cancel button) sent the provider stop keystroke via
-`svc.write_raw(pane_id, …)`. `write_raw` writes straight to the PTY — it BYPASSES the manual-Esc
+`api/tab_routes::stop_tab` (the Stop/Cancel button) sent the provider stop keystroke via
+`svc.write_raw(tab_id, …)`. `write_raw` writes straight to the PTY — it BYPASSES the manual-Esc
 hook `mark_manual_agent_interrupt` (which only runs on `write_pty`/`write_pty_string_core` and only
 when `bytes == b"\x1b"`). So the Stop button never called `mark_agent_interrupted` ⇒ it did NOT
 force Idle or clear `pending_prompt`; it just sent the key and waited for the agent to react. Cursor
 (stop keystroke = Ctrl+C `\x03`, not Esc) got no force-idle even via the manual hook.
 
 ### B. Fix
-`stop_pane` now calls `state.svc.mark_agent_interrupted(&pty_id)` (resolved via
+`stop_tab` now calls `state.svc.mark_agent_interrupted(&pty_id)` (resolved via
 `resolve_pty_id_with_fallback`) before sending the keystroke — for ALL providers, keystroke or not.
-`mark_agent_interrupted` = `force_agent_idle_for_pane` (sets `agent_state=Idle`, `pending_prompt=None`,
+`mark_agent_interrupted` = `force_agent_idle_for_tab` (sets `agent_state=Idle`, `pending_prompt=None`,
 emits) + a 1500ms suppression window so trailing PTY output can't immediately re-flip the verdict.
 
 ### C. Live API smoke (dev 7686, build with fix)
-Drove codex pane `2bace0d6` to a sustained turn (1500-word essay), tight-polled to `state=working`,
-then `POST /api/panes/2bace0d6/stop`:
+Drove codex tab `2bace0d6` to a sustained turn (1500-word essay), tight-polled to `state=working`,
+then `POST /api/tabs/2bace0d6/stop`:
 ```
 BEFORE stop:  state=working pending=null
 STOP sent ->  {"ok":true,"stopped":true}
@@ -360,10 +360,10 @@ AFTER  +0s:   state=idle pending=null
 ```
 Working → Idle forced immediately on Stop. (Manual lone-Esc-in-terminal path unchanged and still
 forces idle via `mark_manual_agent_interrupt`; this fix adds the same guarantee to the Stop button
-and to Ctrl+C providers like cursor. `pending_prompt=None` is set by the same `force_agent_idle_for_pane`.)
+and to Ctrl+C providers like cursor. `pending_prompt=None` is set by the same `force_agent_idle_for_tab`.)
 
 ### D. Follow-up
-Integration/regression test for `stop_pane` (async axum handler) is a follow-up; the handler needs
+Integration/regression test for `stop_tab` (async axum handler) is a follow-up; the handler needs
 `AppState`, so it's an http-level test, not a pure unit test. Live smoke is the evidence here.
 Did NOT add ChatUI-surface DOM check (coordinator owns the ChatUI Stop button surface).
 
@@ -417,17 +417,17 @@ centralization scoped + awaiting approval (architectural). Nothing committed.
 Only the async `spawn_agent` (REST) allocated+subscribed the opencode structured server; all other
 spawn paths passed `structured_prompt_server: None` → opencode via desktop/CLI = plain TUI (no SSE
 picker_question, no HTTP abort). The CLI route specifically: `agent.spawn → spawn_agent_sync →
-spawn_pane_with_ready → spawn_visible_agent_impl` (sync) bypassed the async block.
+spawn_tab_with_ready → spawn_visible_agent_impl` (sync) bypassed the async block.
 
 ### B. Fix — ONE shared capability-gated helper
-`structured_prompt::ensure_for_spawn(svc, agent_cmd, pane_id, cwd) -> Option<StructuredPromptServer>`
+`structured_prompt::ensure_for_spawn(svc, agent_cmd, tab_id, cwd) -> Option<StructuredPromptServer>`
 = gate(`needs_structured_prompt_server`) → `allocate_server` → `register_endpoint` →
 `maybe_start_subscriber` → return (B-ORDER: server set into launch params BEFORE the command is
 built). No provider-id branch; honest None on not-needed/alloc-fail. Wired into EVERY spawn path via
 the one helper: orchestrator async `spawn_agent`, `PtyTransport::launch` (desktop/CLI),
 `spawn_visible_agent_impl` + `spawn_hidden_agent_impl`, `start_general_agent`, and `agent_restart`
 (C6 fresh-endpoint; some of these landed via the coordinator's concurrent patch — combined diff is
-coherent). C5/C6 cleanup pre-existing via `clear_pane` (pane close/exit) so restart re-allocates fresh.
+coherent). C5/C6 cleanup pre-existing via `clear_tab` (tab close/exit) so restart re-allocates fresh.
 
 ### C. Acceptance — `testbench/opencode-server-check.sh`
 - REST Path-A: green (pre-existing).
@@ -451,8 +451,8 @@ detection rebuild's opencode track is structurally complete. Nothing committed.
 Temp-cwd `opencode.json` with `permission:{bash:"ask"}` (deterministic trigger) → spawn opencode via
 the centralized path → forceful exact-bash prompt (retry ×3 for model nondeterminism, honest-skip
 if it answers in prose / no auth) → assert through the REAL SSE subscriber + recompute:
-1. `permission.asked` → `pending_prompt` non-null + `/api/panes` **state=question** — PASS.
-2. `POST /api/panes/{id}/prompt/respond {"value":"1"}` → `{ok:true}` → **question cleared** (working) — PASS.
+1. `permission.asked` → `pending_prompt` non-null + `/api/tabs` **state=question** — PASS.
+2. `POST /api/tabs/{id}/prompt/respond {"value":"1"}` → `{ok:true}` → **question cleared** (working) — PASS.
 3. opencode **proceeded** — the allowed `echo <marker>` ran, marker in the transcript — PASS.
 `RESULT: C9 PASS`. Deterministic CI coverage for the event→prompt mapping stays in the
 `opencode_sse` unit tests (`parse_event`/`reply_body`); this gate is the live wire they can't cover.
@@ -516,7 +516,7 @@ working_frames=0, FINAL=idle. A timeout-only classifier would be stuck Working f
 structural composer signal keeps it Idle. Proves no indefinite stuck under live-like repaint.
 
 ### G. Live smoke
-opencode pane `c3ada6ce`: sent a 1-sentence prompt, observed ~7.25s working, then settled to idle
+opencode tab `c3ada6ce`: sent a 1-sentence prompt, observed ~7.25s working, then settled to idle
 within ~250ms (one poll) — NOT a 5s timeout. Structural settle confirmed on the live path.
 
 ### Status: Adversary blocker RESOLVED. cursor/opencode settle structurally (≤58ms replay /
@@ -528,22 +528,22 @@ remains only as a last-resort backstop for genuinely unknown layouts. Nothing co
 ## Round 10 — /stop must actually INTERRUPT the agent, not just flip state (Adversary)
 
 ### A. Defect (Adversary, confirmed)
-R8 made `stop_pane` force-idle, but `bytes = provider.stop_keystroke()` is `None` for EVERY built-in
+R8 made `stop_tab` force-idle, but `bytes = provider.stop_keystroke()` is `None` for EVERY built-in
 provider (trait default `stop_keystroke()` returns None; only JS drop-ins set `stop_key`). So the
 REST/CLI stop sent NO interrupt — the agent kept generating and the state flip was a 1500ms illusion
 (would re-flip to Working after the suppression window). R8's smoke only checked +0.7s (inside the
 window), so it missed this.
 
 ### B. Fix
-`stop_pane`: when the pane has an agent, the interrupt key falls back to ESC (`\x1b`) when the
+`stop_tab`: when the tab has an agent, the interrupt key falls back to ESC (`\x1b`) when the
 provider declares no `stop_keystroke()` — mirroring the UI `interrupt_agent` path (which sends `\x1b`
 for every provider). Then write_raw the key + `mark_agent_interrupted` (force idle + clear pending).
-UI `interrupt_agent` path left unchanged. No agent on the pane ⇒ `{stopped:false}`, no-op.
+UI `interrupt_agent` path left unchanged. No agent on the tab ⇒ `{stopped:false}`, no-op.
 
 ### C. Live smoke — agent ACTUALLY stops, checked BEYOND the 1500ms window (codex `2bace0d6`)
 ```
 sent a 3000-word essay task; BEFORE stop:   state=working assistant_len=238
-POST /api/panes/2bace0d6/stop -> {"ok":true,"stopped":true}
+POST /api/tabs/2bace0d6/stop -> {"ok":true,"stopped":true}
 AFTER +3s:  state=idle assistant_len=238
 AFTER +5s:  state=idle assistant_len=238   (delta=0 chars => generation HALTED)
 screen tail: `› Напиши очень длинное эссе…` + `gpt-5.5 medium · …`  (idle composer, NO spinner)
@@ -551,8 +551,8 @@ screen tail: `› Напиши очень длинное эссе…` + `gpt-5.5
 State stays idle past suppression AND assistant output frozen at 238 chars AND idle composer on
 screen ⇒ the ESC reached codex and cancelled the turn. (Contrast R8: without a key, output would
 keep growing and Working would return after 1500ms.)
-Follow-up: an http-handler integration test for `stop_pane` needs an AppState harness (none exists;
-current pane_routes tests are pure body-parsing) — deferred; live smoke is the accepted evidence.
+Follow-up: an http-handler integration test for `stop_tab` needs an AppState harness (none exists;
+current tab_routes tests are pure body-parsing) — deferred; live smoke is the accepted evidence.
 
 ### Round 9 evidence bundle (for Adversary)
 - Transition-latency oracle: `testbench/detect-rounds/idle_latency_oracle.py`. BEFORE cursor
@@ -562,7 +562,7 @@ current pane_routes tests are pure body-parsing) — deferred; live smoke is the
 - Synthetic repaint-proof: `testbench/replays/synthetic/repaint_proof_v1/` (max_byte_idle=2000ms,
   working_frames=0, FINAL=idle); generator `testbench/detect-rounds/make_repaint_cast.py`.
 - idle-hold gate: `testbench/detect-rounds/idle_hold_gate.py` — all 4 providers bodies+tails 0.
-- Live opencode smoke: pane `c3ada6ce`, ~7.25s working → idle within ~250ms.
+- Live opencode smoke: tab `c3ada6ce`, ~7.25s working → idle within ~250ms.
 
 ### Coordinator protocol ACK
 Loop constitution (visibility-first, production-truth oracle, structural-only, negatives-weighted,

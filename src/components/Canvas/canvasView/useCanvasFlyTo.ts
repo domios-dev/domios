@@ -30,8 +30,8 @@ function revealSpecSection(planCtx: string, sectionId: string): void {
       const delta = row.getBoundingClientRect().top - scrollBody.getBoundingClientRect().top;
       scrollBody.scrollTop += delta - 8;
     }
-    row.classList.add("ct-canvas-pulse");
-    setTimeout(() => row.classList.remove("ct-canvas-pulse"), 3400);
+    row.classList.add("ct-canvas-hovered");
+    setTimeout(() => row.classList.remove("ct-canvas-hovered"), 3400);
     return true;
   };
   let tries = 0;

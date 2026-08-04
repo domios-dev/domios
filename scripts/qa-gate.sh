@@ -17,7 +17,7 @@
 #   --json              JSON lines instead of KV first line
 #   --skip-dev-check    run dev-dependent gates even if 7686 is down
 #
-# Prod orchestrator panes leak CODETERM_API_PORT=7685 — gates auto-sanitize to dev (7686).
+# Prod orchestrator tabs leak CODETERM_API_PORT=7685 — gates auto-sanitize to dev (7686).
 # QA_GATE_ENV_LOCKED=1 preserves env; QA_GATE_INSTANCE sets named dev instance.
 #
 # Examples:

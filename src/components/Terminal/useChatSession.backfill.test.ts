@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   };
   function Harness() {
     const session = useChatSession({
-      paneId: "pane",
+      tabId: "tab",
       agentSessionId: "sid-1",
       sessionBindingNonce: "nonce-1",
       active: true,

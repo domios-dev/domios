@@ -3,7 +3,7 @@
 //! Layout:
 //!   - [`instructions`] — AGENT.md / CLAUDE.md / AGENTS.md / bootstrap.md generation
 //!     plus the `sync_identity_to_mem` helper.
-//!   - [`workspace`] — General workspace + protected pane setup.
+//!   - [`workspace`] — General workspace + protected tab setup.
 //!   - [`lifecycle`] — start / restart of the GA PTY + launch flow.
 //!   - [`watchdog`] — periodic health-check + auto-restart.
 //!
@@ -25,12 +25,12 @@ use std::path::PathBuf;
 
 pub use first_run::{
     complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,
-    snapshot_has_protected_main, FIRST_RUN_PANE_MARKER,
+    snapshot_has_protected_main, FIRST_RUN_TAB_MARKER,
 };
 pub use instructions::{generate_instructions, sync_identity_to_mem};
 pub use lifecycle::{
-    claim_general_agent_pane_retry, restart_general_agent, restart_general_agent_pane,
-    start_general_agent, validate_general_agent_pane_retry,
+    claim_general_agent_tab_retry, restart_general_agent, restart_general_agent_tab,
+    start_general_agent, validate_general_agent_tab_retry,
 };
 pub use watchdog::start_watchdog;
 pub use workspace::{
@@ -41,7 +41,7 @@ pub const GENERAL_ALIAS: &str = "general";
 /// Second alias for the GA tab — `codeterm tab ... main` resolves to it too.
 pub const MAIN_ALIAS: &str = "main";
 pub const GENERAL_WORKSPACE_NAME: &str = "General";
-pub const GENERAL_PANE_TITLE: &str = "Main";
+pub const GENERAL_TAB_TITLE: &str = "Main";
 
 /// Get the General Agent workspace directory.
 /// `~/.codeterm/general/` (or `~/.codeterm-dev/general/` for dev builds).

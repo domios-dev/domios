@@ -67,20 +67,20 @@ pub(super) fn dispatch(
             let question = opt_str(p, "question").unwrap_or("").trim().to_string();
             let context = opt_str(p, "context").unwrap_or("").to_string();
             let blocking = string_list(p, "blocking_task_ids");
-            let asked_by = opt_str(p, "asked_by_pane_id")
-                .or_else(|| opt_str(p, "caller_pane_id"))
+            let asked_by = opt_str(p, "asked_by_tab_id")
+                .or_else(|| opt_str(p, "caller_tab_id"))
                 .map(str::to_string);
 
-            // Resolve where to route before storing, so heartbeat shows the routed pane.
+            // Resolve where to route before storing, so heartbeat shows the routed tab.
             let routed_to = {
                 let plan = store.get(&plan_id);
                 plan.and_then(|pl| {
                     let resolution =
                         crate::plan::peer::resolve_planner_ref(&pl.planner, &pl.owner, |pid| {
-                            svc.pane_probe(pid)
+                            svc.tab_probe(pid)
                         });
                     match resolution {
-                        crate::plan::peer::PeerResolution::Planner { pane_id } => Some(pane_id),
+                        crate::plan::peer::PeerResolution::Planner { tab_id } => Some(tab_id),
                         crate::plan::peer::PeerResolution::OrchestratorFallback { .. }
                         | crate::plan::peer::PeerResolution::Waived { .. }
                         | crate::plan::peer::PeerResolution::Unbound => None,
@@ -88,11 +88,11 @@ pub(super) fn dispatch(
                 })
             };
 
-            let caller_session_id = asked_by.as_deref().and_then(|pane_id| {
+            let caller_session_id = asked_by.as_deref().and_then(|tab_id| {
                 svc.mux
                     .read()
-                    .get_pane(pane_id)
-                    .and_then(|pane| pane.agent_session_id.clone())
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone())
             });
             let (gate, request) = store
                 .ask_gate_with_planner_request(
@@ -107,8 +107,8 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             let request_id = request.request_id.clone();
-            if let Some(pane_id) = routed_to.as_deref() {
-                svc.replay_planner_requests_if_routable(pane_id);
+            if let Some(tab_id) = routed_to.as_deref() {
+                svc.replay_planner_requests_if_routable(tab_id);
             }
             let request = store
                 .get(&plan_id)
@@ -125,8 +125,8 @@ pub(super) fn dispatch(
             ) {
                 let plan = store.get(&plan_id);
                 let resolution = plan.as_ref().map(|plan| {
-                    crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
-                        svc.pane_probe(pane_id)
+                    crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
+                        svc.tab_probe(tab_id)
                     })
                 });
                 let delivery = plan.as_ref().and_then(|plan| {
@@ -168,8 +168,8 @@ pub(super) fn dispatch(
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
             let gate_id = super::get_string_param(params, "gate_id")?;
             let answer = opt_str(p, "answer").unwrap_or("").to_string();
-            let answered_by = opt_str(p, "answered_by_pane_id")
-                .or_else(|| opt_str(p, "caller_pane_id"))
+            let answered_by = opt_str(p, "answered_by_tab_id")
+                .or_else(|| opt_str(p, "caller_tab_id"))
                 .map(str::to_string);
             let gate = store
                 .answer_gate(&plan_id, &gate_id, &answer, answered_by.as_deref(), now)
@@ -182,13 +182,13 @@ pub(super) fn dispatch(
         "plan.decision.ack_request" => {
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
             let request_id = super::get_string_param(params, "request_id")?;
-            let pane_id = opt_str(p, "caller_pane_id").ok_or_else(|| JsonRpcError {
+            let tab_id = opt_str(p, "caller_tab_id").ok_or_else(|| JsonRpcError {
                 code: -32602,
-                message: "caller_pane_id is required".into(),
+                message: "caller_tab_id is required".into(),
                 data: None,
             })?;
             let request = svc
-                .acknowledge_planner_request(&plan_id, &request_id, pane_id)
+                .acknowledge_planner_request(&plan_id, &request_id, tab_id)
                 .map_err(|message| JsonRpcError {
                     code: -32003,
                     message,

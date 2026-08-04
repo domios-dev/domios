@@ -38,14 +38,14 @@ def test_rename_workspace(api_only: CodeTermAPI):
 
 
 def test_close_workspace(api_only: CodeTermAPI):
-    """Close a workspace and verify panes are gone."""
+    """Close a workspace and verify tabs are gone."""
     name = unique_name("ws-close")
     ws = api_only.create_workspace(name)
     ws_id = ws["id"]
 
-    # Grab pane IDs belonging to this workspace before closing
-    panes_before = api_only.list_panes()
-    # There should be at least one pane from the new workspace
+    # Grab tab IDs belonging to this workspace before closing
+    tabs_before = api_only.list_tabs()
+    # There should be at least one tab from the new workspace
 
     result = api_only.close_workspace(ws_id)
     assert result.get("ok") is True
@@ -57,15 +57,15 @@ def test_close_workspace(api_only: CodeTermAPI):
 
 
 def test_create_tab_in_workspace(api_only: CodeTermAPI):
-    """Create a new tab in a workspace, verify it returns a pane_id."""
+    """Create a new tab in a workspace, verify it returns a tab_id."""
     name = unique_name("ws-tab")
     ws = api_only.create_workspace(name)
     ws_id = ws["id"]
 
     tab = api_only.create_tab(ws_id)
-    assert "pane_id" in tab
     assert "tab_id" in tab
-    assert len(tab["pane_id"]) == 8  # 8-char hex
+    assert "tab_id" in tab
+    assert len(tab["tab_id"]) == 8  # 8-char hex
 
     api_only.close_workspace(ws_id)
 
@@ -92,11 +92,11 @@ def test_create_workspace_cwd_dedupe(api_only: CodeTermAPI):
 
 
 def test_create_workspace_fresh_counters(api_only: CodeTermAPI):
-    """Freshly created workspace has consistent tab_count and pane_ids."""
+    """Freshly created workspace has consistent tab_count and tab_ids."""
     name = unique_name("ws-counters")
     ws = api_only.create_workspace(name)
     assert ws.get("tab_count", -1) == 0, "new workspace must start with tab_count=0"
-    assert ws.get("pane_ids") == [], "new workspace must start with empty pane_ids"
+    assert ws.get("tab_ids") == [], "new workspace must start with empty tab_ids"
     assert ws.get("existing") is None
 
     api_only.close_workspace(ws["id"])

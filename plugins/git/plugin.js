@@ -79,7 +79,7 @@ function renderGlance(ctx) {
   if (!cwd) {
     return {
       title: "Git",
-      nodes: [{ kind: "text", text: "No working directory for this pane.", style: { tone: "muted" } }]
+      nodes: [{ kind: "text", text: "No working directory for this tab.", style: { tone: "muted" } }]
     };
   }
   const branch = branchOf(cwd);

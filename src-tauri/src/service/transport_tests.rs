@@ -45,43 +45,37 @@ fn pty_launch_is_dispatched_by_backend_without_terminal_mount() {
 }
 
 #[test]
-fn rollback_spawn_tab_removes_tab_pane_and_does_not_record_history() {
+fn rollback_spawn_tab_removes_tab_and_does_not_record_history() {
     let (mut state, _) = MultiplexerState::new();
     let ws = state
         .snapshot()
         .active_workspace_id
         .expect("default workspace");
-    let (tab, pane) = state.create_tab(&ws).expect("create_tab");
+    let tab = state.create_tab(&ws).expect("create_tab");
     state.set_active_tab(&ws, &tab).expect("activate tab");
-    state.set_focused_pane(&pane).expect("focus pane");
+    state.set_focused_tab(&tab).expect("focus Tab");
 
-    state.rollback_spawn_tab(&ws, &tab, &pane);
+    state.rollback_spawn_tab(&ws, &tab);
 
     let snap = state.snapshot();
-    assert!(
-        !snap.panes.contains_key(&pane),
-        "rolled-back pane is removed"
-    );
+    assert!(!snap.tabs.contains_key(&tab), "rolled-back Tab is removed");
     let ws_view = snap
         .workspaces
         .iter()
         .find(|w| w.id == ws)
         .expect("workspace still present");
-    assert!(
-        !ws_view.tabs.iter().any(|t| t.id == tab),
-        "rolled-back tab is removed"
-    );
+    assert!(!ws_view.tabs.contains(&tab), "rolled-back tab is removed");
     assert_ne!(
-        snap.focused_pane_id.as_deref(),
-        Some(pane.as_str()),
-        "focus moved off the rolled-back pane"
+        snap.focused_tab_id.as_deref(),
+        Some(tab.as_str()),
+        "focus moved off the rolled-back Tab"
     );
     assert!(
         state
             .list_recently_closed(&ws)
             .iter()
-            .all(|p| p.pane_id != pane),
-        "a never-launched pane must not enter recently-closed history"
+            .all(|p| p.tab_id != tab),
+        "a never-launched Tab must not enter recently-closed history"
     );
 }
 
@@ -98,19 +92,19 @@ fn snapshot_generation_strictly_increases() {
 }
 
 #[test]
-fn create_then_snapshot_contains_pane_and_advances_generation() {
+fn create_then_snapshot_contains_tab_and_advances_generation() {
     let (mut state, _initial) = MultiplexerState::new();
     let ws = state
         .snapshot()
         .active_workspace_id
         .expect("default workspace");
-    // A stale read captured before the new pane existed.
+    // A stale read captured before the new tab existed.
     let stale = state.snapshot();
-    let (_tab, pane) = state.create_tab(&ws).expect("create_tab");
+    let tab = state.create_tab(&ws).expect("create_tab");
     let fresh = state.snapshot();
     assert!(
-        fresh.panes.contains_key(&pane),
-        "atomic snapshot must contain the just-created pane"
+        fresh.tabs.contains_key(&tab),
+        "atomic snapshot must contain the just-created Tab"
     );
     assert!(
         fresh.generation > stale.generation,

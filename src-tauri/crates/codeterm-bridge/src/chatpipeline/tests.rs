@@ -43,7 +43,7 @@ fn stages_run_in_order() {
         }),
     ];
     let ctx = PreprocessCtx {
-        pane_id: "p1".into(),
+        tab_id: "p1".into(),
         ..Default::default()
     };
     // Slice order is the run order: a before b.
@@ -138,7 +138,7 @@ async fn voice_stage_output_can_flow_into_text_preprocessor() {
         tag: "[pre]".into(),
     })];
     let ctx = PreprocessCtx {
-        pane_id: "p1".into(),
+        tab_id: "p1".into(),
         ..Default::default()
     };
 

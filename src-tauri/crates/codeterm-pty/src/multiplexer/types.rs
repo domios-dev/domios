@@ -7,7 +7,7 @@ pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSect
 pub struct Workspace {
     pub id: String,
     pub name: String,
-    pub tabs: Vec<Tab>,
+    pub tabs: Vec<String>,
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
@@ -42,24 +42,24 @@ pub struct ModelFallbackNotice {
     pub reason: String,
 }
 
-/// A closed pane retained for browser-style reopen. Captures just enough to
-/// re-materialize the pane with the SAME backing — the `backing` reuses the
-/// existing `PaneBacking` serialization, and `agent_type` / `agent_session_id`
+/// A closed tab retained for browser-style reopen. Captures just enough to
+/// re-materialize the tab with the SAME backing — the `backing` reuses the
+/// existing `TabBacking` serialization, and `agent_type` / `agent_session_id`
 /// carry the PTY-agent identity that lives outside `backing` so a reopened
-/// agent pane can resume its session (or launch fresh if it's gone). Persisted
+/// agent tab can resume its session (or launch fresh if it's gone). Persisted
 /// as one row in the sqlite closed-history store (`state::closed`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ClosedPane {
-    pub pane_id: String,
-    /// Original parent pane id — preserves the orchestration hierarchy so a
+pub struct ClosedTab {
+    pub tab_id: String,
+    /// Original parent tab id — preserves the orchestration hierarchy so a
     /// cascade reopen can relink the subtree.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub backing: PaneBacking,
+    pub backing: TabBacking,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -73,7 +73,7 @@ pub struct ClosedPane {
     #[serde(default)]
     pub chat_view: bool,
     pub closed_at: u64,
-    /// Workspace the pane belonged to when it was closed. Empty string on old
+    /// Workspace the tab belonged to when it was closed. Empty string on old
     /// records (pre-field snapshots) — treat as "unknown workspace".
     #[serde(default)]
     pub workspace_id: String,
@@ -82,24 +82,24 @@ pub struct ClosedPane {
     pub workspace_name: String,
 }
 
-impl From<&Pane> for ClosedPane {
-    /// Derive the closed record from a live pane. Captures every pane-owned
-    /// field in ONE place so adding a `Pane` field can't silently desync the
+impl From<&Tab> for ClosedTab {
+    /// Derive the closed record from a live tab. Captures every tab-owned
+    /// field in ONE place so adding a `Tab` field can't silently desync the
     /// close path. The owning workspace + tab title/description are overlaid by
-    /// the close path (they aren't pane-local).
-    fn from(pane: &Pane) -> Self {
-        ClosedPane {
-            pane_id: pane.id.clone(),
-            parent_pane_id: pane.parent_pane_id.clone(),
-            title: pane.title.clone(),
-            description: pane.description.clone(),
-            backing: pane.backing.clone(),
-            cwd: pane.cwd.clone(),
-            agent_type: pane.agent_type.clone(),
-            agent_session_id: pane.agent_session_id.clone(),
-            role_profile: pane.role_profile.clone(),
-            model: pane.agent_session_model.clone(),
-            chat_view: pane.chat_view,
+    /// the close path (they aren't tab-local).
+    fn from(tab: &Tab) -> Self {
+        ClosedTab {
+            tab_id: tab.id.clone(),
+            parent_tab_id: tab.parent_tab_id.clone(),
+            title: tab.title.clone(),
+            description: tab.description.clone(),
+            backing: tab.backing.clone(),
+            cwd: tab.cwd.clone(),
+            agent_type: tab.agent_type.clone(),
+            agent_session_id: tab.agent_session_id.clone(),
+            role_profile: tab.role_profile.clone(),
+            model: tab.agent_session_model.clone(),
+            chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -108,20 +108,6 @@ impl From<&Pane> for ClosedPane {
             workspace_name: String::new(),
         }
     }
-}
-
-/// A tab holds exactly one pane.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tab {
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description: Option<String>,
-    pub pane_id: String,
-    /// Sibling ordinal within this tab's group (top-level tabs of a workspace,
-    /// or children sharing a parent pane). Only relative order within the group
-    /// matters; cross-group values may collide. Legacy snapshots default to 0.
-    #[serde(default)]
-    pub sort_order: i32,
 }
 
 /// Legacy — kept only for old snapshot deserialization.
@@ -163,7 +149,7 @@ impl WatcherPolicy {
     }
 }
 
-/// Persisted watcher session state on a chatBackend pane.
+/// Persisted watcher session state on a chatBackend tab.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct WatcherSpec {
     pub charter: String,
@@ -182,13 +168,13 @@ pub struct WatcherSpec {
     pub tick_inflight_since_ms: Option<u64>,
 }
 
-/// What backs a pane's I/O. A `Pty` pane runs a terminal; a `ChatBackend` pane is
+/// What backs a tab's I/O. A `Pty` tab runs a terminal; a `ChatBackend` tab is
 /// driven by a plugin's `chatBackend` capability and keeps `pty_id: None`
 /// permanently (no backend reader, no screen state). The single discriminator the
-/// `PaneTransport` seam dispatches on.
+/// `TabTransport` seam dispatches on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum PaneBacking {
+pub enum TabBacking {
     #[default]
     Pty,
     ChatBackend {
@@ -223,7 +209,20 @@ pub struct DeliveryAttemptProvenance {
 #[serde(rename_all = "snake_case")]
 pub enum PendingDeliveryState {
     Pending,
-    Confirmed,
+    Ingested,
+    AcceptedStrong,
+    AcceptedWeak,
+    Unconfirmed,
+}
+
+impl PendingDeliveryState {
+    pub fn is_accepted(self) -> bool {
+        matches!(self, Self::AcceptedStrong | Self::AcceptedWeak)
+    }
+
+    pub fn needs_delivery(self) -> bool {
+        !self.is_accepted()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -266,7 +265,7 @@ impl<'de> Deserialize<'de> for PendingDeliveryRecord {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingDeliveryTransitionError {
-    ConfirmedTerminal,
+    AcceptedTerminal,
     AttemptAlreadyInFlight,
 }
 
@@ -294,37 +293,53 @@ impl PendingDeliveryRecord {
         &mut self,
         provenance: DeliveryAttemptProvenance,
     ) -> Result<(), PendingDeliveryTransitionError> {
-        match self.state {
-            PendingDeliveryState::Confirmed => {
-                Err(PendingDeliveryTransitionError::ConfirmedTerminal)
-            }
-            PendingDeliveryState::Pending if self.attempt_provenance.is_some() => {
-                Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
-            }
-            PendingDeliveryState::Pending => {
-                self.attempt_provenance = Some(provenance);
-                Ok(())
-            }
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
         }
+        if self.attempt_provenance.is_some() {
+            return Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight);
+        }
+        self.attempt_provenance = Some(provenance);
+        Ok(())
     }
 
     pub fn replace_attempt(
         &mut self,
         provenance: DeliveryAttemptProvenance,
     ) -> Result<(), PendingDeliveryTransitionError> {
-        if self.state == PendingDeliveryState::Confirmed {
-            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
         }
         self.attempt_provenance = Some(provenance);
         Ok(())
     }
 
     pub fn confirm(&mut self) -> Result<(), PendingDeliveryTransitionError> {
-        if self.state == PendingDeliveryState::Confirmed {
-            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
         }
-        self.state = PendingDeliveryState::Confirmed;
+        self.state = PendingDeliveryState::AcceptedWeak;
         Ok(())
+    }
+
+    pub fn confirm_strong(&mut self) -> Result<(), PendingDeliveryTransitionError> {
+        if self.state.is_accepted() {
+            return Err(PendingDeliveryTransitionError::AcceptedTerminal);
+        }
+        self.state = PendingDeliveryState::AcceptedStrong;
+        Ok(())
+    }
+
+    pub fn mark_ingested(&mut self) {
+        if self.state == PendingDeliveryState::Pending {
+            self.state = PendingDeliveryState::Ingested;
+        }
+    }
+
+    pub fn mark_unconfirmed(&mut self) {
+        if !self.state.is_accepted() {
+            self.state = PendingDeliveryState::Unconfirmed;
+        }
     }
 }
 
@@ -338,16 +353,29 @@ impl PendingDeliveryProvenance {
     }
 }
 
-/// A pane represents a single terminal or browser panel.
+/// Who a tab's prompts are owed to; declared at spawn, never inferred from
+/// strings. `Automation` prompts have no human owner and must not notify.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabAudience {
+    #[default]
+    User,
+    Automation,
+}
+
+/// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Pane {
+pub struct Tab {
     pub id: String,
-    /// Linked PTY ID, if this pane has a running terminal.
-    pub pty_id: Option<String>,
-    /// What backs this pane's I/O (PTY by default, or a plugin chatBackend).
+    /// Sibling ordinal within a workspace or orchestration group.
     #[serde(default)]
-    pub backing: PaneBacking,
-    pub pane_type: PaneType,
+    pub sort_order: i32,
+    /// Linked PTY ID, if this tab has a running terminal.
+    pub pty_id: Option<String>,
+    /// What backs this tab's I/O (PTY by default, or a plugin chatBackend).
+    #[serde(default)]
+    pub backing: TabBacking,
+    pub tab_type: TabType,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_delivery: Option<PendingDeliveryRecord>,
     pub title: String,
@@ -356,7 +384,7 @@ pub struct Pane {
     pub cwd: Option<String>,
     #[serde(skip, default)]
     pub provisioned_cwd: Option<String>,
-    /// URL for browser panes.
+    /// Legacy snapshot field; current tab types never set it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Agent type (e.g. "claude") — set by frontend when detected.
@@ -375,7 +403,7 @@ pub struct Pane {
     /// reload/resize redraw) from clearing a still-running agent.
     #[serde(skip, default)]
     pub exit_suspected_at: Option<std::time::Instant>,
-    /// True while launch_agent boots the agent TUI in this pane. A booting
+    /// True while launch_agent boots the agent TUI in this tab. A booting
     /// TUI silently swallows bracket-paste input, so sends wait this out.
     /// Runtime-only: never persisted (a restart clears any stale true).
     #[serde(skip, default)]
@@ -398,7 +426,7 @@ pub struct Pane {
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_planned_model: Option<String>,
-    /// Model explicitly requested at launch. Advisory only: the pane badge and
+    /// Model explicitly requested at launch. Advisory only: the tab badge and
     /// reports use `agent_session_model`, which must come from runtime evidence.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_requested_model: Option<String>,
@@ -412,12 +440,12 @@ pub struct Pane {
     /// Runtime evidence that the provider ran a different model than requested.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
-    /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
+    /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
     /// Exact launch nonce echoed by the agent's accepted session-start report.
     /// This is cleared on every session transition; the configured nonce alone
-    /// never proves that the current agent owns the pane.
+    /// never proves that the current agent owns the tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reported_session_binding_nonce: Option<String>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
@@ -429,46 +457,46 @@ pub struct Pane {
     /// Behavioral profile layered on top of the structural role.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
-    /// Team membership: the `(team_id, role, role_profile)` triple IS the
-    /// membership relation. `None` = teamless. Minted at the spawn edge (Phase 2).
+    /// Team membership. Roleless members are Team utility terminals; their
+    /// creator is recorded in `spawned_by_tab_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub team_id: Option<String>,
     /// Watcher-mode machine state (charter, policy, tick counters).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watcher: Option<WatcherSpec>,
-    /// Parent pane ID in the orchestration hierarchy.
+    /// Parent tab ID in the orchestration hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub parent_pane_id: Option<String>,
-    /// Planner pane spawned as this Orchestrator's fresh pair before a plan
+    pub parent_tab_id: Option<String>,
+    /// Planner tab spawned as this Orchestrator's fresh pair before a plan
     /// exists. Consumed by the first plan create/goal path and never persisted.
     #[serde(skip, default)]
-    pub pending_paired_planner_pane_id: Option<String>,
-    /// Whether this pane can spawn child agents.
+    pub pending_paired_planner_tab_id: Option<String>,
+    /// Whether this tab can spawn child agents.
     #[serde(default)]
     pub can_spawn: bool,
     /// Depth in hierarchy: 0=none, 1=orchestrator, 2=worker (flat, 2-level).
     #[serde(default)]
     pub depth: u8,
-    /// Report target pane ID — for cron agents that report without joining hierarchy.
-    /// When `report_target_mesh_peer` is set, this is a pane id or `main`/`general`
-    /// alias on that remote peer rather than a local pane.
+    /// Report target tab ID — for cron agents that report without joining hierarchy.
+    /// When `report_target_mesh_peer` is set, this is a tab id or `main`/`general`
+    /// alias on that remote peer rather than a local tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub report_target_pane_id: Option<String>,
+    pub report_target_tab_id: Option<String>,
     /// Paired mesh peer (instance name or id) the report target lives on. Set by
     /// `agent spawn --mesh PEER` so a remote worker's `agent report` relays back
     /// to the spawning orchestrator / General target on another machine.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub report_target_mesh_peer: Option<String>,
-    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID at spawn time).
-    /// Independent of `parent_pane_id` (which controls the role hierarchy and is
+    /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID at spawn time).
+    /// Independent of `parent_tab_id` (which controls the role hierarchy and is
     /// forbidden for Orchestrators). Used as a final fallback by report routing
     /// so a top-level orchestrator's report still reaches its spawning agent.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub spawned_by_pane_id: Option<String>,
+    pub spawned_by_tab_id: Option<String>,
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,
-    /// Whether chat view overlay is active for this pane.
+    /// Whether chat view overlay is active for this tab.
     #[serde(default)]
     pub chat_view: bool,
     /// Pending interactive prompt (permission, confirmation, etc.)
@@ -476,52 +504,53 @@ pub struct Pane {
     pub pending_prompt: Option<PendingPrompt>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
-    /// the chat view's state indicator. Runtime-only — recomputed from output,
-    /// never persisted to the session snapshot (which is hand-built).
+    /// the chat view. Persisted only with the tab-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
     pub auto_approve: bool,
-    /// Protected panes cannot be closed via API or UI.
+    /// Protected tabs cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
-    /// Connected external services (e.g. ["telegram"]). Shown as icons next to pane title.
+    /// Connected external services (e.g. ["telegram"]). Shown as icons next to tab title.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connected_services: Vec<String>,
-    /// Hidden panes are excluded from default pane listings and TabBar.
-    /// Used by graph-worker panes that live only in the memory panel.
+    /// Hidden tabs are excluded from default tab listings and TabBar.
+    /// Used by graph-worker tabs that live only in the memory panel.
     #[serde(default)]
     pub hidden: bool,
-    /// Whether this pane should be rendered in the TabBar. Defaults to true.
-    /// Graph-worker panes set this to false even when temporarily focused.
+    /// Audience axis for input-request notifications (orthogonal to `hidden`).
+    #[serde(default)]
+    pub audience: TabAudience,
+    /// Whether this tab should be rendered in the TabBar. Defaults to true.
+    /// Graph-worker tabs set this to false even when temporarily focused.
     #[serde(default = "default_show_in_tabbar")]
     pub show_in_tabbar: bool,
-    /// Graph-worker id linking this pane to a GraphWorkerRegistry entry.
+    /// Graph-worker id linking this tab to a GraphWorkerRegistry entry.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub worker_id: Option<String>,
-    /// In-memory only — true when pane was deserialized from a session
+    /// In-memory only — true when tab was deserialized from a session
     /// snapshot. Gates the spawn-fresh-agent path in commands::pty so it
-    /// does NOT race the orchestrator's launch on freshly spawned panes.
+    /// does NOT race the orchestrator's launch on freshly spawned tabs.
     /// Cleared after the first successful spawn so a re-mount doesn't
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
-    /// In-memory only — when true, this pane is excluded from the session
-    /// snapshot. Set for ephemeral picker/onboarding panes that must not
+    /// In-memory only — when true, this tab is excluded from the session
+    /// snapshot. Set for ephemeral picker/onboarding tabs that must not
     /// survive a daemon restart and reappear as ghost tabs.
     #[serde(skip, default)]
     pub skip_snapshot: bool,
     /// Orchestrator's opening greeting, prepended as a synthetic first
-    /// assistant message every time `chat_start_core` builds this pane's
+    /// assistant message every time `chat_start_core` builds this tab's
     /// transcript — never model-improvised. In-memory only (a restart
     /// simply drops it; it is not required to survive a daemon restart).
     #[serde(skip, default)]
     pub pending_greeting: Option<String>,
-    /// Current agent-boot stage, surfaced to late UI attachers via the live
-    /// snapshot. Runtime-only — recomputed at spawn, never persisted (the
-    /// hand-built session snapshot omits it).
+    /// Current agent-boot stage, surfaced to late UI attachers and persisted
+    /// only with the tab-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
     /// Human-readable reason for a failed boot stage. Runtime-only and paired
@@ -553,33 +582,33 @@ impl Default for TitleLevel {
     }
 }
 
-impl Pane {
-    /// True when this pane is backed by a plugin `chatBackend` rather than a PTY.
+impl Tab {
+    /// True when this tab is backed by a plugin `chatBackend` rather than a PTY.
     /// The one helper the I/O seam and frontend branch on instead of probing
     /// `pty_id`.
     pub fn is_chat_backend(&self) -> bool {
-        matches!(self.backing, PaneBacking::ChatBackend { .. })
+        matches!(self.backing, TabBacking::ChatBackend { .. })
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub enum PaneType {
+pub enum TabType {
     #[default]
     Terminal,
-    /// Legacy — old snapshots only.
-    Browser,
+    Choice,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn pane_with(id: &str, backing: PaneBacking) -> Pane {
-        Pane {
+    fn tab_with(id: &str, backing: TabBacking) -> Tab {
+        Tab {
             id: id.to_string(),
+            sort_order: 0,
             pty_id: None,
             backing,
-            pane_type: PaneType::Terminal,
+            tab_type: TabType::Terminal,
             pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
@@ -603,13 +632,13 @@ mod tests {
             role_profile: None,
             team_id: None,
             watcher: None,
-            parent_pane_id: None,
-            pending_paired_planner_pane_id: None,
+            parent_tab_id: None,
+            pending_paired_planner_tab_id: None,
             can_spawn: false,
             depth: 0,
-            report_target_pane_id: None,
+            report_target_tab_id: None,
             report_target_mesh_peer: None,
-            spawned_by_pane_id: None,
+            spawned_by_tab_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -621,6 +650,7 @@ mod tests {
             exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
+            audience: Default::default(),
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
@@ -632,13 +662,13 @@ mod tests {
     }
 
     #[test]
-    fn pty_pane_is_not_chat_backend() {
-        let p = pane_with("a", PaneBacking::Pty);
+    fn pty_tab_is_not_chat_backend() {
+        let p = tab_with("a", TabBacking::Pty);
         assert!(!p.is_chat_backend());
     }
 
     #[test]
-    fn confirmed_is_terminal() {
+    fn accepted_weak_is_terminal() {
         let mut delivery =
             PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
         delivery
@@ -648,18 +678,35 @@ mod tests {
             })
             .unwrap();
         assert_eq!(delivery.confirm(), Ok(()));
-        assert_eq!(delivery.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(delivery.state(), PendingDeliveryState::AcceptedWeak);
         assert_eq!(
             delivery.begin_attempt(DeliveryAttemptProvenance {
                 attempt_id: "attempt-2".into(),
                 started_at_ms: 43,
             }),
-            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+            Err(PendingDeliveryTransitionError::AcceptedTerminal)
         );
         assert_eq!(
             delivery.confirm(),
-            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+            Err(PendingDeliveryTransitionError::AcceptedTerminal)
         );
+    }
+
+    #[test]
+    fn pending_delivery_uses_verdict_tier_labels() {
+        let mut weak =
+            PendingDeliveryRecord::new("weak".into(), PendingDeliveryChannel::InteractiveInput);
+        weak.mark_ingested();
+        assert_eq!(weak.state(), PendingDeliveryState::Ingested);
+        weak.mark_unconfirmed();
+        assert_eq!(weak.state(), PendingDeliveryState::Unconfirmed);
+        weak.confirm().unwrap();
+        assert_eq!(weak.state(), PendingDeliveryState::AcceptedWeak);
+
+        let mut strong =
+            PendingDeliveryRecord::new("strong".into(), PendingDeliveryChannel::InteractiveInput);
+        strong.confirm_strong().unwrap();
+        assert_eq!(strong.state(), PendingDeliveryState::AcceptedStrong);
     }
 
     #[test]
@@ -703,23 +750,23 @@ mod tests {
     fn mid_boot_snapshot_exposes_current_stage() {
         use codeterm_types::pty::BootStage;
         // the live snapshot.
-        let mut p = pane_with("a", PaneBacking::Pty);
+        let mut p = tab_with("a", TabBacking::Pty);
         p.boot_stage = Some(BootStage::AgentLaunching);
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["boot_stage"], "agent_launching");
         assert!(v.as_object().unwrap().get("boot_failure_reason").is_none());
 
         // Before any boot progress the field is omitted entirely (skip_if None).
-        let idle = pane_with("b", PaneBacking::Pty);
+        let idle = tab_with("b", TabBacking::Pty);
         let v = serde_json::to_value(&idle).unwrap();
         assert!(v.as_object().unwrap().get("boot_stage").is_none());
     }
 
     #[test]
-    fn chat_backend_pane_is_detected() {
-        let p = pane_with(
+    fn chat_backend_tab_is_detected() {
+        let p = tab_with(
             "b",
-            PaneBacking::ChatBackend {
+            TabBacking::ChatBackend {
                 plugin_id: "local-shell".into(),
                 session_id: "s1".into(),
             },
@@ -728,35 +775,35 @@ mod tests {
     }
 
     #[test]
-    fn backing_round_trips_on_pane_and_defaults_to_pty() {
-        // A ChatBackend pane survives a serde round-trip.
-        let p = pane_with(
+    fn backing_round_trips_on_tab_and_defaults_to_pty() {
+        // A ChatBackend tab survives a serde round-trip.
+        let p = tab_with(
             "c",
-            PaneBacking::ChatBackend {
+            TabBacking::ChatBackend {
                 plugin_id: "local-shell".into(),
                 session_id: "s1".into(),
             },
         );
         let v = serde_json::to_value(&p).unwrap();
-        let back: Pane = serde_json::from_value(v).unwrap();
+        let back: Tab = serde_json::from_value(v).unwrap();
         assert!(back.is_chat_backend());
         // snapshot) defaults to Pty.
         let mut v = serde_json::to_value(&p).unwrap();
         v.as_object_mut().unwrap().remove("backing");
-        let back: Pane = serde_json::from_value(v).unwrap();
-        assert_eq!(back.backing, PaneBacking::Pty);
+        let back: Tab = serde_json::from_value(v).unwrap();
+        assert_eq!(back.backing, TabBacking::Pty);
         assert!(!back.is_chat_backend());
     }
 
     #[test]
     fn chat_backing_round_trips_through_serde() {
-        let backing = PaneBacking::ChatBackend {
+        let backing = TabBacking::ChatBackend {
             plugin_id: "local-shell".into(),
             session_id: "abc".into(),
         };
         let v = serde_json::to_value(&backing).unwrap();
         assert_eq!(v["kind"], "chat_backend");
-        let back: PaneBacking = serde_json::from_value(v).unwrap();
+        let back: TabBacking = serde_json::from_value(v).unwrap();
         assert_eq!(back, backing);
     }
 
@@ -774,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn pane_with_watcher_round_trips_through_serde() {
+    fn tab_with_watcher_round_trips_through_serde() {
         let spec = WatcherSpec {
             charter: "Observe the group.".into(),
             policy: WatcherPolicy::clamped(Some(90), Some(120), Some(2)),
@@ -785,29 +832,29 @@ mod tests {
             last_status: Some("ok".into()),
             tick_inflight_since_ms: None,
         };
-        let mut p = pane_with("w1", PaneBacking::Pty);
+        let mut p = tab_with("w1", TabBacking::Pty);
         p.watcher = Some(spec.clone());
 
         let v = serde_json::to_value(&p).unwrap();
         assert!(v.get("watcher").is_some());
-        let back: Pane = serde_json::from_value(v).unwrap();
+        let back: Tab = serde_json::from_value(v).unwrap();
         assert_eq!(back.watcher, Some(spec));
 
-        let mut bare = pane_with("w2", PaneBacking::Pty);
+        let mut bare = tab_with("w2", TabBacking::Pty);
         let v = serde_json::to_value(&bare).unwrap();
         assert!(v.get("watcher").is_none());
         bare.watcher = Some(WatcherSpec {
             charter: "x".into(),
             ..Default::default()
         });
-        let back: Pane = serde_json::from_value(serde_json::to_value(&bare).unwrap()).unwrap();
+        let back: Tab = serde_json::from_value(serde_json::to_value(&bare).unwrap()).unwrap();
         assert_eq!(back.watcher.as_ref().map(|w| w.charter.as_str()), Some("x"));
     }
 
     #[test]
     fn backing_matches_frontend_ts_contract_shape() {
         // The TS type is `{ kind: 'chat_backend'; plugin_id: string;
-        let v = serde_json::to_value(PaneBacking::ChatBackend {
+        let v = serde_json::to_value(TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "s7".into(),
         })
@@ -820,9 +867,9 @@ mod tests {
                 "session_id": "s7",
             })
         );
-        // "not a chat pane".
+        // "not a chat Tab".
         assert_eq!(
-            serde_json::to_value(PaneBacking::Pty).unwrap(),
+            serde_json::to_value(TabBacking::Pty).unwrap(),
             serde_json::json!({ "kind": "pty" })
         );
     }

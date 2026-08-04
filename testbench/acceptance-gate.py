@@ -60,7 +60,7 @@ def final_state(frames):
 def stuck_working(frames):
     """Working frames that persist after the terminal has been fully silent past
     the stuck-working budget. This ignores legitimate final-turn working/grace
-    frames in short captures while still catching a pane stranded in Working."""
+    frames in short captures while still catching a tab stranded in Working."""
     if not frames:
         return None
     return sum(

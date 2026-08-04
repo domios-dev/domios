@@ -43,6 +43,19 @@ choose one:\n\
     )
 }
 
+fn render_checkout_occupied(data: &Value) -> Option<String> {
+    let task_id = data.get("occupying_task_id")?.as_str()?;
+    let attempt_id = data.get("occupying_attempt_id")?.as_str()?;
+    let checkout_path = data.get("checkout_path")?.as_str()?;
+    let update_command = data.get("update_command")?.as_str()?;
+    let dispatch_command = data.get("dispatch_command")?.as_str()?;
+    Some(format!(
+        "✗ dispatch refused: checkout '{checkout_path}' is occupied by live attempt \
+         '{attempt_id}' of task '{task_id}'. No worker was spawned.\n\
+assign an existing isolated lane, then dispatch again:\n  {update_command}\n  {dispatch_command}"
+    ))
+}
+
 pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> {
     let kind = data.get("type")?.as_str()?;
     let plan_id = params
@@ -101,7 +114,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 "✗ loop budget {count}/{budget} reached for loop '{loop_id}'; extend with codeterm plan loop set {loop_id} --budget N, or close the plan."
             ))
         }
-        "in_progress_requires_pane" => Some(format!(
+        "in_progress_requires_tab" => Some(format!(
             "✗ in_progress requires an executor tab.\nfix: set status and tab in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --tab <tab-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
             task_id.unwrap_or("<task_id>")
         )),
@@ -159,6 +172,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             task_id.unwrap_or("<task_id>")
         )),
         "regression_gate_blocked" => Some(render_regression_gate_blocked(data, plan_id, task_id)),
+        "checkout_occupied" => render_checkout_occupied(data),
         "override_reason_required" => Some(
             "✗ overriding a regression gate requires an explicit reason.\nfix: codeterm plan qa override <plan_id> --reason \"<why the frontier may advance past the gate>\"".into()
         ),
@@ -292,7 +306,7 @@ fn render_not_found(plan_id: &str, loop_id: &str, params: &Value) -> String {
     if params.get("loop_id").and_then(|v| v.as_str()).is_some() {
         return format!("✗ no loop '{loop_id}' was found.\nfix: codeterm plan state <plan_id>");
     }
-    if params.get("pane_id").is_some() || params.get("session_id").is_some() {
+    if params.get("tab_id").is_some() || params.get("session_id").is_some() {
         return format!(
             "✗ no heartbeat plan was found for this tab/session.\nfix: pass the plan explicitly:\n  codeterm orchestrator heartbeat show --plan {plan_id}"
         );
@@ -351,7 +365,7 @@ fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) ->
         return message;
     }
     let lower = raw_error.to_ascii_lowercase();
-    if lower.contains("pane not found")
+    if lower.contains("Tab not found")
         || lower.contains("plan not found")
         || lower.contains("task not found")
     {
@@ -363,7 +377,7 @@ fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) ->
 fn with_cross_daemon_hint(message: String) -> String {
     format!(
         "{message}\n\
-hint: if this plan lives on the dev daemon but this pane is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ..."
+hint: if this plan lives on the dev daemon but this Tab is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ..."
     )
 }
 
@@ -459,6 +473,39 @@ do not retry blindly: inspect current state first with `codeterm task show {targ
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn checkout_occupied_error_is_actionable() {
+        let update_command = "codeterm plan task update plan_a task_b --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')";
+        let data = json!({
+            "type": "checkout_occupied",
+            "occupying_task_id": "task_a",
+            "occupying_attempt_id": "attempt_a",
+            "checkout_path": "C:\\repo",
+            "update_command": update_command,
+            "dispatch_command": "codeterm plan task dispatch plan_a task_b",
+        });
+        let message =
+            render_plan_error(&data, &json!({"plan_id": "plan_a", "task_id": "task_b"})).unwrap();
+
+        assert!(message.contains("task_a"), "{message}");
+        assert!(message.contains("attempt_a"), "{message}");
+        assert!(message.contains("C:\\repo"), "{message}");
+        assert!(
+            message.contains("codeterm plan task update plan_a task_b"),
+            "{message}"
+        );
+        assert!(message.contains("--worktree"), "{message}");
+        assert!(message.contains("--branch"), "{message}");
+        assert!(message.contains("--base"), "{message}");
+        assert!(message.contains(update_command), "{message}");
+        assert!(!message.contains("<isolated-"), "{message}");
+        assert!(
+            message.contains("codeterm plan task dispatch plan_a task_b"),
+            "{message}"
+        );
+        assert!(message.contains("No worker was spawned"), "{message}");
+    }
 
     #[test]
     fn spec_delete_on_nonexistent_id_says_not_found_not_longer_prefix() {

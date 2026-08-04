@@ -9,6 +9,15 @@ use crate::service::ServiceState;
 use super::plan_linking::plan_with_linking;
 use super::{get_string_param, JsonRpcError};
 
+const PLAN_SEARCH_KINDS: [&str; 6] = [
+    "plan",
+    "plan_section",
+    "spec",
+    "spec_section",
+    "task",
+    "stride",
+];
+
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
@@ -116,9 +125,26 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("project"))
                 .and_then(|v| v.as_str())
                 .unwrap_or(".");
-            let _kind = params
+            let kind = params
                 .as_ref()
                 .and_then(|x| x.get("kind"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            if let Some(kind) = kind.as_deref() {
+                if !PLAN_SEARCH_KINDS.contains(&kind) {
+                    return Err(JsonRpcError {
+                        code: -32602,
+                        message: format!(
+                            "invalid plan search kind: {kind}; accepted kinds: {}",
+                            PLAN_SEARCH_KINDS.join(", ")
+                        ),
+                        data: None,
+                    });
+                }
+            }
+            let scope = params
+                .as_ref()
+                .and_then(|x| x.get("scope"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let limit = params
@@ -151,7 +177,8 @@ pub(super) fn dispatch(
                     &project_root,
                     &crate::service::plan::ports::PlanIndexQuery {
                         query,
-                        scope: None,
+                        kind,
+                        scope,
                         limit,
                     },
                     status,

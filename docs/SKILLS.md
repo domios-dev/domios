@@ -24,7 +24,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 ## How it works
 
-Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
+Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_TAB_ID` for self-identification), it can use the `codeterm` CLI to:
 
 1. **Send commands**: `codeterm send "npm test"` (sends immediately to the current tab, newline appended automatically). Sending to a **shell** tab delivers the raw text/keys verbatim — no `-=-codeterm:tab...-=-` return-address marker is injected, so the shell runs exactly what you send; the marker is added only when the target is an **agent** tab (so it knows who to reply to). For quote-heavy or multiline text, use `codeterm send --stdin --tab ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --tab ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm tab new --cmd "cd /repo && ./build.sh dev"` (waits for the PTY to be ready before delivering, so it runs reliably). To schedule a future tab message without blocking yourself, use `codeterm send --delay 10m --tab ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
 2. **Send notifications**: `codeterm notify "Done" --level info`
@@ -37,10 +37,10 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 9. **Choose model**: use `codeterm agent models <provider>` to list valid ids and `codeterm agent spawn <provider> --model MODEL --task "..."` to select one. Do not treat `codeterm agent model` as a universal live switch.
 10. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
 11. **Message a running agent**: `codeterm send --tab ID "status?"` (immediate agent-directed message via the normal send transport)
-12. **List tabs / hierarchy**: `codeterm tab list` (workspace tree, sub-agents nested; `--agents` filters to agent tabs)
+12. **List tabs / hierarchy**: `codeterm tab list` (workspace tree, sub-agents nested, caller marked `(self)`; `--agents` filters to agent tabs). Use `codeterm tab inspect <id>` for one tab's full payload.
 13. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent-tab ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab; task delivery is provider-owned and is not an inter-tab `-=-codeterm:tab...-=-` message)
 14. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
-15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent ID --task "work"`
+15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab ID --task "work"`
 16. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * * *" --task "Review TODOs"` (uses `$CODETERM_WORKSPACE_ID` by default; add `--once` for oneshot: `--schedule "in 30m" --once`)
 17. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
 18. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
@@ -61,9 +61,10 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 
 ## CLI Flags
 
-All CLI commands support the `--json` flag for machine-readable output:
+All CLI commands support the `--json` flag for checked-in machine-readable automation. Do not write ad hoc whole-list JSON pipelines for interactive discovery; inspect selected records individually:
 ```bash
-codeterm tab list --json
+codeterm tab list
+codeterm tab inspect <tab-id>
 codeterm workspace list --json
 ```
 
@@ -154,17 +155,17 @@ curl -X POST http://localhost:7685/api/workspaces \
 curl -X POST http://localhost:7685/api/workspaces/$WS_ID/tabs
 
 # Send command to a tab (enter: true is default, appends \r automatically)
-curl -X POST http://localhost:7685/api/panes/$PANE_ID/send \
+curl -X POST http://localhost:7685/api/tabs/$TAB_ID/send \
   -H "Content-Type: application/json" \
   -d '{"text":"npm run build"}'
 
 # Press terminal keys / navigation actions
-curl -X POST http://localhost:7685/api/panes/$PANE_ID/send \
+curl -X POST http://localhost:7685/api/tabs/$TAB_ID/send \
   -H "Content-Type: application/json" \
   -d '{"actions":[{"type":"key","key":"esc"},{"type":"delay","ms":200},{"type":"key","key":"enter"}]}'
 
 # Read tab output
-curl http://localhost:7685/api/panes/$PANE_ID/output
+curl http://localhost:7685/api/tabs/$TAB_ID/output
 
 # Notify
 curl -X POST http://localhost:7685/api/notifications \
@@ -186,7 +187,7 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 ```bash
 # Mark current tab as orchestrator
-codeterm agent set-orchestrator --tab $CODETERM_PANE_ID
+codeterm agent set-orchestrator --tab $CODETERM_TAB_ID
 
 # View tabs as a workspace tree (sub-agents nested); --agents = agent tabs only
 codeterm tab list
@@ -195,7 +196,7 @@ codeterm tab list
 codeterm tab status --tab $WORKER
 
 # Clear role: detach a Worker from its Orchestrator (or orphan an Orchestrator's Workers)
-codeterm agent unlink --tab $CODETERM_PANE_ID
+codeterm agent unlink --tab $CODETERM_TAB_ID
 ```
 
 The `agent.report` webhook event fires when any agent sends a report, enabling async orchestration patterns.
@@ -206,16 +207,16 @@ The `task` field is baked into the launch command via the `-p` flag, so the agen
 
 ```bash
 # Spawn a Worker under the Orchestrator
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CODETERM_PANE_ID --task "run tests"
+codeterm agent spawn claude --title "Worker-1" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
 
 # Spawn defaults to claude if no agent specified
-codeterm agent spawn --title "Helper" --role Worker --parent $CODETERM_PANE_ID
+codeterm agent spawn --title "Helper" --role Worker --parent-tab $CODETERM_TAB_ID
 
 # Cross-workspace spawn
-codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent $CODETERM_PANE_ID
+codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab $CODETERM_TAB_ID
 ```
 
-Returns: pane_id, tab_id, pty_id, agent, title, role.
+Returns: tab_id, tab_id, pty_id, agent, title, role.
 
 The `--agent-name` option (for loading `.claude/agents/<name>.md`) is only available via the REST API (`POST /api/agents/spawn`), not the CLI.
 
@@ -229,13 +230,13 @@ curl -X POST http://localhost:7685/api/batch \
   -d '{
     "commands": [
       {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "can_spawn": true}},
-      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
-      {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_pane_id": "$boss", "task": "run tests"}}
+      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_tab_id": "$boss", "task": "run tests"}}
     ]
   }'
 ```
 
-Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`. Use `$id` references to chain command results (e.g. `"parent_pane_id": "$boss"` resolves to the pane_id from the "boss" spawn).
+Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`. Use `$id` references to chain command results (e.g. `"parent_tab_id": "$boss"` resolves to the tab_id from the "boss" spawn).
 
 ## Command Palette
 
@@ -248,8 +249,8 @@ CodeTerm tracks and restores terminal state across sessions:
 - **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per tab on restart.
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, CodeTerm validates the session file exists on disk via `AgentProvider::session_exists` — missing JSONLs (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
 - **Pre-generated session ids**: For providers reporting `SessionIdInjection != None` (Claude today), CodeTerm pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
-- **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/panes/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
+- **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/tabs/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 36 -->
+<!-- revision: 38 -->

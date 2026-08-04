@@ -241,7 +241,7 @@ fn decode_command(s: &str) -> String {
     out
 }
 
-/// Per-pane shell-integration state: the OSC1 parser plus the capability fold.
+/// Per-tab shell-integration state: the OSC1 parser plus the capability fold.
 /// `feed` consumes raw PTY bytes and returns the lifecycle changes to surface.
 #[derive(Default)]
 pub struct ShellIntegration {
@@ -273,11 +273,11 @@ pub struct ShellCapabilitySnapshot {
 }
 
 /// Per-pty registry of shell-integration accumulators. Lives beside the
-/// `ScreenState`/`PaneStatusTracker` registries; fed from the unified
+/// `ScreenState`/`TabStatusTracker` registries; fed from the unified
 /// `process_pty_output` path so both the visible and headless readers feed it.
 #[derive(Default)]
 pub struct ShellCapabilityTracker {
-    panes: HashMap<String, ShellIntegration>,
+    tabs: HashMap<String, ShellIntegration>,
 }
 
 impl ShellCapabilityTracker {
@@ -293,20 +293,20 @@ impl ShellCapabilityTracker {
         nonce: Option<String>,
         data: &[u8],
     ) -> Vec<CommandLifecycle> {
-        let si = self.panes.entry(pty_id.to_string()).or_default();
+        let si = self.tabs.entry(pty_id.to_string()).or_default();
         si.detection.ensure_nonce(nonce);
         si.feed(data)
     }
 
     pub fn snapshot(&self, pty_id: &str) -> Option<ShellCapabilitySnapshot> {
-        self.panes.get(pty_id).map(|si| ShellCapabilitySnapshot {
+        self.tabs.get(pty_id).map(|si| ShellCapabilitySnapshot {
             commands: si.detection.commands().to_vec(),
             cwd: si.detection.cwd().map(str::to_string),
         })
     }
 
     pub fn remove(&mut self, pty_id: &str) {
-        self.panes.remove(pty_id);
+        self.tabs.remove(pty_id);
     }
 }
 

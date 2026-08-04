@@ -2,7 +2,7 @@
   "provider": "claude",
   "situation": "multi-step-wizard-r2",
   "capturedAtMs": 1781997167160,
-  "paneId": "48d93eeb",
+  "tabId": "48d93eeb",
   "source": "dev-7686",
   "until": "(A\\)|B\\)|C\\)|❯|›).*(Enter|select|esc|↑|↓)",
   "prompt": "Walk me through a stepwise setup interview right here in the terminal: break it into a few labeled sections, and in each one ask a single question offering three options written as A), B), C). Show all the sections in sequence and then pause for my selections — don't fill in any answers yourself.",

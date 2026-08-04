@@ -4,8 +4,8 @@ use crate::args::team::TeamAction;
 use crate::client::RpcClient;
 
 pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction) {
-    let caller_pane_id = (!client.is_remote())
-        .then(|| std::env::var("CODETERM_PANE_ID").ok())
+    let caller_tab_id = (!client.is_remote())
+        .then(|| std::env::var("CODETERM_TAB_ID").ok())
         .flatten();
     let result = match action {
         TeamAction::List => client.call("team.list", None),
@@ -17,18 +17,18 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             Some(json!({
                 "team_id": team_id,
                 "name": name,
-                "caller_pane_id": caller_pane_id,
+                "caller_tab_id": caller_tab_id,
             })),
         ),
         TeamAction::Close { team_id } => client.call(
             "team.close",
             Some(json!({
                 "team_id": team_id,
-                "caller_pane_id": caller_pane_id,
+                "caller_tab_id": caller_tab_id,
             })),
         ),
         TeamAction::AdoptPlan { team_id, plan_id } => {
-            adopt_plan_params(team_id, plan_id, caller_pane_id.as_deref())
+            adopt_plan_params(team_id, plan_id, caller_tab_id.as_deref())
                 .and_then(|params| client.call("team.adopt_plan", Some(params)))
         }
     };
@@ -48,17 +48,17 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
 fn adopt_plan_params(
     team_id: String,
     plan_id: String,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
 ) -> Result<Value, String> {
-    let caller_pane_id = caller_pane_id
-        .filter(|pane_id| !pane_id.trim().is_empty())
+    let caller_tab_id = caller_tab_id
+        .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
-            "Team plan adoption requires CODETERM_PANE_ID from the calling Team manager".to_string()
+            "Team plan adoption requires CODETERM_TAB_ID from the calling Team manager".to_string()
         })?;
     Ok(json!({
         "team_id": team_id,
         "plan_id": plan_id,
-        "caller_pane_id": caller_pane_id,
+        "caller_tab_id": caller_tab_id,
     }))
 }
 
@@ -108,11 +108,11 @@ mod tests {
         let params = adopt_plan_params("team".into(), "plan".into(), Some("manager")).unwrap();
         assert_eq!(params["team_id"], "team");
         assert_eq!(params["plan_id"], "plan");
-        assert_eq!(params["caller_pane_id"], "manager");
+        assert_eq!(params["caller_tab_id"], "manager");
 
         for caller in [None, Some(""), Some("  ")] {
             let error = adopt_plan_params("team".into(), "plan".into(), caller).unwrap_err();
-            assert!(error.contains("CODETERM_PANE_ID"));
+            assert!(error.contains("CODETERM_TAB_ID"));
         }
     }
 }

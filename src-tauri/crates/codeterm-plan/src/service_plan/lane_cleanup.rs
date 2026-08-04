@@ -19,8 +19,8 @@ pub enum LaneCleanupDecision {
 }
 
 pub struct LaneCleanupInput<'a> {
-    pub pane_id: Option<&'a str>,
-    pub pane_live: bool,
+    pub tab_id: Option<&'a str>,
+    pub tab_live: bool,
     pub worktree_path: Option<&'a str>,
     pub worktree_exists: bool,
     pub branch: Option<&'a str>,
@@ -71,10 +71,10 @@ where
     if !has_residue {
         return LaneCleanupDecision::Noop;
     }
-    if input.pane_live {
-        let pane = input.pane_id.unwrap_or("worker");
+    if input.tab_live {
+        let tab = input.tab_id.unwrap_or("worker");
         return LaneCleanupDecision::Refuse(format!(
-            "worker pane {pane} is still live; close it before cleanup"
+            "worker tab {tab} is still live; close it before cleanup"
         ));
     }
     if let Some(branch) = branch {
@@ -109,7 +109,7 @@ pub fn try_cleanup_task_lane<F>(
     store: &PlanStore,
     plan: &Plan,
     task_id: &str,
-    mut pane_live: F,
+    mut tab_live: F,
     now_ms: u64,
 ) -> LaneCleanupOutcome
 where
@@ -126,12 +126,12 @@ where
     if already_done {
         return LaneCleanupOutcome::Noop;
     }
-    let pane_id = task
+    let tab_id = task
         .lane
-        .pane_id
+        .tab_id
         .as_deref()
-        .or(task.assigned_pane_id.as_deref());
-    let pane_is_live = pane_id.map(|p| pane_live(p)).unwrap_or(false);
+        .or(task.assigned_tab_id.as_deref());
+    let tab_is_live = tab_id.map(|p| tab_live(p)).unwrap_or(false);
     let worktree_path = task.lane.worktree_path.as_deref();
     let worktree_exists = worktree_path.is_some_and(|p| Path::new(p).exists());
     let integration_target = task
@@ -144,8 +144,8 @@ where
 
     let decision = decide_lane_cleanup(
         &LaneCleanupInput {
-            pane_id,
-            pane_live: pane_is_live,
+            tab_id,
+            tab_live: tab_is_live,
             worktree_path,
             worktree_exists,
             branch: task.lane.branch.as_deref(),

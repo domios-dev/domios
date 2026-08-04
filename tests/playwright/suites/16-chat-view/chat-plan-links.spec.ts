@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, test, type PaneCleanup, type Page } from "../../helpers/fixtures";
+import { expect, test, type TabCleanup, type Page } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 
 interface CreatePlanResponse {
@@ -24,36 +24,36 @@ interface CreateTaskResponse {
 declare global {
   interface Window {
     __codetermTestChat?: {
-      pushMessages: (paneId: string, messages: Array<Record<string, unknown>>) => void;
+      pushMessages: (tabId: string, messages: Array<Record<string, unknown>>) => void;
     };
     __ctCopiedPlanRef?: string;
   }
 }
 
-async function openMockChatPane(
+async function openMockChatTab(
   api: ApiClient,
-  paneCleanup: PaneCleanup,
+  tabCleanup: TabCleanup,
   page: Page,
   workspaceId: string,
 ): Promise<string> {
-  const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+  const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
     workspace_id: workspaceId,
     title: `pw-plan-links-${Date.now()}`,
   });
-  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
-  await api.focusPane(pane.id);
+  await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
+  await api.focusTab(tab.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  if (pane.tab_id) {
-    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
+  if (tab.tab_id) {
+    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
     if (await tab.isVisible({ timeout: 5_000 })) {
       await tab.click();
     }
   }
-  const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`);
+  const chat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tab.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
-  return pane.id;
+  return tab.id;
 }
 
 async function seedCrossWorkspacePlan(api: ApiClient) {
@@ -69,7 +69,7 @@ async function seedCrossWorkspacePlan(api: ApiClient) {
   const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Owner workspace plan",
     project_path: projectB,
-    owner: { pane_id: "chat-plan-orchestrator", session_id: null, title: "Chat plan orchestrator" },
+    owner: { tab_id: "chat-plan-orchestrator", session_id: null, title: "Chat plan orchestrator" },
     kinds: "progress:#38bdf8",
   });
   const section = await api.post<CreateSectionResponse>(`/plans/${created.plan_id}/sections`, {
@@ -94,12 +94,12 @@ async function seedCrossWorkspacePlan(api: ApiClient) {
   return { workspaceA, workspaceB, planId: created.plan_id, taskId: task.task_id };
 }
 
-async function pushAssistantMessage(page: Page, paneId: string, content: string, id: string) {
+async function pushAssistantMessage(page: Page, tabId: string, content: string, id: string) {
   await page.evaluate(
-    ({ paneId: targetPaneId, content: messageContent, id: messageId }) => {
+    ({ tabId: targetTabId, content: messageContent, id: messageId }) => {
       const testChat = window.__codetermTestChat;
       if (!testChat) throw new Error("__codetermTestChat is not installed");
-      testChat.pushMessages(targetPaneId, [{
+      testChat.pushMessages(targetTabId, [{
         id: messageId,
         type: "assistant",
         content: messageContent,
@@ -107,11 +107,11 @@ async function pushAssistantMessage(page: Page, paneId: string, content: string,
         provider: "test",
       }]);
     },
-    { paneId, content, id },
+    { tabId, content, id },
   );
 }
 
-test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and focuses task", async ({ api, ui, paneCleanup }) => {
+test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and focuses task", async ({ api, ui, tabCleanup }) => {
   test.setTimeout(180_000);
   await ui.reconnect();
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
@@ -119,10 +119,10 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
 
   const { workspaceA, workspaceB, planId, taskId } = await seedCrossWorkspacePlan(api);
   await api.focusWorkspace(workspaceA.id);
-  const paneId = await openMockChatPane(api, paneCleanup, ui.page, workspaceA.id);
+  const tabId = await openMockChatTab(api, tabCleanup, ui.page, workspaceA.id);
 
-  await pushAssistantMessage(ui.page, paneId, `Investigate ${planId} then complete ${taskId}`, "pw-plan-link-task");
-  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  await pushAssistantMessage(ui.page, tabId, `Investigate ${planId} then complete ${taskId}`, "pw-plan-link-task");
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
   const planLink = chat.locator(`[data-testid="chat-plan-link"][data-plan-id="${planId}"]`).first();
   const taskLink = chat.locator(`[data-testid="chat-task-link"][data-plan-id="${planId}"][data-target-id="${taskId}"]`).first();
   await expect(planLink).toBeVisible({ timeout: 30_000 });
@@ -153,7 +153,7 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   const missingPlanId = "pl_missingplan";
   await api.focusWorkspace(workspaceA.id);
   await ui.page.reload({ waitUntil: "domcontentloaded" });
-  await pushAssistantMessage(ui.page, paneId, `Missing ref ${missingPlanId}`, "pw-plan-link-missing");
+  await pushAssistantMessage(ui.page, tabId, `Missing ref ${missingPlanId}`, "pw-plan-link-missing");
   const missingLink = chat.locator('[data-testid="chat-plan-link"]').filter({ hasText: missingPlanId }).first();
   await expect(missingLink).toBeVisible({ timeout: 30_000 });
   await expect(missingLink).toHaveAttribute("data-ref-state", "missing");
@@ -164,7 +164,7 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   await expect(ui.page.locator('[data-testid="plan-view-shell"]').first()).toHaveCount(0);
 });
 
-test("@golden chat-plan-link mobile Space switches workspace and opens plan-view-shell", async ({ api, ui, paneCleanup }) => {
+test("@golden chat-plan-link mobile Space switches workspace and opens plan-view-shell", async ({ api, ui, tabCleanup }) => {
   test.setTimeout(180_000);
   await ui.reconnect();
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
@@ -173,10 +173,10 @@ test("@golden chat-plan-link mobile Space switches workspace and opens plan-view
   const { workspaceA, workspaceB, planId } = await seedCrossWorkspacePlan(api);
   await api.focusWorkspace(workspaceA.id);
   await ui.page.setViewportSize({ width: 390, height: 844 });
-  const paneId = await openMockChatPane(api, paneCleanup, ui.page, workspaceA.id);
+  const tabId = await openMockChatTab(api, tabCleanup, ui.page, workspaceA.id);
 
-  await pushAssistantMessage(ui.page, paneId, `Open ${planId}`, "pw-plan-link-plan");
-  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  await pushAssistantMessage(ui.page, tabId, `Open ${planId}`, "pw-plan-link-plan");
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
   const planLink = chat.locator(`[data-testid="chat-plan-link"][data-plan-id="${planId}"]`).first();
   await expect(planLink).toBeVisible({ timeout: 30_000 });
   await expect(planLink).toContainText("Owner workspace plan", { timeout: 30_000 });

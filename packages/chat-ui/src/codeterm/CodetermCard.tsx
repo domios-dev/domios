@@ -1,6 +1,6 @@
 import React from "react";
 import type { CodetermInvocation } from "./recognize";
-import { renderTemplate, isSend, type PaneNameResolver } from "./templates";
+import { renderTemplate, isSend, type TabNameResolver } from "./templates";
 import { SentMessageBubble } from "./SentMessageBubble";
 import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
@@ -10,19 +10,19 @@ interface Props {
   result?: string;
   expanded: boolean;
   onToggle: () => void;
-  resolvePaneName?: PaneNameResolver;
+  resolveTabName?: TabNameResolver;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
 }
 
-export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
+export function CodetermCard({ inv, result, expanded, onToggle, resolveTabName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   if (isSend(inv)) {
     return (
       <SentMessageBubble
         inv={inv}
         result={result}
-        resolvePaneName={resolvePaneName}
+        resolveTabName={resolveTabName}
         onOpenPlan={onOpenPlan}
         resolvePlanRef={resolvePlanRef}
         fontScale={fontScale}
@@ -30,7 +30,7 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName,
     );
   }
 
-  const card = renderTemplate(inv, result, resolvePaneName);
+  const card = renderTemplate(inv, result, resolveTabName);
   const canOpenPlan = card.link != null && onOpenPlan != null;
   return (
     <React.Fragment>

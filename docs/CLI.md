@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 26 -->
+<!-- revision: 29 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -11,14 +11,22 @@ a global flag on every command.
 
 The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
-`codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_PANE_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
+`codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
-`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
+`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
 
 Agent hierarchy management
+
+#### `codeterm agent ack`
+
+Acknowledge receipt and ownership of the assigned task
+
+- `--plan` — Plan id (default: $CODETERM_PLAN_ID)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--task` — Task id (default: $CODETERM_TASK_ID)
 
 #### `codeterm agent allow-spawn`
 
@@ -31,7 +39,7 @@ Toggle whether a tab can spawn children
 
 Compact agent context (sends /compact to Claude)
 
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm agent ledger`
 
@@ -51,7 +59,7 @@ Link a tab as worker under a parent
 Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
 
 - `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm agent models`
 
@@ -79,7 +87,7 @@ Send a report to your parent in the hierarchy
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `--task` — Task id to append this report to (if available)
 - `--test-cmd` — Test command that was run
 - `--test-result` — Result of the test command (e.g. "42 passed")
@@ -91,7 +99,7 @@ Restart agent (graceful exit; resumes only when the tab has a valid provider ses
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm agent set-orchestrator`
 
@@ -101,7 +109,7 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 
 #### `codeterm agent spawn`
 
-Spawn a new agent; roleless unless --role is provided
+Spawn a new agent; roleless unless --role is provided.
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
 - `--args` — Extra args for the agent
@@ -113,6 +121,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
+- `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent-tab` — Parent tab ID (for Workers)
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
@@ -253,8 +262,9 @@ Create a cron job
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
 - `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
-- `--tab` — Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
+- `--tab` — Tab ID to receive reports. Omit to keep runs private to the cron
 - `--task` — Task prompt for the agent
+- `--team` — Attach this job to a Team. The calling Tab must belong to it
 - `--timeout-secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
 - `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
 - `--workspace` — Workspace ID (default: active)
@@ -324,7 +334,7 @@ Queue a delayed message
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from-file` — Read text from a file instead of the positional arg
 - `--stdin` — Read text from stdin
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm delayed delete`
@@ -348,7 +358,7 @@ Edit a queued or failed delayed message
 
 List delayed messages for a tab
 
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm delayed send-now`
 
@@ -364,7 +374,7 @@ Read one embedded CodeTerm document in full
 
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)
+Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)
 
 - `--full` — Print the complete document even inside a CodeTerm tab
 - `--head` — Print at most N lines
@@ -483,7 +493,7 @@ Re-run extraction workers for items that haven't been extracted yet. Useful afte
 
 Flush a tab's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)
 
-- `--tab` — Tab id (default: $CODETERM_PANE_ID)
+- `--tab` — Tab id (default: $CODETERM_TAB_ID)
 - `--title` — Optional title hint
 
 #### `codeterm mem forget`
@@ -1724,6 +1734,8 @@ Serialized QA queue for in_review tasks
 
 Mark QA failed, bounce to in_progress, and nudge the implementer
 
+- `--changed-executable-surfaces` — This attempt changed executable implementation surfaces
+- `--distinct-oracle` — This attempt used a materially distinct verification oracle
 - `--note`
 - `<plan_id>`
 - `<task_id>`
@@ -1879,10 +1891,11 @@ Search synced plan/spec/task/stride history for this project
 - `--active`
 - `--all`
 - `--archived`
-- `--kind`
+- `--kind` — Restrict to plan, plan_section, spec, spec_section, task, or stride
 - `--limit`
 - `--project`
 - `<query>`
+- `--scope` — Restrict to an indexed scope such as global or workspace:<id>
 
 #### `codeterm plan section`
 
@@ -2012,6 +2025,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
 - `--group`
 - `--handle`
@@ -2025,14 +2039,16 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--qa-plan`
+- `--qa-plan-file`
 - `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
 - `--tag`
 - `--test-plan`
 - `--type`
-- `--why`
-- `--why-file`
+- `--why` — Routing rationale; stored as model_rationale in task JSON.
+- `--why-file` — Routing rationale; stored as model_rationale in task JSON.
 - `--workspace-id`
 - `--workspace-name`
 - `--worktree`
@@ -2104,6 +2120,7 @@ Link a task to one or more plan sections (CSV)
 
 List a plan's tasks, optionally filtered by status
 
+- `--all` — Include paused, done, and cancelled tasks
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
@@ -2176,6 +2193,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number
 - `--group`
 - `--handle`
 - `--intent`
@@ -2187,6 +2205,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--qa-plan`
+- `--qa-plan-file`
 - `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
@@ -2197,8 +2217,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `<task_id>`
 - `--test-plan`
 - `--type`
-- `--why`
-- `--why-file`
+- `--why` — Routing rationale; stored as model_rationale in task JSON.
+- `--why-file` — Routing rationale; stored as model_rationale in task JSON.
 - `--workspace-id`
 - `--workspace-name`
 - `--worktree`
@@ -2350,7 +2370,7 @@ Report worker progress to the owning orchestrator or plan
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `--task` — Task id to append this report to (if available)
 - `--test-cmd` — Test command that was run
 - `--test-result` — Result of the test command (e.g. "42 passed")
@@ -2360,12 +2380,12 @@ Report worker progress to the owning orchestrator or plan
 
 Send text to a tab (default: current tab)
 
-- `--actions` — Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
+- `--actions` — Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
@@ -2599,20 +2619,20 @@ Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file
 Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
 
 - `--out` — Path of the `.cast` file to write
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm tab capture stop`
 
 Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
 
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm tab chat`
 
 Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 - `--since` — Only return messages from this index onward
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm tab close`
 
@@ -2677,6 +2697,7 @@ Plain shell tab. For an AI tab use `codeterm agent spawn` instead
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
+- `--team` — Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id (default: current focused)
 
@@ -2722,6 +2743,8 @@ Add a standalone task to the workspace Inbox
 - `--intent-file`
 - `--model`
 - `--name`
+- `--qa-plan`
+- `--qa-plan-file`
 - `--test-plan`
 - `--type`
 - `--why`
@@ -2845,9 +2868,10 @@ Install update (--auto for automatic download + install + restart)
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Lets the GA continue work post-update — e.g. "verify the new build and report version via Telegram"
 - `--auto` — Use Tauri built-in updater: download, install, and restart automatically
 - `--continue-prompt` — Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart
-- `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`
+- `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`
 - `--from-file` — Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
+- `--no-continue` — Disable the default continuation sent back to the calling tab
 
 #### `codeterm usage`
 
@@ -2869,7 +2893,7 @@ End-of-today and end-of-cycle projection based on your historical rhythm scaled 
 
 #### `codeterm usage refresh`
 
-Trigger a fresh probe (runs the agent hidden, parses /status)
+Re-read usage from the provider's own quota-free source (never spends quota)
 
 - `--account-id`
 - `--provider`

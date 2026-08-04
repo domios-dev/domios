@@ -85,9 +85,10 @@ impl From<SerdeSessionMessage> for SessionMessage {
 }
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelInfo, ProviderTrust,
-    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage, SessionMetadata,
-    SettingField, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelInfo,
+    ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
+    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
+    TaskDelivery, VerifySubmitStrategy,
 };
 
 use super::{
@@ -112,6 +113,7 @@ pub struct JsProvider {
     /// `describe()` (called on every /api/agents/providers poll) re-evaluated
     /// them through QuickJS every time — a profiled CPU hot path. Compute once.
     schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
+    has_custom_settings_schema: bool,
     /// VM-backed usage parser, built once when the plugin exports `parseUsage`.
     /// `usage_parser()` hands out a reference, so the adapter must live on the
     /// provider.
@@ -168,12 +170,23 @@ impl JsProvider {
                 },
             );
         }
+        crate::model_catalog::register_reasoning_efforts(
+            &manifest.id,
+            manifest
+                .reasoning_efforts
+                .iter()
+                .map(ReasoningEffortInfo::from)
+                .collect(),
+            manifest.default_reasoning_effort.clone(),
+        );
+        let has_custom_settings_schema = super::vm::has_method(&vm, "settingsSchema");
         Self {
             vm,
             manifest,
             trust,
             registry: None,
             schema_cache: std::sync::OnceLock::new(),
+            has_custom_settings_schema,
             usage_parser_cell: std::sync::OnceLock::new(),
         }
     }
@@ -314,8 +327,8 @@ impl AgentProvider for JsProvider {
         (&self.manifest.spawn.system_prompt_delivery).into()
     }
 
-    fn task_input_warmup(&self) -> Duration {
-        Duration::from_millis(self.manifest.spawn.task_input_warmup_ms)
+    fn provider_readiness_strategy(&self) -> ProviderReadinessStrategy {
+        (&self.manifest.spawn.provider_readiness).into()
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
@@ -346,16 +359,16 @@ impl AgentProvider for JsProvider {
             .flatten()
     }
 
-    fn classify_pane_state(
+    fn classify_tab_state(
         &self,
-        snapshot: &crate::pane_state::PaneStateSnapshot,
-    ) -> Option<crate::pane_state::PaneStateClassification> {
-        if !self.has_js("classifyPaneState") {
-            return self.native().and_then(|n| n.classify_pane_state(snapshot));
+        snapshot: &crate::tab_state::TabStateSnapshot,
+    ) -> Option<crate::tab_state::TabStateClassification> {
+        if !self.has_js("classifyTabState") {
+            return self.native().and_then(|n| n.classify_tab_state(snapshot));
         }
         let arg = serde_json::to_value(snapshot).ok()?;
-        self.try_call::<Option<crate::pane_state::PaneStateClassification>>(
-            "classifyPaneState",
+        self.try_call::<Option<crate::tab_state::TabStateClassification>>(
+            "classifyTabState",
             &[arg],
         )
         .flatten()
@@ -838,15 +851,12 @@ impl AgentProvider for JsProvider {
     }
 
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
-        self.manifest
-            .reasoning_efforts
-            .iter()
-            .map(ReasoningEffortInfo::from)
-            .collect()
+        crate::model_catalog::resolve_reasoning_efforts(&self.manifest.id)
     }
 
     fn default_reasoning_effort(&self) -> Option<String> {
-        self.manifest.default_reasoning_effort.clone()
+        crate::model_catalog::resolve_default_reasoning_effort(&self.manifest.id)
+            .or_else(|| self.manifest.default_reasoning_effort.clone())
     }
 
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
@@ -955,7 +965,10 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        self.try_call::<Vec<SerdeModelInfo>>("discoverModels", &[])
+        // `null` is the plugin's honest "no genuine discovery" signal — it must
+        // not deserialize-fail into warn noise, and never falls back to a seed.
+        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[])
+            .flatten()
             .map(|models| models.iter().map(ModelInfo::from).collect())
     }
 
@@ -965,6 +978,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
+        if !self.has_custom_settings_schema {
+            return manifest_settings_sections(&self.manifest);
+        }
         // Cached: describe() polls hit this; the plugin schema is a pure constant.
         self.schema_cache
             .get_or_init(|| self.compute_schemas())

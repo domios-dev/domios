@@ -74,13 +74,13 @@ test("latest note is separate from status chip for decision milestones", async (
       task({
         id: "t-note",
         status: TaskStatus.InReview,
-        status_label: "In QA · queued #1",
+        status_label: "blocked: reviewer host unavailable overnight",
         review_stage: "qa",
         qa_state: "queued",
         milestones: [
           {
             id: "ms-old",
-            from: { pane_id: "p1", session_id: null, title: "Orchestrator" },
+            from: { tab_id: "p1", session_id: null, title: "Orchestrator" },
             kind: "status_update",
             text: "older update",
             ts: 1_000,
@@ -91,7 +91,7 @@ test("latest note is separate from status chip for decision milestones", async (
           },
           {
             id: "ms-new",
-            from: { pane_id: "p2", session_id: null, title: "Worker" },
+            from: { tab_id: "p2", session_id: null, title: "Worker" },
             kind: "decision",
             text: "Demote intent text to muted latest-note line",
             ts: 9_000,
@@ -107,21 +107,42 @@ test("latest note is separate from status chip for decision milestones", async (
   const { host } = await render(<BoardTaskCard card={cardFor(plan, "t-note")} />);
   const chip = host.querySelector('[data-testid="status-chip"]');
   const note = host.querySelector('[data-testid="latest-note"]');
-  assert(chip?.textContent === "in review", "status chip stays canonical");
+  assert(
+    chip?.textContent === "In QA · queued #1 — blocked: reviewer host unavailable overnight",
+    "status chip states the queue state and the operator reason, not bare 'in review'",
+  );
   assert(note?.textContent === "Demote intent text to muted latest-note line", "latest milestone text");
   assert(chip !== note, "status chip and latest note are distinct nodes");
   const ordered = Array.from(host.querySelectorAll("[data-testid]")).map((el) => el.getAttribute("data-testid"));
   assert(ordered.indexOf("status-chip") < ordered.indexOf("latest-note"), "latest note follows status chip");
 });
 
-test("done card with stale pane id never renders pane-gone", async () => {
+test("queued QA chip degrades honestly when the operator left no reason", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "t-queued-no-label",
+        status: TaskStatus.InReview,
+        status_label: null,
+        review_stage: "qa",
+        qa_state: "queued",
+      }),
+    ],
+  };
+  const { host } = await render(<BoardTaskCard card={cardFor(plan, "t-queued-no-label")} />);
+  const chip = host.querySelector('[data-testid="status-chip"]');
+  assert(chip?.textContent === "In QA · queued #1", "queued state shown without inventing a reason");
+});
+
+test("done card with stale tab id never renders tab-gone", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
       task({
         id: "t-done-ghost",
         status: TaskStatus.Done,
-        assigned_pane_id: "ghost-pane",
+        assigned_tab_id: "ghost-tab",
         lane: { branch: "lane/merged" },
         status_changed_at: 1_000,
       }),

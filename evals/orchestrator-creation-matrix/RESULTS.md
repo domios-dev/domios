@@ -7,7 +7,7 @@ load spikes to **15–23** on this 10-core weak machine while it built other lan
 Two classes of result below:
 1. **LIVE** — executed against dev this session; verdict is real.
 2. **DEFERRED (load)** — the harness is written and syntax-valid, but the
-   scenario spawns real `claude` panes (route B/C/D/E/H1/H2/H3 need 1–8 live
+   scenario spawns real `claude` tabs (route B/C/D/E/H1/H2/H3 need 1–8 live
    agents). With 1-min load at 15–23 (> the >10 skip threshold in the worker
    charter), spawning a fleet of agents would risk a 40+ spike. These must be
    run by the orchestrator in a low-load window: `bash evals/orchestrator-creation-matrix/run.sh`.
@@ -27,10 +27,10 @@ Two classes of result below:
 
 | Route | Finding | Bounce target |
 |-------|---------|---------------|
-| **D** | No `codeterm orchestrator promote` subcommand exists (`orchestrator` has only status/learn/heartbeat/handoff). Make-Orchestrator is **only** `POST /api/panes/{id}/make-orchestrator`. Route D in the harness uses `dev_post` (dev-locked). | promotion/CLI lane |
-| **C / D** | Orchestrator onboarding ships a **literal `--plan PLAN_ID` placeholder**, not a real plan id (`orchestrator_onboarding_body`, by design — no plan is claimed at spawn/promote time). The real orchestrator **pane** id *is* pre-filled (`--parent <pane>`). Pinned C wants a real plan id ⇒ divergence. | make-orchestrator / pair lane `task_aa01c0db` |
-| **H2** | No **backend** hierarchy guard on `orchestration new` / `spawn --role Orchestrator` keyed off caller role. "Worker never spawns" is a prompt-level charter only. Promotion *does* reject panes with a parent (`validate_make_orchestrator`). Harness attributes `orchestration new` to a Worker via `spawned_by_pane_id` and expects refusal; likely a FINDING (not enforced). | hierarchy-guard lane |
-| **B/C/D/E** | `plan create --json` returns the id at `.plan_id`; `plan get --json` returns the plan object at top level (`.planner`, `.owner`). `plan claim` has no explicit `--tab` (it claims for the caller tab), so `dc` cannot set ownership; E binds the planner owner-independently. `orchestration new` result = `{plan_id, orchestrator_pane_id, planner_pane_id, warning?}`. | (harness notes) |
+| **D** | No `codeterm orchestrator promote` subcommand exists (`orchestrator` has only status/learn/heartbeat/handoff). Make-Orchestrator is **only** `POST /api/tabs/{id}/make-orchestrator`. Route D in the harness uses `dev_post` (dev-locked). | promotion/CLI lane |
+| **C / D** | Orchestrator onboarding ships a **literal `--plan PLAN_ID` placeholder**, not a real plan id (`orchestrator_onboarding_body`, by design — no plan is claimed at spawn/promote time). The real orchestrator **tab** id *is* pre-filled (`--parent <tab>`). Pinned C wants a real plan id ⇒ divergence. | make-orchestrator / pair lane `task_aa01c0db` |
+| **H2** | No **backend** hierarchy guard on `orchestration new` / `spawn --role Orchestrator` keyed off caller role. "Worker never spawns" is a prompt-level charter only. Promotion *does* reject tabs with a parent (`validate_make_orchestrator`). Harness attributes `orchestration new` to a Worker via `spawned_by_tab_id` and expects refusal; likely a FINDING (not enforced). | hierarchy-guard lane |
+| **B/C/D/E** | `plan create --json` returns the id at `.plan_id`; `plan get --json` returns the plan object at top level (`.planner`, `.owner`). `plan claim` has no explicit `--tab` (it claims for the caller tab), so `dc` cannot set ownership; E binds the planner owner-independently. `orchestration new` result = `{plan_id, orchestrator_tab_id, planner_tab_id, warning?}`. | (harness notes) |
 
 ## Harness / dogfood friction (bugs in the system we are building)
 

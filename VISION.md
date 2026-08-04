@@ -6,7 +6,7 @@ CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on
 
 ## Core metaphor: spinal cord
 
-The CodeTerm CLI and APIs are the **spinal cord** — low-level reflexes that any agent uses to act within the environment. An agent doesn't need to understand how panes, workspaces, or mesh work internally. It just uses the tools: split a pane, read output, spawn a worker, send a message. Like a spinal cord handles reflexes so the brain can focus on thinking.
+The CodeTerm CLI and APIs are the **spinal cord** — low-level reflexes that any agent uses to act within the environment. An agent doesn't need to understand how tabs, workspaces, or mesh work internally. It just uses the tools: split a tab, read output, spawn a worker, send a message. Like a spinal cord handles reflexes so the brain can focus on thinking.
 
 The **General Agent** is the brain of one machine — manages the environment, routes messages, delegates work. But it's just one agent among many. Other agents get the spinal cord (the `/codeterm` skill) but NOT the General Agent's identity or personality. They know how to act inside CodeTerm without becoming the General Agent.
 
@@ -79,7 +79,7 @@ The `/codeterm` skill becomes an MCP server descriptor. Plugins expose tools via
 
 ### Plugin capabilities
 
-Plugins can contribute: **tools** (agent-callable), **commands** (CLI), **settings** (UI panel), **hooks** (react to events), **UI panels**, **agent providers**, **bridge services**, **themes**, **mesh extensions**.
+Plugins can contribute: **tools** (agent-callable), **commands** (CLI), **settings** (UI tabl), **hooks** (react to events), **UI tabls**, **agent providers**, **bridge services**, **themes**, **mesh extensions**.
 
 ### General Agent prompt composition
 

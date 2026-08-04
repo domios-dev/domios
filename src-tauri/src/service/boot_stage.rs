@@ -1,52 +1,154 @@
-//! Truthful pane-boot progress. Stages are emitted at the REAL launch
+//! Truthful tab-boot progress. Stages are emitted at the REAL launch
 //! transitions in `orchestrator::launch` — never timer-driven — so late UI
 //! attachers and live subscribers see where a spawn actually is.
 
 use super::ServiceContext;
-use crate::multiplexer::types::Pane;
+use crate::multiplexer::types::Tab;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink};
 
-pub(crate) fn allows_shell_prompt_exit(stage: Option<BootStage>) -> bool {
-    matches!(stage, Some(BootStage::AgentReady))
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RestartReadiness {
+    Ready {
+        pty_id: String,
+    },
+    Failed {
+        pty_id: Option<String>,
+        reason: String,
+    },
+    TimedOut {
+        pty_id: Option<String>,
+    },
 }
 
-/// Record a stage on the pane. Only SpawnFailed carries a reason, so any other
+pub(crate) fn classify_restart_readiness(
+    pty_id: Option<&str>,
+    stage: Option<BootStage>,
+    failure_reason: Option<&str>,
+    old_pty_id: &str,
+) -> Option<RestartReadiness> {
+    let new_pty_id = pty_id.filter(|pty_id| *pty_id != old_pty_id);
+    match (new_pty_id, stage) {
+        (Some(pty_id), Some(BootStage::AgentReady)) => Some(RestartReadiness::Ready {
+            pty_id: pty_id.to_string(),
+        }),
+        (pty_id, Some(BootStage::SpawnFailed)) => Some(RestartReadiness::Failed {
+            pty_id: pty_id.map(str::to_string),
+            reason: failure_reason
+                .unwrap_or("new agent launch failed")
+                .to_string(),
+        }),
+        _ => None,
+    }
+}
+
+pub(crate) fn wait_for_restart_readiness(
+    mux: &crate::MuxState,
+    tab_id: &str,
+    old_pty_id: &str,
+    timeout: std::time::Duration,
+) -> RestartReadiness {
+    let inspect = || {
+        let mux = mux.read();
+        match mux.get_tab(tab_id) {
+            Some(tab) => classify_restart_readiness(
+                tab.pty_id.as_deref(),
+                tab.boot_stage,
+                tab.boot_failure_reason.as_deref(),
+                old_pty_id,
+            ),
+            None => Some(RestartReadiness::Failed {
+                pty_id: None,
+                reason: format!("Tab {tab_id} disappeared during restart"),
+            }),
+        }
+    };
+    let mut observed = inspect();
+    let signalled = super::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
+        observed = inspect();
+        observed.is_some()
+    });
+    if signalled {
+        return observed.expect("signalled restart readiness");
+    }
+    let pty_id = mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.pty_id.clone())
+        .filter(|pty_id| pty_id != old_pty_id);
+    RestartReadiness::TimedOut { pty_id }
+}
+
+/// `AgentReady` asserts the agent can accept input. A surfaced interactive
+/// prompt owns that input, so the assertion is false while one is pending.
+/// Reads the prompt the output pipeline already surfaced — never re-parses.
+pub(crate) fn blocking_prompt_owns_input(tab: &Tab) -> bool {
+    tab.pending_prompt.is_some()
+}
+
+/// Tabs whose readiness claim was withheld because a blocking prompt owned the
+/// input. Paid by `release_deferred_agent_ready` when the prompt frees it.
+static READY_OWED: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashSet::new()));
+
+/// Record a stage on the tab. Only SpawnFailed carries a reason, so any other
 /// stage clears a previously latched failure.
-pub(crate) fn apply_boot_stage(pane: &mut Pane, stage: BootStage, reason: Option<&str>) {
-    pane.boot_stage = Some(stage);
-    pane.boot_failure_reason = (stage == BootStage::SpawnFailed)
+pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
+    if stage == BootStage::AgentReady && blocking_prompt_owns_input(tab) {
+        READY_OWED.lock().insert(tab.id.clone());
+        return;
+    }
+    READY_OWED.lock().remove(&tab.id);
+    tab.boot_stage = Some(stage);
+    tab.boot_failure_reason = (stage == BootStage::SpawnFailed)
         .then(|| reason.map(str::to_string))
         .flatten();
 }
 
 impl BootStageSink for ServiceContext {
-    fn record(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
-        self.emit_boot_stage(pane_id, stage, reason);
+    fn record(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        self.emit_boot_stage(tab_id, stage, reason);
     }
 }
 
 impl ServiceContext {
-    /// Set the pane's current boot stage (for late attachers reading the
+    /// Set the tab's current boot stage (for late attachers reading the
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
-    pub(crate) fn emit_boot_stage(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
-        if let Some(p) = self.mux.write().get_pane_mut(pane_id) {
+    pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        if let Some(p) = self.mux.write().get_tab_mut(tab_id) {
             apply_boot_stage(p, stage, reason);
         }
         super::boot_wait::notify_boot_changed();
         crate::api::events::emit_everywhere(
             &self.app_handle,
-            "pane-boot-stage",
+            "tab-boot-stage",
             serde_json::json!({
-                "pane_id": pane_id,
+                "tab_id": tab_id,
                 "stage": stage,
                 "reason": reason,
             }),
         );
         if stage == BootStage::AgentReady {
-            self.schedule_planner_replay(pane_id);
+            self.schedule_planner_replay(tab_id);
             self.heal_recovery_state_if_ready();
+        }
+    }
+
+    /// Pay a readiness claim `apply_boot_stage` withheld because a blocking
+    /// prompt owned the input. Driven by the prompt-release observation, never
+    /// a timer; a no-op unless that exact tab is owed a claim.
+    pub(crate) fn release_deferred_agent_ready(&self, tab_id: &str) {
+        if !READY_OWED.lock().contains(tab_id) {
+            return;
+        }
+        let freed = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .is_some_and(|tab| !blocking_prompt_owns_input(tab))
+        };
+        if freed {
+            self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
         }
     }
 
@@ -59,16 +161,16 @@ impl ServiceContext {
         let healthy = {
             let mux = self.mux.read();
             mux.snapshot()
-                .panes
+                .tabs
                 .values()
-                .filter_map(|pane| {
-                    if pane.role.is_none() || pane.agent_type.is_none() {
+                .filter_map(|tab| {
+                    if tab.role.is_none() || tab.agent_type.is_none() {
                         return None;
                     }
                     crate::crash::lifecycle::BindingIdentity::healthy_lazy_restored(
-                        &pane.id,
-                        pane.agent_session_id.as_deref(),
-                        pane.agent_state.is_some(),
+                        &tab.id,
+                        tab.agent_session_id.as_deref(),
+                        tab.agent_state.is_some(),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -94,10 +196,10 @@ mod tests {
     }
 
     impl BootStageSink for MockSink {
-        fn record(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
+        fn record(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
             self.events
                 .lock()
-                .push((pane_id.to_string(), stage, reason.map(str::to_string)));
+                .push((tab_id.to_string(), stage, reason.map(str::to_string)));
         }
     }
 
@@ -111,23 +213,23 @@ mod tests {
     fn happy_path_emits_stages_in_order() {
         let sink = MockSink::default();
         for stage in BootStage::HAPPY_PATH {
-            sink.record("pane-1", stage, None);
+            sink.record("tab-1", stage, None);
         }
         assert_eq!(sink.stages(), BootStage::HAPPY_PATH.to_vec());
         assert!(sink
             .events
             .lock()
             .iter()
-            .all(|(pid, _, r)| pid == "pane-1" && r.is_none()));
+            .all(|(pid, _, r)| pid == "tab-1" && r.is_none()));
     }
 
     #[test]
     fn failure_path_ends_at_spawn_failed_with_reason_and_no_ready() {
         let sink = MockSink::default();
-        sink.record("pane-2", BootStage::PtySpawned, None);
-        sink.record("pane-2", BootStage::ShellReady, None);
+        sink.record("tab-2", BootStage::PtySpawned, None);
+        sink.record("tab-2", BootStage::ShellReady, None);
         sink.record(
-            "pane-2",
+            "tab-2",
             BootStage::SpawnFailed,
             Some("launch_cmd failed: boom"),
         );
@@ -138,6 +240,84 @@ mod tests {
         let (_, last_stage, last_reason) = sink.events.lock().last().cloned().unwrap();
         assert_eq!(last_stage, BootStage::SpawnFailed);
         assert_eq!(last_reason.as_deref(), Some("launch_cmd failed: boom"));
+    }
+
+    /// An options block surfaced exactly as the live path surfaces it: the
+    /// structural detector on the tab's own attributed grid. No vendor wording.
+    fn blocking_prompt_from_screen() -> codeterm_types::pty::PendingPrompt {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        for line in [
+            "Select an option",
+            "",
+            "\u{276f} 1. first choice",
+            "  2. second choice",
+            "  3. third choice",
+            "",
+            "  enter to select \u{b7} esc to cancel",
+        ] {
+            parser.process(line.as_bytes());
+            parser.process(b"\r\n");
+        }
+        let input = crate::agent::native_prompt::NativePromptInput {
+            screen: codeterm_pty::attributed_screen::AttributedScreen::from_vt100(parser.screen()),
+            cursor_hidden: true,
+            alt_screen: false,
+        };
+        crate::agent::native_prompt::pending_prompt_from_input(&input)
+            .expect("mechanism probe: the structural detector surfaces this options block")
+    }
+
+    fn tab_with_prompt(prompt: Option<codeterm_types::pty::PendingPrompt>) -> Tab {
+        let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = state.list_workspaces()[0].id.clone();
+        let tab_id = state.create_tab(&workspace_id).unwrap();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.pending_prompt = prompt;
+        tab.clone()
+    }
+
+    /// Falsification oracle for #9. Fails for the named mechanism (the boot-stage
+    /// recorder never consults the surfaced blocking prompt) and would pass if
+    /// the cause were the prompt not being observable here — that variant fails
+    /// in `blocking_prompt_from_screen`'s probe instead.
+    #[test]
+    fn agent_ready_is_withheld_while_a_blocking_prompt_owns_input() {
+        let mut tab = tab_with_prompt(Some(blocking_prompt_from_screen()));
+        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+        assert_ne!(
+            tab.boot_stage,
+            Some(BootStage::AgentReady),
+            "readiness asserted while a blocking prompt owns the input"
+        );
+    }
+
+    /// The other over-correction guard: withholding must defer the claim, not
+    /// destroy it — a tab blocked once must still reach ready afterwards.
+    #[test]
+    fn withheld_readiness_is_owed_and_paid_once_the_prompt_frees_input() {
+        let mut tab = tab_with_prompt(Some(blocking_prompt_from_screen()));
+        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+        assert!(
+            READY_OWED.lock().contains(&tab.id),
+            "withheld readiness was dropped instead of owed"
+        );
+
+        tab.pending_prompt = None;
+        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+        assert!(
+            !READY_OWED.lock().contains(&tab.id),
+            "a paid claim must not stay owed"
+        );
+    }
+
+    /// The over-correction guard: a fix that never reports ready also never
+    /// reports ready while blocked, and is just as wrong.
+    #[test]
+    fn agent_ready_is_recorded_when_nothing_owns_the_input() {
+        let mut tab = tab_with_prompt(None);
+        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     }
 
     #[test]

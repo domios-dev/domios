@@ -5,7 +5,7 @@ import { VoiceRecordingBar } from "./voice/VoiceRecordingBar";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 const btnBase =
-  "flex items-center justify-center shrink-0 transition-all duration-150";
+  "ct-liquid-interactive flex items-center justify-center shrink-0";
 
 export function ComposerInputShell({
   voiceUi,
@@ -88,7 +88,7 @@ function ComposerScheduleButton({ onSchedule }: { onSchedule: () => void }) {
         e.preventDefault();
         onSchedule();
       }}
-      className={`${btnBase} ml-1 h-5 w-5 shrink-0 self-center rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
+      className={`${btnBase} ct-composer-round-button ml-1 h-5 w-5 shrink-0 self-center rounded-full text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:brightness-125`}
       style={{
         background: "var(--ct-surface, #161b22)",
         border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",

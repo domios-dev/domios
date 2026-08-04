@@ -1,6 +1,6 @@
 /**
  * Mirrors the plugin snapshot (`plugin_manager_snapshot`) into the react-free
- * `pluginProviderMeta` cache so the pane resolver can light up shell panes by
+ * `pluginProviderMeta` cache so the tab resolver can light up shell tabs by
  * `backing.plugin_id`. Refetches when plugin contributions change (install /
  * activate / reload). One mount at app root is enough.
  */

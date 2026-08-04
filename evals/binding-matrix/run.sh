@@ -2,19 +2,19 @@
 # Session-binding stress matrix.
 #
 # Drives the provider-reported binding system under churn and asserts the core
-# invariant never slips: every live agent pane is bound to its OWN unique
-# provider session id — even with many panes in the same cwd, /new resets, and
+# invariant never slips: every live agent tab is bound to its OWN unique
+# provider session id — even with many tabs in the same cwd, /new resets, and
 # close+respawn cycles interleaved.
 #
 # Scenarios (each followed by a full-fleet invariant check):
 #   A. mass spawn          — N workspaces x M agents, all spawned back-to-back
 #   B. same-cwd clusters   — every workspace is one cwd; M agents share it
-#   C. /new churn          — claude panes get /clear; must rebind to a NEW sid
+#   C. /new churn          — claude tabs get /clear; must rebind to a NEW sid
 #   D. close + respawn     — close a subset, spawn replacements in the same cwd
 #
 # Oracle per check:
-#   - bound:      every tracked agent pane has a non-null agent_session_id
-#   - unique:     no two live agent panes share an agent_session_id (injective)
+#   - bound:      every tracked agent tab has a non-null agent_session_id
+#   - unique:     no two live agent tabs share an agent_session_id (injective)
 #   - real:       each sid resolves to an on-disk session for its provider
 #   - no-misbind: zero "binding nonce mismatch" in the dev log during the run
 #
@@ -38,7 +38,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 RUN_TS="$(date +%s)"
 OUT="$REPO_ROOT/target-check/evals/binding-matrix/$RUN_TS"
 mkdir -p "$OUT"
-TRACK="$OUT/tracked.txt"   # one "pane_id provider ws cwd" per line
+TRACK="$OUT/tracked.txt"   # one "tab_id provider ws cwd" per line
 : > "$TRACK"
 
 LOG="$HOME/.codeterm-dev/logs/codeterm.log"
@@ -61,13 +61,13 @@ if ! dev_alive; then echo "dev daemon not up on 7686 — ./build.sh dev first"; 
 provider_count() { echo "$PROVIDERS" | wc -w | tr -d ' '; }
 
 spawn_one() {
-  # $1 provider  $2 ws  $3 cwd  $4 title  -> echoes pane_id, appends to TRACK
+  # $1 provider  $2 ws  $3 cwd  $4 title  -> echoes tab_id, appends to TRACK
   local prov="$1" ws="$2" cwd="$3" title="$4" pid task
   task="reply with exactly the word READY and nothing else"
   case "$prov" in
-    claude)   pid=$(new_claude_pane "$ws" "$cwd" "$title" "$task") ;;
-    codex)    pid=$(new_codex_pane "$ws" "$cwd" "$title" "$task") ;;
-    opencode) pid=$(new_opencode_pane "$ws" "$cwd" "$title" "$task") ;;
+    claude)   pid=$(new_claude_tab "$ws" "$cwd" "$title" "$task") ;;
+    codex)    pid=$(new_codex_tab "$ws" "$cwd" "$title" "$task") ;;
+    opencode) pid=$(new_opencode_tab "$ws" "$cwd" "$title" "$task") ;;
     *) echo "unknown provider $prov" >&2; return 1 ;;
   esac
   if [ -n "$pid" ]; then
@@ -76,16 +76,16 @@ spawn_one() {
   fi
 }
 
-# Wait until every tracked, still-live pane has a session id (or timeout).
+# Wait until every tracked, still-live tab has a session id (or timeout).
 wait_for_bindings() {
   local timeout="$1" elapsed=0 pending
   while [ "$elapsed" -lt "$timeout" ]; do
-    dev_get /api/panes > "$OUT/panes.json" 2>/dev/null
-    pending=$(python3 - "$TRACK" "$OUT/panes.json" <<'PY'
+    dev_get /api/tabs > "$OUT/tabs.json" 2>/dev/null
+    pending=$(python3 - "$TRACK" "$OUT/tabs.json" <<'PY'
 import json,sys
 tracked={l.split()[0] for l in open(sys.argv[1]) if l.strip()}
-panes={p['id']:p for p in json.load(open(sys.argv[2]))}
-pend=[pid for pid in tracked if pid in panes and not panes[pid].get('agent_session_id')]
+tabs={p['id']:p for p in json.load(open(sys.argv[2]))}
+pend=[pid for pid in tracked if pid in tabs and not tabs[pid].get('agent_session_id')]
 print(len(pend))
 PY
 )
@@ -99,20 +99,20 @@ PY
 check_invariants() {
   local label="$1"
   hr; echo "CHECK: $label"
-  dev_get /api/panes > "$OUT/panes.json" 2>/dev/null
-  python3 - "$TRACK" "$OUT/panes.json" "$label" <<'PY'
+  dev_get /api/tabs > "$OUT/tabs.json" 2>/dev/null
+  python3 - "$TRACK" "$OUT/tabs.json" "$label" <<'PY'
 import json,sys,os
 tracked={}
 for l in open(sys.argv[1]):
     if not l.strip(): continue
     pid,prov,ws,cwd=l.split(None,3)
     tracked[pid]=(prov,cwd.strip())
-panes={p['id']:p for p in json.load(open(sys.argv[2]))}
+tabs={p['id']:p for p in json.load(open(sys.argv[2]))}
 
-live={pid:panes[pid] for pid in tracked if pid in panes}
+live={pid:tabs[pid] for pid in tracked if pid in tabs}
 unbound=[pid for pid in live if not live[pid].get('agent_session_id')]
 
-# uniqueness: sid -> [panes]
+# uniqueness: sid -> [tabs]
 from collections import defaultdict
 bysid=defaultdict(list)
 for pid,p in live.items():
@@ -123,7 +123,7 @@ dupes={sid:ps for sid,ps in bysid.items() if len(ps)>1}
 print(f"  tracked={len(tracked)} live={len(live)} bound={len(live)-len(unbound)} unbound={len(unbound)}")
 rc=0
 if unbound:
-    print(f"  UNBOUND panes: {unbound[:8]}"); rc=1
+    print(f"  UNBOUND tabs: {unbound[:8]}"); rc=1
 if dupes:
     for sid,ps in list(dupes.items())[:8]:
         print(f"  DUPLICATE sid {sid[:12]} claimed by {ps}")
@@ -166,24 +166,24 @@ wait_for_bindings "$BIND_TIMEOUT" || echo "  (timeout — some still pending; ch
 check_invariants "A+B mass spawn / same-cwd clusters"
 assert_no_misbind
 
-# --- Scenario C: /new churn on claude panes ---------------------------
+# --- Scenario C: /new churn on claude tabs ---------------------------
 echo; echo "=== Scenario C: /new (claude /clear) churn ==="
-mapfile -t CLAUDE_PANES < <(awk '$2=="claude"{print $1}' "$TRACK")
+mapfile -t CLAUDE_TABS < <(awk '$2=="claude"{print $1}' "$TRACK")
 # capture pre-clear sids
-dev_get /api/panes > "$OUT/pre-clear.json" 2>/dev/null
-CHURN_N=$(( ${#CLAUDE_PANES[@]} / 2 ))
-[ "$CHURN_N" -lt 1 ] && CHURN_N=${#CLAUDE_PANES[@]}
+dev_get /api/tabs > "$OUT/pre-clear.json" 2>/dev/null
+CHURN_N=$(( ${#CLAUDE_TABS[@]} / 2 ))
+[ "$CHURN_N" -lt 1 ] && CHURN_N=${#CLAUDE_TABS[@]}
 for i in $(seq 0 $((CHURN_N-1))); do
-  p="${CLAUDE_PANES[$i]}"
+  p="${CLAUDE_TABS[$i]}"
   [ -z "$p" ] && continue
   dc send "/clear" --tab "$p" >/dev/null 2>&1
   echo "  /clear -> $p"
 done
 sleep 20
 wait_for_bindings "$BIND_TIMEOUT" || true
-# assert the cleared panes are still bound + their sid changed (rebind to new session)
-dev_get /api/panes > "$OUT/post-clear.json" 2>/dev/null
-python3 - "$OUT/pre-clear.json" "$OUT/post-clear.json" "${CLAUDE_PANES[@]:0:$CHURN_N}" <<'PY'
+# assert the cleared tabs are still bound + their sid changed (rebind to new session)
+dev_get /api/tabs > "$OUT/post-clear.json" 2>/dev/null
+python3 - "$OUT/pre-clear.json" "$OUT/post-clear.json" "${CLAUDE_TABS[@]:0:$CHURN_N}" <<'PY'
 import json,sys
 pre={p['id']:p.get('agent_session_id') for p in json.load(open(sys.argv[1]))}
 post={p['id']:p.get('agent_session_id') for p in json.load(open(sys.argv[2]))}
@@ -200,10 +200,10 @@ assert_no_misbind
 
 # --- Scenario D: close + respawn churn --------------------------------
 echo; echo "=== Scenario D: close + respawn ==="
-mapfile -t ALL_PANES < <(awk '{print $0}' "$TRACK")
-CLOSE_N=$(( ${#ALL_PANES[@]} / 3 )); [ "$CLOSE_N" -lt 1 ] && CLOSE_N=1
+mapfile -t ALL_TABS < <(awk '{print $0}' "$TRACK")
+CLOSE_N=$(( ${#ALL_TABS[@]} / 3 )); [ "$CLOSE_N" -lt 1 ] && CLOSE_N=1
 for i in $(seq 0 $((CLOSE_N-1))); do
-  line="${ALL_PANES[$i]}"; [ -z "$line" ] && continue
+  line="${ALL_TABS[$i]}"; [ -z "$line" ] && continue
   pid=$(echo "$line" | awk '{print $1}'); prov=$(echo "$line" | awk '{print $2}')
   ws=$(echo "$line" | awk '{print $3}'); cwd=$(echo "$line" | awk '{print $4}')
   dc tab close "$pid" >/dev/null 2>&1

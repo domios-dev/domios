@@ -49,7 +49,7 @@ fn render_regression_gates(val: &Value, out: &mut String) {
     for o in &overrides {
         let actor = o
             .get("actor")
-            .and_then(|a| a.get("pane_id"))
+            .and_then(|a| a.get("tab_id"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
         let reason = o.get("reason").and_then(|v| v.as_str()).unwrap_or("");
@@ -122,7 +122,7 @@ pub fn render_state(val: &Value) -> String {
 
     let owner = val
         .get("owner")
-        .and_then(|o| o.get("pane_id"))
+        .and_then(|o| o.get("tab_id"))
         .and_then(|v| v.as_str())
         .filter(|v| !v.is_empty());
     if let Some(owner) = owner {
@@ -132,12 +132,12 @@ pub fn render_state(val: &Value) -> String {
         let kind = res.get("kind").and_then(|v| v.as_str()).unwrap_or("unset");
         match kind {
             "live" => {
-                let pane = res.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-                out.push_str(&format!("planner: {pane} (live)\n"));
+                let tab = res.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                out.push_str(&format!("planner tab: {tab} (live)\n"));
             }
             "fallback_orchestrator" => {
                 let bound = res
-                    .get("bound_pane_id")
+                    .get("bound_tab_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
                 let reason = res.get("reason").and_then(|v| v.as_str()).unwrap_or("");
@@ -155,19 +155,29 @@ pub fn render_state(val: &Value) -> String {
 
     if let Some(c) = val.get("task_counts") {
         let total = u(c, "total");
-        let pct = val
+        let mut pct = val
             .get("percent_done")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0)
             * 100.0;
+        if mode != "complete" {
+            pct = pct.min(99.0);
+        }
+        let paused = u(c, "paused");
+        let paused_text = if paused > 0 {
+            format!(" | paused {paused}")
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "tasks: {} total | done {} | in_progress {} | in_review {} | pending {} | blocked {} | cancelled {} ({pct:.0}% done)\n",
+            "tasks: {} total | done {} | in_progress {} | in_review {} | pending {} | blocked {}{} | cancelled {} ({pct:.0}% open-work progress)\n",
             total,
             u(c, "done"),
             u(c, "in_progress"),
             u(c, "in_review"),
             u(c, "pending"),
             u(c, "blocked"),
+            paused_text,
             u(c, "cancelled"),
         ));
         let unlocked = val
@@ -333,7 +343,7 @@ pub fn render_state(val: &Value) -> String {
                 out.push_str(&format!(
                     "  - {} -> {} ({})\n",
                     s(a, "task_id"),
-                    s(a, "pane_id"),
+                    s(a, "tab_id"),
                     s(a, "name"),
                 ));
             }
@@ -378,6 +388,14 @@ fn lane_presentation(lane: &Value) -> String {
                 .unwrap_or_else(|| "dependencies".into());
             format!("waiting on dependency: {waits}")
         }
+        "queued_for_qa" => {
+            let label = s(lane, "status_label").trim();
+            if label.is_empty() {
+                "queued for qa".into()
+            } else {
+                format!("queued for qa: {label}")
+            }
+        }
         "" => s(lane, "status").into(),
         other => other.replace('_', " "),
     }
@@ -396,28 +414,80 @@ mod tests {
             "status": "active",
             "mode": "planning",
             "goal": {"vector": "ship it"},
-            "owner": {"pane_id": "pane_o"},
+            "owner": {"tab_id": "tab_o"},
             "task_counts": {"total": 4, "done": 1, "in_progress": 1, "in_review": 1, "pending": 1, "blocked": 0, "cancelled": 0},
             "percent_done": 0.25,
             "coverage": {"plan_covered_fraction": 0.5, "gaps": ["s2"]},
-            "drift": {"total": 1, "by_kind": {"in_progress_pane_gone": 1}},
+            "drift": {"total": 1, "by_kind": {"in_progress_tab_gone": 1}},
             "heartbeat": {"current_focus": "foundation", "active_lanes": ["loop-state"]},
             "loops": [{"id": "lp_1", "status": "running", "target": "harden", "count": 2, "budget": 5, "stop_when": "0 bugs"}],
             "open_lanes": [{"task_id": "t_p", "status": "pending", "presentation": "actionable_pending", "name": "pend"}],
-            "live_agents": [{"task_id": "t_r", "pane_id": "pane_live", "name": "rev"}],
+            "live_agents": [{"task_id": "t_r", "tab_id": "tab_live", "name": "rev"}],
             "recent_strides": [{"kind": "decision", "text": "did a thing"}]
         });
         let out = render_state(&val);
         assert!(out.contains("Loop [pl_1] (active)"));
         assert!(out.contains("goal: ship it"));
-        assert!(out.contains("25% done"));
+        assert!(out.contains("25% open-work progress"));
         assert!(out.contains("coverage: 50% (1 section gap"));
-        assert!(out.contains("drift: 1 (in_progress_pane_gone 1)"));
+        assert!(out.contains("drift: 1 (in_progress_tab_gone 1)"));
         assert!(out.contains("focus: foundation"));
         assert!(out.contains("lp_1 [running] harden: 2/5; stop_when: 0 bugs"));
         assert!(out.contains("t_p [pending; actionable pending] pend"));
-        assert!(out.contains("t_r -> pane_live (rev)"));
+        assert!(out.contains("t_r -> tab_live (rev)"));
         assert!(out.contains("[decision] did a thing"));
+    }
+
+    #[test]
+    fn renders_queued_for_qa_with_operator_label_not_bare_in_review() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Queued QA",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 0, "in_progress": 0, "in_review": 1, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "coverage": {"plan_covered_fraction": 1.0, "gaps": []},
+            "open_lanes": [{
+                "task_id": "task_qawait1",
+                "status": "in_review",
+                "presentation": "queued_for_qa",
+                "status_label": "blocked: reviewer host unavailable overnight",
+                "name": "Bench dc wrapper"
+            }]
+        });
+        let out = render_state(&val);
+        assert!(
+            out.contains(
+                "task_qawait1 [in_review; queued for qa: blocked: reviewer host unavailable overnight] Bench dc wrapper"
+            ),
+            "{out}"
+        );
+        assert!(!out.contains("in_review; in review"), "{out}");
+    }
+
+    #[test]
+    fn renders_queued_for_qa_without_label_degrades_honestly() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Queued QA",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 0, "in_progress": 0, "in_review": 1, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "coverage": {"plan_covered_fraction": 1.0, "gaps": []},
+            "open_lanes": [{
+                "task_id": "task_x",
+                "status": "in_review",
+                "presentation": "queued_for_qa",
+                "name": "No label yet"
+            }]
+        });
+        let out = render_state(&val);
+        assert!(
+            out.contains("task_x [in_review; queued for qa] No label yet"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -441,6 +511,33 @@ mod tests {
     }
 
     #[test]
+    fn non_complete_plan_with_paused_work_never_renders_fully_done() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Paused work",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {
+                "total": 2,
+                "done": 1,
+                "in_progress": 0,
+                "in_review": 0,
+                "pending": 0,
+                "blocked": 0,
+                "paused": 1,
+                "cancelled": 0
+            },
+            "percent_done": 1.0
+        });
+
+        let out = render_state(&val);
+
+        assert!(out.contains("paused 1"), "{out}");
+        assert!(out.contains("99% open-work progress"), "{out}");
+        assert!(!out.contains("100%"), "{out}");
+    }
+
+    #[test]
     fn renders_blocking_regression_gates_and_override() {
         let val = json!({
             "plan_id": "pl_1",
@@ -451,12 +548,12 @@ mod tests {
             "percent_done": 1.0,
             "pending_regression_gates": [{"key": "phase-1", "label": "Phase 1"}, {"key": "phase-2", "label": "Phase 2"}],
             "blocking_regression_gates": [{"key": "phase-2", "label": "Phase 2"}],
-            "regression_overrides": [{"actor": {"pane_id": "pane_o"}, "reason": "hotfix under sign-off", "gates": ["phase-1"], "ts": 42}]
+            "regression_overrides": [{"actor": {"tab_id": "tab_o"}, "reason": "hotfix under sign-off", "gates": ["phase-1"], "ts": 42}]
         });
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1, phase-2"));
         assert!(out.contains("dispatch: BLOCKED by regression gate(s): phase-2"));
-        assert!(out.contains("override by pane_o @ 42 [phase-1]: hotfix under sign-off"));
+        assert!(out.contains("override by tab_o @ 42 [phase-1]: hotfix under sign-off"));
     }
 
     #[test]
@@ -470,7 +567,7 @@ mod tests {
             "percent_done": 1.0,
             "pending_regression_gates": [{"key": "phase-1", "label": "Phase 1"}],
             "blocking_regression_gates": [],
-            "regression_overrides": [{"actor": {"pane_id": "pane_o"}, "reason": "waiver", "gates": ["phase-1"], "ts": 7}]
+            "regression_overrides": [{"actor": {"tab_id": "tab_o"}, "reason": "waiver", "gates": ["phase-1"], "ts": 7}]
         });
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1"));

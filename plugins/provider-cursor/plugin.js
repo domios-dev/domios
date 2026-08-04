@@ -38,6 +38,7 @@ var TUI_FRAGMENTS = [
 ];
 var plugin = {
   starterPromptText(prompt) {
+    if (prompt === "no_starter") return void 0;
     if (prompt === "idle_wakeup") return "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
     if (prompt === "team_bootstrap") return void 0;
     return "Execute the assigned task.";
@@ -108,6 +109,9 @@ var plugin = {
       for (let i = 0; i < p.args.length; i++) {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
+    }
+    if (p.task) {
+      parts.push(host.shell.quoteFor(String(p.task), host.platform()));
     }
     return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },

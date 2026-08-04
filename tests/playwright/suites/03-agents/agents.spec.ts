@@ -28,100 +28,100 @@ test("@smoke spawn with an unknown provider errors honestly", async ({
 
 test("@smoke report IPC primitive: child report lands in parent inbox (no LLM)", async ({
   api,
-  paneCleanup,
+  tabCleanup,
 }) => {
-  const parent = await paneCleanup.createPane({ title: "pw-report-parent" });
-  const child = await paneCleanup.createPane({ title: "pw-report-child" });
+  const parent = await tabCleanup.createTab({ title: "pw-report-parent" });
+  const child = await tabCleanup.createTab({ title: "pw-report-child" });
   // 2-level hierarchy: a Worker's parent must be an Orchestrator.
-  await api.post(`/panes/${parent.id}/role`, { role: "Orchestrator" });
-  await api.post(`/panes/${child.id}/role`, {
+  await api.post(`/tabs/${parent.id}/role`, { role: "Orchestrator" });
+  await api.post(`/tabs/${child.id}/role`, {
     role: "Worker",
-    parent_pane_id: parent.id,
+    parent_tab_id: parent.id,
   });
 
   const marker = `pw-report-${Date.now()}`;
   const submitted = await api.post<{ ok: boolean; report_id: string }>(
-    `/panes/${child.id}/report`,
+    `/tabs/${child.id}/report`,
     { message: marker },
   );
   expect(submitted.ok).toBe(true);
   expect(submitted.report_id).toBeTruthy();
 
   const reports = await api.get<unknown>(
-    `/panes/${parent.id}/reports?clear=true`,
+    `/tabs/${parent.id}/reports?clear=true`,
   );
   const text = JSON.stringify(reports);
   expect(
     text,
     `parent inbox missing the report: ${text.slice(0, 300)}`,
   ).toContain(marker);
-  expect(text, "report must carry the reporting pane id").toContain(child.id);
+  expect(text, "report must carry the reporting tab id").toContain(child.id);
 });
 
-test("@smoke pane status endpoint answers for a live pane and 404s for a dead id", async ({
+test("@smoke tab status endpoint answers for a live tab and 404s for a dead id", async ({
   api,
-  paneCleanup,
+  tabCleanup,
 }) => {
-  const pane = await paneCleanup.createPane({ title: "pw-status-probe" });
+  const tab = await tabCleanup.createTab({ title: "pw-status-probe" });
   const status = await api.get<Record<string, unknown>>(
-    `/panes/${pane.id}/status`,
+    `/tabs/${tab.id}/status`,
   );
   expect(typeof status).toBe("object");
-  await api.closePane(pane.id).catch(() => {});
+  await api.closeTab(tab.id).catch(() => {});
   let code = 200;
   try {
-    await api.get("/panes/no-such-pane/status");
+    await api.get("/tabs/no-such-tab/status");
   } catch (e) {
     code = Number(/HTTP (\d+)/.exec(String(e))?.[1] ?? 0);
   }
   expect(code).toBe(404);
 });
 
-test("@smoke make-orchestrator rejects plain shell panes", async ({
+test("@smoke make-orchestrator rejects plain shell tabs", async ({
   api,
-  paneCleanup,
+  tabCleanup,
 }) => {
-  const pane = await paneCleanup.createPane({ title: "pw-make-orch-shell" });
+  const tab = await tabCleanup.createTab({ title: "pw-make-orch-shell" });
   let status = 0;
   try {
-    await api.post(`/panes/${pane.id}/make-orchestrator`, {});
+    await api.post(`/tabs/${tab.id}/make-orchestrator`, {});
   } catch (e) {
     status = Number(/HTTP (\d+)/.exec(String(e))?.[1] ?? 0);
   }
   expect(status).toBe(400);
 });
 
-test("@smoke make-orchestrator promotes agent pane and surfaces onboarding", async ({
+test("@smoke make-orchestrator promotes agent tab and surfaces onboarding", async ({
   api,
-  paneCleanup,
+  tabCleanup,
 }) => {
-  const pane = await paneCleanup.createPane({
+  const tab = await tabCleanup.createTab({
     title: "pw-make-orch-agent",
     eager: true,
   });
-  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
 
   const promoted = await api.post<{ ok: boolean }>(
-    `/panes/${pane.id}/make-orchestrator`,
+    `/tabs/${tab.id}/make-orchestrator`,
     {},
   );
   expect(promoted.ok).toBe(true);
 
   const state = await api.get<{
-    panes: Record<string, { role?: string; can_spawn?: boolean }>;
+    tabs: Record<string, { role?: string; can_spawn?: boolean }>;
   }>("/mux/state");
-  const live = state.panes[pane.id];
+  const live = state.tabs[tab.id];
   expect(live?.role).toBe("Orchestrator");
   expect(live?.can_spawn).toBe(true);
 
   const chat = await api.post<{ messages?: { content?: string }[] }>(
-    `/panes/${pane.id}/chat-raw/start`,
+    `/tabs/${tab.id}/chat-raw/start`,
     {},
   );
   const greeting = JSON.stringify(chat.messages ?? []);
   expect(greeting).toContain("You are now the Orchestrator");
   expect(greeting).toContain("codeterm doc orchestration");
-  expect(greeting).toContain(`codeterm agent spawn --parent ${pane.id}`);
+  expect(greeting).toContain(`codeterm agent spawn --parent ${tab.id}`);
 });
 
 // ── @golden: stub transport (real spawn/report/DOM pipeline, no LLM) ──
@@ -146,37 +146,37 @@ test.describe("agent flows on the stub transport", () => {
   for (const provider of MATRIX) {
     test(`@golden ${provider}: agent spawn → works → reports back (structural asserts)`, async ({
       api,
-      paneCleanup,
+      tabCleanup,
       spawnAgent,
     }) => {
       test.setTimeout(90_000);
-      const inbox = await paneCleanup.createPane({ title: "pw-agent-inbox" });
+      const inbox = await tabCleanup.createTab({ title: "pw-agent-inbox" });
       const marker = `PW-AGENT-OK-${Date.now()}`;
-      let agentPaneId: string | undefined;
+      let agentTabId: string | undefined;
       try {
-        await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-        const spawned = await spawnAgent<{ pane_id: string; agent: string }>({
+        await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
+        const spawned = await spawnAgent<{ tab_id: string; agent: string }>({
           agent: provider,
           role: "Worker",
           title: "pw-agent-golden",
-          parent_pane_id: inbox.id,
-          report_target_pane_id: inbox.id,
+          parent_tab_id: inbox.id,
+          report_target_tab_id: inbox.id,
           skip_permissions: true,
           cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_REPORT ${marker}`,
         });
-        agentPaneId = spawned.pane_id;
-        expect(agentPaneId).toBeTruthy();
+        agentTabId = spawned.tab_id;
+        expect(agentTabId).toBeTruthy();
         expect(spawned.agent).toBe(provider);
 
-        const pane = (await api.panes()).find((p) => p.id === agentPaneId);
-        expect(pane, "spawned agent pane missing from pane list").toBeDefined();
-        expect(pane!.agent_type).toBe(provider);
+        const tab = (await api.tabs()).find((p) => p.id === agentTabId);
+        expect(tab, "spawned agent tab missing from tab list").toBeDefined();
+        expect(tab!.agent_type).toBe(provider);
 
         const reportText = await pollUntil(
           async () => {
             const reports = await api.get<unknown>(
-              `/panes/${inbox.id}/reports`,
+              `/tabs/${inbox.id}/reports`,
             );
             const text = JSON.stringify(reports);
             return text.includes(marker) ? text : undefined;
@@ -190,16 +190,16 @@ test.describe("agent flows on the stub transport", () => {
         );
 
         const status = await api.get<Record<string, unknown>>(
-          `/panes/${agentPaneId}/status`,
+          `/tabs/${agentTabId}/status`,
         );
         expect(status.role).toBe("Worker");
-        expect(status.parent_pane_id).toBe(inbox.id);
+        expect(status.parent_tab_id).toBe(inbox.id);
         expect(status.agent_type).toBe(provider);
         const sid = await pollUntil(
           async () => {
-            const panes = await api.panes();
+            const tabs = await api.tabs();
             return (
-              panes.find((p) => p.id === agentPaneId) as
+              tabs.find((p) => p.id === agentTabId) as
                 { agent_session_id?: string } | undefined
             )?.agent_session_id;
           },
@@ -209,44 +209,44 @@ test.describe("agent flows on the stub transport", () => {
         );
         expect(sid ?? "").not.toBe("");
       } finally {
-        if (agentPaneId) paneCleanup.track(agentPaneId);
+        if (agentTabId) tabCleanup.track(agentTabId);
       }
     });
 
     test(`@golden ${provider}: multi-turn + tool round-trip observed in the live terminal DOM`, async ({
       api,
-      paneCleanup,
+      tabCleanup,
       spawnAgent,
       pollMarkerInDom,
       ui,
     }) => {
       test.setTimeout(90_000);
-      const inbox = await paneCleanup.createPane({ title: "pw-mt-inbox" });
+      const inbox = await tabCleanup.createTab({ title: "pw-mt-inbox" });
       const toolMarker = `PWTOOL${Date.now()}`;
       const turn2Marker = `PWTURN2${Date.now()}`;
-      let agentPaneId: string | undefined;
+      let agentTabId: string | undefined;
       try {
-        await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+        await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
         const spawned = await spawnAgent({
           agent: provider,
           role: "Worker",
           title: "pw-agent-live",
-          parent_pane_id: inbox.id,
-          report_target_pane_id: inbox.id,
+          parent_tab_id: inbox.id,
+          report_target_tab_id: inbox.id,
           skip_permissions: true,
           activate: true,
           cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_TOOL ${toolMarker}`,
         });
-        agentPaneId = spawned.pane_id;
-        await showTerminalView(ui.page, agentPaneId);
+        agentTabId = spawned.tab_id;
+        await showTerminalView(ui.page, agentTabId);
         const toolReply = `tool round-trip done ${toolMarker}`;
         await pollMarkerInDom(toolReply, {
-          paneId: agentPaneId,
+          tabId: agentTabId,
           timeout: 60_000,
         });
         const toolText = await api.get<{ text?: string } | string>(
-          `/panes/${agentPaneId}/text`,
+          `/tabs/${agentTabId}/text`,
         );
         const toolBuffer =
           typeof toolText === "string"
@@ -254,23 +254,23 @@ test.describe("agent flows on the stub transport", () => {
             : (toolText.text ?? JSON.stringify(toolText));
         expect(
           toolBuffer,
-          "stub tool reply missing from pane buffer",
+          "stub tool reply missing from tab buffer",
         ).toContain(toolReply);
 
-        await api.post(`/panes/${agentPaneId}/send`, {
+        await api.post(`/tabs/${agentTabId}/send`, {
           text: `STUB_ECHO ${turn2Marker}`,
           enter: true,
           raw: true,
         });
         const turn2Reply = `ack ${turn2Marker}`;
         await pollMarkerInDom(turn2Reply, {
-          paneId: agentPaneId,
+          tabId: agentTabId,
           timeout: 60_000,
         });
         const turn2Buffer = await pollUntil(
           async () => {
             const turn2Text = await api.get<{ text?: string } | string>(
-              `/panes/${agentPaneId}/text`,
+              `/tabs/${agentTabId}/text`,
             );
             const buffer =
               typeof turn2Text === "string"
@@ -280,47 +280,47 @@ test.describe("agent flows on the stub transport", () => {
           },
           10_000,
           250,
-          "second stub reply reaches pane text buffer",
+          "second stub reply reaches tab text buffer",
         );
         expect(
           turn2Buffer,
-          "second stub reply missing from pane buffer",
+          "second stub reply missing from tab buffer",
         ).toContain(turn2Reply);
       } finally {
-        if (agentPaneId) paneCleanup.track(agentPaneId);
+        if (agentTabId) tabCleanup.track(agentTabId);
       }
     });
 
     test(`@golden ${provider}: agent response read from the rendered terminal DOM`, async ({
       api,
-      paneCleanup,
+      tabCleanup,
       spawnAgent,
       pollMarkerInDom,
       ui,
     }) => {
       test.setTimeout(90_000);
-      const inbox = await paneCleanup.createPane({ title: "pw-dom-inbox" });
+      const inbox = await tabCleanup.createTab({ title: "pw-dom-inbox" });
       const marker = `PWDOM${Date.now()}`;
-      let agentPaneId: string | undefined;
+      let agentTabId: string | undefined;
       try {
-        await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+        await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
         const spawned = await spawnAgent({
           agent: provider,
           role: "Worker",
           title: "pw-agent-dom",
-          parent_pane_id: inbox.id,
-          report_target_pane_id: inbox.id,
+          parent_tab_id: inbox.id,
+          report_target_tab_id: inbox.id,
           skip_permissions: true,
           activate: true,
           cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_ECHO ${marker}`,
         });
-        agentPaneId = spawned.pane_id;
-        await showTerminalView(ui.page, agentPaneId);
+        agentTabId = spawned.tab_id;
+        await showTerminalView(ui.page, agentTabId);
         const reply = `ack ${marker}`;
-        await pollMarkerInDom(reply, { paneId: agentPaneId, timeout: 60_000 });
+        await pollMarkerInDom(reply, { tabId: agentTabId, timeout: 60_000 });
         const text = await api.get<{ text?: string } | string>(
-          `/panes/${agentPaneId}/text`,
+          `/tabs/${agentTabId}/text`,
         );
         const buffer =
           typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
@@ -329,44 +329,44 @@ test.describe("agent flows on the stub transport", () => {
           "PTY buffer missing the stub reply the DOM showed",
         ).toContain(reply);
       } finally {
-        if (agentPaneId) paneCleanup.track(agentPaneId);
+        if (agentTabId) tabCleanup.track(agentTabId);
       }
     });
 
     test(`@golden ${provider}: agent restart mid-session resumes and stays usable`, async ({
       api,
-      paneCleanup,
+      tabCleanup,
       spawnAgent,
       pollMarkerInDom,
       ui,
     }) => {
       test.setTimeout(90_000);
-      const inbox = await paneCleanup.createPane({ title: "pw-restart-inbox" });
+      const inbox = await tabCleanup.createTab({ title: "pw-restart-inbox" });
       const warmMarker = `PWWARM${Date.now()}`;
       const resumeMarker = `PWRESUME${Date.now()}`;
-      let agentPaneId: string | undefined;
+      let agentTabId: string | undefined;
       try {
-        await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+        await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
         const spawned = await spawnAgent({
           agent: provider,
           role: "Worker",
           title: "pw-agent-restart",
-          parent_pane_id: inbox.id,
-          report_target_pane_id: inbox.id,
+          parent_tab_id: inbox.id,
+          report_target_tab_id: inbox.id,
           skip_permissions: true,
           activate: true,
           cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_ECHO ${warmMarker}`,
         });
-        agentPaneId = spawned.pane_id;
-        await showTerminalView(ui.page, agentPaneId);
+        agentTabId = spawned.tab_id;
+        await showTerminalView(ui.page, agentTabId);
         await pollMarkerInDom(`ack ${warmMarker}`, {
-          paneId: agentPaneId,
+          tabId: agentTabId,
           timeout: 60_000,
         });
 
-        const sessionBefore = (await api.panes()).find(
-          (p) => p.id === agentPaneId,
+        const sessionBefore = (await api.tabs()).find(
+          (p) => p.id === agentTabId,
         ) as { agent_session_id?: string } | undefined;
         expect(
           sessionBefore?.agent_session_id,
@@ -374,15 +374,15 @@ test.describe("agent flows on the stub transport", () => {
         ).toBeTruthy();
 
         const restart = await api.post<{ restarting: boolean }>(
-          `/panes/${agentPaneId}/agent/restart`,
+          `/tabs/${agentTabId}/agent/restart`,
           {},
         );
         expect(restart.restarting).toBe(true);
 
-        const pane = await pollUntil(
+        const tab = await pollUntil(
           async () => {
-            const found = (await api.panes()).find(
-              (p) => p.id === agentPaneId,
+            const found = (await api.tabs()).find(
+              (p) => p.id === agentTabId,
             ) as
               | { agent_type?: string | null; agent_session_id?: string }
               | undefined;
@@ -390,31 +390,31 @@ test.describe("agent flows on the stub transport", () => {
           },
           60_000,
           1_000,
-          "agent pane survives restart",
+          "agent tab survives restart",
         );
-        expect(pane?.agent_type, "pane lost its agent after restart").toBe(
+        expect(tab?.agent_type, "tab lost its agent after restart").toBe(
           provider,
         );
 
-        await showTerminalView(ui.page, agentPaneId);
-        await api.post(`/panes/${agentPaneId}/send`, {
+        await showTerminalView(ui.page, agentTabId);
+        await api.post(`/tabs/${agentTabId}/send`, {
           text: `STUB_ECHO ${resumeMarker}`,
           enter: true,
           raw: true,
         });
         await pollMarkerInDom(`ack ${resumeMarker}`, {
-          paneId: agentPaneId,
+          tabId: agentTabId,
           timeout: 60_000,
         });
 
-        const after = (await api.panes()).find((p) => p.id === agentPaneId) as
+        const after = (await api.tabs()).find((p) => p.id === agentTabId) as
           { agent_session_id?: string } | undefined;
         expect(
           after?.agent_session_id,
           "restart replaced the session instead of resuming",
         ).toBe(sessionBefore!.agent_session_id);
       } finally {
-        if (agentPaneId) paneCleanup.track(agentPaneId);
+        if (agentTabId) tabCleanup.track(agentTabId);
       }
     });
   }

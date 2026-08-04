@@ -40,6 +40,7 @@ var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
+  if (params.starterPrompt === "no_starter") return void 0;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -162,8 +163,9 @@ var plugin = {
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    if (p.task) {
-      parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
+    const prompt = starterPrompt(p);
+    if (p.task && prompt) {
+      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
     if (localTaskPath) {
       const local = host.shell.quoteFor(localTaskPath, host.platform());
@@ -178,19 +180,25 @@ var plugin = {
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(_cwd, exclude, maxAgeMs) {
+  detectSessionId(cwd, exclude, maxAgeMs) {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
+    const targetDirectory = normalizeSessionDirectory(cwd);
+    if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
-    const excludeList = Array.isArray(exclude) ? exclude : typeof exclude === "string" && exclude ? [exclude] : [];
+    const excludeList = Array.isArray(exclude) ? exclude.filter((id) => typeof id === "string") : typeof exclude === "string" && exclude ? [exclude] : [];
+    const directoryAliases = targetDirectory.endsWith("/") ? [targetDirectory, targetDirectory] : [targetDirectory, targetDirectory + "/"];
+    const directoryExpression = host.platform() === "windows" ? "lower(replace(directory, char(92), '/'))" : "directory";
+    const excludeSql = excludeList.length ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")" : "";
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT id FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 5",
-      [windowMs]
+      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) AND " + directoryExpression + " IN (?2, ?3)" + excludeSql + " ORDER BY time_created DESC LIMIT 20",
+      [windowMs, ...directoryAliases, ...excludeList]
     );
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
       if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (normalizeSessionDirectory(rows[i].directory) !== targetDirectory) continue;
       if (excludeList.indexOf(id) !== -1) continue;
       return id;
     }
@@ -216,7 +224,7 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
-    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && pluginBody.indexOf("CODETERM_TAB_ID") !== -1 && pluginBody.indexOf("/api/tabs/") !== -1;
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
@@ -317,7 +325,7 @@ var plugin = {
     return null;
   },
   // the model recorded against this session_id. No "latest model in cwd"
-  // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
+  // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
   detectSessionModel(_cwd, sessionId) {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
@@ -328,33 +336,42 @@ var plugin = {
       [sessionId]
     );
   },
-  // part.time_created seen, passed back to fetch only newer parts next poll.
   usesStructuredChat() {
     return true;
   },
   readStructuredChat(_cwd, sessionId, cursor) {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    const sinceMs = cursor ? parseInt(cursor, 10) || 0 : 0;
+    const parsedCursor = parseStructuredCursor(cursor);
+    if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
+    const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
       "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_created >= ?2 ORDER BY p.time_created ASC, p.id ASC",
       [sessionId, sinceMs]
     );
     const messages = [];
-    let maxTs = sinceMs;
+    let lastTs = sinceMs;
+    let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
       const ts = rows[i].ts || 0;
-      if (ts > maxTs) maxTs = ts;
+      const id = String(rows[i].id);
+      if (ts > lastTs) {
+        lastTs = ts;
+        seenAtLastTs = [];
+      }
+      if (seenAtLastTs.indexOf(id) !== -1) continue;
+      seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
       let role = "assistant";
       const msg = safeJson(rows[i].msg);
       if (msg && msg.role) role = msg.role;
-      const cm = partToChatMsg(part, role, String(rows[i].id), ts);
+      const cm = partToChatMsg(part, role, id, ts);
       if (cm) messages.push(cm);
     }
-    return { messages, cursor: String(maxTs) };
+    seenAtLastTs.sort();
+    return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
 function parsePermissionPrompt(text) {
@@ -572,6 +589,28 @@ function safeJson(s) {
     return null;
   }
 }
+function normalizeSessionDirectory(value) {
+  let normalized = String(value || "");
+  if (host.platform() === "windows") {
+    normalized = normalized.replace(/\\/g, "/");
+    while (normalized.length > 1 && normalized.endsWith("/") && !/^[a-z]:\/$/i.test(normalized)) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.toLowerCase();
+  }
+  while (normalized.length > 1 && normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  return normalized;
+}
+function parseStructuredCursor(cursor) {
+  if (cursor == null) return [0, []];
+  const parsed = safeJson(cursor || "");
+  if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+  if (typeof parsed[0] !== "number" || !Number.isSafeInteger(parsed[0]) || parsed[0] < 0) return null;
+  if (!Array.isArray(parsed[1]) || !parsed[1].every((id) => typeof id === "string" && id.length > 0)) return null;
+  const ts = parsed[0];
+  const ids = parsed[1];
+  return [ts, ids];
+}
 function displayNameFromId(id) {
   const slash = id.split("/");
   const provider = slash.length > 1 ? slash[0] : "";
@@ -719,12 +758,12 @@ function opencodeBindingPluginSource(apiPort) {
     'const FALLBACK_PORT = "' + String(apiPort || 7686) + '";',
     "",
     "function endpoint() {",
-    "  const pane = process.env.CODETERM_PANE_ID;",
-    "  if (!pane) return null;",
+    "  const tab = process.env.CODETERM_TAB_ID;",
+    "  if (!tab) return null;",
     "  const base =",
     "    process.env.CODETERM_API_URL ||",
     "    `http://127.0.0.1:${process.env.CODETERM_API_PORT || FALLBACK_PORT}`;",
-    "  return `${base}/api/panes/${encodeURIComponent(pane)}/hook/session_start`;",
+    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
     "}",
     "",
     "function normalizeSessionID(value) {",

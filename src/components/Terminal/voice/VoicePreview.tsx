@@ -59,16 +59,17 @@ export function VoicePreview({
   return (
     <div
       data-testid="composer-voice-preview"
-      className="ct-voice-fade-in flex w-full items-center gap-2.5"
+      className="ct-voice-fade-in ct-voice-preview flex w-full items-center gap-2.5"
     >
       <audio ref={audioRef} src={data.url} preload="auto" className="hidden" />
       <button
         type="button"
         data-testid="composer-voice-preview-discard"
         title="Delete recording"
+        aria-label="Delete recording"
         onClick={onDiscard}
         disabled={busy}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--ct-red,#f85149)] transition-transform hover:scale-110 disabled:opacity-40"
+        className="ct-voice-control flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--ct-red,#f85149)] disabled:opacity-40"
       >
         <Trash2 size={18} strokeWidth={2.2} />
       </button>
@@ -76,8 +77,9 @@ export function VoicePreview({
       <button
         type="button"
         title={playing ? "Pause" : "Play"}
+        aria-label={playing ? "Pause" : "Play"}
         onClick={toggle}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_3px_12px_rgba(31,111,235,0.4)] transition-transform active:scale-95"
+        className="ct-voice-control flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_3px_12px_rgba(31,111,235,0.4)]"
         style={{ background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)" }}
       >
         {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="ml-0.5" />}
@@ -95,7 +97,7 @@ export function VoicePreview({
                 background: played
                   ? "var(--ct-accent, #58a6ff)"
                   : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 55%, transparent)",
-                transition: "background 120ms linear",
+                transition: "background var(--ct-duration-fast) var(--ct-ease-liquid-settle)",
               }}
             />
           );
@@ -110,9 +112,10 @@ export function VoicePreview({
         type="button"
         data-testid="composer-voice-preview-send"
         title="Send voice note"
+        aria-label="Send voice note"
         onClick={onSend}
         disabled={busy}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_4px_16px_rgba(31,111,235,0.45)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-50"
+        className="ct-voice-control flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_4px_16px_rgba(31,111,235,0.45)] disabled:opacity-50"
         style={{ background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)" }}
       >
         <SendHorizontal size={17} fill="currentColor" />

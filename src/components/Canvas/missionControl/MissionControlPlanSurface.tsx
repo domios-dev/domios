@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { filterPlansForCanvas } from "../planPaneMatch";
+import { filterPlansForCanvas } from "../planTabMatch";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import { fetchSpecSections } from "../plansApi";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
@@ -37,30 +37,30 @@ export function MissionControlPlanSurface({
   onRetry,
   planId,
   teamId,
-  orchestratorPaneId,
-  panes = {},
+  orchestratorTabId,
+  tabs = {},
   workspaceId,
   workspaces,
   teams,
-  onOpenPane,
+  onOpenTab,
   api,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
-  const activeWork = useMemo(() => selectActiveWork(effectivePlans, panes), [effectivePlans, panes]);
+  const activeWork = useMemo(() => selectActiveWork(effectivePlans, tabs), [effectivePlans, tabs]);
   const switcherWithInflight = useMemo(
     () => enrichSwitcherOptions(switcherOptions, activeWork),
     [switcherOptions, activeWork],
   );
 
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [effectivePlans, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => filterPlansForCanvas(effectivePlans, mode, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams }),
+    [effectivePlans, mode, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams],
   );
 
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
@@ -182,10 +182,10 @@ export function MissionControlPlanSurface({
           <MissionControlLiveView
             plans={orderedPlans}
             activePlanId={selectedPlan.id}
-            panes={panes}
+            tabs={tabs}
             onTaskClick={openTask}
             onOpenPlan={openPlanDetail}
-            onAgentClick={onOpenPane}
+            onAgentClick={onOpenTab}
           />
         )}
       </div>
@@ -198,8 +198,8 @@ export function MissionControlPlanSurface({
           specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
           planId={detail.plan.id}
           api={api}
-          panes={panes}
-          onOpenPane={onOpenPane}
+          tabs={tabs}
+          onOpenTab={onOpenTab}
           onOpenTask={openTask}
           onClose={() => setDetail(null)}
           onSectionClick={(args) => {

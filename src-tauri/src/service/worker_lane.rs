@@ -12,7 +12,7 @@ fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
 fn is_canonical_checkout(cwd: &str, workspace_cwd: Option<&str>) -> bool {
     if let Some(workspace_cwd) = workspace_cwd {
         if same_path(cwd, workspace_cwd) {
-            return true;
+            return git_is_primary_checkout(Path::new(cwd));
         }
     }
     git_is_primary_checkout(Path::new(cwd))
@@ -122,8 +122,8 @@ impl ServiceContext {
         let mux = self.mux.read();
         let id = crate::service::spawn::resolve_spawn_workspace_id(
             params.workspace_id.clone(),
-            params.parent_pane_id.as_deref(),
-            |pane_id| mux.find_workspace_for_pane(pane_id),
+            params.parent_tab_id.as_deref(),
+            |tab_id| mux.find_workspace_for_tab(tab_id),
             mux.get_active_workspace()
                 .map(|workspace| workspace.id.clone()),
             mux.list_workspaces()
@@ -356,6 +356,14 @@ mod tests {
             Some(project.to_str().unwrap())
         ));
         lane.cleanup().unwrap();
+    }
+
+    #[test]
+    fn non_git_workspace_is_not_treated_as_a_canonical_checkout() {
+        let workspace = tempfile::tempdir().unwrap();
+        let workspace_cwd = workspace.path().to_str().unwrap();
+
+        assert!(!is_canonical_checkout(workspace_cwd, Some(workspace_cwd)));
     }
 
     #[test]

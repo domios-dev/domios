@@ -35,7 +35,6 @@ toast_duration = 5  # seconds
 
 [orchestration]
 plan_reminders = true
-nudge_after_turns = 12
 nudge_interval_secs = 1800  # 30 minutes
 
 [orchestration.reflect]
@@ -43,16 +42,10 @@ every_gates = 15  # emit a one-shot self-review block every N gate/bounce events
 
 [keybindings]
 new_tab = "Ctrl+T"
+reopen_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+W"
 next_tab = "Ctrl+Tab"     # cycle forward through plan entry + session tabs in sidebar order
 prev_tab = "Ctrl+Shift+Tab"  # cycle backward
-split_right = "Ctrl+Shift+ArrowRight"
-split_down = "Ctrl+Shift+ArrowDown"
-close_pane = "Ctrl+Shift+Q"
-focus_pane_left = "Alt+ArrowLeft"
-focus_pane_right = "Alt+ArrowRight"
-focus_pane_up = "Alt+ArrowUp"
-focus_pane_down = "Alt+ArrowDown"
 new_workspace = "Ctrl+Shift+N"
 copy = "Ctrl+Shift+C"
 paste = "Ctrl+Shift+V"
@@ -60,7 +53,6 @@ search = "Ctrl+Shift+F"
 zoom_in = "Ctrl+="
 zoom_out = "Ctrl+-"
 zoom_reset = "Ctrl+0"
-open_browser = "Ctrl+Shift+B"
 open_settings = "Ctrl+,"
 
 [socket]
@@ -224,7 +216,7 @@ Body: {
   "channel":      "telegram",
   "user_id":      "123456789",
   "msg_id":       "12345",
-  "pane_id":      "<target tab>",
+  "tab_id":      "<target tab>",
   "attachments":  [{"kind": "voice", "path": "/tmp/...", "filename": "..."}]
 }
 
@@ -371,7 +363,7 @@ Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), 
 | `task` | `string` | — | Prompt sent to the agent via `-p` |
 | `cwd` | `string?` | *(workspace cwd)* | Working directory for the spawned agent |
 | `role` | `string?` | — | Optional hierarchy role to assign on spawn |
-| `creator_pane_id` | `string?` | — | Tab that receives reports from the cron agent |
+| `creator_tab_id` | `string?` | — | Tab that receives reports from the cron agent |
 | `oneshot` | `bool` | `false` | One-shot job: auto-disabled after first fire, deleted on completion |
 | `jitter_max_ms` | `u64?` | `null` | See jitter semantics below |
 | `max_history` | `usize` | `100` | Per-job run history cap |
@@ -390,7 +382,7 @@ Jitter is applied on top of the cron/oneshot fire time. A job with `0 * * * *` a
 
 ### Hidden spawn
 
-Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron panel in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
+Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
 
 ## UI feature gates
 
@@ -400,13 +392,11 @@ Controls which sidebar buttons are visible. Set in `[ui]` in `config.toml`.
 |-----|------|---------|-------------|
 | `ui.memory_tab_enabled` | `bool` | `true` | Show/hide the Memory sidebar button |
 | `ui.mesh_tab_enabled` | `bool` | `true` | Show/hide the Mesh sidebar button |
-| `ui.default_new_agent_pane_chat` | `bool` | `false` | Open new visible agent tabs, including General/Main, in Chat UI when the provider supports it |
 
 ```toml
 [ui]
 memory_tab_enabled = true
 mesh_tab_enabled = true
-default_new_agent_pane_chat = false
 ```
 
 ## Memory
@@ -483,4 +473,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 26 -->
+<!-- revision: 31 -->

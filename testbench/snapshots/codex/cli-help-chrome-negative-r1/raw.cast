@@ -1,0 +1,2 @@
+{"version":2,"width":100,"height":24,"timestamp":0,"env":{"TERM":"xterm-256color"}}
+[0.000000,"o","\u001b[?25lFor more information, try '--help'.\r\n  1. Usage details are available in the command reference.\r\n  2. Arguments are validated before the command starts.\r\n  3. Errors are printed to the terminal."]

@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, OnceLock,
+};
 
 use parking_lot::Mutex;
 
@@ -189,7 +192,23 @@ pub struct AnnounceReport {
     pub errors: Vec<String>,
 }
 
+fn announce_gate() -> &'static tokio::sync::Mutex<()> {
+    static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn refresh_gate() -> &'static std::sync::Mutex<()> {
+    static GATE: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+fn refresh_generation() -> &'static AtomicU64 {
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    &GENERATION
+}
+
 pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> AnnounceReport {
+    let _publication_guard = announce_gate().lock().await;
     let mut report = AnnounceReport::default();
     let (announce, clients) = {
         let m = mesh.lock();
@@ -292,38 +311,86 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
     report
 }
 
-pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
+pub async fn refresh_local_addresses(mesh: &MeshState) -> bool {
+    let observed_generation = refresh_generation().load(Ordering::Acquire);
+    let mesh = mesh.clone();
+    tokio::task::spawn_blocking(move || {
+        refresh_local_addresses_guarded(&mesh, false, observed_generation)
+    })
+        .await
+        .unwrap_or_else(|error| {
+            log::error!("[mesh/refresh] address worker failed: {error}");
+            false
+        })
+}
+
+pub fn refresh_local_addresses_blocking(mesh: &MeshState) -> bool {
+    let observed_generation = refresh_generation().load(Ordering::Acquire);
+    refresh_local_addresses_guarded(mesh, false, observed_generation)
+}
+
+pub fn refresh_local_addresses_blocking_force(mesh: &MeshState) -> bool {
+    refresh_local_addresses_guarded(mesh, true, 0)
+}
+
+fn refresh_local_addresses_guarded(
+    mesh: &MeshState,
+    force: bool,
+    observed_generation: u64,
+) -> bool {
+    let _refresh_guard = match refresh_gate().lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            log::error!("[mesh/refresh] refresh gate is poisoned");
+            return false;
+        }
+    };
+    if !force && refresh_generation().load(Ordering::Acquire) != observed_generation {
+        return false;
+    }
     let prev_ts = mesh.lock().tailscale_ip.clone();
     let prev_lan = mesh.lock().local_ip.clone();
-    let prev_https = mesh.lock().local_https_url.clone();
+    let prev_web_ui = mesh.lock().local_web_ui.clone();
 
     discovery::detect_tailscale(mesh);
     discovery::detect_local_ip(mesh);
-    let (api_port, build_hash) = {
+    let (api_port, build_hash, local_http_healthy) = {
         let m = mesh.lock();
-        (m.api_port, m.build_hash.clone())
+        (m.api_port, m.build_hash.clone(), m.local_http_healthy)
     };
-    let snapshot = super::serve_setup::reconcile_web_serve(api_port, None, Some(build_hash));
+    let snapshot =
+        super::serve_setup::reconcile_web_serve(api_port, None, Some(build_hash.clone()));
     let https = matches!(
         snapshot.state,
         super::serve_setup::ServeReconcileState::Ready
     )
     .then_some(snapshot.url)
     .flatten();
-    mesh.lock().local_https_url = https.clone();
-
     let new_ts = mesh.lock().tailscale_ip.clone();
     let new_lan = mesh.lock().local_ip.clone();
-    let changed = prev_ts != new_ts || prev_lan != new_lan || prev_https != https;
+    let web_ui = local_http_healthy
+        .then(|| {
+            super::web_ui_endpoints::collect_verified(
+                new_ts.as_deref(),
+                new_lan.as_deref(),
+                api_port,
+                https.as_deref(),
+                &build_hash,
+            )
+        })
+        .flatten();
+    mesh.lock().local_web_ui = web_ui.clone();
+    let changed = prev_ts != new_ts || prev_lan != new_lan || prev_web_ui != web_ui;
     // actually changed; the steady state is debug to keep the log readable.
     if changed {
         log::info!(
-            "[mesh/refresh] local addrs CHANGED: tailscale {prev_ts:?} -> {new_ts:?}, lan {prev_lan:?} -> {new_lan:?}, https {prev_https:?} -> {https:?}"
+            "[mesh/refresh] local addrs CHANGED: tailscale {prev_ts:?} -> {new_ts:?}, lan {prev_lan:?} -> {new_lan:?}, web_ui {prev_web_ui:?} -> {web_ui:?}"
         );
     } else {
         log::debug!(
-            "[mesh/refresh] local addrs: tailscale {new_ts:?}, lan {new_lan:?}, https {https:?}"
+            "[mesh/refresh] local addrs: tailscale {new_ts:?}, lan {new_lan:?}, web_ui {web_ui:?}"
         );
     }
+    refresh_generation().fetch_add(1, Ordering::Release);
     changed
 }

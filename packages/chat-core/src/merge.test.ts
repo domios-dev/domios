@@ -84,7 +84,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
-// ── c73becde launch race: chat_start snapshot and pane-chat-msg live event
+// ── c73becde launch race: chat_start snapshot and tab-chat-msg live event
 // have separate transport ids but share the parser's user sequence.
 {
   const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";

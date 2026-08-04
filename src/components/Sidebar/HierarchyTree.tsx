@@ -1,40 +1,40 @@
 import type { ReactNode } from "react";
-import type { Pane, PaneStatus } from "../../lib/types";
+import type { Tab, TabStatus } from "../../lib/types";
 
 export interface HierarchyNodeData {
-  pane: Pane;
+  tab: Tab;
   children: HierarchyNodeData[];
-  status: PaneStatus | null;
+  status: TabStatus | null;
 }
 
 export function buildHierarchyTree(
-  panes: Record<string, Pane>,
-  statuses: Record<string, PaneStatus>,
+  tabs: Record<string, Tab>,
+  statuses: Record<string, TabStatus>,
 ): HierarchyNodeData[] {
-  const orchestrators = Object.values(panes).filter((p) => p.role === "Orchestrator");
-  function buildNode(pane: Pane): HierarchyNodeData {
-    const children = Object.values(panes)
-      .filter((p) => p.parent_pane_id === pane.id)
+  const orchestrators = Object.values(tabs).filter((p) => p.role === "Orchestrator");
+  function buildNode(tab: Tab): HierarchyNodeData {
+    const children = Object.values(tabs)
+      .filter((p) => p.parent_tab_id === tab.id)
       .map(buildNode);
-    return { pane, children, status: statuses[pane.id] ?? null };
+    return { tab, children, status: statuses[tab.id] ?? null };
   }
   return orchestrators.map(buildNode);
 }
 
-/** Children of a single pane — used under an orchestrator tab in the sidebar. */
+/** Children of a single tab — used under an orchestrator tab in the sidebar. */
 export function buildHierarchySubtree(
-  rootPaneId: string,
-  panes: Record<string, Pane>,
-  statuses: Record<string, PaneStatus>,
-  excludePaneIds?: ReadonlySet<string>,
+  rootTabId: string,
+  tabs: Record<string, Tab>,
+  statuses: Record<string, TabStatus>,
+  excludeTabIds?: ReadonlySet<string>,
 ): HierarchyNodeData[] {
-  return Object.values(panes)
-    .filter((p) => p.parent_pane_id === rootPaneId)
-    .filter((p) => !excludePaneIds?.has(p.id))
-    .map((pane) => ({
-      pane,
-      status: statuses[pane.id] ?? null,
-      children: buildHierarchySubtree(pane.id, panes, statuses, excludePaneIds),
+  return Object.values(tabs)
+    .filter((p) => p.parent_tab_id === rootTabId)
+    .filter((p) => !excludeTabIds?.has(p.id))
+    .map((tab) => ({
+      tab,
+      status: statuses[tab.id] ?? null,
+      children: buildHierarchySubtree(tab.id, tabs, statuses, excludeTabIds),
     }));
 }
 
@@ -56,10 +56,10 @@ function HierarchyTreeLevel({
     >
       {nodes.map((node) => (
         <div
-          key={node.pane.id}
+          key={node.tab.id}
           data-hierarchy-row="true"
           data-hierarchy-status={node.status ?? "unknown"}
-          data-hierarchy-pane-id={node.pane.id}
+          data-hierarchy-tab-id={node.tab.id}
           data-hierarchy-working={node.status === "Working" ? "true" : "false"}
           data-hierarchy-dead={node.status === "Dead" ? "true" : "false"}
           className="sidebar-hierarchy-row-wrap"

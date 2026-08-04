@@ -77,6 +77,96 @@ const ocHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- cwd-scoped session detection ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { id: "ses_foreign", directory: "/other/proj" },
+        { id: "ses_owned", directory: "/work/proj" },
+      ],
+    },
+  }));
+  eq(p.detectSessionId("/work/proj", [], 300000), "ses_owned", "detectSessionId rejects a newer cross-cwd session");
+  eq(p.detectSessionId("/missing/proj", [], 300000), null, "detectSessionId refuses when cwd has no candidate");
+}
+
+console.log("\n--- platform-safe session directory normalization ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows = [
+    { id: "ses_slash", directory: "/work/a/b" },
+    { id: "ses_backslash", directory: "/work/a\\b" },
+    { id: "ses_root", directory: "/" },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => rows,
+    },
+  }));
+  eq(p.detectSessionId("/work/a\\b", [], 300000), "ses_backslash", "POSIX backslash remains a legal distinct path byte");
+  eq(p.detectSessionId("/", [], 300000), "ses_root", "POSIX root is preserved");
+
+  const windows = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: () => true,
+      sqliteQuery: () => [
+        { id: "ses_drive_relative", directory: "C:" },
+        { id: "ses_drive_root", directory: "C:/" },
+      ],
+    },
+  }));
+  eq(windows.detectSessionId("C:\\", [], 300000), "ses_drive_root", "Windows drive root is not aliased to drive-relative cwd");
+}
+
+console.log("\n--- exclusive structured cursor ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows: Array<Record<string, unknown>> = [
+    { id: "p1", ts: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
+        const sinceTs = Number(params[1] || 0);
+        return rows.filter((row) => Number(row.ts) >= sinceTs);
+      },
+    },
+  }));
+  const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
+  eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
+  rows.push({ id: "p0", ts: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
+  eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
+  const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
+  eq(empty.messages, [], "cursor excludes every previously returned part");
+}
+
+console.log("\n--- malformed structured cursor fails closed ---\n");
+{
+  let queryCalls = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      sqliteQuery: () => {
+        queryCalls++;
+        return [{ id: "history", ts: 1, part: JSON.stringify({ type: "text", text: "history" }), msg: JSON.stringify({ role: "user" }) }];
+      },
+    },
+  }));
+  for (const cursor of ["1000", "not-json", '[1000,"legacy-id"]']) {
+    const result = p.readStructuredChat("/work/proj", "ses_owned", cursor) as { messages: unknown[]; cursor: string };
+    eq(result.messages, [], `cursor ${cursor} replays no history`);
+    eq(result.cursor, cursor, `cursor ${cursor} is preserved on refusal`);
+  }
+  eq(queryCalls, 0, "malformed and legacy cursors never query the store");
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
@@ -120,6 +210,9 @@ console.log("\n--- discoverModels ---\n");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "OpenCode uses the non-actionable idle wake-up starter");
   assert(!idle.includes("Execute the assigned task."), "OpenCode idle launch never uses the task starter");
+  const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
+  assert(silent.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode silent launch keeps configured instructions");
+  assert(!silent.includes("--prompt"), "OpenCode silent launch has no starter turn");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "OpenCode team launch uses the host-owned starter text");
@@ -161,7 +254,7 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
-// opencode plugin so the session-start report can prove pane ownership.
+// opencode plugin so the session-start report can prove tab ownership.
 {
   let body = "";
   const host = ocHost({
@@ -201,11 +294,28 @@ console.log("\n--- discoverModels ---\n");
     "pre-nonce opencode plugin reads as not-current",
   );
   const cur = loadOpencodeWithHost(
-    withBody("// codeterm-opencode-session-binding-v2\nprocess.env.CODETERM_SESSION_BINDING_NONCE;"),
+    withBody(
+      "// codeterm-opencode-session-binding-v2\n" +
+      "process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
+      "process.env.CODETERM_TAB_ID;\n" +
+      'const endpoint = "/api/tabs/";',
+    ),
   );
   assert(
     cur.checkIntegration().plugin_file_current === true,
     "opencode plugin carrying the nonce reads as current",
+  );
+  const stalePane = loadOpencodeWithHost(
+    withBody(
+      "// codeterm-opencode-session-binding-v2\n" +
+      "process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
+      "process.env.CODETERM_PANE_ID;\n" +
+      'const endpoint = "/api/panes/";',
+    ),
+  );
+  assert(
+    stalePane.checkIntegration().plugin_file_current === false,
+    "nonce-bearing Pane-era opencode plugin reads as not-current",
   );
 }
 
@@ -249,7 +359,7 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
       writeFile: () => true,
       writeJson: () => true,
       sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
-        // s.directory — never by the pane's session_id.
+        // s.directory — never by the tab's session_id.
         if (sql.indexOf("s.directory") !== -1 || sql.indexOf("JOIN session") !== -1) {
           cwdScanRan = true;
           return [{ data: JSON.stringify({ role: "assistant", modelID: "sibling/model" }) }];

@@ -13,7 +13,7 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
    builds, file-size checks, and scans) and never scattered as ad-hoc roots in the
    parent dir. One subdir per branch; the dir name mirrors the branch. Remove it on
    cleanup.
-2. Record the pane, branch, worktree, workspace, model, and target branch on the
+2. Record the Tab, branch, worktree, workspace, model, and target branch on the
    task when the worker starts. `in_progress` without a live owner is stale
    state, not work.
 3. Workers are code-only by default. They may run focused checks that match the

@@ -20,7 +20,8 @@ const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(params: LaunchParams): string {
+function starterPrompt(params: LaunchParams): string | undefined {
+  if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -34,7 +35,7 @@ const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 let lastPromptShape: "horizontal" | "vertical" = "horizontal";
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title: string): boolean {
@@ -169,8 +170,9 @@ const plugin: PluginModule = {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    if (p.task) {
-      parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
+    const prompt = starterPrompt(p);
+    if (p.task && prompt) {
+      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
     if (localTaskPath) {
       const local = host.shell.quoteFor(localTaskPath, host.platform());
@@ -190,21 +192,35 @@ const plugin: PluginModule = {
 
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(_cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
+    const targetDirectory = normalizeSessionDirectory(cwd);
+    if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 300000;
     const excludeList: string[] = Array.isArray(exclude)
-      ? (exclude as string[])
+      ? (exclude as unknown[]).filter((id): id is string => typeof id === "string")
       : (typeof exclude === "string" && exclude ? [exclude] : []);
-    const rows = host.fs.sqliteQuery<{ id: string }>(
+    const directoryAliases = targetDirectory.endsWith("/")
+      ? [targetDirectory, targetDirectory]
+      : [targetDirectory, targetDirectory + "/"];
+    const directoryExpression = host.platform() === "windows"
+      ? "lower(replace(directory, char(92), '/'))"
+      : "directory";
+    const excludeSql = excludeList.length
+      ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")"
+      : "";
+    const rows = host.fs.sqliteQuery<{ id: string; directory?: string }>(
       db,
-      "SELECT id FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 5",
-      [windowMs]
+      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) " +
+        "AND " + directoryExpression + " IN (?2, ?3)" + excludeSql +
+        " ORDER BY time_created DESC LIMIT 20",
+      [windowMs, ...directoryAliases, ...excludeList]
     );
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
       if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (normalizeSessionDirectory(rows[i].directory) !== targetDirectory) continue;
       if (excludeList.indexOf(id) !== -1) continue;
       return id;
     }
@@ -238,10 +254,11 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
-    // Require the binding-nonce header too; a pre-nonce plugin file is outdated → reinstall.
     const pluginCurrent = pluginExists &&
       pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 &&
-      pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+      pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+      pluginBody.indexOf("CODETERM_TAB_ID") !== -1 &&
+      pluginBody.indexOf("/api/tabs/") !== -1;
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
@@ -357,7 +374,7 @@ const plugin: PluginModule = {
   },
 
   // the model recorded against this session_id. No "latest model in cwd"
-  // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
+  // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
   detectSessionModel(_cwd: string, sessionId: string): string | null {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
@@ -367,13 +384,14 @@ const plugin: PluginModule = {
       [sessionId]);
   },
 
-  // part.time_created seen, passed back to fetch only newer parts next poll.
   usesStructuredChat(): boolean { return true; },
 
   readStructuredChat(_cwd: string, sessionId: string, cursor?: string | null): unknown {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    const sinceMs = cursor ? (parseInt(cursor, 10) || 0) : 0;
+    const parsedCursor = parseStructuredCursor(cursor);
+    if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
+    const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery<{ id: string | number; ts?: number; part?: string; msg?: string }>(
       db,
       "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg " +
@@ -383,19 +401,27 @@ const plugin: PluginModule = {
       [sessionId, sinceMs]
     );
     const messages: unknown[] = [];
-    let maxTs = sinceMs;
+    let lastTs = sinceMs;
+    let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
       const ts = rows[i].ts || 0;
-      if (ts > maxTs) maxTs = ts;
+      const id = String(rows[i].id);
+      if (ts > lastTs) {
+        lastTs = ts;
+        seenAtLastTs = [];
+      }
+      if (seenAtLastTs.indexOf(id) !== -1) continue;
+      seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
       let role = "assistant";
       const msg = safeJson(rows[i].msg);
       if (msg && (msg as { role?: string }).role) role = (msg as { role: string }).role;
-      const cm = partToChatMsg(part as OpencodePart, role, String(rows[i].id), ts);
+      const cm = partToChatMsg(part as OpencodePart, role, id, ts);
       if (cm) messages.push(cm);
     }
-    return { messages: messages, cursor: String(maxTs) };
+    seenAtLastTs.sort();
+    return { messages: messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
 
@@ -663,6 +689,30 @@ function safeJson(s: string | undefined): unknown {
   try { return JSON.parse(String(s || "null")); } catch (_) { return null; }
 }
 
+function normalizeSessionDirectory(value: unknown): string {
+  let normalized = String(value || "");
+  if (host.platform() === "windows") {
+    normalized = normalized.replace(/\\/g, "/");
+    while (normalized.length > 1 && normalized.endsWith("/") && !/^[a-z]:\/$/i.test(normalized)) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.toLowerCase();
+  }
+  while (normalized.length > 1 && normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
+function parseStructuredCursor(cursor?: string | null): [number, string[]] | null {
+  if (cursor == null) return [0, []];
+  const parsed = safeJson(cursor || "");
+  if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+  if (typeof parsed[0] !== "number" || !Number.isSafeInteger(parsed[0]) || parsed[0] < 0) return null;
+  if (!Array.isArray(parsed[1]) || !parsed[1].every((id) => typeof id === "string" && id.length > 0)) return null;
+  const ts = parsed[0];
+  const ids = parsed[1] as string[];
+  return [ts, ids];
+}
+
 function displayNameFromId(id: string): string {
   const slash = id.split("/");
   const provider = slash.length > 1 ? slash[0] : "";
@@ -830,12 +880,12 @@ function opencodeBindingPluginSource(apiPort: number): string {
     "const FALLBACK_PORT = \"" + String(apiPort || 7686) + "\";",
     "",
     "function endpoint() {",
-    "  const pane = process.env.CODETERM_PANE_ID;",
-    "  if (!pane) return null;",
+    "  const tab = process.env.CODETERM_TAB_ID;",
+    "  if (!tab) return null;",
     "  const base =",
     "    process.env.CODETERM_API_URL ||",
     "    `http://127.0.0.1:${process.env.CODETERM_API_PORT || FALLBACK_PORT}`;",
-    "  return `${base}/api/panes/${encodeURIComponent(pane)}/hook/session_start`;",
+    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
     "}",
     "",
     "function normalizeSessionID(value) {",

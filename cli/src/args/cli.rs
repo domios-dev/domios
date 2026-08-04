@@ -16,7 +16,7 @@ use super::delayed::DelayedAction;
 use super::effort::EffortAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
     ThemeAction, WorkspaceAction,
 };
 use super::orchestration::OrchestrationAction;
@@ -108,7 +108,7 @@ pub enum Commands {
     #[command(name = "tab")]
     Tab {
         #[command(subcommand)]
-        action: PaneAction,
+        action: TabAction,
     },
 
     /// Send text to a tab (default: current tab).
@@ -119,6 +119,7 @@ pub enum Commands {
     /// knows who to reply to. Key/sequence examples (use --actions):
     ///   --actions "up,up,enter"   replay last commands
     ///   --actions "ctrl-c"        interrupt
+    ///   --actions "y"             answer a character prompt
     ///   --actions "esc"           dismiss
     ///   --actions "down*3,enter"  repeat with *N
     ///   "git status" --actions "enter"   text then submit
@@ -128,9 +129,9 @@ pub enum Commands {
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
 
-        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
 
         /// Read text from a file instead of the positional arg. Lets you
         /// pass payloads that would otherwise be eaten by shell quoting.
@@ -151,8 +152,8 @@ pub enum Commands {
         stdin: bool,
 
         /// Terminal actions to run after optional text, comma-separated.
-        /// Full key set: enter, esc, tab, backspace, delete, up, down, left,
-        /// right, home, end, pageup, pagedown, space, ctrl-c, plus
+        /// Keys: literal characters, enter, esc, tab, backspace, delete, up,
+        /// down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus
         /// delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3).
         /// With --actions, text is inserted first but not auto-submitted;
         /// include enter when you want to submit it.
@@ -341,7 +342,7 @@ pub enum Commands {
     /// without bloating the system prompt. `codeterm docs` lists, `codeterm
     /// docs <name>` prints a bounded preview inside CodeTerm tabs; pass
     /// --full for the complete doc. Names are case-insensitive and match the
-    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
+    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
     Docs {
         /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
         name: Option<String>,

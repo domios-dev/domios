@@ -30,8 +30,8 @@ test("cancelled worker shows explicit cancelled state", () => {
   eq(workerEmptyState(null, false, "cancelled"), "Worker cancelled", "cancelled must not say Waiting for spawn");
 });
 
-test("starting worker with no pane_id shows Waiting for spawn", () => {
-  eq(workerEmptyState(null, false, "starting"), "Waiting for spawn…", "starting without pane_id is genuinely pending");
+test("starting worker with no tab_id shows Waiting for spawn", () => {
+  eq(workerEmptyState(null, false, "starting"), "Waiting for spawn…", "starting without tab_id is genuinely pending");
 });
 
 test("queued worker shows queued state", () => {
@@ -39,11 +39,11 @@ test("queued worker shows queued state", () => {
 });
 
 test("live connected worker shows waiting for first event", () => {
-  eq(workerEmptyState("pane-1", true, "reading"), "Waiting for first event…", "live connected must wait for events");
+  eq(workerEmptyState("tab-1", true, "reading"), "Waiting for first event…", "live connected must wait for events");
 });
 
 test("live disconnected worker shows connecting", () => {
-  eq(workerEmptyState("pane-1", false, "analyzing"), "Connecting…", "live disconnected must show connecting");
+  eq(workerEmptyState("tab-1", false, "analyzing"), "Connecting…", "live disconnected must show connecting");
 });
 
 test("case insensitive: ORPHANED matches orphaned", () => {

@@ -40,10 +40,10 @@ test("event bounce retains a real output error without substituting output absen
   const bounce = new PerfEventBounce({ run: "run-1", test: "pty-write-to-render", index: 0, startedAt: 0 }, (row) => rows.push(row), () => 10);
 
   bounce.record("sent");
-  bounce.record("output-error", { error: "GET /panes/pane-1/text: socket closed" });
+  bounce.record("output-error", { error: "GET /tabs/tab-1/text: socket closed" });
 
   assert.equal(rows[1].phase, "output-error");
-  assert.equal(rows[1].error, "GET /panes/pane-1/text: socket closed");
+  assert.equal(rows[1].error, "GET /tabs/tab-1/text: socket closed");
   assert.equal(rows.some((row) => row.phase === "output"), false);
 });
 
@@ -58,7 +58,7 @@ test("event bounce preserves an explicit first-observation timestamp", () => {
 
 test("render event carries the full focus and xterm viewport observation", () => {
   const rows: PerfEventRow[] = [];
-  const focus = { rootMounted: true, paneVisible: true, tabActive: true, terminalMode: true };
+  const focus = { rootMounted: true, tabVisible: true, tabActive: true, terminalMode: true };
   const viewport = { scrollTop: 100, scrollHeight: 200, clientHeight: 100, bottomDelta: 0, anchored: true };
   const bounce = new PerfEventBounce({ run: "run-1", test: "pty-write-to-render", index: 0, startedAt: 0 }, (row) => rows.push(row), () => 500);
 
@@ -106,7 +106,7 @@ test("failure formatter reports a late render after output", () => {
 test("failure formatter reports focus, view, and bottom mismatches", () => {
   const bounce = failureBounce();
   bounce.record("output", {}, 812);
-  bounce.record("capture", { focus: { rootMounted: true, paneVisible: true, tabActive: false, terminalMode: true }, viewport: { anchored: false, bottomDelta: 24 } });
+  bounce.record("capture", { focus: { rootMounted: true, tabVisible: true, tabActive: false, terminalMode: true }, viewport: { anchored: false, bottomDelta: 24 } });
   assert.equal(formatPerfFailureState(bounce, 4500), "(a) focus-view-bottom-mismatch: output@812ms render>4500ms; tab-inactive,bottomDelta=24");
 });
 
@@ -114,6 +114,6 @@ test("failure formatter reports the focused render pipeline and retains transien
   const bounce = failureBounce();
   bounce.record("output-error", { error: "temporary socket reset" });
   bounce.record("output", {}, 812);
-  bounce.record("capture", { focus: { rootMounted: true, paneVisible: true, tabActive: true, terminalMode: true }, viewport: { anchored: true, bottomDelta: 0 } });
+  bounce.record("capture", { focus: { rootMounted: true, tabVisible: true, tabActive: true, terminalMode: true }, viewport: { anchored: true, bottomDelta: 0 } });
   assert.equal(formatPerfFailureState(bounce, 4500), "(a) render-pipeline: output@812ms render>4500ms; output-error: temporary socket reset");
 });

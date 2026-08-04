@@ -30,6 +30,7 @@ fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
     Some(root.canonicalize().unwrap_or(root))
 }
 
+#[cfg(test)]
 pub(crate) fn plan_files(plans_dir: &Path, plan_id: Option<&str>) -> Result<Vec<PathBuf>, String> {
     if let Some(id) = plan_id {
         return Ok(["active", "archive"]
@@ -57,6 +58,7 @@ pub(crate) fn plan_files(plans_dir: &Path, plan_id: Option<&str>) -> Result<Vec<
 
 /// Load a plan.yaml as a json Value with its per-file tasks assembled back in,
 /// so local tools (doctor, prune) see the same shape the daemon serves.
+#[cfg(test)]
 pub(crate) fn load_plan_value(path: &Path) -> Result<serde_json::Value, String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut plan: serde_json::Value =
@@ -96,6 +98,7 @@ pub(crate) fn load_plan_value(path: &Path) -> Result<serde_json::Value, String> 
     Ok(plan)
 }
 
+#[cfg(test)]
 fn plan_stem(id: &str) -> &str {
     if id == "inbox" {
         "_inbox"
@@ -120,15 +123,4 @@ pub(crate) fn plan_id_from(plan: &serde_json::Value, path: &Path) -> Option<Stri
                     }
                 })
         })
-}
-
-pub(crate) fn is_inbox_plan(plan: &serde_json::Value, path: &Path) -> bool {
-    plan.get("id")
-        .and_then(|v| v.as_str())
-        .is_some_and(|id| id == "inbox")
-        || path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str())
-            .is_some_and(|stem| stem == "_inbox")
 }

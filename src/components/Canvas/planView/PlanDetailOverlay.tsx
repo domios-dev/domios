@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import { DetailContent } from "../canvasRender/DetailContent";
-import type { ApiConfig, Pane } from "../../../lib/types";
+import type { ApiConfig, Tab } from "../../../lib/types";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import { competitionForTask } from "./competitionForTask";
@@ -20,8 +20,8 @@ export interface PlanDetailOverlayProps {
   specSections?: Section[];
   planId?: string;
   api?: ApiConfig;
-  panes?: Record<string, Pane>;
-  onOpenPane?: (paneId: string) => void;
+  tabs?: Record<string, Tab>;
+  onOpenTab?: (tabId: string) => void;
   onOpenTask?: (taskId: string) => void;
   onClose: () => void;
   onSectionClick?: (a: SectionNavArgs) => void;
@@ -62,8 +62,8 @@ export function PlanDetailOverlay({
   specSections,
   planId,
   api,
-  panes,
-  onOpenPane,
+  tabs,
+  onOpenTab,
   onOpenTask,
   onClose,
   onSectionClick,
@@ -160,7 +160,7 @@ export function PlanDetailOverlay({
   const title = detailTitle(kind, task, plan, spec);
   const navPlanId = planId ?? plan?.id ?? spec?.id;
   const loopBadge = isTask && task && plan ? loopForTask(plan, task.id) : null;
-  const competeBadge = isTask && task ? competitionForTask(task, panes) : null;
+  const competeBadge = isTask && task ? competitionForTask(task, tabs) : null;
   const onSectionNavigate = (a: SectionNavArgs) => {
     onClose();
     if (onSectionFrame) {
@@ -257,8 +257,8 @@ export function PlanDetailOverlay({
             plan={plan}
             spec={spec}
             specSections={specSections}
-            panes={panes}
-            onOpenPane={onOpenPane}
+            tabs={tabs}
+            onOpenTab={onOpenTab}
             onOpenTask={onOpenTask}
             onSectionClick={onSectionNavigate}
             onSectionFrame={onSectionNavigate}

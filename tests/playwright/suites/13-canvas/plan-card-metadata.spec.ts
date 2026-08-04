@@ -159,7 +159,7 @@ test(
 );
 
 test(
-  "@golden @plan-card-metadata lane warning chips: branch truncation, no-pane, pane-gone",
+  "@golden @plan-card-metadata lane warning chips: branch truncation, no-tab, tab-gone",
   async ({ api, webBrowser }) => {
     test.setTimeout(TEST_TIMEOUT);
     const opened = await openBoardWithFixture(api as unknown as ApiClient, webBrowser);
@@ -177,17 +177,17 @@ test(
       await expectWorkingOnChipValue(longBranchCard, "branch", "…");
       await shotCard(page, CARD_METADATA_TASK_IDS.longBranch, "plan-card-metadata-long-branch");
 
-      const noPaneCard = page.locator(
-        `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.noPane}"]`,
+      const noTabCard = page.locator(
+        `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.noTab}"]`,
       );
-      await expectWorkingOnChipValue(noPaneCard, "warn", /no pane recorded/i);
-      await shotCard(page, CARD_METADATA_TASK_IDS.noPane, "plan-card-metadata-no-pane");
+      await expectWorkingOnChipValue(noTabCard, "warn", /no tab recorded/i);
+      await shotCard(page, CARD_METADATA_TASK_IDS.noTab, "plan-card-metadata-no-tab");
 
-      const paneGoneCard = page.locator(
-        `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.paneGone}"]`,
+      const tabGoneCard = page.locator(
+        `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.tabGone}"]`,
       );
-      await expectWorkingOnChipValue(paneGoneCard, "warn", /pane gone/i);
-      await shotCard(page, CARD_METADATA_TASK_IDS.paneGone, "plan-card-metadata-pane-gone");
+      await expectWorkingOnChipValue(tabGoneCard, "warn", /tab gone/i);
+      await shotCard(page, CARD_METADATA_TASK_IDS.tabGone, "plan-card-metadata-tab-gone");
 
       const branchMissingCard = page.locator(
         `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.branchMissing}"]`,
@@ -199,7 +199,7 @@ test(
         `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.done}"]`,
       );
       await expect(doneCard.locator('[data-testid="working-on-row"]')).toHaveCount(0);
-      await expect(doneCard).not.toContainText(/pane gone/i);
+      await expect(doneCard).not.toContainText(/tab gone/i);
       await expect(doneCard.locator('[data-testid="plan-board-task-historical-executor"]')).toBeVisible();
     } finally {
       await opened.canvas.close();

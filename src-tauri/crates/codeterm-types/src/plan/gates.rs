@@ -15,7 +15,7 @@ pub enum GateStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GateAnswer {
     pub text: String,
-    pub by_pane_id: Option<String>,
+    pub by_tab_id: Option<String>,
     pub at: u64,
 }
 
@@ -28,11 +28,11 @@ pub struct DecisionGate {
     pub context: String,
     #[serde(default)]
     pub blocking_task_ids: Vec<String>,
-    /// The pane the question was routed to (planner or orchestrator fallback).
+    /// The tab the question was routed to (planner or orchestrator fallback).
     #[serde(default)]
-    pub routed_to_pane_id: Option<String>,
+    pub routed_to_tab_id: Option<String>,
     #[serde(default)]
-    pub asked_by_pane_id: Option<String>,
+    pub asked_by_tab_id: Option<String>,
     pub asked_at: u64,
     pub status: GateStatus,
     /// Immutable audit record; set once on first answer.

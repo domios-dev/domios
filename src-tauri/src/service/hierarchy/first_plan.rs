@@ -75,26 +75,26 @@ pub(crate) fn create_first_plan_for_orchestrator(
     from_spec: Option<String>,
     now_ms: u64,
 ) -> Result<FirstPlanTeamOutcome, FirstPlanTeamError> {
-    let owner_pane_id = owner
-        .pane_id
+    let owner_tab_id = owner
+        .tab_id
         .as_deref()
-        .filter(|pane_id| !pane_id.is_empty())
+        .filter(|tab_id| !tab_id.is_empty())
         .ok_or_else(|| {
-            FirstPlanTeamError::Team("first-plan creation requires an owner pane".into())
+            FirstPlanTeamError::Team("first-plan creation requires an owner Tab".into())
         })?
         .to_string();
     let mut state = mux.write();
     let owner_role = state
-        .get_pane(&owner_pane_id)
-        .ok_or_else(|| FirstPlanTeamError::Team(format!("Pane {owner_pane_id} not found")))?
+        .get_tab(&owner_tab_id)
+        .ok_or_else(|| FirstPlanTeamError::Team(format!("Tab {owner_tab_id} not found")))?
         .role;
     if owner_role != Some(AgentRole::Orchestrator) {
         return Err(FirstPlanTeamError::Team(format!(
-            "Pane {owner_pane_id} is not an Orchestrator"
+            "Tab {owner_tab_id} is not an Orchestrator"
         )));
     }
     let team = state
-        .resolve_or_mint_team_for_parent(&owner_pane_id)
+        .resolve_or_mint_team_for_parent(&owner_tab_id)
         .map_err(FirstPlanTeamError::Team)?;
     let create = if let Some(spec_id) = from_spec {
         plan_store.create_plan_from_spec_for_team(
@@ -119,7 +119,7 @@ pub(crate) fn create_first_plan_for_orchestrator(
         Ok(plan) => plan,
         Err(error) => {
             if team.minted {
-                state.rollback_minted_team_for_parent(&owner_pane_id, &team.team_id);
+                state.rollback_minted_team_for_parent(&owner_tab_id, &team.team_id);
             }
             return Err(FirstPlanTeamError::Plan(error));
         }

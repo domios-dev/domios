@@ -21,7 +21,7 @@ export type PerfEventAppender = (row: PerfEventRow) => void;
 
 type FocusState = {
   rootMounted?: boolean;
-  paneVisible?: boolean;
+  tabVisible?: boolean;
   tabActive?: boolean;
   terminalMode?: boolean;
 };
@@ -76,7 +76,7 @@ function outputErrorContext(row: PerfEventRow | undefined): string {
 function viewMismatches(focus: FocusState | undefined, viewport: ViewportState | undefined): string[] {
   const mismatches: string[] = [];
   if (!focus?.rootMounted) mismatches.push("root-unmounted");
-  if (!focus?.paneVisible) mismatches.push("pane-hidden");
+  if (!focus?.tabVisible) mismatches.push("tab-hidden");
   if (!focus?.tabActive) mismatches.push("tab-inactive");
   if (!focus?.terminalMode) mismatches.push("not-terminal-mode");
   if (!viewport?.anchored) mismatches.push(`bottomDelta=${viewport?.bottomDelta ?? "unknown"}`);

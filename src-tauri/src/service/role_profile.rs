@@ -24,29 +24,29 @@ impl SpawnAgentParams {
                         .map(|_| SpawnIdentityProvenance::UserSupplied)
                 }),
             description: json_str(params, "description")
-                .map(|s| crate::service::normalize_pane_description(&s))
+                .map(|s| crate::service::normalize_tab_description(&s))
                 .transpose()?
                 .flatten(),
             role: json_str(params, "role"),
             role_profile: json_str(params, "role_profile"),
-            parent_pane_id: json_str(params, "parent_pane_id")
-                .or_else(|| json_str(params, "parent")),
+            parent_tab_id: json_str(params, "parent_tab_id").or_else(|| json_str(params, "parent")),
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
             starter_prompt: Default::default(),
             task_id: json_str(params, "task_id"),
+            task_launch_authority: None,
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
             existing_tab_id: json_str(params, "existing_tab_id"),
             skip_orchestrator_onboarding: None,
-            report_target_pane_id: json_str(params, "report_to")
-                .or_else(|| json_str(params, "report_target_pane_id")),
+            report_target_tab_id: json_str(params, "report_to")
+                .or_else(|| json_str(params, "report_target_tab_id")),
             report_target_mesh_peer: json_str(params, "origin_peer")
                 .or_else(|| json_str(params, "report_target_mesh_peer")),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
-            spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
+            spawned_by_tab_id: json_str(params, "spawned_by_tab_id"),
             model: json_str(params, "model"),
             planned_model: json_str(params, "planned_model"),
             reasoning_effort: json_str(params, "reasoning_effort")
@@ -60,10 +60,15 @@ impl SpawnAgentParams {
             max_actions_per_tick: json_u64(params, "max_actions_per_tick")
                 .and_then(|v| u32::try_from(v).ok()),
             activate: params.get("activate").and_then(|v| v.as_bool()),
+            audience: params
+                .get("audience")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
             manager_bootstrap: None,
             structured_prompt_server: None,
         };
         out.normalize_role_profile()?;
+        out.starter_prompt = crate::service::starter_prompt_for_role(out.role.as_deref());
         Ok(out)
     }
 }

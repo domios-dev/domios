@@ -1,21 +1,32 @@
 use super::{
-    await_agent_ready, build_brief, build_brief_with_personality, complete_dispatch_transaction,
-    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_review_capacity,
-    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
-    rollback_failed_dispatch, unqualified_model_error,
+    apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
+    complete_dispatch_transaction, dispatch_ready_event, dispatch_worker_identity,
+    lane_metadata_for_dispatch, preflight_review_capacity, regression_blocked_error,
+    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
+    task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
+    worker_ack_timeout_event, DispatchEvidence,
 };
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::AgentRole;
 use crate::plan::{
     IdentityProvenance, OrchestratorRef, Plan, PlanMode, Task, TaskLaneMetadata, TaskStatus,
 };
+use crate::pty::manager::PtyManager;
 use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{NewTask, PlanStore};
-use crate::service::{provision_lane_for_test, SpawnIdentityProvenance, WorkerLaneProvenance};
+use crate::service::{
+    provision_lane_for_test, SpawnIdentityProvenance, SpawnResult, WorkerLaneProvenance,
+};
 use serde_json::json;
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+mod checkout_occupancy;
+mod worker_ack;
 
 #[test]
 fn regression_block_error_names_every_gate_in_message_and_data() {
@@ -83,6 +94,278 @@ fn provenance() -> WorkerLaneProvenance {
     }
 }
 
+fn spawn_result(tab_id: &str) -> SpawnResult {
+    SpawnResult {
+        tab_id: tab_id.into(),
+        pty_id: String::new(),
+        agent: "codex".into(),
+        model: None,
+        planned_model: None,
+        requested_model: None,
+        provider_resolved_model: None,
+        actual_model: None,
+        reasoning_effort: None,
+        reasoning_effort_provenance: Default::default(),
+        title: "worker".into(),
+        description: None,
+        role: Some("Worker".into()),
+        role_profile: None,
+        warning: None,
+        model_fallback: None,
+        budget_notice: None,
+    }
+}
+
+fn starting_response(tab_id: &str) -> serde_json::Value {
+    let mut response = json!({"ok": true});
+    apply_dispatch_starting_contract(&mut response, tab_id, &spawn_result(tab_id));
+    response
+}
+
+#[test]
+fn dispatched_binding_verification_is_exact_and_loud() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan_for_team(
+            "Binding".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .set_task_assignment(&task_id, Some("tab-worker"), None, 3)
+        .unwrap();
+
+    verify_dispatched_task_binding(&store, &plan.id, &task_id, "tab-worker").unwrap();
+    let error =
+        verify_dispatched_task_binding(&store, &plan.id, &task_id, "tab-unbound").unwrap_err();
+    assert!(error.contains("ORCHESTRATION PRODUCT INCIDENT"));
+    assert!(error.contains("Impact:"));
+    assert!(error.contains("Fallback:"));
+    assert!(error.contains("no plan or task was guessed"));
+}
+
+fn collect_tab_and_tab_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (key, value) in fields {
+                if key == "tab_id" {
+                    if let Some(id) = value.as_str() {
+                        ids.insert(id.to_string());
+                    }
+                }
+                collect_tab_and_tab_ids(value, ids);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_tab_and_tab_ids(value, ids);
+            }
+        }
+        _ => {}
+    }
+}
+
+struct DispatchRuntime {
+    mux: MultiplexerState,
+    pty: PtyManager,
+    workspace_id: String,
+    parent_tab_id: String,
+    baseline_tab_count: usize,
+}
+
+impl DispatchRuntime {
+    fn new() -> Self {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.list_workspaces().into_iter().next().unwrap();
+        let parent_tab_id = workspace.tab_ids.first().unwrap().clone();
+        mux.set_tab_role(&parent_tab_id, AgentRole::Orchestrator, None)
+            .unwrap();
+        Self {
+            baseline_tab_count: workspace.tab_count,
+            workspace_id: workspace.id,
+            parent_tab_id,
+            mux,
+            pty: PtyManager::new(),
+        }
+    }
+
+    fn create_worker(&mut self) -> (String, String) {
+        let tab_id = self.mux.create_tab(&self.workspace_id).unwrap();
+        self.mux
+            .set_tab_role(&tab_id, AgentRole::Worker, Some(&self.parent_tab_id))
+            .unwrap();
+        let (pty_id, _) = self
+            .pty
+            .spawn(
+                None,
+                Some(std::env::current_dir().unwrap().display().to_string()),
+                80,
+                24,
+                HashMap::new(),
+            )
+            .unwrap();
+        self.mux.link_pty(&tab_id, pty_id.clone());
+        self.mux.get_tab_mut(&tab_id).unwrap().agent_session_id = Some("session-worker".into());
+        (tab_id, pty_id)
+    }
+
+    fn close_worker(&mut self, tab_id: &str) -> Result<(), String> {
+        for pty_id in self.mux.close_tab(tab_id)? {
+            self.pty.kill(&pty_id)?;
+        }
+        Ok(())
+    }
+
+    fn tab_count(&self) -> usize {
+        self.mux
+            .list_workspaces()
+            .into_iter()
+            .find(|workspace| workspace.id == self.workspace_id)
+            .unwrap()
+            .tab_count
+    }
+}
+
+#[test]
+fn dispatch_response_has_single_authoritative_tab_id() {
+    for authoritative_tab_id in ["d3d39cd2", "b46ee19a", "5f3decc7"] {
+        let response = starting_response(authoritative_tab_id);
+        let mut ids = HashSet::new();
+        collect_tab_and_tab_ids(&response, &mut ids);
+        assert_eq!(
+            ids,
+            HashSet::from([authoritative_tab_id.to_string()]),
+            "response contained an identity other than {authoritative_tab_id}"
+        );
+    }
+}
+
+#[test]
+fn dispatch_response_never_claims_ready_before_event() {
+    let response = starting_response("tab-worker");
+    assert_eq!(response["accepted"], true);
+    assert_eq!(response["state"], "awaiting_dispatch_ready");
+    assert_eq!(response["readiness"]["ready"], false);
+    assert_eq!(response["readiness"]["awaiting_event"], "dispatch_ready");
+    assert_eq!(response["spawn"]["pty_id"], "");
+    assert_ne!(response["kind"], "dispatch_ready");
+
+    let event = dispatch_ready_event(
+        "plan",
+        "task",
+        "tab-worker",
+        "attempt",
+        &DispatchEvidence {
+            session_id: "session-worker".into(),
+            lane: provenance(),
+        },
+    );
+    assert_eq!(event["kind"], "dispatch_ready");
+    assert_eq!(event["tab_id"], "tab-worker");
+}
+
+#[test]
+fn one_dispatch_creates_exactly_one_tab() {
+    let runtime = RefCell::new(DispatchRuntime::new());
+    let (tab_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    ready_tx.send(Ok(())).unwrap();
+
+    let evidence = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |deadline| await_agent_ready(ready_rx, deadline),
+        |_| {
+            Ok(runtime
+                .borrow()
+                .mux
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+                .expect("session record"))
+        },
+        || Ok(provenance()),
+        |_, session_id| {
+            assert_eq!(session_id, "session-worker");
+            Ok(())
+        },
+        || panic!("successful dispatch must not roll back"),
+    )
+    .unwrap();
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    event_tx
+        .send(dispatch_ready_event(
+            "plan", "task", &tab_id, "attempt", &evidence,
+        ))
+        .unwrap();
+    let ready_event = event_rx.recv().unwrap();
+
+    assert_eq!(ready_event["kind"], "dispatch_ready");
+    let runtime_ref = runtime.borrow();
+    assert_eq!(runtime_ref.tab_count(), runtime_ref.baseline_tab_count + 1);
+    assert_eq!(
+        runtime_ref.mux.find_workspace_for_tab(&tab_id),
+        Some(runtime_ref.workspace_id.clone())
+    );
+    let worker = runtime_ref.mux.get_tab(&tab_id).unwrap();
+    let parent = runtime_ref.mux.get_tab(&runtime_ref.parent_tab_id).unwrap();
+    assert!(parent.team_id.is_some());
+    assert_eq!(worker.team_id, parent.team_id);
+    assert_eq!(worker.pty_id.as_deref(), Some(pty_id.as_str()));
+    assert_eq!(worker.agent_session_id.as_deref(), Some("session-worker"));
+    assert!(runtime_ref.pty.get_session(&pty_id).is_some());
+    let mut response_ids = HashSet::new();
+    collect_tab_and_tab_ids(&starting_response(&tab_id), &mut response_ids);
+    assert_eq!(response_ids, HashSet::from([tab_id.clone()]));
+    drop(runtime_ref);
+    runtime.borrow_mut().close_worker(&tab_id).unwrap();
+}
+
+#[test]
+fn dispatch_failure_leaves_no_orphan() {
+    let runtime = RefCell::new(DispatchRuntime::new());
+    let (tab_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    ready_tx
+        .send(Err("injected startup failure".into()))
+        .unwrap();
+
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |deadline| await_agent_ready(ready_rx, deadline),
+        |_| Ok("session-worker".into()),
+        || Ok(provenance()),
+        |_, _| Ok(()),
+        || {
+            rollback_failed_dispatch(
+                None,
+                || Ok(()),
+                || runtime.borrow_mut().close_worker(&tab_id),
+            )
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "agent_ready");
+    let runtime = runtime.borrow();
+    assert_eq!(runtime.tab_count(), runtime.baseline_tab_count);
+    assert!(runtime.mux.get_tab(&tab_id).is_none());
+    assert!(runtime.pty.get_session(&pty_id).is_none());
+}
+
 #[test]
 fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
     let (_root, project) = git_project();
@@ -102,6 +385,28 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
     assert!(lane.branch.is_none());
     assert!(lane.base.is_none());
     assert_eq!(git_worktree_count(&project), 1);
+}
+
+#[test]
+fn atomic_dispatch_carries_assigned_authority_into_pty_launch() {
+    let lane = TaskLaneMetadata {
+        base: Some("assigned-base".into()),
+        ..Default::default()
+    };
+    let env = task_launch_authority_for_dispatch("assigned-plan", "assigned-task", &lane).env();
+
+    assert_eq!(
+        env.get("CODETERM_PLAN_ID").map(String::as_str),
+        Some("assigned-plan")
+    );
+    assert_eq!(
+        env.get("CODETERM_TASK_ID").map(String::as_str),
+        Some("assigned-task")
+    );
+    assert_eq!(
+        env.get("CODETERM_LANE_BASE").map(String::as_str),
+        Some("assigned-base")
+    );
 }
 
 #[test]
@@ -143,7 +448,7 @@ fn git_worktree_count(project: &Path) -> usize {
 }
 
 #[test]
-fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
+fn dispatch_rollback_closes_tab_and_removes_provisioned_lane() {
     let (_root, project) = git_project();
 
     let lane = provision_lane_for_test(project.to_str().unwrap(), "dispatch_failure").unwrap();
@@ -155,7 +460,7 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
         .unwrap();
     let branch = String::from_utf8(branch.stdout).unwrap().trim().to_string();
     let mut task_reverted = false;
-    let mut pane_closed = false;
+    let mut tab_closed = false;
 
     rollback_failed_dispatch(
         Some(lane),
@@ -164,14 +469,14 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
             Ok(())
         },
         || {
-            pane_closed = true;
+            tab_closed = true;
             Ok(())
         },
     )
     .unwrap();
 
     assert!(task_reverted);
-    assert!(pane_closed);
+    assert!(tab_closed);
     assert!(!lane_path.exists());
     let branch_exists = Command::new("git")
         .current_dir(&project)
@@ -185,101 +490,7 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
 }
 
 #[test]
-fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
-    let (root, project) = git_project();
-    let resolved = resolve_dispatch_lane(
-        None,
-        project.to_str().unwrap(),
-        &TaskLaneMetadata::default(),
-    )
-    .unwrap();
-    assert!(resolved.existing.is_none());
-    let provision_count = Cell::new(0);
-    provision_count.set(provision_count.get() + 1);
-    let lane = provision_lane_for_test(&resolved.spawn_cwd, "dispatch_success").unwrap();
-    let actual = lane.verify().unwrap();
-    assert_eq!(provision_count.get(), 1);
-    assert_eq!(git_worktree_count(&project), 2);
-
-    let store = PlanStore::new_for_test(root.path());
-    let plan = store
-        .create_plan_for_team(
-            "Dispatch".into(),
-            project.display().to_string(),
-            OrchestratorRef::from_pane("orch"),
-            "team".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    let mut approved = store.get(&plan.id).unwrap();
-    approved.mode = PlanMode::Approved;
-    store.save(&mut approved, 2).unwrap();
-    let task_id = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "worker".into(),
-                lane: TaskLaneMetadata {
-                    workspace_id: Some("workspace".into()),
-                    destination: Some("master".into()),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-    let original = store.show_task(&task_id).unwrap().task;
-    let attempt_id = store
-        .begin_task_dispatch(
-            &plan.id,
-            &task_id,
-            "pane-worker",
-            "Ada",
-            lane_metadata_for_dispatch(&original.lane, &actual),
-            4,
-        )
-        .unwrap();
-    let starting = store.show_task(&task_id).unwrap().task;
-    let starting_attempt = starting.execution_attempts.last().unwrap();
-    assert_eq!(starting.status, TaskStatus::InProgress);
-    assert_eq!(starting.status_label.as_deref(), Some("starting"));
-    assert_eq!(starting_attempt.id, attempt_id);
-    assert_eq!(starting_attempt.session_id, None);
-
-    store
-        .finish_task_dispatch(
-            &plan.id,
-            &task_id,
-            "pane-worker",
-            &attempt_id,
-            "session-worker",
-            lane_metadata_for_dispatch(&original.lane, &actual),
-            5,
-        )
-        .unwrap();
-
-    let task = store.show_task(&task_id).unwrap().task;
-    let attempt = task.execution_attempts.last().unwrap();
-    assert_eq!(task.status, TaskStatus::InProgress);
-    assert_eq!(task.status_label, None);
-    assert_eq!(
-        task.lane.worktree_path.as_deref(),
-        Some(actual.worktree_path.as_str())
-    );
-    assert_eq!(task.lane.branch.as_deref(), Some(actual.branch.as_str()));
-    assert_eq!(attempt.worktree_path, task.lane.worktree_path);
-    assert_eq!(attempt.branch, task.lane.branch);
-    assert_eq!(attempt.base, task.lane.base);
-    assert_eq!(attempt.destination, task.lane.destination);
-    assert_eq!(attempt.session_id.as_deref(), Some("session-worker"));
-    assert_eq!(task.lane.workspace_id.as_deref(), Some("workspace"));
-    lane.cleanup().unwrap();
-}
-
-#[test]
-fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
+fn launch_delivery_readiness_and_same_tab_binding_precede_commit() {
     let order = RefCell::new(Vec::new());
     let evidence = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
@@ -288,7 +499,7 @@ fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
             Ok(())
         },
         |_| {
-            order.borrow_mut().push("same_pane_session");
+            order.borrow_mut().push("same_tab_session");
             Ok("session-worker".into())
         },
         || {
@@ -309,7 +520,7 @@ fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
     assert_eq!(evidence.session_id, "session-worker");
     assert_eq!(
         order.into_inner(),
-        vec!["agent_ready", "same_pane_session", "provenance", "commit"]
+        vec!["agent_ready", "same_tab_session", "provenance", "commit"]
     );
 }
 
@@ -317,9 +528,9 @@ fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
 fn every_transaction_stage_failure_runs_compensation() {
     for (failure, expected_stage) in [
         ("agent_ready", "agent_ready"),
-        ("pane_removed", "session_binding"),
+        ("tab_removed", "session_binding"),
         ("missing_session", "session_binding"),
-        ("wrong_pane_session", "session_binding"),
+        ("wrong_tab_session", "session_binding"),
         ("provenance", "provenance_readback"),
         ("task_commit", "task_commit"),
     ] {
@@ -336,7 +547,7 @@ fn every_transaction_stage_failure_runs_compensation() {
             |_| {
                 if matches!(
                     failure,
-                    "pane_removed" | "missing_session" | "wrong_pane_session"
+                    "tab_removed" | "missing_session" | "wrong_tab_session"
                 ) {
                     Err(failure.into())
                 } else {
@@ -366,6 +577,31 @@ fn every_transaction_stage_failure_runs_compensation() {
         assert_eq!(error.data.unwrap()["stage"], expected_stage, "{failure}");
         assert!(rolled_back.get(), "{failure}");
     }
+}
+
+#[test]
+fn binding_failure_never_false_starts() {
+    let committed = Cell::new(false);
+    let rolled_back = Cell::new(false);
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| Ok(()),
+        |_| Err("spawned tab did not bind a session".into()),
+        || Ok(provenance()),
+        |_, _| {
+            committed.set(true);
+            Ok(())
+        },
+        || {
+            rolled_back.set(true);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "session_binding");
+    assert!(!committed.get());
+    assert!(rolled_back.get());
 }
 
 #[test]
@@ -403,7 +639,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
         .create_plan_for_team(
             "Rollback".into(),
             project.display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             "team".into(),
             vec![],
             1,
@@ -443,7 +679,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
                 .commit_task_dispatch(
                     &plan.id,
                     &task_id,
-                    "pane-worker",
+                    "tab-worker",
                     "Ada",
                     session,
                     lane_metadata_for_dispatch(&original.lane, provenance),
@@ -521,10 +757,6 @@ fn routing_qualified_model_selects_its_registered_provider() {
     let r = resolve_dispatch_routing(None, Some("codex:gpt-5.6-terra".into()), None, &providers());
     assert_eq!(r.agent.as_deref(), Some("codex"));
     assert_eq!(r.model.as_deref(), Some("gpt-5.6-terra"));
-
-    let r = resolve_dispatch_routing(None, Some("codex/gpt-5.6-terra".into()), None, &providers());
-    assert_eq!(r.agent.as_deref(), Some("codex"));
-    assert_eq!(r.model.as_deref(), Some("gpt-5.6-terra"));
 }
 
 #[test]
@@ -541,6 +773,19 @@ fn routing_never_silently_substitutes_an_unqualified_model() {
     let error = unqualified_model_error(&routing, "codex", &notice).unwrap();
     assert_eq!(error.code, -32602);
     assert_eq!(error.data.unwrap()["type"], "unqualified_model_unavailable");
+
+    let explicit = resolve_dispatch_routing(
+        Some("codex".into()),
+        Some("opus".into()),
+        None,
+        &providers(),
+    );
+    let explicit_error = unqualified_model_error(&explicit, "codex", &notice).unwrap();
+    assert_eq!(explicit_error.code, -32602);
+    assert_eq!(
+        explicit_error.data.unwrap()["type"],
+        "unqualified_model_unavailable"
+    );
 
     let qualified = resolve_dispatch_routing(None, Some("claude:opus".into()), None, &providers());
     assert!(unqualified_model_error(&qualified, "claude", &notice).is_none());
@@ -622,8 +867,11 @@ fn brief_deduplicates_matching_persona_guidance_prefix() {
     }));
 
     let brief = build_brief(&t, &[]);
-    let expected = "You are Hopper. Keep the role guidance first.\n\n# Trace composition\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
-    assert_eq!(brief, expected);
+    assert!(brief.starts_with(
+        "You are Hopper. Keep the role guidance first.\n\
+         Your assigned task is: Trace composition"
+    ));
+    assert!(brief.contains("# Trace composition"));
     assert!(!brief.contains("You are Hopper. You are Hopper."));
 }
 
@@ -640,11 +888,14 @@ fn brief_uses_claimed_personality_once_without_mutating_routing_metadata() {
     }));
 
     let brief = build_brief_with_personality(&t, &[], Some("Grace"));
-    let expected = "You are Grace. Keep the role guidance first.\n\n# Trace composition\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
-    assert_eq!(brief, expected);
+    assert!(brief.starts_with(
+        "You are Grace. Keep the role guidance first.\n\
+         Executor role: rust-backend-dev.\n\
+         Your assigned task is: Trace composition"
+    ));
     assert_eq!(brief.matches("You are Grace.").count(), 1);
     assert!(!brief.contains("Suggested Hopper"));
-    assert!(!brief.contains("rust-backend-dev"));
+    assert!(brief.contains("Executor role: rust-backend-dev."));
 }
 
 #[test]
@@ -676,7 +927,7 @@ fn test_author_brief_carries_charter_reference_before_task() {
 }
 
 #[test]
-fn brief_omits_personality_line_when_absent() {
+fn brief_supplies_task_owned_identity_when_personality_is_absent() {
     let t = task(json!({
         "id": "task_np",
         "name": "Bare",
@@ -684,8 +935,8 @@ fn brief_omits_personality_line_when_absent() {
         "status": "pending",
     }));
     let brief = build_brief(&t, &[]);
-    let expected = "# Bare\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
-    assert_eq!(brief, expected);
+    assert!(brief.starts_with("You are the Worker responsible for: Bare"));
+    assert!(brief.contains("# Bare"));
 }
 
 #[test]
@@ -741,7 +992,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
     let mut plan = Plan::new(
         "review debt".into(),
         "/repo".into(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
     let review = task(json!({
@@ -767,7 +1018,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
         .push(crate::plan::ReviewCapacityGrant {
             task_id: review.id.clone(),
             class: crate::plan::ReviewCapacityClass::Review,
-            granted_by: crate::plan::AgentRef::from_pane("orch"),
+            granted_by: crate::plan::AgentRef::from_tab("orch"),
             granted_at: 1,
         });
     preflight_review_capacity(&plan, &review).unwrap();
@@ -778,23 +1029,68 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
 }
 
 #[test]
-fn brief_includes_body_acceptance_and_report_command() {
+fn brief_includes_body_acceptance_and_task_authority() {
     let t = task(json!({
         "id": "task_1",
         "name": "Wire dispatch RPC",
         "type": "code",
         "status": "pending",
         "body": "Compose spawn, assign, send.",
-        "acceptance_criteria": ["atomic", "returns pane id"],
+        "acceptance_criteria": ["atomic", "returns Tab id"],
     }));
     let brief = build_brief(&t, &[]);
     assert!(brief.contains("# Wire dispatch RPC"));
     assert!(brief.contains("Compose spawn, assign, send."));
     assert!(brief.contains("- atomic"));
-    assert!(brief.contains("- returns pane id"));
-    // The report command is mandatory so the worker can report back.
-    assert!(brief.contains("codeterm agent report"));
+    assert!(brief.contains("- returns Tab id"));
+    assert!(brief.starts_with("You are the Worker responsible for: Wire dispatch RPC"));
+    assert!(!brief.contains("codeterm agent report"));
     assert!(!brief.contains("--base "));
+}
+
+#[test]
+fn launched_worker_prompt_orders_task_identity_before_context_and_commands() {
+    let t = task(json!({
+        "id": "task_prompt_order",
+        "name": "Repair prompt order",
+        "type": "code",
+        "status": "pending",
+        "personality": "Hopper",
+        "executor_role": "rust-backend-dev",
+        "role_guidance": "Audit the final provider prompt.",
+        "body": "Keep the task body complete.",
+        "intent": "Prefer one shared composition path.",
+        "acceptance_criteria": ["identity first"],
+        "correctness": "No provider sees the transport marker.",
+        "test_plan": "cargo test worker_prompt"
+    }));
+    let brief = build_brief(&t, &[]);
+    let params = crate::service::SpawnAgentParams {
+        role: Some("Worker".into()),
+        task: Some(brief),
+        ..Default::default()
+    };
+    let prompt = crate::service::spawn_onboarding_task(&params).unwrap();
+
+    let identity = prompt.find("You are Hopper.").unwrap();
+    let context = prompt
+        .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
+        .unwrap();
+    let body = prompt.find("Keep the task body complete.").unwrap();
+    let intent = prompt.find("## Intent").unwrap();
+    let correctness = prompt.find("## Correctness").unwrap();
+    let ack = prompt.find("codeterm agent ack").unwrap();
+    let report = prompt
+        .find("codeterm agent report --status in_review")
+        .unwrap();
+    let fallback = prompt
+        .find("load the provider skill named `codeterm`")
+        .unwrap();
+
+    assert!(identity < context && context < body);
+    assert!(body < intent && intent < correctness);
+    assert!(correctness < ack && ack < report && report < fallback);
+    assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
 
 #[test]
@@ -805,6 +1101,7 @@ fn brief_lists_section_links_and_test_plan() {
         "type": "code",
         "status": "pending",
         "test_plan": "cargo test dispatch",
+        "qa_plan": "cargo test independent acceptance",
     }));
     let sections = vec![TaskSection {
         id: "sec_9".into(),
@@ -813,6 +1110,8 @@ fn brief_lists_section_links_and_test_plan() {
     let brief = build_brief(&t, &sections);
     assert!(brief.contains("## Test plan"));
     assert!(brief.contains("cargo test dispatch"));
+    assert!(!brief.contains("independent acceptance"));
+    assert!(!brief.contains("qa_plan"));
     assert!(brief.contains("## Sections"));
     assert!(brief.contains("Phase 1 (sec_9)"));
 }
@@ -830,5 +1129,5 @@ fn brief_omits_empty_optional_sections() {
     assert!(!brief.contains("## Test plan"));
     assert!(!brief.contains("## Sections"));
     assert!(!brief.contains("## Strides"));
-    assert!(brief.contains("codeterm agent report"));
+    assert!(!brief.contains("codeterm agent report"));
 }

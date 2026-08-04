@@ -1,76 +1,123 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
-import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
-import { TASK_STATUS_COLORS } from "../Canvas/settings";
+import type { Tab, ProviderDescriptor, Team } from "../../lib/types";
 import { ProviderGlyph } from "../ProviderGlyph";
-import type { Plan } from "../Canvas/types";
-import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
+import { TaskStatus, type Plan } from "../Canvas/types";
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
+import { ActivityDots } from "../shared/ActivityDots";
+import {
+  PLAN_STATUS_COLORS,
+  SegmentedDonut,
+  type SegmentedDonutSegment,
+} from "../shared/SegmentedDonut";
+import {
+  PlanStatusBreakdown,
+  type PlanStatusCounts,
+} from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 
 export type TeamMemberRole = "planner" | "worker";
 
 export interface SidebarTeamActions {
-  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
+  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerPaneId: string,
+    managerTabId: string,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string, managerPaneId: string) => void | Promise<void>;
+  onCloseTeam?: (teamId: string, managerTabId: string) => void | Promise<void>;
 }
 
 export interface TeamTaskBucket {
-  key: "todo" | "review" | "blocked" | "done";
+  key: "todo" | "review" | "blocked" | "paused" | "done";
   label: string;
   count: number;
   color: string;
 }
 
-const statusColorForColumn = (key: (typeof BOARD_COLUMN_DEFS)[number]["key"]): string => {
-  const column = BOARD_COLUMN_DEFS.find((definition) => definition.key === key);
-  return TASK_STATUS_COLORS[column!.statuses[0]];
-};
-
 const EMPTY_BUCKETS: TeamTaskBucket[] = [
-  { key: "todo", label: "todo", count: 0, color: statusColorForColumn("in_progress") },
-  { key: "review", label: "review", count: 0, color: statusColorForColumn("in_review") },
-  { key: "blocked", label: "blocked", count: 0, color: statusColorForColumn("blocked") },
-  { key: "done", label: "done", count: 0, color: statusColorForColumn("done") },
+  { key: "todo", label: "todo", count: 0, color: PLAN_STATUS_COLORS.todo },
+  { key: "review", label: "review", count: 0, color: PLAN_STATUS_COLORS.review },
+  { key: "blocked", label: "blocked", count: 0, color: PLAN_STATUS_COLORS.blocked },
+  { key: "paused", label: "paused", count: 0, color: PLAN_STATUS_COLORS.paused },
+  { key: "done", label: "done", count: 0, color: PLAN_STATUS_COLORS.done },
 ];
 
 export function deriveTeamTaskBuckets(
   plan: Plan,
-  panes: Record<string, Pane>,
+  _tabs: Record<string, Tab>,
 ): TeamTaskBucket[] {
-  const counts = new Map(
-    groupTasksIntoColumns(plan, panes).columns.map((column) => [column.key, column.cards.length]),
-  );
+  const counts = new Map<TeamTaskBucket["key"], number>(EMPTY_BUCKETS.map((bucket) => [bucket.key, 0]));
+  for (const task of plan.tasks) {
+    const key: TeamTaskBucket["key"] | null =
+      task.status === TaskStatus.Pending || task.status === TaskStatus.InProgress
+        ? "todo"
+        : task.status === TaskStatus.InReview
+          ? "review"
+          : task.status === TaskStatus.Blocked
+            ? "blocked"
+            : task.status === TaskStatus.Paused
+              ? "paused"
+              : task.status === TaskStatus.Done
+                ? "done"
+                : null;
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
   return EMPTY_BUCKETS.map((bucket) => ({
     ...bucket,
-    count:
-      bucket.key === "todo"
-        ? (counts.get("pending") ?? 0) + (counts.get("in_progress") ?? 0)
-        : counts.get(bucket.key === "review" ? "in_review" : bucket.key) ?? 0,
+    count: counts.get(bucket.key) ?? 0,
   }));
 }
 
-export function teamDonutBackground(buckets: TeamTaskBucket[]): string {
+// D12: the card aggregate folds paused into todo (1 pending + 2 paused reads
+// 3 todo), while the detailed breakdown still reports paused on its own —
+// raw status is never relabeled, this only changes how the summary counts.
+export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCounts {
+  const count = (key: TeamTaskBucket["key"]) => buckets.find((bucket) => bucket.key === key)?.count ?? 0;
+  const paused = count("paused");
+  return {
+    todo: count("todo") + paused,
+    review: count("review"),
+    blocked: count("blocked"),
+    paused,
+    done: count("done"),
+  };
+}
+
+export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
+  const signature = buckets.map((bucket) => bucket.count).join(":");
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  if (total === 0) return "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
-  let offset = 0;
-  const stops = buckets.flatMap((bucket) => {
-    if (bucket.count === 0) return [];
-    const start = (offset / total) * 100;
-    offset += bucket.count;
-    return [`${bucket.color} ${start}% ${(offset / total) * 100}%`];
-  });
-  return `conic-gradient(${stops.join(", ")})`;
+  const complete = total > 0 && buckets.find((bucket) => bucket.key === "done")?.count === total;
+  const previous = useRef({ signature, complete, total });
+  const [revision, setRevision] = useState(0);
+  const [reacting, setReacting] = useState(false);
+  const [completionSweep, setCompletionSweep] = useState(false);
+
+  useEffect(() => {
+    if (signature === previous.current.signature) return;
+    const shouldSweep = previous.current.total > 0 && !previous.current.complete && complete;
+    previous.current = { signature, complete, total };
+    setRevision((current) => current + 1);
+    setReacting(true);
+    setCompletionSweep(shouldSweep);
+  }, [complete, signature, total]);
+
+  const onAnimationEnd = useCallback((event: ReactAnimationEvent<HTMLElement>) => {
+    if (
+      event.animationName === "ct-segmented-donut-grow"
+      || event.animationName === "sidebar-plan-entry-count-pop"
+    ) {
+      setReacting(false);
+    }
+    if (event.animationName === "sidebar-plan-entry-completion-sweep") setCompletionSweep(false);
+  }, []);
+
+  return { revision, reacting, completionSweep, onAnimationEnd };
 }
 
 interface TeamMenuProps {
@@ -316,12 +363,16 @@ function TeamMenu({
 export interface TeamUnitProps {
   team: Team;
   plan: Plan | null;
-  panes: Record<string, Pane>;
+  tabs: Record<string, Tab>;
   managers: ReactNode;
   managerCount: number;
   workers: ReactNode;
   workerCount: number;
   workingWorkerCount: number;
+  terminals?: ReactNode;
+  terminalCount?: number;
+  crons?: ReactNode;
+  cronCount?: number;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
@@ -332,19 +383,23 @@ export interface TeamUnitProps {
 
 export interface TeamEffortTarget {
   teamId: string;
-  managerPaneId: string | null;
+  managerTabId: string | null;
   planId?: string;
 }
 
 export function TeamUnit({
   team,
   plan,
-  panes,
+  tabs,
   managers,
   managerCount,
   workers,
   workerCount,
   workingWorkerCount,
+  terminals,
+  terminalCount = 0,
+  crons,
+  cronCount = 0,
   providers,
   providersLoading,
   onRenameTeam,
@@ -355,16 +410,32 @@ export function TeamUnit({
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
   const [workersExpanded, setWorkersExpanded] = useState(initialDisclosure.workersExpanded);
+  const [terminalsExpanded, setTerminalsExpanded] = useState(initialDisclosure.terminalsExpanded);
+  const [cronsExpanded, setCronsExpanded] = useState(initialDisclosure.cronsExpanded);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const teamTabCount = managerCount + workerCount;
+  const teamTabCount = managerCount + workerCount + terminalCount;
+  const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
-    () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
-    [plan, panes],
+    () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
+    [plan, tabs],
   );
+  const donutSegments = useMemo<SegmentedDonutSegment[]>(
+    () => buckets.map((bucket) => ({
+      status: bucket.key,
+      count: bucket.count,
+      color: bucket.color,
+    })),
+    [buckets],
+  );
+  const statusCounts = useMemo<PlanStatusCounts>(
+    () => deriveCardStatusCounts(buckets),
+    [buckets],
+  );
+  const planMotion = useTeamPlanMotion(buckets);
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
@@ -382,6 +453,22 @@ export function TeamUnit({
     setWorkersExpanded((current) => {
       const next = !current;
       persistTeamDisclosureState(team.id, { workersExpanded: next });
+      return next;
+    });
+  };
+
+  const toggleTerminalsExpanded = () => {
+    setTerminalsExpanded((current) => {
+      const next = !current;
+      persistTeamDisclosureState(team.id, { terminalsExpanded: next });
+      return next;
+    });
+  };
+
+  const toggleCronsExpanded = () => {
+    setCronsExpanded((current) => {
+      const next = !current;
+      persistTeamDisclosureState(team.id, { cronsExpanded: next });
       return next;
     });
   };
@@ -423,12 +510,13 @@ export function TeamUnit({
 
   const cardContents = <>
     {plan ? (
-      <span
+      <SegmentedDonut
+        key={`donut-${planMotion.revision}`}
         data-testid="team-donut"
-        className="sidebar-team-donut"
-        aria-label="Task status composition"
-        style={{ background: teamDonutBackground(buckets) }}
-      ><span data-testid="team-donut-hole" className="sidebar-team-donut-hole" /></span>
+        segments={donutSegments}
+        size={22}
+        aria-label={`Task status composition: ${statusCounts.todo} todo, ${statusCounts.review} review, ${statusCounts.blocked} blocked, ${statusCounts.paused} paused, ${statusCounts.done} done`}
+      />
     ) : (
       <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
     )}
@@ -454,14 +542,14 @@ export function TeamUnit({
         />
       ) : (
         <span className="sidebar-team-title-row">
-          <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
+          <span data-testid="team-name" className="sidebar-team-name">{displayTitle}</span>
           {workingWorkerCount > 0 && (
             <span
               data-testid="team-working-indicator"
-              className="sidebar-hierarchy-typing-dots"
+              className="sidebar-team-working-indicator"
               role="status"
-              aria-label={`${team.name?.trim() || "Team"} has working members`}
-            ><span /><span /><span /></span>
+              aria-label={`${displayTitle} has working members`}
+            ><ActivityDots size="small" tone="muted" /></span>
           )}
         </span>
       )}
@@ -475,10 +563,11 @@ export function TeamUnit({
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
+      onAnimationEnd={planMotion.onAnimationEnd}
     >
       <div
         ref={headerRef}
-        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
+        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
       >
         {plan && !editing ? (
@@ -486,8 +575,8 @@ export function TeamUnit({
             type="button"
             data-testid="team-card-activation"
             className="sidebar-team-card-activation"
-            aria-label={`Open ${plan.title}`}
-            onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
+            aria-label={`Open ${displayTitle}`}
+            onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
           >
             {cardContents}
           </button>
@@ -504,8 +593,8 @@ export function TeamUnit({
               providers={providers}
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
-              onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
-              onRename={onRenameTeam ? () => {
+              onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
+              onRename={!plan && onRenameTeam ? () => {
                 setRenameError(null);
                 setEditing(true);
               } : undefined}
@@ -515,18 +604,13 @@ export function TeamUnit({
         </span>
       </div>
       {plan && (
-        <span data-testid="team-status-tally" className="sidebar-team-readout">
-          {buckets.map((bucket, index) => (
-            <span key={bucket.key} className="sidebar-team-readout-segment">
-              {index > 0 && <span className="sidebar-team-readout-separator" aria-hidden> · </span>}
-              <span data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
-                <span className="sidebar-team-readout-compact-dot" aria-hidden />
-                <span className="sidebar-team-readout-count">{bucket.count}</span>
-                <span className="sidebar-team-readout-label"> {bucket.label}</span>
-              </span>
-            </span>
-          ))}
-        </span>
+        <PlanStatusBreakdown
+          key={`tally-${planMotion.revision}`}
+          data-testid="team-status-tally"
+          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+          counts={statusCounts}
+          itemTestIdPrefix="team-status"
+        />
       )}
       {expanded && (
         <div className="sidebar-team-body">
@@ -550,10 +634,40 @@ export function TeamUnit({
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
                   {summarizeWorkers(workerCount, workingWorkerCount)}
                   {workingWorkerCount > 0 && (
-                    <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>
+                    <ActivityDots size="small" tone="muted" />
                   )}
                   <span className="sidebar-team-summary-kebab">⋮</span>
                 </div>
+              )}
+            </div>
+          )}
+          {terminalCount > 0 && (
+            <div data-testid="terminals-section" className="sidebar-team-section">
+              <SidebarDisclosure
+                data-testid="terminals-collapse-toggle"
+                expanded={terminalsExpanded}
+                className="sidebar-team-workers-toggle"
+                onClick={toggleTerminalsExpanded}
+              >{terminalsExpanded
+                ? "UTILITY SHELLS"
+                : `${terminalCount} ${terminalCount === 1 ? "utility shell" : "utility shells"}`}</SidebarDisclosure>
+              {terminalsExpanded && (
+                <div className="sidebar-team-member-list">{terminals}</div>
+              )}
+            </div>
+          )}
+          {cronCount > 0 && (
+            <div data-testid="crons-section" className="sidebar-team-section">
+              <SidebarDisclosure
+                data-testid="crons-collapse-toggle"
+                expanded={cronsExpanded}
+                className="sidebar-team-workers-toggle"
+                onClick={toggleCronsExpanded}
+              >{cronsExpanded
+                ? "SCHEDULED JOBS"
+                : `${cronCount} scheduled ${cronCount === 1 ? "job" : "jobs"}`}</SidebarDisclosure>
+              {cronsExpanded && (
+                <div className="sidebar-team-member-list">{crons}</div>
               )}
             </div>
           )}

@@ -20,19 +20,19 @@ test("@smoke the real app window renders the shell UI", async ({ ui }) => {
   expect(childCount).toBeGreaterThan(0);
   // instead — either proves the shell.
   await expect(
-    page.locator('[data-testid="terminal-pane"], [data-testid="chat-composer"]').first(),
+    page.locator('[data-testid="terminal-tab"], [data-testid="chat-composer"]').first(),
   ).toBeVisible();
   // Native and the web mirror mount the same titlebar strip (parity decision A).
   await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
 });
 
-test("@smoke default workspace and at least one pane exist", async ({ api }) => {
+test("@smoke default workspace and at least one tab exist", async ({ api }) => {
   const workspaces = await api.workspaces();
   expect(workspaces.length).toBeGreaterThan(0);
   expect(workspaces.some((w) => w.is_active)).toBe(true);
 
-  const panes = await api.panes();
-  expect(panes.length).toBeGreaterThan(0);
+  const tabs = await api.tabs();
+  expect(tabs.length).toBeGreaterThan(0);
 });
 
 test("@smoke system agent providers are registered", async ({ api }) => {

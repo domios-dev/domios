@@ -82,7 +82,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             kind: MemKind::Skill,
             scope: MemScope::Global,
             title: "codeterm".into(),
-            summary: Some("CodeTerm CLI skill — pane / workspace / agent / mem control".into()),
+            summary: Some("CodeTerm CLI skill — tab / workspace / agent / mem control".into()),
             area: Some("codeterm".into()),
             tags: vec!["bundled".into(), "core".into(), "cli".into()],
             body: SKILL_CODETERM.trim().into(),

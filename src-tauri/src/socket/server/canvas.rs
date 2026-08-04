@@ -17,7 +17,7 @@ pub(super) fn dispatch(
         "canvas.focus" => {
             let payload = json!({
                 "task_id": p.and_then(|x| x.get("task_id")).and_then(|v| v.as_str()),
-                "pane_id": p.and_then(|x| x.get("pane_id")).and_then(|v| v.as_str()),
+                "tab_id": p.and_then(|x| x.get("tab_id")).and_then(|v| v.as_str()),
                 "plan_id": p.and_then(|x| x.get("plan_id")).and_then(|v| v.as_str()),
             });
             emit_canvas_focus(app, payload.clone());

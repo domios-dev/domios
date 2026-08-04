@@ -16,9 +16,9 @@ impl MultiplexerState {
         parent_id: &str,
     ) -> Result<TeamResolution, String> {
         let existing = self
-            .panes
+            .tabs
             .get(parent_id)
-            .ok_or_else(|| format!("Pane {parent_id} not found"))?
+            .ok_or_else(|| format!("Tab {parent_id} not found"))?
             .team_id
             .clone();
         if let Some(id) = existing {
@@ -27,13 +27,13 @@ impl MultiplexerState {
                 minted: false,
             });
         }
-        let workspace_id = self.find_workspace_for_pane(parent_id).unwrap_or_default();
+        let workspace_id = self.find_workspace_for_tab(parent_id).unwrap_or_default();
         let team = Team::new(workspace_id, now_millis());
         let team_id = team.id.clone();
         self.upsert_team(team);
-        self.panes
+        self.tabs
             .get_mut(parent_id)
-            .expect("pane checked before team mint")
+            .expect("Tab checked before team mint")
             .team_id = Some(team_id.clone());
         Ok(TeamResolution {
             team_id,
@@ -43,58 +43,58 @@ impl MultiplexerState {
 
     pub fn rollback_minted_team_for_parent(&mut self, parent_id: &str, team_id: &str) {
         let is_current = self
-            .panes
+            .tabs
             .get(parent_id)
-            .and_then(|pane| pane.team_id.as_deref())
+            .and_then(|tab| tab.team_id.as_deref())
             == Some(team_id);
         if is_current {
-            self.panes
+            self.tabs
                 .get_mut(parent_id)
-                .expect("pane checked before team rollback")
+                .expect("Tab checked before team rollback")
                 .team_id = None;
             self.remove_team(team_id);
         }
     }
 
-    /// Set a pane's orchestration role with validation.
-    pub fn set_pane_role(
+    /// Set a tab's orchestration role with validation.
+    pub fn set_tab_role(
         &mut self,
-        pane_id: &str,
+        tab_id: &str,
         role: AgentRole,
-        parent_pane_id: Option<&str>,
+        parent_tab_id: Option<&str>,
     ) -> Result<(), String> {
-        if !self.panes.contains_key(pane_id) {
-            return Err(format!("Pane {} not found", pane_id));
+        if !self.tabs.contains_key(tab_id) {
+            return Err(format!("Tab {} not found", tab_id));
         }
 
         match role {
             AgentRole::Orchestrator => {
-                if parent_pane_id.is_some() {
+                if parent_tab_id.is_some() {
                     return Err("Orchestrator cannot have a parent".to_string());
                 }
                 let existing = self
-                    .panes
-                    .get(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
-                if existing.parent_pane_id.is_some() {
+                    .tabs
+                    .get(tab_id)
+                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+                if existing.parent_tab_id.is_some() {
                     return Err("Cannot become Orchestrator — already in a hierarchy".to_string());
                 }
-                let pane = self
-                    .panes
-                    .get_mut(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
-                pane.role = Some(AgentRole::Orchestrator);
-                pane.role_profile = None;
-                pane.parent_pane_id = None;
-                pane.can_spawn = true;
-                pane.depth = 1;
+                let tab = self
+                    .tabs
+                    .get_mut(tab_id)
+                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+                tab.role = Some(AgentRole::Orchestrator);
+                tab.role_profile = None;
+                tab.parent_tab_id = None;
+                tab.can_spawn = true;
+                tab.depth = 1;
             }
             AgentRole::Manager => {
-                let parent_id = parent_pane_id.ok_or("Manager requires a parent_pane_id")?;
+                let parent_id = parent_tab_id.ok_or("Manager requires a parent_tab_id")?;
                 let parent = self
-                    .panes
+                    .tabs
                     .get(parent_id)
-                    .ok_or(format!("Parent pane {} not found", parent_id))?;
+                    .ok_or(format!("Parent Tab {} not found", parent_id))?;
                 if parent.role != Some(AgentRole::Orchestrator) {
                     return Err("Manager requires an Orchestrator parent".to_string());
                 }
@@ -103,26 +103,26 @@ impl MultiplexerState {
                 }
                 let final_parent_depth = parent.depth;
                 let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
-                let pane = self
-                    .panes
-                    .get_mut(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
-                pane.role = Some(AgentRole::Manager);
-                pane.parent_pane_id = Some(parent_id.to_string());
-                pane.can_spawn = false;
-                pane.depth = final_parent_depth + 1;
-                pane.team_id = Some(team_id);
+                let tab = self
+                    .tabs
+                    .get_mut(tab_id)
+                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+                tab.role = Some(AgentRole::Manager);
+                tab.parent_tab_id = Some(parent_id.to_string());
+                tab.can_spawn = false;
+                tab.depth = final_parent_depth + 1;
+                tab.team_id = Some(team_id);
             }
             AgentRole::Worker => {
-                let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
+                let parent_id = parent_tab_id.ok_or("Worker requires a parent_tab_id")?;
                 let (parent_role, parent_has_parent, parent_can_spawn, parent_depth) = {
                     let parent = self
-                        .panes
+                        .tabs
                         .get(parent_id)
-                        .ok_or(format!("Parent pane {} not found", parent_id))?;
+                        .ok_or(format!("Parent Tab {} not found", parent_id))?;
                     (
                         parent.role,
-                        parent.parent_pane_id.is_some(),
+                        parent.parent_tab_id.is_some(),
                         parent.can_spawn,
                         parent.depth,
                     )
@@ -140,12 +140,12 @@ impl MultiplexerState {
                         );
                     }
                     let parent = self
-                        .panes
+                        .tabs
                         .get_mut(parent_id)
-                        .ok_or_else(|| format!("Parent pane {} not found", parent_id))?;
+                        .ok_or_else(|| format!("Parent Tab {} not found", parent_id))?;
                     parent.role = Some(AgentRole::Orchestrator);
                     parent.role_profile = None;
-                    parent.parent_pane_id = None;
+                    parent.parent_tab_id = None;
                     parent.can_spawn = true;
                     if parent.depth == 0 {
                         parent.depth = 1;
@@ -153,48 +153,48 @@ impl MultiplexerState {
                     parent.depth
                 };
                 let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
-                let pane = self
-                    .panes
-                    .get_mut(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
-                pane.role = Some(AgentRole::Worker);
-                pane.parent_pane_id = Some(parent_id.to_string());
-                pane.can_spawn = false;
-                pane.depth = final_parent_depth + 1;
-                pane.team_id = Some(team_id);
+                let tab = self
+                    .tabs
+                    .get_mut(tab_id)
+                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+                tab.role = Some(AgentRole::Worker);
+                tab.parent_tab_id = Some(parent_id.to_string());
+                tab.can_spawn = false;
+                tab.depth = final_parent_depth + 1;
+                tab.team_id = Some(team_id);
             }
         }
 
         Ok(())
     }
 
-    /// Clear a pane's orchestration role. Detaches a Worker from its
+    /// Clear a tab's orchestration role. Detaches a Worker from its
     /// Orchestrator (clears parent) or, for an Orchestrator, orphans its
-    /// Workers. Works on any pane — `unlink` should be able to unlink the
+    /// Workers. Works on any tab — `unlink` should be able to unlink the
     /// thing that's actually linked.
-    pub fn clear_pane_role(&mut self, pane_id: &str) -> Result<(), String> {
-        let pane = self
-            .panes
-            .get_mut(pane_id)
-            .ok_or(format!("Pane {} not found", pane_id))?;
-        pane.role = None;
-        pane.role_profile = None;
-        pane.parent_pane_id = None;
-        pane.can_spawn = false;
-        pane.depth = 0;
-        self.orphan_children(pane_id);
+    pub fn clear_tab_role(&mut self, tab_id: &str) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or(format!("Tab {} not found", tab_id))?;
+        tab.role = None;
+        tab.role_profile = None;
+        tab.parent_tab_id = None;
+        tab.can_spawn = false;
+        tab.depth = 0;
+        self.orphan_children(tab_id);
         Ok(())
     }
 
-    /// Repoint a pane's parent edge. No-op returning false if the pane is absent.
+    /// Repoint a tab's parent edge. No-op returning false if the tab is absent.
     /// Overwrites any stale parent, keeping depth = parent.depth + 1 when known.
-    pub fn repoint_parent(&mut self, pane_id: &str, new_parent: &str) -> bool {
-        let parent_depth = self.panes.get(new_parent).map(|p| p.depth);
-        match self.panes.get_mut(pane_id) {
-            Some(pane) => {
-                pane.parent_pane_id = Some(new_parent.to_string());
+    pub fn repoint_parent(&mut self, tab_id: &str, new_parent: &str) -> bool {
+        let parent_depth = self.tabs.get(new_parent).map(|p| p.depth);
+        match self.tabs.get_mut(tab_id) {
+            Some(tab) => {
+                tab.parent_tab_id = Some(new_parent.to_string());
                 if let Some(d) = parent_depth {
-                    pane.depth = d + 1;
+                    tab.depth = d + 1;
                 }
                 true
             }
@@ -202,54 +202,54 @@ impl MultiplexerState {
         }
     }
 
-    /// Set whether a pane can spawn child agents.
-    pub fn set_can_spawn(&mut self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
-        let pane = self
-            .panes
-            .get_mut(pane_id)
-            .ok_or(format!("Pane {} not found", pane_id))?;
-        if pane.role.is_none() {
-            return Err("Pane has no role".to_string());
+    /// Set whether a tab can spawn child agents.
+    pub fn set_can_spawn(&mut self, tab_id: &str, can_spawn: bool) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or(format!("Tab {} not found", tab_id))?;
+        if tab.role.is_none() {
+            return Err("Tab has no role".to_string());
         }
-        match pane.role {
+        match tab.role {
             Some(AgentRole::Orchestrator) => {
-                pane.can_spawn = can_spawn;
+                tab.can_spawn = can_spawn;
                 Ok(())
             }
             _ => Err("Only Orchestrator can spawn children".to_string()),
         }
     }
 
-    /// Record the pane id of the caller that ran `agent spawn` for this pane.
-    /// Independent of `parent_pane_id` — Orchestrators clear `parent_pane_id`
+    /// Record the tab id of the caller that ran `agent spawn` for this tab.
+    /// Independent of `parent_tab_id` — Orchestrators clear `parent_tab_id`
     /// but still need a route back to the agent that asked for them.
-    pub fn set_spawned_by(&mut self, pane_id: &str, spawned_by: &str) -> Result<(), String> {
-        let pane = self
-            .panes
-            .get_mut(pane_id)
-            .ok_or(format!("Pane {} not found", pane_id))?;
-        pane.spawned_by_pane_id = Some(spawned_by.to_string());
+    pub fn set_spawned_by(&mut self, tab_id: &str, spawned_by: &str) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or(format!("Tab {} not found", tab_id))?;
+        tab.spawned_by_tab_id = Some(spawned_by.to_string());
         Ok(())
     }
 
-    /// Get IDs of direct children of a pane.
-    pub fn get_children_ids(&self, pane_id: &str) -> Vec<String> {
-        self.panes
+    /// Get IDs of direct children of a tab.
+    pub fn get_children_ids(&self, tab_id: &str) -> Vec<String> {
+        self.tabs
             .values()
-            .filter(|p| p.parent_pane_id.as_deref() == Some(pane_id))
+            .filter(|p| p.parent_tab_id.as_deref() == Some(tab_id))
             .map(|p| p.id.clone())
             .collect()
     }
 
-    /// Remove role/parent from all children that point to the given pane.
-    pub(super) fn orphan_children(&mut self, pane_id: &str) {
-        let child_ids: Vec<String> = self.get_children_ids(pane_id);
+    /// Remove role/parent from all children that point to the given tab.
+    pub(super) fn orphan_children(&mut self, tab_id: &str) {
+        let child_ids: Vec<String> = self.get_children_ids(tab_id);
         for cid in &child_ids {
             self.orphan_children(cid);
-            if let Some(child) = self.panes.get_mut(cid) {
+            if let Some(child) = self.tabs.get_mut(cid) {
                 child.role = None;
                 child.role_profile = None;
-                child.parent_pane_id = None;
+                child.parent_tab_id = None;
                 child.can_spawn = false;
                 child.depth = 0;
             }
@@ -263,17 +263,21 @@ mod tests {
 
     fn fresh() -> (MultiplexerState, String) {
         let (mut mux, _root) = MultiplexerState::new();
-        let pane = mux.create_pane();
-        (mux, pane)
+        let tab = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        (mux, tab)
     }
 
     #[test]
     fn orchestrator_defaults_can_spawn_true() {
         let (mut mux, _root) = MultiplexerState::new();
-        let pane = mux.create_pane();
-        mux.set_pane_role(&pane, AgentRole::Orchestrator, None)
+        let tab = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
             .expect("Orchestrator with no parent");
-        let p = mux.get_pane(&pane).unwrap();
+        let p = mux.get_tab(&tab).unwrap();
         assert_eq!(p.role, Some(AgentRole::Orchestrator));
         assert!(p.can_spawn, "Orchestrator must default to can_spawn=true");
         assert_eq!(p.depth, 1);
@@ -282,31 +286,39 @@ mod tests {
     #[test]
     fn orchestrator_rejects_parent() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane();
-        let child = mux.create_pane();
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        let child = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
         let err = mux
-            .set_pane_role(&child, AgentRole::Orchestrator, Some(&parent))
+            .set_tab_role(&child, AgentRole::Orchestrator, Some(&parent))
             .unwrap_err();
         assert!(err.contains("Orchestrator"));
     }
 
     #[test]
-    fn worker_under_free_pane_auto_promotes_and_links() {
+    fn worker_under_free_tab_auto_promotes_and_links() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane(); // free: role=None, can_spawn=false by default
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap(); // free: role=None, can_spawn=false by default
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
             .expect("worker attaches to a free parent (auto-promote)");
-        let p = mux.get_pane(&parent).unwrap();
+        let p = mux.get_tab(&parent).unwrap();
         assert_eq!(
             p.role,
             Some(AgentRole::Orchestrator),
             "free parent auto-promoted to Orchestrator"
         );
         assert!(p.can_spawn);
-        let w = mux.get_pane(&worker).unwrap();
+        let w = mux.get_tab(&worker).unwrap();
         assert_eq!(
-            w.parent_pane_id.as_deref(),
+            w.parent_tab_id.as_deref(),
             Some(parent.as_str()),
             "parent link must persist"
         );
@@ -316,23 +328,29 @@ mod tests {
     #[test]
     fn early_workers_under_uncommitted_orchestrator_all_link() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane();
-        let w1 = mux.create_pane();
-        let w2 = mux.create_pane();
-        mux.set_pane_role(&w1, AgentRole::Worker, Some(&parent))
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        let w1 = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        let w2 = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&w1, AgentRole::Worker, Some(&parent))
             .expect("first early child");
-        mux.set_pane_role(&w2, AgentRole::Worker, Some(&parent))
+        mux.set_tab_role(&w2, AgentRole::Worker, Some(&parent))
             .expect("second early child");
         assert_eq!(
-            mux.get_pane(&w1).unwrap().parent_pane_id.as_deref(),
+            mux.get_tab(&w1).unwrap().parent_tab_id.as_deref(),
             Some(parent.as_str())
         );
         assert_eq!(
-            mux.get_pane(&w2).unwrap().parent_pane_id.as_deref(),
+            mux.get_tab(&w2).unwrap().parent_tab_id.as_deref(),
             Some(parent.as_str())
         );
         assert_eq!(
-            mux.get_pane(&parent).unwrap().role,
+            mux.get_tab(&parent).unwrap().role,
             Some(AgentRole::Orchestrator)
         );
     }
@@ -340,33 +358,39 @@ mod tests {
     #[test]
     fn worker_defaults_can_spawn_false() {
         let (mut mux, root) = fresh();
-        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
             .expect("Worker under Orchestrator");
-        let p = mux.get_pane(&worker).unwrap();
+        let p = mux.get_tab(&worker).unwrap();
         assert!(!p.can_spawn, "Worker must default to can_spawn=false");
     }
 
     #[test]
     fn manager_requires_parent() {
-        let (mut mux, pane) = fresh();
+        let (mut mux, tab) = fresh();
         let err = mux
-            .set_pane_role(&pane, AgentRole::Manager, None)
+            .set_tab_role(&tab, AgentRole::Manager, None)
             .unwrap_err();
-        assert!(err.contains("Manager requires a parent_pane_id"));
+        assert!(err.contains("Manager requires a parent_tab_id"));
     }
 
     #[test]
     fn manager_requires_orchestrator_parent() {
         let (mut mux, root) = fresh();
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
             .unwrap();
-        let manager = mux.create_pane();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
+            .unwrap();
+        let manager = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
         let err = mux
-            .set_pane_role(&manager, AgentRole::Manager, Some(&worker))
+            .set_tab_role(&manager, AgentRole::Manager, Some(&worker))
             .unwrap_err();
         assert!(err.contains("Orchestrator parent"));
     }
@@ -374,24 +398,28 @@ mod tests {
     #[test]
     fn manager_under_orchestrator_is_leaf() {
         let (mut mux, root) = fresh();
-        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let manager = mux.create_pane();
-        mux.set_pane_role(&manager, AgentRole::Manager, Some(&root))
+        let manager = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
             .unwrap();
-        let p = mux.get_pane(&manager).unwrap();
+        mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
+            .unwrap();
+        let p = mux.get_tab(&manager).unwrap();
         assert_eq!(p.role, Some(AgentRole::Manager));
-        assert_eq!(p.parent_pane_id.as_deref(), Some(root.as_str()));
+        assert_eq!(p.parent_tab_id.as_deref(), Some(root.as_str()));
         assert!(!p.can_spawn, "Manager must default to can_spawn=false");
     }
 
     #[test]
     fn manager_set_can_spawn_true_is_rejected() {
         let (mut mux, root) = fresh();
-        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let manager = mux.create_pane();
-        mux.set_pane_role(&manager, AgentRole::Manager, Some(&root))
+        let manager = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
             .unwrap();
         let err = mux.set_can_spawn(&manager, true).unwrap_err();
         assert!(err.contains("Only Orchestrator"));
@@ -400,14 +428,18 @@ mod tests {
     #[test]
     fn manager_cannot_spawn_worker_child() {
         let (mut mux, root) = fresh();
-        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let manager = mux.create_pane();
-        mux.set_pane_role(&manager, AgentRole::Manager, Some(&root))
+        let manager = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
             .unwrap();
-        let child = mux.create_pane();
+        mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
+            .unwrap();
+        let child = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
         let err = mux
-            .set_pane_role(&child, AgentRole::Worker, Some(&manager))
+            .set_tab_role(&child, AgentRole::Worker, Some(&manager))
             .unwrap_err();
         assert!(err.contains("leaf roles cannot spawn workers"));
     }
@@ -416,11 +448,13 @@ mod tests {
     fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
         // Preserve old permissive role behavior: only override fields explicitly provided via --can-spawn.
         let (mut mux, _root) = MultiplexerState::new();
-        let pane = mux.create_pane();
-        mux.set_pane_role(&pane, AgentRole::Orchestrator, None)
+        let tab = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
             .unwrap();
-        mux.set_can_spawn(&pane, false).unwrap();
-        let p = mux.get_pane(&pane).unwrap();
+        mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
+            .unwrap();
+        mux.set_can_spawn(&tab, false).unwrap();
+        let p = mux.get_tab(&tab).unwrap();
         assert_eq!(p.role, Some(AgentRole::Orchestrator));
         assert!(!p.can_spawn);
     }
@@ -428,10 +462,12 @@ mod tests {
     #[test]
     fn worker_set_can_spawn_true_is_rejected() {
         let (mut mux, root) = fresh();
-        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
             .unwrap();
         let err = mux.set_can_spawn(&worker, true).unwrap_err();
         assert!(err.contains("Only Orchestrator"));
@@ -440,35 +476,43 @@ mod tests {
     #[test]
     fn no_team_before_first_spawn() {
         let (mut mux, _root) = MultiplexerState::new();
-        let pane = mux.create_pane();
-        assert_eq!(mux.team_count(), 0, "a roleless pane mints no team");
+        let tab = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        assert_eq!(mux.team_count(), 0, "a roleless Tab mints no team");
         assert_eq!(
-            mux.get_pane(&pane).unwrap().team_id,
+            mux.get_tab(&tab).unwrap().team_id,
             None,
-            "roleless pane carries no team membership"
+            "roleless Tab carries no team membership"
         );
     }
 
     #[test]
     fn make_orchestrator_without_child_mints_nothing() {
         let (mut mux, _root) = MultiplexerState::new();
-        let pane = mux.create_pane();
-        mux.set_pane_role(&pane, AgentRole::Orchestrator, None)
+        let tab = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
             .expect("explicit Orchestrator promotion");
         assert_eq!(
             mux.team_count(),
             0,
             "a promoted Orchestrator with zero children stays teamless"
         );
-        assert_eq!(mux.get_pane(&pane).unwrap().team_id, None);
+        assert_eq!(mux.get_tab(&tab).unwrap().team_id, None);
     }
 
     #[test]
     fn first_worker_spawn_mints_exactly_one_team() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane();
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
             .expect("worker under free parent auto-promotes and mints");
         assert_eq!(
             mux.team_count(),
@@ -476,14 +520,14 @@ mod tests {
             "first child link mints exactly one team"
         );
         let team_id = mux
-            .get_pane(&parent)
+            .get_tab(&parent)
             .unwrap()
             .team_id
             .clone()
             .expect("parent bound to the minted team");
         assert!(team_id.starts_with("team_"));
         assert_eq!(
-            mux.get_pane(&worker).unwrap().team_id.as_deref(),
+            mux.get_tab(&worker).unwrap().team_id.as_deref(),
             Some(team_id.as_str()),
             "child shares the parent's team"
         );
@@ -496,21 +540,25 @@ mod tests {
     #[test]
     fn explicit_orchestrator_then_first_spawn_mints_once() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane();
-        mux.set_pane_role(&parent, AgentRole::Orchestrator, None)
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&parent, AgentRole::Orchestrator, None)
             .expect("explicit Orchestrator");
         assert_eq!(mux.team_count(), 0, "promotion alone does not mint");
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+        let worker = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
             .expect("first worker child link");
         assert_eq!(
             mux.team_count(),
             1,
             "team minted at the child link, not promotion"
         );
-        let team_id = mux.get_pane(&parent).unwrap().team_id.clone().unwrap();
+        let team_id = mux.get_tab(&parent).unwrap().team_id.clone().unwrap();
         assert_eq!(
-            mux.get_pane(&worker).unwrap().team_id.as_deref(),
+            mux.get_tab(&worker).unwrap().team_id.as_deref(),
             Some(team_id.as_str())
         );
     }
@@ -518,25 +566,31 @@ mod tests {
     #[test]
     fn second_worker_inherits_single_team() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane();
-        let w1 = mux.create_pane();
-        let w2 = mux.create_pane();
-        mux.set_pane_role(&w1, AgentRole::Worker, Some(&parent))
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        let w1 = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        let w2 = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&w1, AgentRole::Worker, Some(&parent))
             .expect("first worker mints");
-        mux.set_pane_role(&w2, AgentRole::Worker, Some(&parent))
+        mux.set_tab_role(&w2, AgentRole::Worker, Some(&parent))
             .expect("second worker inherits");
         assert_eq!(
             mux.team_count(),
             1,
             "parent team_id presence is the idempotency guard"
         );
-        let team_id = mux.get_pane(&parent).unwrap().team_id.clone().unwrap();
+        let team_id = mux.get_tab(&parent).unwrap().team_id.clone().unwrap();
         assert_eq!(
-            mux.get_pane(&w1).unwrap().team_id.as_deref(),
+            mux.get_tab(&w1).unwrap().team_id.as_deref(),
             Some(team_id.as_str())
         );
         assert_eq!(
-            mux.get_pane(&w2).unwrap().team_id.as_deref(),
+            mux.get_tab(&w2).unwrap().team_id.as_deref(),
             Some(team_id.as_str())
         );
     }
@@ -544,20 +598,24 @@ mod tests {
     #[test]
     fn manager_child_link_mints_team() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_pane();
-        mux.set_pane_role(&parent, AgentRole::Orchestrator, None)
+        let parent = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
             .unwrap();
-        let planner = mux.create_pane();
-        mux.set_pane_role(&planner, AgentRole::Manager, Some(&parent))
+        mux.set_tab_role(&parent, AgentRole::Orchestrator, None)
+            .unwrap();
+        let planner = mux
+            .create_tab(&mux.list_workspaces()[0].id.clone())
+            .unwrap();
+        mux.set_tab_role(&planner, AgentRole::Manager, Some(&parent))
             .expect("planner (Manager) child link");
         assert_eq!(
             mux.team_count(),
             1,
             "Manager child link mints exactly one team"
         );
-        let team_id = mux.get_pane(&parent).unwrap().team_id.clone().unwrap();
+        let team_id = mux.get_tab(&parent).unwrap().team_id.clone().unwrap();
         assert_eq!(
-            mux.get_pane(&planner).unwrap().team_id.as_deref(),
+            mux.get_tab(&planner).unwrap().team_id.as_deref(),
             Some(team_id.as_str()),
             "Manager child inherits/binds the parent's team"
         );
@@ -570,9 +628,9 @@ mod tests {
 
         for _ in 0..100 {
             let (mut m, _root) = MultiplexerState::new();
-            let parent = m.create_pane();
-            let c1 = m.create_pane();
-            let c2 = m.create_pane();
+            let parent = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
+            let c1 = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
+            let c2 = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
             let state = Arc::new(Mutex::new(m));
 
             let (s1, s2) = (Arc::clone(&state), Arc::clone(&state));
@@ -580,12 +638,12 @@ mod tests {
             let (child1, child2) = (c1.clone(), c2.clone());
             let t1 = std::thread::spawn(move || {
                 s1.lock()
-                    .set_pane_role(&child1, AgentRole::Worker, Some(&p1))
+                    .set_tab_role(&child1, AgentRole::Worker, Some(&p1))
                     .unwrap();
             });
             let t2 = std::thread::spawn(move || {
                 s2.lock()
-                    .set_pane_role(&child2, AgentRole::Worker, Some(&p2))
+                    .set_tab_role(&child2, AgentRole::Worker, Some(&p2))
                     .unwrap();
             });
             t1.join().unwrap();
@@ -597,13 +655,13 @@ mod tests {
                 1,
                 "two concurrent first-spawns yield exactly one team"
             );
-            let team_id = guard.get_pane(&parent).unwrap().team_id.clone().unwrap();
+            let team_id = guard.get_tab(&parent).unwrap().team_id.clone().unwrap();
             assert_eq!(
-                guard.get_pane(&c1).unwrap().team_id.as_deref(),
+                guard.get_tab(&c1).unwrap().team_id.as_deref(),
                 Some(team_id.as_str())
             );
             assert_eq!(
-                guard.get_pane(&c2).unwrap().team_id.as_deref(),
+                guard.get_tab(&c2).unwrap().team_id.as_deref(),
                 Some(team_id.as_str())
             );
         }

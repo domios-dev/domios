@@ -7,7 +7,7 @@ fn store_with_task() -> (tempfile::TempDir, PlanStore, Plan, String) {
     let mut plan = Plan::new(
         "Global assets".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store

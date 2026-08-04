@@ -1,22 +1,22 @@
 import type { Workspace } from "../../lib/types";
 
 export interface TabNavigationTarget {
-  paneId: string;
+  tabId: string;
   workspaceId: string;
 }
 
 export function resolveTabNavigationTarget(
   ref: string,
-  paneIds: string[],
+  tabIds: string[],
   workspaces: Workspace[],
 ): TabNavigationTarget | null {
-  const exact = paneIds.find((id) => id === ref);
-  const prefixMatches = exact ? [] : paneIds.filter((id) => id.startsWith(ref));
-  const paneId = exact ?? (prefixMatches.length === 1 ? prefixMatches[0] : null);
-  if (!paneId) return null;
+  const exact = tabIds.find((id) => id === ref);
+  const prefixMatches = exact ? [] : tabIds.filter((id) => id.startsWith(ref));
+  const tabId = exact ?? (prefixMatches.length === 1 ? prefixMatches[0] : null);
+  if (!tabId) return null;
 
   const workspace = workspaces.find((candidate) =>
-    candidate.tabs.some((tab) => tab.pane_id === paneId),
+    candidate.tabs.includes(tabId),
   );
-  return workspace ? { paneId, workspaceId: workspace.id } : null;
+  return workspace ? { tabId, workspaceId: workspace.id } : null;
 }

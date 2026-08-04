@@ -40,7 +40,7 @@ pub(crate) struct AppStates {
 }
 
 /// Orchestration bindings the dead epoch persisted, versus what came back.
-/// Roleless panes are ordinary terminals, not in-flight work.
+/// Roleless tabs are ordinary terminals, not in-flight work.
 fn snapshot_role_bindings(
     snapshot: &crate::session::store::SessionSnapshot,
 ) -> Vec<crate::crash::lifecycle::BindingIdentity> {
@@ -51,12 +51,12 @@ fn snapshot_role_bindings(
     ) {
         match node {
             SplitNodeSnapshot::Leaf {
-                pane_id,
+                tab_id,
                 claude_session_id,
                 role,
                 ..
             } if role.is_some() => bindings.push(crate::crash::lifecycle::BindingIdentity {
-                pane_id: pane_id.clone(),
+                tab_id: tab_id.clone(),
                 agent_session_id: claude_session_id.clone(),
             }),
             SplitNodeSnapshot::Leaf { .. } => {}
@@ -78,12 +78,12 @@ fn restored_role_bindings(
     mux: &crate::multiplexer::state::MultiplexerState,
 ) -> Vec<crate::crash::lifecycle::BindingIdentity> {
     mux.snapshot()
-        .panes
+        .tabs
         .values()
-        .filter(|pane| pane.role.is_some())
-        .map(|pane| crate::crash::lifecycle::BindingIdentity {
-            pane_id: pane.id.clone(),
-            agent_session_id: pane.agent_session_id.clone(),
+        .filter(|tab| tab.role.is_some())
+        .map(|tab| crate::crash::lifecycle::BindingIdentity {
+            tab_id: tab.id.clone(),
+            agent_session_id: tab.agent_session_id.clone(),
         })
         .collect()
 }
@@ -122,7 +122,7 @@ pub(crate) fn init_states() -> AppStates {
         Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
     let agent_tracker: AgentTrackerState = Arc::new(TimedMutex::new(
         "agent_tracker",
-        agent::status::PaneStatusTracker::new(),
+        agent::status::TabStatusTracker::new(),
     ));
     let report_store: ReportStoreState = {
         let store = match agent::ledger::OrchestrationLedger::open(&crate::paths::data_dir()) {
@@ -210,7 +210,7 @@ pub(crate) fn init_states() -> AppStates {
 
     // Attach the durable closed-tab history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).
-    match crate::multiplexer::state::ClosedPanesStore::open(&crate::paths::data_dir()) {
+    match crate::multiplexer::state::ClosedTabsStore::open(&crate::paths::data_dir()) {
         Ok(store) => mux_state_inner.attach_closed_store(store),
         Err(e) => log::warn!(
             "[closed-history] open failed: {} — history will not persist",
@@ -319,7 +319,7 @@ mod tests {
     }
 
     /// A tokenless instance must not leave a stale inherited prod token in env —
-    /// otherwise a pane would present a foreign bearer that 401s everywhere.
+    /// otherwise a tab would present a foreign bearer that 401s everywhere.
     #[test]
     fn scrub_removes_inherited_token_when_instance_has_none() {
         let _guard = ENV_GUARD.lock();

@@ -1,14 +1,14 @@
 import type { ApiClient } from "./api-client";
 import { injectCast, CAST } from "./inject-cast";
 import { pollUntil } from "./poll";
-import { stubPaneOutput } from "./stub-gate";
+import { stubTabOutput } from "./stub-gate";
 
 const STUB_PROVIDER = "claude";
 // 30s (old proven stub-gate value) covers cold first-spawn PTY warmup; charged to
 // the worker-fixture timeout, never the per-test --timeout=30000 measurement window.
 const READY_CAP_MS = 30_000;
 
-type SpawnedPane = { pane_id: string };
+type SpawnedTab = { tab_id: string };
 
 export interface PerfSeed {
   active: boolean;
@@ -31,21 +31,21 @@ export const STUB_ENV_ABSENT_SKIP = "requires CODETERM_STUB_AGENT_CMD; real prov
 let cachedActiveTrue = false;
 
 // Throws on banner timeout; a stuck/absent replayer must FAIL seeding, never skip.
-export async function awaitStubBanner(api: ApiClient, paneId: string, label: string, capMs = READY_CAP_MS): Promise<void> {
-  await pollUntil(async () => (await stubPaneOutput(api, paneId)).includes("stub replay"), capMs, 250, `${label} stub banner`);
+export async function awaitStubBanner(api: ApiClient, tabId: string, label: string, capMs = READY_CAP_MS): Promise<void> {
+  await pollUntil(async () => (await stubTabOutput(api, tabId)).includes("stub replay"), capMs, 250, `${label} stub banner`);
 }
 
 async function spawnStub(api: ApiClient, title: string): Promise<string> {
-  const spawned = await api.post<SpawnedPane>("/agents/spawn", { agent: STUB_PROVIDER, title });
-  await awaitStubBanner(api, spawned.pane_id, title);
-  return spawned.pane_id;
+  const spawned = await api.post<SpawnedTab>("/agents/spawn", { agent: STUB_PROVIDER, title });
+  await awaitStubBanner(api, spawned.tab_id, title);
+  return spawned.tab_id;
 }
 
-async function awaitPtyReady(api: ApiClient, paneId: string): Promise<void> {
+async function awaitPtyReady(api: ApiClient, tabId: string): Promise<void> {
   await pollUntil(
     async () => {
       try {
-        await api.get(`/panes/${paneId}/output`);
+        await api.get(`/tabs/${tabId}/output`);
         return true;
       } catch {
         return false;
@@ -53,7 +53,7 @@ async function awaitPtyReady(api: ApiClient, paneId: string): Promise<void> {
     },
     READY_CAP_MS,
     250,
-    `pane ${paneId} PTY ready`,
+    `tab ${tabId} PTY ready`,
   );
 }
 
@@ -77,11 +77,11 @@ export async function preparePerfSeed(api: ApiClient): Promise<PerfSeed> {
   const anchorFront = await spawnStub(api, "pw-perf-anchor-front");
   const anchorHistory = await spawnStub(api, "pw-perf-anchor-history");
   await awaitPtyReady(api, anchorHistory);
-  await injectCast(api, { paneId: anchorHistory, castPath: CAST.claudeSystemsDesignLongChatIdle, instant: true });
+  await injectCast(api, { tabId: anchorHistory, castPath: CAST.claudeSystemsDesignLongChatIdle, instant: true });
   const tail = `PWANCHOR${Date.now()}`;
-  await api.post(`/panes/${anchorHistory}/send`, { text: `STUB_ECHO ${tail}`, enter: true });
+  await api.post(`/tabs/${anchorHistory}/send`, { text: `STUB_ECHO ${tail}`, enter: true });
   await pollUntil(
-    async () => (await stubPaneOutput(api, anchorHistory)).includes(`ack ${tail}`),
+    async () => (await stubTabOutput(api, anchorHistory)).includes(`ack ${tail}`),
     READY_CAP_MS,
     250,
     "long history tail enters the PTY buffer",
@@ -92,7 +92,7 @@ export async function preparePerfSeed(api: ApiClient): Promise<PerfSeed> {
   const ipcFront = await spawnStub(api, "pw-perf-ipc-front");
   const ipcChurn = await spawnStub(api, "pw-perf-ipc-churn");
   await awaitPtyReady(api, ipcChurn);
-  await injectCast(api, { paneId: ipcChurn, castPath: CAST.claudeSystemsDesignLongChatIdle, speed: 8, classify: true });
+  await injectCast(api, { tabId: ipcChurn, castPath: CAST.claudeSystemsDesignLongChatIdle, speed: 8, classify: true });
 
   cachedActiveTrue = true;
   return {

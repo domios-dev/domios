@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Codex + Opencode session-restore drill. Spawns SCALE copies of each
 # scenario (silent codex, codex with text, silent opencode, opencode with
-# text) → total 4×SCALE panes. Kills dev, restarts, asserts every pane
+# text) → total 4×SCALE tabs. Kills dev, restarts, asserts every tab
 # survived (no [Process exited]), session_id preserved, marker present
-# for with-text panes. Plus one input-parser pane that types `codex` by
+# for with-text tabs. Plus one input-parser tab that types `codex` by
 # hand. Env: SCALE=N (default 1).
 
 set -u
@@ -19,7 +19,7 @@ echo "== reset dev HARD"
 reset_dev_state_hard
 
 # Scenario table: <kind>|<marker>|<task>
-# kind=cx-s / cx-t / oc-s / oc-t; marker empty for silent panes.
+# kind=cx-s / cx-t / oc-s / oc-t; marker empty for silent tabs.
 SCENARIOS=(
   "cx-s|codex|||"
   "cx-t|codex|ANANASMARKER|reply with single word ANANASMARKER"
@@ -27,9 +27,9 @@ SCENARIOS=(
   "oc-t|opencode|PIRAMIDAMARKER|reply with single word PIRAMIDAMARKER"
 )
 
-declare -a PANE_IDS PANE_LABELS PANE_MARKERS
+declare -a TAB_IDS TAB_LABELS TAB_MARKERS
 
-echo "== spawn ${SCALE}× of each scenario (4×$SCALE = $((4*SCALE)) panes)"
+echo "== spawn ${SCALE}× of each scenario (4×$SCALE = $((4*SCALE)) tabs)"
 for entry in "${SCENARIOS[@]}"; do
   IFS='|' read -r kind provider marker task <<<"$entry"
   for i in $(seq 1 "$SCALE"); do
@@ -39,14 +39,14 @@ for entry in "${SCENARIOS[@]}"; do
     title="${kind}${suffix}"
     ws_id=$(new_workspace "$ws_name" "$cwd")
     if [ "$provider" = "codex" ]; then
-      pid=$(new_codex_pane "$ws_id" "$cwd" "$title" "$task")
+      pid=$(new_codex_tab "$ws_id" "$cwd" "$title" "$task")
     else
-      pid=$(new_opencode_pane "$ws_id" "$cwd" "$title" "$task")
+      pid=$(new_opencode_tab "$ws_id" "$cwd" "$title" "$task")
     fi
-    PANE_IDS+=("$pid")
-    PANE_LABELS+=("$title")
-    PANE_MARKERS+=("$marker")
-    echo "  spawned $title pane=$pid ws=$ws_id"
+    TAB_IDS+=("$pid")
+    TAB_LABELS+=("$title")
+    TAB_MARKERS+=("$marker")
+    echo "  spawned $title tab=$pid ws=$ws_id"
   done
 done
 
@@ -54,10 +54,10 @@ echo "== wait 25s for TUI bootstrap + first model response"
 sleep 25
 
 echo "== assert PRE-kill state"
-for i in "${!PANE_IDS[@]}"; do
-  pid="${PANE_IDS[$i]}"
-  label="${PANE_LABELS[$i]}"
-  marker="${PANE_MARKERS[$i]}"
+for i in "${!TAB_IDS[@]}"; do
+  pid="${TAB_IDS[$i]}"
+  label="${TAB_LABELS[$i]}"
+  marker="${TAB_MARKERS[$i]}"
   out=$(dc tab get-text --tab "$pid" 2>&1 || echo "")
   if [ -z "$marker" ] || echo "$out" | grep -q "$marker"; then
     echo "  OK pre-$label"
@@ -68,10 +68,10 @@ for i in "${!PANE_IDS[@]}"; do
 done
 
 get_sid() {
-  dc --json pane list 2>/dev/null | python3 -c "
+  dc --json tab list 2>/dev/null | python3 -c "
 import sys,json
-panes=json.load(sys.stdin)
-for p in panes:
+tabs=json.load(sys.stdin)
+for p in tabs:
     if p.get('id','').startswith('$1'):
         print(p.get('agent_session_id','-'))
         break
@@ -80,7 +80,7 @@ for p in panes:
 
 echo "== capture pre-restart session-ids"
 declare -a PRE_SIDS
-for pid in "${PANE_IDS[@]}"; do
+for pid in "${TAB_IDS[@]}"; do
   PRE_SIDS+=("$(get_sid $pid)")
 done
 
@@ -99,10 +99,10 @@ sleep 12
 echo "== POST-restart verification"
 PASS=0
 FAIL=0
-for i in "${!PANE_IDS[@]}"; do
-  pid="${PANE_IDS[$i]}"
-  label="${PANE_LABELS[$i]}"
-  marker="${PANE_MARKERS[$i]}"
+for i in "${!TAB_IDS[@]}"; do
+  pid="${TAB_IDS[$i]}"
+  label="${TAB_LABELS[$i]}"
+  marker="${TAB_MARKERS[$i]}"
   pre_sid="${PRE_SIDS[$i]}"
   out=$(dc tab get-text --tab "$pid" 2>&1 || echo "")
   post_sid=$(get_sid $pid)
@@ -129,15 +129,15 @@ done
 echo ""
 echo "== INPUT-PARSER scenario: typed launch command in a plain shell"
 WS_TYPED=$(new_workspace WS-typed-codex "$CWD_BASE/typed-codex")
-P_TYPED=$(new_shell_pane $WS_TYPED "$CWD_BASE/typed-codex" typed-codex)
-echo "  pane: $P_TYPED in ws $WS_TYPED"
+P_TYPED=$(new_shell_tab $WS_TYPED "$CWD_BASE/typed-codex" typed-codex)
+echo "  tab: $P_TYPED in ws $WS_TYPED"
 sleep 4
 dc send "codex --help" --tab "$P_TYPED" >/dev/null 2>&1 || true
 sleep 2
-TYPED_AT=$(dc --json pane list 2>/dev/null | python3 -c "
+TYPED_AT=$(dc --json tab list 2>/dev/null | python3 -c "
 import sys,json
-panes=json.load(sys.stdin)
-for p in panes:
+tabs=json.load(sys.stdin)
+for p in tabs:
     if p.get('id','').startswith('$P_TYPED'):
         print(p.get('agent_type','-'))
         break

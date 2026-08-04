@@ -7,36 +7,36 @@ use crate::multiplexer::types::AgentRole;
 fn user_created_tab_starts_without_role() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
-    let (_tab, pane_id) = mux.create_tab(&ws).unwrap();
-    let pane = mux.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.role, None);
-    assert!(!pane.can_spawn);
+    let tab_id = mux.create_tab(&ws).unwrap();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.role, None);
+    assert!(!tab.can_spawn);
 }
 
 #[test]
 fn explicit_orchestrator_promotion_sets_role_and_can_spawn() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
-    let (_tab, pane_id) = mux.create_tab(&ws).unwrap();
-    mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+    let tab_id = mux.create_tab(&ws).unwrap();
+    mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .expect("explicit promotion");
-    let pane = mux.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.role, Some(AgentRole::Orchestrator));
-    assert!(pane.can_spawn);
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert!(tab.can_spawn);
 }
 
 #[test]
 fn explicit_worker_spawn_role_still_applies() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
-    let (_orch_tab, orch) = mux.create_tab(&ws).unwrap();
-    mux.set_pane_role(&orch, AgentRole::Orchestrator, None)
+    let orch = mux.create_tab(&ws).unwrap();
+    mux.set_tab_role(&orch, AgentRole::Orchestrator, None)
         .expect("parent orchestrator");
-    let (_worker_tab, worker) = mux.create_tab(&ws).unwrap();
-    mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
+    let worker = mux.create_tab(&ws).unwrap();
+    mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("explicit worker role");
-    let worker_pane = mux.get_pane(&worker).unwrap();
-    assert_eq!(worker_pane.role, Some(AgentRole::Worker));
-    assert!(!worker_pane.can_spawn);
-    assert_eq!(worker_pane.parent_pane_id.as_deref(), Some(orch.as_str()));
+    let worker_tab = mux.get_tab(&worker).unwrap();
+    assert_eq!(worker_tab.role, Some(AgentRole::Worker));
+    assert!(!worker_tab.can_spawn);
+    assert_eq!(worker_tab.parent_tab_id.as_deref(), Some(orch.as_str()));
 }

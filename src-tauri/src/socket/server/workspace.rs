@@ -66,15 +66,15 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("eager"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let (tab_id, pane_id) =
-                svc.create_tab_with_activate(&workspace_id, false)
-                    .map_err(|e| JsonRpcError {
-                        code: -32602,
-                        message: e,
-                        data: None,
-                    })?;
+            let tab_id = svc
+                .create_tab_with_activate(&workspace_id, false)
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })?;
             let pty_id = if eager {
-                svc.ensure_pane_pty_for_send(&pane_id)
+                svc.ensure_tab_pty_for_send(&tab_id)
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
@@ -82,14 +82,13 @@ pub(super) fn dispatch(
                     })?;
                 svc.mux
                     .write()
-                    .get_pane(&pane_id)
+                    .get_tab(&tab_id)
                     .and_then(|p| p.pty_id.clone())
             } else {
                 None
             };
             Ok(serde_json::json!({
                 "tab_id": tab_id,
-                "pane_id": pane_id,
                 "pty_id": pty_id
             }))
         }
@@ -125,11 +124,11 @@ pub(super) fn dispatch(
 
         "workspace.close" => {
             let workspace_id = get_string_param(params, "workspace_id")?;
-            let caller_pane_id = opt_string_param(params, "caller_pane_id");
+            let caller_tab_id = opt_string_param(params, "caller_tab_id");
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::WorkspaceClose {
                     workspace_id,
-                    caller_pane_id,
+                    caller_tab_id,
                 },
                 svc.as_ref(),
             )
@@ -163,7 +162,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_u64())
                 .map(|n| n as usize);
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceReopenClosedPane {
+                &crate::dispatch::Command::WorkspaceReopenClosedTab {
                     workspace_id,
                     index,
                 },

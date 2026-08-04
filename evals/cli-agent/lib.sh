@@ -6,18 +6,18 @@ REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
 # shellcheck source=/dev/null
 source "$REPO_ROOT/evals/_lib/lib.sh"   # auto-calls dev_env (port 7686 + token)
 
-# Read a pane's parsed transcript as JSON. Tolerates errors / not-ready
+# Read a tab's parsed transcript as JSON. Tolerates errors / not-ready
 # (session_id absent) by emitting an empty transcript instead of failing.
-read_chat() {  # <pane_id> [since]
+read_chat() {  # <tab_id> [since]
   local raw
-  raw="$(dev_get "/api/panes/$1/chat?since=${2:-0}" 2>/dev/null || true)"
+  raw="$(dev_get "/api/tabs/$1/chat?since=${2:-0}" 2>/dev/null || true)"
   case "$raw" in
     '{'*) printf '%s' "$raw" ;;
     *)    printf '{"messages":[],"count":0}' ;;
   esac
 }
 
-# Close leftover bench workspaces: the harness's own `bench-*` panes AND the
+# Close leftover bench workspaces: the harness's own `bench-*` tabs AND the
 # workspaces our test-case prompts make the agent create (scratch-bench/diag).
 # run-case tears down its own bench-* ws, but can't predict what the agent
 # creates inside — this sweep (run at suite start/end) catches those.
@@ -35,7 +35,7 @@ for w in ws:
 ' | while read -r id; do dc workspace close "$id" >/dev/null 2>&1 || true; done
 }
 
-chat_count() {  # <pane_id>
+chat_count() {  # <tab_id>
   read_chat "$1" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0
 }
 
@@ -44,14 +44,14 @@ chat_count() {  # <pane_id>
 # first response can take 20-40s). Phase 2: wait until count stops growing for
 # `quiet` seconds, or `timeout` total. Returns 0 always (caller inspects the
 # transcript; empty = no-response, judged FAIL).
-wait_idle() {  # <pane_id> <timeout_s> <quiet_s> [<warmup_s>]
-  local pane="$1" timeout="$2" quiet="$3" warmup="${4:-60}"
+wait_idle() {  # <tab_id> <timeout_s> <quiet_s> [<warmup_s>]
+  local tab="$1" timeout="$2" quiet="$3" warmup="${4:-60}"
   local start now count last_count=0 last_change
   start=$(date +%s)
   # Phase 1: wait for first message.
   while :; do
     now=$(date +%s)
-    count=$(chat_count "$pane")
+    count=$(chat_count "$tab")
     [ "$count" -gt 0 ] && break
     [ $((now - start)) -ge "$warmup" ] && return 0   # never started
     sleep 3
@@ -60,7 +60,7 @@ wait_idle() {  # <pane_id> <timeout_s> <quiet_s> [<warmup_s>]
   last_count=$count; last_change=$(date +%s)
   while :; do
     now=$(date +%s)
-    count=$(chat_count "$pane")
+    count=$(chat_count "$tab")
     if [ "$count" != "$last_count" ]; then last_count=$count; last_change=$now; fi
     [ $((now - last_change)) -ge "$quiet" ] && return 0
     [ $((now - start)) -ge "$timeout" ] && return 0

@@ -43,7 +43,7 @@ plan before coding. Confidence: high (every item quoted from source).
 
 ### G3 — HIGH — `format_attachment_line` has THREE call sites, one a stateless Tauri command
 - **Category:** PARTIAL (plan assumed two). **Confidence:** 100.
-- **Evidence:** (a) telegram bridge `bridge/manager/mod.rs:569-580` — `ServiceContext svc` in scope; (b) chat/API `api/web_routes.rs` — has `AppState`; (c) Tauri IPC `commands/pane.rs::transcribe_voice_attachment(path: String)` — **no state param**. (b) and (c) load `VoiceTranscribeConfig` via `crate::config::load_config()`.
+- **Evidence:** (a) telegram bridge `bridge/manager/mod.rs:569-580` — `ServiceContext svc` in scope; (b) chat/API `api/web_routes.rs` — has `AppState`; (c) Tauri IPC `commands/tab.rs::transcribe_voice_attachment(path: String)` — **no state param**. (b) and (c) load `VoiceTranscribeConfig` via `crate::config::load_config()`.
 - **Impact:** Routing through the registry requires the registry reachable at all three. The Tauri command needs a `State<'_, …>` added; the web route uses `AppState`; the bridge uses `svc`.
 - **Closes in:** plan Task 1.3 — enumerate all three; add state to the Tauri command; thread `&TranscribeRegistry` (+ active id) through each.
 
@@ -100,7 +100,7 @@ the first pass, plus one new threading detail:
   `loader`→`vm`→`install` for the `codeterm.plugin.<id>.<name>` secret namespace. (Plan G9 added.)
 - Confirmed-OK: reqwest `blocking` feature already enabled (`Cargo.toml:41`); manifest
   optional fields safe with `#[serde(default)]`; 3 transcribe call sites confirmed
-  (`commands/pane.rs:416` stateless → add `State<'_, ServiceState>`; `web_routes.rs:593` has
+  (`commands/tab.rs:416` stateless → add `State<'_, ServiceState>`; `web_routes.rs:593` has
   `AppState`; bridge has `svc`).
 
 **Verdict:** plan is now correct against the code. No remaining architectural blocker. Proceed.

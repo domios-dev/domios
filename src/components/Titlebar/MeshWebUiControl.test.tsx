@@ -80,6 +80,8 @@ async function render(
   loading = false,
   onAction: (a: WebUiAction) => Promise<string | void> = async () => {},
   onOpenSurface: () => void = () => {},
+  accessUrl: string | null = null,
+  onOpenUrl: (url: string) => void = () => {},
 ): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -90,6 +92,8 @@ async function render(
         snapshot={snapshot}
         loading={loading}
         onOpenSurface={onOpenSurface}
+        accessUrl={accessUrl}
+        onOpenUrl={onOpenUrl}
         onAction={onAction}
       />,
     );
@@ -153,12 +157,13 @@ test("deriveWebUiView: version skew is reported truthfully when ready", () => {
 
 // ── rendered control ────────────────────────────────────────────────────────
 
-test("control: ready renders only the Web UI surface without redundant version or Open action", async () => {
+test("control: ready renders a single dropdown trigger", async () => {
   const { host, root } = await render(snap("ready"));
   const action = host.querySelector('[data-testid="mesh-web-ui-action"]') as HTMLElement;
   assert(action, "action root present");
   assert(action.getAttribute("data-web-ui-state") === "ready", "data-web-ui-state=ready");
-  assert(!host.querySelector('[data-testid="mesh-web-ui-open"]'), "redundant Open button is absent");
+  assert(host.querySelector('[data-testid="mesh-web-ui-menu-trigger"]'), "dropdown trigger present");
+  assert(!host.querySelector('[data-testid="mesh-web-ui-open"]'), "actions remain inside the closed menu");
   assert(!host.querySelector('[data-testid="mesh-web-ui-version"]'), "daemon version line is absent");
   await act(async () => root.unmount());
 });
@@ -172,11 +177,13 @@ test("control: non-ready states preserve their state", async () => {
   }
 });
 
-test("control: ready menu shows Copy URL + Disable, not Setup/Repair", async () => {
+test("control: ready menu shows Open + Copy + QR + Disable, not Setup/Repair", async () => {
   const { host, root } = await render(snap("ready"));
   await openMenu(host);
   assert(q('[data-testid="mesh-web-ui-menu"]'), "menu open");
+  assert(q('[data-testid="mesh-web-ui-open"]'), "open item");
   assert(q('[data-testid="mesh-web-ui-copy-url"]'), "copy url item");
+  assert(q('[data-testid="mesh-web-ui-surface"]'), "QR item");
   assert(q('[data-testid="mesh-web-ui-disable"]'), "disable item");
   assert(!q('[data-testid="mesh-web-ui-setup"]'), "no setup item");
   assert(!q('[data-testid="mesh-web-ui-repair"]'), "no repair item");
@@ -202,7 +209,7 @@ test("control: setup action invokes handler and shows inline message (no toast)"
   const setup = q('[data-testid="mesh-web-ui-setup"]') as HTMLButtonElement;
   await act(async () => setup.click());
   assert(called === "setup", "onAction called with setup");
-  assert(host.querySelector('[data-testid="mesh-web-ui-message"]'), "inline message rendered");
+  assert(q('[data-testid="mesh-web-ui-message"]'), "message rendered inside menu");
   await act(async () => root.unmount());
 });
 
@@ -213,26 +220,41 @@ test("control: action failure surfaces an inline error", async () => {
   await openMenu(host);
   const repair = q('[data-testid="mesh-web-ui-repair"]') as HTMLButtonElement;
   await act(async () => repair.click());
-  const err = host.querySelector('[data-testid="mesh-web-ui-error"]');
+  const err = q('[data-testid="mesh-web-ui-error"]');
   assert(err && err.textContent?.includes("serve denied"), "inline error shown");
   await act(async () => root.unmount());
 });
 
-test("control: Web UI surface button opens the QR/link surface in any state", async () => {
-  let surfaced = 0;
-  const { host, root } = await render(snap("setup_required"), false, async () => {}, () => { surfaced++; });
-  const surface = host.querySelector('[data-testid="mesh-web-ui-surface"]') as HTMLButtonElement;
-  assert(surface, "surface button present even when not ready");
+test("control: capsule only opens the dropdown and QR is an explicit menu action", async () => {
+  const surfaceState = { count: 0 };
+  const { host, root } = await render(snap("setup_required"), false, async () => {}, () => { surfaceState.count++; });
+  await openMenu(host);
+  assert(Number(surfaceState.count) === 0, "capsule click does not open the surface");
+  const surface = q('[data-testid="mesh-web-ui-surface"]') as HTMLButtonElement;
+  assert(surface, "surface action present even when not ready");
   await act(async () => surface.click());
-  assert(surfaced === 1, "surface open invoked");
+  assert(Number(surfaceState.count) === 1, "surface open invoked");
   await act(async () => root.unmount());
 });
 
-test("control: loading shows Checking chip and no menu trigger", async () => {
+test("control: Open uses the authenticated access URL", async () => {
+  let opened = "";
+  const accessUrl = "https://host.tail.ts.net/#token=secret&relay=self";
+  const { host, root } = await render(snap("ready"), false, async () => {}, () => {}, accessUrl, (url) => { opened = url; });
+  await openMenu(host);
+  const open = q('[data-testid="mesh-web-ui-open"]') as HTMLButtonElement;
+  await act(async () => open.click());
+  assert(opened === accessUrl, "authenticated URL opened");
+  await act(async () => root.unmount());
+});
+
+test("control: loading still exposes the dropdown", async () => {
   const { host, root } = await render(null, true);
   const action = host.querySelector('[data-testid="mesh-web-ui-action"]') as HTMLElement;
   assert(action.getAttribute("data-web-ui-state") === "loading", "loading state");
-  assert(!host.querySelector('[data-testid="mesh-web-ui-menu-trigger"]'), "no menu while loading");
+  assert(host.querySelector('[data-testid="mesh-web-ui-menu-trigger"]'), "menu remains available while loading");
+  await openMenu(host);
+  assert(q('[data-testid="mesh-web-ui-surface"]'), "QR surface remains available while loading");
   await act(async () => root.unmount());
 });
 

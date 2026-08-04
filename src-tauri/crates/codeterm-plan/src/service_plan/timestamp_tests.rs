@@ -8,7 +8,7 @@ fn store_with_task() -> (PlanStore, String) {
         .create_plan(
             "Timed".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
             vec![MilestoneKind {
                 key: "status_update".into(),
                 label: "Status".into(),
@@ -81,7 +81,7 @@ fn task_timestamps_track_create_update_and_status_transition() {
     assert_eq!(renamed.status_changed_at, 20);
 
     store
-        .fill_task_lane_if_empty(&id, &task_id, Some("pane-1"), None, None, 29)
+        .fill_task_lane_if_empty(&id, &task_id, Some("tab-1"), None, None, 29)
         .unwrap();
     store
         .update_task(

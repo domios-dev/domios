@@ -1,4 +1,4 @@
-import { COMPOSER_DRAFT_PREFIX, draftKeyPaneId, pruneOrphanComposerDrafts } from "./composerDraftGc";
+import { COMPOSER_DRAFT_PREFIX, draftKeyTabId, pruneOrphanComposerDrafts } from "./composerDraftGc";
 
 const failures: string[] = [];
 function assert(cond: unknown, msg: string) {
@@ -27,18 +27,18 @@ class FakeStorage {
   }
 }
 
-const chatKey = (id: string) => `${COMPOSER_DRAFT_PREFIX}pane-session-chat:${id}`;
+const chatKey = (id: string) => `${COMPOSER_DRAFT_PREFIX}tab-session-chat:${id}`;
 const viewKey = (id: string) => `${COMPOSER_DRAFT_PREFIX}chat-view:${id}`;
 
-// draftKeyPaneId
-assert(draftKeyPaneId(chatKey("abcd1234")) === "abcd1234", "pane-session-chat pane id parsed");
-assert(draftKeyPaneId(viewKey("deadbeef")) === "deadbeef", "chat-view pane id parsed");
-assert(draftKeyPaneId("codeterm:other:x:y") === null, "non-draft key rejected");
+// draftKeyTabId
+assert(draftKeyTabId(chatKey("abcd1234")) === "abcd1234", "tab-session-chat tab id parsed");
+assert(draftKeyTabId(viewKey("deadbeef")) === "deadbeef", "chat-view Tab id parsed");
+assert(draftKeyTabId("codeterm:other:x:y") === null, "non-draft key rejected");
 assert(
-  draftKeyPaneId(`${COMPOSER_DRAFT_PREFIX}unknown-channel:abcd1234`) === null,
-  "unknown channel not treated as pane-scoped",
+  draftKeyTabId(`${COMPOSER_DRAFT_PREFIX}unknown-channel:abcd1234`) === null,
+  "unknown channel not treated as tab-scoped",
 );
-assert(draftKeyPaneId(`${COMPOSER_DRAFT_PREFIX}pane-session-chat:`) === null, "empty pane id rejected");
+assert(draftKeyTabId(`${COMPOSER_DRAFT_PREFIX}tab-session-chat:`) === null, "empty Tab id rejected");
 
 // prune: removes orphans, keeps live, ignores foreign keys
 {
@@ -50,9 +50,9 @@ assert(draftKeyPaneId(`${COMPOSER_DRAFT_PREFIX}pane-session-chat:`) === null, "e
   s.setItem("codeterm:unrelated", "not a draft");
   const removed = pruneOrphanComposerDrafts(s, new Set(["live0001"]));
   assert(removed.length === 2, `removes exactly the two orphans (got ${removed.length})`);
-  assert(s.getItem(chatKey("dead0002")) === null, "orphan pane-session-chat draft removed");
+  assert(s.getItem(chatKey("dead0002")) === null, "orphan tab-session-chat draft removed");
   assert(s.getItem(viewKey("dead0003")) === null, "orphan chat-view draft removed");
-  assert(s.getItem(chatKey("live0001")) === "keep me", "live pane-session-chat draft kept");
+  assert(s.getItem(chatKey("live0001")) === "keep me", "live tab-session-chat draft kept");
   assert(s.getItem(viewKey("live0001")) === "keep me too", "live chat-view draft kept");
   assert(s.getItem("codeterm:unrelated") === "not a draft", "unrelated key untouched");
 }

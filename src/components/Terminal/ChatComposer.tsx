@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
-import { DUPLICATE_SEND_NOTICE, isDuplicateSend } from "./chatSendGuard";
+import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import {
   createDelayedMessage,
   deleteDelayedMessage,
@@ -19,10 +20,11 @@ import {
   filterSlashCommands,
   type SlashCommandSuggestion,
 } from "../../lib/slashCommands";
-import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
+import type { ModelInfo, PendingPrompt } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
-import { PaneTaskStrip } from "./PaneTaskStrip";
+import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
+import { sendTrackedChatMessage } from "./chatSendStatus";
 
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // several seconds) then morphs this bubble into the transcript, or an error.
@@ -205,11 +207,21 @@ export function delayedPollIntervalMs(isActive: boolean): number | null {
   return isActive ? 10_000 : null;
 }
 
-function recordComposerRender(paneId: string): void {
+export function composerEnterIntent(
+  key: string,
+  shiftKey: boolean,
+  isComposing: boolean,
+): "submit" | "newline" | "none" {
+  if (isComposing) return "none";
+  if (key !== "Enter") return "none";
+  return shiftKey ? "newline" : "submit";
+}
+
+function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
   const perf = window.__composerPerf;
   if (!perf) return;
-  perf.renderCounts[paneId] = (perf.renderCounts[paneId] ?? 0) + 1;
+  perf.renderCounts[tabId] = (perf.renderCounts[tabId] ?? 0) + 1;
 }
 
 let composerInputMarkId = 0;
@@ -241,8 +253,8 @@ function recordComposerIgnoredKey(key: string): void {
 }
 
 function ChatComposerImpl({
-  paneId,
-  paneProvider,
+  tabId,
+  tabProvider,
   currentPtyId,
   pendingPrompt,
   attachments,
@@ -259,14 +271,14 @@ function ChatComposerImpl({
   chatBackend = false,
   isActive = true,
 }: {
-  paneId: string;
-  paneProvider: string | null;
+  tabId: string;
+  tabProvider: string | null;
   currentPtyId: string | null;
   /** This tab is backed by a plugin chatBackend (no PTY) — send via the
    *  tab-level `chat_send_text` instead of writing to a PTY. */
   chatBackend?: boolean;
-  /** Whether this composer's pane is the currently active/focused tab.
-   *  When false, refocusComposer is a no-op — prevents background panes
+  /** Whether this composer's tab is the currently active/focused tab.
+   *  When false, refocusComposer is a no-op — prevents background tabs
    *  from stealing focus after an async send completes. */
   isActive?: boolean;
   pendingPrompt: PendingPrompt | null;
@@ -282,17 +294,24 @@ function ChatComposerImpl({
   onOpenTerminalFallback?: () => void;
   modelBubble?: ReactNode;
 }) {
-  recordComposerRender(paneId);
+  recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
-  const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
+  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [providerDescriptor, setProviderDescriptor] = useState<ProviderDescriptor | null>(null);
-  const [modelOptions, setModelOptions] = useState<ModelInfo[]>([]);
   const [modelHighlight, setModelHighlight] = useState(0);
+  const { providers, loading: modelCatalogLoading } = useAgentProviders();
+  const providerDescriptor = useMemo(
+    () => providers.find((provider) => provider.id === tabProvider),
+    [providers, tabProvider],
+  );
+  const modelOptions = useMemo(
+    () => providerDescriptor?.available_models ?? [],
+    [providerDescriptor],
+  );
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -318,10 +337,15 @@ function ChatComposerImpl({
       return haystack.includes(needle);
     });
   }, [modelCommandQuery, modelOptions, providerDescriptor?.model_switch_format]);
-  const modelSuggestionOpen = modelCommandQuery !== null
-    && filteredModelOptions.length > 0
+  const modelSuggestionRequested = modelCommandQuery !== null
     && !modelPickerOpen
     && modelSuggestionDismissedFor !== firstLine;
+  const modelSuggestionOpen = modelSuggestionRequested && filteredModelOptions.length > 0;
+  const modelSuggestionEmptyMessage = modelCatalogLoading
+    ? "Loading model catalog…"
+    : modelOptions.length === 0
+      ? "No models published"
+      : "No matching models";
 
   const suggestions = useMemo(
     () => filterSlashCommands(firstLine),
@@ -377,28 +401,11 @@ function ChatComposerImpl({
   }, [filteredModelOptions.length, modelSuggestionOpen]);
 
   useEffect(() => {
-    let cancelled = false;
-    invoke<ProviderDescriptor[]>("list_agent_providers")
-      .then((providers) => {
-        if (cancelled) return;
-        const provider = providers.find((candidate) => candidate.id === paneProvider) ?? null;
-        setProviderDescriptor(provider);
-        const models = provider?.available_models ?? [];
-        setModelOptions(models);
-        if (models.length) {
-          const defaultIndex = provider?.default_model
-            ? models.findIndex((model) => model.id === provider.default_model)
-            : -1;
-          setModelHighlight(defaultIndex >= 0 ? defaultIndex : 0);
-        } else {
-          setModelHighlight(0);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [paneProvider]);
+    const defaultIndex = providerDescriptor?.default_model
+      ? modelOptions.findIndex((model) => model.id === providerDescriptor.default_model)
+      : -1;
+    setModelHighlight(defaultIndex >= 0 ? defaultIndex : 0);
+  }, [modelOptions, providerDescriptor?.default_model]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -409,17 +416,17 @@ function ChatComposerImpl({
 
   const refreshDelayedMessages = useCallback(async () => {
     try {
-      setDelayedMessages(await listDelayedMessages(paneId));
+      setDelayedMessages(await listDelayedMessages(tabId));
     } catch {
       setDelayedMessages([]);
     }
-  }, [paneId]);
+  }, [tabId]);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const messages = await listDelayedMessages(paneId);
+        const messages = await listDelayedMessages(tabId);
         if (!cancelled) setDelayedMessages(messages);
       } catch {
         if (!cancelled) setDelayedMessages([]);
@@ -431,8 +438,8 @@ function ChatComposerImpl({
     const pollMs = delayedPollIntervalMs(isActive);
     const interval = pollMs !== null ? window.setInterval(refresh, pollMs) : null;
     let unlisten: (() => void) | null = null;
-    void listen<{ paneId?: string }>("delayed-send-changed", (e) => {
-      if (!e.payload?.paneId || e.payload.paneId === paneId) void refresh();
+    void listen<{ tabId?: string }>("delayed-send-changed", (e) => {
+      if (!e.payload?.tabId || e.payload.tabId === tabId) void refresh();
     }).then((fn) => {
       unlisten = fn;
     }).catch(() => {});
@@ -441,7 +448,7 @@ function ChatComposerImpl({
       if (interval !== null) window.clearInterval(interval);
       unlisten?.();
     };
-  }, [paneId, isActive]);
+  }, [tabId, isActive]);
 
   function pickSuggestion(cmd: SlashCommandSuggestion) {
     const lines = input.split("\n");
@@ -531,7 +538,7 @@ function ChatComposerImpl({
     const nowTs = Date.now();
     const dupKey = `${text} ${allAttachments.join("|")}`;
     if (isDuplicateSend(lastSendRef.current, dupKey, nowTs)) {
-      showComposerError(DUPLICATE_SEND_NOTICE);
+      console.warn("[chat-send] duplicate optimistic send suppressed", { tabId });
       return;
     }
     lastSendRef.current = { text: dupKey, at: nowTs };
@@ -542,6 +549,15 @@ function ChatComposerImpl({
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
       clearAttachments();
+      refocusComposer();
+      return;
+    }
+    if (
+      allAttachments.length === 0
+      && modelCommandQuery !== null
+      && filteredModelOptions.length === 0
+    ) {
+      showComposerError(modelSuggestionEmptyMessage);
       refocusComposer();
       return;
     }
@@ -574,11 +590,13 @@ function ChatComposerImpl({
       refocusComposer();
       return;
     }
+    let optimisticId: string;
     if (placeholderId) {
       updateOptimistic(placeholderId, composed);
+      optimisticId = placeholderId;
     } else {
       onWillSendMessage();
-      addOptimistic(composed);
+      optimisticId = addOptimistic(composed);
     }
     setInput("");
     clearAttachments();
@@ -586,7 +604,7 @@ function ChatComposerImpl({
     try {
       if (chatBackend) {
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        await invoke("chat_send_text", { paneId, text: composed });
+        await sendTrackedChatMessage(tabId, optimisticId, composed);
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
@@ -595,11 +613,15 @@ function ChatComposerImpl({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await invoke("chat_send_text", { paneId, text: composed });
+          await sendTrackedChatMessage(tabId, optimisticId, composed);
         }
       }
     } catch (e) {
-      showComposerError(e instanceof Error ? e.message : String(e));
+      console.warn("[chat-send] optimistic delivery failed", {
+        tabId,
+        messageId: optimisticId,
+        error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       refocusComposer();
     }
@@ -619,7 +641,7 @@ function ChatComposerImpl({
         showComposerError("Model picker cannot be scheduled.");
         return;
       }
-      await createDelayedMessage(paneId, composed, scheduledAtMs);
+      await createDelayedMessage(tabId, composed, scheduledAtMs);
       setInput("");
       clearAttachments();
       setScheduleOpen(false);
@@ -705,6 +727,9 @@ function ChatComposerImpl({
       )}
       {modelPickerOpen && (
         <div
+          role="dialog"
+          aria-label="Select model"
+          aria-busy={modelCatalogLoading}
           className="mb-2 rounded-md border p-2 shadow-lg"
           style={{
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, black 6%)",
@@ -729,8 +754,16 @@ function ChatComposerImpl({
               Esc
             </button>
           </div>
-          <div className="grid gap-1">
-            {modelOptions.map((model, i) => {
+          <div className="grid gap-1" role="group" aria-label="Available models">
+            {modelCatalogLoading ? (
+              <p className="px-2 py-1.5 text-xs text-[var(--ct-muted-fg)]" role="status">
+                Loading model catalog…
+              </p>
+            ) : modelOptions.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-[var(--ct-muted-fg)]" role="status">
+                No models published
+              </p>
+            ) : modelOptions.map((model, i) => {
               const selected = i === modelHighlight;
               return (
                 <button
@@ -739,6 +772,7 @@ function ChatComposerImpl({
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setModelHighlight(i)}
                   onClick={() => void chooseModel(model)}
+                  aria-pressed={selected}
                   className="w-full grid grid-cols-[1rem_minmax(0,1fr)] gap-2 rounded px-2 py-1.5 text-left text-xs"
                   style={{
                     background: selected
@@ -758,7 +792,7 @@ function ChatComposerImpl({
           </div>
         </div>
       )}
-      <PaneTaskStrip paneId={paneId} />
+      <TabTaskStrip tabId={tabId} />
       <ComposerBubbleRow
         attachments={attachments}
         onRemove={removeAttachment}
@@ -789,15 +823,16 @@ function ChatComposerImpl({
             onPick={pickSuggestion}
           />
           <ModelSuggestionPicker
-            models={modelSuggestionOpen ? filteredModelOptions : []}
+            models={modelSuggestionRequested && !modelCatalogLoading ? filteredModelOptions : []}
             highlighted={modelHighlight}
             defaultModel={providerDescriptor?.default_model}
+            emptyMessage={modelSuggestionRequested ? modelSuggestionEmptyMessage : undefined}
             onHighlight={setModelHighlight}
             onPick={(model) => void chooseModel(model)}
           />
           <textarea
             data-testid="chat-composer"
-            data-pane-id={paneId}
+            data-tab-id={tabId}
             aria-label="Message composer"
             ref={textareaRef}
             value={input}
@@ -807,6 +842,7 @@ function ChatComposerImpl({
             }}
             onKeyDown={(e) => {
               recordComposerIgnoredKey(e.key);
+              if (e.nativeEvent.isComposing) return;
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -891,7 +927,7 @@ function ChatComposerImpl({
                   return;
                 }
               }
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
                 e.preventDefault();
                 void send();
               }
@@ -929,8 +965,8 @@ function ChatComposerImpl({
 }
 
 export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
-  a.paneId === b.paneId
-  && a.paneProvider === b.paneProvider
+  a.tabId === b.tabId
+  && a.tabProvider === b.tabProvider
   && a.currentPtyId === b.currentPtyId
   && a.pendingPrompt === b.pendingPrompt
   && a.attachments === b.attachments

@@ -1,29 +1,30 @@
 import { useEffect, useMemo } from "react";
 import { Map } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import type { Pane } from "../../lib/types";
-import { PANE_BAR_CONTROL_H } from "../Terminal/paneBarConstants";
+import type { Tab } from "../../lib/types";
+import { TAB_BAR_CONTROL_H } from "../Terminal/tabBarConstants";
+import { ActivityDots } from "../shared/ActivityDots";
 import {
   canvasFocusStore,
   usePlanPulseVersion,
 } from "./canvasFocusStore";
 import {
-  findPlanIndexForPane,
-  resolveOrchestratorPaneId,
-} from "./planPaneMatch";
+  findPlanIndexForTab,
+  resolveOrchestratorTabId,
+} from "./planTabMatch";
 import { usePlanIndex } from "./PlansProvider";
 
 interface PlanButtonProps {
-  paneId: string;
-  panes: Record<string, Pane>;
+  tabId: string;
+  tabs: Record<string, Tab>;
 }
 
-export function PlanButton({ paneId, panes }: PlanButtonProps) {
+export function PlanButton({ tabId, tabs }: PlanButtonProps) {
   const { index } = usePlanIndex();
 
   const relevantPlans = useMemo(
-    () => findPlanIndexForPane(index, paneId, panes),
-    [index, paneId, panes],
+    () => findPlanIndexForTab(index, tabId, tabs),
+    [index, tabId, tabs],
   );
   const planIds = useMemo(() => relevantPlans.map((p) => p.plan_id), [relevantPlans]);
   usePlanPulseVersion(planIds);
@@ -54,14 +55,14 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
   if (relevantPlans.length === 0) return null;
 
   const pulsing = canvasFocusStore.anyPulsing(planIds);
-  const orchestratorPaneId = resolveOrchestratorPaneId(paneId, panes);
+  const orchestratorTabId = resolveOrchestratorTabId(tabId, tabs);
 
   const open = () => {
     for (const id of planIds) canvasFocusStore.clearPulse(id);
     canvasFocusStore.openFocus({
-      orchestratorPaneId,
+      orchestratorTabId,
       planId: relevantPlans.length === 1 ? relevantPlans[0].plan_id : undefined,
-      focusPaneId: paneId,
+      focusTabId: tabId,
     });
   };
 
@@ -71,9 +72,9 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
       data-testid="plan-button"
       onClick={open}
       title="Open plan canvas"
-      className={`flex shrink-0 items-center gap-1 rounded border px-2 text-[11px] font-medium cursor-pointer ${pulsing ? "ct-plan-button-pulse" : ""}`}
+      className="flex shrink-0 items-center gap-1 rounded border px-2 text-[11px] font-medium cursor-pointer"
       style={{
-        height: PANE_BAR_CONTROL_H,
+        height: TAB_BAR_CONTROL_H,
         background: "var(--ct-bg)",
         borderColor: pulsing ? "var(--ct-accent)" : "var(--ct-border)",
         color: "var(--ct-fg)",
@@ -81,6 +82,8 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
     >
       <Map size={13} />
       Plan
+      {pulsing && <ActivityDots data-testid="plan-button-activity" size="small" tone="muted" />}
+      {pulsing && <span className="sr-only" role="status" aria-live="polite">Plan updated</span>}
     </button>
   );
 }

@@ -134,14 +134,14 @@ function BoardPlanBoard({
   plan,
   specSections,
   onOpenDetail,
-  onOpenPane,
+  onOpenTab,
   api,
 }: {
   model: BoardPlanModel;
   plan: Plan;
   specSections: Section[];
   onOpenDetail: (detail: BoardDetail) => void;
-  onOpenPane?: (paneId: string) => void;
+  onOpenTab?: (tabId: string) => void;
   api?: ApiConfig;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
@@ -159,7 +159,7 @@ function BoardPlanBoard({
             ? () => onOpenDetail({ kind: "spec", plan, specSections })
             : undefined
         }
-        onOpenPane={onOpenPane}
+        onOpenTab={onOpenTab}
         planId={model.planId}
         plan={plan}
         api={api}
@@ -209,19 +209,19 @@ export function PlanBoardView({
   onRetry,
   planId,
   teamId,
-  orchestratorPaneId,
-  panes = {},
+  orchestratorTabId,
+  tabs = {},
   workspaceId,
   workspaces,
   teams,
-  onOpenPane,
+  onOpenTab,
   api,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
   const activeWork = useMemo(
-    () => selectActiveWork(effectivePlans, panes),
-    [effectivePlans, panes],
+    () => selectActiveWork(effectivePlans, tabs),
+    [effectivePlans, tabs],
   );
   const switcherWithInflight = useMemo(
     () => enrichSwitcherOptions(switcherOptions, activeWork),
@@ -231,20 +231,20 @@ export function PlanBoardView({
 
   const filteredPlans = useMemo(
     () => {
-      const active = filterPlansForBoard(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams });
+      const active = filterPlansForBoard(effectivePlans, mode, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams });
       if (!manualPlanId || active.some((p) => p.id === manualPlanId)) return active;
       const archivedPlan = plans.find((p) => p.id === manualPlanId && p.status === "archived");
       if (!archivedPlan || (mode === "focus" && planId && planId !== archivedPlan.id)) return active;
       return [...active, archivedPlan];
     },
-    [effectivePlans, manualPlanId, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, plans],
+    [effectivePlans, manualPlanId, mode, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams, plans],
   );
 
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams],
   );
 
   const selectedPlanId = useMemo(() => {
@@ -305,8 +305,8 @@ export function PlanBoardView({
   }, [selectedPlan, fixtureSpecSections, fetchedSpecSections]);
 
   const boardModel = useMemo(
-    () => (selectedPlan ? buildBoardPlanModel(selectedPlan, panes, selectedSpecSections) : null),
-    [selectedPlan, panes, selectedSpecSections],
+    () => (selectedPlan ? buildBoardPlanModel(selectedPlan, tabs, selectedSpecSections) : null),
+    [selectedPlan, tabs, selectedSpecSections],
   );
 
   const closeDetail = useCallback(() => {
@@ -386,7 +386,7 @@ export function PlanBoardView({
             plan={selectedPlan}
             specSections={selectedSpecSections}
             onOpenDetail={setDetail}
-            onOpenPane={onOpenPane}
+            onOpenTab={onOpenTab}
             api={api}
           />
         </div>
@@ -400,8 +400,8 @@ export function PlanBoardView({
           specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
           planId={detail.plan.id}
           api={api}
-          panes={panes}
-          onOpenPane={onOpenPane}
+          tabs={tabs}
+          onOpenTab={onOpenTab}
           onOpenTask={openDetailTask}
           onClose={closeDetail}
           onSectionClick={openDetailSection}

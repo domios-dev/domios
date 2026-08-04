@@ -31,12 +31,12 @@ expect_failure first_assistant <<< '{"messages":"not-a-list"}'
 expect_failure provider_id system <<< '{"providers":[]}'
 [ "$(new_team_id "$(<"$FIXTURES/teams-before.json")" < "$FIXTURES/teams-after.json")" = team_new ]
 expect_failure new_team_id '[]' < "$FIXTURES/teams-after.json"
-[ "$(pair_pane_id orchestrator < "$FIXTURES/pair.json")" = pane_orchestrator ]
-[ "$(pair_pane_id planner < "$FIXTURES/pair.json")" = pane_planner ]
-[ "$(spawned_pane_id < "$FIXTURES/spawn.json")" = pane_worker ]
-[ "$(staffed_pane_id < "$FIXTURES/member.json")" = pane_staffed ]
-mux_absent pane_missing < "$FIXTURES/mux.json"
-expect_failure mux_absent pane_existing < "$FIXTURES/mux.json"
+[ "$(pair_tab_id orchestrator < "$FIXTURES/pair.json")" = tab_orchestrator ]
+[ "$(pair_tab_id planner < "$FIXTURES/pair.json")" = tab_planner ]
+[ "$(spawned_tab_id < "$FIXTURES/spawn.json")" = tab_worker ]
+[ "$(staffed_tab_id < "$FIXTURES/member.json")" = tab_staffed ]
+mux_absent tab_missing < "$FIXTURES/mux.json"
+expect_failure mux_absent tab_existing < "$FIXTURES/mux.json"
 
 IDLE_STARTER='You are a newly started agent. Wait for instructions from the user or your orchestration parent.'
 rg -Fq 'IdleWakeup' "$ROOT/src-tauri/crates/codeterm-plugin/src/provider.rs"
@@ -64,6 +64,6 @@ set +e; out="$(PATH="$FAKE:$PATH" bash "$RUN" 2>&1)"; rc=$?; set -e
 [ "$rc" -eq 7 ] && grep -q 'dev 7686 unavailable' <<<"$out"
 ! rg -q '[s]leep' "$ROOT/evals/manager-bootstrap"
 ! rg -q 'claude|opus|fable|runner\\.py' "$ROOT/evals/manager-bootstrap"
-grep -q 'dev_post_as_pane' "$RUN"
+grep -q 'dev_post_as_tab' "$RUN"
 assert_exported_tree
 echo "manager-bootstrap offline parser harness: PASS"

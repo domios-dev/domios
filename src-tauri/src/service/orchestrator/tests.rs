@@ -4,7 +4,7 @@ use crate::shell::ShellSyntax;
 #[test]
 fn cross_mesh_worker_skips_local_role_assignment() {
     use crate::multiplexer::types::AgentRole;
-    // Regression: mesh `--role Worker` 500'd via set_pane_role(Worker, None).
+    // Regression: mesh `--role Worker` 500'd via set_tab_role(Worker, None).
     // A mesh report target + no local parent must skip local role assignment.
     assert!(skip_local_worker_role(
         &AgentRole::Worker,
@@ -19,7 +19,7 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     // Locally-parented worker → keep hierarchy.
     assert!(!skip_local_worker_role(
         &AgentRole::Worker,
-        Some("parent-pane"),
+        Some("parent-tab"),
         Some("Mac-Air")
     ));
     // Worker with no mesh peer (purely local) → keep (and let it error as before).
@@ -33,26 +33,103 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     ));
     assert!(!skip_local_worker_role(
         &AgentRole::Manager,
-        Some("parent-pane"),
+        Some("parent-tab"),
         Some("Mac-Air")
     ));
 }
 
 #[test]
 fn roleless_spawn_task_stays_plain() {
-    assert_eq!(
-        role_onboarding_task(Some("inspect"), None, None).as_deref(),
-        Some("inspect")
-    );
-    assert_eq!(role_onboarding_task(None, None, None), None);
+    let task = role_onboarding_task(Some("inspect"), None, None).unwrap();
+    assert!(task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(task.ends_with("inspect"));
+    let primer = role_onboarding_task(None, None, None).unwrap();
+    assert!(primer.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(primer.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
 }
 
 #[test]
-fn worker_onboarding_requires_a_task_body() {
+fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
+    let capable = role_launch_task(None, None, None, true).expect("system primer");
+    assert!(capable.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(capable.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
+    assert_eq!(role_launch_task(None, None, None, false), None);
+
+    let fallback = role_launch_task(Some("inspect"), None, None, false).expect("task");
+    assert_eq!(fallback, "inspect");
+    assert!(!fallback.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+}
+
+#[test]
+fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
+    let worker = role_launch_task(Some("repair delivery"), Some("Worker"), None, false).unwrap();
+    assert!(worker.starts_with("You are a CodeTerm Worker."));
+    assert!(worker.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
+    assert!(worker.contains(crate::prompts::WORKER_SUFFIX.trim()));
+    assert_eq!(
+        worker
+            .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
+            .count(),
+        1
+    );
+
+    let capable = role_launch_task(Some("repair delivery"), Some("Worker"), None, true).unwrap();
+    assert_eq!(
+        capable
+            .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
+            .count(),
+        1
+    );
+    assert_eq!(
+        capable
+            .matches(crate::prompts::WORKER_SUFFIX.trim())
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn every_team_role_receives_the_shared_primer_exactly_once() {
+    let cases = [
+        (Some("Orchestrator"), None),
+        (Some("Worker"), None),
+        (Some("Manager"), None),
+        (Some("Manager"), Some("planner")),
+    ];
+    for (role, profile) in cases {
+        for system_prompt_capable in [false, true] {
+            let prompt = role_launch_task(
+                Some("team assignment"),
+                role,
+                profile,
+                system_prompt_capable,
+            )
+            .unwrap();
+            let context = if role == Some("Worker") {
+                crate::prompts::WORKER_CODETERM_CONTEXT.trim()
+            } else {
+                crate::prompts::AGENT_CODETERM_PRIMER.trim()
+            };
+            assert_eq!(prompt.matches(context).count(), 1);
+            assert_eq!(
+                prompt
+                    .matches(crate::prompts::RICH_RENDERING_GUIDANCE.trim())
+                    .count(),
+                1
+            );
+            assert_eq!(prompt.matches("team assignment").count(), 1);
+        }
+    }
+}
+
+#[test]
+fn worker_without_task_identity_still_leads_with_a_generic_identity() {
     assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
         .unwrap()
-        .contains(crate::prompts::WORKER_SUFFIX));
-    assert_eq!(role_onboarding_task(None, Some("Worker"), None), None);
+        .contains(crate::prompts::WORKER_SUFFIX.trim()));
+    let prompt = role_onboarding_task(None, Some("Worker"), None).unwrap();
+    assert!(prompt.starts_with("You are a CodeTerm Worker."));
+    assert!(prompt.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
 #[test]
@@ -60,29 +137,91 @@ fn planner_profile_uses_planner_suffix() {
     let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+    assert_eq!(
+        task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
+    assert!(
+        task.find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .unwrap()
+            < task.find("plan it").unwrap()
+    );
+}
+
+#[test]
+fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
+    let brief = crate::service::plan::worker_identity::attach_worker_identity(
+        "You are Hopper — executor for: repair delivery",
+        &format!(
+            "# Repair delivery\n\nFix the ledger.\n\n{}",
+            crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION
+        ),
+    );
+    let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
+    let identity = task.find("You are Hopper").unwrap();
+    let context = task
+        .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
+        .unwrap();
+    let assignment = task.find("## Assignment").unwrap();
+    let brief = task.find("# Repair delivery").unwrap();
+    let ack = task.find("codeterm agent ack").unwrap();
+    let report = task
+        .find("codeterm agent report --status in_review")
+        .unwrap();
+    let fallback = task
+        .find("load the provider skill named `codeterm`")
+        .unwrap();
+
+    assert!(identity < context);
+    assert!(context < assignment && assignment < brief);
+    assert!(brief < ack && ack < report && report < fallback);
+    assert!(!task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
+    assert!(task.ends_with(
+        "If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference."
+    ));
 }
 
 #[test]
 fn manager_watcher_does_not_get_worker_suffix() {
     let task = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher")).unwrap();
-    assert_eq!(task, "watch it");
+    assert!(task.ends_with("watch it"));
+    assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
 }
 
 #[test]
-fn plain_orchestrator_no_task_spawn_submits_nothing() {
-    assert_eq!(role_onboarding_task(None, Some("Orchestrator"), None), None);
+fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
+    let prompt =
+        role_onboarding_task(None, Some("Orchestrator"), None).expect("orchestrator prompt");
+    assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert_eq!(
+        prompt
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
 
     let mut params = make_params("codex", None);
     params.role = Some("Orchestrator".into());
-    assert_eq!(spawn_onboarding_task(&params), None);
+    let spawned = spawn_onboarding_task(&params).expect("orchestrator system prompt");
+    assert_eq!(
+        spawned
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
+    assert!(spawned.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
 }
 
 #[test]
-fn paired_orchestrator_starts_idle_without_a_synthetic_turn() {
+fn paired_orchestrator_starts_with_system_contract_without_a_synthetic_turn() {
     let mut params = make_params("codex", None);
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
-    assert_eq!(spawn_onboarding_task(&params), None);
+    let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
 }
 
 #[test]
@@ -91,28 +230,28 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
     let task = spawn_onboarding_task(&params).expect("explicit task");
-    assert_eq!(task, "inspect the launch path");
+    assert_eq!(task.matches("inspect the launch path").count(), 1);
+    assert!(
+        task.find("inspect the launch path").unwrap()
+            < task
+                .find(crate::prompts::ORCHESTRATOR_SUFFIX.trim())
+                .unwrap()
+    );
 }
 
 #[test]
-fn idle_planner_does_not_receive_a_preferences_turn() {
-    assert!(!should_deliver_spawn_preferences(true, None));
-    assert!(should_deliver_spawn_preferences(
-        true,
-        Some("plan this goal")
-    ));
-    assert!(!should_deliver_spawn_preferences(false, Some("execute")));
-}
+fn fresh_spawn_paths_keep_shared_invariants_and_orchestrator_onboarding() {
+    let orchestrator_spawn = include_str!("spawn.rs");
+    let service_spawn = include_str!("../spawn.rs");
 
-#[test]
-fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
-    for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
-        assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-        assert!(
-            source.contains("spawn_onboarding_task") || source.contains("role_onboarding_task")
-        );
-        assert!(source.contains("launch_agent_in_background("));
-    }
+    assert!(!orchestrator_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
+    assert!(!service_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
+    assert!(orchestrator_spawn.contains("launch_agent_in_background("));
+    assert!(service_spawn.contains("launch_agent_in_background_with_env("));
+    assert!(
+        orchestrator_spawn.contains("spawn_onboarding_task")
+            || orchestrator_spawn.contains("role_onboarding_task")
+    );
 }
 
 #[test]
@@ -123,7 +262,12 @@ fn launch_paths_route_through_seam() {
         include_str!("../pty_io/lifecycle.rs"),
     ]
     .into_iter()
-    .map(|source| source.matches("launch_agent_in_background(").count())
+    .map(|source| {
+        source.matches("launch_agent_in_background(").count()
+            + source
+                .matches("launch_agent_in_background_with_env(")
+                .count()
+    })
     .sum::<usize>();
 
     assert_eq!(call_count, 3);
@@ -135,6 +279,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         task: task.map(|t| t.to_string()),
         starter_prompt: Default::default(),
         task_id: None,
+        task_launch_authority: None,
         plan_task: None,
         agent_name: None,
         args: None,
@@ -145,17 +290,17 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         description: None,
         role: None,
         role_profile: None,
-        parent_pane_id: None,
+        parent_tab_id: None,
         plan_id: None,
         can_spawn: None,
         workspace_id: None,
         force_tab: None,
         existing_tab_id: None,
         skip_orchestrator_onboarding: None,
-        report_target_pane_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
-        spawned_by_pane_id: None,
+        spawned_by_tab_id: None,
         model: None,
         planned_model: None,
         reasoning_effort: None,
@@ -167,6 +312,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     }

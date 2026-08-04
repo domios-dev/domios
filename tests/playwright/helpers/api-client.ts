@@ -7,9 +7,9 @@ import os from "node:os";
 import path from "node:path";
 import { currentDevInstance, type DevInstance } from "./dev-instance";
 
-export interface Pane {
+export interface Tab {
   id: string;
-  pane_type: string;
+  tab_type: string;
   focused: boolean;
   protected: boolean;
   title?: string;
@@ -23,7 +23,7 @@ export interface Workspace {
   name: string;
   is_active: boolean;
   protected: boolean;
-  pane_ids: string[];
+  tab_ids: string[];
   tab_count: number;
   cwd?: string;
 }
@@ -133,8 +133,8 @@ export class ApiClient {
   health(): Promise<{ status: string; build: string; version: string }> {
     return this.get("/health");
   }
-  panes(): Promise<Pane[]> {
-    return this.get("/panes");
+  tabs(): Promise<Tab[]> {
+    return this.get("/tabs");
   }
   workspaces(): Promise<Workspace[]> {
     return this.get("/workspaces");
@@ -152,14 +152,14 @@ export class ApiClient {
   closeWorkspace(id: string): Promise<unknown> {
     return this.post(`/workspaces/${id}/close`);
   }
-  createPane(body?: Record<string, unknown>): Promise<unknown> {
-    return this.post("/panes", body ?? {});
+  createTab(body?: Record<string, unknown>): Promise<unknown> {
+    return this.post("/tabs", body ?? {});
   }
-  focusPane(id: string): Promise<unknown> {
-    return this.post(`/panes/${id}/focus`);
+  focusTab(id: string): Promise<unknown> {
+    return this.post(`/tabs/${id}/focus`);
   }
-  closePane(id: string): Promise<unknown> {
-    return this.post(`/panes/${id}/close`);
+  closeTab(id: string): Promise<unknown> {
+    return this.post(`/tabs/${id}/close`);
   }
   plans(): Promise<PlanSummary[]> {
     return this.get<{ plans: PlanSummary[] }>("/plans").then((r) => r.plans ?? []);

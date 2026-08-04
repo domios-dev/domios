@@ -76,25 +76,25 @@ assert(
 );
 
 assert(
-  "mux_rename_team maps to the Team rename route with caller-pane identity",
+  "mux_rename_team maps to the Team rename route with caller-tab identity",
   /mux_rename_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/rename[\s\S]*?\{ name: a\.name \}[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 assert(
-  "Team rename bridge writes callerTabId to the authenticated pane header",
-  /if \(callerTabId\) headers\.set\("X-CodeTerm-Pane-Id", String\(callerTabId\)\)/.test(
+  "Team rename bridge writes callerTabId to the authenticated Tab header",
+  /if \(callerTabId\) headers\.set\("X-CodeTerm-Tab-Id", String\(callerTabId\)\)/.test(
     bridgeSource,
   ),
 );
 assert(
-  "restart_agent_pane maps to the generic pane restart route",
-  /restart_agent_pane:\s*\(a\)\s*=>[\s\S]*?\/api\/panes\/\$\{enc\(s\(a, "paneId"\) \?\? s\(a, "pane_id"\)\)\}\/agent\/restart/.test(httpBlock),
+  "restart_agent_tab maps to the generic Tab restart route",
+  /restart_agent_tab:\s*\(a\)\s*=>[\s\S]*?\/api\/tabs\/\$\{enc\(s\(a, "tabId"\) \?\? s\(a, "tab_id"\)\)\}\/agent\/restart/.test(httpBlock),
 );
 assert(
-  "mux_add_team_member maps to the Team members route with caller-pane identity",
+  "mux_add_team_member maps to the Team members route with caller-tab identity",
   /mux_add_team_member:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/members[\s\S]*?provider: a\.provider[\s\S]*?role: a\.role[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 assert(
-  "mux_close_team maps to the Team close route with caller-pane identity",
+  "mux_close_team maps to the Team close route with caller-tab identity",
   /mux_close_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/close[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 

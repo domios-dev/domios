@@ -64,7 +64,7 @@ eq(renderTemplate(sendAlias, "OK").status, { ok: true, label: "delivered" }, "se
 
 const resolveName = (ref: string) => (ref.slice(0, 8) === "45509574" ? "qa-lat" : undefined);
 const sentResolvable = recognize('codeterm send --tab 45509574 "yo"')!;
-eq(renderTemplate(sentResolvable, undefined, resolveName).title, "Sent to qa-lat", "send title resolves pane id to tab name");
+eq(renderTemplate(sentResolvable, undefined, resolveName).title, "Sent to qa-lat", "send title resolves Tab id to tab name");
 eq(renderTemplate(sentResolvable).title, "Sent to tab 45509574", "send title keeps id when no resolver");
 const sentUnknown = recognize('codeterm send --tab deadbeef "yo"')!;
 eq(renderTemplate(sentUnknown, undefined, resolveName).title, "Sent to tab deadbeef", "send title falls back to id when unresolved");

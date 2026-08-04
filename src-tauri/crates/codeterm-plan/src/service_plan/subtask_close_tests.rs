@@ -7,7 +7,7 @@ fn store_with_task() -> (PlanStore, String, String) {
     let mut plan = Plan::new(
         "T".into(),
         root.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -50,7 +50,7 @@ fn close_task_with_open_subtask_errors() {
     let child_id = add_child(&store, &plan_id, &parent_id);
 
     let err = store
-        .close_task(&plan_id, &parent_id, None, AgentRef::from_pane("w"), 30)
+        .close_task(&plan_id, &parent_id, None, AgentRef::from_tab("w"), 30)
         .unwrap_err();
 
     match err {
@@ -77,7 +77,7 @@ fn close_task_after_subtasks_done_succeeds() {
     let (store, plan_id, parent_id) = store_with_task();
     let child_id = add_child(&store, &plan_id, &parent_id);
     store
-        .close_task(&plan_id, &child_id, None, AgentRef::from_pane("w"), 20)
+        .close_task(&plan_id, &child_id, None, AgentRef::from_tab("w"), 20)
         .unwrap();
 
     store
@@ -85,7 +85,7 @@ fn close_task_after_subtasks_done_succeeds() {
             &plan_id,
             &parent_id,
             Some("done"),
-            AgentRef::from_pane("w"),
+            AgentRef::from_tab("w"),
             30,
         )
         .unwrap();
@@ -214,7 +214,7 @@ fn close_task_promotes_in_review_to_done() {
         .unwrap();
 
     store
-        .close_task(&plan_id, &task_id, None, AgentRef::from_pane("owner"), 30)
+        .close_task(&plan_id, &task_id, None, AgentRef::from_tab("owner"), 30)
         .unwrap();
 
     let task = store

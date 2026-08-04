@@ -51,7 +51,7 @@ function notification(id: string, title: string, timestamp: number): Notificatio
     title,
     timestamp,
     key: id,
-    pane_id: null,
+    tab_id: null,
     workspace_id: null,
     body: null,
     level: "Info",
@@ -95,6 +95,27 @@ test("clicking an embedded toast marks it read and opens the full body", async (
   const expanded = document.querySelector('[data-testid="notification-toast-expanded"]');
   assert(expanded?.textContent?.includes("Line one\nLine two"), "expanded portal should preserve the full body");
   assert(host.querySelector('[data-testid="notification-toast"]'), "toast should remain visible after expansion");
+  await act(async () => root.unmount());
+});
+
+test("transient toast dismisses from its animation event without timers", async () => {
+  setupDom();
+  const dismissed: string[] = [];
+  const item = { ...notification("transient", "New message", 4), sticky: false };
+  const { host, root } = await render(
+    <NotificationToastContainer
+      toasts={[item]}
+      onDismiss={(id) => dismissed.push(id)}
+      embedded
+    />,
+  );
+
+  const panel = host.querySelector(".ct-toast-inline-panel");
+  assert(panel?.classList.contains("ct-toast-timed"), "transient toast should use the simple timed animation");
+  const animationEnd = new Event("animationend", { bubbles: true });
+  Object.defineProperty(animationEnd, "animationName", { value: "ct-toast-life" });
+  await act(async () => panel!.dispatchEvent(animationEnd));
+  assert(dismissed.join() === item.id, "animation completion should dismiss the toast");
   await act(async () => root.unmount());
 });
 

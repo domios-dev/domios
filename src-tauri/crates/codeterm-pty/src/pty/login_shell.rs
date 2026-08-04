@@ -1,7 +1,7 @@
 //! Resolve the shell a new PTY should run.
 //!
 //! The daemon inherits `$SHELL` from whatever launched it (launchd, a terminal,
-//! a previous login), so a later `chsh` never reaches newly spawned panes. The
+//! a previous login), so a later `chsh` never reaches newly spawned tabs. The
 //! account database is authoritative and is re-read on every spawn.
 
 /// Account login shell (Unix) or the preferred PowerShell/COMSPEC (Windows).
@@ -107,7 +107,7 @@ mod tests {
     }
 
     /// The stale-`$SHELL` bug: the account database — not the daemon's inherited
-    /// env — decides which shell a new pane runs.
+    /// env — decides which shell a new tab runs.
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn account_shell_wins_over_a_stale_shell_env() {

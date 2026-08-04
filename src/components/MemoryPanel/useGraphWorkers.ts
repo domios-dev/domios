@@ -128,7 +128,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
       }
       const data = (await res.json()) as {
         worker_id: string;
-        pane_id: string;
+        tab_id: string;
         info: GraphWorkerInfo;
       };
       upsert(data.info);

@@ -20,6 +20,7 @@ const peerId = "peer-1";
 const peers: MeshPeersResponse = {
   paired: [],
   incoming_requests: [],
+  local_instance_name: "Local PC",
   discovered: [{
     instance_id: peerId,
     instance_name: "Remote Mac",

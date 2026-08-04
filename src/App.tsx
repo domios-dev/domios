@@ -1,8 +1,7 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
-import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
-import { isChatDefaultEnabled } from "./lib/chatUiMode";
+import { getCurrentTabUiMode } from "./lib/clientTabUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
@@ -24,11 +23,13 @@ import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
+import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
+import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
-import { useAgentProviders } from "./hooks/useAgentProviders";
+import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
@@ -59,7 +60,7 @@ function useStableJsonValue<T>(value: T): T {
 }
 
 function AppInner() {
-  useAgentProviders();
+  useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
   useEffect(() => {
     if (!IS_WEB) {
@@ -160,29 +161,18 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const { config, updateConfig, theme } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
   const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
 
-  // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
+  // events on its own (the per-bubble `useConfig` was multiplying invokes by tab count and made the webview unresponsive after many resumes).
   const computedUsageEnabledByProvider = useMemo(() => {
     return usageTrackingOverrides(config.agents ?? {});
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
-
-  // PaneTopBar/ChatDefaultSuggestion never run a per-pane useConfig (froze switches).
-  const configChatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
-  const [chatPaneDefaultOverride, setChatPaneDefaultOverride] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!configLoading) setChatPaneDefaultOverride(null);
-  }, [configChatPaneDefault, configLoading]);
-  useEffect(() => listenPaneUiModeDefaultChanged(setChatPaneDefaultOverride), []);
-  const chatPaneDefault =
-    chatPaneDefaultOverride ?? (configLoading ? isChatDefaultEnabled() : configChatPaneDefault);
-  const chatDefaultPrompted = config.ui?.chat_ui_default_prompted === true;
 
   const {
     createWorkspace,
@@ -190,25 +180,37 @@ function AppInner() {
     closeTab,
     reopenClosed,
     setActiveTab,
-    setFocusedPane,
-    setPanePty,
+    setFocusedTab,
+    selectTabByTab,
+    setTabPty,
     markRead,
     markAllRead,
     deleteNotification,
+    clearNotifications,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  const navigateToNotificationTab = useCallback(
+    (tabId: string, workspaceId: string | null) => {
+      if (workspaceId) {
+        void selectTabByTab(workspaceId, tabId);
+        return;
+      }
+      setFocusedTab(tabId);
+    },
+    [selectTabByTab, setFocusedTab],
+  );
 
-  const lastFocusedRef = useRef(state.focused_pane_id);
+  const lastFocusedRef = useRef(state.focused_tab_id);
   useEffect(() => {
-    if (state.focused_pane_id !== lastFocusedRef.current) {
-      lastFocusedRef.current = state.focused_pane_id;
-      if (state.focused_pane_id != null && mainView !== "workspace") {
+    if (state.focused_tab_id !== lastFocusedRef.current) {
+      lastFocusedRef.current = state.focused_tab_id;
+      if (state.focused_tab_id != null && mainView !== "workspace") {
         setMainView("workspace");
       }
     }
-  }, [state.focused_pane_id, mainView]);
+  }, [state.focused_tab_id, mainView]);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -219,16 +221,16 @@ function AppInner() {
     [],
   );
 
-  // Reclaim composer drafts left behind by closed panes so a reused/colliding
-  // pane id can never inherit a dead pane's unsent text.
+  // Reclaim composer drafts left behind by closed tabs so a reused/colliding
+  // tab id can never inherit a dead tab's unsent text.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      pruneOrphanComposerDrafts(window.localStorage, new Set(Object.keys(state.panes)));
+      pruneOrphanComposerDrafts(window.localStorage, new Set(Object.keys(state.tabs)));
     } catch {
       // Best-effort: draft GC must never break the app.
     }
-  }, [state.panes]);
+  }, [state.tabs]);
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -242,8 +244,8 @@ function AppInner() {
       }>).detail;
       const panel = detail?.panel;
       if (panel?.startsWith("view:")) {
-        const fp = stateRef.current.focused_pane_id
-          ? stateRef.current.panes[stateRef.current.focused_pane_id]
+        const fp = stateRef.current.focused_tab_id
+          ? stateRef.current.tabs[stateRef.current.focused_tab_id]
           : null;
         setPluginViewCwd(detail?.cwd || fp?.cwd || null);
         setPluginViewOwner(pluginViewScope(stateRef.current.active_workspace_id, stateRef.current.activeTabIds));
@@ -259,21 +261,21 @@ function AppInner() {
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
   }, [setExtensionsOpen]);
 
-  // dismiss any covering Extensions/glance overlay and focus the new pane.
+  // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
-    const onFocusPane = (e: Event) => {
-      const paneId = (e as CustomEvent<{ paneId?: string }>).detail?.paneId;
-      if (!paneId) return;
+    const onFocusTab = (e: Event) => {
+      const tabId = (e as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      if (!tabId) return;
       setExtensionsOpen(false);
-      setFocusedPane(paneId);
+      setFocusedTab(tabId);
     };
-    window.addEventListener("codeterm:focus-pane", onFocusPane);
-    return () => window.removeEventListener("codeterm:focus-pane", onFocusPane);
-  }, [setExtensionsOpen, setFocusedPane]);
+    window.addEventListener("codeterm:focus-tab", onFocusTab);
+    return () => window.removeEventListener("codeterm:focus-tab", onFocusTab);
+  }, [setExtensionsOpen, setFocusedTab]);
 
   const handleBackToMemory = useCallback(() => {
     const ret = navigationStore.get();
-    const focused = stateRef.current.focused_pane_id;
+    const focused = stateRef.current.focused_tab_id;
     if (focused) workerFocusStore.unfocus(focused);
     if (ret) {
       setMemoryInitial({
@@ -286,8 +288,8 @@ function AppInner() {
     navigationStore.clear();
   }, []);
 
-  const handleMemoryFocusPane = useCallback((paneId: string) => {
-    setFocusedPane(paneId);
+  const handleMemoryFocusTab = useCallback((tabId: string) => {
+    setFocusedTab(tabId);
   }, []);
 
   const activeWs = useMemo(
@@ -296,8 +298,11 @@ function AppInner() {
   );
 
   const activeTab = useMemo(
-    () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
-    [activeWs, state.activeTabIds],
+    () => {
+      const activeTabId = activeWs ? state.activeTabIds[activeWs.id] : null;
+      return activeTabId ? state.tabs[activeTabId] : undefined;
+    },
+    [activeWs, state.activeTabIds, state.tabs],
   );
   const activePluginViewScope = useMemo(
     () => pluginViewScope(state.active_workspace_id, state.activeTabIds),
@@ -315,13 +320,11 @@ function AppInner() {
   }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
-    const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
-    if (!tab) return;
-    const pane = current.panes[tab.pane_id];
-    if (!pane || pane.backing?.kind === "chat_backend" || !pane.agent_type) return;
+    const tab = current.tabs[tabId];
+    if (!tab || tab.backing?.kind === "chat_backend" || !tab.agent_type) return;
     await invoke("spawn_pty", {
-      paneId: pane.id,
-      cwd: pane.cwd ?? undefined,
+      tabId: tab.id,
+      cwd: tab.cwd ?? undefined,
       cols: 120,
       rows: 30,
     }).catch((error) => {
@@ -333,12 +336,12 @@ function AppInner() {
     activeTabId: activeTab?.id ?? null,
     tabIds:
       activeWs?.tabs
-        .filter((tab) => {
-          const pane = state.panes[tab.pane_id];
-          return pane && !(activeWs.protected === true && pane.protected === true);
+        .filter((tabId) => {
+          const tab = state.tabs[tabId];
+          return tab && !(activeWs.protected === true && tab.protected === true);
         })
-        .map((tab) => tab.id) ?? [],
-    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
+        ?? [],
+    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
@@ -353,8 +356,10 @@ function AppInner() {
     !pluginViewId &&
     activeWs != null;
   const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
+  const cronSelection = useCronSelection();
   const handleNavigateToTab = useCallback(() => {
     canvasFocusStore.closeWorkspace();
+    cronSelectionStore.close();
     setMainView("workspace");
     closeSidebarOnMobile();
   }, [closeSidebarOnMobile]);
@@ -365,10 +370,10 @@ function AppInner() {
   const canvasFocusTarget = useCanvasFocusTarget();
   const handleNewTab = useCallback(() => {
     if (!activeWs) return;
-    const focusedPane = state.focused_pane_id ? state.panes[state.focused_pane_id] : null;
-    const cwd = focusedPane?.cwd || undefined;
+    const focusedTab = state.focused_tab_id ? state.tabs[state.focused_tab_id] : null;
+    const cwd = focusedTab?.cwd || undefined;
     createTab(activeWs.id, cwd);
-  }, [activeWs, state.focused_pane_id, state.panes, createTab]);
+  }, [activeWs, state.focused_tab_id, state.tabs, createTab]);
 
   const handleCloseCurrentTab = useCallback(() => {
     if (activeWs && activeTab) {
@@ -377,11 +382,11 @@ function AppInner() {
   }, [activeWs, activeTab, closeTab]);
 
   const handlePtySpawned = useCallback(
-    (paneId: string, ptyId: string) => {
-      invoke("mux_link_pty", { paneId, ptyId }).catch(() => {});
-      setPanePty(paneId, ptyId);
+    (tabId: string, ptyId: string) => {
+      invoke("mux_link_pty", { tabId, ptyId }).catch(() => {});
+      setTabPty(tabId, ptyId);
     },
-    [setPanePty],
+    [setTabPty],
   );
 
   const paletteCommands = useMemo(
@@ -441,16 +446,16 @@ function AppInner() {
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
-      // Skip when the focused pane is in Chat UI mode — keys shouldn't leak into the PTY.
+      // Skip when the focused tab is in Chat UI mode — keys shouldn't leak into the PTY.
       const active = document.activeElement;
-      if (stateRef.current.focused_pane_id) {
-        const focusedPaneId = stateRef.current.focused_pane_id;
-        const paneUiMode = getCurrentPaneUiMode(focusedPaneId)
-          ?? (stateRef.current.panes[focusedPaneId]?.chat_view ? "chat" : "terminal");
-        if (paneUiMode === "chat") return;
-        const pane = stateRef.current.panes[focusedPaneId];
-        if (pane?.pty_id) {
-          forwardTerminalFallback(e, active, (data) => invoke("write_pty_string", { ptyId: pane.pty_id, data }));
+      if (stateRef.current.focused_tab_id) {
+        const focusedTabId = stateRef.current.focused_tab_id;
+        const tabUiMode = getCurrentTabUiMode(focusedTabId)
+          ?? (stateRef.current.tabs[focusedTabId]?.chat_view ? "chat" : "terminal");
+        if (tabUiMode === "chat") return;
+        const tab = stateRef.current.tabs[focusedTabId];
+        if (tab?.pty_id) {
+          forwardTerminalFallback(e, active, (data) => invoke("write_pty_string", { ptyId: tab.pty_id, data }));
         }
       }
     };
@@ -515,9 +520,9 @@ function AppInner() {
         onMarkNotificationRead={markRead}
         onMarkAllNotificationsRead={markAllRead}
         onDeleteNotification={deleteNotification}
+        onClearNotifications={clearNotifications}
         onDismissToast={dismissToast}
-        onNavigateToast={setFocusedPane}
-        workspaceCanvasActive={workspaceCanvasVisible}
+        onNavigateToast={navigateToNotificationTab}
       />
       <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
@@ -546,7 +551,7 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
-                workspaceCanvasActive={workspaceCanvasVisible}
+                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection}
                 teamActions={teamActions}
               />
             </div>
@@ -556,7 +561,7 @@ function AppInner() {
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {/* All panels stay mounted — switching mainView only changes visibility.
-              Unmounting the workspace would tear down xterm + re-run get_pane_text
+              Unmounting the workspace would tear down xterm + re-run get_tab_text
               on return, blocking the main thread with MB of escape codes. */}
           {mountedSettings && (
             <div
@@ -587,7 +592,7 @@ function AppInner() {
                   setMemoryInitial(undefined);
                 }}
                 initialState={memoryInitial}
-                onFocusPane={handleMemoryFocusPane}
+                onFocusTab={handleMemoryFocusTab}
                 config={config}
                 onConfigUpdate={updateConfig}
               />
@@ -650,26 +655,33 @@ function AppInner() {
               <CanvasView
                 mode="focus"
                 planId={canvasFocusTarget.planId}
-                orchestratorPaneId={canvasFocusTarget.orchestratorPaneId}
-                focusPaneId={canvasFocusTarget.focusPaneId}
+                orchestratorTabId={canvasFocusTarget.orchestratorTabId}
+                focusTabId={canvasFocusTarget.focusTabId}
                 api={stableApiConfig}
                 onClose={() => canvasFocusStore.close()}
               />
             </div>
           )}
+          {cronSelection && mainView === "workspace" && (
+            <div className="absolute inset-0" style={{ zIndex: 24 }}>
+              <CronWorkspaceView cronId={cronSelection.cronId} />
+            </div>
+          )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
-              ws.tabs.map((tab) => {
-                const isActiveTab = ws.id === state.active_workspace_id && tab.id === state.activeTabIds[ws.id];
+              ws.tabs.map((tabId) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return null;
+                const isActiveTab = ws.id === state.active_workspace_id && tabId === state.activeTabIds[ws.id];
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
-                  ws.protected === true && state.panes[tab.pane_id]?.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tab.id);
+                  ws.protected === true && tab.protected === true;
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
                 return (
               <div
-                key={tab.id}
+                key={tabId}
                 className="absolute inset-0"
                 inert={!isVisible || undefined}
                 style={{
@@ -680,9 +692,9 @@ function AppInner() {
                 }}
               >
                 <MemoizedTabContent
-                  pane={state.panes[tab.pane_id]}
-                  isFocused={state.focused_pane_id === tab.pane_id}
-                  onFocusPane={setFocusedPane}
+                  tab={tab}
+                  isFocused={state.focused_tab_id === tabId}
+                  onFocusTab={setFocusedTab}
                   onPtySpawned={handlePtySpawned}
                   theme={stableTheme}
                   fontConfig={stableFontConfig}
@@ -692,8 +704,6 @@ function AppInner() {
                   workspaceCwd={ws.cwd ?? null}
                   uiFontScale={uiFontScale}
                   isVisible={isVisible}
-                  chatFirst={chatPaneDefault}
-                  chatDefaultPrompted={chatDefaultPrompted}
                 />
               </div>
                 );

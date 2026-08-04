@@ -41,11 +41,11 @@ fn map_rename_error(error: String) -> (StatusCode, String) {
     }
 }
 
-fn require_caller_pane_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
-    crate::api::pane_routes::caller_pane_header(headers).ok_or_else(|| {
+fn require_caller_tab_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    crate::api::tab_routes::caller_tab_header(headers).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            "X-CodeTerm-Pane-Id is required".into(),
+            "X-CodeTerm-Tab-Id is required".into(),
         )
     })
 }
@@ -57,8 +57,8 @@ fn rename_team_adapter(
     rename: impl FnOnce(String, String, String) -> Result<codeterm_types::team::Team, String>,
 ) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
     validate_name(&body.name)?;
-    let caller_pane_id = require_caller_pane_id(headers)?;
-    rename(team_id, caller_pane_id, body.name).map_err(map_rename_error)
+    let caller_tab_id = require_caller_tab_id(headers)?;
+    rename(team_id, caller_tab_id, body.name).map_err(map_rename_error)
 }
 
 pub async fn rename_team(
@@ -68,12 +68,12 @@ pub async fn rename_team(
     Json(body): Json<RenameTeamBody>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_pane_id, name| {
+    let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_tab_id, name| {
         crate::commands::mux_commands::mux_rename_team_service_core(
             &state.svc,
             team_id,
             name,
-            Some(caller_pane_id),
+            Some(caller_tab_id),
         )
     })?;
     Ok(Json(team))
@@ -84,8 +84,8 @@ fn close_team_adapter(
     team_id: String,
     close: impl FnOnce(String, String) -> Result<codeterm_types::team::Team, String>,
 ) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
-    let caller_pane_id = require_caller_pane_id(headers)?;
-    close(team_id, caller_pane_id).map_err(map_rename_error)
+    let caller_tab_id = require_caller_tab_id(headers)?;
+    close(team_id, caller_tab_id).map_err(map_rename_error)
 }
 
 pub async fn close_team(
@@ -94,11 +94,11 @@ pub async fn close_team(
     Path(team_id): Path<String>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let team = close_team_adapter(&headers, team_id, |team_id, caller_pane_id| {
+    let team = close_team_adapter(&headers, team_id, |team_id, caller_tab_id| {
         crate::commands::mux_commands::mux_close_team_service_core(
             &state.svc,
             team_id,
-            Some(caller_pane_id),
+            Some(caller_tab_id),
         )
     })?;
     Ok(Json(team))
@@ -110,8 +110,8 @@ async fn add_team_member_adapter<T>(
     body: AddTeamMemberBody,
     add_member: impl AsyncFnOnce(String, String, AddTeamMemberBody) -> Result<T, String>,
 ) -> Result<T, (StatusCode, String)> {
-    let caller_pane_id = require_caller_pane_id(headers)?;
-    add_member(team_id, caller_pane_id, body)
+    let caller_tab_id = require_caller_tab_id(headers)?;
+    add_member(team_id, caller_tab_id, body)
         .await
         .map_err(map_rename_error)
 }
@@ -127,13 +127,13 @@ pub async fn add_team_member(
         &headers,
         team_id,
         body,
-        |team_id, caller_pane_id, body: AddTeamMemberBody| async {
+        |team_id, caller_tab_id, body: AddTeamMemberBody| async {
             crate::commands::mux_commands::mux_add_team_member_service_core(
                 &state.svc,
                 team_id,
                 body.provider,
                 body.role,
-                Some(caller_pane_id),
+                Some(caller_tab_id),
                 body.title,
                 body.task,
                 body.model,
@@ -158,9 +158,9 @@ mod tests {
             .resolve_or_mint_team_for_parent(&orchestrator)
             .unwrap()
             .team_id;
-        let workspace_id = mux.find_workspace_for_pane(&orchestrator).unwrap();
-        let worker = mux.create_tab(&workspace_id).unwrap().1;
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orchestrator))
+        let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+        let worker = mux.create_tab(&workspace_id).unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
         (mux, team_id, orchestrator, worker)
     }
@@ -172,17 +172,17 @@ mod tests {
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            map_rename_error("Caller pane worker is not authorized to manage Team team_x".into()).0,
+            map_rename_error("Caller Tab worker is not authorized to manage Team team_x".into()).0,
             StatusCode::FORBIDDEN
         );
         assert_eq!(validate_name("   ").unwrap_err().0, StatusCode::BAD_REQUEST);
     }
 
     #[test]
-    fn team_rename_requires_caller_pane_header() {
-        let error = require_caller_pane_id(&HeaderMap::new()).unwrap_err();
+    fn team_rename_requires_caller_tab_header() {
+        let error = require_caller_tab_id(&HeaderMap::new()).unwrap_err();
         assert_eq!(error.0, StatusCode::BAD_REQUEST);
-        assert_eq!(error.1, "X-CodeTerm-Pane-Id is required");
+        assert_eq!(error.1, "X-CodeTerm-Tab-Id is required");
     }
 
     #[test]
@@ -190,7 +190,7 @@ mod tests {
         let (mut mux, team_id, orchestrator, _) = team_members();
         let events = crate::api::events::EventBroadcaster::new();
         let mut headers = HeaderMap::new();
-        headers.insert("X-CodeTerm-Pane-Id", orchestrator.parse().unwrap());
+        headers.insert("X-CodeTerm-Tab-Id", orchestrator.parse().unwrap());
 
         let team = rename_team_adapter(
             &headers,
@@ -198,13 +198,13 @@ mod tests {
             RenameTeamBody {
                 name: "Renamed".into(),
             },
-            |team_id, caller_pane_id, name| {
+            |team_id, caller_tab_id, name| {
                 crate::service::rename_team_with_state_change(
                     &mut mux,
                     &events,
                     &team_id,
                     name,
-                    Some(&caller_pane_id),
+                    Some(&caller_tab_id),
                 )
             },
         )
@@ -216,11 +216,12 @@ mod tests {
     #[test]
     fn http_team_rename_enforces_caller_permission() {
         let (mut mux, team_id, _orchestrator, worker) = team_members();
-        let foreign = mux.create_pane();
+        let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
+        let foreign = mux.create_tab(&workspace_id).unwrap();
         let events = crate::api::events::EventBroadcaster::new();
 
         let mut worker_headers = HeaderMap::new();
-        worker_headers.insert("X-CodeTerm-Pane-Id", worker.parse().unwrap());
+        worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
         assert_eq!(
             rename_team_adapter(
                 &worker_headers,
@@ -228,13 +229,13 @@ mod tests {
                 RenameTeamBody {
                     name: "Denied worker".into(),
                 },
-                |team_id, caller_pane_id, name| {
+                |team_id, caller_tab_id, name| {
                     crate::service::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
                         name,
-                        Some(&caller_pane_id),
+                        Some(&caller_tab_id),
                     )
                 },
             )
@@ -243,7 +244,7 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         let mut foreign_headers = HeaderMap::new();
-        foreign_headers.insert("X-CodeTerm-Pane-Id", foreign.parse().unwrap());
+        foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
         assert_eq!(
             rename_team_adapter(
                 &foreign_headers,
@@ -251,13 +252,13 @@ mod tests {
                 RenameTeamBody {
                     name: "Denied foreign".into(),
                 },
-                |team_id, caller_pane_id, name| {
+                |team_id, caller_tab_id, name| {
                     crate::service::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
                         name,
-                        Some(&caller_pane_id),
+                        Some(&caller_tab_id),
                     )
                 },
             )
@@ -296,13 +297,13 @@ mod tests {
                 RenameTeamBody {
                     name: "Missing team".into(),
                 },
-                |team_id, caller_pane_id, name| {
+                |team_id, caller_tab_id, name| {
                     crate::service::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
                         name,
-                        Some(&caller_pane_id),
+                        Some(&caller_tab_id),
                     )
                 },
             )
@@ -317,7 +318,8 @@ mod tests {
     fn http_close_team_enforces_permission() {
         let (mut mux, team_id, orchestrator, worker) = team_members();
         let events = crate::api::events::EventBroadcaster::new();
-        let plan_store = crate::service::plan::PlanStore::new();
+        let plan_root = tempfile::tempdir().unwrap();
+        let plan_store = crate::service::plan::PlanStore::new_for_test(plan_root.path());
         assert_eq!(
             close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| unreachable!())
                 .unwrap_err()
@@ -325,7 +327,7 @@ mod tests {
             StatusCode::BAD_REQUEST
         );
         let mut worker_headers = HeaderMap::new();
-        worker_headers.insert("X-CodeTerm-Pane-Id", worker.parse().unwrap());
+        worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
         assert_eq!(
             close_team_adapter(&worker_headers, team_id.clone(), |team_id, caller| {
                 crate::service::close_team_with_state_change(
@@ -342,9 +344,10 @@ mod tests {
             .0,
             StatusCode::FORBIDDEN
         );
-        let foreign = mux.create_pane();
+        let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
+        let foreign = mux.create_tab(&workspace_id).unwrap();
         let mut foreign_headers = HeaderMap::new();
-        foreign_headers.insert("X-CodeTerm-Pane-Id", foreign.parse().unwrap());
+        foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
         assert_eq!(
             close_team_adapter(&foreign_headers, team_id.clone(), |team_id, caller| {
                 crate::service::close_team_with_state_change(
@@ -362,7 +365,7 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         let mut manager_headers = HeaderMap::new();
-        manager_headers.insert("X-CodeTerm-Pane-Id", orchestrator.parse().unwrap());
+        manager_headers.insert("X-CodeTerm-Tab-Id", orchestrator.parse().unwrap());
         assert_eq!(
             close_team_adapter(&manager_headers, team_id.clone(), |team_id, caller| {
                 crate::service::close_team_with_state_change(
@@ -382,7 +385,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_add_team_member_requires_caller_pane_header() {
+    async fn http_add_team_member_requires_caller_tab_header() {
         let error = add_team_member_adapter(
             &HeaderMap::new(),
             "team_x".into(),
@@ -398,13 +401,13 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(error.0, StatusCode::BAD_REQUEST);
-        assert_eq!(error.1, "X-CodeTerm-Pane-Id is required");
+        assert_eq!(error.1, "X-CodeTerm-Tab-Id is required");
     }
 
     #[tokio::test]
-    async fn http_add_team_member_delegates_acting_pane_and_body() {
+    async fn http_add_team_member_delegates_acting_tab_and_body() {
         let mut headers = HeaderMap::new();
-        headers.insert("X-CodeTerm-Pane-Id", "manager".parse().unwrap());
+        headers.insert("X-CodeTerm-Tab-Id", "manager".parse().unwrap());
         let result = add_team_member_adapter(
             &headers,
             "team_x".into(),
@@ -415,9 +418,9 @@ mod tests {
                 task: Some("Plan it".into()),
                 model: Some("model".into()),
             },
-            |team_id, caller_pane_id, body: AddTeamMemberBody| async move {
+            |team_id, caller_tab_id, body: AddTeamMemberBody| async move {
                 assert_eq!(team_id, "team_x");
-                assert_eq!(caller_pane_id, "manager");
+                assert_eq!(caller_tab_id, "manager");
                 assert_eq!(body.role, "planner");
                 Ok((body.provider, body.title, body.task, body.model))
             },

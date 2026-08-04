@@ -1,13 +1,13 @@
 import type { Plan } from "./types";
-import { isActiveTaskStatus } from "./paneCurrentTask";
+import { isActiveTaskStatus } from "./tabCurrentTask";
 
-export function assignedTaskIdsForPane(plans: readonly Plan[], paneId: string): string[] {
-  const targetPaneId = paneId.trim();
-  if (!targetPaneId) return [];
+export function assignedTaskIdsForTab(plans: readonly Plan[], tabId: string): string[] {
+  const targetTabId = tabId.trim();
+  if (!targetTabId) return [];
   return plans.flatMap((p) =>
     p.tasks
       .filter((t) => isActiveTaskStatus(t.status))
-      .filter((t) => t.assigned_pane_id?.trim() === targetPaneId)
+      .filter((t) => t.assigned_tab_id?.trim() === targetTabId)
       .map((t) => t.id),
   );
 }
@@ -19,11 +19,11 @@ export type PlanOpenCameraTarget =
 
 export function resolvePlanOpenCameraTarget(
   plans: readonly Plan[],
-  focusPaneId: string | null | undefined,
+  focusTabId: string | null | undefined,
   activePlanId: string | null,
 ): PlanOpenCameraTarget {
-  if (focusPaneId) {
-    const taskIds = assignedTaskIdsForPane(plans, focusPaneId);
+  if (focusTabId) {
+    const taskIds = assignedTaskIdsForTab(plans, focusTabId);
     if (taskIds.length) return { kind: "task", nodeIds: taskIds };
   }
   if (activePlanId) return { kind: "plan", nodeIds: [activePlanId] };

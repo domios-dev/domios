@@ -4,7 +4,7 @@ use crate::plan::TaskLaneMetadata;
 pub(in crate::service_plan) fn normalize_lane_metadata(
     mut lane: TaskLaneMetadata,
 ) -> TaskLaneMetadata {
-    lane.pane_id = non_empty(lane.pane_id);
+    lane.tab_id = non_empty(lane.tab_id);
     lane.workspace_id = non_empty(lane.workspace_id);
     lane.workspace_name = non_empty(lane.workspace_name);
     lane.worktree_path = non_empty(lane.worktree_path);
@@ -20,8 +20,8 @@ pub(in crate::service_plan) fn apply_lane_update(
     lane: &mut TaskLaneMetadata,
     update: TaskLaneUpdate,
 ) {
-    if let Some(value) = update.pane_id {
-        lane.pane_id = value;
+    if let Some(value) = update.tab_id {
+        lane.tab_id = value;
     }
     if let Some(value) = update.workspace_id {
         lane.workspace_id = value;

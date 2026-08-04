@@ -2,9 +2,9 @@
 //! `agent spawn --mesh PEER` lives on another daemon, so it never appears in this
 //! daemon's mux. It becomes visible here the moment its first `agent report`
 //! arrives over the mesh: the inbound `/send` (kind=report) carries the peer,
-//! the worker's foreign pane id, label, and model. We index those by the local
-//! orchestrator/General pane they reported to, so the UI can render a "remote
-//! pane" ghost node under its orchestrator — showing where it runs and its last
+//! the worker's foreign tab id, label, and model. We index those by the local
+//! orchestrator/General tab they reported to, so the UI can render a "remote
+//! Tab" ghost node under its orchestrator — showing where it runs and its last
 //! status — without owning a real PTY for it.
 
 use std::collections::HashMap;
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 pub struct RemoteWorker {
     /// Paired peer (instance name) the worker runs on.
     pub peer: String,
-    /// The worker's pane id on that peer (its `CODETERM_PANE_ID`).
-    pub remote_pane: String,
+    /// The worker's tab id on that peer (its `CODETERM_TAB_ID`).
+    pub remote_tab: String,
     /// Display label (worker title), as reported.
     pub title: String,
     /// Model family, when the report carried one.
@@ -33,7 +33,7 @@ pub struct RemoteWorker {
     pub last_seen_ms: u64,
 }
 
-/// Map: local orchestrator/General pane id → its remote workers. Mutated by
+/// Map: local orchestrator/General tab id → its remote workers. Mutated by
 /// inbound reports + spawn registration, and (when `path` is set) persisted to
 /// disk so recent ghosts survive an origin restart without waiting for a new
 /// report. `path` is None in tests → pure in-memory, no I/O.
@@ -44,7 +44,7 @@ pub struct RemoteWorkerRegistry {
 }
 
 /// Drop workers silent for longer than this; their orchestrator bucket is
-/// removed once empty. Bounds growth from closed orchestrators / churned panes.
+/// removed once empty. Bounds growth from closed orchestrators / churned tabs.
 const STALE_MS: u64 = 24 * 60 * 60 * 1000;
 /// Hard cap per orchestrator (oldest activity evicted first).
 const MAX_PER_ORCHESTRATOR: usize = 64;
@@ -94,21 +94,14 @@ impl RemoteWorkerRegistry {
     }
 
     /// Construct a registry backed by `path`, keeping only active recent workers.
-    /// Missing/corrupt file → empty (best-effort).
+    /// Missing/corrupt records are quarantined in memory and left unchanged on disk.
     pub fn load(path: PathBuf) -> Self {
-        let persisted = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<HashMap<String, Vec<RemoteWorker>>>(&s).ok());
-        let mut map = persisted.clone().unwrap_or_default();
+        let mut map = load_worker_records(&path);
         evict_inactive(&mut map, now_ms_epoch());
-        let registry = Self {
+        Self {
             by_orchestrator: Mutex::new(map),
             path: Some(path),
-        };
-        if persisted.is_some() {
-            registry.persist();
         }
-        registry
     }
 
     /// Atomically write the current map to the durable path (no-op without
@@ -128,13 +121,13 @@ impl RemoteWorkerRegistry {
     }
 
     /// Upsert a remote worker from an inbound mesh report. Keyed by
-    /// (peer, remote_pane) under the orchestrator pane it reported to.
+    /// (peer, remote_tab) under the orchestrator tab it reported to.
     #[allow(clippy::too_many_arguments)]
     pub fn record_report(
         &self,
-        orchestrator_pane: &str,
+        orchestrator_tab: &str,
         peer: &str,
-        remote_pane: &str,
+        remote_tab: &str,
         title: &str,
         model: Option<String>,
         body: &str,
@@ -142,12 +135,12 @@ impl RemoteWorkerRegistry {
     ) {
         let status = status_from_body(body);
         if status == "done" {
-            self.forget_by_remote_pane(remote_pane, Some(peer), Some(orchestrator_pane));
+            self.forget_by_remote_tab(remote_tab, Some(peer), Some(orchestrator_tab));
             return;
         }
         let entry = RemoteWorker {
             peer: peer.to_string(),
-            remote_pane: remote_pane.to_string(),
+            remote_tab: remote_tab.to_string(),
             title: title.to_string(),
             model,
             status,
@@ -157,10 +150,10 @@ impl RemoteWorkerRegistry {
         {
             let mut map = self.by_orchestrator.lock();
             evict_inactive(&mut map, now_ms);
-            let list = map.entry(orchestrator_pane.to_string()).or_default();
+            let list = map.entry(orchestrator_tab.to_string()).or_default();
             if let Some(slot) = list
                 .iter_mut()
-                .find(|w| w.peer == entry.peer && w.remote_pane == entry.remote_pane)
+                .find(|w| w.peer == entry.peer && w.remote_tab == entry.remote_tab)
             {
                 *slot = entry;
             } else {
@@ -172,15 +165,15 @@ impl RemoteWorkerRegistry {
     }
 
     /// Register a remote worker at spawn time, before its first report. Keyed
-    /// by (peer, remote_pane) under the orchestrator/report-target pane. Status
+    /// by (peer, remote_tab) under the orchestrator/report-target tab. Status
     /// is `working` (just launched). Insert-only: if a real report already
     /// landed for this worker, that richer entry is kept untouched — spawn
     /// registration never downgrades a reported status back to `working`.
     pub fn record_spawn(
         &self,
-        orchestrator_pane: &str,
+        orchestrator_tab: &str,
         peer: &str,
-        remote_pane: &str,
+        remote_tab: &str,
         title: &str,
         model: Option<String>,
         now_ms: u64,
@@ -188,14 +181,14 @@ impl RemoteWorkerRegistry {
         {
             let mut map = self.by_orchestrator.lock();
             evict_inactive(&mut map, now_ms);
-            let list = map.entry(orchestrator_pane.to_string()).or_default();
+            let list = map.entry(orchestrator_tab.to_string()).or_default();
             if !list
                 .iter()
-                .any(|w| w.peer == peer && w.remote_pane == remote_pane)
+                .any(|w| w.peer == peer && w.remote_tab == remote_tab)
             {
                 list.push(RemoteWorker {
                     peer: peer.to_string(),
-                    remote_pane: remote_pane.to_string(),
+                    remote_tab: remote_tab.to_string(),
                     title: title.to_string(),
                     model,
                     status: "working".to_string(),
@@ -208,25 +201,25 @@ impl RemoteWorkerRegistry {
         self.persist();
     }
 
-    /// Drop an orchestrator's bucket when its pane closes.
-    pub fn forget_orchestrator(&self, orchestrator_pane: &str) {
-        self.by_orchestrator.lock().remove(orchestrator_pane);
+    /// Drop an orchestrator's bucket when its tab closes.
+    pub fn forget_orchestrator(&self, orchestrator_tab: &str) {
+        self.by_orchestrator.lock().remove(orchestrator_tab);
         self.persist();
     }
 
-    /// Drop a remote-worker ghost by its foreign pane id. Optional `peer` and
-    /// `orchestrator_pane` narrow the match. Returns orchestrator pane ids whose
+    /// Drop a remote-worker ghost by its foreign tab id. Optional `peer` and
+    /// `orchestrator_tab` narrow the match. Returns orchestrator tab ids whose
     /// buckets changed (for `remote-workers-changed` emits). Empty ⇒ no match.
-    pub fn forget_by_remote_pane(
+    pub fn forget_by_remote_tab(
         &self,
-        remote_pane: &str,
+        remote_tab: &str,
         peer: Option<&str>,
-        orchestrator_pane: Option<&str>,
+        orchestrator_tab: Option<&str>,
     ) -> Vec<String> {
         let mut touched = Vec::new();
         {
             let mut map = self.by_orchestrator.lock();
-            let keys: Vec<String> = match orchestrator_pane {
+            let keys: Vec<String> = match orchestrator_tab {
                 Some(orch) => vec![orch.to_string()],
                 None => map.keys().cloned().collect(),
             };
@@ -236,7 +229,7 @@ impl RemoteWorkerRegistry {
                 };
                 let before = list.len();
                 list.retain(|w| {
-                    if w.remote_pane != remote_pane {
+                    if w.remote_tab != remote_tab {
                         return true;
                     }
                     if let Some(p) = peer {
@@ -258,12 +251,12 @@ impl RemoteWorkerRegistry {
         touched
     }
 
-    /// Remote workers reporting to one orchestrator pane, newest activity first.
-    pub fn for_orchestrator(&self, orchestrator_pane: &str) -> Vec<RemoteWorker> {
+    /// Remote workers reporting to one orchestrator tab, newest activity first.
+    pub fn for_orchestrator(&self, orchestrator_tab: &str) -> Vec<RemoteWorker> {
         let mut list = self
             .by_orchestrator
             .lock()
-            .get(orchestrator_pane)
+            .get(orchestrator_tab)
             .cloned()
             .unwrap_or_default();
         list.sort_by(|a, b| b.last_seen_ms.cmp(&a.last_seen_ms));
@@ -274,6 +267,123 @@ impl RemoteWorkerRegistry {
     pub fn snapshot(&self) -> HashMap<String, Vec<RemoteWorker>> {
         self.by_orchestrator.lock().clone()
     }
+}
+
+fn load_worker_records(path: &std::path::Path) -> HashMap<String, Vec<RemoteWorker>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
+        Err(error) => {
+            log::error!(
+                "[remote-workers] startup read failed for {}: {}",
+                path.display(),
+                error
+            );
+            return HashMap::new();
+        }
+    };
+    let root: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(root) => root,
+        Err(error) => {
+            log::error!(
+                "[remote-workers] quarantined unreadable store {}: {}; source left unchanged",
+                path.display(),
+                error
+            );
+            return HashMap::new();
+        }
+    };
+    let Some(buckets) = root.as_object() else {
+        log::error!(
+            "[remote-workers] store {} is not an object; source left unchanged",
+            path.display()
+        );
+        return HashMap::new();
+    };
+    let mut loaded = HashMap::new();
+    for (orchestrator_tab, records) in buckets {
+        let Some(records) = records.as_array() else {
+            log::error!(
+                "[remote-workers] quarantined bucket {} in {}: expected array; source left unchanged",
+                orchestrator_tab,
+                path.display()
+            );
+            continue;
+        };
+        let workers: Vec<RemoteWorker> = records
+            .iter()
+            .enumerate()
+            .filter_map(|(index, record)| {
+                parse_worker_record(path, orchestrator_tab, index, record.clone())
+            })
+            .collect();
+        if !workers.is_empty() {
+            loaded.insert(orchestrator_tab.clone(), workers);
+        }
+    }
+    loaded
+}
+
+fn parse_worker_record(
+    path: &std::path::Path,
+    orchestrator_tab: &str,
+    index: usize,
+    mut record: serde_json::Value,
+) -> Option<RemoteWorker> {
+    let normalized = match normalize_worker_record(&mut record) {
+        Ok(normalized) => normalized,
+        Err(error) => {
+            log::error!(
+                "[remote-workers] quarantined record {}[{}] in {}: {}; source left unchanged",
+                orchestrator_tab,
+                index,
+                path.display(),
+                error
+            );
+            return None;
+        }
+    };
+    match serde_json::from_value(record) {
+        Ok(worker) => {
+            if normalized {
+                log::warn!(
+                    "[remote-workers] normalized remote_pane in record {}[{}] from {}; source left unchanged",
+                    orchestrator_tab,
+                    index,
+                    path.display()
+                );
+            }
+            Some(worker)
+        }
+        Err(error) => {
+            log::error!(
+                "[remote-workers] quarantined record {}[{}] in {}: {}; source left unchanged",
+                orchestrator_tab,
+                index,
+                path.display(),
+                error
+            );
+            None
+        }
+    }
+}
+
+fn normalize_worker_record(record: &mut serde_json::Value) -> Result<bool, String> {
+    let Some(object) = record.as_object_mut() else {
+        return Err("record is not an object".into());
+    };
+    let Some(legacy_value) = object.get("remote_pane").cloned() else {
+        return Ok(false);
+    };
+    if let Some(current_value) = object.get("remote_tab") {
+        if current_value != &legacy_value {
+            return Err("ambiguous fields remote_pane and remote_tab".into());
+        }
+    } else {
+        object.insert("remote_tab".into(), legacy_value);
+    }
+    object.remove("remote_pane");
+    Ok(true)
 }
 
 pub type RemoteWorkerRegistryHandle = Arc<RemoteWorkerRegistry>;
@@ -310,11 +420,11 @@ mod tests {
             2,
             "active remote workers survive restart without a new report"
         );
-        let canvas = list.iter().find(|w| w.remote_pane == "w1").unwrap();
+        let canvas = list.iter().find(|w| w.remote_tab == "w1").unwrap();
         assert_eq!(canvas.peer, "eight");
         assert_eq!(canvas.status, "working");
         assert_eq!(canvas.model.as_deref(), Some("opus"));
-        let renderer = list.iter().find(|w| w.remote_pane == "w2").unwrap();
+        let renderer = list.iter().find(|w| w.remote_tab == "w2").unwrap();
         assert_eq!(renderer.status, "working");
     }
 
@@ -340,33 +450,29 @@ mod tests {
         let reloaded = RemoteWorkerRegistry::load(path);
         let list = reloaded.for_orchestrator("orch");
         assert_eq!(list.len(), 1, "stale ghost evicted on rehydrate");
-        assert_eq!(list[0].remote_pane, "fresh");
+        assert_eq!(list[0].remote_tab, "fresh");
     }
 
     #[test]
-    fn load_removes_completed_entries_from_persisted_snapshot() {
+    fn load_removes_completed_entries_in_memory_without_rewriting_the_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("remote_workers.json");
         let completed = RemoteWorker {
             peer: "eight".into(),
-            remote_pane: "done".into(),
+            remote_tab: "done".into(),
             title: "Done".into(),
             model: None,
             status: "done".into(),
             last_message: "STATUS: done".into(),
             last_seen_ms: now_ms_epoch(),
         };
-        std::fs::write(
-            &path,
-            serde_json::to_string(&HashMap::from([("orch".to_string(), vec![completed])])).unwrap(),
-        )
-        .unwrap();
+        let fixture =
+            serde_json::to_string(&HashMap::from([("orch".to_string(), vec![completed])])).unwrap();
+        std::fs::write(&path, &fixture).unwrap();
 
         let registry = RemoteWorkerRegistry::load(path.clone());
         assert!(registry.for_orchestrator("orch").is_empty());
-        let persisted: HashMap<String, Vec<RemoteWorker>> =
-            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        assert!(persisted.is_empty());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
     }
 
     #[test]
@@ -444,15 +550,15 @@ mod tests {
         reg.record_report("orch", "eight", "w2", "Worker-2", None, "working", 15);
 
         let list = reg.for_orchestrator("orch");
-        assert_eq!(list.len(), 2, "two distinct remote panes");
+        assert_eq!(list.len(), 2, "two distinct remote Tabs");
         // Newest activity first.
-        assert_eq!(list[0].remote_pane, "w1");
+        assert_eq!(list[0].remote_tab, "w1");
         assert_eq!(
             list[0].status, "partial",
             "same worker upserts, not duplicates"
         );
         assert_eq!(list[0].model.as_deref(), Some("opus"));
-        assert_eq!(list[1].remote_pane, "w2");
+        assert_eq!(list[1].remote_tab, "w2");
     }
 
     #[test]
@@ -476,7 +582,7 @@ mod tests {
         reg.record_spawn("orch", "eight", "w1", "Canvas", Some("opus".into()), 100);
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].remote_pane, "w1");
+        assert_eq!(list[0].remote_tab, "w1");
         assert_eq!(list[0].status, "working");
         assert_eq!(list[0].model.as_deref(), Some("opus"));
 
@@ -496,7 +602,7 @@ mod tests {
             "completed workers leave the active registry"
         );
 
-        // A later spawn represents a fresh worker lifecycle for the pane id.
+        // A later spawn represents a fresh worker lifecycle for the tab id.
         reg.record_spawn("orch", "eight", "w1", "Canvas", None, 300);
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 1);
@@ -512,25 +618,25 @@ mod tests {
     }
 
     #[test]
-    fn forget_by_remote_pane_removes_ghost_and_empty_bucket() {
+    fn forget_by_remote_tab_removes_ghost_and_empty_bucket() {
         let reg = RemoteWorkerRegistry::new();
         reg.record_spawn("orch", "rollacode-bot", "6d2e36b4", "Main", None, 100);
         reg.record_spawn("orch", "rollacode-bot", "aaaa1111", "Other", None, 101);
 
-        let touched = reg.forget_by_remote_pane("6d2e36b4", None, None);
+        let touched = reg.forget_by_remote_tab("6d2e36b4", None, None);
         assert_eq!(touched, vec!["orch".to_string()]);
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].remote_pane, "aaaa1111");
+        assert_eq!(list[0].remote_tab, "aaaa1111");
     }
 
     #[test]
-    fn forget_by_remote_pane_respects_peer_filter() {
+    fn forget_by_remote_tab_respects_peer_filter() {
         let reg = RemoteWorkerRegistry::new();
         reg.record_spawn("orch", "peer-a", "w1", "A", None, 1);
         reg.record_spawn("orch", "peer-b", "w1", "B", None, 2);
 
-        let touched = reg.forget_by_remote_pane("w1", Some("peer-a"), None);
+        let touched = reg.forget_by_remote_tab("w1", Some("peer-a"), None);
         assert_eq!(touched, vec!["orch".to_string()]);
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 1);
@@ -538,22 +644,22 @@ mod tests {
     }
 
     #[test]
-    fn forget_by_remote_pane_scopes_to_one_orchestrator() {
+    fn forget_by_remote_tab_scopes_to_one_orchestrator() {
         let reg = RemoteWorkerRegistry::new();
         reg.record_spawn("orch-a", "peer", "w1", "W", None, 1);
         reg.record_spawn("orch-b", "peer", "w1", "W", None, 2);
 
-        let touched = reg.forget_by_remote_pane("w1", None, Some("orch-a"));
+        let touched = reg.forget_by_remote_tab("w1", None, Some("orch-a"));
         assert_eq!(touched, vec!["orch-a".to_string()]);
         assert!(reg.for_orchestrator("orch-a").is_empty());
         assert_eq!(reg.for_orchestrator("orch-b").len(), 1);
     }
 
     #[test]
-    fn forget_by_remote_pane_no_match_returns_empty() {
+    fn forget_by_remote_tab_no_match_returns_empty() {
         let reg = RemoteWorkerRegistry::new();
         reg.record_spawn("orch", "peer", "w1", "W", None, 1);
-        assert!(reg.forget_by_remote_pane("missing", None, None).is_empty());
+        assert!(reg.forget_by_remote_tab("missing", None, None).is_empty());
         assert_eq!(reg.for_orchestrator("orch").len(), 1);
     }
 
@@ -565,5 +671,36 @@ mod tests {
         assert_eq!(reg.for_orchestrator("orch-a").len(), 1);
         assert_eq!(reg.for_orchestrator("orch-b").len(), 1);
         assert!(reg.for_orchestrator("orch-c").is_empty());
+    }
+
+    #[test]
+    fn load_normalizes_pane_era_workers_and_isolates_malformed_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote_workers.json");
+        let fixture = serde_json::json!({
+            "orch-tab": [
+                {
+                    "peer": "peer-a",
+                    "remote_pane": "worker-tab",
+                    "title": "Worker",
+                    "model": "model",
+                    "status": "working",
+                    "last_message": "still working",
+                    "last_seen_ms": now_ms_epoch()
+                },
+                {
+                    "remote_pane": ["invalid"],
+                    "status": "working"
+                }
+            ]
+        })
+        .to_string();
+        std::fs::write(&path, &fixture).unwrap();
+
+        let registry = RemoteWorkerRegistry::load(path.clone());
+        let workers = registry.for_orchestrator("orch-tab");
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].remote_tab, "worker-tab");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
     }
 }

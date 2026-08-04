@@ -4,6 +4,7 @@
 #   ./build.sh dev       — dev mode (hot reload, incremental)
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
 #                          responds (handy for scripts/agents)
+#   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
@@ -11,7 +12,7 @@
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
-#   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
+#   ./build.sh cli       — build CLI and install to the active dev data directory
 #                          without waiting for the app/dev build gateway
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
@@ -145,7 +146,7 @@ wait_for_dev_exit() {
 
 CMD="${1:-dev}"
 case "$CMD" in
-  gateway-*) ;;
+  gateway-*|help) ;;
   *) setup_env ;;
 esac
 
@@ -158,7 +159,7 @@ CT_PORT="${CODETERM_API_PORT:-7686}"
 CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 case "$CMD" in
-  dev|kill|e2e|e2e:llm)
+  dev|dev-prebuilt|kill|e2e|e2e:llm)
     if [ "$CT_PORT" = "7685" ]; then
       if [ -n "$CT_INSTANCE" ]; then
         echo "ERROR: refusing to run $CMD against prod port 7685 (CODETERM_INSTANCE=$CT_INSTANCE)." >&2
@@ -194,7 +195,7 @@ export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
 export CODETERM_CDP_PORT="$CT_CDP_PORT"
 
 CT_DEV_WAIT=0
-if [ "$CMD" = "dev" ]; then
+if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   for arg in "${@:2}"; do
     case "$arg" in
       --wait|--wait-build) CT_DEV_WAIT=1 ;;
@@ -204,6 +205,17 @@ if [ "$CMD" = "dev" ]; then
         ;;
     esac
   done
+else
+  BUILD_ARGS=()
+  for arg in "${@:2}"; do
+    if [ "$arg" = "--wait-build" ]; then
+      export CODETERM_BUILD_GATEWAY_MODE=queue
+    else
+      BUILD_ARGS+=("$arg")
+    fi
+  done
+  set -- "$CMD" "${BUILD_ARGS[@]}"
+  export CODETERM_BUILD_GATEWAY_MODE="${CODETERM_BUILD_GATEWAY_MODE:-fail-fast}"
 fi
 
 named_dev_target_dir() {
@@ -240,8 +252,11 @@ if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
   exit 0
 fi
 
-# Wire .githooks as the hooks directory
-git config core.hooksPath .githooks 2>/dev/null || true
+# A cold prebuilt refusal must be read-only; every other command keeps the
+# existing hook setup behavior.
+if [ "$CMD" != "dev-prebuilt" ]; then
+  git config core.hooksPath .githooks 2>/dev/null || true
+fi
 
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
@@ -256,7 +271,7 @@ if [ -n "${CT_BUILD_GATEWAY_SCOPE:-}" ]; then
   exit 2
 fi
 case "$CMD" in
-  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe)
+  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe)
     [ -z "${CODETERM_BUILD_GATEWAY_FIXTURE_DIR:-}" ] || ct_gateway_set_fixture_dir "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR"
     ;;
   *)
@@ -267,12 +282,200 @@ case "$CMD" in
     ;;
 esac
 
+CT_BUILD_GATEWAY_LOGGING_FAILURE=74
+
+finish_build_gateway_logging() {
+  local reader_status=0
+  exec 1>&3 2>&4
+  if [ -n "${CT_BUILD_GATEWAY_LOG_READER_STATUS:-}" ]; then
+    reader_status="$CT_BUILD_GATEWAY_LOG_READER_STATUS"
+  elif wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
+    reader_status=0
+  else
+    reader_status=$?
+  fi
+  exec 3>&- 4>&-
+  return "$reader_status"
+}
+
+build_gateway_logging_on_exit() {
+  local captured_status="$?" command_status="" command_status_text=UNKNOWN
+  local summary_status reader_status finish_status
+  trap - EXIT INT TERM
+  set +e
+  if [ "${CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN:-0}" = "1" ] && [ "${CT_GATEWAY_CANCELLED:-0}" != "1" ]; then
+    command_status="$captured_status"
+    command_status_text="$captured_status"
+  fi
+  printf 'Build gateway job %s exit: %s\n' "$CT_BUILD_JOB_ID" "$command_status_text"
+  summary_status=$?
+  finish_build_gateway_logging
+  reader_status=$?
+  if [ "$summary_status" -ne 0 ] || [ "$reader_status" -ne 0 ]; then
+    printf 'ERROR: build gateway logging path broke (exit %s); command exit was %s; log: %s\n' \
+      "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status_text" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+    ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" logging_failed
+    finish_status=$?
+    [ "$finish_status" -eq 0 ] || exit "$finish_status"
+    exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  ct_gateway_finish "$captured_status" "$command_status"
+  finish_status=$?
+  [ "$finish_status" -eq 0 ] || exit "$finish_status"
+  exit "$captured_status"
+}
+
+break_build_gateway_log_reader() {
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] || return 2
+  kill -TERM "$CT_BUILD_GATEWAY_LOG_READER_PID"
+  if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
+    CT_BUILD_GATEWAY_LOG_READER_STATUS=0
+  else
+    CT_BUILD_GATEWAY_LOG_READER_STATUS=$?
+  fi
+  return 0
+}
+
+run_build_gateway_log_reader() {
+  if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
+    printf 'ERROR: injected build gateway log open failure: %s\n' "$1" >&2
+    return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  exec tee -a "$1"
+}
+
 enter_build_gateway() {
   ct_gateway_acquire "$*"
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
-  exec > >(tee -a "$gateway_log") 2>&1
+  if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
+    echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
+    return
+  fi
+  exec 3>&1 4>&2
+  trap '' PIPE
+  unset CT_BUILD_GATEWAY_LOG_READER_STATUS
+  exec > >(run_build_gateway_log_reader "$gateway_log" >&3) 2>&1
+  CT_BUILD_GATEWAY_LOG_READER_PID=$!
+  CT_BUILD_GATEWAY_LOG_PATH="$gateway_log"
+  CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=0
+  trap 'build_gateway_logging_on_exit' EXIT
+  if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
+    if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
+      CT_BUILD_GATEWAY_LOG_READER_STATUS=0
+    else
+      CT_BUILD_GATEWAY_LOG_READER_STATUS=$?
+    fi
+    exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=1
+}
+
+check_build_gateway_logging() {
+  local root success_log reader_success_status reader_failure_status open_status killed_status
+  root="$(mktemp -d "${TMPDIR:-/tmp}/codeterm-gateway-logging.XXXXXX")"
+  CT_BUILD_GATEWAY_CHECK_ROOT="$root"
+  trap 'rm -rf -- "$CT_BUILD_GATEWAY_CHECK_ROOT"' EXIT
+  CT_BUILD_JOB_ID=healthy CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-log-probe success \
+    > "$root/success.console" 2>&1
+  success_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/success.console" | head -1 | tr -d '\r')"
+  grep -q '^MARKER_LAST$' "$root/success.console" || {
+    echo "build gateway logging regression: console lost the final marker" >&2
+    return 1
+  }
+  grep -q '^MARKER_LAST$' "$success_log" || {
+    echo "build gateway logging regression: gateway log lost the final marker" >&2
+    return 1
+  }
+  echo "success: final marker reached console and gateway log"
+  if CT_BUILD_JOB_ID=reader-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe reader-failure-success > "$root/reader-success.console" 2>&1; then
+    reader_success_status=0
+  else
+    reader_success_status=$?
+  fi
+  [ "$reader_success_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: reader failure after success exited $reader_success_status" >&2
+    return 1
+  }
+  grep -q 'build gateway logging path broke.*command exit was 0' "$root/reader-success.console" || {
+    echo "build gateway logging regression: reader failure was misclassified" >&2
+    return 1
+  }
+  if CT_BUILD_JOB_ID=reader-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe reader-failure-command-fail > "$root/reader-failure.console" 2>&1; then
+    reader_failure_status=0
+  else
+    reader_failure_status=$?
+  fi
+  [ "$reader_failure_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: reader failure after command failure exited $reader_failure_status" >&2
+    return 1
+  }
+  grep -q 'build gateway logging path broke.*command exit was 101' "$root/reader-failure.console" || {
+    echo "build gateway logging regression: failed command status was not reported" >&2
+    return 1
+  }
+  echo "reader failures: exit 74 preserved command exits 0 and 101"
+  if CT_BUILD_JOB_ID=open-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe open-failure \
+      > "$root/open.console" 2>&1; then
+    open_status=0
+  else
+    open_status=$?
+  fi
+  [ "$open_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+    echo "build gateway logging regression: open failure exited $open_status" >&2
+    return 1
+  }
+  grep -q 'build gateway logging path broke' "$root/open.console" || {
+    echo "build gateway logging regression: open failure was misclassified" >&2
+    return 1
+  }
+  grep -q 'command exit was UNKNOWN' "$root/open.console" || {
+    echo "build gateway logging regression: open failure invented a command status" >&2
+    return 1
+  }
+  if CT_BUILD_JOB_ID=command-killed CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+      ./build.sh gateway-log-probe command-killed > "$root/killed.console" 2>&1; then
+    killed_status=0
+  else
+    killed_status=$?
+  fi
+  [ "$killed_status" -eq 130 ] || {
+    echo "build gateway logging regression: killed command exited $killed_status" >&2
+    return 1
+  }
+  grep -q 'Build gateway job command-killed exit: UNKNOWN' "$root/killed.console" || {
+    echo "build gateway logging regression: killed command invented a command status" >&2
+    return 1
+  }
+  CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-status > "$root/status.json"
+  node - "$root/status.json" <<'JS'
+const status = require(process.argv[2]);
+const jobs = Object.fromEntries(status.recent.map((job) => [job.job_id, job]));
+const expected = {
+  healthy: ["success", 0, 0],
+  "reader-success": ["logging_failed", 74, 0],
+  "reader-failure": ["logging_failed", 74, 101],
+  "open-failure": ["logging_failed", 74, null],
+  "command-killed": ["cancelled", 130, null],
+};
+for (const [id, values] of Object.entries(expected)) {
+  const job = jobs[id];
+  if (!job) throw new Error(`gateway status omitted ${id}`);
+  const actual = [job.outcome, job.exit_code, job.command_exit_code];
+  if (JSON.stringify(actual) !== JSON.stringify(values)) {
+    throw new Error(`${id} recorded ${JSON.stringify(actual)}, expected ${JSON.stringify(values)}`);
+  }
+}
+JS
+  echo "job records: gateway outcome and command exit are independently recoverable"
+  rm -rf -- "$root"
+  trap - EXIT
+  unset CT_BUILD_GATEWAY_CHECK_ROOT
+  echo "build gateway logging regression: PASS"
 }
 
 prepare_exceptional_worktree_target() {
@@ -324,7 +527,7 @@ prepare_local_install_target() {
 }
 
 parse_local_install_continuation() {
-  LOCAL_INSTALL_CONTINUE_TAB="${CODETERM_PANE_ID:-}"
+  LOCAL_INSTALL_CONTINUE_TAB="${CODETERM_TAB_ID:-}"
   LOCAL_INSTALL_CONTINUE_PROMPT=""
   LOCAL_INSTALL_CONTINUE_ENABLED=1
 
@@ -336,7 +539,7 @@ parse_local_install_continuation() {
         shift 2
         ;;
       --continue-tab)
-        [ "$#" -ge 2 ] || { echo "ERROR: --continue-tab requires a pane id" >&2; exit 2; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --continue-tab requires a Tab id" >&2; exit 2; }
         LOCAL_INSTALL_CONTINUE_TAB="$2"
         shift 2
         ;;
@@ -359,7 +562,7 @@ parse_local_install_continuation() {
 
   if [ -z "$LOCAL_INSTALL_CONTINUE_TAB" ]; then
     if [ -n "$LOCAL_INSTALL_CONTINUE_PROMPT" ]; then
-      echo "ERROR: install-local continuation needs --continue-tab or CODETERM_PANE_ID" >&2
+      echo "ERROR: install-local continuation needs --continue-tab or CODETERM_TAB_ID" >&2
       exit 2
     fi
     LOCAL_INSTALL_CONTINUE_ENABLED=0
@@ -394,10 +597,8 @@ require_release_source() {
   fi
 }
 
-# Copy the freshly-built CLI into a target bin dir. Both prod (~/.codeterm/bin)
-# and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
-# resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
-# stale CLI that's missing recent subcommands.
+# Copy the freshly-built CLI into a target bin dir. Development commands install
+# only into their active dev data directory; production owns ~/.codeterm/bin.
 cli_release_dir() {
   local target_root="${CARGO_TARGET_DIR:-cli/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
@@ -405,6 +606,54 @@ cli_release_dir() {
   else
     echo "$target_root/release"
   fi
+}
+
+cli_release_binary() {
+  local release_dir
+  release_dir="$(cli_release_dir)"
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s/codeterm\n' "$release_dir"
+  else
+    printf '%s/codeterm.exe\n' "$release_dir"
+  fi
+}
+
+cli_file_sha256() {
+  local path="$1" output hash
+  if command -v sha256sum >/dev/null 2>&1; then
+    output="$(sha256sum -- "$path")" || return $?
+    hash="${output%% *}"
+  elif command -v shasum >/dev/null 2>&1; then
+    output="$(shasum -a 256 -- "$path")" || return $?
+    hash="${output%% *}"
+  elif command -v openssl >/dev/null 2>&1; then
+    output="$(openssl dgst -sha256 "$path")" || return $?
+    hash="${output##* }"
+  else
+    return 127
+  fi
+  if [ "${#hash}" -ne 64 ] || [[ "$hash" == *[!0-9a-fA-F]* ]]; then
+    return 1
+  fi
+  printf '%s\n' "$hash"
+}
+
+cli_file_sha256_or_status() {
+  local path="$1" hash
+  if [ ! -f "$path" ]; then
+    printf '<missing>\n'
+  elif hash="$(cli_file_sha256 "$path" 2>/dev/null)"; then
+    printf '%s\n' "$hash"
+  else
+    printf '<unavailable>\n'
+  fi
+}
+
+report_cli_install_failure() {
+  local reason="$1" source="$2" destination="$3" source_hash="$4" destination_hash="$5"
+  printf 'ERROR: CLI install failed: %s\n' "$reason" >&2
+  printf '  built artifact: %s\n  built SHA-256: %s\n' "$source" "$source_hash" >&2
+  printf '  installed path: %s\n  installed SHA-256: %s\n' "$destination" "$destination_hash" >&2
 }
 
 tauri_debug_dir() {
@@ -416,15 +665,140 @@ tauri_debug_dir() {
   fi
 }
 
+dev_app_path() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$(tauri_debug_dir)/codeterm"
+  else
+    printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
+  fi
+}
+
+dev_cli_path() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$CT_DATA_DIR/bin/codeterm"
+  else
+    printf '%s\n' "$CT_DATA_DIR/bin/codeterm.exe"
+  fi
+}
+
+dev_provenance_record() {
+  printf '%s\n' "$CT_DATA_DIR/dev-build-provenance.json"
+}
+
+write_dev_provenance() {
+  local build_sha="$1"
+  node scripts/dev-prep.mjs --write-provenance \
+    --record "$(dev_provenance_record)" \
+    --build-sha "$build_sha" \
+    --app "$(dev_app_path)" \
+    --cli "$(dev_cli_path)" \
+    --embed "$CT_DEV_EMBED_BUNDLE" \
+    --frontend "$(pwd -P)/dist" \
+    --instance "$CT_INSTANCE" \
+    --api-port "$CT_PORT" \
+    --vite-port "$CT_VITE_PORT" \
+    --cdp-port "$CT_CDP_PORT" \
+    --identifier "$CT_IDENTIFIER"
+}
+
+validate_dev_provenance() {
+  node scripts/dev-prep.mjs --check-provenance \
+    --record "$(dev_provenance_record)" \
+    --app "$(dev_app_path)" \
+    --cli "$(dev_cli_path)" \
+    --frontend "$(pwd -P)/dist" \
+    --instance "$CT_INSTANCE" \
+    --api-port "$CT_PORT" \
+    --vite-port "$CT_VITE_PORT" \
+    --cdp-port "$CT_CDP_PORT" \
+    --identifier "$CT_IDENTIFIER"
+}
+
+require_prebuilt_command() {
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "ERROR: prebuilt dev requires command '$command_name'" >&2
+    return 1
+  fi
+}
+
+preflight_dev_prebuilt_runtime() {
+  local command_name pnpm_command="${CODETERM_TEST_PREBUILT_PNPM_COMMAND:-pnpm}"
+  for command_name in node curl git sed head rm cat; do
+    require_prebuilt_command "$command_name" || return
+  done
+  require_prebuilt_command "$pnpm_command" || return
+  if ! "$pnpm_command" --version >/dev/null 2>&1; then
+    echo "ERROR: prebuilt dev cannot execute pnpm" >&2
+    return 1
+  fi
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    for command_name in nohup lsof pgrep xargs; do
+      require_prebuilt_command "$command_name" || return
+    done
+  else
+    for command_name in netstat taskkill grep awk; do
+      require_prebuilt_command "$command_name" || return
+    done
+    if ! command -v powershell.exe >/dev/null 2>&1 && ! command -v powershell >/dev/null 2>&1; then
+      echo "ERROR: prebuilt dev requires PowerShell for owned-process cleanup" >&2
+      return 1
+    fi
+  fi
+  node scripts/dev-prep.mjs --check-runtime \
+    --data-dir "$CT_DATA_DIR" \
+    --log "$PREBUILT_LOG"
+}
+
+cleanup_failed_prebuilt_launch() {
+  local status="$?"
+  trap - EXIT INT TERM
+  echo "ERROR: prebuilt dev launch failed; cleaning the owned dev processes." >&2
+  kill_dev || true
+  [ "$status" -ne 0 ] || status=1
+  exit "$status"
+}
+
 install_cli_to() {
   local bin_dir="$1"
-  local release_dir
-  release_dir="$(cli_release_dir)"
-  mkdir -p "$bin_dir"
+  local source="${2:-}" expected_hash="${3:-}" destination source_hash destination_hash
+  if [ -z "$source" ]; then
+    source="$(cli_release_binary)"
+  fi
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    cp "$release_dir/codeterm" "$bin_dir/codeterm"
+    destination="$bin_dir/codeterm"
   else
-    cp "$release_dir/codeterm.exe" "$bin_dir/codeterm.exe"
+    destination="$bin_dir/codeterm.exe"
+  fi
+
+  source_hash="$(cli_file_sha256_or_status "$source")"
+  if [ -z "$expected_hash" ]; then
+    expected_hash="$source_hash"
+  fi
+  if [ "$expected_hash" = "<missing>" ] || [ "$expected_hash" = "<unavailable>" ]; then
+    destination_hash="$(cli_file_sha256_or_status "$destination")"
+    report_cli_install_failure "built artifact cannot be hashed" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+  if [ "$source_hash" != "$expected_hash" ]; then
+    destination_hash="$(cli_file_sha256_or_status "$destination")"
+    report_cli_install_failure "built artifact changed before copy (current SHA-256: $source_hash)" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+  if ! mkdir -p "$bin_dir" || ! cp "$source" "$destination"; then
+    destination_hash="$(cli_file_sha256_or_status "$destination")"
+    report_cli_install_failure "copy did not succeed" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+
+  destination_hash="$(cli_file_sha256_or_status "$destination")"
+  if [ "$destination_hash" != "$expected_hash" ]; then
+    report_cli_install_failure "installed binary does not match the built artifact" \
+      "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
   fi
   echo "CLI installed to $bin_dir"
 }
@@ -443,6 +817,12 @@ write_cli_docs() {
 if [ "${CODETERM_TEST_PRINT_CLI_RELEASE_DIR:-}" = "1" ]; then
   cli_release_dir
   exit 0
+fi
+
+if [ -n "${CODETERM_TEST_INSTALL_CLI_TO:-}" ]; then
+  install_cli_to "$CODETERM_TEST_INSTALL_CLI_TO" "${CODETERM_TEST_INSTALL_CLI_SOURCE:-}" \
+    "${CODETERM_TEST_INSTALL_CLI_HASH:-}"
+  exit $?
 fi
 
 if [ "${CODETERM_TEST_PRINT_BUILD_CACHE_POLICY:-}" = "1" ]; then
@@ -475,15 +855,15 @@ dev_conf_path() {
 }
 
 ensure_real_embed_bundle() {
-  local host exe_ext embed_bundle embed_size
+  local host exe_ext embed_size
   host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
   exe_ext=""
   case "$OSTYPE" in msys*|cygwin*|win32) exe_ext=".exe" ;; esac
-  embed_bundle="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
+  CT_DEV_EMBED_BUNDLE="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
   prepare_bundle_stubs
   embed_size=0
-  if [ -f "$embed_bundle" ]; then
-    embed_size=$(stat -c %s "$embed_bundle" 2>/dev/null || stat -f %z "$embed_bundle" 2>/dev/null || echo 0)
+  if [ -f "$CT_DEV_EMBED_BUNDLE" ]; then
+    embed_size=$(stat -c %s "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || stat -f %z "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || echo 0)
   fi
   if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
     echo "Building codeterm-embed before dev (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})..."
@@ -804,6 +1184,26 @@ ensure_deps() {
 }
 
 case "$CMD" in
+  help)
+    cat <<'EOF'
+CodeTerm build commands
+
+  dev                         Start the visible shared dev instance
+  dev-prebuilt                Restart a validated dev build without Cargo
+  check                       Fast Rust compile check
+  worktree-check              Isolated lane-safe Rust compile check
+  test-one <app|pty|cli> NAME Run one focused capped Rust test
+  test                        Run the application Rust unit suite
+  verify                      Run check, tests, and source-size gate
+  qa-prep                     Prepare a worktree for QA
+  install-local               Build and install locally
+  build                       Build production artifacts
+  gateway-status              Show the machine build owner
+
+Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
+when blocking this terminal is intentional.
+EOF
+    ;;
   env)
     # Already loaded above. Use: source build.sh env
     ;;
@@ -843,6 +1243,29 @@ case "$CMD" in
       printf '%s end %s\n' "$fake_name" "$(node -p '(BigInt(Date.now()) * 1000000n).toString()')" >> "$CODETERM_GATEWAY_FAKE_EVENTS"
     fi
     [ "${4:-success}" != "fail" ] || exit 23
+    ;;
+  gateway-log-probe)
+    log_probe_mode="${2:-success}"
+    [ "$log_probe_mode" != "open-failure" ] || CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1
+    enter_build_gateway "$CMD $log_probe_mode"
+    printf 'MARKER_FIRST\n'
+    case "$log_probe_mode" in
+      reader-failure-success)
+        break_build_gateway_log_reader
+        exit 0
+        ;;
+      reader-failure-command-fail)
+        break_build_gateway_log_reader
+        exit 101
+        ;;
+      command-killed)
+        kill -TERM "$$"
+        ;;
+    esac
+    printf 'MARKER_LAST\n'
+    ;;
+  gateway-logging-check)
+    check_build_gateway_logging
     ;;
   gateway-policy-probe)
     case "${2:-}" in
@@ -891,8 +1314,26 @@ case "$CMD" in
     ct_configure_sccache
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ;;
-  worktree-check)
+  test-one)
+    test_scope="${2:?test-one requires app, pty, or cli}"
+    test_filter="${3:?test-one requires a test name or filter}"
+    case "$test_scope" in
+      app) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter" ;;
+      pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
+      cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
+      *) echo "Unknown test scope: $test_scope (expected app, pty, or cli)" >&2; exit 2 ;;
+    esac
+    ;;
+  verify)
     enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    ct_configure_sccache
+    cargo check --manifest-path src-tauri/Cargo.toml
+    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    bash scripts/check-file-sizes.sh --fail
+    ;;
+  worktree-check)
     prepare_exceptional_worktree_target
     prepare_bundle_stubs
     cargo check --manifest-path src-tauri/Cargo.toml "${@:2}"
@@ -956,13 +1397,20 @@ case "$CMD" in
       echo "ERROR: local installer missing after build: $INSTALLER" >&2
       exit 1
     fi
+    FRESH_CLI="src-tauri/bundled-cli/codeterm.exe"
+    if [ ! -x "$FRESH_CLI" ]; then
+      echo "ERROR: freshly bundled CLI missing after build: $FRESH_CLI" >&2
+      exit 1
+    fi
     echo "Local installer ready: $INSTALLER"
+    echo "Installer handoff CLI: $FRESH_CLI"
     INSTALL_ARGS=(update install --from-file "$(cygpath -w "$INSTALLER")")
     if [ "$LOCAL_INSTALL_CONTINUE_ENABLED" = "1" ]; then
       INSTALL_ARGS+=(--continue-prompt "$LOCAL_INSTALL_CONTINUE_PROMPT" --continue-tab "$LOCAL_INSTALL_CONTINUE_TAB")
-      echo "Post-install continuation: pane $LOCAL_INSTALL_CONTINUE_TAB"
+      echo "Post-install continuation: Tab $LOCAL_INSTALL_CONTINUE_TAB"
     else
-      echo "Post-install continuation: disabled (no calling CodeTerm pane)"
+      echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
+      INSTALL_ARGS+=(--no-continue)
     fi
     env \
       -u CODETERM_INSTANCE \
@@ -974,7 +1422,7 @@ case "$CMD" in
       -u CARGO_INCREMENTAL \
       -u RUSTC_WRAPPER \
       -u SCCACHE_BASEDIRS \
-      codeterm "${INSTALL_ARGS[@]}"
+      "$FRESH_CLI" "${INSTALL_ARGS[@]}"
     ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"
@@ -1008,9 +1456,10 @@ case "$CMD" in
     ct_configure_sccache
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
+    built_cli_artifact="$(cli_release_binary)"
+    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
     write_cli_docs
-    install_cli_to "$HOME/.codeterm/bin"
-    install_cli_to "$HOME/.codeterm-dev/bin"
+    install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     ;;
   clean)
     enter_build_gateway "$CMD ${*:2}"
@@ -1019,6 +1468,44 @@ case "$CMD" in
   kill)
     kill_dev
     echo "Done."
+    ;;
+  dev-prebuilt)
+    if [ -n "$CT_INSTANCE" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+      export CARGO_TARGET_DIR="$(named_dev_target_dir)"
+      export CODETERM_ALLOW_EXTERNAL_TARGET=1
+    fi
+    PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
+    if ! validate_dev_provenance; then
+      echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
+      echo "Run ./build.sh dev --wait to rebuild and record valid dev provenance." >&2
+      exit 2
+    fi
+    if ! preflight_dev_prebuilt_runtime; then
+      echo "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." >&2
+      echo "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance." >&2
+      exit 2
+    fi
+    kill_dev
+    trap cleanup_failed_prebuilt_launch EXIT INT TERM
+    export PATH="$CT_DATA_DIR/bin:$PATH"
+    export CODETERM_CLI_PATH="$(dev_cli_path)"
+    export CODETERM_DEV=1
+    export CODETERM_WEB_DIST="$(pwd -P)/dist"
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
+    start_web_watch
+    start_dev_static_server
+    if [ "$CT_DEV_WAIT" -eq 1 ]; then
+      node scripts/dev-prep.mjs --launch-prebuilt \
+        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
+      HEALTH="$(dev_health_status)"
+      EXPECTED_BUILD_SHA="$(git rev-parse HEAD)"
+      SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
+      echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+      trap - EXIT INT TERM
+    else
+      echo "Starting provenance-validated prebuilt dev..."
+      exec "$(dev_app_path)"
+    fi
     ;;
   dev)
     if named_dev_wait_isolated; then
@@ -1032,16 +1519,18 @@ case "$CMD" in
     ensure_deps
     ct_configure_sccache
     echo "Building CLI..."
+    touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
-    if [ -z "$CT_INSTANCE" ]; then
-      if ! install_cli_to "$HOME/.codeterm/bin"; then
-        echo "WARNING: shared CLI is in use; continuing with the isolated dev CLI install." >&2
-      fi
+    built_cli_artifact="$(cli_release_binary)"
+    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+    # Every dev instance gets its own CLI; production updates its bundled CLI.
+    install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
+    export PATH="$CT_DATA_DIR/bin:$PATH"
+    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+      export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm"
     else
-      echo "Skipping prod CLI install for named dev instance ($CT_INSTANCE)"
+      export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
-    # Named instance gets its own data-dir bin; canonical dev keeps ~/.codeterm-dev/bin.
-    install_cli_to "$CT_DATA_DIR/bin"
     ensure_real_embed_bundle
     echo "Starting dev..."
     # Mark the daemon as dev: bundle hashes are bypassed (live edits
@@ -1109,6 +1598,7 @@ case "$CMD" in
               sleep 2
               continue
             fi
+            write_dev_provenance "$SHA"
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
             # Named --wait startup never acquires the shared gateway, so it must
             # not claim its canonical lock after readiness.
@@ -1153,7 +1643,7 @@ case "$CMD" in
       if "$@"; then ta_record "$name" PASS; else ta_record "$name" FAIL; fi
     }
 
-    ta_run "rust-unit"  cargo test --manifest-path src-tauri/Cargo.toml --lib
+    ta_run "rust-unit"  scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "plugin"     pnpm -s test:plugins
 
@@ -1181,7 +1671,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|install-local [--continue-prompt TEXT] [--continue-tab ID] [--no-continue]|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
+    echo "Usage: ./build.sh help"
     exit 1
     ;;
 esac

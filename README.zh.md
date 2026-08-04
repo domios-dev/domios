@@ -35,7 +35,7 @@
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "下载": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
-     3. Rename the "内置浏览器" section to match English `### Canvas Panels` (the feature was renamed). -->
+     3. Rename the "内置浏览器" section to match English `### Canvas Tabls` (the feature was renamed). -->
 
 ---
 
@@ -170,15 +170,15 @@ CodeTerm 提供三种 API 用于集成：
 
 ```bash
 # 列出窗格
-curl http://localhost:7685/api/panes
+curl http://localhost:7685/api/tabs
 
 # 执行命令并获取输出
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # 发送文本到终端
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -190,10 +190,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # 在父窗格旁边的新窗格中启动 agent
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # 实时流式输出（SSE）
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### CLI 工具
@@ -206,7 +206,7 @@ codeterm workspace create "Project"
 # 终端控制
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # 通知
 codeterm notify "Build complete" --level info
@@ -222,7 +222,7 @@ CodeTerm 在每个 PTY 会话中设置以下变量：
 | 变量 | 描述 |
 |----------|-------------|
 | `CODETERM` | 始终为 `1` — 用于检测是否在 CodeTerm 内运行 |
-| `CODETERM_PANE_ID` | 当前窗格的 UUID |
+| `CODETERM_TAB_ID` | 当前窗格的 UUID |
 | `CODETERM_SOCKET_PATH` | JSON-RPC API 的套接字路径 |
 | `TERM_PROGRAM` | `CodeTerm` |
 

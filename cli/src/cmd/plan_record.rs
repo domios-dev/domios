@@ -33,7 +33,7 @@ fn implicit_key(plan_id: &str, seed: &Value) -> String {
     let mut hasher = DefaultHasher::new();
     plan_id.hash(&mut hasher);
     seed.to_string().hash(&mut hasher);
-    std::env::var("CODETERM_PANE_ID")
+    std::env::var("CODETERM_TAB_ID")
         .unwrap_or_default()
         .hash(&mut hasher);
     let minute = SystemTime::now()
@@ -139,9 +139,9 @@ pub fn record(
             "kind": kind,
             "text": text,
             "from": {
-                "pane_id": std::env::var("CODETERM_PANE_ID").ok(),
+                "tab_id": std::env::var("CODETERM_TAB_ID").ok(),
                 "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-                "title": std::env::var("CODETERM_PANE_TITLE").ok(),
+                "title": std::env::var("CODETERM_TAB_TITLE").ok(),
             },
         }));
     }
@@ -161,8 +161,8 @@ pub fn record(
         "key": stable_key,
         "ops": ops_value,
     });
-    if let Ok(pane_id) = std::env::var("CODETERM_PANE_ID") {
-        params["caller_pane_id"] = json!(pane_id);
+    if let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") {
+        params["caller_tab_id"] = json!(tab_id);
     }
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);

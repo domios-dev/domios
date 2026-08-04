@@ -10,6 +10,8 @@ pub enum PlanTaskAction {
             help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
+        #[arg(long, help = "Include paused, done, and cancelled tasks")]
+        all: bool,
     },
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
@@ -22,14 +24,32 @@ pub enum PlanTaskAction {
         sections: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why_file: Option<String>,
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
+        #[arg(
+            long = "external-ref",
+            value_name = "URL_OR_REPO#NUMBER",
+            help = "GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number"
+        )]
+        external_ref: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        qa_plan: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        qa_plan_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         correctness: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -69,7 +89,7 @@ pub enum PlanTaskAction {
         )]
         depends_on: Vec<String>,
         #[arg(long = "assign-tab", value_name = "TAB")]
-        assign_pane: Option<String>,
+        assign_tab: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
         #[arg(long)]
@@ -111,9 +131,17 @@ pub enum PlanTaskAction {
         kind: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Routing rationale; stored as model_rationale in task JSON."
+        )]
         why_file: Option<String>,
         #[arg(
             long,
@@ -154,8 +182,18 @@ pub enum PlanTaskAction {
         sections: Option<String>,
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
+        #[arg(
+            long = "external-ref",
+            value_name = "URL_OR_REPO#NUMBER",
+            help = "GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number"
+        )]
+        external_ref: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        qa_plan: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        qa_plan_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         correctness: Option<String>,
         #[arg(long)]
@@ -170,7 +208,7 @@ pub enum PlanTaskAction {
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
         #[arg(long)]
@@ -235,7 +273,7 @@ pub enum PlanTaskAction {
         plan_id: String,
         task_id: Option<String>,
         #[arg(long = "tab", value_name = "TAB")]
-        pane: String,
+        tab: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
     },
@@ -349,5 +387,26 @@ mod tests {
         assert!(help.contains("--depends-on"), "{help}");
         assert!(help.contains("full task id"), "{help}");
         assert!(help.contains("handle"), "{help}");
+    }
+
+    #[test]
+    fn task_add_and_update_help_name_model_rationale_storage() {
+        for subcommand in ["add", "update"] {
+            let help = depends_on_help(subcommand);
+            assert!(help.contains("model_rationale"), "{subcommand}: {help}");
+        }
+    }
+
+    #[test]
+    fn task_add_and_update_help_document_external_ref_forms() {
+        for subcommand in ["add", "update"] {
+            let help = depends_on_help(subcommand);
+            assert!(help.contains("--external-ref"), "{subcommand}: {help}");
+            assert!(help.contains("full issue URL"), "{subcommand}: {help}");
+            assert!(
+                help.contains("owner/repository#number"),
+                "{subcommand}: {help}"
+            );
+        }
     }
 }

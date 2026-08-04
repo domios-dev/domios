@@ -36,6 +36,14 @@ The art director judges rhythm, weight, clarity, personality, and composition. T
 - Check narrow and desktop layouts manually.
 - Keep Exploration honest; do not label an unresolved concept Accepted.
 
+## Reference lineage and production boundary
+
+The current components in `playground/src/ds` and their states in `playground/src/gallery` are the accepted reference lineage. Scratch concepts and gallery filmstrips are comparison evidence; they do not replace or contain that DS/gallery lineage.
+
+- Keep semantic roles, accessible names, pressed states, state coverage, create behavior, and the resolved `PlanStatusBreakdown` tally separator (` · `).
+- Adapt accepted motion, tokens, and component behavior to the production component's architecture and constraints.
+- Discard scratch scaffolding, filmstrip presentation, lab-only controls, and rejected variants. Production work is an adaptation, not a wholesale playground import.
+
 ## Sources
 
 - [Walt Disney Animation process](https://www.disneyanimation.com/process/animation/)
@@ -44,4 +52,4 @@ The art director judges rhythm, weight, clarity, personality, and composition. T
 - [Apple motion guidance](https://developer.apple.com/design/human-interface-guidelines/motion)
 - [W3C reduced-motion technique](https://www.w3.org/WAI/WCAG22/Techniques/css/C39)
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

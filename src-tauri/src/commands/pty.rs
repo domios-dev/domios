@@ -6,6 +6,31 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
+struct RestoredFreshLaunchInput {
+    params: crate::service::SpawnAgentParams,
+    launch_task: Option<String>,
+}
+
+fn restored_fresh_launch_input(
+    registry: &crate::agent::registry::AgentRegistry,
+    mut params: crate::service::SpawnAgentParams,
+) -> RestoredFreshLaunchInput {
+    params.task = None;
+    params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
+    let provider_id = params.agent.as_deref().expect("restored launch provider");
+    let launch_task = crate::service::provider_launch_task(
+        registry,
+        provider_id,
+        None,
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    );
+    RestoredFreshLaunchInput {
+        params,
+        launch_task,
+    }
+}
+
 #[tauri::command]
 pub async fn spawn_pty(
     config_state: tauri::State<'_, crate::config::ConfigState>,
@@ -15,7 +40,7 @@ pub async fn spawn_pty(
     cols: u16,
     rows: u16,
     predicted_id: Option<String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
 ) -> Result<String, String> {
     spawn_pty_core(
         &svc,
@@ -25,7 +50,7 @@ pub async fn spawn_pty(
         cols,
         rows,
         predicted_id,
-        pane_id,
+        tab_id,
     )
     .await
 }
@@ -39,20 +64,20 @@ pub async fn spawn_pty_core(
     cols: u16,
     rows: u16,
     predicted_id: Option<String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
 ) -> Result<String, String> {
-    let mut pty_claim = match pane_id.clone() {
+    let mut pty_claim = match tab_id.clone() {
         Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
         None => None,
     };
     let state = &svc.pty;
     let mux_state = &svc.mux;
     let screen_state = &svc.screen_state;
-    // Protected panes reuse their backend PTY; wait briefly to avoid duplicate launch.
-    if let Some(ref pid) = pane_id {
+    // Protected tabs reuse their backend PTY; wait briefly to avoid duplicate launch.
+    if let Some(ref pid) = tab_id {
         let (is_protected, existing) = {
             let m = mux_state.read();
-            let p = m.get_pane(pid);
+            let p = m.get_tab(pid);
             (
                 p.map(|p| p.protected).unwrap_or(false),
                 p.and_then(|p| p.pty_id.clone()),
@@ -63,16 +88,16 @@ pub async fn spawn_pty_core(
             let alive = state.lock().get_session(&existing).is_some();
             if alive {
                 let selected = svc.link_pty_with_claim(
-                    pty_claim.as_ref().expect("pane claim"),
+                    pty_claim.as_ref().expect("Tab claim"),
                     pid,
                     existing,
                     false,
                 );
                 if !selected.linked {
-                    return Err(format!("Pane {} closed before PTY link", pid));
+                    return Err(format!("Tab {} closed before PTY link", pid));
                 }
                 log::info!(
-                    "[spawn_pty] pane {} already has live pty {} — reusing",
+                    "[spawn_pty] Tab {} already has live pty {} — reusing",
                     pid,
                     selected.pty_id,
                 );
@@ -82,17 +107,17 @@ pub async fn spawn_pty_core(
         if is_protected {
             drop(pty_claim.take());
             let svc_wait = svc.clone();
-            let pane_wait = pid.clone();
+            let tab_wait = pid.clone();
             let relinked = tokio::task::spawn_blocking(move || {
-                svc_wait.await_pty_link_blocking(&pane_wait, std::time::Duration::from_secs(5))
+                svc_wait.await_pty_link_blocking(&tab_wait, std::time::Duration::from_secs(5))
             })
             .await
-            .map_err(|error| format!("protected pane relink waiter failed: {error}"))?;
+            .map_err(|error| format!("protected Tab relink waiter failed: {error}"))?;
             if let Ok(existing) = relinked {
                 return Ok(existing);
             }
             log::warn!(
-                "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
+                "[spawn_pty] protected Tab {} still has no backend pty after 5s — falling through",
                 pid,
             );
             pty_claim = Some(svc.pty_ownership.acquire_async(pid.clone()).await?);
@@ -100,9 +125,9 @@ pub async fn spawn_pty_core(
     }
 
     let mut env_vars: HashMap<String, String> = HashMap::new();
-    if let Some(ref pid) = pane_id {
-        env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
-        // Binding nonce so the agent's session_start hook can claim this pane (parity with pane_env).
+    if let Some(ref pid) = tab_id {
+        env_vars.insert("CODETERM_TAB_ID".to_string(), pid.clone());
+        // Binding nonce so the agent's session_start hook can claim this tab (parity with tab_env).
         env_vars.insert(
             "CODETERM_SESSION_BINDING_NONCE".to_string(),
             svc.ensure_session_binding_nonce(pid),
@@ -113,14 +138,14 @@ pub async fn spawn_pty_core(
             svc.ensure_shell_integration_nonce(pid),
         );
         let mux = mux_state.read();
-        if let Some(pane) = mux.get_pane(pid) {
-            if let Some(ref role) = pane.role {
+        if let Some(tab) = mux.get_tab(pid) {
+            if let Some(ref role) = tab.role {
                 env_vars.insert("CODETERM_ROLE".to_string(), format!("{:?}", role));
             }
-            if let Some(ref parent) = pane.parent_pane_id {
-                env_vars.insert("CODETERM_PARENT_PANE_ID".to_string(), parent.clone());
+            if let Some(ref parent) = tab.parent_tab_id {
+                env_vars.insert("CODETERM_PARENT_TAB_ID".to_string(), parent.clone());
             }
-            if let Some(ref wid) = pane.worker_id {
+            if let Some(ref wid) = tab.worker_id {
                 env_vars.insert("CODETERM_WORKER_ID".to_string(), wid.clone());
             }
         }
@@ -136,7 +161,7 @@ pub async fn spawn_pty_core(
     );
     // URL/port/token for REST callbacks — derived strictly from this instance's
     // config, never inherited process env. Setting CODETERM_API_URL explicitly is
-    // what stops a prod-inherited URL (7685) from leaking into the pane and 401ing
+    // what stops a prod-inherited URL (7685) from leaking into the tab and 401ing
     // this instance's bearer against prod.
     let api_cfg = config_state.lock().api.clone();
     let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
@@ -161,11 +186,11 @@ pub async fn spawn_pty_core(
     svc.screen_state.lock().resize(&pty_id, cols, rows);
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
-    let reader_pty_id = if let Some(ref pid) = pane_id {
+    let reader_pty_id = if let Some(ref pid) = tab_id {
         let selected =
-            svc.link_pty_with_claim(pty_claim.as_ref().expect("pane claim"), pid, pty_id, false);
+            svc.link_pty_with_claim(pty_claim.as_ref().expect("Tab claim"), pid, pty_id, false);
         if !selected.linked {
-            return Err(format!("Pane {} closed before PTY link", pid));
+            return Err(format!("Tab {} closed before PTY link", pid));
         }
         let reader_pty_id = selected.reader_pty_id().map(str::to_string);
         pty_id = selected.pty_id;
@@ -185,15 +210,17 @@ pub async fn spawn_pty_core(
         }
     }
 
-    // Auto-resume pane session after shell is ready.
-    if let Some(ref pid) = pane_id {
+    // Auto-resume tab session after shell is ready.
+    if let Some(ref pid) = tab_id {
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
         let session_id = restore.session_id;
-        let pane_cwd = restore.cwd;
+        let tab_cwd = restore.cwd;
         let agent_type = restore.provider_id;
-        let pane_model = restore.model;
+        let tab_model = restore.model;
+        let tab_role = restore.role;
+        let tab_role_profile = restore.role_profile;
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
@@ -203,7 +230,7 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type;
 
             // Clear stale id if session is gone to avoid resume loop.
-            let session_valid = pane_cwd
+            let session_valid = tab_cwd
                 .as_deref()
                 .map(|cwd| {
                     svc.agent_registry
@@ -214,27 +241,27 @@ pub async fn spawn_pty_core(
 
             if !session_valid {
                 log::info!(
-                    "[resume] session {} for pane {} has no backing file under {:?} — clearing, will try fresh launch",
-                    session_id, pid, pane_cwd
+                    "[resume] session {} for Tab {} has no backing file under {:?} — clearing, will try fresh launch",
+                    session_id, pid, tab_cwd
                 );
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
             } else {
-                svc.set_and_lock_pane_agent_type(pid, provider_id.clone());
+                svc.set_and_lock_tab_agent_type(pid, provider_id.clone());
                 svc.emit_state_changed();
 
                 // Build resume command from provider and global fallback config.
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
-                // The global "resume with --dangerously-skip-permissions" toggle is the user's explicit intent for restored agents; per-pane auto_approve is unreliable across spawn paths, so do NOT gate on it.
+                // The global "resume with --dangerously-skip-permissions" toggle is the user's explicit intent for restored agents; per-tab auto_approve is unreliable across spawn paths, so do NOT gate on it.
                 let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
                         let base = p.build_resume_command(&session_id, skip_perms)?;
-                        // Preserve the pane's model across restart — bare resume otherwise drops it to the provider default.
-                        match pane_model.as_deref().filter(|m| !m.trim().is_empty()) {
+                        // Preserve the tab's model across restart — bare resume otherwise drops it to the provider default.
+                        match tab_model.as_deref().filter(|m| !m.trim().is_empty()) {
                             Some(m) => {
                                 let margs = p.model_launch_args(m);
                                 Some(if margs.is_empty() {
@@ -253,18 +280,18 @@ pub async fn spawn_pty_core(
                     let pty_id_for_launch = pty_id.clone();
                     let screen_state_clone = screen_state.clone();
                     let svc_for_launch = svc.clone();
-                    let pane_id_for_boot = pid.clone();
+                    let tab_id_for_boot = pid.clone();
                     let provider_for_ready = provider_id.clone();
                     tokio::spawn(async move {
                         if !resume_enabled {
-                            if let Some(pane) =
-                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            if let Some(tab) =
+                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                             {
-                                pane.agent_booting = false;
+                                tab.agent_booting = false;
                             }
-                            svc_for_launch.clear_pane_restored_flag(&pane_id_for_boot);
+                            svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                             svc_for_launch.emit_boot_stage(
-                                &pane_id_for_boot,
+                                &tab_id_for_boot,
                                 BootStage::AgentReady,
                                 None,
                             );
@@ -281,13 +308,13 @@ pub async fn spawn_pty_core(
                         .await
                         .unwrap_or(false);
                         if !shell_ready {
-                            if let Some(pane) =
-                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            if let Some(tab) =
+                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                             {
-                                pane.agent_booting = false;
+                                tab.agent_booting = false;
                             }
                             svc_for_launch.emit_boot_stage(
-                                &pane_id_for_boot,
+                                &tab_id_for_boot,
                                 BootStage::SpawnFailed,
                                 Some("shell did not become ready for session resume"),
                             );
@@ -296,12 +323,12 @@ pub async fn spawn_pty_core(
 
                         log::info!("[resume] sending: {}", cmd);
                         svc_for_launch.emit_boot_stage(
-                            &pane_id_for_boot,
+                            &tab_id_for_boot,
                             BootStage::ShellReady,
                             None,
                         );
                         svc_for_launch.emit_boot_stage(
-                            &pane_id_for_boot,
+                            &tab_id_for_boot,
                             BootStage::AgentLaunching,
                             None,
                         );
@@ -318,52 +345,52 @@ pub async fn spawn_pty_core(
                         .await;
                         match launch_result {
                             Ok(Ok(true)) => {
-                                if let Some(pane) =
-                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                if let Some(tab) =
+                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                                 {
-                                    pane.agent_booting = false;
+                                    tab.agent_booting = false;
                                 }
-                                svc_for_launch.clear_pane_restored_flag(&pane_id_for_boot);
+                                svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                                 svc_for_launch.emit_boot_stage(
-                                    &pane_id_for_boot,
+                                    &tab_id_for_boot,
                                     BootStage::AgentReady,
                                     None,
                                 );
                             }
                             Ok(Ok(false)) => {
-                                if let Some(pane) =
-                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                if let Some(tab) =
+                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                                 {
-                                    pane.agent_booting = false;
+                                    tab.agent_booting = false;
                                 }
                                 svc_for_launch.emit_boot_stage(
-                                    &pane_id_for_boot,
+                                    &tab_id_for_boot,
                                     BootStage::SpawnFailed,
                                     Some("provider TUI did not become ready after session resume"),
                                 );
                             }
                             Ok(Err(e)) => {
                                 log::error!("[resume] launch write failed: {}", e);
-                                if let Some(pane) =
-                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                if let Some(tab) =
+                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                                 {
-                                    pane.agent_booting = false;
+                                    tab.agent_booting = false;
                                 }
                                 svc_for_launch.emit_boot_stage(
-                                    &pane_id_for_boot,
+                                    &tab_id_for_boot,
                                     BootStage::SpawnFailed,
                                     Some(&format!("resume launch write failed: {}", e)),
                                 );
                             }
                             Err(e) => {
                                 log::error!("[resume] launch task failed: {}", e);
-                                if let Some(pane) =
-                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                if let Some(tab) =
+                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                                 {
-                                    pane.agent_booting = false;
+                                    tab.agent_booting = false;
                                 }
                                 svc_for_launch.emit_boot_stage(
-                                    &pane_id_for_boot,
+                                    &tab_id_for_boot,
                                     BootStage::SpawnFailed,
                                     Some(&format!("resume launch task failed: {}", e)),
                                 );
@@ -373,7 +400,7 @@ pub async fn spawn_pty_core(
                     should_fresh_launch = false;
                 } else {
                     log::warn!(
-                        "[resume] provider {} has no resume command for pane {}; starting fresh",
+                        "[resume] provider {} has no resume command for Tab {}; starting fresh",
                         provider_id,
                         pid
                     );
@@ -385,31 +412,60 @@ pub async fn spawn_pty_core(
 
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
-            // Restored pane without session falls back to fresh launch.
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
-            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
-                let args = pane_model
-                    .as_deref()
-                    .filter(|m| !m.trim().is_empty())
-                    .map(|m| p.model_launch_args(m))
-                    .filter(|a| !a.is_empty());
-                crate::agent::stub_launch::apply(
+            let input = restored_fresh_launch_input(
+                &svc.agent_registry,
+                crate::service::SpawnAgentParams {
+                    agent: Some(provider_id.clone()),
+                    cwd: tab_cwd.clone(),
+                    skip_permissions: Some(skip_perms),
+                    model: tab_model.clone(),
+                    role: tab_role.clone(),
+                    role_profile: tab_role_profile.clone(),
+                    ..Default::default()
+                },
+            );
+            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |_| {
+                crate::service::build_agent_command(
                     &provider_id,
-                    p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
-                        skip_permissions: skip_perms,
-                        args,
-                        ..Default::default()
-                    }),
+                    &input.params,
+                    input.launch_task.as_deref(),
+                    None,
+                    &svc.agent_registry,
                 )
             });
             if let Some(cmd) = launch_cmd {
+                let prompt_delivery = svc
+                    .agent_registry
+                    .with_provider(&provider_id, |provider| {
+                        match provider.system_prompt_delivery() {
+                            crate::agent::provider::SystemPromptDelivery::CliFlag(_) => "cli_flag",
+                            crate::agent::provider::SystemPromptDelivery::SessionConfig => {
+                                "session_config"
+                            }
+                            crate::agent::provider::SystemPromptDelivery::External => {
+                                "confirmed_fallback"
+                            }
+                        }
+                    })
+                    .unwrap_or("unknown");
+                crate::service::launch_diagnostics::log_launch(
+                    crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+                    pid,
+                    &provider_id,
+                    &cmd,
+                    input.launch_task.as_deref(),
+                    tab_role.as_deref(),
+                    tab_role_profile.as_deref(),
+                    prompt_delivery,
+                );
                 let pty_id_for_poll = pty_id.clone();
                 let pty_id_for_launch = pty_id.clone();
                 let screen_state_clone = screen_state.clone();
                 let provider_label = provider_id.clone();
                 let svc_for_launch = svc.clone();
-                let pane_id_for_boot = pid.clone();
+                let tab_id_for_boot = pid.clone();
                 tokio::spawn(async move {
                     let shell_ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_bare_shell_prompt(
@@ -421,13 +477,12 @@ pub async fn spawn_pty_core(
                     .await
                     .unwrap_or(false);
                     if !shell_ready {
-                        if let Some(pane) =
-                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                        if let Some(tab) = svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                         {
-                            pane.agent_booting = false;
+                            tab.agent_booting = false;
                         }
                         svc_for_launch.emit_boot_stage(
-                            &pane_id_for_boot,
+                            &tab_id_for_boot,
                             BootStage::SpawnFailed,
                             Some("shell did not become ready for restored fresh launch"),
                         );
@@ -438,9 +493,9 @@ pub async fn spawn_pty_core(
                         provider_label,
                         cmd
                     );
-                    svc_for_launch.emit_boot_stage(&pane_id_for_boot, BootStage::ShellReady, None);
+                    svc_for_launch.emit_boot_stage(&tab_id_for_boot, BootStage::ShellReady, None);
                     svc_for_launch.emit_boot_stage(
-                        &pane_id_for_boot,
+                        &tab_id_for_boot,
                         BootStage::AgentLaunching,
                         None,
                     );
@@ -457,60 +512,60 @@ pub async fn spawn_pty_core(
                     .await;
                     match launch_result {
                         Ok(Ok(true)) => {
-                            if let Some(pane) =
-                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            if let Some(tab) =
+                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                             {
-                                pane.agent_booting = false;
+                                tab.agent_booting = false;
                             }
-                            svc_for_launch.clear_pane_restored_flag(&pane_id_for_boot);
+                            svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                             svc_for_launch.emit_boot_stage(
-                                &pane_id_for_boot,
+                                &tab_id_for_boot,
                                 BootStage::AgentReady,
                                 None,
                             );
                         }
                         Ok(Ok(false)) => {
-                            if let Some(pane) =
-                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            if let Some(tab) =
+                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                             {
-                                pane.agent_booting = false;
+                                tab.agent_booting = false;
                             }
                             svc_for_launch.emit_boot_stage(
-                                &pane_id_for_boot,
+                                &tab_id_for_boot,
                                 BootStage::SpawnFailed,
                                 Some("provider TUI did not become ready after fresh restore"),
                             );
                         }
                         Ok(Err(e)) => {
                             log::error!(
-                                "[restore-fresh] launch write failed for {} pane: {}",
+                                "[restore-fresh] launch write failed for {} tab: {}",
                                 provider_label,
                                 e
                             );
-                            if let Some(pane) =
-                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            if let Some(tab) =
+                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                             {
-                                pane.agent_booting = false;
+                                tab.agent_booting = false;
                             }
                             svc_for_launch.emit_boot_stage(
-                                &pane_id_for_boot,
+                                &tab_id_for_boot,
                                 BootStage::SpawnFailed,
                                 Some(&format!("restored fresh launch write failed: {}", e)),
                             );
                         }
                         Err(e) => {
                             log::error!(
-                                "[restore-fresh] launch task failed for {} pane: {}",
+                                "[restore-fresh] launch task failed for {} tab: {}",
                                 provider_label,
                                 e
                             );
-                            if let Some(pane) =
-                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            if let Some(tab) =
+                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                             {
-                                pane.agent_booting = false;
+                                tab.agent_booting = false;
                             }
                             svc_for_launch.emit_boot_stage(
-                                &pane_id_for_boot,
+                                &tab_id_for_boot,
                                 BootStage::SpawnFailed,
                                 Some(&format!("restored fresh launch task failed: {}", e)),
                             );
@@ -519,12 +574,12 @@ pub async fn spawn_pty_core(
                 });
             } else {
                 log::error!(
-                    "[restore-fresh] provider {} has no launch command for pane {}",
+                    "[restore-fresh] provider {} has no launch command for Tab {}",
                     provider_id,
                     pid
                 );
-                if let Some(pane) = svc.mux.write().get_pane_mut(pid) {
-                    pane.agent_booting = false;
+                if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
+                    tab.agent_booting = false;
                 }
                 svc.emit_boot_stage(
                     pid,
@@ -690,7 +745,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
 
             let (prev, now) =
                 svc.feed_pty_output_for_generation(&pty_id, session.generation, &data);
-            svc.emit_pane_status_if_changed(&pty_id, prev, now);
+            svc.emit_tab_status_if_changed(&pty_id, prev, now);
 
             Ok(data)
         }
@@ -701,19 +756,19 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 tracker.set_dead(&pty_id);
                 prev
             };
-            let pane_id = mux.write().pane_id_for_pty(&pty_id);
-            if let Some(ref pid) = pane_id {
-                let prev = svc.reconciled_pane_status_for_id(pid, raw_prev);
-                svc.emit_pane_status_if_changed(
+            let tab_id = mux.write().tab_id_for_pty(&pty_id);
+            if let Some(ref pid) = tab_id {
+                let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
+                svc.emit_tab_status_if_changed(
                     &pty_id,
                     prev,
-                    crate::agent::status::PaneStatus::Dead,
+                    crate::agent::status::TabStatus::Dead,
                 );
 
                 // Cron fallback marks failed if agent dies without cron completion.
                 use tauri::Manager;
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
-                    let owner = cron_state.lock().get_pane_owner(pid).cloned();
+                    let owner = cron_state.lock().get_tab_owner(pid).cloned();
                     if let Some((job_id, run_id)) = owner {
                         let mut fresh_transition = false;
                         {
@@ -731,7 +786,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                                     )
                                     .unwrap_or(false);
                             }
-                            store.unregister_pane(pid);
+                            store.unregister_tab(pid);
                         }
                         // Notify after the store guard drops — it re-locks internally.
                         if fresh_transition {
@@ -741,7 +796,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                                 &job_id,
                             );
                         }
-                        log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
+                        log::info!("Cron Tab exited: job={}, run={}", job_id, run_id);
                         crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
                     }
                 }
@@ -780,7 +835,11 @@ pub async fn write_pty_string(
         tokio::task::spawn_blocking(move || {
             let text_stripped = data.trim_end_matches('\r');
             let enter = text_stripped.len() != data.len();
-            svc.send_text_to_pty_smart(&pty_id, text_stripped, enter)
+            if enter {
+                svc.send_text_to_pty(&pty_id, text_stripped)
+            } else {
+                svc.insert_text_to_pty(&pty_id, text_stripped)
+            }
         })
         .await
         .map_err(|e| format!("send task failed: {e}"))?
@@ -866,13 +925,13 @@ fn mark_user_activity(
     pty_id: &str,
 ) {
     svc.user_last_activity.mark();
-    let pane_id = mux.read().pane_id_for_pty(pty_id);
-    if let Some(pid) = pane_id {
+    let tab_id = mux.read().tab_id_for_pty(pty_id);
+    if let Some(pid) = tab_id {
         svc.usage_activity.mark(&pid);
     }
 }
 
-/// Feed bytes to the input parser when the destination pane is not locked.
+/// Feed bytes to the input parser when the destination tab is not locked.
 /// On match, lock `agent_type` to the detected provider — user typed an explicit
 /// launch command, which is the highest-authority intent next to a real spawn.
 fn parse_pty_input(
@@ -881,28 +940,28 @@ fn parse_pty_input(
     pty_id: &str,
     bytes: &[u8],
 ) {
-    let (pane_id, locked) = {
+    let (tab_id, locked) = {
         let m = mux.read();
-        let pid = m.pane_id_for_pty(pty_id);
+        let pid = m.tab_id_for_pty(pty_id);
         let locked = pid
             .as_ref()
-            .and_then(|id| m.get_pane(id))
+            .and_then(|id| m.get_tab(id))
             .map(|p| p.agent_type_locked)
             .unwrap_or(false);
         (pid, locked)
     };
-    let Some(pane_id) = pane_id else { return };
+    let Some(tab_id) = tab_id else { return };
     if locked {
-        svc.input_parser.clear(&pane_id);
+        svc.input_parser.clear(&tab_id);
         return;
     }
-    if let Some(provider_id) = svc.input_parser.process(&pane_id, bytes) {
+    if let Some(provider_id) = svc.input_parser.process(&tab_id, bytes) {
         log::info!(
-            "[input-parser] detected '{}' launch in pane {} — locking agent_type",
+            "[input-parser] detected '{}' launch in Tab {} — locking agent_type",
             provider_id,
-            pane_id,
+            tab_id,
         );
-        svc.set_and_lock_pane_agent_type(&pane_id, provider_id);
+        svc.set_and_lock_tab_agent_type(&tab_id, provider_id);
         svc.emit_state_changed();
     }
 }
@@ -929,7 +988,7 @@ pub async fn resize_pty(
 pub async fn claim_resize_owner(
     resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
     events: tauri::State<'_, crate::api::events::EventBroadcasterState>,
-    pane_id: String,
+    tab_id: String,
     pty_id: String,
     client_id: String,
     cols: u16,
@@ -937,7 +996,7 @@ pub async fn claim_resize_owner(
     force: Option<bool>,
 ) -> Result<crate::resize_owner::ResizeOwner, String> {
     let owner = resize_owner.lock().claim(
-        pane_id,
+        tab_id,
         pty_id,
         client_id,
         cols,
@@ -981,13 +1040,13 @@ pub async fn kill_pty(
     // if it targets an already-owned PTY to avoid tearing GA down mid-launch.
     let owned_by_protected = {
         let mux = mux_state.read();
-        mux.pane_id_for_pty(&pty_id)
-            .and_then(|pid| mux.get_pane(&pid).map(|p| p.protected))
+        mux.tab_id_for_pty(&pty_id)
+            .and_then(|pid| mux.get_tab(&pid).map(|p| p.protected))
             .unwrap_or(false)
     };
     if owned_by_protected {
         log::info!(
-            "[kill_pty] {} is owned by a protected pane - ignoring frontend kill",
+            "[kill_pty] {} is owned by a protected Tab - ignoring frontend kill",
             pty_id,
         );
         return Ok(());
@@ -1066,5 +1125,46 @@ mod kill_pty_tests {
             "real-id",
             "wrapped PTY real-id not found"
         ));
+    }
+}
+
+#[cfg(test)]
+mod restored_fresh_launch_tests {
+    use super::restored_fresh_launch_input;
+
+    #[test]
+    fn restored_fresh_launch_preserves_worker_identity_without_starter_turn() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        for historical_task in [Some("historical assigned task"), None] {
+            let input = restored_fresh_launch_input(
+                &registry,
+                crate::service::SpawnAgentParams {
+                    agent: Some("fixture-provider".into()),
+                    cwd: Some("fixture-cwd".into()),
+                    model: Some("fixture-model".into()),
+                    role: Some("Worker".into()),
+                    role_profile: Some("fixture-profile".into()),
+                    task: historical_task.map(str::to_string),
+                    ..Default::default()
+                },
+            );
+            let identity = input.launch_task.as_deref().unwrap();
+
+            assert_eq!(input.params.task, None);
+            assert_eq!(input.params.role.as_deref(), Some("Worker"));
+            assert_eq!(
+                input.params.role_profile.as_deref(),
+                Some("fixture-profile")
+            );
+            assert_eq!(input.params.cwd.as_deref(), Some("fixture-cwd"));
+            assert_eq!(input.params.model.as_deref(), Some("fixture-model"));
+            assert_eq!(
+                input.params.starter_prompt,
+                crate::agent::provider::StarterPrompt::NoStarter
+            );
+            assert_eq!(identity.matches("You are a CodeTerm Worker.").count(), 1);
+            assert!(!identity.contains("## Assignment"));
+            assert!(!identity.contains("historical assigned task"));
+        }
     }
 }

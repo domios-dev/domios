@@ -13,7 +13,7 @@ The `codeterm` CLI **does not** read `CODETERM_API_URL` / `CODETERM_API_TOKEN`. 
 1. `CODETERM_SOCKET_PATH` env var — if it contains `codeterm-dev`, use dev (`~/.codeterm-dev/config.toml` → port 7686).
 2. Otherwise → **prod** (`~/.codeterm/config.toml` → port 7685).
 
-Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod CodeTerm** desktop daemon and spawn panes inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
+Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod CodeTerm** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
 
 **Always do dev testing via raw `curl` to `http://127.0.0.1:7686` with the dev token from `~/.codeterm-dev/config.toml`.** Use the `$API` / `$H` setup below — every command in this skill assumes them.
 
@@ -36,7 +36,7 @@ H="Authorization: Bearer $TOKEN"
 
 The GA tab is protected. Find it by the protected flag:
 ```bash
-GA=$(curl -s "$API/api/panes" -H "$H" | python3 -c "
+GA=$(curl -s "$API/api/tabs" -H "$H" | python3 -c "
 import json,sys
 for p in json.load(sys.stdin):
     if p.get('protected'): print(p['id']); break")
@@ -45,14 +45,14 @@ for p in json.load(sys.stdin):
 ## Send message to GA
 
 ```bash
-curl -s -X POST "$API/api/panes/$GA/send" -H "$H" -H "Content-Type: application/json" \
+curl -s -X POST "$API/api/tabs/$GA/send" -H "$H" -H "Content-Type: application/json" \
   -d '{"text": "your message here"}'
 ```
 
 ## Send /new to reset GA context
 
 ```bash
-curl -s -X POST "$API/api/panes/$GA/send" -H "$H" -H "Content-Type: application/json" \
+curl -s -X POST "$API/api/tabs/$GA/send" -H "$H" -H "Content-Type: application/json" \
   -d '{"text": "/new"}'
 sleep 5  # wait for new session
 ```
@@ -60,7 +60,7 @@ sleep 5  # wait for new session
 ## Read GA output (clean)
 
 ```bash
-curl -s "$API/api/panes/$GA/output?lines=30" -H "$H" | python3 -c "
+curl -s "$API/api/tabs/$GA/output?lines=30" -H "$H" | python3 -c "
 import json,sys,re
 text = json.load(sys.stdin).get('output','')
 clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
@@ -161,8 +161,8 @@ curl -s -X POST "$API/api/agents/spawn" -H "$H" -H "Content-Type: application/js
     "task": "Your task here. Use codeterm mem search to find memories.",
     "skip_permissions": true
   }'
-# Returns: {"pane_id": "xxx", "tab_id": "yyy", ...}
-# Then check output: curl -s "$API/api/panes/xxx/output?lines=20" -H "$H"
+# Returns: {"tab_id": "xxx", "tab_id": "yyy", ...}
+# Then check output: curl -s "$API/api/tabs/xxx/output?lines=20" -H "$H"
 ```
 
 ## Mem extraction workers (auto-spawn on note save)
@@ -277,7 +277,7 @@ DEV_PID=$(netstat -ano -p tcp 2>/dev/null | grep ":7686 .*LISTENING" | awk '{pri
 # Verify mtime: stat -c "%y %n" src-tauri/target/debug/codeterm.exe — must be newer than the source files you edited
 ```
 
-Note: `bash build.sh build` runs the production frontend bundle and currently fails on pre-existing TS errors in `CronPanel.tsx` / `useConfig.ts` — those are unrelated to backend Rust work and **don't block dev testing**. Use `bash build.sh dev` (which uses `vite dev`, no strict TS check) or `cargo build --bin codeterm` directly to validate Rust changes.
+Note: `bash build.sh build` runs the production frontend bundle and currently fails on pre-existing TS errors in `CronTabl.tsx` / `useConfig.ts` — those are unrelated to backend Rust work and **don't block dev testing**. Use `bash build.sh dev` (which uses `vite dev`, no strict TS check) or `cargo build --bin codeterm` directly to validate Rust changes.
 
 ## Tips
 

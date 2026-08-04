@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.7.5",
+  "version": "1.7.8",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Codex",
@@ -21,7 +21,8 @@
       "flag": "-c developer_instructions"
     },
     "verifySubmit": {
-      "kind": "tui_input_drained"
+      "kind": "tui_input_drained",
+      "initialKeyDelayMs": 150
     },
     "busySubmit": {
       "kind": "submit_normally"
@@ -101,5 +102,12 @@
       "-c",
       "model_reasoning_effort=\"{effort}\""
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "chatgpt.com"
+      ]
+    }
   }
 }

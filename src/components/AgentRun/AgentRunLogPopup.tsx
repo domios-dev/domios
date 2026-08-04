@@ -17,12 +17,12 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
   const title = worker.intent.replace(/^extract:/, "");
   const subtitle = [worker.agent_provider, worker.model].filter(Boolean).join(" / ");
   const isTerminal = isTerminalWorkerStatus(worker.status);
-  const livePaneId = isTerminal ? null : worker.pane_id;
+  const liveTabId = isTerminal ? null : worker.tab_id;
 
   const { events: liveEvents, rawLines, connected, error } = useAgentRunStream({
     api,
-    paneId: livePaneId,
-    enabled: !!livePaneId,
+    tabId: liveTabId,
+    enabled: !!liveTabId,
   });
 
   const [fallbackText, setFallbackText] = useState<string | null>(null);
@@ -137,7 +137,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
 
           {events.length === 0 && rawLines.length === 0 && !showFallback && (
             <div className="text-[var(--ct-muted-fg)]" data-testid="worker-empty-state">
-              {workerEmptyState(livePaneId, connected, worker.status, worker.report)}
+              {workerEmptyState(liveTabId, connected, worker.status, worker.report)}
             </div>
           )}
 

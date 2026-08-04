@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke, listen } from "../lib/bridge";
 import type { RemoteWorkersByOrchestrator } from "../lib/types";
 
-/** Live map of orchestrator pane id → remote (cross-mesh) workers. Seeds from
+/** Live map of orchestrator tab id → remote (cross-mesh) workers. Seeds from
  *  `get_remote_workers`, then applies `remote-workers-changed` event payloads
  *  (each carries the full snapshot). Empty until the first remote worker
  *  reports, so local-only setups pay nothing. */

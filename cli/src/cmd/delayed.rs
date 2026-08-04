@@ -4,33 +4,33 @@ use crate::{
     args::delayed::DelayedAction,
     client::SocketClient,
     cmd::send_text::{guard_against_shell_mangle, resolve_send_text_input},
-    resolve_pane,
+    resolve_tab,
 };
 
 pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedAction) {
     match action {
-        DelayedAction::List { pane } => {
-            let pane_id = resolve_pane(client, pane);
+        DelayedAction::List { tab } => {
+            let tab_id = resolve_tab(client, tab);
             let value = request_json(
                 "GET",
-                &format!("/api/panes/{}/delayed-messages", pane_id),
+                &format!("/api/tabs/{}/delayed-messages", tab_id),
                 None,
             );
             print_delayed_result(json, value);
         }
         DelayedAction::Create {
             text,
-            pane,
+            tab,
             delay,
             at,
             from_file,
             stdin,
         } => {
-            let pane_id = resolve_pane(client, pane);
+            let tab_id = resolve_tab(client, tab);
             let text = required_text(text, from_file, stdin);
             let scheduled_at_ms =
                 parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
-            queue_message(json, &pane_id, text, scheduled_at_ms);
+            queue_message(json, &tab_id, text, scheduled_at_ms);
         }
         DelayedAction::Edit {
             id,
@@ -87,32 +87,32 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
 pub fn queue_from_send(
     client: &mut SocketClient,
     json: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
     from_stdin: bool,
     delay: Option<String>,
     at: Option<String>,
 ) {
-    let pane_id = resolve_pane(client, pane);
+    let tab_id = resolve_tab(client, tab);
     let text = required_text(text, from_file, from_stdin);
     let scheduled_at_ms = parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
-    queue_message(json, &pane_id, text, scheduled_at_ms);
+    queue_message(json, &tab_id, text, scheduled_at_ms);
 }
 
-fn queue_message(json: bool, pane_id: &str, text: String, scheduled_at_ms: u64) {
+fn queue_message(json: bool, tab_id: &str, text: String, scheduled_at_ms: u64) {
     let mut body = serde_json::json!({
         "text": text,
         "scheduledAtMs": scheduled_at_ms,
     });
-    if let Ok(creator) = std::env::var("CODETERM_PANE_ID") {
+    if let Ok(creator) = std::env::var("CODETERM_TAB_ID") {
         if !creator.trim().is_empty() {
-            body["createdByPane"] = serde_json::json!(creator);
+            body["createdByTab"] = serde_json::json!(creator);
         }
     }
     let value = request_json(
         "POST",
-        &format!("/api/panes/{}/delayed-messages", pane_id),
+        &format!("/api/tabs/{}/delayed-messages", tab_id),
         Some(body),
     );
     print_delayed_result(json, value);
@@ -200,7 +200,7 @@ fn print_delayed_result(json: bool, value: serde_json::Value) {
 
 fn print_delayed_item(value: &serde_json::Value) {
     let id = value.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    let pane = value.get("paneId").and_then(|v| v.as_str()).unwrap_or("?");
+    let tab = value.get("tabId").and_then(|v| v.as_str()).unwrap_or("?");
     let state = value.get("state").and_then(|v| v.as_str()).unwrap_or("?");
     let at = value
         .get("scheduledAtMs")
@@ -212,13 +212,13 @@ fn print_delayed_item(value: &serde_json::Value) {
         .and_then(|v| v.as_str())
         .map(shorten)
         .unwrap_or_default();
-    println!("{} [{}] pane={} at={} {}", id, state, pane, at, text);
+    println!("{} [{}] tab={} at={} {}", id, state, tab, at, text);
     if value
         .get("sessionChanged")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
-        println!("  warning: pane session changed since scheduling");
+        println!("  warning: Tab session changed since scheduling");
     }
     if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
         if !error.is_empty() {

@@ -162,12 +162,15 @@ export function KeepAwakeTray() {
     <>
       <button
         ref={triggerRef}
+        type="button"
         data-testid="keepawake-tray"
         onClick={() => setOpen((v) => !v)}
         title={titleText}
+        aria-label={titleText}
+        aria-pressed={status.active}
         className={
           status.active
-            ? "flex items-center justify-center w-7 h-7 rounded-md transition-colors text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
+            ? "ct-liquid-interactive flex items-center justify-center w-7 h-7 rounded-md text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
             : UI_TRAY_BTN
         }
       >

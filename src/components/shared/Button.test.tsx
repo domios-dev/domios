@@ -13,6 +13,10 @@ const globalsCss = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../../styles/globals.css"),
   "utf8",
 );
+const tokensCss = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../../styles/tokens.css"),
+  "utf8",
+);
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -44,6 +48,40 @@ test("Button primary has ct-btn-primary class", async () => {
   const { host } = await render(<Button variant="primary">Save</Button>);
   const btn = host.querySelector("button")!;
   assert(btn.className.includes("ct-btn-primary"), `expected ct-btn-primary in ${btn.className}`);
+  assert(btn.className.includes("ct-liquid-interactive"), "shared interaction class missing");
+  assert(
+    /\.ct-btn-primary\s*\{[^}]*color:\s*var\(--ct-on-accent,\s*#fff\)[^}]*font-weight:\s*600/s.test(
+      globalsCss,
+    ),
+    "primary buttons must use the theme's strong on-accent text",
+  );
+});
+
+test("liquid interaction contract is bounded, explicit, and motion-safe", () => {
+  assert(/--ct-duration-liquid-hover:\s*380ms/.test(tokensCss), "hover duration token missing");
+  assert(/--ct-duration-liquid-press:\s*280ms/.test(tokensCss), "press duration token missing");
+  const rule = globalsCss.match(/\.ct-liquid-interactive\s*\{([^}]*)\}/s)?.[1] ?? "";
+  assert(/transform-origin:\s*center/.test(rule), "interaction must originate at center");
+  assert(
+    /transition:\s*transform[^;]*,\s*color[^;]*,\s*background-color[^;]*,\s*border-color/s.test(rule),
+    "interaction must transition only explicit visual properties",
+  );
+  assert(!/transition:\s*all/.test(rule), "interaction must not transition all properties");
+  assert(/scale\(1\.015\)/.test(globalsCss), "hover scale must stay bounded");
+  assert(/scale\(0\.975\)/.test(globalsCss), "press scale must stay bounded");
+  assert(/\.ct-liquid-interactive:not\(:disabled\):active\s*\{[^}]*--ct-duration-liquid-press/s.test(globalsCss), "press must use the liquid press token");
+  assert(/\.ct-liquid-interactive:not\(:disabled\):active/.test(globalsCss), "disabled controls must not receive a press transform");
+  assert(
+    /\.ct-liquid-interactive:focus-visible,[^}]*\{[^}]*outline:\s*2px solid var\(--ct-accent\)[^}]*box-shadow:/s.test(globalsCss),
+    "visible focus outline must be preserved",
+  );
+  const reduced = globalsCss.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[^]*?\.ct-liquid-interactive[^]*?\n\}/)?.[0] ?? "";
+  assert(/transition:\s*none/.test(reduced), "reduced motion must remove transitions");
+  assert(/animation:\s*none/.test(reduced), "reduced motion must remove animations");
+  assert(/transform:\s*var\(--ct-liquid-base-transform\)/.test(reduced), "reduced motion must neutralize scale");
+  assert(!/background(?:-color)?:|color:/.test(reduced), "reduced motion must preserve visible state colors");
+  assert(!/outline:\s*none/.test(reduced), "reduced motion must preserve the focus ring");
+  assert(/useTouchOptimizedUi/.test(readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8")), "Button must use the shared touch-mode path");
 });
 
 test("Button md size inherits horizontal padding from ct-btn base", () => {
@@ -90,6 +128,7 @@ test("Button loading is disabled and shows BusyState", async () => {
   assert(btn.getAttribute("aria-busy") === "true", "aria-busy=true when loading");
   const dots = host.querySelectorAll(".ct-phase-dots");
   assert(dots.length > 0, "BusyState dots must render in loading state");
+  assert(btn.textContent?.includes("Working"), "loading label must remain visible");
 });
 
 test("Button data-testid propagates", async () => {

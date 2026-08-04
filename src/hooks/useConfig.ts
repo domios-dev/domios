@@ -4,7 +4,7 @@ import { listen } from "../lib/bridge";
 import type { AppConfig } from "../lib/types";
 import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
-function defaultConfig(): AppConfig {
+export function defaultConfig(): AppConfig {
   return {
   theme: readCachedTheme() ?? DEFAULT_THEME,
   font: {
@@ -51,11 +51,11 @@ function defaultConfig(): AppConfig {
   },
   memory: {
     extraction_agent: "",
-    extraction_model: "haiku",
+    extraction_model: "",
     auto_extract: true,
     dreaming_agent: "",
-    dreaming_model: "haiku",
-    worker_model: "haiku",
+    dreaming_model: "",
+    worker_model: "",
     worker_timeout_seconds: 1800,
     dedup_threshold: 0.15,
     file_sync_enabled: true,
@@ -82,19 +82,10 @@ function defaultConfig(): AppConfig {
   ui: {
     memory_tab_enabled: true,
     mesh_tab_enabled: true,
-    default_new_agent_pane_chat: false,
   },
   orchestration: {
     plan_reminders: true,
-    nudge_after_turns: 12,
     nudge_interval_secs: 1800,
-    idle_poke: {
-      enabled: true,
-      idle_threshold_secs: 150,
-      live_lane_cap: 3,
-      max_per_day: 4,
-      backoff_base_secs: 90,
-    },
   },
   };
 }

@@ -24,7 +24,7 @@ function milestone(id: string, kind: string, ts: number, title: string | null = 
     kind,
     ts,
     text: `entry ${id}`,
-    from: { pane_id: "pane-a", session_id: null, title },
+    from: { tab_id: "tab-a", session_id: null, title },
   };
 }
 
@@ -33,11 +33,11 @@ console.log("taskActivityModel:");
 assert(milestoneKindLabel("status_update") === "status update", "kind label");
 assert(resolveMilestoneAuthor(FIXTURE_MILESTONE, {}) === "Worker", "author from milestone title");
 assert(resolveMilestoneAuthor(
-  { ...FIXTURE_MILESTONE, from: { pane_id: "pane-b", session_id: null, title: null } },
-  { "pane-b": { id: "pane-b", title: "Puccini" } as never },
-) === "Puccini", "author from pane title");
+  { ...FIXTURE_MILESTONE, from: { tab_id: "tab-b", session_id: null, title: null } },
+  { "tab-b": { id: "tab-b", title: "Puccini" } as never },
+) === "Puccini", "author from Tab title");
 assert(resolveMilestoneAuthor(
-  { ...FIXTURE_MILESTONE, from: { pane_id: "pane-x", session_id: null, title: null } },
+  { ...FIXTURE_MILESTONE, from: { tab_id: "tab-x", session_id: null, title: null } },
   {},
 ) === null, "missing author stays empty");
 

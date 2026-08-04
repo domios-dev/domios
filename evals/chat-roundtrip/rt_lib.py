@@ -3,7 +3,7 @@
 
 Kept out of run.sh because macOS bash 3.2 cannot parse here-docs nested inside
 command substitution. Each subcommand reads the chat snapshot JSON on stdin
-(GET /api/panes/{id}/chat) and prints a result run.sh can branch on.
+(GET /api/tabs/{id}/chat) and prints a result run.sh can branch on.
 """
 import json
 import re
@@ -78,7 +78,8 @@ def cmd_order_check(base: str, n_raw: str):
     shuffling same-second (codex) or timeless (cursor) turns.
 
     Prints: "ok" if all N present and strictly increasing; "missing <k>" if a
-    message never landed; "disorder <seq>" with the observed index sequence."""
+    message never landed; "reorder <seq>" for non-monotonic positions; or
+    "collapse <indices>@<position> ...; positions <seq>" for shared positions."""
     n = int(n_raw)
     doc = load_stdin()
     if not doc:
@@ -94,10 +95,23 @@ def cmd_order_check(base: str, n_raw: str):
             print(f"missing {i}")
             return
         positions.append(pos)
-    if positions == sorted(positions) and len(set(positions)) == n:
+    sequence = ",".join(str(p) for p in positions)
+    collisions = {}
+    for message_index, position in enumerate(positions, start=1):
+        collisions.setdefault(position, []).append(message_index)
+    shared = [
+        f"{','.join(str(i) for i in indices)}@{position}"
+        for position, indices in collisions.items()
+        if len(indices) > 1
+    ]
+    ordered = positions == sorted(positions)
+    unique = len(set(positions)) == n
+    if ordered and unique:
         print("ok")
+    elif not unique:
+        print(f"collapse {' '.join(shared)}; positions {sequence}")
     else:
-        print("disorder " + ",".join(str(p) for p in positions))
+        print(f"reorder {sequence}")
 
 
 def _to_ms(t):
@@ -117,7 +131,7 @@ def cmd_binding_state(want_raw: str):
     """Classify a chat-raw/start response (the UI seam) for the session-binding gate.
 
     Prints exactly one of:
-      pending  — pending=true: pane.agent_session_id still empty (session NOT bound).
+      pending  — pending=true: tab.agent_session_id still empty (session NOT bound).
       empty    — bound but the wanted user echo isn't in the transcript yet.
       bound    — bound AND the user echo is present (session bound + transcript delivered).
     """
@@ -136,23 +150,61 @@ def cmd_binding_state(want_raw: str):
     print("bound" if echoed else "empty")
 
 
-def cmd_pending_prompt(pane_id: str):
-    """Read GET /api/mux/state on stdin; print the pane's extracted interactive
+def cmd_pending_prompt(tab_id: str):
+    """Read GET /api/mux/state on stdin; print the tab's extracted interactive
     prompt as JSON {question, options:[label,...]} iff one is pending, else
     nothing. This is the facet9 P9.3 oracle: did the provider's prompt get
     extracted (question + ALL options) into the existing pending_prompt pipeline?"""
     doc = load_stdin()
     if not doc:
         return
-    panes = doc.get("panes") or {}
-    pane = panes.get(pane_id)
-    if not pane:
+    tabs = doc.get("tabs") or {}
+    tab = tabs.get(tab_id)
+    if not tab:
         return
-    pp = pane.get("pending_prompt")
+    pp = tab.get("pending_prompt")
     if not pp:
         return
     opts = [o.get("label", "") for o in (pp.get("options") or [])]
     print(json.dumps({"question": pp.get("question", ""), "options": opts}))
+
+
+def cmd_startup_gate(tab_id: str):
+    """Read GET /api/mux/state on stdin; if the tab's pending_prompt is a
+    startup gate (folder trust, provider self-update), print JSON
+    {kind, value} for the AFFIRMATIVE option (trust / install). Tests must
+    accept these gates, never skip them — an update must be installed and the
+    session restarted, exactly like a user would."""
+    doc = load_stdin()
+    if not doc:
+        return
+    tab = (doc.get("tabs") or {}).get(tab_id)
+    if not tab:
+        return
+    pp = tab.get("pending_prompt")
+    if not pp:
+        return
+    q = norm(pp.get("question", ""))
+    opts = pp.get("options") or []
+
+    def pick(*words):
+        for o in opts:
+            label = norm(o.get("label", ""))
+            if any(w in label for w in words):
+                return o.get("value") or o.get("label")
+        return None
+
+    labels = " ".join(norm(o.get("label", "")) for o in opts)
+    if "trust" in q or "trust" in labels:
+        value = pick("yes", "trust", "continue", "proceed")
+        kind = "trust"
+    elif any(w in q for w in ("update", "upgrade", "new version")):
+        value = pick("update", "install", "upgrade", "yes")
+        kind = "update"
+    else:
+        return
+    if value:
+        print(json.dumps({"kind": kind, "value": value}))
 
 
 def cmd_skew(capture_json: str):
@@ -180,6 +232,8 @@ def main():
         cmd_binding_state(sys.argv[2])
     elif cmd == "pending-prompt":
         cmd_pending_prompt(sys.argv[2])
+    elif cmd == "startup-gate":
+        cmd_startup_gate(sys.argv[2])
     elif cmd == "skew":
         cmd_skew(sys.argv[2])
     else:

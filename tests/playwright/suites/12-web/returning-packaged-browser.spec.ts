@@ -5,7 +5,7 @@ import { expect, test } from "../../helpers/fixtures";
 type BuildMode = "dev" | "prod";
 
 const TOKEN = "returning-browser-token";
-const CHAT_NAME = "Pane chat: Returning browser";
+const CHAT_NAME = "Tab chat: Returning browser";
 
 class ReturningBrowserServer {
   private mode: BuildMode = "dev";
@@ -35,7 +35,7 @@ class ReturningBrowserServer {
           }), "application/json");
           return;
         }
-        if (url.pathname === "/api/panes/returning/chat-raw/start" && request.method === "POST") {
+        if (url.pathname === "/api/tabs/returning/chat-raw/start" && request.method === "POST") {
           send(JSON.stringify({ pending: false, messages: [] }), "application/json");
           return;
         }
@@ -90,7 +90,7 @@ const root = document.querySelector("#root");
 root.innerHTML = '<div role="status">Loading chat…</div>';
 const [healthResponse, chatResponse] = await Promise.all([
   fetch("/api/health", { headers }),
-  fetch("/api/panes/returning/chat-raw/start", { method: "POST", headers }),
+  fetch("/api/tabs/returning/chat-raw/start", { method: "POST", headers }),
 ]);
 if (!healthResponse.ok || !chatResponse.ok) throw new Error("authenticated fixture boot failed");
 const health = await healthResponse.json();

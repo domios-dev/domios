@@ -24,7 +24,7 @@ export function applyPendingTabGuard(
       continue;
     }
     // Target tab gone server-side: server wins, don't mask.
-    if (!ws.tabs.some((t) => t.id === guard.tabId)) {
+    if (!ws.tabs.includes(guard.tabId)) {
       delete guards[ws.id];
       continue;
     }

@@ -13,12 +13,6 @@ const TICK_INTERVAL: Duration = Duration::from_secs(30);
 /// Adaptive backoff steps in seconds: 10 min at peak activity, up to 50 min
 /// when idle. Last value is the floor for overnight off-device usage capture.
 const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
-/// Probe attempts per poll. A single ConPTY hiccup or a slow first `/usage`
-/// load shouldn't burn the whole (10-50 min) interval — respawn a fresh hidden
-/// pane and try once more before recording a failure. Permanent errors (missing
-/// binary) skip the retry. Each attempt tears down its own pane, so there is no
-/// leak across retries.
-const PROBE_MAX_ATTEMPTS: u32 = 2;
 /// When the latest snapshot's reset timer has already passed, a new cycle began
 /// and the stored pct is stale — probe promptly instead of waiting out the
 /// 10-50 min backoff. This floor keeps a reset that never lands a fresh future
@@ -26,27 +20,25 @@ const PROBE_MAX_ATTEMPTS: u32 = 2;
 const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Default)]
-pub struct PaneActivity {
+pub struct TabActivity {
     inner: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
-impl PaneActivity {
+impl TabActivity {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn mark(&self, pane_id: &str) {
-        self.inner
-            .lock()
-            .insert(pane_id.to_string(), Instant::now());
+    pub fn mark(&self, tab_id: &str) {
+        self.inner.lock().insert(tab_id.to_string(), Instant::now());
     }
 
-    pub fn forget(&self, pane_id: &str) {
-        self.inner.lock().remove(pane_id);
+    pub fn forget(&self, tab_id: &str) {
+        self.inner.lock().remove(tab_id);
     }
 
-    pub fn get(&self, pane_id: &str) -> Option<Instant> {
-        self.inner.lock().get(pane_id).copied()
+    pub fn get(&self, tab_id: &str) -> Option<Instant> {
+        self.inner.lock().get(tab_id).copied()
     }
 }
 
@@ -70,7 +62,7 @@ pub struct UsagePoller {
 struct UsagePollerInner {
     svc: ServiceContext,
     store: UsageStoreHandle,
-    activity: PaneActivity,
+    activity: TabActivity,
     accounts: Mutex<HashMap<AccountKey, AccountState>>,
     force_refresh: Mutex<Vec<AccountKey>>,
 }
@@ -82,7 +74,7 @@ struct AccountKey {
 }
 
 impl UsagePoller {
-    pub fn new(svc: ServiceContext, store: UsageStoreHandle, activity: PaneActivity) -> Self {
+    pub fn new(svc: ServiceContext, store: UsageStoreHandle, activity: TabActivity) -> Self {
         Self {
             inner: Arc::new(UsagePollerInner {
                 svc,
@@ -154,15 +146,15 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
     let mut candidates: Vec<AccountKey> = Vec::new();
 
     for provider in &providers {
-        let visible_panes = visible_panes_for_provider(&inner.svc, provider);
+        let visible_tabs = visible_tabs_for_provider(&inner.svc, provider);
         let fetch_based = provider_is_fetch_based(&inner.svc, provider);
-        if !provider_pollable(visible_panes.is_empty(), fetch_based) {
+        if !provider_pollable(visible_tabs.is_empty(), fetch_based) {
             continue;
         }
-        let accounts: Vec<Option<String>> = if visible_panes.is_empty() {
+        let accounts: Vec<Option<String>> = if visible_tabs.is_empty() {
             vec![None]
         } else {
-            accounts_for_panes(&inner.svc, &visible_panes)
+            accounts_for_tabs(&inner.svc, &visible_tabs)
         };
         for acct in accounts {
             let key = AccountKey {
@@ -264,38 +256,6 @@ fn current_backoff(idx: usize) -> Duration {
     }
 }
 
-/// Run the probe, respawning a fresh hidden pane and retrying on a recoverable
-/// failure (transient ConPTY race, slow load, no output). A missing binary is
-/// permanent and skips the retry. The final error — if every attempt fails — is
-/// returned so the caller records an HONEST failure rather than hanging.
-async fn run_probe_with_retry(
-    svc: &ServiceContext,
-    key: &AccountKey,
-) -> Result<super::probe::UsageProbeOutcome, super::probe::ProbeError> {
-    use super::probe::ProbeError;
-    let mut attempt = 1;
-    loop {
-        let probe = UsageProbe::new(svc.clone());
-        match probe.run(&key.provider, key.account_id.as_deref()).await {
-            Ok(o) => return Ok(o),
-            Err(e) => {
-                let recoverable = !matches!(e, ProbeError::BinaryMissing(_));
-                if !recoverable || attempt >= PROBE_MAX_ATTEMPTS {
-                    return Err(e);
-                }
-                log::warn!(
-                    "[usage.poller] probe {:?} attempt {}/{} failed ({}); retrying with fresh pane",
-                    key.provider,
-                    attempt,
-                    PROBE_MAX_ATTEMPTS,
-                    e
-                );
-                attempt += 1;
-            }
-        }
-    }
-}
-
 async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<(), String> {
     {
         let mut accounts = inner.accounts.lock();
@@ -307,7 +267,9 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         state.last_probe_at = Some(Instant::now());
     }
 
-    let outcome = run_probe_with_retry(&inner.svc, &key).await;
+    let outcome = UsageProbe::new(inner.svc.clone())
+        .run(&key.provider, key.account_id.as_deref())
+        .await;
     let probe_command = probe_command_for(&inner.svc, &key.provider);
 
     match outcome {
@@ -412,9 +374,9 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     let last_probe = state.last_probe_at;
     drop(accounts);
     // Adaptive backoff: reset to densest if terminal was active since the previous probe; otherwise climb one step (capped at the longest).
-    let panes = visible_panes_for_provider(&inner.svc, &key.provider);
+    let tabs = visible_tabs_for_provider(&inner.svc, &key.provider);
     let active_recently = match last_probe {
-        Some(probe_at) => panes.iter().any(|p| {
+        Some(probe_at) => tabs.iter().any(|p| {
             inner
                 .activity
                 .get(p)
@@ -469,10 +431,11 @@ fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
         .collect()
 }
 
-/// A provider is pollable when it has a visible pane to drive a `/usage` screen,
-/// or when it sources usage from a CLI/API fetch (no terminal needed).
-fn provider_pollable(visible_empty: bool, fetch_based: bool) -> bool {
-    !visible_empty || fetch_based
+/// A provider is pollable only when its usage can be read without consuming
+/// usage. Tab visibility is deliberately not part of this: an open terminal
+/// never makes a read free, it only hides what the read costs.
+fn provider_pollable(_visible_empty: bool, fetch_based: bool) -> bool {
+    fetch_based
 }
 
 fn provider_is_fetch_based(svc: &ServiceContext, provider: &str) -> bool {
@@ -487,17 +450,17 @@ fn probe_command_for(svc: &ServiceContext, provider: &str) -> Option<String> {
         .flatten()
 }
 
-fn visible_panes_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
+fn visible_tabs_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
     let mux = svc.mux.write();
     let snap = mux.snapshot();
-    snap.panes
+    snap.tabs
         .values()
         .filter(|p| !p.hidden && p.agent_type.as_deref() == Some(provider) && p.pty_id.is_some())
         .map(|p| p.id.clone())
         .collect()
 }
 
-fn accounts_for_panes(_svc: &ServiceContext, _panes: &[String]) -> Vec<Option<String>> {
+fn accounts_for_tabs(_svc: &ServiceContext, _tabs: &[String]) -> Vec<Option<String>> {
     vec![None]
 }
 
@@ -574,24 +537,31 @@ mod tests {
         assert!(!row_reset_due(&row(None, None), 1_000_000));
     }
 
+    /// Falsification oracle for "the usage poller reads the meter through a
+    /// path that consumes the meter". A provider with no quota-free usage
+    /// source has only the metered agent-spawn path left, so scheduling it at
+    /// all is the defect — a visible tab does not make the read free.
     #[test]
-    fn tui_provider_needs_a_visible_pane() {
-        assert!(super::provider_pollable(false, false), "has pane → poll");
+    fn provider_without_quota_free_source_is_never_scheduled() {
+        assert!(
+            !super::provider_pollable(false, false),
+            "no quota-free usage source → must not be scheduled, even with a visible Tab"
+        );
         assert!(
             !super::provider_pollable(true, false),
-            "TUI provider with no pane → skip (nothing to drive /usage)"
+            "no quota-free usage source and no Tab → must not be scheduled"
         );
     }
 
     #[test]
-    fn fetch_provider_polls_without_a_pane() {
+    fn fetch_provider_polls_without_a_tab() {
         assert!(
             super::provider_pollable(true, true),
-            "fetch-based provider needs no terminal → poll even with no pane"
+            "fetch-based provider needs no terminal → poll even with no Tab"
         );
         assert!(
             super::provider_pollable(false, true),
-            "pane present → still poll"
+            "Tab present → still poll"
         );
     }
 }

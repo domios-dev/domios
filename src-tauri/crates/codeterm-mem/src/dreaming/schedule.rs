@@ -105,7 +105,7 @@ pub fn ensure_dreaming_cron(
         model,
         cwd: None,
         role: None,
-        creator_pane_id: None,
+        creator_tab_id: None,
         enabled: Some(true),
         max_history: Some(30),
         oneshot: Some(false),

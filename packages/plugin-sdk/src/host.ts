@@ -130,10 +130,10 @@ export interface Backend {
   model?: string;
 }
 
-export interface PaneRef {
-  paneId: string;
+export interface TabRef {
+  tabId: string;
   title?: string;
-  // "Shell" | "Agent" | "ChatBackend" — the pane's backing discriminator (F1).
+  // "Shell" | "Agent" | "ChatBackend" — the tab's backing discriminator (F1).
   backing?: string;
 }
 
@@ -155,7 +155,7 @@ export interface HostWorker {
 // Synchronous: workspace ensure/list are cheap mux ops, not agent turns.
 export interface HostWorkspace {
   ensure(opts: { name: string; externalRoot?: string }): { workspaceId: string };
-  panes(workspaceId: string): PaneRef[];
+  tabs(workspaceId: string): TabRef[];
 }
 
 // session), get (the plugin's key→session map). send/poll is the job-id bridge — the VM never blocks.

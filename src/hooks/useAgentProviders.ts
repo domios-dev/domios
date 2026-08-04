@@ -9,26 +9,42 @@
  * Adding a new bundled or third-party agent plugin requires ZERO changes here —
  * the descriptor flows through automatically.
  */
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
 
 import type { ProviderDescriptor } from "../lib/types";
 import { setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
+const EMPTY_AGENT_PROVIDERS: ProviderDescriptor[] = [];
+
 export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "models-updated";
 }
 
-async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
-  const result = await invoke<ProviderDescriptor[]>("list_agent_providers");
-  return result ?? [];
+export function visibleAgentProviders(
+  items: ProviderDescriptor[],
+  loading: boolean,
+  error: string | null,
+): ProviderDescriptor[] {
+  return loading || error ? EMPTY_AGENT_PROVIDERS : items;
 }
 
-// Avoid wiping the shared descriptor cache during a hook's initial loading beat.
-export function syncAgentDescriptorCache(items: ProviderDescriptor[], loading: boolean): void {
-  if (loading) return;
-  setAgentDescriptors(items);
+export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
+  return Array.isArray(result) ? (result as ProviderDescriptor[]) : [];
+}
+
+async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
+  const result = await invoke<unknown>("list_agent_providers");
+  return agentProvidersFromResponse(result);
+}
+
+export function syncAgentDescriptorCache(
+  items: ProviderDescriptor[],
+  loading: boolean,
+  error: string | null,
+): void {
+  setAgentDescriptors(visibleAgentProviders(items, loading, error));
 }
 
 export function attachModelsUpdatedRefresh(
@@ -68,10 +84,14 @@ export function useAgentProviders(): {
     fetcher,
   );
   useEffect(() => {
-    syncAgentDescriptorCache(items, loading);
-  }, [items, loading]);
-  useEffect(() => {
     return attachModelsUpdatedRefresh(refetch);
   }, [refetch]);
-  return { providers: items, loading, error, refetch };
+  return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
+}
+
+export function useAgentProviderCachePublisher(): void {
+  const { providers } = useAgentProviders();
+  useLayoutEffect(() => {
+    setAgentDescriptors(providers);
+  }, [providers]);
 }

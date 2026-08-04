@@ -33,7 +33,7 @@ fn plan_task_attempts_and_respawn_parse() {
         "--model",
         "gpt-5.5",
         "--parent",
-        "pane_parent",
+        "tab_parent",
         "--workspace",
         "ws_1",
     ])
@@ -56,7 +56,7 @@ fn plan_task_attempts_and_respawn_parse() {
             assert_eq!(attempt, "attempt_1");
             assert_eq!(provider.as_deref(), Some("codex"));
             assert_eq!(model.as_deref(), Some("gpt-5.5"));
-            assert_eq!(parent.as_deref(), Some("pane_parent"));
+            assert_eq!(parent.as_deref(), Some("tab_parent"));
             assert_eq!(workspace.as_deref(), Some("ws_1"));
         }
         _ => panic!("expected plan task respawn"),

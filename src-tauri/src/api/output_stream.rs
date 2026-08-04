@@ -1,6 +1,6 @@
 //! Multiplexed web output stream (D1 §5): ONE SSE connection carrying every
-//! pane's PTY output as pane-tagged frames, replacing the per-pane 25s
-//! long-poll. Cursor = per-pane absolute byte offset over the EXISTING
+//! tab's PTY output as tab-tagged frames, replacing the per-tab 25s
+//! long-poll. Cursor = per-tab absolute byte offset over the EXISTING
 //! `OutputBuffer` (the replay ring); `boot_id` is shared with the events stream
 //! so a daemon restart invalidates both cursors consistently.
 
@@ -15,14 +15,14 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use crate::agent::status::PaneStatus;
+use crate::agent::status::TabStatus;
 use crate::api::routes::{check_auth, AppState};
 use crate::service::ServiceState;
 
-/// Per-tick per-pane byte cap: round-robin fairness so one noisy pane can't
+/// Per-tick per-tab byte cap: round-robin fairness so one noisy tab can't
 /// starve the others. Leftover bytes are read on the next tick.
-const PER_PANE_TICK_CAP: usize = 128 * 1024;
-/// Output sweep cadence (matches the retired per-pane SSE precedent).
+const PER_TAB_TICK_CAP: usize = 128 * 1024;
+/// Output sweep cadence (matches the retired per-tab SSE precedent).
 const TICK: Duration = Duration::from_millis(200);
 
 #[derive(Deserialize)]
@@ -30,16 +30,16 @@ pub(crate) struct OutputStreamQuery {
     since: Option<String>,
 }
 
-/// Decoded `?since` cursor: the boot namespace + per-pane resume offsets.
+/// Decoded `?since` cursor: the boot namespace + per-tab resume offsets.
 #[derive(Deserialize, Default)]
 struct Cursor {
     #[serde(default)]
     boot: String,
     #[serde(default)]
-    panes: HashMap<String, u64>,
+    tabs: HashMap<String, u64>,
 }
 
-/// b64url (with or without padding) of `{boot, panes:{id:offset}}`.
+/// b64url (with or without padding) of `{boot, tabs:{id:offset}}`.
 fn parse_cursor(raw: &str) -> Option<Cursor> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(raw.as_bytes())
@@ -52,10 +52,10 @@ fn data_frame(v: serde_json::Value) -> Event {
     Event::default().data(v.to_string())
 }
 
-/// One pane's read result for a tick: at most one capped data chunk plus an
+/// One tab's read result for a tick: at most one capped data chunk plus an
 /// optional under-retention marker. `new_offset` is where the client resumes.
 #[derive(Debug, PartialEq)]
-struct PaneRead {
+struct TabRead {
     truncated_from: Option<u64>,
     output: Vec<u8>,
     new_offset: u64,
@@ -64,9 +64,9 @@ struct PaneRead {
 /// Pure emit planner over a raw `read_since` result. Split out from the buffer
 /// read so the fairness cap, truncation marker, and UTF-8-boundary discipline
 /// are unit-testable without constructing an `OutputBuffer`.
-fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> PaneRead {
+fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
     if chunk.is_empty() {
-        return PaneRead {
+        return TabRead {
             truncated_from: None,
             output: Vec::new(),
             new_offset: total,
@@ -88,22 +88,22 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> PaneRead {
     if take == 0 {
         take = chunk.len().min(cap); // guarantee forward progress
     }
-    PaneRead {
+    TabRead {
         truncated_from,
         output: chunk[..take].to_vec(),
         new_offset: base + take as u64,
     }
 }
 
-/// Per-pane cursor + whether an `ended` frame was already emitted (emit once).
+/// Per-tab cursor + whether an `ended` frame was already emitted (emit once).
 #[derive(Clone)]
 struct Tracked {
     offset: u64,
     ended: bool,
 }
 
-/// Seed initial per-pane offsets (blocking buffer read). Absent cursor ⇒ tail
-/// all; boot-match ⇒ resume known panes at their offset and full-replay panes
+/// Seed initial per-tab offsets (blocking buffer read). Absent cursor ⇒ tail
+/// all; boot-match ⇒ resume known tabs at their offset and full-replay tabs
 /// created during the gap; boot mismatch ⇒ a `boot-changed` frame then tail all
 /// (the client full-resyncs via `mux_get_state`).
 fn seed_initial(
@@ -111,7 +111,7 @@ fn seed_initial(
     cursor: Option<Cursor>,
 ) -> (Option<serde_json::Value>, HashMap<String, Tracked>) {
     let boot = svc.events.boot_id().to_string();
-    let live: Vec<(String, String)> = svc.mux.read().pty_backed_panes();
+    let live: Vec<(String, String)> = svc.mux.read().pty_backed_tabs();
     let buf = svc.output_buf.lock();
     let mut tracked = HashMap::new();
     let mut boot_frame = None;
@@ -122,15 +122,15 @@ fn seed_initial(
     };
     match cursor {
         None => {
-            for (pane, pty) in &live {
-                tracked.insert(pane.clone(), tail(pty));
+            for (tab, pty) in &live {
+                tracked.insert(tab.clone(), tail(pty));
             }
         }
         Some(c) if c.boot == boot => {
-            for (pane, _pty) in &live {
-                let offset = c.panes.get(pane).copied().unwrap_or(0);
+            for (tab, _pty) in &live {
+                let offset = c.tabs.get(tab).copied().unwrap_or(0);
                 tracked.insert(
-                    pane.clone(),
+                    tab.clone(),
                     Tracked {
                         offset,
                         ended: false,
@@ -140,24 +140,24 @@ fn seed_initial(
         }
         Some(_) => {
             boot_frame = Some(serde_json::json!({ "boot_changed": true, "boot": boot }));
-            for (pane, pty) in &live {
-                tracked.insert(pane.clone(), tail(pty));
+            for (tab, pty) in &live {
+                tracked.insert(tab.clone(), tail(pty));
             }
         }
     }
     (boot_frame, tracked)
 }
 
-/// One blocking sweep across every PTY-backed pane. Pure sync — safe for
+/// One blocking sweep across every PTY-backed tab. Pure sync — safe for
 /// `spawn_blocking`; locks are acquired in order mux > output_buf >
 /// agent_tracker and each is dropped before the next, none held across `.await`.
 fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serde_json::Value> {
-    let live: HashMap<String, String> = svc.mux.read().pty_backed_panes().into_iter().collect();
-    // Disposed panes (gone from mux) are dropped silently.
-    tracked.retain(|pane, _| live.contains_key(pane));
-    // Panes created mid-stream full-replay from the start of the retained ring.
-    for pane in live.keys() {
-        tracked.entry(pane.clone()).or_insert(Tracked {
+    let live: HashMap<String, String> = svc.mux.read().pty_backed_tabs().into_iter().collect();
+    // Disposed tabs (gone from mux) are dropped silently.
+    tracked.retain(|tab, _| live.contains_key(tab));
+    // Tabs created mid-stream full-replay from the start of the retained ring.
+    for tab in live.keys() {
+        tracked.entry(tab.clone()).or_insert(Tracked {
             offset: 0,
             ended: false,
         });
@@ -167,26 +167,25 @@ fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serd
     let mut silent: Vec<String> = Vec::new();
     {
         let buf = svc.output_buf.lock();
-        for (pane, pty) in &live {
-            let t = tracked.get_mut(pane).expect("seeded above");
+        for (tab, pty) in &live {
+            let t = tracked.get_mut(tab).expect("seeded above");
             if t.ended {
-                silent.push(pane.clone());
+                silent.push(tab.clone());
                 continue;
             }
             let (chunk, total) = buf.read_since(pty, t.offset);
-            let read = plan_emit(t.offset, &chunk, total, PER_PANE_TICK_CAP);
+            let read = plan_emit(t.offset, &chunk, total, PER_TAB_TICK_CAP);
             if let Some(from) = read.truncated_from {
-                frames
-                    .push(serde_json::json!({ "pane_id": pane, "truncated": true, "from": from }));
+                frames.push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
             }
             if read.output.is_empty() {
                 t.offset = read.new_offset;
-                silent.push(pane.clone());
+                silent.push(tab.clone());
                 continue;
             }
             let text = String::from_utf8_lossy(&read.output).to_string();
             frames.push(
-                serde_json::json!({ "pane_id": pane, "output": text, "offset": read.new_offset }),
+                serde_json::json!({ "tab_id": tab, "output": text, "offset": read.new_offset }),
             );
             t.offset = read.new_offset;
         }
@@ -195,17 +194,17 @@ fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serd
     if !silent.is_empty() {
         let tracker = svc.agent_tracker.lock();
         let known: HashSet<String> = tracker.all_ids().into_iter().collect();
-        for pane in silent {
-            let pty = &live[&pane];
-            let t = tracked.get_mut(&pane).expect("seeded above");
-            let dead = known.contains(pty) && tracker.get_status(pty) == PaneStatus::Dead;
+        for tab in silent {
+            let pty = &live[&tab];
+            let t = tracked.get_mut(&tab).expect("seeded above");
+            let dead = known.contains(pty) && tracker.get_status(pty) == TabStatus::Dead;
             if dead {
                 if !t.ended {
-                    frames.push(serde_json::json!({ "pane_id": pane, "ended": true }));
+                    frames.push(serde_json::json!({ "tab_id": tab, "ended": true }));
                     t.ended = true;
                 }
             } else if t.ended {
-                // Respawned into a fresh pty on the same pane — full-replay it.
+                // Respawned into a fresh pty on the same tab — full-replay it.
                 t.ended = false;
                 t.offset = 0;
             }
@@ -214,10 +213,10 @@ fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serd
     frames
 }
 
-/// `GET /api/output/stream?since=<b64url cursor>` — all panes' PTY output over
-/// one connection (D1 §5). Frames: `{pane_id, output, offset}`, plus per-pane
+/// `GET /api/output/stream?since=<b64url cursor>` — all tabs' PTY output over
+/// one connection (D1 §5). Frames: `{tab_id, output, offset}`, plus per-tab
 /// `{truncated, from}` on under-retention and `{ended}` on genuine death;
-/// `{boot_changed, boot}` once on a boot mismatch. Disposed panes go silent.
+/// `{boot_changed, boot}` once on a boot mismatch. Disposed tabs go silent.
 pub async fn output_stream(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

@@ -9,8 +9,8 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 use super::{
     agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
     fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, output_stream, pane_agent_routes, pane_routes, pasteboard_routes,
-    plan_routes, pty_routes, services_routes, session_routes, task_routes, team_routes,
+    notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
+    services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
     theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
@@ -25,6 +25,8 @@ pub struct AppState {
     pub mesh: crate::MeshStateHandle,
     pub keepawake: crate::KeepAwakeStateHandle,
     pub resize_owner: crate::ResizeOwnerState,
+    /// Lets the config apply path compare a persisted bind against the live socket.
+    pub(crate) rest_api: crate::startup::RestApiControlState,
     /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
     /// powers /api/debug/clock time travel for the cron e2e suite.
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
@@ -78,7 +80,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/workspaces/{id}/reopen-closed",
-            post(workspace_routes::reopen_closed_pane),
+            post(workspace_routes::reopen_closed_tab),
         )
         .route(
             "/api/closed-groups/{group_id}/reopen",
@@ -97,7 +99,7 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::reorder_tabs),
         )
         .route(
-            "/api/panes/{id}/children/reorder",
+            "/api/tabs/{id}/children/reorder",
             post(workspace_routes::reorder_children),
         )
         .route(
@@ -109,10 +111,10 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::move_tab),
         )
         .route(
-            "/api/panes",
-            get(pane_routes::list_panes).post(pane_routes::create_shell_pane),
+            "/api/tabs",
+            get(tab_routes::list_tabs).post(tab_routes::create_shell_tab),
         )
-        .route("/api/panes/inspect", get(pane_routes::inspect_panes))
+        .route("/api/tabs/inspect", get(tab_routes::inspect_tabs))
         .route(
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),
@@ -278,6 +280,10 @@ pub fn create_router(state: AppState) -> Router {
                 .post(notification_routes::create_notification),
         )
         .route(
+            "/api/notifications/input-request",
+            post(notification_routes::create_input_request_notification),
+        )
+        .route(
             "/api/notifications/clear",
             post(notification_routes::clear_notifications),
         )
@@ -363,7 +369,7 @@ pub fn create_router(state: AppState) -> Router {
         "/api/debug/shutdown/clean-restart",
         post(debug_routes::clean_restart),
     );
-    let router = pane_agent_routes::mount(router);
+    let router = tab_agent_routes::mount(router);
     #[cfg(debug_assertions)]
     let router = router.route(
         "/api/dev/inject-cast",
@@ -380,10 +386,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/workspaces/{id}/tabs/{tab_id}/close",
             post(web_routes::tab_close),
         )
-        .route(
-            "/api/panes/{id}/chat-view",
-            post(web_routes::pane_chat_view),
-        )
+        .route("/api/tabs/{id}/chat-view", post(web_routes::tab_chat_view))
         .route(
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),
@@ -391,6 +394,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/mesh/peers/{id}/services/{service_id}",
             delete(web_routes::peer_service_delete),
+        )
+        .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}",
+            get(web_routes::peer_cron_get),
         )
         .route(
             "/api/mesh/peers/{id}/crons/{cron_id}/{action}",
@@ -404,15 +411,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/output/stream", get(output_stream::output_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
-            "/api/panes/{id}/chat-raw/start",
+            "/api/tabs/{id}/chat-raw/start",
             post(web_routes::chat_raw_start),
         )
         .route(
-            "/api/panes/{id}/chat-raw/stop",
+            "/api/tabs/{id}/chat-raw/stop",
             post(web_routes::chat_raw_stop),
         )
         .route(
-            "/api/panes/{id}/chat-raw/backfill",
+            "/api/tabs/{id}/chat-raw/backfill",
             post(web_routes::chat_raw_backfill),
         )
         .route(
@@ -755,7 +762,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/plugins/chatbackend/open",
-            post(web_routes::open_chat_backend_pane),
+            post(web_routes::open_chat_backend_tab),
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route(
@@ -779,8 +786,8 @@ pub fn create_router(state: AppState) -> Router {
             post(agent_routes::restart_general_agent),
         )
         .route(
-            "/api/agents/general/{pane_id}/restart",
-            post(agent_routes::restart_general_agent_pane),
+            "/api/agents/general/{tab_id}/restart",
+            post(agent_routes::restart_general_agent_tab),
         )
         .route(
             "/api/agents/general/complete-first-run",
@@ -923,14 +930,14 @@ mod tests {
     }
 }
 
-/// Resolve a pane ID path parameter: supports both direct IDs and aliases.
-pub(crate) fn resolve_pane(
+/// Resolve a tab ID path parameter: supports both direct IDs and aliases.
+pub(crate) fn resolve_tab(
     state: &AppState,
     raw_id: &str,
 ) -> Result<String, (StatusCode, &'static str)> {
     let mux = state.svc.mux.write();
-    mux.resolve_pane_id(raw_id)
-        .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
+    mux.resolve_tab_id(raw_id)
+        .ok_or((StatusCode::NOT_FOUND, "Tab not found"))
 }
 
 /// Auth + access check handled by auth_middleware layer.

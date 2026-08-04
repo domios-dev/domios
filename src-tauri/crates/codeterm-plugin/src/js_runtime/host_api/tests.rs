@@ -144,11 +144,11 @@ fn sandbox_service_ref_is_late_bound() {
         fn workspace_ensure_json(&self, _: &str) -> String {
             String::new()
         }
-        fn workspace_panes_json(&self, _: &str) -> String {
+        fn workspace_tabs_json(&self, _: &str) -> String {
             String::new()
         }
-        fn close_pane(&self, _: &str) {}
-        fn spawn_pane_json(&self, _: &str) -> String {
+        fn close_tab(&self, _: &str) {}
+        fn spawn_tab_json(&self, _: &str) -> String {
             String::new()
         }
         fn worker_get_json(&self, _: &str) -> Option<String> {

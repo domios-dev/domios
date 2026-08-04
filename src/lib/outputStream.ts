@@ -1,21 +1,21 @@
 /**
- * Multiplexed web PTY output (D1 §5): ONE SSE connection carries every pane's
- * output as pane-tagged frames (`GET /api/output/stream?since=<b64url cursor>`),
- * so the browser holds O(1) connections regardless of pane count — replacing
- * the per-pane 25s long-poll.
+ * Multiplexed web PTY output (D1 §5): ONE SSE connection carries every tab's
+ * output as tab-tagged frames (`GET /api/output/stream?since=<b64url cursor>`),
+ * so the browser holds O(1) connections regardless of tab count — replacing
+ * the per-tab 25s long-poll.
  *
- * Cursor = `{boot, panes: {paneId: byteOffset}}`. The server resumes listed
- * panes at their offset and full-replays unlisted ones, so after the first
- * connect we track offsets for EVERY pane frame we see (sink or not) to keep
+ * Cursor = `{boot, tabs: {tabId: byteOffset}}`. The server resumes listed
+ * tabs at their offset and full-replays unlisted ones, so after the first
+ * connect we track offsets for EVERY tab frame we see (sink or not) to keep
  * reconnects exact. A `boot_changed` frame (daemon restart, or first cold
  * connect with an unknown boot) clears offsets and reconnects — the fresh
  * cursor then full-replays the new ring.
  *
- * Frames: `{pane_id, output, offset}` (lossy-UTF8 text; offset = resume point),
- * `{pane_id, truncated: true, from}` (ring evicted while behind),
- * `{pane_id, ended: true}` (genuine PTY death), `{boot_changed: true, boot}`.
+ * Frames: `{tab_id, output, offset}` (lossy-UTF8 text; offset = resume point),
+ * `{tab_id, truncated: true, from}` (ring evicted while behind),
+ * `{tab_id, ended: true}` (genuine PTY death), `{boot_changed: true, boot}`.
  *
- * Fallback: the per-pane long-poll path stays behind `outputStreamEnabled()`
+ * Fallback: the per-tab long-poll path stays behind `outputStreamEnabled()`
  * (localStorage `codeterm-web-output-stream` = "off").
  *
  * Relay: with a mesh relay target set the stream is byte-piped through the local
@@ -25,14 +25,14 @@
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
 
-export interface PaneOutputSink {
+export interface TabOutputSink {
   onOutput(text: string): void;
   onTruncated(from: number): void;
   onEnded(): void;
 }
 
 interface OutputFrame {
-  pane_id?: string;
+  tab_id?: string;
   output?: string;
   offset?: number;
   truncated?: boolean;
@@ -58,9 +58,9 @@ declare global {
   }
 }
 
-const sinks = new Map<string, Set<PaneOutputSink>>();
+const sinks = new Map<string, Set<TabOutputSink>>();
 const offsets = new Map<string, number>();
-/** Panes whose full history was already streamed into a live xterm this page
+/** Tabs whose full history was already streamed into a live xterm this page
  *  lifetime — a re-mount must NOT re-request a multi-MB replay. */
 const replayed = new Set<string>();
 
@@ -89,7 +89,7 @@ function saveBoot(b: string): void {
   }
 }
 
-/** Manual killswitch back to the per-pane long-poll transport. */
+/** Manual killswitch back to the per-tab long-poll transport. */
 export function outputStreamEnabled(): boolean {
   try {
     return localStorage.getItem("codeterm-web-output-stream") !== "off";
@@ -98,7 +98,7 @@ export function outputStreamEnabled(): boolean {
   }
 }
 
-/** True when this pane's output should come from the multiplexed stream.
+/** True when this tab's output should come from the multiplexed stream.
  *  Relay targets now stream too (D2 §3): the local daemon byte-pipes the peer's
  *  own `/api/output/stream?since=`, so relayed cursors inherit no-loss (S2c). */
 export function webOutputStreamActive(): boolean {
@@ -106,9 +106,9 @@ export function webOutputStreamActive(): boolean {
 }
 
 function sinceCursor(): string {
-  const panes: Record<string, number> = {};
-  for (const [pane, off] of offsets) panes[pane] = off;
-  const json = JSON.stringify({ boot: boot ?? "", panes });
+  const tabs: Record<string, number> = {};
+  for (const [tab, off] of offsets) tabs[tab] = off;
+  const json = JSON.stringify({ boot: boot ?? "", tabs });
   return btoa(String.fromCharCode(...new TextEncoder().encode(json)))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -143,11 +143,11 @@ function handleFrame(msg: OutputFrame): void {
     forceReconnect();
     return;
   }
-  const pane = msg.pane_id;
-  if (!pane) return;
-  const set = sinks.get(pane);
+  const tab = msg.tab_id;
+  if (!tab) return;
+  const set = sinks.get(tab);
   if (typeof msg.offset === "number" && typeof msg.output === "string") {
-    offsets.set(pane, msg.offset);
+    offsets.set(tab, msg.offset);
     if (set) {
       perf && (perf.batches += 1);
       for (const s of set) s.onOutput(msg.output);
@@ -236,20 +236,20 @@ function ensureStarted(): void {
 }
 
 /**
- * Attach a terminal to a pane's multiplexed output. First subscription of a
- * pane this page-lifetime requests a full history replay (offset 0); re-mounts
+ * Attach a terminal to a tab's multiplexed output. First subscription of a
+ * tab this page-lifetime requests a full history replay (offset 0); re-mounts
  * resume from the tracked offset (xterm is keep-alive, scrollback persists).
  */
-export function subscribePaneOutput(paneId: string, sink: PaneOutputSink): () => void {
-  let set = sinks.get(paneId);
+export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => void {
+  let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
-    sinks.set(paneId, set);
+    sinks.set(tabId, set);
   }
   set.add(sink);
-  if (!replayed.has(paneId)) {
-    replayed.add(paneId);
-    offsets.set(paneId, 0);
+  if (!replayed.has(tabId)) {
+    replayed.add(tabId);
+    offsets.set(tabId, 0);
     if (started) forceReconnect();
   }
   ensureStarted();

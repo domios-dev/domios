@@ -22,12 +22,12 @@ async function run() {
       name: "Renamed team",
       callerTabId: "O1",
     }),
-    "rename passes exact team id, name, and acting pane identity",
+    "rename passes exact team id, name, and acting Tab identity",
   );
-  assert(!JSON.stringify(calls[0]?.args).includes("focused_pane_id"), "rename never sends focus state");
+  assert(!JSON.stringify(calls[0]?.args).includes("focused_tab_id"), "rename never sends focus state");
   assert(actions.onAddTeamMember, "staffing is enabled when the bridge is available");
   const callsBeforeStaffing = calls.length;
-  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-pane", "model-2");
+  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-tab", "model-2");
   assert(calls.length === callsBeforeStaffing + 1, "staffing invokes exactly once");
   const staffingCall = calls[calls.length - 1];
   assert(staffingCall?.command === "mux_add_team_member", "staffing uses the bridge command");
@@ -37,22 +37,22 @@ async function run() {
       role: "worker",
       provider: "registry-provider",
       model: "model-2",
-      callerTabId: "manager-pane",
+      callerTabId: "manager-tab",
     }),
     "staffing uses the selected manager as caller identity and keeps UI-only ids off the wire",
   );
-  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-pane");
+  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-tab");
   const noModelCall = calls[calls.length - 1];
   assert(
     JSON.stringify(noModelCall?.args) === JSON.stringify({
       teamId: "team-1",
       role: "worker",
       provider: "registry-provider",
-      callerTabId: "manager-pane",
+      callerTabId: "manager-tab",
     }),
     "model is absent when the descriptor does not require one",
   );
-  assert(!JSON.stringify(noModelCall?.args).includes("parentPaneId"), "staffing payload omits parent pane ids");
+  assert(!JSON.stringify(noModelCall?.args).includes("parentTabId"), "staffing payload omits parent Tab ids");
   assert(!JSON.stringify(noModelCall?.args).includes("providerId"), "staffing payload uses only the bridge provider key");
   const callsBeforeClose = calls.length;
   await actions.onCloseTeam("team-1", "O1");
@@ -74,7 +74,7 @@ async function run() {
       () => assert(false, "403 rename rejection must be surfaced"),
       (error: Error) => assert(error.message.includes("403"), "rename 403 remains actionable"),
     );
-  await rejected.onAddTeamMember("team-1", "planner", "registry-provider", "manager-pane")
+  await rejected.onAddTeamMember("team-1", "planner", "registry-provider", "manager-tab")
     .then(
       () => assert(false, "403 staffing rejection must be surfaced"),
       (error: Error) => assert(error.message.includes("403"), "403 error remains actionable"),

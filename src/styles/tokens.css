@@ -23,6 +23,14 @@
   --ct-duration-normal: 200ms;
   --ct-duration-smooth: 320ms;
   --ct-duration-dramatic: 480ms;
+  --ct-duration-liquid-hover: 380ms;
+  --ct-duration-liquid-press: 280ms;
+  --ct-duration-liquid-segmented: 420ms;
+  --ct-duration-liquid-toggle: 380ms;
+  --ct-duration-liquid-flip: 360ms;
+  --ct-duration-liquid-sweep: 560ms;
+  --ct-duration-liquid-donut: 420ms;
+  --ct-duration-recording-pulse: 1200ms;
 
   /* Easing */
   --ct-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -30,6 +38,10 @@
   --ct-ease-in-out-quint: cubic-bezier(0.86, 0, 0.07, 1);
   --ct-ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
   --ct-ease-decel: cubic-bezier(0, 0, 0.2, 1);
+  --ct-ease-hover-swell: cubic-bezier(0.3, 1.6, 0.4, 1);
+  --ct-ease-liquid-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --ct-ease-squash-jump: cubic-bezier(.22, .9, .25, 1);
+  --ct-ease-liquid-breathe: cubic-bezier(.42, 0, .58, 1);
 
   /* Surfaces */
   --ct-bg-overlay: rgba(10, 10, 15, 0.85);

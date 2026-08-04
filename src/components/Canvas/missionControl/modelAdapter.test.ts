@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/missionControl/modelAdapter.test.ts
 
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { buildMissionControl } from "./missionControl";
@@ -16,10 +16,10 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const NOW = 1_800_000_000_000;
-const PANE: Pane = {
-  id: "pane-a",
+const TAB: Tab = {
+  id: "tab-a",
   pty_id: "pty-a",
-  pane_type: "Terminal",
+  tab_type: "Terminal",
   title: "Worker A",
   cwd: "/repo",
   agent_type: "claude",
@@ -46,13 +46,13 @@ test("modelToSnapshot groups work_floor stations into lanes by branch", () => {
     mkTask({
       id: "t-wip",
       status: TaskStatus.InProgress,
-      assigned_pane_id: PANE.id,
+      assigned_tab_id: TAB.id,
       lane: { branch: "lane/feature-a" },
       status_changed_at: NOW - 1000,
     }),
   ]);
-  const model = buildMissionControl(plan, { [PANE.id]: PANE }, NOW);
-  const snap = modelToSnapshot({ plan, model, panes: { [PANE.id]: PANE } });
+  const model = buildMissionControl(plan, { [TAB.id]: TAB }, NOW);
+  const snap = modelToSnapshot({ plan, model, tabs: { [TAB.id]: TAB } });
   assert(snap.lanes.length === 1, "one lane");
   assert(snap.lanes[0]!.branch === "lane/feature-a", "branch");
   assert(snap.lanes[0]!.activeTask?.id === "t-wip", "active task");

@@ -6,7 +6,7 @@ use crate::multiplexer::types::{
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::launch_delivery::{
-    DeliveryError, LaunchConsumptionError, LaunchConsumptionOutcome, LaunchDeliveryGate,
+    LaunchConsumptionError, LaunchConsumptionOutcome, LaunchDeliveryGate,
 };
 use crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore;
 use codeterm_util::lock_hold::TimedRwLock;
@@ -32,7 +32,7 @@ impl BootStageSink for ReplayRecording {
 struct RestoreReplayFixture {
     _temp: tempfile::TempDir,
     mux: MuxState,
-    pane_id: String,
+    tab_id: String,
     store: Arc<PendingDeliveryPayloadStore>,
     scheduled_payload: Arc<Mutex<Option<Option<String>>>>,
     recording: Arc<ReplayRecording>,
@@ -48,16 +48,16 @@ impl RestoreReplayFixture {
             Arc::new(PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap());
         store.write(&digest, payload).unwrap();
 
-        let (mut state, pane_id) = MultiplexerState::new();
-        let pane = state.get_pane_mut(&pane_id).unwrap();
-        pane.agent_type = Some("fixture-provider".into());
-        pane.cwd = Some("fixture-cwd".into());
-        pane.pending_delivery = Some(PendingDeliveryRecord::new(
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.cwd = Some("fixture-cwd".into());
+        tab.pending_delivery = Some(PendingDeliveryRecord::new(
             digest,
             PendingDeliveryChannel::InteractiveInput,
         ));
         if confirmed {
-            pane.pending_delivery.as_mut().unwrap().confirm().unwrap();
+            tab.pending_delivery.as_mut().unwrap().confirm().unwrap();
         }
         let snapshot = state.to_session_snapshot();
         let restored = MultiplexerState::from_session_snapshot(&snapshot);
@@ -65,7 +65,7 @@ impl RestoreReplayFixture {
         Self {
             _temp: temp,
             mux: Arc::new(TimedRwLock::new("restore-replay-test", restored)),
-            pane_id,
+            tab_id,
             store,
             scheduled_payload: Arc::new(Mutex::new(None)),
             recording: Arc::new(ReplayRecording::default()),
@@ -77,14 +77,14 @@ impl RestoreReplayFixture {
         let pending = self
             .mux
             .read()
-            .get_pane(&self.pane_id)
-            .and_then(|pane| pane.pending_delivery.clone());
+            .get_tab(&self.tab_id)
+            .and_then(|tab| tab.pending_delivery.clone());
         let store = self.store.clone();
         let scheduled_payload = self.scheduled_payload.clone();
         let recording = self.recording.clone();
         let result = restore_materialization_core(
             &self.mux,
-            &self.pane_id,
+            &self.tab_id,
             "fixture-provider",
             None,
             Some("fixture-cwd"),
@@ -92,7 +92,7 @@ impl RestoreReplayFixture {
             false,
             move || match pending {
                 Some(record)
-                    if record.state() == PendingDeliveryState::Pending
+                    if record.state().needs_delivery()
                         && record.channel == PendingDeliveryChannel::InteractiveInput =>
                 {
                     store
@@ -102,7 +102,7 @@ impl RestoreReplayFixture {
                 }
                 _ => Ok(None),
             },
-            move |stage, _| recording.record("fixture-pane", stage, None),
+            move |stage, _| recording.record("fixture-tab", stage, None),
             move |_, payload| *scheduled_payload.lock() = Some(payload),
         )?;
         Ok(result.is_some())
@@ -130,7 +130,7 @@ impl RestoreReplayFixture {
         let payload = self.scheduled_payload.lock().clone().flatten();
         let outcome = self.delivery_gate.lock().consume(
             &self.mux,
-            &self.pane_id,
+            &self.tab_id,
             self.recording.as_ref(),
             || {
                 let payload = payload.expect("a delivery transaction requires restored payload");
@@ -162,8 +162,8 @@ impl RestoreReplayFixture {
     fn pending_state(&self) -> PendingDeliveryState {
         self.mux
             .read()
-            .get_pane(&self.pane_id)
-            .and_then(|pane| pane.pending_delivery.as_ref())
+            .get_tab(&self.tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
             .map(PendingDeliveryRecord::state)
             .unwrap()
     }
@@ -187,7 +187,7 @@ fn restore_replays_pending_exactly_once() {
         fixture.delivered_payloads(),
         ["byte-identical restored launch task"]
     );
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn restore_confirmed_never_redelivers() {
 
     assert_eq!(fixture.delivery_writes(), 0);
     assert!(fixture.delivered_payloads().is_empty());
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn duplicate_restore_single_replay() {
 
     assert_eq!(winners, 1);
     assert_eq!(fixture.delivery_writes(), 1);
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn relink_racing_consumption_no_double_delivery() {
     assert!(!fixture.restore().unwrap());
 
     assert_eq!(fixture.delivery_writes(), 1);
-    assert_eq!(fixture.pending_state(), PendingDeliveryState::Confirmed);
+    assert_eq!(fixture.pending_state(), PendingDeliveryState::AcceptedWeak);
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn replay_deadline_leaves_pending() {
 
     let error = fixture.consume_replay(false).unwrap_err();
 
-    assert_eq!(error.delivery, DeliveryError::DeliveryUnconfirmed);
+    assert_eq!(error.delivery.code(), "submit_unconfirmed");
     assert_eq!(fixture.delivery_writes(), 1);
     assert_eq!(fixture.pending_state(), PendingDeliveryState::Pending);
 }

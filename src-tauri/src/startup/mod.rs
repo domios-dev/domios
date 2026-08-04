@@ -16,7 +16,7 @@ mod states;
 mod window;
 
 pub(crate) use background::start_background_tasks;
-pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_pane_connected_service};
+pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
 pub(crate) use cli_install::{install_bundled_cli, refresh_bundled_cli};
 pub(crate) use cli_shim::forward_to_cli_if_invoked;
 pub(crate) use conpty_host::setup_conpty_host;
@@ -25,7 +25,7 @@ pub(crate) use frontend_ready::{
     wait_for_frontend_ready_until,
 };
 pub(crate) use logging::setup_logging;
-pub(crate) use rest_api::{RestApiControl, RestApiControlState, RestApiStatus};
+pub(crate) use rest_api::{RestApiControl, RestApiControlState, RestApiRecovery, RestApiStatus};
 pub(crate) use servers::start_servers;
 pub(crate) use states::init_states;
 pub(crate) use window::{build_system_tray, setup_window_styling};

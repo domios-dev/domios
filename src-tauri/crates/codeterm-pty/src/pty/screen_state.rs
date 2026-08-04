@@ -24,6 +24,19 @@ pub struct ScreenChangeSignal {
     cv: Condvar,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComposerInputState {
+    pub alternate_screen: bool,
+    pub cursor_visible: bool,
+    pub cursor_row: u16,
+    pub rows: u16,
+    pub cols: u16,
+    pub inverse_caret_row: Option<u16>,
+    pub nonblank_inverse_cells: usize,
+    pub sole_nonblank_inverse_row: Option<u16>,
+    pub last_nonblank_row: Option<u16>,
+}
+
 impl ScreenChangeSignal {
     fn new() -> Arc<Self> {
         Arc::new(Self::default())
@@ -248,6 +261,12 @@ impl ScreenState {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
     }
 
+    pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {
+        self.parsers
+            .get(pty_id)
+            .map(|parser| parser.screen().bracketed_paste())
+    }
+
     pub fn native_prompt_input(
         &self,
         pty_id: &str,
@@ -274,8 +293,30 @@ impl ScreenState {
         })
     }
 
+    pub fn composer_input_state(&self, pty_id: &str) -> Option<ComposerInputState> {
+        self.parsers.get(pty_id).map(|parser| {
+            let screen = parser.screen();
+            let (rows, cols) = screen.size();
+            let (cursor_row, _cursor_col) = screen.cursor_position();
+            let inverse_cells = nonblank_inverse_cells(screen);
+            let sole_nonblank_inverse_row =
+                (inverse_cells.len() == 1).then(|| inverse_cells[0].0);
+            ComposerInputState {
+                alternate_screen: screen.alternate_screen(),
+                cursor_visible: !screen.hide_cursor(),
+                cursor_row,
+                rows,
+                cols,
+                inverse_caret_row: hidden_inverse_caret_row(screen, &inverse_cells),
+                nonblank_inverse_cells: inverse_cells.len(),
+                sole_nonblank_inverse_row,
+                last_nonblank_row: last_nonblank_row(screen),
+            }
+        })
+    }
+
     /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
-    /// Used for screen restore on pane remount (HMR, tab switch).
+    /// Used for screen restore on tab remount (HMR, tab switch).
     pub fn get_screen_formatted(&self, pty_id: &str) -> Option<Vec<u8>> {
         self.parsers.get(pty_id).map(|p| {
             let screen = p.screen();
@@ -468,6 +509,10 @@ impl ScreenState {
         signal
     }
 
+    pub fn pty_generation(&self, pty_id: &str) -> Option<u64> {
+        self.pty_generations.get(pty_id).copied()
+    }
+
     pub fn arm_screen_change_signal(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
         self.screen_change_signals
             .entry(pty_id.to_string())
@@ -561,6 +606,41 @@ impl ScreenState {
             }
         }
     }
+}
+
+fn nonblank_inverse_cells(screen: &vt100::Screen) -> Vec<(u16, u16)> {
+    let (rows, cols) = screen.size();
+    let mut inverse_cells = Vec::new();
+    for row in 0..rows {
+        for col in 0..cols {
+            let Some(cell) = screen.cell(row, col) else {
+                continue;
+            };
+            if !cell.inverse() || cell.contents().trim().is_empty() {
+                continue;
+            }
+            inverse_cells.push((row, col));
+        }
+    }
+    inverse_cells
+}
+
+fn hidden_inverse_caret_row(screen: &vt100::Screen, inverse_cells: &[(u16, u16)]) -> Option<u16> {
+    if !screen.hide_cursor() || inverse_cells.len() != 1 {
+        return None;
+    }
+    Some(inverse_cells[0].0)
+}
+
+fn last_nonblank_row(screen: &vt100::Screen) -> Option<u16> {
+    let (rows, cols) = screen.size();
+    (0..rows).rev().find(|row| {
+        (0..cols).any(|col| {
+            screen
+                .cell(*row, col)
+                .is_some_and(|cell| !cell.contents().trim().is_empty())
+        })
+    })
 }
 
 /// Heuristic: does the screen still show an agent TUI (Claude / Codex / Opencode)?

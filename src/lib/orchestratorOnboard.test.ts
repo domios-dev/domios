@@ -1,7 +1,7 @@
 // Run: npx tsx src/lib/orchestratorOnboard.test.ts
 
-import { canMakeOrchestrator, isAgentCapablePane } from "./orchestratorOnboardEligibility";
-import type { Pane } from "./types";
+import { canMakeOrchestrator, isAgentCapableTab } from "./orchestratorOnboardEligibility";
+import type { Tab } from "./types";
 
 const tests: Array<[string, () => void]> = [];
 function test(name: string, fn: () => void) {
@@ -12,60 +12,60 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function mkPane(overrides: Partial<Pane> = {}): Pane {
+function mkTab(overrides: Partial<Tab> = {}): Tab {
   return {
-    id: "pane-1",
+    id: "tab-1",
     pty_id: null,
-    pane_type: "Terminal",
+    tab_type: "Terminal",
     title: "Test",
     cwd: null,
     ...overrides,
   };
 }
 
-test("ineligible: plain shell pane", () => {
-  assert(!isAgentCapablePane(mkPane()), "plain shell is not agent-capable");
-  assert(!canMakeOrchestrator(mkPane()), "plain shell cannot be made orchestrator");
+test("ineligible: plain shell Tab", () => {
+  assert(!isAgentCapableTab(mkTab()), "plain shell is not agent-capable");
+  assert(!canMakeOrchestrator(mkTab()), "plain shell cannot be made orchestrator");
 });
 
-test("eligible: PTY agent pane", () => {
-  const pane = mkPane({ agent_type: "claude" });
-  assert(isAgentCapablePane(pane), "agent_type marks agent-capable");
-  assert(canMakeOrchestrator(pane), "agent pane is eligible");
+test("eligible: PTY agent Tab", () => {
+  const tab = mkTab({ agent_type: "claude" });
+  assert(isAgentCapableTab(tab), "agent_type marks agent-capable");
+  assert(canMakeOrchestrator(tab), "agent Tab is eligible");
 });
 
-test("eligible: chatBackend pane", () => {
-  const pane = mkPane({
+test("eligible: chatBackend Tab", () => {
+  const tab = mkTab({
     backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "s1" },
   });
-  assert(isAgentCapablePane(pane), "chat_backend marks agent-capable");
-  assert(canMakeOrchestrator(pane), "chatBackend pane is eligible");
+  assert(isAgentCapableTab(tab), "chat_backend marks agent-capable");
+  assert(canMakeOrchestrator(tab), "chatBackend Tab is eligible");
 });
 
 test("ineligible: already orchestrator", () => {
   assert(
-    !canMakeOrchestrator(mkPane({ agent_type: "claude", role: "Orchestrator", can_spawn: true })),
+    !canMakeOrchestrator(mkTab({ agent_type: "claude", role: "Orchestrator", can_spawn: true })),
     "orchestrator blocked",
   );
 });
 
-test("ineligible: worker in hierarchy", () => {
+test("eligible: worker can atomically transition out of hierarchy", () => {
   assert(
-    !canMakeOrchestrator(
-      mkPane({ agent_type: "claude", role: "Worker", parent_pane_id: "orch-1" }),
+    canMakeOrchestrator(
+      mkTab({ agent_type: "claude", role: "Worker", parent_tab_id: "orch-1" }),
     ),
-    "nested worker blocked",
+    "nested worker can become an orchestrator",
   );
 });
 
-test("ineligible: protected pane", () => {
+test("ineligible: protected Tab", () => {
   assert(
-    !canMakeOrchestrator(mkPane({ agent_type: "claude", protected: true })),
+    !canMakeOrchestrator(mkTab({ agent_type: "claude", protected: true })),
     "protected blocked",
   );
 });
 
-test("ineligible: null pane", () => {
+test("ineligible: null Tab", () => {
   assert(!canMakeOrchestrator(null), "null blocked");
 });
 

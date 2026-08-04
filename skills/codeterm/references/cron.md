@@ -35,7 +35,7 @@ codeterm cron edit ID [--name N] [--schedule S] [--task T]   # modify in place
 codeterm cron enable ID
 codeterm cron disable ID
 codeterm cron trigger ID                  # fire now
-codeterm cron delete ID                   # cascade: kills running panes + removes logs
+codeterm cron delete ID                   # cascade: kills running tabs + removes logs
 codeterm cron history ID                  # run history
 ```
 
@@ -45,7 +45,7 @@ codeterm cron history ID                  # run history
 
 - The cron scheduler spawns a Claude agent on schedule with the task text
 - The spawned agent MUST call `codeterm cron complete --run-id UUID --summary "result"` when done (this instruction is auto-appended to the task prompt)
-- Completing a run closes the run's tab (run panes are ephemeral)
+- Completing a run closes the run's tab (run tabs are ephemeral)
 - Logs: `~/.codeterm/crons/<job_id>/<run_id>.log` (SUMMARY + RAW OUTPUT sections)
 - The app hides to system tray on close so crons keep running
 - Successful spawns do not generate notifications — only errors do

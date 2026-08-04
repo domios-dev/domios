@@ -50,6 +50,15 @@ test("BusyState renders the canonical three-dot markup", async () => {
   assert(row!.getAttribute("data-agent-phase") === "thinking", "phase=thinking default");
   const dots = host.querySelectorAll(".ct-phase-dots i");
   assert(dots.length === 3, `expected 3 dots, got ${dots.length}`);
+  assert(host.querySelector(".activity-dots--medium"), "block rows default to medium dots");
+});
+
+test("BusyState selects dot size from context and accepts an explicit override", async () => {
+  const inline = await render(<BusyState inline />);
+  assert(inline.host.querySelector(".activity-dots--small"), "inline rows default to small dots");
+
+  const overridden = await render(<BusyState inline dotSize="micro" />);
+  assert(overridden.host.querySelector(".activity-dots--micro"), "explicit dot size wins");
 });
 
 test("BusyState label comes from the i18n constants module", async () => {
@@ -59,8 +68,8 @@ test("BusyState label comes from the i18n constants module", async () => {
   assert(busyLabel("planLoad") === "Loading plan", "en value");
 });
 
-test("BusyState explicit label overrides the key (pane boot stage)", async () => {
-  const { host } = await render(<BusyState labelKey="paneBoot" label="Spawning PTY" />);
+test("BusyState explicit label overrides the key (Tab boot stage)", async () => {
+  const { host } = await render(<BusyState labelKey="tabBoot" label="Spawning PTY" />);
   const msg = host.querySelector(".ct-agent-msg");
   assert(msg?.textContent === "Spawning PTY", "explicit stage label wins");
 });

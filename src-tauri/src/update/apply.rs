@@ -1,7 +1,9 @@
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
-use super::channel::{default_endpoints_for_install_method, Channel};
+use super::channel::{
+    default_endpoints_for_install_method, immutable_endpoint_for_release, Channel,
+};
 use super::manifest;
 use super::shutdown;
 use super::{InstallMethod, UpdatePhase, UpdateState};
@@ -62,14 +64,27 @@ pub async fn check_and_apply(
     check_and_apply_plugin(app, opts, update_state).await
 }
 
+async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String> {
+    if let Some(url) = &opts.manifest_url {
+        return Ok(url.clone());
+    }
+    if opts.channel == Channel::Stable {
+        let tag = super::checker::latest_release_tag().await?;
+        return Ok(immutable_endpoint_for_release(
+            &tag,
+            opts.channel,
+            &opts.install_method,
+        ));
+    }
+    Ok(default_endpoints_for_install_method(opts.channel, &opts.install_method)[0].clone())
+}
+
 async fn check_and_apply_plugin(
     app: &tauri::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
-    let endpoint_str = opts.manifest_url.clone().unwrap_or_else(|| {
-        default_endpoints_for_install_method(opts.channel, &opts.install_method)[0].clone()
-    });
+    let endpoint_str = resolve_manifest_endpoint(&opts).await?;
 
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
@@ -232,9 +247,7 @@ pub async fn check_stage_deb_update(
     opts: &ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<DebianUpdatePlan, String> {
-    let endpoint_str = opts.manifest_url.clone().unwrap_or_else(|| {
-        default_endpoints_for_install_method(opts.channel, &opts.install_method)[0].clone()
-    });
+    let endpoint_str = resolve_manifest_endpoint(&opts).await?;
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
 

@@ -4,33 +4,21 @@ use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig, Usa
 fn ui_config_extra_keys_round_trip_over_json() {
     // talks JSON over IPC, so the JSON round-trip is the load-bearing path.
     let json = r#"{
-        "default_new_agent_pane_chat": true,
-        "chat_ui_default_prompted": true,
         "usage_intro_hint_opens": 3
     }"#;
     let cfg: UiConfig = serde_json::from_str(json).unwrap();
-    assert!(cfg.default_new_agent_pane_chat, "typed field still parses");
-    assert_eq!(
-        cfg.extra.get("chat_ui_default_prompted"),
-        Some(&toml::Value::Boolean(true))
-    );
     assert_eq!(
         cfg.extra.get("usage_intro_hint_opens"),
         Some(&toml::Value::Integer(3))
     );
 
     let back = serde_json::to_value(&cfg).unwrap();
-    assert_eq!(
-        back["chat_ui_default_prompted"],
-        serde_json::json!(true),
-        "extra keys re-emit flat"
-    );
     assert_eq!(back["usage_intro_hint_opens"], serde_json::json!(3));
 }
 
 #[test]
 fn ui_config_extra_survives_toml_round_trip() {
-    let toml_src = "default_new_agent_pane_chat = true\nkeepawake_display = true\n";
+    let toml_src = "keepawake_display = true\n";
     let cfg: UiConfig = toml::from_str(toml_src).unwrap();
     assert_eq!(
         cfg.extra.get("keepawake_display"),
@@ -59,16 +47,14 @@ fn memory_l1_budget_user_override() {
 fn orchestration_plan_reminder_defaults() {
     let cfg: OrchestrationConfig = toml::from_str("").unwrap();
     assert!(cfg.plan_reminders);
-    assert_eq!(cfg.nudge_after_turns, 12);
     assert_eq!(cfg.nudge_interval_secs, 1800);
-    assert!(cfg.idle_poke.enabled);
-    assert_eq!(cfg.idle_poke.idle_threshold_secs, 150);
-    assert_eq!(cfg.idle_poke.live_lane_cap, 3);
-    assert_eq!(cfg.idle_poke.max_per_day, 4);
-    assert_eq!(cfg.idle_poke.backoff_base_secs, 90);
     assert_eq!(cfg.reflect.every_gates, 5);
     assert!(cfg.digests.enabled);
     assert_eq!(cfg.digests.rules.len(), 2);
+
+    let serialized = toml::to_string(&cfg).unwrap();
+    assert!(!serialized.contains(concat!("nudge_after_", "turns")));
+    assert!(!serialized.contains(concat!("idle_", "poke")));
 }
 
 #[test]
@@ -120,18 +106,9 @@ fn orchestration_refresh_overrides() {
 #[test]
 fn orchestration_plan_reminder_overrides() {
     let cfg: OrchestrationConfig =
-        toml::from_str(
-            "plan_reminders = false\nnudge_after_turns = 3\nnudge_interval_secs = 90\nidle_poke.enabled = false\nidle_poke.idle_threshold_secs = 60\nidle_poke.live_lane_cap = 1\nidle_poke.max_per_day = 2\nidle_poke.backoff_base_secs = 45",
-        )
-            .unwrap();
+        toml::from_str("plan_reminders = false\nnudge_interval_secs = 90").unwrap();
     assert!(!cfg.plan_reminders);
-    assert_eq!(cfg.nudge_after_turns, 3);
     assert_eq!(cfg.nudge_interval_secs, 90);
-    assert!(!cfg.idle_poke.enabled);
-    assert_eq!(cfg.idle_poke.idle_threshold_secs, 60);
-    assert_eq!(cfg.idle_poke.live_lane_cap, 1);
-    assert_eq!(cfg.idle_poke.max_per_day, 2);
-    assert_eq!(cfg.idle_poke.backoff_base_secs, 45);
 }
 
 #[test]

@@ -79,14 +79,14 @@ def field(name):
     payload = load_stdin()
     if not isinstance(payload, dict):
         fail(f"{name} envelope must be an object")
-    if name == "staffed-pane":
+    if name == "staffed-tab":
         member = payload.get("member")
-        value = payload.get("pane_id") or (member.get("pane_id") if isinstance(member, dict) else "")
+        value = payload.get("tab_id") or (member.get("tab_id") if isinstance(member, dict) else "")
     else:
-        keys = {"orchestrator": "orchestrator_pane_id", "planner": "planner_pane_id", "spawned-pane": "pane_id"}
+        keys = {"orchestrator": "orchestrator_tab_id", "planner": "planner_tab_id", "spawned-tab": "tab_id"}
         value = payload.get(keys[name])
     if not isinstance(value, str) or not value:
-        fail(f"{name} envelope has no pane id")
+        fail(f"{name} envelope has no tab id")
     print(value)
 
 
@@ -94,23 +94,23 @@ def mux_absent(ids):
     payload = load_stdin()
     if not isinstance(payload, dict):
         fail("mux envelope must be an object")
-    panes = payload.get("panes")
-    if isinstance(panes, dict):
-        pane_ids = set(panes)
-    elif isinstance(panes, list):
-        pane_ids = {
-            pane.get("id")
-            for pane in panes
-            if isinstance(pane, dict) and isinstance(pane.get("id"), str)
+    tabs = payload.get("tabs")
+    if isinstance(tabs, dict):
+        tab_ids = set(tabs)
+    elif isinstance(tabs, list):
+        tab_ids = {
+            tab.get("id")
+            for tab in tabs
+            if isinstance(tab, dict) and isinstance(tab.get("id"), str)
         }
     else:
-        fail("mux panes must be an object map or array")
-    remaining = sorted(set(ids) & pane_ids)
+        fail("mux tabs must be an object map or array")
+    remaining = sorted(set(ids) & tab_ids)
     if remaining:
-        fail(f"mux still contains panes: {', '.join(remaining)}")
+        fail(f"mux still contains tabs: {', '.join(remaining)}")
 
 
-def await_event(pane, timeout):
+def await_event(tab, timeout):
     url = "http://127.0.0.1:7686/api/events/stream"
     request = urllib.request.Request(url, headers={"Authorization": os.environ["CODETERM_DEV_AUTH_HEADER"].removeprefix("Authorization: ")})
     try:
@@ -122,7 +122,7 @@ def await_event(pane, timeout):
                     event = json.loads(raw[6:])
                 except json.JSONDecodeError:
                     continue
-                if event.get("event_type") != f"pane-chat-{pane}":
+                if event.get("event_type") != f"tab-chat-{tab}":
                     continue
                 answer = first_assistant(event.get("data", {}))
                 if answer:
@@ -132,7 +132,7 @@ def await_event(pane, timeout):
         pass
     except Exception as error:
         fail(f"chat event wait failed: {error}")
-    fail(f"timeout first assistant {pane}")
+    fail(f"timeout first assistant {tab}")
 
 
 def main():

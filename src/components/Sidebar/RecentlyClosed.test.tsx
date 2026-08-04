@@ -4,8 +4,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { RecentlyClosed, groupClosedViews, describeGroup, closedAgo } from "./RecentlyClosed";
-import { reopenClosedPane, reopenClosedGroup, __setInvokeForTest } from "../../lib/bridge";
-import type { ClosedPaneView } from "../../lib/types";
+import { reopenClosedTab, reopenClosedGroup, __setInvokeForTest } from "../../lib/bridge";
+import type { ClosedTabView } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -52,16 +52,16 @@ async function expandSection(host: HTMLElement) {
   await click(toggle);
 }
 
-/** A flat newest-first view. `single` panes each get their own group id; pass
+/** A flat newest-first view. `single` tabs each get their own group id; pass
  *  explicit group fields for cascade/workspace fixtures. */
-function view(partial: Partial<ClosedPaneView> & { pane_id: string }): ClosedPaneView {
+function view(partial: Partial<ClosedTabView> & { tab_id: string }): ClosedTabView {
   return {
-    title: partial.pane_id,
+    title: partial.tab_id,
     closed_at: 1000,
     backing: { kind: "pty" },
     index: 0,
     orphaned: false,
-    group_id: partial.pane_id,
+    group_id: partial.tab_id,
     group_kind: "single",
     workspace_id: "ws1",
     ...partial,
@@ -72,29 +72,29 @@ setupDom();
 
 test("groupClosedViews collapses by group_id preserving first-seen order", () => {
   const groups = groupClosedViews([
-    view({ pane_id: "s1" }),
-    view({ pane_id: "c-orch", group_id: "g-cas", group_kind: "cascade" }),
-    view({ pane_id: "c-w1", group_id: "g-cas", group_kind: "cascade", parent_pane_id: "c-orch" }),
-    view({ pane_id: "s2" }),
+    view({ tab_id: "s1" }),
+    view({ tab_id: "c-orch", group_id: "g-cas", group_kind: "cascade" }),
+    view({ tab_id: "c-w1", group_id: "g-cas", group_kind: "cascade", parent_tab_id: "c-orch" }),
+    view({ tab_id: "s2" }),
   ]);
   assert(groups.length === 3, `expected 3 groups, got ${groups.length}`);
   assert(groups[0].kind === "single" && groups[0].id === "s1", "first group is single s1");
-  assert(groups[1].kind === "cascade" && groups[1].panes.length === 2, "cascade collapses its two panes");
+  assert(groups[1].kind === "cascade" && groups[1].tabs.length === 2, "cascade collapses its two Tabs");
   assert(groups[2].id === "s2", "order preserved by first appearance");
 });
 
 test("describeGroup labels cascade and workspace groups", () => {
   const cascade = groupClosedViews([
-    view({ pane_id: "orch", title: "Orchestrator", group_id: "g", group_kind: "cascade" }),
-    view({ pane_id: "w1", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
-    view({ pane_id: "w2", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
-    view({ pane_id: "w3", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
+    view({ tab_id: "orch", title: "Orchestrator", group_id: "g", group_kind: "cascade" }),
+    view({ tab_id: "w1", group_id: "g", group_kind: "cascade", parent_tab_id: "orch" }),
+    view({ tab_id: "w2", group_id: "g", group_kind: "cascade", parent_tab_id: "orch" }),
+    view({ tab_id: "w3", group_id: "g", group_kind: "cascade", parent_tab_id: "orch" }),
   ])[0];
   assert(describeGroup(cascade) === "Orchestrator", `cascade label: ${describeGroup(cascade)}`);
 
   const ws = groupClosedViews([
-    view({ pane_id: "t1", group_id: "w", group_kind: "workspace", workspace_name: "General" }),
-    view({ pane_id: "t2", group_id: "w", group_kind: "workspace", workspace_name: "General" }),
+    view({ tab_id: "t1", group_id: "w", group_kind: "workspace", workspace_name: "General" }),
+    view({ tab_id: "t2", group_id: "w", group_kind: "workspace", workspace_name: "General" }),
   ])[0];
   assert(describeGroup(ws) === "General", `workspace label: ${describeGroup(ws)}`);
 });
@@ -112,8 +112,8 @@ test("renders a row per single close with title and model", async () => {
   const { host, root } = await render(
     <RecentlyClosed
       views={[
-        view({ pane_id: "p1", title: "claude — fix bug", model: "Opus" }),
-        view({ pane_id: "p2", title: "build logs" }),
+        view({ tab_id: "p1", title: "claude — fix bug", model: "Opus" }),
+        view({ tab_id: "p2", title: "build logs" }),
       ]}
       showWorkspace={false}
       onReopen={() => {}}
@@ -138,16 +138,16 @@ test("clicking a single reopens that index via the bridge", async () => {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
-    return { id: "t9", title: "x", pane_id: "p9" } as T;
+    return { id: "t9", title: "x", tab_id: "p9" } as T;
   });
   const { host, root } = await render(
     <RecentlyClosed
       views={[
-        view({ pane_id: "p1", title: "newest", index: 0 }),
-        view({ pane_id: "p2", title: "older", index: 1 }),
+        view({ tab_id: "p1", title: "newest", index: 0 }),
+        view({ tab_id: "p2", title: "older", index: 1 }),
       ]}
       showWorkspace={false}
-      onReopen={(wsId, idx) => { void reopenClosedPane(wsId, idx); }}
+      onReopen={(wsId, idx) => { void reopenClosedTab(wsId, idx); }}
       onReopenGroup={() => {}}
     />,
   );
@@ -156,8 +156,8 @@ test("clicking a single reopens that index via the bridge", async () => {
   const rows = Array.from(host.querySelectorAll('[data-testid="recently-closed-item"]')) as HTMLElement[];
   await click(rows[1]);
 
-  const reopen = calls.find((c) => c.cmd === "mux_reopen_closed_pane");
-  assert(reopen, "clicking should invoke mux_reopen_closed_pane");
+  const reopen = calls.find((c) => c.cmd === "mux_reopen_closed_tab");
+  assert(reopen, "clicking should invoke mux_reopen_closed_tab");
   assert(reopen.args?.workspaceId === "ws1", `expected workspaceId ws1, got ${String(reopen.args?.workspaceId)}`);
   assert(reopen.args?.index === 1, `expected index 1 (the clicked entry), got ${String(reopen.args?.index)}`);
 
@@ -169,9 +169,9 @@ test("a cascade renders as one collapsed group entry, distinct from singles", as
   const { host, root } = await render(
     <RecentlyClosed
       views={[
-        view({ pane_id: "orch", title: "Orchestrator", group_id: "g", group_kind: "cascade" }),
-        view({ pane_id: "w1", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
-        view({ pane_id: "w2", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
+        view({ tab_id: "orch", title: "Orchestrator", group_id: "g", group_kind: "cascade" }),
+        view({ tab_id: "w1", group_id: "g", group_kind: "cascade", parent_tab_id: "orch" }),
+        view({ tab_id: "w2", group_id: "g", group_kind: "cascade", parent_tab_id: "orch" }),
       ]}
       showWorkspace={false}
       onReopen={() => {}}
@@ -196,13 +196,13 @@ test("clicking the group header reopens the whole group via mux_reopen_closed_gr
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
-    return { workspace_id: "ws1", tab_id: "t1", pane_id: "orch" } as T;
+    return { workspace_id: "ws1", tab_id: "orch" } as T;
   });
   const { host, root } = await render(
     <RecentlyClosed
       views={[
-        view({ pane_id: "orch", title: "Orchestrator", group_id: "g-cas", group_kind: "cascade" }),
-        view({ pane_id: "w1", group_id: "g-cas", group_kind: "cascade", parent_pane_id: "orch" }),
+        view({ tab_id: "orch", title: "Orchestrator", group_id: "g-cas", group_kind: "cascade" }),
+        view({ tab_id: "w1", group_id: "g-cas", group_kind: "cascade", parent_tab_id: "orch" }),
       ]}
       showWorkspace={false}
       onReopen={() => {}}
@@ -221,20 +221,20 @@ test("clicking the group header reopens the whole group via mux_reopen_closed_gr
   __setInvokeForTest(null);
 });
 
-test("expanding a group reveals individual panes, each reopenable on its own", async () => {
+test("expanding a group reveals individual Tabs, each reopenable on its own", async () => {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
-    return { id: "t9", title: "x", pane_id: "p9" } as T;
+    return { id: "t9", title: "x", tab_id: "p9" } as T;
   });
   const { host, root } = await render(
     <RecentlyClosed
       views={[
-        view({ pane_id: "orch", title: "Orchestrator", group_id: "g", group_kind: "cascade", index: 0 }),
-        view({ pane_id: "w1", title: "worker one", group_id: "g", group_kind: "cascade", parent_pane_id: "orch", index: 1 }),
+        view({ tab_id: "orch", title: "Orchestrator", group_id: "g", group_kind: "cascade", index: 0 }),
+        view({ tab_id: "w1", title: "worker one", group_id: "g", group_kind: "cascade", parent_tab_id: "orch", index: 1 }),
       ]}
       showWorkspace={false}
-      onReopen={(wsId, idx) => { void reopenClosedPane(wsId, idx); }}
+      onReopen={(wsId, idx) => { void reopenClosedTab(wsId, idx); }}
       onReopenGroup={() => {}}
     />,
   );
@@ -242,11 +242,11 @@ test("expanding a group reveals individual panes, each reopenable on its own", a
 
   await click(host.querySelector('[data-testid="recently-closed-group-toggle"]'));
   const children = Array.from(host.querySelectorAll('[data-testid="recently-closed-item"]')) as HTMLElement[];
-  assert(children.length === 2, `expected 2 child panes after expand, got ${children.length}`);
-  assert(children[1].textContent?.includes("worker one"), "child shows the individual pane title");
+  assert(children.length === 2, `expected 2 child Tabs after expand, got ${children.length}`);
+  assert(children[1].textContent?.includes("worker one"), "child shows the individual Tab title");
 
   await click(children[1]);
-  const reopen = calls.find((c) => c.cmd === "mux_reopen_closed_pane");
+  const reopen = calls.find((c) => c.cmd === "mux_reopen_closed_tab");
   assert(reopen, "clicking a child should invoke the single reopen path");
   assert(reopen.args?.index === 1, `expected child index 1, got ${String(reopen.args?.index)}`);
 

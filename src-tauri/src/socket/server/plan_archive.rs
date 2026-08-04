@@ -18,8 +18,8 @@ pub(super) fn archive(
     emit_plan_changed(app, &id);
     let mut resp = json!({ "ok": true });
     if let Some(plan) = store.get(&id) {
-        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
-            svc.pane_probe(pane).exists
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |tab| {
+            svc.tab_probe(tab).exists
         });
         push_hints(
             &mut resp,

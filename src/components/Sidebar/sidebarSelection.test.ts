@@ -20,7 +20,7 @@ test("plan active only when workspace is visual and canvas is open", () => {
 
 test("workspace plan tab id is stable and workspace-scoped", () => {
   assert(workspacePlanTabId("ws-1") === "workspace-plan:ws-1", "uses virtual workspace plan namespace");
-  assert(workspacePlanTabId("workspace_abc") === "workspace-plan:workspace_abc", "does not derive from pane/tab ids");
+  assert(workspacePlanTabId("workspace_abc") === "workspace-plan:workspace_abc", "does not derive from Tab/tab ids");
 });
 
 test("tab active only when workspace visual, canvas closed, and tab matches", () => {

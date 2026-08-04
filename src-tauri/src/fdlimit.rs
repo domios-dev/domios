@@ -1,4 +1,4 @@
-//! Raise the open-file soft limit at startup. A busy session (many panes ×
+//! Raise the open-file soft limit at startup. A busy session (many tabs ×
 //! several PTY fds each + plugins + sqlite + mesh sockets) blows past the
 //! shell's default 256 soft limit and hits EMFILE ("Too many open files"),
 //! which silently breaks plugin loads and socket accepts (#186). GUI launches

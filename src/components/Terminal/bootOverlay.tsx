@@ -1,18 +1,18 @@
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import { BusyState } from "../shared/BusyState";
 
-export type PaneBootOverlayView =
+export type TabBootOverlayView =
   | { kind: "none" }
   | { kind: "starting"; label: string }
   | { kind: "failed"; reason: string | null; canRetry: boolean };
 
-export function paneBootOverlayView(pane: Pane | null | undefined): PaneBootOverlayView {
-  switch (pane?.boot_stage) {
+export function tabBootOverlayView(tab: Tab | null | undefined): TabBootOverlayView {
+  switch (tab?.boot_stage) {
     case "spawn_failed":
       return {
         kind: "failed",
-        reason: pane.boot_failure_reason ?? null,
-        canRetry: pane.protected === true,
+        reason: tab.boot_failure_reason ?? null,
+        canRetry: tab.protected === true,
       };
     case "pty_starting":
     case "pty_spawned":
@@ -28,19 +28,19 @@ export function paneBootOverlayView(pane: Pane | null | undefined): PaneBootOver
   }
 }
 
-interface PaneBootOverlayProps {
-  view: PaneBootOverlayView;
+interface TabBootOverlayProps {
+  view: TabBootOverlayView;
   shellReady: boolean;
   overlayVisible: boolean;
   onRetry: () => void;
 }
 
-export function PaneBootOverlay({
+export function TabBootOverlay({
   view,
   shellReady,
   overlayVisible,
   onRetry,
-}: PaneBootOverlayProps) {
+}: TabBootOverlayProps) {
   if (!overlayVisible && view.kind === "none") return null;
 
   return (
@@ -56,7 +56,7 @@ export function PaneBootOverlay({
       {view.kind === "failed" ? (
         <div
           className="absolute bottom-6 left-1/2 max-w-[min(34rem,calc(100%-2rem))] -translate-x-1/2 rounded-md border px-3 py-2 text-center"
-          data-testid="pane-boot-failed"
+          data-testid="tab-boot-failed"
           style={{
             borderColor: "color-mix(in srgb, var(--ct-red, #f85149) 55%, transparent)",
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, var(--ct-red, #f85149) 6%)",
@@ -86,10 +86,10 @@ export function PaneBootOverlay({
         view.kind === "starting" && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
             <BusyState
-              labelKey="paneBoot"
+              labelKey="tabBoot"
               label={view.label}
               phase="work"
-              data-testid="pane-boot-busy"
+              data-testid="tab-boot-busy"
               style={{ color: "var(--ct-muted-fg, #8b949e)", fontSize: 12 }}
             />
           </div>

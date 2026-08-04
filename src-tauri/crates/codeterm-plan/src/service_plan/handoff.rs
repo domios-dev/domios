@@ -58,7 +58,7 @@ pub struct HandoffListItem {
 pub struct HandoffReseedRequest {
     #[serde(default)]
     pub selector: Option<String>,
-    pub pane_id: String,
+    pub tab_id: String,
     pub source_session_id: String,
     #[serde(default = "default_reseed_mode")]
     pub mode: String,
@@ -83,7 +83,7 @@ pub struct HandoffReseedResult {
     pub mode: String,
     pub plan_id: String,
     pub handoff_id: String,
-    pub pane_id: String,
+    pub tab_id: String,
     pub source_session_id: String,
     pub sends: Vec<HandoffReseedSend>,
     pub state: String,
@@ -93,7 +93,7 @@ pub struct HandoffReseedResult {
 pub struct HandoffResumeSend {
     pub plan_id: String,
     pub handoff_id: String,
-    pub pane_id: String,
+    pub tab_id: String,
     pub text: String,
 }
 
@@ -184,7 +184,7 @@ fn compose_content(plan: &Plan, req: &HandoffCreateRequest, seq: u64) -> Value {
                 "task_id": task.id,
                 "task_handle": task_handle(task),
                 "status": task.status,
-                "assigned_pane_id": task.assigned_pane_id,
+                "assigned_tab_id": task.assigned_tab_id,
                 "peer": task.peer,
             })
         })
@@ -263,25 +263,25 @@ fn active_reseed_state(state: &str) -> bool {
     matches!(state, "new_sent" | "session_seen" | "resume_sent")
 }
 
-fn pending_for_pane(content: &Value, pane_id: &str) -> bool {
+fn pending_for_tab(content: &Value, tab_id: &str) -> bool {
     content
         .get("reseed_pending")
         .and_then(|v| v.as_object())
-        .and_then(|obj| obj.get("pane_id"))
+        .and_then(|obj| obj.get("tab_id"))
         .and_then(|v| v.as_str())
-        == Some(pane_id)
+        == Some(tab_id)
 }
 
-fn element_has_active_reseed_for_pane(element: &crate::plan::CanvasElement, pane_id: &str) -> bool {
+fn element_has_active_reseed_for_tab(element: &crate::plan::CanvasElement, tab_id: &str) -> bool {
     element.kind == "handoff"
-        && pending_for_pane(&element.content, pane_id)
+        && pending_for_tab(&element.content, tab_id)
         && reseed_state(&element.content).is_some_and(active_reseed_state)
 }
 
-fn plan_has_active_reseed_for_pane(plan: &Plan, pane_id: &str) -> bool {
+fn plan_has_active_reseed_for_tab(plan: &Plan, tab_id: &str) -> bool {
     plan.elements
         .iter()
-        .any(|element| element_has_active_reseed_for_pane(element, pane_id))
+        .any(|element| element_has_active_reseed_for_tab(element, tab_id))
 }
 
 fn reseed_state(content: &Value) -> Option<&str> {
@@ -445,13 +445,13 @@ impl PlanStore {
             return Err(PlanError::Io("mode must be new or compact".into()));
         }
         let _guard = self.reseed_prepare_lock.lock();
-        self.reject_active_reseed_for_pane(&req.pane_id, req.force, Some(plan_id))?;
+        self.reject_active_reseed_for_tab(&req.tab_id, req.force, Some(plan_id))?;
         let selector = req.selector.clone();
         self.with_plan(plan_id, now_ms, |plan| {
-            if !req.force && plan_has_active_reseed_for_pane(plan, &req.pane_id) {
+            if !req.force && plan_has_active_reseed_for_tab(plan, &req.tab_id) {
                 return Err(PlanError::Io(format!(
-                    "handoff reseed already pending for pane {}; use --force to override",
-                    req.pane_id
+                    "handoff reseed already pending for tab {}; use --force to override",
+                    req.tab_id
                 )));
             }
             let idx = select_handoff_index(plan, selector.as_deref()).ok_or(PlanError::NotFound)?;
@@ -468,7 +468,7 @@ impl PlanStore {
                     mode: req.mode.clone(),
                     plan_id: plan.id.clone(),
                     handoff_id: element.id.clone(),
-                    pane_id: req.pane_id.clone(),
+                    tab_id: req.tab_id.clone(),
                     source_session_id: req.source_session_id.clone(),
                     sends: reseed_sends(&req.mode, provider_command, resume_seed),
                     state: "dry_run".into(),
@@ -482,7 +482,7 @@ impl PlanStore {
             obj.insert(
                 "reseed_pending".into(),
                 json!({
-                    "pane_id": req.pane_id,
+                    "tab_id": req.tab_id,
                     "handoff_id": element.id,
                     "source_session_id": req.source_session_id,
                     "state": state,
@@ -498,7 +498,7 @@ impl PlanStore {
                 mode: req.mode.clone(),
                 plan_id: plan.id.clone(),
                 handoff_id: element.id.clone(),
-                pane_id: req.pane_id.clone(),
+                tab_id: req.tab_id.clone(),
                 source_session_id: req.source_session_id.clone(),
                 sends: reseed_sends(&req.mode, provider_command, resume_seed),
                 state: state.into(),
@@ -506,9 +506,9 @@ impl PlanStore {
         })
     }
 
-    fn reject_active_reseed_for_pane(
+    fn reject_active_reseed_for_tab(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         force: bool,
         except_plan_id: Option<&str>,
     ) -> Result<(), PlanError> {
@@ -520,9 +520,9 @@ impl PlanStore {
                 continue;
             }
             if let Some(plan) = self.get(&entry.plan_id) {
-                if plan_has_active_reseed_for_pane(&plan, pane_id) {
+                if plan_has_active_reseed_for_tab(&plan, tab_id) {
                     return Err(PlanError::Io(format!(
-                        "handoff reseed already pending for pane {pane_id}; use --force to override"
+                        "handoff reseed already pending for tab {tab_id}; use --force to override"
                     )));
                 }
             }
@@ -532,7 +532,7 @@ impl PlanStore {
 
     pub fn observe_handoff_session_start(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<Option<HandoffResumeSend>, PlanError> {
@@ -545,7 +545,7 @@ impl PlanStore {
                 .iter()
                 .filter(|element| element.kind == "handoff")
                 .find(|element| {
-                    pending_for_pane(&element.content, pane_id)
+                    pending_for_tab(&element.content, tab_id)
                         && reseed_state(&element.content) == Some("new_sent")
                         && element
                             .content
@@ -602,7 +602,7 @@ impl PlanStore {
                 out = Some(HandoffResumeSend {
                     plan_id: plan.id.clone(),
                     handoff_id: element.id.clone(),
-                    pane_id: pane_id.to_string(),
+                    tab_id: tab_id.to_string(),
                     text,
                 });
                 Ok(())

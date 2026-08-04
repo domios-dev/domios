@@ -1,16 +1,16 @@
 import React from "react";
 import type { CodetermInvocation } from "./recognize";
-import { parseSend, type PaneNameResolver } from "./templates";
+import { parseSend, type TabNameResolver } from "./templates";
 import { RichMarkdown } from "../MarkdownBody";
 import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { pickUiFontScaleValue } from "../uiFontScale";
-import { CrossPaneMessageShell } from "../crossPaneBubble";
+import { CrossTabMessageShell } from "../crossTabBubble";
 
 interface Props {
   inv: CodetermInvocation;
   result?: string;
-  resolvePaneName?: PaneNameResolver;
+  resolveTabName?: TabNameResolver;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
@@ -22,8 +22,8 @@ function bodyLineCount(body: string): number {
   return body.split("\n").length;
 }
 
-export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
-  const msg = parseSend(inv, result, resolvePaneName);
+export function SentMessageBubble({ inv, result, resolveTabName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
+  const msg = parseSend(inv, result, resolveTabName);
   const collapsible = bodyLineCount(msg.body) > COLLAPSE_LINES;
   const [expanded, setExpanded] = React.useState(false);
   const showFull = expanded || !collapsible;
@@ -56,7 +56,7 @@ export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, re
   );
 
   return (
-    <CrossPaneMessageShell
+    <CrossTabMessageShell
       header={header}
       textSize={bodyText}
       bubbleTestId="chat-sent-message"
@@ -79,6 +79,6 @@ export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, re
       ) : (
         <RichMarkdown text={shown} fontScale={fontScale} />
       )}
-    </CrossPaneMessageShell>
+    </CrossTabMessageShell>
   );
 }

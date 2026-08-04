@@ -1,16 +1,149 @@
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, provider_launch_failure,
-    replacement_pty_candidate, spawn_onboarding_task, take_reader_termination, AgentRegistry,
-    LaunchFailure, LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
+    replacement_pty_candidate, spawn_onboarding_task, take_reader_termination,
+    worker_brief_delivery_incident, AgentRegistry, LaunchFailure, LaunchGeneration, LaunchRegistry,
+    ProviderSessionBinding,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{
+    AgentRole, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+};
+use crate::service::boot_stage::BootStageSink;
+use crate::service::inject_verify::InjectionResult;
+use crate::service::launch_delivery::{LaunchConsumptionOutcome, LaunchDeliveryGate};
 use crate::service::orchestrator::types::SpawnAgentParams;
-use crate::service::pty_io::pane_identity_env;
-use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
+use crate::service::pty_io::tab_identity_env;
+use crate::service::spawn::{SpawnTabSpec, TabCommand};
+use codeterm_util::lock_hold::TimedRwLock;
+use parking_lot::Mutex;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::sync::Barrier;
+
+#[derive(Default)]
+struct DeliverySink(Mutex<Vec<&'static str>>);
+
+impl BootStageSink for DeliverySink {
+    fn record(&self, _: &str, stage: crate::service::boot_stage::BootStage, _: Option<&str>) {
+        self.0.lock().push(stage.as_str());
+    }
+}
+
+fn delivery_fixture() -> (
+    Arc<TimedRwLock<MultiplexerState>>,
+    String,
+    LaunchDeliveryGate,
+) {
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
+        "worker-brief".into(),
+        PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux = Arc::new(TimedRwLock::new("worker-brief-test", state));
+    let mut gate = LaunchDeliveryGate::new();
+    gate.mark_shell_ready();
+    gate.mark_provider_ready();
+    (mux, tab_id, gate)
+}
+
+#[test]
+fn worker_brief_without_ingestion_is_not_confirmed() {
+    let (mux, tab_id, gate) = delivery_fixture();
+    let sink = DeliverySink::default();
+    let payload_writes = Cell::new(0);
+    let consumption = gate.consume_injection(&mux, &tab_id, &sink, || {
+        payload_writes.set(payload_writes.get() + 1);
+        Ok(InjectionResult {
+            bytes_written: "worker brief".len(),
+            echo_observed: false,
+            submit_observed: false,
+            submit_anomaly: false,
+            submit_key_writes: 0,
+            elapsed: std::time::Duration::ZERO,
+        })
+    });
+    let cleanup_calls = Cell::new(0);
+    if matches!(consumption, Ok(LaunchConsumptionOutcome::Confirmed)) {
+        cleanup_calls.set(cleanup_calls.get() + 1);
+    }
+    let pending = mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .clone()
+        .unwrap();
+
+    assert_eq!(payload_writes.get(), 1);
+    assert_eq!(cleanup_calls.get(), 0);
+    assert_eq!(pending.state(), PendingDeliveryState::Unconfirmed);
+    assert_eq!(
+        consumption.unwrap_err().delivery.code(),
+        "submit_unconfirmed"
+    );
+}
+
+#[test]
+fn worker_brief_is_one_payload_and_one_turn() {
+    let (mux, tab_id, gate) = delivery_fixture();
+    let payload = "first line\nsecond line\nthird line";
+    let payloads = RefCell::new(Vec::new());
+    let turns = Cell::new(0);
+    let queued_characters = Cell::new(0);
+
+    let consumption = gate
+        .consume_injection(&mux, &tab_id, &DeliverySink::default(), || {
+            crate::service::pty_io::submit_transaction::submit_entry(
+                crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                payload,
+                |submitted| {
+                    payloads.borrow_mut().push(submitted.to_string());
+                    turns.set(turns.get() + 1);
+                    Ok(InjectionResult {
+                        bytes_written: submitted.len(),
+                        echo_observed: true,
+                        submit_observed: true,
+                        submit_anomaly: false,
+                        submit_key_writes: 1,
+                        elapsed: std::time::Duration::ZERO,
+                    })
+                },
+            )
+        })
+        .unwrap();
+
+    assert_eq!(consumption, LaunchConsumptionOutcome::Confirmed);
+    assert_eq!(payloads.borrow().as_slice(), &[payload]);
+    assert_eq!(turns.get(), 1);
+    assert_eq!(queued_characters.get(), 0);
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_delivery
+            .as_ref()
+            .unwrap()
+            .state(),
+        PendingDeliveryState::AcceptedWeak
+    );
+    let launch_source = include_str!("../launch.rs");
+    assert!(launch_source.contains("submit_text_with_key"));
+    assert!(!launch_source.contains("send_text_detached"));
+}
+
+#[test]
+fn worker_brief_failure_alert_states_impact_cleanup_and_fallback() {
+    let (title, body) =
+        worker_brief_delivery_incident("worker-tab", "submit_unconfirmed: composer retained");
+
+    assert_eq!(title, "Orchestration incident: launch brief undelivered");
+    assert!(body.contains("Impact: Tab worker-tab was not marked ready"));
+    assert!(body.contains("Cleanup: confirmed-delivery cleanup was skipped"));
+    assert!(body.contains("Fallback:"));
+    assert!(body.contains("pending brief was retained"));
+    assert!(body.contains("submit_unconfirmed"));
+}
 
 fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
@@ -103,7 +236,7 @@ fn barrier_commit_cannot_be_overwritten_by_concurrent_begin() {
     release.wait();
     let replacement = LaunchGeneration::begin("binding-race-emit", "binding-emit-new".into());
     assert!(worker.join().unwrap());
-    assert!(replacement.owns());
+    assert_eq!(replacement.write_if_current(|| ()), Some(()));
 }
 
 #[test]
@@ -111,8 +244,8 @@ fn barrier_reader_eof_for_old_pty_cannot_take_replacement() {
     let old = LaunchGeneration::begin("binding-race-eof", "binding-eof-old".into());
     let replacement = LaunchGeneration::begin("binding-race-eof", "binding-eof-new".into());
     assert!(!take_reader_termination("binding-eof-old", |_| {}));
-    assert!(replacement.owns());
-    assert!(!old.owns());
+    assert_eq!(replacement.write_if_current(|| ()), Some(()));
+    assert_eq!(old.write_if_current(|| ()), None);
 }
 
 #[test]
@@ -122,7 +255,7 @@ fn production_driver_reports_reused_reader_eof_for_its_current_pty() {
     let terminated = driver
         .take_for_pty("binding-reader-live")
         .expect("registered reader");
-    assert_eq!(terminated.pane_id, "binding-reader");
+    assert_eq!(terminated.tab_id, "binding-reader");
     assert_eq!(terminated.generation, launch.generation);
     assert!(!driver.owns(&launch));
     assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
@@ -171,16 +304,19 @@ fn production_driver_uses_typed_terminal_causes() {
 }
 
 #[test]
-fn plain_orchestrator_no_task_spawn_submits_nothing() {
-    assert_eq!(spawn_onboarding_task(&orchestrator_params(None)), None);
+fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
+    let prompt =
+        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
+    assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
 }
 
 #[test]
 fn plain_orchestrator_no_task_attaches_nothing() {
-    let spec = SpawnPaneSpec::from_agent_params(orchestrator_params(None));
-    assert_eq!(spec.parent_pane_id, None);
+    let spec = SpawnTabSpec::from_agent_params(orchestrator_params(None));
+    assert_eq!(spec.parent_tab_id, None);
     match spec.command {
-        PaneCommand::Agent(agent) => {
+        TabCommand::Agent(agent) => {
             assert_eq!(agent.role.as_deref(), Some("Orchestrator"));
             assert_eq!(agent.task, None);
             assert_eq!(agent.worker_id, None);
@@ -193,12 +329,12 @@ fn plain_orchestrator_no_task_attaches_nothing() {
 fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let pane_id = mux.create_tab(&workspace_id).unwrap().1;
-    mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let pane = mux.get_pane(&pane_id).unwrap();
+    let tab = mux.get_tab(&tab_id).unwrap();
     assert_eq!(
-        pane_identity_env(pane).get("CODETERM_ROLE"),
+        tab_identity_env(tab).get("CODETERM_ROLE"),
         Some(&"Orchestrator".to_string())
     );
 }
@@ -302,9 +438,14 @@ fn provider_binding_with_a_wrong_nonce_is_ignored() {
 
 #[test]
 fn explicit_orchestrator_task_is_submitted_exactly_once() {
+    let prompt = spawn_onboarding_task(&orchestrator_params(Some("inspect launch")))
+        .expect("orchestrator system prompt");
+    assert_eq!(prompt.matches("inspect launch").count(), 1);
     assert_eq!(
-        spawn_onboarding_task(&orchestrator_params(Some("inspect launch"))),
-        Some("inspect launch".into())
+        prompt
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
     );
 }
 
@@ -368,11 +509,12 @@ impl ChatBackendProvider for SpawnableChatBackend {
 }
 
 #[test]
-fn transport_capability_paths_receive_no_task_for_plain_orchestrator() {
+fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
     let params = orchestrator_params(None);
-    assert_eq!(spawn_onboarding_task(&params), None);
-    match SpawnPaneSpec::from_agent_params(params.clone()).command {
-        PaneCommand::Agent(agent) => assert_eq!(agent.task, None),
+    let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    match SpawnTabSpec::from_agent_params(params.clone()).command {
+        TabCommand::Agent(agent) => assert_eq!(agent.task, None),
         other => panic!("expected PTY agent route, got {other:?}"),
     }
     let chatbackends = ChatBackendRegistry::new();
@@ -381,8 +523,8 @@ fn transport_capability_paths_receive_no_task_for_plain_orchestrator() {
         agent: Some("test-chat".into()),
         ..params
     };
-    match SpawnPaneSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command {
-        PaneCommand::ChatBackend { config, role, .. } => {
+    match SpawnTabSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command {
+        TabCommand::ChatBackend { config, role, .. } => {
             assert!(config.as_object().unwrap().is_empty());
             assert_eq!(role.as_deref(), Some("Orchestrator"));
         }

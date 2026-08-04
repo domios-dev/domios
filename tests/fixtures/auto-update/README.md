@@ -81,7 +81,7 @@ pytest tests/e2e/test_update_resume.py -v
 ```
 
 Without those env vars the survival test is `SKIPPED` — the snapshot-shape
-check still runs to catch pane-payload regressions.
+check still runs to catch tab-payload regressions.
 
 ## Re-key
 

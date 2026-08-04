@@ -27,8 +27,8 @@ def request(method, path, body=None, timeout=30):
     return json.loads(payload) if payload else None
 
 
-def message_contains_answer(event, pane_id, answer):
-    if event.get("event_type") != f"pane-chat-msg-{pane_id}":
+def message_contains_answer(event, tab_id, answer):
+    if event.get("event_type") != f"tab-chat-msg-{tab_id}":
         return False
     messages = event.get("data", {}).get("messages", [])
     return any(
@@ -38,11 +38,11 @@ def message_contains_answer(event, pane_id, answer):
     )
 
 
-def is_working(event, pane_id):
+def is_working(event, tab_id):
     data = event.get("data", {})
     return (
-        event.get("event_type") == "pane-status-changed"
-        and data.get("pane_id") == pane_id
+        event.get("event_type") == "tab-status-changed"
+        and data.get("tab_id") == tab_id
         and str(data.get("status", "")).lower() == "working"
     )
 
@@ -79,45 +79,45 @@ class EventStream:
 
 
 def resolve_targets(names):
-    panes = request("GET", "/api/panes")
-    by_name = {pane.get("title"): pane for pane in panes}
+    tabs = request("GET", "/api/tabs")
+    by_name = {tab.get("title"): tab for tab in tabs}
     missing = [name for name in names if name not in by_name]
     if missing:
         raise RuntimeError(f"missing dev targets: {', '.join(missing)}")
     return [by_name[name] for name in names]
 
 
-def make_probe(pane, ordinal):
+def make_probe(tab, ordinal):
     left = random.randint(2000, 8000) + ordinal * 17
     right = random.randint(2000, 8000) + ordinal * 31
     return {
-        "name": pane["title"],
-        "pane_id": pane["id"],
-        "provider": pane.get("agent_type"),
+        "name": tab["title"],
+        "tab_id": tab["id"],
+        "provider": tab.get("agent_type"),
         "answer": str(left + right),
         "prompt": f"Compute {left} + {right}. Reply with the decimal digits only.",
-        "initial_state": pane.get("agent_state", {}).get("state"),
-        "boot_stage": pane.get("boot_stage"),
+        "initial_state": tab.get("agent_state", {}).get("state"),
+        "boot_stage": tab.get("boot_stage"),
     }
 
 
 def run(names, deadline, output):
-    probes = [make_probe(pane, index) for index, pane in enumerate(resolve_targets(names))]
+    probes = [make_probe(tab, index) for index, tab in enumerate(resolve_targets(names))]
     stream = EventStream()
     stream.start()
 
     for probe in probes:
         started = time.perf_counter()
-        snapshot = request("POST", f"/api/panes/{probe['pane_id']}/chat-raw/start", {})
+        snapshot = request("POST", f"/api/tabs/{probe['tab_id']}/chat-raw/start", {})
         probe["attach_ms"] = round((time.perf_counter() - started) * 1000, 1)
         probe["snapshot_messages"] = len(snapshot.get("messages", []))
 
     for probe in probes:
         probe["sent_at"] = time.perf_counter()
-        request("POST", f"/api/panes/{probe['pane_id']}/send", {"text": probe["prompt"]})
+        request("POST", f"/api/tabs/{probe['tab_id']}/send", {"text": probe["prompt"]})
         probe["send_return_ms"] = round((time.perf_counter() - probe["sent_at"]) * 1000, 1)
 
-    pending = {probe["pane_id"]: probe for probe in probes}
+    pending = {probe["tab_id"]: probe for probe in probes}
     stop_at = time.perf_counter() + deadline
     while pending:
         remaining = stop_at - time.perf_counter()
@@ -127,12 +127,12 @@ def run(names, deadline, output):
             observed_at, event = stream.events.get(timeout=remaining)
         except queue.Empty:
             break
-        for pane_id, probe in list(pending.items()):
-            if "working_ms" not in probe and is_working(event, pane_id):
+        for tab_id, probe in list(pending.items()):
+            if "working_ms" not in probe and is_working(event, tab_id):
                 probe["working_ms"] = round((observed_at - probe["sent_at"]) * 1000, 1)
-            if message_contains_answer(event, pane_id, probe["answer"]):
+            if message_contains_answer(event, tab_id, probe["answer"]):
                 probe["reply_ms"] = round((observed_at - probe["sent_at"]) * 1000, 1)
-                pending.pop(pane_id)
+                pending.pop(tab_id)
 
     for probe in probes:
         probe.setdefault("working_ms", None)
@@ -151,12 +151,12 @@ def run(names, deadline, output):
 
 def self_test():
     event = {
-        "event_type": "pane-chat-msg-p1",
+        "event_type": "tab-chat-msg-p1",
         "data": {"messages": [{"type": "assistant", "content": "9137"}]},
     }
     assert message_contains_answer(event, "p1", "9137")
     assert not message_contains_answer(event, "p1", "Compute 4000")
-    status = {"event_type": "pane-status-changed", "data": {"pane_id": "p1", "status": "Working"}}
+    status = {"event_type": "tab-status-changed", "data": {"tab_id": "p1", "status": "Working"}}
     assert is_working(status, "p1")
     print("self-test passed")
     return 0

@@ -5,11 +5,11 @@ detection paths and scores them:
 
 1. **Core `SignalExtractor`** (`src-tauri/src/agent/signal_extractor.rs`, P1a) —
    vt100 grid diff → `StreamSignals` (two-clock quiescence, motion, regions).
-2. **Provider `classify_pane_state`** — the bundled JS plugin
+2. **Provider `classify_tab_state`** — the bundled JS plugin
    (`plugins/provider-<id>/plugin.js`), loaded in-process via the QuickJS runtime.
 
 One Rust runner exercises both: the extractor renders each chunk's screen, its
-rendered tail becomes the `PaneStateSnapshot.screenText`, and the provider
+rendered tail becomes the `TabStateSnapshot.screenText`, and the provider
 classifies it. Per output chunk we record a **state timeline** entry.
 
 It is **additive** — a new eval set only, no production behavior change.
@@ -90,14 +90,14 @@ hand-edit the byte stream of a real capture.
 - **`gating`** — optional, default `true`. Seed fixtures gate CI; real captures set
   `false` (measured into the baseline, never failing the build). `source` is an
   optional free-text marker (e.g. `"real-capture"`).
-- **`final_state`** — the `PaneState` the classifier must return at the final
-  quiescent frame (GOLDEN assertion). Snake_case, per `pane_state.rs`.
+- **`final_state`** — the `TabState` the classifier must return at the final
+  quiescent frame (GOLDEN assertion). Snake_case, per `tab_state.rs`.
 - **`extracted.keys`** — optional; the classifier's recommended `action.keys`
   must match exactly (e.g. step OFF a dangerous default before Enter).
 - **`negatives`** — the HARD gate. None of these may appear at any **mid-stream**
   step (a step with real output still to come). Two kinds are accepted:
   - classify states (`rate_limited`, `update_prompt`, …) — never that verdict mid-stream.
-  - the coarse-liveness axis (`waiting`, `turn_complete`) — never read the pane as
+  - the coarse-liveness axis (`waiting`, `turn_complete`) — never read the tab as
     parked/finished while it is still producing output (the wait-FP / can't-tell-done bugs).
 
 ## Scorecard
@@ -111,7 +111,7 @@ Printed every run (baseline table):
 
 ### The coarse-liveness gate (baseline stand-in)
 
-The current `PaneState` enum has no `turn_complete`/`waiting` member, so the
+The current `TabState` enum has no `turn_complete`/`waiting` member, so the
 harness derives a reference liveness verdict from the extractor's two-clock
 quiescence (`Working` while bytes flow; `Waiting` after `WAIT_MS` byte-idle;
 `turn_complete` after `DONE_MS` semantic-idle). Idle ticks are injected into
@@ -122,7 +122,7 @@ the eval re-measures. Constants live at the top of `agent_state_replay.rs`.
 ## Fixtures
 
 **Gating seeds** (synthetic; gate CI). Content guidance:
-`plugins/provider-codex/tests/fixtures/pane-state/*.txt`.
+`plugins/provider-codex/tests/fixtures/tab-state/*.txt`.
 
 - `codex/working_streaming` — sustained streaming output; stays `working`, no
   false parked/done mid-stream. Includes a `"r"` resize row.
@@ -135,7 +135,7 @@ the eval re-measures. Constants live at the top of `agent_state_replay.rs`.
 
 ## Adding a fixture
 
-1. Capture a real stream with `capture-live.sh` (RT1 `pane capture` tap) — or any
+1. Capture a real stream with `capture-live.sh` (RT1 `tab capture` tap) — or any
    `recording.cast`.
 2. Drop it under `tests/fixtures/agent-state/<provider>/<state>/` (use a `_real`
    suffix for non-gating real captures).

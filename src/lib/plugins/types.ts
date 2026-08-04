@@ -10,14 +10,14 @@
  * refs and re-renders.
  *
  * `Renderer`'s fallback contract: when the plugin has no useful events
- * yet (fresh pane, no JSONL seen), it should mount `raw()` so the user
+ * yet (fresh tab, no JSONL seen), it should mount `raw()` so the user
  * still sees terminal output. Never render an empty box.
  */
 import type { ReactNode } from "react";
 
-/** Coarse pane status the host needs to know about for badges /
+/** Coarse tab status the host needs to know about for badges /
  *  notifications. Plugins map their own events to this. */
-export type PaneStatus =
+export type TabStatus =
   | { kind: "idle" }
   | { kind: "agent_working" }
   | { kind: "agent_waiting_input"; question?: string }
@@ -43,16 +43,16 @@ export interface RendererProps {
   /** Mount the raw PTY view (xterm passthrough). Use as a fallback or
    *  as a "raw view" toggle inside the plugin's UI. */
   raw: () => ReactNode;
-  /** Send text into the pane via transport. Returns when the host
+  /** Send text into the tab via transport. Returns when the host
    *  acknowledges the write (not when the provider sees it). */
   send: (text: string) => Promise<void>;
-  /** Latest pane status the host knows about. */
-  status: PaneStatus;
-  /** Pane id — useful for plugin-side per-pane caches, never for I/O. */
-  paneId: string;
+  /** Latest tab status the host knows about. */
+  status: TabStatus;
+  /** Tab id — useful for plugin-side per-tab caches, never for I/O. */
+  tabId: string;
 }
 
-/** Plugin-contributed button/menu item shown in pane chrome. */
+/** Plugin-contributed button/menu item shown in tab chrome. */
 export interface ProviderAction {
   id: string;
   label: string;
@@ -62,11 +62,11 @@ export interface ProviderAction {
 }
 
 /** Heuristic sample passed to plugin.detect() when the host is trying
- *  to figure out which provider lives in a freshly-opened pane. */
+ *  to figure out which provider lives in a freshly-opened tab. */
 export interface DetectionSample {
   /** Last ~2 KB of PTY output (best-effort window). */
   bytes: string;
-  /** Pane title at time of detection, if any. */
+  /** Tab title at time of detection, if any. */
   title?: string;
 }
 
@@ -90,17 +90,17 @@ export interface ProviderPlugin {
   };
 
   /** Cheap structural fingerprint check. Called repeatedly during
-   *  pane warm-up. No I/O. */
+   *  tab warm-up. No I/O. */
   detect(sample: DetectionSample): boolean;
 
-  /** Map a single event to a coarse pane status. `null` means "no
+  /** Map a single event to a coarse tab status. `null` means "no
    *  status change — keep whatever the host had before". */
-  statusOf(event: ProviderEvent): PaneStatus | null;
+  statusOf(event: ProviderEvent): TabStatus | null;
 
   /** React component rendering the chat view. See `RendererProps`. */
   Renderer: (props: RendererProps) => ReactNode;
 
-  /** Pane-chrome actions (buttons, menu items). Empty array is fine. */
+  /** Tab-chrome actions (buttons, menu items). Empty array is fine. */
   actions: ProviderAction[];
 
   /** TUI noise patterns — text matching any pattern is dropped from

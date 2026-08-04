@@ -23,6 +23,9 @@ pub(super) fn contains_select_all_hint(text: &str) -> bool {
 
 pub(super) fn is_footer_hint(text: &str) -> bool {
     let lower = text.to_lowercase();
+    if lower.contains("interrupt") {
+        return false;
+    }
     lower.contains("enter to select")
         || lower.contains("space select")
         || lower.contains("tab toggle")
@@ -31,6 +34,17 @@ pub(super) fn is_footer_hint(text: &str) -> bool {
         || lower.contains("esc to")
         || lower.contains("←/→")
         || lower.contains("left/right")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_footer_hint;
+
+    #[test]
+    fn running_control_hint_is_not_a_picker_footer() {
+        assert!(!is_footer_hint("esc to interrupt"));
+        assert!(is_footer_hint("Esc to cancel"));
+    }
 }
 
 pub(super) fn is_box_border(text: &str) -> bool {

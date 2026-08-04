@@ -6,7 +6,7 @@ The CLI in mesh_relay_generic does:
   2. POST {peer}/api/mesh/relay with Authorization: Bearer {signed}
      PLUS the same default_headers Authorization (reqwest behavior:
      default_headers + .header() may stack)
-     Body: {"method":"GET","path":"/api/panes","body":null}
+     Body: {"method":"GET","path":"/api/tabs","body":null}
   3. Parse response as serde_json::Value, unwrap_or_default(); if json mode
      print pretty.
 
@@ -64,7 +64,7 @@ def main() -> int:
 
     # 2) POST peer /api/mesh/relay with single Authorization
     print("\n== Test B: POST peer /api/mesh/relay  (single Authorization) ==")
-    relay_body = json.dumps({"method": "GET", "path": "/api/panes", "body": None}).encode()
+    relay_body = json.dumps({"method": "GET", "path": "/api/tabs", "body": None}).encode()
     req = urllib.request.Request(
         f"{peer_url}/api/mesh/relay",
         data=relay_body,
