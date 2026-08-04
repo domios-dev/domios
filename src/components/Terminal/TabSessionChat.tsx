@@ -318,6 +318,12 @@ export function TabSessionChat({
     onError: showComposerError,
   });
 
+  // Names change far more rarely than the transcript that carries them; keep the
+  // map (and resolveTabName below) stable while streaming only appends content.
+  const communicationTabNamesRef = useRef<{ key: string; value: Map<string, string> }>({
+    key: "",
+    value: new Map(),
+  });
   const communicationTabNames = useMemo(() => {
     const names = new Map(tabTitleMap);
     for (const { origin } of enrichedMessages) {
@@ -325,6 +331,10 @@ export function TabSessionChat({
       const sender = origin.title.split("@")[0]?.trim();
       if (sender) names.set(origin.tabIdShort.slice(0, 8), sender);
     }
+    const key = JSON.stringify([...names]);
+    const prev = communicationTabNamesRef.current;
+    if (key === prev.key) return prev.value;
+    communicationTabNamesRef.current = { key, value: names };
     return names;
   }, [enrichedMessages, tabTitleMap]);
 
