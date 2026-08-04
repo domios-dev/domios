@@ -111,9 +111,6 @@ fn idle_starter_case() {
     assert!(!idle.contains(&assigned_prompt));
     assert!(team.contains(&team_prompt));
     assert!(!team.contains(&assigned_prompt));
-    assert!(team_prompt.starts_with("-=-codeterm:system context=team-bootstrap-=-"));
-    assert!(!team_prompt.contains("tab=system"));
-    assert!(!team_prompt.contains("to reply"));
 }
 
 #[test]

@@ -206,7 +206,6 @@ owning loader module (pub const &str)
 - **No inline multi-line prompt strings in Rust or TypeScript.** If you catch yourself writing a `format!("You are an agent that ...")` longer than two lines, stop. Move it to `src-tauri/prompts/<name>.md`, add a const in the owning loader module, and render it there. Even short ones (rerank is ~5 lines) belong in a file — having one source of truth is more important than line count.
 - **Every new prompt const has one authoritative owning loader.** App-wide prompts go through `src-tauri/src/prompts.rs`; crate-owned prompts stay in that crate's prompt module. Update `scripts/check-prompts-doc.sh` when a new owning loader is introduced so the source and documentation inventories remain exact.
 - **No hot-reload assumptions.** `include_str!()` is compile-time. If a change "isn't taking effect", it is almost always a stale binary — kill and restart dev (`./build.sh kill && ./build.sh dev`); the kill guarantees the old process is gone.
-- **Host starters are system input.** `team_bootstrap_starter.md` carries the `codeterm:system` marker because it has no source Tab or reply route. Plan reminders, QA notices, and ACK nudges use the same typed system-message path.
 - **Run prompt-evaluator on every prompt change.** This is the only guard against silent behavioral regressions — prompt diffs do not show up in unit tests.
 - **No Markdown bold in compiled prompts.** Use plain prose or uppercase for essential labels; `**` spends context tokens without adding agent capability.
 - **Prompts are English-only.** Like all code and docs.
@@ -237,4 +236,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 24 -->
+<!-- revision: 23 -->

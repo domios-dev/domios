@@ -146,12 +146,10 @@ mod tests {
 
     #[test]
     fn team_manager_starter_names_the_host_context() {
-        let starter = starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap)
-            .expect("team bootstrap starter");
-        assert_eq!(starter, crate::prompts::TEAM_BOOTSTRAP_STARTER.trim());
-        assert!(starter.starts_with("-=-codeterm:system context=team-bootstrap-=-"));
-        assert!(!starter.contains("tab=system"));
-        assert!(!starter.contains("to reply"));
+        assert_eq!(
+            starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap),
+            Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim())
+        );
     }
 
     #[test]
