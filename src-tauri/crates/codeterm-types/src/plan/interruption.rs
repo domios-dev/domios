@@ -18,10 +18,13 @@ pub struct ProviderAllowance {
 }
 
 impl ProviderAllowance {
-    pub fn permits(&self, intent: &ExecutionIntent, now_ms: u64) -> bool {
+    pub fn is_stale(&self, now_ms: u64) -> bool {
+        now_ms.saturating_sub(self.observed_at) > self.stale_after_ms
+    }
+
+    pub fn permits(&self, intent: &ExecutionIntent, _now_ms: u64) -> bool {
         *intent != ExecutionIntent::Mutating
-            || (now_ms.saturating_sub(self.observed_at) <= self.stale_after_ms
-                && self.remaining_pct >= self.reserve_pct)
+            || self.remaining_pct >= self.reserve_pct
     }
 }
 

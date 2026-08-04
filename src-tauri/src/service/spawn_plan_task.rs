@@ -327,6 +327,12 @@ impl ServiceContext {
                 .provider_reserve_pct
                 .unwrap_or(capability.default_reserve_pct),
         };
+        if allowance.is_stale(now_ms) {
+            log::warn!(
+                "provider allowance telemetry for {} is stale; using the last known reserve value",
+                provider
+            );
+        }
         crate::service::plan::interruption::provider_allowance_preflight(
             &crate::plan::ExecutionIntent::Mutating,
             Some(&allowance),

@@ -52,7 +52,7 @@ pub fn provider_allowance_preflight(
         Ok(())
     } else {
         Err(PlanError::Io(
-            "mutating dispatch denied by stale or below-reserve provider allowance".into(),
+            "mutating dispatch denied by below-reserve provider allowance".into(),
         ))
     }
 }
