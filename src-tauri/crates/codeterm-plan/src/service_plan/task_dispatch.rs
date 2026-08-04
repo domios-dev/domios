@@ -435,9 +435,11 @@ impl PlanStore {
             attempt.base = task.lane.base.clone();
             attempt.destination = task.lane.destination.clone();
             if attempt.acknowledged_at.is_some() {
+                if task.status != crate::plan::TaskStatus::InProgress {
+                    task.status_changed_at = now_ms;
+                }
                 task.status = crate::plan::TaskStatus::InProgress;
-                task.status_label = None;
-                task.status_changed_at = now_ms;
+                task.status_label = Some("acknowledged".into());
             } else {
                 task.status_label = Some("awaiting_worker_ack".into());
             }
@@ -454,7 +456,8 @@ impl PlanStore {
                     Self::task_readback_error("task_dispatch_finish", "attempt missing")
                 })?;
             let ready_state = if attempt.acknowledged_at.is_some() {
-                task.status == crate::plan::TaskStatus::InProgress && task.status_label.is_none()
+                task.status == crate::plan::TaskStatus::InProgress
+                    && task.status_label.as_deref() == Some("acknowledged")
             } else {
                 task.status_label.as_deref() == Some("awaiting_worker_ack")
             };
@@ -535,12 +538,19 @@ impl PlanStore {
                 ));
             }
             if plan.tasks[task_index].status == crate::plan::TaskStatus::Pending {
-                super::mutations::validate_task_status_transition(
+                // A competitive task carries no single assigned tab; the exact
+                // acknowledging attempt's tab is the in-progress executor.
+                let lane_update = super::TaskLaneUpdate {
+                    tab_id: Some(Some(tab_id.to_string())),
+                    ..Default::default()
+                };
+                super::mutations::validate_task_status_transition_with_lane(
                     plan,
                     &plan.tasks[task_index].id,
                     &plan.tasks[task_index].status,
                     &crate::plan::TaskStatus::InProgress,
                     None,
+                    Some(&lane_update),
                 )?;
             }
             let task = &mut plan.tasks[task_index];
@@ -659,12 +669,17 @@ impl PlanStore {
                 .is_some();
             if acknowledged && plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress
             {
-                super::mutations::validate_task_status_transition(
+                let lane_update = super::TaskLaneUpdate {
+                    tab_id: Some(Some(tab_id.to_string())),
+                    ..Default::default()
+                };
+                super::mutations::validate_task_status_transition_with_lane(
                     plan,
                     &plan.tasks[task_index].id,
                     &plan.tasks[task_index].status,
                     &crate::plan::TaskStatus::InProgress,
                     None,
+                    Some(&lane_update),
                 )?;
             }
             let task = &mut plan.tasks[task_index];
