@@ -117,6 +117,12 @@ fn strip_authority(leaf: &mut SplitNodeSnapshot) {
         parent_tab_id,
         can_spawn,
         depth,
+        agent_session_model,
+        agent_planned_model,
+        agent_requested_model,
+        agent_provider_resolved_model,
+        model_fallback,
+        model_identity_mismatch,
         chatbackend_plugin_id,
         chatbackend_session_id,
         ..
@@ -133,6 +139,12 @@ fn strip_authority(leaf: &mut SplitNodeSnapshot) {
     *parent_tab_id = None;
     *can_spawn = false;
     *depth = 0;
+    *agent_session_model = None;
+    *agent_planned_model = None;
+    *agent_requested_model = None;
+    *agent_provider_resolved_model = None;
+    *model_fallback = None;
+    *model_identity_mismatch = None;
     *chatbackend_plugin_id = None;
     *chatbackend_session_id = None;
     if let Some(identity) = agent_identity {
