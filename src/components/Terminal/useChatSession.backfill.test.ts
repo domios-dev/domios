@@ -1,7 +1,5 @@
 // Run: npx tsx src/components/Terminal/useChatSession.backfill.test.ts
-// Bounded "Show older" backfill: cursor from chat_start.start_offset, paged
-// chat_backfill fetches, byte-range ordering at the page/snapshot boundary,
-// own-session authority, and one bounded detached reading window.
+// Pins paged byte ordering, own-session authority, and one detached window.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";

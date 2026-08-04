@@ -1118,10 +1118,8 @@ mod hierarchy_defaults_tests {
         );
     }
 
-    // No agent cwd and no workspace cwd must still pin a concrete dir (the
-    // daemon's own cwd, what the PTY inherits). Leaving it `None` desyncs the
-    // tab record from where the agent writes its session store, so the chat
-    // pipeline resolves the wrong `~/.claude/projects/<encoded>` dir.
+    // Pin the daemon cwd when both inputs are absent; `None` desyncs the tab
+    // from the inherited PTY cwd and points chat at the wrong session store.
     #[test]
     fn no_cwd_and_no_workspace_pins_the_daemon_cwd() {
         let (resolved, warning) = ServiceContext::resolve_agent_cwd(&None, &None);
