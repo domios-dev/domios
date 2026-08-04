@@ -79,18 +79,12 @@ fn test_session_snapshot_preserves_chat_view() {
 }
 
 #[test]
-fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
+fn test_session_snapshot_never_derives_agent_type_from_title() {
     use crate::session::store::{
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
 
-    // the provider name. Restore must recover agent_type so tab-bar icons show.
-    for (title, expected) in [
-        ("codex", "codex"),
-        ("opencode session", "opencode"),
-        ("claude", "claude"),
-        ("Codex — /repo", "codex"),
-    ] {
+    for title in ["codex", "opencode session", "claude", "Codex — /repo"] {
         let snap = SessionSnapshot {
             version: "test".to_string(),
             timestamp: 0,
@@ -148,13 +142,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
 
         let restored = MultiplexerState::from_session_snapshot(&snap);
         let tab = restored.get_tab("tab-1").unwrap();
-        assert_eq!(
-            tab.agent_type.as_deref(),
-            Some(expected),
-            "title {:?} should derive agent_type {:?}",
-            title,
-            expected,
-        );
+        assert_eq!(tab.agent_type, None, "title {title:?} must not grant identity");
     }
 }
 
