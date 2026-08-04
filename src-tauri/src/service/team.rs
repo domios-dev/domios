@@ -659,6 +659,9 @@ pub(crate) fn commit_team_member_spawn(
         ServiceContext::parse_role_kind(expected_role, expected_profile.as_deref())?;
     // An anchoring member takes no parent and binds its Team after placement.
     let anchors = role_kind::anchors_team(Some(expected_role), expected_kind.as_deref());
+    // Resolve the expectation through the same rule the tab reports itself by:
+    // a profileless Worker is the `worker` kind on both sides, never `None`.
+    let expected_kind_id = role_kind::kind_id(Some(expected_role), expected_kind.as_deref());
     let expected_parent = (!anchors).then_some(caller_tab_id);
     let tab = mux
         .get_tab(tab_id)
@@ -666,7 +669,7 @@ pub(crate) fn commit_team_member_spawn(
     let invalid_hierarchy = tab.parent_tab_id.as_deref() != expected_parent
         || (!anchors && tab.team_id.as_deref() != Some(team_id))
         || tab.role != Some(expected_role)
-        || tab.role_kind_id() != expected_kind.as_deref()
+        || tab.role_kind_id() != expected_kind_id
         || mux.find_workspace_for_tab(tab_id) != mux.find_workspace_for_tab(caller_tab_id);
     if invalid_hierarchy {
         mux.close_tab(tab_id)?;
