@@ -1071,18 +1071,31 @@ fn test_session_snapshot_preserves_hierarchy() {
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&cond_id))
         .unwrap();
+    let team_id = state.get_tab(&cond_id).unwrap().team_id.clone().unwrap();
+    // A role only survives restore with provider identity behind it, so a
+    // hierarchy fixture has to launch both tabs rather than just place them.
+    for tab_id in [&cond_id, &worker_id] {
+        state.get_tab_mut(tab_id).unwrap().agent_type = Some("claude".into());
+    }
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
 
     let cond = restored.get_tab(&cond_id).unwrap();
     assert_eq!(cond.role, Some(AgentRole::Manager));
+    assert_eq!(cond.role_profile.as_deref(), Some("orchestrator"));
     assert!(cond.anchors_team(), "orchestrator kind anchors its Team");
+    assert!(cond.parent_tab_id.is_none());
+    assert_eq!(cond.depth, 1);
+    assert_eq!(cond.team_id.as_deref(), Some(team_id.as_str()));
 
     let worker = restored.get_tab(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
+    assert_eq!(worker.role_profile, None);
     assert_eq!(worker.parent_tab_id.as_deref(), Some(cond_id.as_str()));
     assert_eq!(worker.depth, 2);
+    assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
+    assert!(restored.get_team(&team_id).is_some());
 }
 
 #[test]
