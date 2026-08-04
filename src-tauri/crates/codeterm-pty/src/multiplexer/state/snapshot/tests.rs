@@ -172,7 +172,7 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)

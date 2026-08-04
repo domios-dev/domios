@@ -638,7 +638,8 @@ pub(crate) fn launch_agent_in_background_with_env(
         .get_tab(&tab_id)
         .map(|tab| {
             (
-                tab.role.map(agent_role_label).map(str::to_string),
+                tab.role
+                    .map(|role| agent_role_label(role, tab.role_profile.as_deref()).to_string()),
                 tab.role_profile.clone(),
             )
         })
@@ -1082,12 +1083,12 @@ pub(crate) fn launch_agent_in_background_with_env(
     });
 }
 
-fn agent_role_label(role: crate::multiplexer::types::AgentRole) -> &'static str {
-    match role {
-        crate::multiplexer::types::AgentRole::Orchestrator => "Orchestrator",
-        crate::multiplexer::types::AgentRole::Manager => "Manager",
-        crate::multiplexer::types::AgentRole::Worker => "Worker",
-    }
+fn agent_role_label(
+    role: crate::multiplexer::types::AgentRole,
+    role_profile: Option<&str>,
+) -> &'static str {
+    codeterm_types::agent::role_kind::kind_label(Some(role), role_profile)
+        .unwrap_or_else(|| role.label())
 }
 
 /// Build a single shell command that launches the agent.

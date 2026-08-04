@@ -306,14 +306,16 @@ impl MultiplexerState {
                 _ => TabBacking::default(),
             };
 
-            let parsed_role = role.as_deref().and_then(|r| match r {
-                "Orchestrator" | "Conductor" => {
-                    Some(crate::multiplexer::types::AgentRole::Orchestrator)
-                }
-                "Manager" => Some(crate::multiplexer::types::AgentRole::Manager),
-                "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
-                _ => None,
-            });
+            // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
+            // no profile, so their anchoring kind is re-materialized here.
+            let restored_role = codeterm_types::agent::restore_role(
+                role.as_deref(),
+                role_profile.as_deref(),
+            );
+            let parsed_role = restored_role.as_ref().map(|restored| restored.role);
+            let restored_role_profile = restored_role
+                .as_ref()
+                .and_then(|restored| restored.role_profile.clone());
             let raw_title = title.as_deref().unwrap_or("Terminal");
             let legacy_title = legacy_tab_title.trim();
             let has_agent_type =
@@ -391,8 +393,7 @@ impl MultiplexerState {
                         .and_then(|identity| identity.reported_session_binding_nonce.clone()),
                     shell_integration_nonce: None,
                     role: parsed_role,
-                    machine_agent_identity: None,
-                    role_profile: role_profile.clone(),
+                    role_profile: restored_role_profile,
                     team_id: team_id.clone(),
                     watcher: watcher.clone(),
                     parent_tab_id: parent_tab_id.clone(),

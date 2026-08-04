@@ -441,6 +441,7 @@ impl ServiceContext {
                 role_str,
                 params.role_profile.as_deref(),
                 params.parent_tab_id.as_deref(),
+                params.plan_id.as_deref(),
                 params.can_spawn,
                 emit_state_change,
             ) {
@@ -697,23 +698,38 @@ impl ServiceContext {
         role_str: &str,
         role_profile: Option<&str>,
         parent_tab_id: Option<&str>,
+        plan_id: Option<&str>,
         can_spawn: Option<bool>,
         emit_state_change: bool,
     ) -> Result<(), String> {
+        let (role, profile) = Self::parse_role_kind(role_str, role_profile)?;
+        // A Planner names its plan, not a parent: the plan record owns the
+        // anchor, and placement + planner binding commit as one transaction.
+        if profile.as_deref() == Some(builtins::PLANNER) && parent_tab_id.is_none() {
+            let plan_id = plan_id
+                .map(str::trim)
+                .filter(|plan_id| !plan_id.is_empty())
+                .ok_or("Planner requires --plan <id> (or an explicit --parent)")?;
+            self.place_planner_on_plan(tab_id, plan_id, false)?;
+            return Ok(());
+        }
         if emit_state_change {
-            self.set_tab_role_with_profile(tab_id, role_str, role_profile, parent_tab_id, can_spawn)?;
+            self.set_tab_role_with_profile(
+                tab_id,
+                role_str,
+                role_profile,
+                parent_tab_id,
+                can_spawn,
+            )?;
         } else {
-            let role = Self::parse_role(role_str)?;
             let mut mux = self.mux.write();
-            mux.set_tab_role(tab_id, role, parent_tab_id)?;
+            mux.set_tab_role_kind(tab_id, role, profile.as_deref(), parent_tab_id)?;
             if let Some(can_spawn) = can_spawn {
                 mux.set_can_spawn(tab_id, can_spawn)?;
             }
         }
-        if role_str == "Worker" || role_str == "Manager" {
-            if let Some(parent) = parent_tab_id {
-                self.expect_spawn_parent_link(tab_id, parent)?;
-            }
+        if let Some(parent) = parent_tab_id {
+            self.expect_spawn_parent_link(tab_id, parent)?;
         }
         Ok(())
     }
@@ -764,12 +780,21 @@ impl ServiceContext {
     }
 
     fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, tab_id: &str) {
-        if role_profile != Some("planner") {
+        if role_profile != Some(builtins::PLANNER) {
             return;
         }
         let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) else {
             return;
         };
+        // The atomic Planner placement already bound this tab; re-writing the
+        // ref here would replace a committed binding outside its transaction.
+        let already_bound = matches!(
+            self.plan_store.get(plan_id).and_then(|plan| plan.planner),
+            Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
+        );
+        if already_bound {
+            return;
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)

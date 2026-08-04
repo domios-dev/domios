@@ -125,7 +125,7 @@ pub(crate) fn create_team_plan_for_caller(
     let caller_tab = state
         .get_tab(caller_tab_id)
         .ok_or_else(|| TeamPlanCreationError::Team("the claimed Planner tab is not live".into()))?;
-    if caller_tab.role == Some(AgentRole::Orchestrator) {
+    if caller_tab.anchors_team() {
         drop(state);
         return create_team_plan_for_orchestrator(
             mux,
@@ -174,7 +174,7 @@ pub(crate) fn create_team_plan_for_caller(
     let owner_tab = state
         .get_tab(&owner_tab_id)
         .ok_or_else(|| TeamPlanCreationError::Team("the Team Orchestrator is not live".into()))?;
-    if owner_tab.role != Some(AgentRole::Orchestrator)
+    if !owner_tab.anchors_team()
         || owner_tab.team_id.as_deref() != Some(team_id.as_str())
     {
         return Err(TeamPlanCreationError::Team(

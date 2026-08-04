@@ -94,7 +94,7 @@ fn multiple_orchestrators_keep_team_membership_and_spawner_routing_separate() {
     );
 
     let second_orchestrator = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&second_orchestrator, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&second_orchestrator)
         .unwrap();
     mux.get_tab_mut(&second_orchestrator)
         .unwrap()
@@ -134,7 +134,7 @@ fn plan_owner_uses_the_acting_orchestrator_when_team_has_multiple() {
     let (mut mux, team_id, first_orchestrator, planner, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&first_orchestrator).unwrap();
     let second_orchestrator = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&second_orchestrator, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&second_orchestrator)
         .unwrap();
     mux.get_tab_mut(&second_orchestrator).unwrap().team_id = Some(team_id.clone());
 
@@ -386,7 +386,7 @@ fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
     let (mut mux, team_id, orchestrator, planner, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let retired_owner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&retired_owner, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&retired_owner)
         .unwrap();
     let inherited_worker = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&inherited_worker, AgentRole::Worker, Some(&retired_owner))
@@ -471,7 +471,7 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
     let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
     let foreign = mux.create_tab(&workspace_id).unwrap();
     let destination_owner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&destination_owner, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&destination_owner)
         .unwrap();
     let destination_team = mux
         .resolve_or_mint_team_for_parent(&destination_owner)
@@ -564,7 +564,7 @@ fn rebind_from_foreign_orchestrator_is_not_circularly_blocked() {
     let (mut mux, source_team, source_owner, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
     let destination_owner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&destination_owner, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&destination_owner)
         .unwrap();
     let destination_team = mux
         .resolve_or_mint_team_for_parent(&destination_owner)
@@ -606,7 +606,7 @@ fn adopt_plan_destination_owner_avoids_both_team_gate() {
     let (mut mux, source_team, source_owner, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
     let destination_owner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&destination_owner, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&destination_owner)
         .unwrap();
     let destination_team = mux
         .resolve_or_mint_team_for_parent(&destination_owner)

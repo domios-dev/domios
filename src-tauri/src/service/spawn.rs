@@ -588,8 +588,7 @@ impl ServiceContext {
                         .values()
                         .find(|tab| {
                             tab.team_id.as_deref() == Some(team_id.as_str())
-                                && tab.role
-                                    == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+                                && tab.anchors_team()
                         })
                         .map(|tab| tab.id.clone())
                         .ok_or_else(|| format!("Team {team_id} has no live Orchestrator"))?;

@@ -80,7 +80,7 @@ pub fn should_deliver_orchestrator_onboarding(tab: Option<&Tab>, was_orchestrato
     if was_orchestrator {
         return false;
     }
-    tab.map(|tab| tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab))
+    tab.map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
         .unwrap_or(false)
 }
 
@@ -150,7 +150,7 @@ impl ServiceContext {
         let should_deliver = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .map(|tab| tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab))
+                .map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
                 .unwrap_or(false)
         };
         if should_deliver {
@@ -179,7 +179,7 @@ impl ServiceContext {
                 .get_tab(tab_id)
                 .ok_or_else(|| format!("Tab {tab_id} not found"))?;
             validate_make_orchestrator(tab)?;
-            tab.role == Some(AgentRole::Orchestrator)
+            tab.anchors_team()
         };
 
         self.transition_agent(crate::service::AgentTransitionRequest {
@@ -232,7 +232,6 @@ mod tests {
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
-            machine_agent_identity: None,
             role_profile: None,
             team_id: None,
             watcher: None,

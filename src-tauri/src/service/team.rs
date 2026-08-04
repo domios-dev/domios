@@ -1,3 +1,4 @@
+use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::team::Team;
 use tauri::Manager;
 
@@ -27,9 +28,28 @@ pub(crate) enum TeamPlanError {
     Plan(PlanError),
 }
 
+/// Who is asking to mutate a Team. `Human` is a named value rather than an
+/// absent caller id, so "nobody supplied a tab" can never read as authority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TeamMutationCaller {
     AgentTab(String),
+    Human,
+}
+
+impl TeamMutationCaller {
+    pub(crate) fn from_tab(caller_tab_id: Option<&str>) -> Self {
+        match caller_tab_id.map(str::trim).filter(|id| !id.is_empty()) {
+            Some(tab_id) => Self::AgentTab(tab_id.to_string()),
+            None => Self::Human,
+        }
+    }
+
+    fn tab_id(&self) -> Option<&str> {
+        match self {
+            Self::AgentTab(tab_id) => Some(tab_id),
+            Self::Human => None,
+        }
+    }
 }
 
 impl ServiceContext {
@@ -122,9 +142,9 @@ impl ServiceContext {
         caller_tab_id: &str,
         params: &mut crate::service::SpawnAgentParams,
     ) -> Result<(), String> {
-        let role = match (params.role.as_deref(), params.role_profile.as_deref()) {
-            (Some("Orchestrator"), _) => "Orchestrator",
-            (Some("Manager"), Some("planner")) => "Planner",
+        let (role, role_kind) = match (params.role.as_deref(), params.role_profile.as_deref()) {
+            (Some("Orchestrator"), _) => ("Orchestrator", ORCHESTRATOR),
+            (Some("Manager"), Some(PLANNER)) => ("Planner", PLANNER),
             _ => return Ok(()),
         };
         let (team_name, project) = {
@@ -161,6 +181,7 @@ impl ServiceContext {
         });
         params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
             role: role.into(),
+            role_kind: role_kind.into(),
             team_id: team_id.into(),
             team_name,
             plan_id,
@@ -174,11 +195,11 @@ impl ServiceContext {
         &self,
         team_id: &str,
         name: String,
-        caller_tab_id: Option<&str>,
+        caller: TeamMutationCaller,
     ) -> Result<Team, String> {
         let mut mux = self.mux.write();
         let team =
-            rename_team_with_state_change(&mut mux, &self.events, team_id, name, caller_tab_id)?;
+            rename_team_with_state_change(&mut mux, &self.events, team_id, name, &caller)?;
         drop(mux);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
@@ -187,7 +208,7 @@ impl ServiceContext {
     pub(crate) fn close_team(
         &self,
         team_id: &str,
-        caller_tab_id: Option<&str>,
+        caller: TeamMutationCaller,
     ) -> Result<Team, String> {
         let (team, cleanup, changed_plan_ids) = {
             let mut mux = self.mux.write();
@@ -196,7 +217,7 @@ impl ServiceContext {
                 &self.events,
                 &self.plan_store,
                 team_id,
-                caller_tab_id,
+                &caller,
                 now_ms(),
             )?
         };
@@ -386,14 +407,13 @@ fn adopt_plan_for_team_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, TeamPlanError> {
-    let TeamMutationCaller::AgentTab(caller_tab_id) = &caller;
-    authorize_team_mutation(mux, team_id, caller.clone()).map_err(|error| {
+    authorize_team_mutation(mux, team_id, &caller).map_err(|error| {
         TeamPlanError::Team(format!(
             "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
 Safe recovery: old-team member transfers ownership, then new owner adopts."
         ))
     })?;
-    let owner_tab_id = team_plan_owner(mux, team_id, caller_tab_id)?;
+    let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
     crate::service::agent_transition::transition_plan_to_orchestrator_core(
         mux,
         plan_store,
@@ -439,7 +459,7 @@ fn transfer_team_plan_core(
     let tab = mux
         .get_tab(&tab_id)
         .ok_or_else(|| TeamPlanError::Team(format!("Destination tab {tab_id} not found")))?;
-    if tab.role != Some(AgentRole::Orchestrator) {
+    if !tab.anchors_team() {
         return Err(TeamPlanError::Team(format!(
             "Destination tab {tab_id} is not an Orchestrator"
         )));
@@ -476,12 +496,12 @@ fn authorize_plan_transfer(
     destination_owner_tab_id: &str,
     caller: TeamMutationCaller,
 ) -> Result<(), String> {
-    if authorize_team_mutation(mux, source_team_id, caller.clone()).is_ok() {
+    if authorize_team_mutation(mux, source_team_id, &caller).is_ok() {
         return Ok(());
     }
     match caller {
         TeamMutationCaller::AgentTab(tab_id) if tab_id == destination_owner_tab_id => {
-            authorize_team_manager(mux, destination_team_id, Some(&tab_id))
+            authorize_team_manager(mux, destination_team_id, &TeamMutationCaller::AgentTab(tab_id))
         }
         TeamMutationCaller::AgentTab(tab_id) => Err(format!(
             "Caller tab {tab_id} lacks plan rebind authority: a source Team {source_team_id} \
@@ -492,31 +512,55 @@ transfers ownership, then new owner adopts."
     }
 }
 
+/// Walk a caller up to the anchor it already sits under. Resolution is local to
+/// the caller's own placement, so a Team with several anchors is unambiguous
+/// without a global "there must be exactly one" scan.
+fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut current = caller_tab_id.to_string();
+    while seen.insert(current.clone()) {
+        let tab = mux.get_tab(&current)?;
+        if tab.team_id.as_deref() == Some(team_id) && tab.anchors_team() {
+            return Some(current);
+        }
+        current = tab.parent_tab_id.clone()?;
+    }
+    None
+}
+
+/// The anchor that will own an adopted plan. An agent caller resolves through
+/// its own chain; a human caller keeps the plan's existing owner when that owner
+/// still anchors this Team, and is otherwise asked to name one.
 fn team_plan_owner(
     mux: &MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
-    caller_tab_id: &str,
+    plan_id: &str,
+    caller: &TeamMutationCaller,
 ) -> Result<String, TeamPlanError> {
-    let mut orchestrators: Vec<_> = mux
-        .snapshot()
-        .tabs
-        .values()
-        .filter(|tab| {
-            tab.team_id.as_deref() == Some(team_id) && tab.role == Some(AgentRole::Orchestrator)
-        })
-        .map(|tab| tab.id.clone())
-        .collect();
-    orchestrators.sort();
-    if orchestrators.iter().any(|tab_id| tab_id == caller_tab_id) {
-        return Ok(caller_tab_id.into());
-    }
-    match orchestrators.as_slice() {
-        [tab_id] => Ok(tab_id.clone()),
-        [] => Err(TeamPlanError::Team(format!(
+    let anchors = local_team_anchors(mux, team_id);
+    if anchors.is_empty() {
+        return Err(TeamPlanError::Team(format!(
             "Team {team_id} has no live Orchestrator"
-        ))),
-        _ => Err(TeamPlanError::Team(format!(
-            "Team {team_id} has multiple live Orchestrators; an Orchestrator must adopt the plan"
+        )));
+    }
+    if let Some(caller_tab_id) = caller.tab_id() {
+        return anchor_above(mux, team_id, caller_tab_id).ok_or_else(|| {
+            TeamPlanError::Team(format!(
+                "Caller tab {caller_tab_id} sits under no anchor in Team {team_id}"
+            ))
+        });
+    }
+    let current_owner = plan_store
+        .get(plan_id)
+        .and_then(|plan| plan.owner.tab_id)
+        .filter(|tab_id| anchors.iter().any(|anchor| anchor == tab_id));
+    match (current_owner, anchors.as_slice()) {
+        (Some(owner), _) => Ok(owner),
+        (None, [only]) => Ok(only.clone()),
+        (None, many) => Err(TeamPlanError::Team(format!(
+            "Team {team_id} has several anchors ({}); adopt from one of them so the owner is explicit",
+            many.join(", ")
         ))),
     }
 }
@@ -541,7 +585,7 @@ fn prepare_team_member_spawn(
     caller_tab_id: &str,
     params: AddTeamMemberParams,
 ) -> Result<PreparedTeamMemberSpawn, String> {
-    authorize_team_manager(mux, team_id, Some(caller_tab_id))?;
+    authorize_team_manager(mux, team_id, &TeamMutationCaller::AgentTab(caller_tab_id.to_string()))?;
     if !mux
         .get_tab(caller_tab_id)
         .is_some_and(|caller| caller.can_spawn)
@@ -650,9 +694,9 @@ pub(crate) fn rename_team_core(
     mux: &mut MultiplexerState,
     team_id: &str,
     name: String,
-    caller_tab_id: Option<&str>,
+    caller: &TeamMutationCaller,
 ) -> Result<Team, String> {
-    authorize_team_manager(mux, team_id, caller_tab_id)?;
+    authorize_team_manager(mux, team_id, caller)?;
     mux.rename_team(team_id, name)
 }
 
@@ -661,9 +705,9 @@ pub(crate) fn rename_team_with_state_change(
     events: &crate::api::events::EventBroadcaster,
     team_id: &str,
     name: String,
-    caller_tab_id: Option<&str>,
+    caller: &TeamMutationCaller,
 ) -> Result<Team, String> {
-    let team = rename_team_core(mux, team_id, name, caller_tab_id)?;
+    let team = rename_team_core(mux, team_id, name, caller)?;
     crate::service::publish_mux_state_changed(events);
     Ok(team)
 }
@@ -673,7 +717,7 @@ pub(crate) fn close_team_with_state_change(
     events: &crate::api::events::EventBroadcaster,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
-    caller_tab_id: Option<&str>,
+    caller: &TeamMutationCaller,
     now_ms: u64,
 ) -> Result<(Team, CloseTeamCleanup, Vec<String>), String> {
     close_team_with_state_change_using(
@@ -681,7 +725,7 @@ pub(crate) fn close_team_with_state_change(
         events,
         plan_store,
         team_id,
-        caller_tab_id,
+        caller,
         now_ms,
         |mux, tab_id| mux.close_tab_for_team_close(tab_id),
     )
@@ -692,14 +736,14 @@ fn close_team_with_state_change_using<F>(
     events: &crate::api::events::EventBroadcaster,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
-    caller_tab_id: Option<&str>,
+    caller: &TeamMutationCaller,
     now_ms: u64,
     mut close_member: F,
 ) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
 where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
-    authorize_team_manager(mux, team_id, caller_tab_id)?;
+    authorize_team_manager(mux, team_id, caller)?;
     let member_tab_ids: Vec<String> = mux
         .snapshot()
         .tabs
@@ -763,30 +807,66 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Local tabs that anchor this Team. A mirrored (remote) Team has members here
+/// but no anchor, which is what makes it locally immutable.
+fn local_team_anchors(mux: &MultiplexerState, team_id: &str) -> Vec<String> {
+    let mut anchors: Vec<String> = mux
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.team_id.as_deref() == Some(team_id) && tab.anchors_team())
+        .map(|tab| tab.id.clone())
+        .collect();
+    anchors.sort();
+    anchors
+}
+
+/// The peer a Team is anchored on, read from existing `RemoteOwnership`
+/// evidence. `RemoteOwnership` itself is untouched: this only reads it.
+fn remote_team_origin(mux: &MultiplexerState, team_id: &str) -> Option<String> {
+    mux.snapshot().tabs.values().find_map(|tab| {
+        let ownership = tab.ownership.as_ref()?;
+        let team = ownership.team.as_ref()?;
+        (team.id == team_id).then(|| ownership.peer_name.clone())
+    })
+}
+
+/// A Team whose anchor lives on another peer is mirrored here for visibility
+/// only; mutating it locally would fork it from the authority that owns it.
+fn reject_remote_team_mutation(mux: &MultiplexerState, team_id: &str) -> Result<(), String> {
+    if !local_team_anchors(mux, team_id).is_empty() {
+        return Ok(());
+    }
+    match remote_team_origin(mux, team_id) {
+        Some(peer) => Err(format!(
+            "Team {team_id} is anchored on peer {peer}; it is read-only on this machine. \
+Safe recovery: run the mutation on {peer}."
+        )),
+        None => Ok(()),
+    }
+}
+
 fn authorize_team_manager(
     mux: &MultiplexerState,
     team_id: &str,
-    caller_tab_id: Option<&str>,
+    caller: &TeamMutationCaller,
 ) -> Result<(), String> {
     if mux.get_team(team_id).is_none() {
         return Err(format!("Team {team_id} not found"));
     }
-    let Some(caller_tab_id) = caller_tab_id else {
+    reject_remote_team_mutation(mux, team_id)?;
+    let Some(caller_tab_id) = caller.tab_id() else {
         return Ok(());
     };
-    let caller = mux
+    let caller_tab = mux
         .get_tab(caller_tab_id)
         .ok_or_else(|| format!("Caller tab {caller_tab_id} not found"))?;
-    if caller.team_id.as_deref() != Some(team_id) {
+    if caller_tab.team_id.as_deref() != Some(team_id) {
         return Err(format!(
             "Caller tab {caller_tab_id} is not a member of Team {team_id}"
         ));
     }
-    let manager = matches!(
-        caller.role,
-        Some(AgentRole::Orchestrator | AgentRole::Manager)
-    );
-    if !manager {
+    if !caller_tab.has_team_authority() {
         return Err(format!(
             "Caller tab {caller_tab_id} is not authorized to manage Team {team_id}"
         ));
@@ -797,10 +877,9 @@ fn authorize_team_manager(
 fn authorize_team_mutation(
     mux: &MultiplexerState,
     team_id: &str,
-    caller: TeamMutationCaller,
+    caller: &TeamMutationCaller,
 ) -> Result<(), String> {
-    let TeamMutationCaller::AgentTab(tab_id) = caller;
-    authorize_team_manager(mux, team_id, Some(&tab_id))
+    authorize_team_manager(mux, team_id, caller)
 }
 
 #[cfg(test)]
