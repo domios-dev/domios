@@ -3,6 +3,7 @@
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
 use crate::multiplexer::types::{AgentRole, Tab};
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
@@ -184,7 +185,7 @@ impl ServiceContext {
 
         self.transition_agent(crate::service::AgentTransitionRequest {
             tab_id: tab_id.to_string(),
-            destination: crate::service::AgentPlacement::Orchestrator { can_spawn: true },
+            destination: crate::service::AgentPlacement::orchestrator(Some(true)),
             require_verified_session: true,
             planner_replacement: None,
             plan_rebind: None,
@@ -307,7 +308,8 @@ mod tests {
 
         let mut orch = mk_tab("o1");
         orch.agent_type = Some("claude".into());
-        orch.role = Some(AgentRole::Orchestrator);
+        orch.role = Some(AgentRole::Manager);
+        orch.role_profile = Some(ORCHESTRATOR.into());
         assert!(validate_make_orchestrator(&orch).is_ok());
 
         let mut protected = mk_tab("p1");
@@ -376,12 +378,14 @@ mod tests {
     fn onboarding_delivery_predicate_requires_first_agent_orchestrator() {
         let mut tab = mk_tab("agent-1");
         tab.agent_type = Some("claude".into());
-        tab.role = Some(AgentRole::Orchestrator);
+        tab.role = Some(AgentRole::Manager);
+        tab.role_profile = Some(ORCHESTRATOR.into());
         assert!(should_deliver_orchestrator_onboarding(Some(&tab), false));
         assert!(!should_deliver_orchestrator_onboarding(Some(&tab), true));
 
         let mut shell = mk_tab("shell-1");
-        shell.role = Some(AgentRole::Orchestrator);
+        shell.role = Some(AgentRole::Manager);
+        shell.role_profile = Some(ORCHESTRATOR.into());
         assert!(!should_deliver_orchestrator_onboarding(Some(&shell), false));
         assert!(!should_deliver_orchestrator_onboarding(None, false));
     }

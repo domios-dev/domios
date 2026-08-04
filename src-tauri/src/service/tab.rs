@@ -11,15 +11,18 @@ pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 
-/// A coordinator must not self-terminate: an Orchestrator role, an owner of a
-/// plan, or a bound Planner of a plan. There is no AgentRole::Planner — planner
-/// identity comes from the plan graph, not a tab role.
+/// A coordinator must not self-terminate: a Team-anchoring role kind, an owner
+/// of a plan, or a bound Planner of a plan. Planner identity comes from the
+/// plan graph, not from the structural role.
 pub(crate) fn is_coordinator(
     role: Option<AgentRole>,
+    role_profile: Option<&str>,
     is_plan_owner: bool,
     is_bound_planner: bool,
 ) -> bool {
-    matches!(role, Some(AgentRole::Orchestrator)) || is_plan_owner || is_bound_planner
+    codeterm_types::agent::role_kind::anchors_team(role, role_profile)
+        || is_plan_owner
+        || is_bound_planner
 }
 
 pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
@@ -82,8 +85,13 @@ impl ServiceContext {
     /// bound Planner) and so must not close itself. Keys off caller identity in
     /// the mux + plan graph, never a display name.
     pub(crate) fn is_self_close_protected(&self, tab_id: &str) -> bool {
-        let role = self.mux.read().get_tab(tab_id).and_then(|p| p.role);
-        if is_coordinator(role, false, false) {
+        let (role, role_profile) = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| (tab.role, tab.role_profile.clone()))
+            .unwrap_or_default();
+        if is_coordinator(role, role_profile.as_deref(), false, false) {
             return true;
         }
         for plan in self.plan_store.list_full() {
@@ -93,7 +101,7 @@ impl ServiceContext {
                     PeerResolution::Planner { tab_id: p } => p == tab_id,
                     _ => false,
                 };
-            if is_coordinator(None, is_owner, is_planner) {
+            if is_coordinator(None, None, is_owner, is_planner) {
                 return true;
             }
         }
@@ -1039,13 +1047,18 @@ mod self_close_tests {
 
     #[test]
     fn orchestrator_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Orchestrator), false, false));
+        assert!(is_coordinator(
+            Some(AgentRole::Manager),
+            Some("orchestrator"),
+            false,
+            false
+        ));
     }
 
     #[test]
     fn plan_owner_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Worker), true, false));
-        assert!(is_coordinator(None, true, false));
+        assert!(is_coordinator(Some(AgentRole::Worker), None, true, false));
+        assert!(is_coordinator(None, None, true, false));
     }
 
     #[test]

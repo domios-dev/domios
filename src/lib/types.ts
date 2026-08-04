@@ -50,7 +50,7 @@ export interface ClosedTabView extends ClosedTab {
   group_kind: "single" | "cascade" | "workspace";
 }
 
-export type AgentRole = "Orchestrator" | "Manager" | "Worker";
+export type AgentRole = "Manager" | "Worker";
 
 export interface PromptOption {
   label: string;
@@ -184,7 +184,6 @@ export interface Tab {
     session_id: string;
   }>;
   role?: AgentRole | null;
-  machine_agent_identity?: "general_agent" | null;
   role_profile?: string | null;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;

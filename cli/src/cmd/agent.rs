@@ -785,6 +785,17 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 eprintln!("Error: --workspace is required when spawning --role Orchestrator");
                 std::process::exit(1);
             }
+            // A Planner names its plan instead of a parent — the plan record
+            // owns the anchor it binds to.
+            if matches!(role, Some(crate::args::agent::SpawnRole::Planner))
+                && plan.is_none()
+                && parent.is_none()
+            {
+                eprintln!(
+                    "Error: --plan <id> is required when spawning --role Planner (or pass --parent)"
+                );
+                std::process::exit(1);
+            }
             let task =
                 match resolve_spawn_task(task, task_file, cwd.as_deref(), &mut std::io::stdin()) {
                     Ok(t) => t,

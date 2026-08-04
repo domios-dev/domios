@@ -230,11 +230,11 @@ pub(crate) fn create_team_plan_for_orchestrator(
         })?
         .to_string();
     let mut state = mux.write();
-    let owner_role = state
+    let owner_anchors = state
         .get_tab(&owner_tab_id)
         .ok_or_else(|| TeamPlanCreationError::Team(format!("Tab {owner_tab_id} not found")))?
-        .role;
-    if owner_role != Some(AgentRole::Orchestrator) {
+        .anchors_team();
+    if !owner_anchors {
         return Err(TeamPlanCreationError::Team(format!(
             "Tab {owner_tab_id} is not an Orchestrator"
         )));

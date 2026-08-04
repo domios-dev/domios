@@ -27,7 +27,7 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     assert!(!skip_local_worker_role(&AgentRole::Worker, None, Some("")));
     // Orchestrator never needs a parent → never skipped here.
     assert!(!skip_local_worker_role(
-        &AgentRole::Orchestrator,
+        &AgentRole::Manager,
         None,
         Some("Mac-Air")
     ));

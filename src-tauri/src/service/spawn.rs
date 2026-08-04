@@ -390,7 +390,12 @@ impl ServiceContext {
             result
         };
 
-        // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
+        // Identity before authority: a tab must never carry a role while
+        // lacking the provider identity that lets it launch, or a restart
+        // restores a role-bearing shell.
+        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
+        // `can_spawn` is only forced when the caller explicitly passed
+        // --can-spawn (Some), preserving the kind's default.
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_tab_role_with_profile(
                 &tab_id,
@@ -413,9 +418,6 @@ impl ServiceContext {
                 }
             }
         }
-        // Pin agent_type before launch so detect_from_output has a durable session-id source.
-        // Missing this tag leaves Codex/OpenCode tabs unresumable after restart.
-        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
         })?;

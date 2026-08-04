@@ -76,7 +76,8 @@ fn arm_session(tab: &mut Tab, suffix: &str) {
 fn effective_role(tab: &Tab) -> &'static str {
     match (tab.role, tab.role_profile.as_deref()) {
         (Some(AgentRole::Manager), Some("planner")) => "Planner",
-        (Some(AgentRole::Orchestrator), _) => "Orchestrator",
+        (Some(AgentRole::Manager), Some("orchestrator")) => "Orchestrator",
+        (Some(AgentRole::Manager), _) => "Manager",
         (Some(AgentRole::Worker), _) => "Worker",
         _ => "Roleless",
     }
@@ -265,7 +266,7 @@ fn agent_transition_matrix_oracle() {
     planner_to_orchestrator.transition(AgentPlacement::Planner {
         plan_id: planner_to_orchestrator.plan_id.clone(),
     });
-    planner_to_orchestrator.transition(AgentPlacement::Orchestrator { can_spawn: true });
+    planner_to_orchestrator.transition(AgentPlacement::orchestrator(Some(true)));
     assert_orchestrator_tuple(&planner_to_orchestrator);
 
     let mut worker_reparent = Fixture::new(dir.path());
@@ -295,7 +296,7 @@ fn agent_transition_matrix_oracle() {
     assert_planner_tuple(&roleless_to_planner, &roleless_to_planner.owner);
 
     let mut roleless_to_orchestrator = Fixture::new(dir.path());
-    roleless_to_orchestrator.transition(AgentPlacement::Orchestrator { can_spawn: true });
+    roleless_to_orchestrator.transition(AgentPlacement::orchestrator(Some(true)));
     assert_orchestrator_tuple(&roleless_to_orchestrator);
 
     let mut planner_to_roleless = Fixture::new(dir.path());
@@ -609,7 +610,7 @@ fn transfer_reporting_success_without_moving_ownership_fails() {
         &fixture.store,
         AgentTransitionRequest {
             tab_id: fixture.other_owner.clone(),
-            destination: AgentPlacement::Orchestrator { can_spawn: true },
+            destination: AgentPlacement::orchestrator(Some(true)),
             require_verified_session: false,
             planner_replacement: None,
             plan_rebind: Some(AgentLifecyclePlanRebind {
