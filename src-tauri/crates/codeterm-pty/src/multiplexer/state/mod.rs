@@ -75,8 +75,6 @@ pub struct MultiplexerState {
     /// across an await. Defaults to in-memory; production swaps in a file-backed
     /// store at startup via [`MultiplexerState::attach_closed_store`].
     pub(super) closed_store: ClosedTabsStore,
-    /// Journal coverage stamped onto every snapshot this state writes.
-    pub(super) lifecycle_coverage: Option<String>,
 }
 
 pub struct TeamCloseTransaction {
@@ -99,7 +97,6 @@ impl TeamCloseTransaction {
         target.pty_to_tab = self.staged.pty_to_tab;
         target.tab_aliases = self.staged.tab_aliases;
         target.teams = self.staged.teams;
-        target.lifecycle_coverage = self.staged.lifecycle_coverage;
         target.generation.store(
             self.staged.generation.load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -152,7 +149,6 @@ impl MultiplexerState {
                 teams: self.teams.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
-                lifecycle_coverage: self.lifecycle_coverage.clone(),
             },
         }
     }
@@ -169,7 +165,6 @@ impl MultiplexerState {
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
-            lifecycle_coverage: None,
         }
     }
 
@@ -207,11 +202,6 @@ impl MultiplexerState {
     /// Number of registered teams.
     pub fn team_count(&self) -> usize {
         self.teams.len()
-    }
-
-    /// Bind this state to the journal coverage its snapshots are written under.
-    pub fn set_lifecycle_coverage(&mut self, coverage_id: Option<String>) {
-        self.lifecycle_coverage = coverage_id;
     }
 
     /// Swap the in-memory closed-history store for a durable file-backed one.
@@ -311,7 +301,6 @@ impl MultiplexerState {
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
-            lifecycle_coverage: None,
         };
 
         (state, tab_id)

@@ -4,7 +4,7 @@ use crate::session::store::{SessionSnapshot, SplitNodeSnapshot};
 
 use super::journal::{JournalLoad, TailStatus};
 use super::record::{LifecycleCheckpoint, LifecycleEpoch};
-use super::recovery::{authorize, RecoveryRefusal, RecoveryVerdict, SnapshotAuthorityClaim};
+use super::recovery::{authorize, RecoveryVerdict, SnapshotAuthorityClaim};
 
 /// What the gate decided for one tab, kept for the forensic log.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,44 +13,12 @@ pub struct TabRecoveryOutcome {
     pub verdict: RecoveryVerdict,
 }
 
-/// How the journal relates to the snapshot being restored.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SnapshotCoverage {
-    /// Written before coverage existed. Nothing is examined or stripped.
-    PreCoverage,
-    /// Written under the journal's current coverage. Enforced exactly.
-    Active,
-    /// Written under a coverage the journal no longer carries. The proof is
-    /// gone, so every authority claim fails closed.
-    Lost { snapshot_coverage: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SnapshotGate {
-    pub coverage: SnapshotCoverage,
-    pub tabs: Vec<TabRecoveryOutcome>,
-}
-
 /// Reduce a snapshot to the authority its journal proves, stripping the rest in
-/// place. Only a snapshot written before coverage existed is left untouched.
+/// place. Each tab is judged on its own lineage, never on a global flag.
 pub fn gate_session_snapshot(
     snapshot: &mut SessionSnapshot,
     load: &JournalLoad,
-    active_coverage: Option<&str>,
-) -> SnapshotGate {
-    let coverage = match (snapshot.lifecycle_coverage.clone(), active_coverage) {
-        (None, _) => SnapshotCoverage::PreCoverage,
-        (Some(stamp), Some(active)) if stamp == active => SnapshotCoverage::Active,
-        (Some(stamp), _) => SnapshotCoverage::Lost {
-            snapshot_coverage: stamp,
-        },
-    };
-    if coverage == SnapshotCoverage::PreCoverage {
-        return SnapshotGate {
-            coverage,
-            tabs: Vec::new(),
-        };
-    }
+) -> Vec<TabRecoveryOutcome> {
     let checkpoints: HashMap<String, LifecycleCheckpoint> = super::journal::checkpoints(load)
         .into_iter()
         .map(|checkpoint| (checkpoint.key.tab_id.clone(), checkpoint))
@@ -65,16 +33,11 @@ pub fn gate_session_snapshot(
         for tab in &mut workspace.tabs {
             visit_leaves(&mut tab.split_tree, &mut |leaf| {
                 let claim = claim_from_leaf(leaf);
-                let verdict = match &coverage {
-                    SnapshotCoverage::Lost { snapshot_coverage } => {
-                        coverage_lost_verdict(&claim, snapshot_coverage, active_coverage)
-                    }
-                    _ => authorize(
-                        &claim,
-                        checkpoints.get(&claim.tab_id),
-                        tail_refusal.as_deref(),
-                    ),
-                };
+                let verdict = authorize(
+                    &claim,
+                    checkpoints.get(&claim.tab_id),
+                    tail_refusal.as_deref(),
+                );
                 if verdict.is_stripped() {
                     strip_authority(leaf);
                 }
@@ -85,24 +48,7 @@ pub fn gate_session_snapshot(
             });
         }
     }
-    SnapshotGate {
-        coverage,
-        tabs: outcomes,
-    }
-}
-
-fn coverage_lost_verdict(
-    claim: &SnapshotAuthorityClaim,
-    snapshot_coverage: &str,
-    active_coverage: Option<&str>,
-) -> RecoveryVerdict {
-    if !claim.claims_authority() {
-        return RecoveryVerdict::NoAuthorityClaimed;
-    }
-    RecoveryVerdict::Stripped(RecoveryRefusal::CoverageLost {
-        snapshot: snapshot_coverage.to_string(),
-        active: active_coverage.map(str::to_string),
-    })
+    outcomes
 }
 
 fn visit_leaves(node: &mut SplitNodeSnapshot, visit: &mut impl FnMut(&mut SplitNodeSnapshot)) {
@@ -119,6 +65,7 @@ fn claim_from_leaf(leaf: &SplitNodeSnapshot) -> SnapshotAuthorityClaim {
     let SplitNodeSnapshot::Leaf {
         tab_id,
         agent_type,
+        chatbackend_plugin_id,
         claude_session_id,
         agent_identity,
         role,
@@ -142,6 +89,7 @@ fn claim_from_leaf(leaf: &SplitNodeSnapshot) -> SnapshotAuthorityClaim {
             .as_ref()
             .and_then(|identity| identity.lifecycle_operation_id.clone()),
         provider: agent_type.clone(),
+        chat_backend: chatbackend_plugin_id.is_some(),
         session_id: claude_session_id.clone(),
         binding_nonce: agent_identity
             .as_ref()

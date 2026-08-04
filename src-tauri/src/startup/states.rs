@@ -39,15 +39,10 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
-/// Reduce a snapshot to the authority the journal proves. Only a snapshot
-/// written before coverage existed is left alone.
-fn quarantine_unproven_authority(
-    snapshot: &mut crate::session::store::SessionSnapshot,
-    coverage_id: Option<&str>,
-) {
-    use crate::session::lifecycle::{
-        gate_session_snapshot, RecoveryVerdict, SnapshotCoverage, TabLifecycleJournal,
-    };
+/// Reduce a snapshot to the authority the journal proves, tab by tab. A tab
+/// whose lifecycle predates the journal is judged by the prior contract only.
+fn quarantine_unproven_authority(snapshot: &mut crate::session::store::SessionSnapshot) {
+    use crate::session::lifecycle::{gate_session_snapshot, RecoveryVerdict, TabLifecycleJournal};
 
     let load = TabLifecycleJournal::shared().load();
     if let crate::session::lifecycle::TailStatus::Refused { line, reason } = &load.tail {
@@ -55,22 +50,7 @@ fn quarantine_unproven_authority(
             "[tab-lifecycle] journal unreadable from line {line} ({reason}); every authority claim fails closed"
         );
     }
-    let gated = gate_session_snapshot(snapshot, &load, coverage_id);
-    match &gated.coverage {
-        SnapshotCoverage::PreCoverage => {
-            log::info!(
-                "[tab-lifecycle] snapshot predates journal coverage; authority restored \
-                 unchanged and enforced from the next restart"
-            );
-            return;
-        }
-        SnapshotCoverage::Lost { snapshot_coverage } => log::error!(
-            "[tab-lifecycle] snapshot was covered by {snapshot_coverage} but the journal no \
-             longer carries it; every authority claim fails closed"
-        ),
-        SnapshotCoverage::Active => {}
-    }
-    for outcome in gated.tabs {
+    for outcome in gate_session_snapshot(snapshot, &load) {
         match outcome.verdict {
             RecoveryVerdict::Stripped(refusal) => log::warn!(
                 "[tab-lifecycle] tab {} restored without authority: {}",
@@ -82,6 +62,10 @@ fn quarantine_unproven_authority(
                 outcome.tab_id,
                 authority.provider,
                 authority.session_id
+            ),
+            RecoveryVerdict::PreJournal => log::info!(
+                "[tab-lifecycle] tab {} has no journaled lifecycle; restored under the pre-journal contract",
+                outcome.tab_id
             ),
             RecoveryVerdict::NoAuthorityClaimed => {}
         }
@@ -213,18 +197,12 @@ pub(crate) fn init_states() -> AppStates {
     }));
 
     let ga_enabled = config_state.lock().general_agent.enabled;
-    let lifecycle_coverage = crate::session::lifecycle::TabLifecycleJournal::shared()
-        .ensure_coverage()
-        .map_err(|error| {
-            log::error!("[tab-lifecycle] coverage unavailable ({error}); restore is not enforced")
-        })
-        .ok();
     let mut bound_at_shutdown = Vec::new();
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
-                quarantine_unproven_authority(&mut snapshot, lifecycle_coverage.as_deref());
+                quarantine_unproven_authority(&mut snapshot);
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
@@ -263,7 +241,6 @@ pub(crate) fn init_states() -> AppStates {
     let general_config = config_state.lock().general_agent.clone();
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
-    mux_state_inner.set_lifecycle_coverage(lifecycle_coverage);
 
     // Attach the durable closed-tab history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).

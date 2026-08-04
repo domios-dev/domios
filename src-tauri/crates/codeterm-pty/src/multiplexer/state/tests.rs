@@ -849,7 +849,6 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
             timestamp: 0,
             active_workspace_id: Some("ws-1".to_string()),
             teams: vec![],
-            lifecycle_coverage: None,
             workspaces: vec![WorkspaceSnapshot {
                 id: "ws-1".to_string(),
                 name: "W".to_string(),
@@ -923,7 +922,6 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
         timestamp: 0,
         active_workspace_id: Some("ws-1".to_string()),
         teams: vec![],
-        lifecycle_coverage: None,
         workspaces: vec![WorkspaceSnapshot {
             id: "ws-1".to_string(),
             name: "W".to_string(),
@@ -1002,7 +1000,6 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
         timestamp: 0,
         active_workspace_id: Some("ws-1".to_string()),
         teams: vec![],
-        lifecycle_coverage: None,
         workspaces: vec![WorkspaceSnapshot {
             id: "ws-1".to_string(),
             name: "W".to_string(),

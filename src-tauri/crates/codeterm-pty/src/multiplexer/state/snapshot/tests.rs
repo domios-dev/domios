@@ -44,7 +44,6 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
         timestamp: 0,
         active_workspace_id: Some("ws".into()),
         teams: vec![],
-        lifecycle_coverage: None,
         workspaces: vec![WorkspaceSnapshot {
             id: "ws".into(),
             name: "ws".into(),
