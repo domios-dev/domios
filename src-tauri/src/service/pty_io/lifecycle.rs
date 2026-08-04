@@ -600,7 +600,7 @@ mod restored_snapshot_launch_tests {
         let (mut state, parent_id) = MultiplexerState::new();
         let workspace_id = state.find_workspace_for_tab(&parent_id).unwrap();
         state
-            .set_tab_role(&parent_id, AgentRole::Orchestrator, None)
+            .set_orchestrator_role(&parent_id)
             .unwrap();
         let team_id = state
             .resolve_or_mint_team_for_parent(&parent_id)
