@@ -6,6 +6,7 @@
 //! Manager + planner binding in `Self::spawn_agent`) - this module
 //! only sequences the two spawns and records the pending pair.
 
+use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{OrchestratorRef, PlannerRef};
@@ -430,8 +431,11 @@ impl ServiceContext {
             &reserved.planner_name,
             &reserved.planner_tab_id,
         );
-        let mut orchestrator_bootstrap =
-            crate::service::spawn_factory::forming_identity("Orchestrator", ORCHESTRATOR, project.clone());
+        let mut orchestrator_bootstrap = crate::service::spawn_factory::forming_identity(
+            "Orchestrator",
+            ORCHESTRATOR,
+            project.clone(),
+        );
         orchestrator_bootstrap.coordination =
             Some(crate::service::spawn_factory::introduction_body(
                 &orch_counterpart,
