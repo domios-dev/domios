@@ -13,13 +13,13 @@ mod stamp;
 #[cfg(test)]
 mod tests;
 
-pub use gate::{gate_session_snapshot, TabRecoveryOutcome};
+pub use gate::{gate_session_snapshot, SnapshotGate, TabRecoveryOutcome};
 pub use journal::{
-    checkpoints, next_epoch_for, JournalLoad, TabLifecycleJournal, TailStatus, COMPACT_AT_RECORDS,
-    JOURNAL_FILE_NAME,
+    checkpoints, coverage_id, next_epoch_for, JournalLoad, TabLifecycleJournal, TailStatus,
+    COMPACT_AT_RECORDS, JOURNAL_FILE_NAME,
 };
 pub use recovery::{authorize, RecoveryRefusal, RecoveryVerdict, SnapshotAuthorityClaim};
 pub use record::{
-    CommittedAuthority, JournalRecord, JournalSeq, LifecycleCheckpoint,
+    CommittedAuthority, CoverageRecord, JournalRecord, JournalSeq, LifecycleCheckpoint,
     LifecycleEntry, LifecycleEpoch, LifecycleKey, LifecycleTransition,
 };

@@ -82,6 +82,7 @@ pub fn sealed_checkpoints(records: &[JournalRecord]) -> Vec<LifecycleCheckpoint>
 
     for record in records {
         match record {
+            JournalRecord::Coverage { .. } => {}
             JournalRecord::Checkpoint { checkpoint } => {
                 sealed.insert(checkpoint.key.tab_id.clone(), checkpoint.clone());
                 open.remove(&checkpoint.key.tab_id);
@@ -186,6 +187,14 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
         .cloned()
         .map(|checkpoint| JournalRecord::Checkpoint { checkpoint })
         .collect();
+    // Coverage outlives the transitions it was opened alongside.
+    if let Some(coverage) = records
+        .iter()
+        .rev()
+        .find(|record| matches!(record, JournalRecord::Coverage { .. }))
+    {
+        compacted.push(coverage.clone());
+    }
     for record in records {
         let JournalRecord::Transition { entry } = record else {
             continue;
@@ -221,6 +230,7 @@ fn closed_tabs(records: &[JournalRecord]) -> std::collections::HashSet<&str> {
             JournalRecord::Checkpoint { checkpoint } => {
                 closed.remove(checkpoint.key.tab_id.as_str());
             }
+            JournalRecord::Coverage { .. } => {}
         }
     }
     closed

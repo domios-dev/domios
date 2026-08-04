@@ -29,7 +29,8 @@ prove.
 
 ## Format
 
-One JSON object per line, in journal order. Two record kinds:
+One JSON object per line, in journal order. Three record kinds — a committed
+transition, a compacted checkpoint, and the coverage declaration below:
 
 ```jsonc
 // a committed transition
@@ -90,6 +91,35 @@ Each transition is written by the code that commits the mutation, in the same
 operation that performs it. Nothing observes tab state afterwards and infers a
 transition from it.
 
+## Coverage
+
+Enforcement is scoped by an explicit coverage record the journal owns:
+
+```jsonc
+{"record":"coverage","coverage":{"seq":1,"coverage_id":"a41e…","opened_at":"2026-08-04T11:19:02Z"}}
+```
+
+The journal opens exactly one coverage id the first time a daemon starts with
+this feature. From then on every session snapshot it writes carries that id in
+its top-level `lifecycle_coverage` field.
+
+A snapshot is **covered** only when its `lifecycle_coverage` equals the journal's
+current coverage id. Otherwise the journal has never covered that snapshot, the
+gate examines nothing, and the restore keeps whatever the pre-journal contract
+already allowed — a role still requires a persisted provider identity, and a
+title is still not evidence.
+
+This makes activation explicit rather than a rollout side effect. The install
+that adds the journal restores its existing session untouched and logs
+`snapshot predates journal coverage`; the next restart is fully enforced,
+because by then every snapshot on disk was written under coverage.
+
+Coverage survives compaction. If the journal file is lost, the rebuilt journal
+mints a **new** id, so snapshots stamped with the old one become uncovered and a
+lost journal can never mass-strip a session it cannot account for. Coverage is
+not a compatibility inference and never looks at a tab: it is a property of the
+journal and the snapshot generation it wrote.
+
 ## The recovery rule
 
 An operation becomes a **checkpoint** only when all of this holds:
@@ -104,6 +134,7 @@ binding without them is residue, never authority.
 
 A snapshot's authority survives a restart only when:
 
+- the snapshot is covered (see above), and
 - the tab claims authority at all (otherwise there is nothing to prove), and
 - the journal replayed cleanly to its end, and
 - a checkpoint exists for that exact `tab_id`, and
@@ -148,7 +179,7 @@ The journal is bounded by explicit compaction, never by age:
 - Replaying a compacted journal reaches exactly the checkpoints replaying the
   full history reaches.
 
-The rewrite is atomic (temp file, then rename). Nothing else prunes the file,
+The rewrite goes through the shared atomic write (unique temp, fsync, replace). Nothing else prunes the file,
 and no reader may treat a missing record as permission to relax the rule.
 
 ## Inspecting it
@@ -195,4 +226,4 @@ to render.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

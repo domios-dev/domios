@@ -6,22 +6,34 @@ use super::journal::{JournalLoad, TailStatus};
 use super::record::{LifecycleCheckpoint, LifecycleEpoch};
 use super::recovery::{authorize, RecoveryVerdict, SnapshotAuthorityClaim};
 
-/// What the gate decided for one tab, kept for the forensic log. The gate never
-/// rewrites the snapshot file on disk — it only reduces what a restore is
-/// allowed to act on.
+/// What the gate decided for one tab, kept for the forensic log.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabRecoveryOutcome {
     pub tab_id: String,
     pub verdict: RecoveryVerdict,
 }
 
-/// Reduce a loaded session snapshot to the authority its lifecycle journal
-/// proves. Anything unproven is stripped in place, so the restore that follows
-/// cannot hand back authority no committed checkpoint supports.
+/// Gate result. `covered: false` means this snapshot was written before the
+/// journal began covering, so nothing was examined and nothing was stripped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotGate {
+    pub covered: bool,
+    pub tabs: Vec<TabRecoveryOutcome>,
+}
+
+/// Reduce a covered session snapshot to the authority its journal proves,
+/// stripping the rest in place. An uncovered snapshot is returned untouched.
 pub fn gate_session_snapshot(
     snapshot: &mut SessionSnapshot,
     load: &JournalLoad,
-) -> Vec<TabRecoveryOutcome> {
+    active_coverage: &str,
+) -> SnapshotGate {
+    if snapshot.lifecycle_coverage.as_deref() != Some(active_coverage) {
+        return SnapshotGate {
+            covered: false,
+            tabs: Vec::new(),
+        };
+    }
     let checkpoints: HashMap<String, LifecycleCheckpoint> = super::journal::checkpoints(load)
         .into_iter()
         .map(|checkpoint| (checkpoint.key.tab_id.clone(), checkpoint))
@@ -51,7 +63,10 @@ pub fn gate_session_snapshot(
             });
         }
     }
-    outcomes
+    SnapshotGate {
+        covered: true,
+        tabs: outcomes,
+    }
 }
 
 fn visit_leaves(node: &mut SplitNodeSnapshot, visit: &mut impl FnMut(&mut SplitNodeSnapshot)) {

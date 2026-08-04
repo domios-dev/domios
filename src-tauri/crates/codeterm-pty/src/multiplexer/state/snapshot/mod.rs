@@ -236,6 +236,7 @@ impl MultiplexerState {
             workspaces,
             active_workspace_id: self.active_workspace_id.clone(),
             teams: self.teams.values().cloned().collect(),
+            lifecycle_coverage: self.lifecycle_coverage.clone(),
         }
     }
 
@@ -481,6 +482,7 @@ impl MultiplexerState {
             tab_aliases: HashMap::new(),
             teams,
             generation: std::sync::atomic::AtomicU64::new(0),
+            lifecycle_coverage: snapshot.lifecycle_coverage.clone(),
             // startup), not the session snapshot.
             closed_store: super::ClosedTabsStore::in_memory(),
         }
