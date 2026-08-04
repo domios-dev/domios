@@ -39,14 +39,14 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
-/// Reduce a covered snapshot to the authority the journal proves. A snapshot
-/// written before coverage opened is left alone.
+/// Reduce a snapshot to the authority the journal proves. Only a snapshot
+/// written before coverage existed is left alone.
 fn quarantine_unproven_authority(
     snapshot: &mut crate::session::store::SessionSnapshot,
-    coverage_id: &str,
+    coverage_id: Option<&str>,
 ) {
     use crate::session::lifecycle::{
-        gate_session_snapshot, RecoveryVerdict, TabLifecycleJournal,
+        gate_session_snapshot, RecoveryVerdict, SnapshotCoverage, TabLifecycleJournal,
     };
 
     let load = TabLifecycleJournal::shared().load();
@@ -56,12 +56,19 @@ fn quarantine_unproven_authority(
         );
     }
     let gated = gate_session_snapshot(snapshot, &load, coverage_id);
-    if !gated.covered {
-        log::info!(
-            "[tab-lifecycle] snapshot predates journal coverage {coverage_id}; \
-             authority restored unchanged and enforced from the next restart"
-        );
-        return;
+    match &gated.coverage {
+        SnapshotCoverage::PreCoverage => {
+            log::info!(
+                "[tab-lifecycle] snapshot predates journal coverage; authority restored \
+                 unchanged and enforced from the next restart"
+            );
+            return;
+        }
+        SnapshotCoverage::Lost { snapshot_coverage } => log::error!(
+            "[tab-lifecycle] snapshot was covered by {snapshot_coverage} but the journal no \
+             longer carries it; every authority claim fails closed"
+        ),
+        SnapshotCoverage::Active => {}
     }
     for outcome in gated.tabs {
         match outcome.verdict {
@@ -217,9 +224,7 @@ pub(crate) fn init_states() -> AppStates {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
-                if let Some(coverage_id) = lifecycle_coverage.as_deref() {
-                    quarantine_unproven_authority(&mut snapshot, coverage_id);
-                }
+                quarantine_unproven_authority(&mut snapshot, lifecycle_coverage.as_deref());
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",

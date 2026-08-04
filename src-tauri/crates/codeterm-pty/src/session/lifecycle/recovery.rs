@@ -52,6 +52,12 @@ pub enum RecoveryRefusal {
     UnprovenLineage,
     /// Role or Team authority with no provider session behind it.
     UnbackedRoleAuthority,
+    /// The snapshot was covered, but the journal that proved it is gone or
+    /// replaced. The proof is lost, so the authority goes with it.
+    CoverageLost {
+        snapshot: String,
+        active: Option<String>,
+    },
     EpochMismatch {
         snapshot: LifecycleEpoch,
         checkpoint: LifecycleEpoch,
@@ -83,6 +89,10 @@ impl RecoveryRefusal {
                 "role authority claimed without a committed provider identity and session"
                     .to_string()
             }
+            Self::CoverageLost { snapshot, active } => format!(
+                "journal no longer carries coverage {snapshot} (now {}); authority proof lost",
+                active.as_deref().unwrap_or("unavailable")
+            ),
             Self::EpochMismatch {
                 snapshot,
                 checkpoint,

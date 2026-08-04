@@ -4,7 +4,7 @@ use crate::session::store::{SessionSnapshot, SplitNodeSnapshot};
 
 use super::journal::{JournalLoad, TailStatus};
 use super::record::{LifecycleCheckpoint, LifecycleEpoch};
-use super::recovery::{authorize, RecoveryVerdict, SnapshotAuthorityClaim};
+use super::recovery::{authorize, RecoveryRefusal, RecoveryVerdict, SnapshotAuthorityClaim};
 
 /// What the gate decided for one tab, kept for the forensic log.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,24 +13,41 @@ pub struct TabRecoveryOutcome {
     pub verdict: RecoveryVerdict,
 }
 
-/// `covered: false` means the snapshot predates coverage, so nothing was
-/// examined and nothing was stripped.
+/// How the journal relates to the snapshot being restored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotCoverage {
+    /// Written before coverage existed. Nothing is examined or stripped.
+    PreCoverage,
+    /// Written under the journal's current coverage. Enforced exactly.
+    Active,
+    /// Written under a coverage the journal no longer carries. The proof is
+    /// gone, so every authority claim fails closed.
+    Lost { snapshot_coverage: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotGate {
-    pub covered: bool,
+    pub coverage: SnapshotCoverage,
     pub tabs: Vec<TabRecoveryOutcome>,
 }
 
-/// Reduce a covered session snapshot to the authority its journal proves,
-/// stripping the rest in place. An uncovered snapshot is returned untouched.
+/// Reduce a snapshot to the authority its journal proves, stripping the rest in
+/// place. Only a snapshot written before coverage existed is left untouched.
 pub fn gate_session_snapshot(
     snapshot: &mut SessionSnapshot,
     load: &JournalLoad,
-    active_coverage: &str,
+    active_coverage: Option<&str>,
 ) -> SnapshotGate {
-    if snapshot.lifecycle_coverage.as_deref() != Some(active_coverage) {
+    let coverage = match (snapshot.lifecycle_coverage.clone(), active_coverage) {
+        (None, _) => SnapshotCoverage::PreCoverage,
+        (Some(stamp), Some(active)) if stamp == active => SnapshotCoverage::Active,
+        (Some(stamp), _) => SnapshotCoverage::Lost {
+            snapshot_coverage: stamp,
+        },
+    };
+    if coverage == SnapshotCoverage::PreCoverage {
         return SnapshotGate {
-            covered: false,
+            coverage,
             tabs: Vec::new(),
         };
     }
@@ -48,11 +65,16 @@ pub fn gate_session_snapshot(
         for tab in &mut workspace.tabs {
             visit_leaves(&mut tab.split_tree, &mut |leaf| {
                 let claim = claim_from_leaf(leaf);
-                let verdict = authorize(
-                    &claim,
-                    checkpoints.get(&claim.tab_id),
-                    tail_refusal.as_deref(),
-                );
+                let verdict = match &coverage {
+                    SnapshotCoverage::Lost { snapshot_coverage } => {
+                        coverage_lost_verdict(&claim, snapshot_coverage, active_coverage)
+                    }
+                    _ => authorize(
+                        &claim,
+                        checkpoints.get(&claim.tab_id),
+                        tail_refusal.as_deref(),
+                    ),
+                };
                 if verdict.is_stripped() {
                     strip_authority(leaf);
                 }
@@ -64,9 +86,23 @@ pub fn gate_session_snapshot(
         }
     }
     SnapshotGate {
-        covered: true,
+        coverage,
         tabs: outcomes,
     }
+}
+
+fn coverage_lost_verdict(
+    claim: &SnapshotAuthorityClaim,
+    snapshot_coverage: &str,
+    active_coverage: Option<&str>,
+) -> RecoveryVerdict {
+    if !claim.claims_authority() {
+        return RecoveryVerdict::NoAuthorityClaimed;
+    }
+    RecoveryVerdict::Stripped(RecoveryRefusal::CoverageLost {
+        snapshot: snapshot_coverage.to_string(),
+        active: active_coverage.map(str::to_string),
+    })
 }
 
 fn visit_leaves(node: &mut SplitNodeSnapshot, visit: &mut impl FnMut(&mut SplitNodeSnapshot)) {

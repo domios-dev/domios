@@ -11,7 +11,7 @@ mod stamp;
 #[cfg(test)]
 mod tests;
 
-pub use gate::{gate_session_snapshot, SnapshotGate, TabRecoveryOutcome};
+pub use gate::{gate_session_snapshot, SnapshotCoverage, SnapshotGate, TabRecoveryOutcome};
 pub use journal::{
     checkpoints, coverage_id, next_epoch_for, JournalLoad, TabLifecycleJournal, TailStatus,
     COMPACT_AT_RECORDS, JOURNAL_FILE_NAME,
