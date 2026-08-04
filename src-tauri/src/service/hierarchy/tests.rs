@@ -914,7 +914,7 @@ fn teamless_orchestrator(mux: &MuxState) -> (String, String) {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&owner_tab_id, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&owner_tab_id)
         .unwrap();
     (workspace_id, owner_tab_id)
 }
@@ -946,7 +946,8 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
     let mux = harness.mux.read();
     assert_eq!(mux.team_count(), 1);
     let owner = mux.get_tab(&owner_tab_id).unwrap();
-    assert_eq!(owner.role, Some(AgentRole::Orchestrator));
+    assert_eq!(owner.role, Some(AgentRole::Manager));
+    assert!(owner.anchors_team(), "orchestrator kind anchors its Team");
     assert_eq!(owner.team_id.as_deref(), Some(outcome.team_id.as_str()));
 }
 

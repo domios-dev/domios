@@ -11,8 +11,8 @@ pub const WORKER: &str = "worker";
 static BUILTINS: [RoleKindDescriptor; 5] = [
     RoleKindDescriptor::anchoring(ORCHESTRATOR, "Orchestrator"),
     RoleKindDescriptor::anchoring(GENERAL_AGENT, "General Agent"),
-    RoleKindDescriptor::leaf(PLANNER, "Planner"),
-    RoleKindDescriptor::leaf(WATCHER, "Watcher"),
+    RoleKindDescriptor::managing_leaf(PLANNER, "Planner"),
+    RoleKindDescriptor::managing_leaf(WATCHER, "Watcher"),
     RoleKindDescriptor::leaf(WORKER, "Worker"),
 ];
 

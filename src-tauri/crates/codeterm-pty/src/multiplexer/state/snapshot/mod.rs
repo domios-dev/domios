@@ -306,14 +306,19 @@ impl MultiplexerState {
                 _ => TabBacking::default(),
             };
 
-            let parsed_role = role.as_deref().and_then(|r| match r {
-                "Orchestrator" | "Conductor" => {
-                    Some(crate::multiplexer::types::AgentRole::Orchestrator)
-                }
-                "Manager" => Some(crate::multiplexer::types::AgentRole::Manager),
-                "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
-                _ => None,
-            });
+            // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
+            // no profile, so their anchoring kind is re-materialized here.
+            let restored_role = codeterm_types::agent::restore_role(
+                role.as_deref(),
+                role_profile.as_deref(),
+            )
+            // Residue from a partial launch would restore as a role-bearing
+            // shell; a title is not evidence, so no provider is ever guessed.
+            .filter(|_| agent_type.is_some() || chatbackend_plugin_id.is_some());
+            let parsed_role = restored_role.as_ref().map(|restored| restored.role);
+            let restored_role_profile = restored_role
+                .as_ref()
+                .and_then(|restored| restored.role_profile.clone());
             let raw_title = title.as_deref().unwrap_or("Terminal");
             let legacy_title = legacy_tab_title.trim();
             let has_agent_type =
@@ -391,14 +396,13 @@ impl MultiplexerState {
                         .and_then(|identity| identity.reported_session_binding_nonce.clone()),
                     shell_integration_nonce: None,
                     role: parsed_role,
-                    machine_agent_identity: None,
-                    role_profile: role_profile.clone(),
-                    team_id: team_id.clone(),
+                    role_profile: restored_role_profile,
+                    team_id: parsed_role.and(team_id.clone()),
                     watcher: watcher.clone(),
-                    parent_tab_id: parent_tab_id.clone(),
+                    parent_tab_id: parsed_role.and(parent_tab_id.clone()),
                     pending_paired_planner_tab_id: None,
-                    can_spawn: *can_spawn,
-                    depth: *depth,
+                    can_spawn: parsed_role.is_some() && *can_spawn,
+                    depth: if parsed_role.is_some() { *depth } else { 0 },
                     // spawner / report target instead of hardcoding None.
                     report_target_tab_id: report_target_tab_id.clone(),
                     report_target_mesh_peer: report_target_mesh_peer.clone(),

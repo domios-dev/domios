@@ -197,7 +197,8 @@ impl ServiceContext {
             match mux.get_tab(tab_id) {
                 Some(tab) => (
                     true,
-                    tab.role.map(map_role),
+                    tab.role
+                        .map(|role| map_role(role, tab.role_profile.as_deref())),
                     tab.parent_tab_id.clone(),
                     tab.agent_session_id.clone(),
                     tab.session_binding_nonce.clone(),
@@ -282,12 +283,11 @@ fn live_attempt_session_for_assignment(
         .map(str::to_string)
 }
 
-fn map_role(role: AgentRole) -> TabRole {
-    match role {
-        AgentRole::Orchestrator => TabRole::Orchestrator,
-        AgentRole::Manager => TabRole::Worker,
-        AgentRole::Worker => TabRole::Worker,
+fn map_role(role: AgentRole, role_profile: Option<&str>) -> TabRole {
+    if codeterm_types::agent::role_kind::anchors_team(Some(role), role_profile) {
+        return TabRole::Orchestrator;
     }
+    TabRole::Worker
 }
 
 fn drift_counts(items: &[DriftItem]) -> HashMap<DriftKind, usize> {

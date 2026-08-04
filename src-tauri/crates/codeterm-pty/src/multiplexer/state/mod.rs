@@ -5,6 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::types::{AgentRole, Tab, TabBacking, TabType, TitleLevel, Workspace};
+use codeterm_types::agent::role_kind;
 use codeterm_types::team::Team;
 
 mod alias;
@@ -242,9 +243,8 @@ impl MultiplexerState {
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
-            role: Some(AgentRole::Orchestrator),
-            machine_agent_identity: None,
-            role_profile: None,
+            role: Some(AgentRole::Manager),
+            role_profile: Some(role_kind::builtins::ORCHESTRATOR.to_string()),
             team_id: None,
             watcher: None,
             parent_tab_id: None,

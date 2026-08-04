@@ -56,7 +56,9 @@ pub mod push;
 mod reasoning_effort;
 pub mod remote_tabs;
 pub mod remote_workers;
+mod restored_binding;
 mod role_identity;
+mod role_preset;
 mod role_profile;
 pub mod session_persist;
 mod shell_restart;
@@ -713,15 +715,31 @@ impl ServiceContext {
     }
 
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
-        match role_str {
-            "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
-            "Manager" => Ok(AgentRole::Manager),
-            "Worker" => Ok(AgentRole::Worker),
-            _ => Err(format!(
-                "Invalid role: {}. Use: Orchestrator, Manager, Worker",
-                role_str
-            )),
+        AgentRole::from_str_compat(role_str).ok_or_else(|| {
+            format!("Invalid role: {role_str}. Use: Orchestrator, Manager, Worker")
+        })
+    }
+
+    /// The one place wire role sugar resolves: legacy `Orchestrator`/`Conductor`
+    /// literals name the orchestrator kind. Core code branches on the kind.
+    pub(crate) fn parse_role_kind(
+        role_str: &str,
+        role_profile: Option<&str>,
+    ) -> Result<(AgentRole, Option<String>), String> {
+        let role = Self::parse_role(role_str)?;
+        let profile = match role_str {
+            "Orchestrator" | "Conductor" => {
+                Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR.to_string())
+            }
+            _ => role_profile
+                .map(str::trim)
+                .filter(|profile| !profile.is_empty())
+                .map(str::to_string),
+        };
+        if role == AgentRole::Manager && profile.is_none() {
+            return Err("Manager requires a named role_profile".into());
         }
+        Ok((role, profile))
     }
 }
 

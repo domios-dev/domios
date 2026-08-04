@@ -141,7 +141,7 @@ async function renderSidebar({
           touchMode={true}
           compact={false}
           sidebarActionText="text-xs"
-          orchestrators={Object.values(tabs).filter((member) => member.role === "Orchestrator")}
+          orchestrators={Object.values(tabs).filter((member) => member.role_profile === "orchestrator")}
           onBeforeOpenPlan={() => {}}
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
@@ -205,10 +205,10 @@ test("team_renders_flat_sections", async () => {
   const tabs: Record<string, Tab> = {
     plannerTwo: tab({ id: "plannerTwo", title: "Planner Two", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
     workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id, parent_tab_id: "orchOne" }),
-    orchTwo: tab({ id: "orchTwo", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
+    orchTwo: tab({ id: "orchTwo", title: "Orchestrator Two", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     plannerOne: tab({ id: "plannerOne", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id, parent_tab_id: "workerOne" }),
-    orchOne: tab({ id: "orchOne", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
+    orchOne: tab({ id: "orchOne", title: "Orchestrator One", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id, parent_tab_id: "orchTwo" }),
   };
   const ids = Object.keys(tabs);
@@ -233,7 +233,7 @@ test("team_renders_flat_sections", async () => {
 
 test("plans have only a Team-owned sidebar home", async () => {
   const tabs = {
-    orch: tab({ id: "orch", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orch: tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const sortedTabs = [tab("tab-orch", "orch", 0)];
   const bound = plan([]);
@@ -260,7 +260,7 @@ test("plans have only a Team-owned sidebar home", async () => {
 test("team menu enables staffing only for a Team with a manager", async () => {
   const closed: string[] = [];
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   canvasFocusStore.closeWorkspace();
   const { host, root } = await renderSidebar({
@@ -364,9 +364,9 @@ test("staffing selects the first eligible manager in visible Orchestrator-first 
   const requests: Array<[string, TeamMemberRole, string, string]> = [];
   const tabs = {
     unrelated: tab({ id: "unrelated", title: "Unrelated Tab", role: "Worker" }),
-    "a-O2": tab({ id: "a-O2", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
+    "a-O2": tab({ id: "a-O2", title: "Orchestrator Two", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     "p-P1": tab({ id: "p-P1", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
-    "z-O1": tab({ id: "z-O1", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
+    "z-O1": tab({ id: "z-O1", title: "Orchestrator One", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const providers = [{
     id: "registry-provider",
@@ -439,7 +439,7 @@ test("staffing selects a planner when no Orchestrator is eligible", async () => 
 test("staffing picker uses descriptor icons and requires a descriptor model choice", async () => {
   const requests: Array<[string, TeamMemberRole, string, string, string?]> = [];
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const providers = [{
     id: "provider-a",
@@ -515,7 +515,7 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
 
 test("staffing failure stays visible without local mutation or refetch", async () => {
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const tabsBefore = JSON.stringify(tabs);
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
@@ -558,7 +558,7 @@ test("staffing provider action ignores an immediate double click", async () => {
   let invocations = 0;
   let finish: (() => void) | undefined;
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
@@ -606,7 +606,7 @@ test("teamless_tabs_render_plain", async () => {
 
 test("team header renders the live compact status tally", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
   const currentPlan = plan([
@@ -689,7 +689,7 @@ test("team header renders the live compact status tally", async () => {
 
 test("Team card keeps plan activation separate from collapse and menu controls", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const currentPlan = plan([task("done", TaskStatus.Done)]);
   canvasFocusStore.closeWorkspace();
@@ -786,7 +786,7 @@ test("Team card keeps plan activation separate from collapse and menu controls",
 
 test("workers_collapse_summary", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id }),
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id }),
@@ -810,7 +810,7 @@ test("team worker rows follow tab sort order", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
@@ -832,7 +832,7 @@ test("team worker rows follow tab sort order", async () => {
 
 test("clicking a team worker activates it", async () => {
   const tabs: Record<string, Tab> = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
   const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
@@ -921,7 +921,7 @@ test("waiting team worker keeps prompt pill without status rail", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     attention: tab({
@@ -954,7 +954,7 @@ test("working team worker keeps activity dots without status rail", async () => 
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     worker: tab({
@@ -985,7 +985,7 @@ test("team worker and manager descriptions do not add row lines", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     manager: tab({
@@ -1025,7 +1025,7 @@ test("team worker close control calls onCloseTab", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     worker: tab({
@@ -1050,7 +1050,7 @@ test("team worker close control calls onCloseTab", async () => {
 
 test("Team disclosure stays user-owned across rerenders and remounts", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0)];
   const first = await renderSidebar({ tabs, sortedTabs });
@@ -1150,7 +1150,7 @@ test("team manager close control calls onCloseTab", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     manager: tab({

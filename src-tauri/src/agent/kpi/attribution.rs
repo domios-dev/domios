@@ -15,14 +15,13 @@ pub struct KpiAttribution {
     pub model: Option<String>,
 }
 
-/// Static labels keep the delivery path clear of `{:?}` formatting machinery.
-fn role_label(role: crate::multiplexer::types::AgentRole) -> &'static str {
-    use crate::multiplexer::types::AgentRole;
-    match role {
-        AgentRole::Orchestrator => "Orchestrator",
-        AgentRole::Manager => "Manager",
-        AgentRole::Worker => "Worker",
-    }
+/// Descriptor labels keep the delivery path clear of `{:?}` formatting machinery.
+fn role_label(
+    role: crate::multiplexer::types::AgentRole,
+    role_profile: Option<&str>,
+) -> &'static str {
+    codeterm_types::agent::role_kind::kind_label(Some(role), role_profile)
+        .unwrap_or_else(|| role.label())
 }
 
 impl KpiAttribution {
@@ -39,8 +38,12 @@ impl KpiAttribution {
         self
     }
 
-    pub fn role(mut self, role: Option<crate::multiplexer::types::AgentRole>) -> Self {
-        self.role = role.map(role_label);
+    pub fn role(
+        mut self,
+        role: Option<crate::multiplexer::types::AgentRole>,
+        role_profile: Option<&str>,
+    ) -> Self {
+        self.role = role.map(|role| role_label(role, role_profile));
         self
     }
 

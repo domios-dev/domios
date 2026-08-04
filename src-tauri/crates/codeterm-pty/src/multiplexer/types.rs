@@ -394,13 +394,6 @@ pub enum TabAudience {
     Automation,
 }
 
-/// Machine-scoped agent identity, orthogonal to Team roles and membership.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineAgentIdentity {
-    GeneralAgent,
-}
-
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -493,13 +486,12 @@ pub struct Tab {
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
-    /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
+    /// Structural orchestration role. The finer-grained kind lives in
+    /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
-    /// Machine-level identity. This never grants Team execution authority.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub machine_agent_identity: Option<MachineAgentIdentity>,
-    /// Behavioral profile layered on top of the structural role.
+    /// Role kind id layered on the structural role (`orchestrator`,
+    /// `general_agent`, `planner`, `watcher`, or a Worker subtype).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
     /// Team membership. Roleless members are Team utility terminals; their
@@ -639,10 +631,25 @@ impl Tab {
         matches!(self.backing, TabBacking::ChatBackend { .. })
     }
 
+    /// Role kind resolved from this tab's own `(role, role_profile)` pair.
+    pub fn role_kind_id(&self) -> Option<&str> {
+        codeterm_types::agent::role_kind::kind_id(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn anchors_team(&self) -> bool {
+        codeterm_types::agent::role_kind::anchors_team(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn kind_can_spawn(&self) -> bool {
+        codeterm_types::agent::role_kind::can_spawn(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn has_team_authority(&self) -> bool {
+        codeterm_types::agent::role_kind::has_team_authority(self.role, self.role_profile.as_deref())
+    }
+
     pub fn has_team_orchestrator_authority(&self) -> bool {
-        self.machine_agent_identity.is_none()
-            && self.role == Some(AgentRole::Orchestrator)
-            && self.team_id.is_some()
+        self.anchors_team() && self.team_id.is_some()
     }
 
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
@@ -702,7 +709,6 @@ mod tests {
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
-            machine_agent_identity: None,
             role_profile: None,
             team_id: None,
             watcher: None,

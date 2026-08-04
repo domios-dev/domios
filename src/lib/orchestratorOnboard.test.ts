@@ -44,7 +44,7 @@ test("eligible: chatBackend Tab", () => {
 
 test("ineligible: already orchestrator", () => {
   assert(
-    !canMakeOrchestrator(mkTab({ agent_type: "claude", role: "Orchestrator", can_spawn: true })),
+    !canMakeOrchestrator(mkTab({ agent_type: "claude", role: "Manager", role_profile: "orchestrator", can_spawn: true })),
     "orchestrator blocked",
   );
 });

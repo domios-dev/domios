@@ -17,21 +17,24 @@ fn role_assignment_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
-    match (role, role_profile) {
-        (Some("Manager"), Some("planner")) => {
-            task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
-        }
-        (Some("Manager"), _) => task.map(str::to_string),
-        (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
-        (Some("Orchestrator"), _) => {
-            let suffix = crate::prompts::orchestrator_suffix();
-            Some(match task {
-                Some(task) => format!("{task}\n\n{suffix}"),
-                None => suffix,
-            })
-        }
-        _ => task.map(str::to_string),
+    let role = role.and_then(crate::multiplexer::types::AgentRole::from_str_compat);
+    let kind = codeterm_types::agent::role_kind::kind_id(role, role_profile);
+    // An anchor states its charter even with no assignment; every other kind
+    // only decorates work it was actually given.
+    if kind == Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR) {
+        let suffix = crate::prompts::orchestrator_suffix();
+        return Some(match task {
+            Some(task) => format!("{task}\n\n{suffix}"),
+            None => suffix,
+        });
     }
+    if kind == Some(codeterm_types::agent::role_kind::builtins::PLANNER) {
+        return task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()));
+    }
+    if role == Some(crate::multiplexer::types::AgentRole::Worker) {
+        return task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix()));
+    }
+    task.map(str::to_string)
 }
 
 pub(crate) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {
@@ -638,7 +641,8 @@ pub(crate) fn launch_agent_in_background_with_env(
         .get_tab(&tab_id)
         .map(|tab| {
             (
-                tab.role.map(agent_role_label).map(str::to_string),
+                tab.role
+                    .map(|role| agent_role_label(role, tab.role_profile.as_deref()).to_string()),
                 tab.role_profile.clone(),
             )
         })
@@ -1082,12 +1086,12 @@ pub(crate) fn launch_agent_in_background_with_env(
     });
 }
 
-fn agent_role_label(role: crate::multiplexer::types::AgentRole) -> &'static str {
-    match role {
-        crate::multiplexer::types::AgentRole::Orchestrator => "Orchestrator",
-        crate::multiplexer::types::AgentRole::Manager => "Manager",
-        crate::multiplexer::types::AgentRole::Worker => "Worker",
-    }
+fn agent_role_label(
+    role: crate::multiplexer::types::AgentRole,
+    role_profile: Option<&str>,
+) -> &'static str {
+    codeterm_types::agent::role_kind::kind_label(Some(role), role_profile)
+        .unwrap_or_else(|| role.label())
 }
 
 /// Build a single shell command that launches the agent.

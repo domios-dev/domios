@@ -1,5 +1,6 @@
 use super::{MultiplexerState, TeamResolution};
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind;
 use codeterm_types::team::Team;
 
 fn now_millis() -> u64 {
@@ -56,113 +57,142 @@ impl MultiplexerState {
         }
     }
 
-    /// Set a tab's orchestration role with validation.
+    /// Placement follows the kind's capability descriptor, never an enum arm:
+    /// an anchoring kind takes no parent, every other kind needs a spawner.
     pub fn set_tab_role(
         &mut self,
         tab_id: &str,
         role: AgentRole,
         parent_tab_id: Option<&str>,
     ) -> Result<(), String> {
+        let role_profile = self
+            .tabs
+            .get(tab_id)
+            .ok_or_else(|| format!("Tab {} not found", tab_id))?
+            .role_profile
+            .clone();
+        self.set_tab_role_kind(tab_id, role, role_profile.as_deref(), parent_tab_id)
+    }
+
+    /// Set a tab's role and role kind together. The kind is what carries
+    /// authority, so it must be applied in the same transition as the role.
+    pub fn set_tab_role_kind(
+        &mut self,
+        tab_id: &str,
+        role: AgentRole,
+        role_profile: Option<&str>,
+        parent_tab_id: Option<&str>,
+    ) -> Result<(), String> {
         if !self.tabs.contains_key(tab_id) {
             return Err(format!("Tab {} not found", tab_id));
         }
+        let kind_id = role_kind::kind_id(Some(role), role_profile)
+            .ok_or("Manager requires a named role_profile")?
+            .to_string();
+        let capability = role_kind::capability_for_kind(&kind_id);
+        let label = role_kind::kind_label(Some(role), role_profile).unwrap_or(role.label());
 
-        match role {
-            AgentRole::Orchestrator => {
-                if parent_tab_id.is_some() {
-                    return Err("Orchestrator cannot have a parent".to_string());
-                }
-                let existing = self
-                    .tabs
-                    .get(tab_id)
-                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
-                if existing.parent_tab_id.is_some() {
-                    return Err("Cannot become Orchestrator — already in a hierarchy".to_string());
-                }
-                let tab = self
-                    .tabs
-                    .get_mut(tab_id)
-                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
-                tab.role = Some(AgentRole::Orchestrator);
-                tab.role_profile = None;
-                tab.parent_tab_id = None;
-                tab.can_spawn = true;
-                tab.depth = 1;
+        if capability.anchors_team() {
+            if parent_tab_id.is_some() {
+                return Err(format!("{label} cannot have a parent"));
             }
-            AgentRole::Manager => {
-                let parent_id = parent_tab_id.ok_or("Manager requires a parent_tab_id")?;
-                let parent = self
-                    .tabs
-                    .get(parent_id)
-                    .ok_or(format!("Parent Tab {} not found", parent_id))?;
-                if parent.role != Some(AgentRole::Orchestrator) {
-                    return Err("Manager requires an Orchestrator parent".to_string());
-                }
-                if !parent.can_spawn {
-                    return Err("Parent does not allow spawning".to_string());
-                }
-                let final_parent_depth = parent.depth;
-                let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
-                let tab = self
-                    .tabs
-                    .get_mut(tab_id)
-                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
-                tab.role = Some(AgentRole::Manager);
-                tab.parent_tab_id = Some(parent_id.to_string());
-                tab.can_spawn = false;
-                tab.depth = final_parent_depth + 1;
-                tab.team_id = Some(team_id);
+            let existing = self
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+            if existing.parent_tab_id.is_some() {
+                return Err(format!(
+                    "Cannot become {label} — already in a hierarchy"
+                ));
             }
-            AgentRole::Worker => {
-                let parent_id = parent_tab_id.ok_or("Worker requires a parent_tab_id")?;
-                let (parent_role, parent_has_parent, parent_can_spawn, parent_depth) = {
-                    let parent = self
-                        .tabs
-                        .get(parent_id)
-                        .ok_or(format!("Parent Tab {} not found", parent_id))?;
-                    (
-                        parent.role,
-                        parent.parent_tab_id.is_some(),
-                        parent.can_spawn,
-                        parent.depth,
-                    )
-                };
-                let final_parent_depth = if parent_can_spawn {
-                    parent_depth
-                } else {
-                    if parent_role.is_some() || parent_has_parent {
-                        return Err(
-                            "Worker's parent is a leaf role; leaf roles cannot spawn workers"
-                                .to_string(),
-                        );
-                    }
-                    let parent = self
-                        .tabs
-                        .get_mut(parent_id)
-                        .ok_or_else(|| format!("Parent Tab {} not found", parent_id))?;
-                    parent.role = Some(AgentRole::Orchestrator);
-                    parent.role_profile = None;
-                    parent.parent_tab_id = None;
-                    parent.can_spawn = true;
-                    if parent.depth == 0 {
-                        parent.depth = 1;
-                    }
-                    parent.depth
-                };
-                let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
-                let tab = self
-                    .tabs
-                    .get_mut(tab_id)
-                    .ok_or_else(|| format!("Tab {} not found", tab_id))?;
-                tab.role = Some(AgentRole::Worker);
-                tab.parent_tab_id = Some(parent_id.to_string());
-                tab.can_spawn = false;
-                tab.depth = final_parent_depth + 1;
-                tab.team_id = Some(team_id);
-            }
+            let tab = self
+                .tabs
+                .get_mut(tab_id)
+                .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+            tab.role = Some(role);
+            tab.role_profile = Some(kind_id);
+            tab.parent_tab_id = None;
+            tab.can_spawn = true;
+            tab.depth = 1;
+            return Ok(());
         }
 
+        let parent_id = parent_tab_id.ok_or_else(|| format!("{label} requires a parent_tab_id"))?;
+        let parent_depth = self.place_under_spawning_parent(parent_id, role)?;
+        let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+        tab.role = Some(role);
+        tab.role_profile = match role {
+            AgentRole::Manager => Some(kind_id),
+            AgentRole::Worker => role_profile.map(str::to_string),
+        };
+        tab.parent_tab_id = Some(parent_id.to_string());
+        tab.can_spawn = false;
+        tab.depth = parent_depth + 1;
+        tab.team_id = Some(team_id);
         Ok(())
+    }
+
+    /// Place a tab as the default Team anchor (the `orchestrator` kind).
+    pub fn set_orchestrator_role(&mut self, tab_id: &str) -> Result<(), String> {
+        self.set_tab_role_kind(
+            tab_id,
+            AgentRole::Manager,
+            Some(role_kind::builtins::ORCHESTRATOR),
+            None,
+        )
+    }
+
+    /// Resolve the parent a leaf role attaches to, auto-promoting a free tab to
+    /// the default anchor. Returns the parent's final depth.
+    fn place_under_spawning_parent(
+        &mut self,
+        parent_id: &str,
+        role: AgentRole,
+    ) -> Result<u8, String> {
+        let (parent_role, parent_has_parent, parent_can_spawn, parent_depth) = {
+            let parent = self
+                .tabs
+                .get(parent_id)
+                .ok_or(format!("Parent Tab {} not found", parent_id))?;
+            (
+                parent.role,
+                parent.parent_tab_id.is_some(),
+                parent.can_spawn,
+                parent.depth,
+            )
+        };
+        if parent_can_spawn {
+            return Ok(parent_depth);
+        }
+        // Only a Worker link auto-promotes a free parent; a Manager placement
+        // must name an already-spawning anchor.
+        if role != AgentRole::Worker {
+            return Err(format!(
+                "{} requires a spawning parent",
+                role_kind::kind_label(Some(role), None).unwrap_or(role.label())
+            ));
+        }
+        if parent_role.is_some() || parent_has_parent {
+            return Err(
+                "Worker's parent is a leaf role; leaf roles cannot spawn workers".to_string(),
+            );
+        }
+        let parent = self
+            .tabs
+            .get_mut(parent_id)
+            .ok_or_else(|| format!("Parent Tab {} not found", parent_id))?;
+        parent.role = Some(AgentRole::Manager);
+        parent.role_profile = Some(role_kind::builtins::ORCHESTRATOR.to_string());
+        parent.parent_tab_id = None;
+        parent.can_spawn = true;
+        if parent.depth == 0 {
+            parent.depth = 1;
+        }
+        Ok(parent.depth)
     }
 
     /// Clear a tab's orchestration role. Detaches a Worker from its
@@ -208,13 +238,11 @@ impl MultiplexerState {
         if tab.role.is_none() {
             return Err("Tab has no role".to_string());
         }
-        match tab.role {
-            Some(AgentRole::Orchestrator | AgentRole::Manager) => {
-                tab.can_spawn = can_spawn;
-                Ok(())
-            }
-            _ => Err("Only managing roles can spawn children".to_string()),
+        if !role_kind::has_team_authority(tab.role, tab.role_profile.as_deref()) {
+            return Err("Only managing roles can spawn children".to_string());
         }
+        tab.can_spawn = can_spawn;
+        Ok(())
     }
 
     /// Semantic Worker identity for a cross-mesh tab whose hierarchy lives on
@@ -274,441 +302,4 @@ impl MultiplexerState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fresh() -> (MultiplexerState, String) {
-        let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        (mux, tab)
-    }
-
-    #[test]
-    fn detached_worker_role_needs_no_target_local_parent() {
-        let (mut mux, tab) = fresh();
-        let ownership = codeterm_types::pty::RemoteOwnership {
-            controller_title: "Puccini".into(),
-            controller_tab_id: Some("af5919cb".into()),
-            peer_id: "peer-mac".into(),
-            peer_name: "Mac-Air".into(),
-            team: None,
-        };
-        mux.get_tab_mut(&tab).unwrap().ownership = Some(ownership.clone());
-        mux.set_detached_worker_role(&tab, None)
-            .expect("detached Worker requires no local parent");
-        let p = mux.get_tab(&tab).unwrap();
-        assert_eq!(p.role, Some(AgentRole::Worker));
-        assert_eq!(p.parent_tab_id, None);
-        assert!(!p.can_spawn, "leaf Worker is not a manager");
-        assert_eq!(p.depth, 2);
-        assert_eq!(p.ownership, Some(ownership));
-    }
-
-    #[test]
-    fn orchestrator_defaults_can_spawn_true() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
-            .expect("Orchestrator with no parent");
-        let p = mux.get_tab(&tab).unwrap();
-        assert_eq!(p.role, Some(AgentRole::Orchestrator));
-        assert!(p.can_spawn, "Orchestrator must default to can_spawn=true");
-        assert_eq!(p.depth, 1);
-    }
-
-    #[test]
-    fn orchestrator_rejects_parent() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let child = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let err = mux
-            .set_tab_role(&child, AgentRole::Orchestrator, Some(&parent))
-            .unwrap_err();
-        assert!(err.contains("Orchestrator"));
-    }
-
-    #[test]
-    fn worker_under_free_tab_auto_promotes_and_links() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap(); // free: role=None, can_spawn=false by default
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
-            .expect("worker attaches to a free parent (auto-promote)");
-        let p = mux.get_tab(&parent).unwrap();
-        assert_eq!(
-            p.role,
-            Some(AgentRole::Orchestrator),
-            "free parent auto-promoted to Orchestrator"
-        );
-        assert!(p.can_spawn);
-        let w = mux.get_tab(&worker).unwrap();
-        assert_eq!(
-            w.parent_tab_id.as_deref(),
-            Some(parent.as_str()),
-            "parent link must persist"
-        );
-        assert_eq!(w.role, Some(AgentRole::Worker));
-    }
-
-    #[test]
-    fn early_workers_under_uncommitted_orchestrator_all_link() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let w1 = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let w2 = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&w1, AgentRole::Worker, Some(&parent))
-            .expect("first early child");
-        mux.set_tab_role(&w2, AgentRole::Worker, Some(&parent))
-            .expect("second early child");
-        assert_eq!(
-            mux.get_tab(&w1).unwrap().parent_tab_id.as_deref(),
-            Some(parent.as_str())
-        );
-        assert_eq!(
-            mux.get_tab(&w2).unwrap().parent_tab_id.as_deref(),
-            Some(parent.as_str())
-        );
-        assert_eq!(
-            mux.get_tab(&parent).unwrap().role,
-            Some(AgentRole::Orchestrator)
-        );
-    }
-
-    #[test]
-    fn worker_defaults_can_spawn_false() {
-        let (mut mux, root) = fresh();
-        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
-            .unwrap();
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
-            .expect("Worker under Orchestrator");
-        let p = mux.get_tab(&worker).unwrap();
-        assert!(!p.can_spawn, "Worker must default to can_spawn=false");
-    }
-
-    #[test]
-    fn manager_requires_parent() {
-        let (mut mux, tab) = fresh();
-        let err = mux
-            .set_tab_role(&tab, AgentRole::Manager, None)
-            .unwrap_err();
-        assert!(err.contains("Manager requires a parent_tab_id"));
-    }
-
-    #[test]
-    fn manager_requires_orchestrator_parent() {
-        let (mut mux, root) = fresh();
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
-            .unwrap();
-        let manager = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let err = mux
-            .set_tab_role(&manager, AgentRole::Manager, Some(&worker))
-            .unwrap_err();
-        assert!(err.contains("Orchestrator parent"));
-    }
-
-    #[test]
-    fn manager_under_orchestrator_is_leaf() {
-        let (mut mux, root) = fresh();
-        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
-            .unwrap();
-        let manager = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
-            .unwrap();
-        let p = mux.get_tab(&manager).unwrap();
-        assert_eq!(p.role, Some(AgentRole::Manager));
-        assert_eq!(p.parent_tab_id.as_deref(), Some(root.as_str()));
-        assert!(!p.can_spawn, "Manager must default to can_spawn=false");
-    }
-
-    #[test]
-    fn manager_can_receive_explicit_spawn_capability() {
-        let (mut mux, root) = fresh();
-        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
-            .unwrap();
-        let manager = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
-            .unwrap();
-        mux.set_can_spawn(&manager, true).unwrap();
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&manager))
-            .unwrap();
-        assert_eq!(
-            mux.get_tab(&worker).unwrap().parent_tab_id.as_deref(),
-            Some(manager.as_str())
-        );
-    }
-
-    #[test]
-    fn manager_cannot_spawn_worker_child() {
-        let (mut mux, root) = fresh();
-        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
-            .unwrap();
-        let manager = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
-            .unwrap();
-        let child = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let err = mux
-            .set_tab_role(&child, AgentRole::Worker, Some(&manager))
-            .unwrap_err();
-        assert!(err.contains("leaf roles cannot spawn workers"));
-    }
-
-    #[test]
-    fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
-        // Preserve old permissive role behavior: only override fields explicitly provided via --can-spawn.
-        let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
-            .unwrap();
-        mux.set_can_spawn(&tab, false).unwrap();
-        let p = mux.get_tab(&tab).unwrap();
-        assert_eq!(p.role, Some(AgentRole::Orchestrator));
-        assert!(!p.can_spawn);
-    }
-
-    #[test]
-    fn worker_set_can_spawn_true_is_rejected() {
-        let (mut mux, root) = fresh();
-        mux.set_tab_role(&root, AgentRole::Orchestrator, None)
-            .unwrap();
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
-            .unwrap();
-        let err = mux.set_can_spawn(&worker, true).unwrap_err();
-        assert!(err.contains("Only managing roles"));
-    }
-
-    #[test]
-    fn no_team_before_first_spawn() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        assert_eq!(mux.team_count(), 0, "a roleless Tab mints no team");
-        assert_eq!(
-            mux.get_tab(&tab).unwrap().team_id,
-            None,
-            "roleless Tab carries no team membership"
-        );
-    }
-
-    #[test]
-    fn make_orchestrator_without_child_mints_nothing() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
-            .expect("explicit Orchestrator promotion");
-        assert_eq!(
-            mux.team_count(),
-            0,
-            "a promoted Orchestrator with zero children stays teamless"
-        );
-        assert_eq!(mux.get_tab(&tab).unwrap().team_id, None);
-    }
-
-    #[test]
-    fn first_worker_spawn_mints_exactly_one_team() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
-            .expect("worker under free parent auto-promotes and mints");
-        assert_eq!(
-            mux.team_count(),
-            1,
-            "first child link mints exactly one team"
-        );
-        let team_id = mux
-            .get_tab(&parent)
-            .unwrap()
-            .team_id
-            .clone()
-            .expect("parent bound to the minted team");
-        assert!(team_id.starts_with("team_"));
-        assert_eq!(
-            mux.get_tab(&worker).unwrap().team_id.as_deref(),
-            Some(team_id.as_str()),
-            "child shares the parent's team"
-        );
-        assert!(
-            mux.get_team(&team_id).is_some(),
-            "team registered in the store"
-        );
-    }
-
-    #[test]
-    fn explicit_orchestrator_then_first_spawn_mints_once() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&parent, AgentRole::Orchestrator, None)
-            .expect("explicit Orchestrator");
-        assert_eq!(mux.team_count(), 0, "promotion alone does not mint");
-        let worker = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
-            .expect("first worker child link");
-        assert_eq!(
-            mux.team_count(),
-            1,
-            "team minted at the child link, not promotion"
-        );
-        let team_id = mux.get_tab(&parent).unwrap().team_id.clone().unwrap();
-        assert_eq!(
-            mux.get_tab(&worker).unwrap().team_id.as_deref(),
-            Some(team_id.as_str())
-        );
-    }
-
-    #[test]
-    fn second_worker_inherits_single_team() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let w1 = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        let w2 = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&w1, AgentRole::Worker, Some(&parent))
-            .expect("first worker mints");
-        mux.set_tab_role(&w2, AgentRole::Worker, Some(&parent))
-            .expect("second worker inherits");
-        assert_eq!(
-            mux.team_count(),
-            1,
-            "parent team_id presence is the idempotency guard"
-        );
-        let team_id = mux.get_tab(&parent).unwrap().team_id.clone().unwrap();
-        assert_eq!(
-            mux.get_tab(&w1).unwrap().team_id.as_deref(),
-            Some(team_id.as_str())
-        );
-        assert_eq!(
-            mux.get_tab(&w2).unwrap().team_id.as_deref(),
-            Some(team_id.as_str())
-        );
-    }
-
-    #[test]
-    fn manager_child_link_mints_team() {
-        let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&parent, AgentRole::Orchestrator, None)
-            .unwrap();
-        let planner = mux
-            .create_tab(&mux.list_workspaces()[0].id.clone())
-            .unwrap();
-        mux.set_tab_role(&planner, AgentRole::Manager, Some(&parent))
-            .expect("planner (Manager) child link");
-        assert_eq!(
-            mux.team_count(),
-            1,
-            "Manager child link mints exactly one team"
-        );
-        let team_id = mux.get_tab(&parent).unwrap().team_id.clone().unwrap();
-        assert_eq!(
-            mux.get_tab(&planner).unwrap().team_id.as_deref(),
-            Some(team_id.as_str()),
-            "Manager child inherits/binds the parent's team"
-        );
-    }
-
-    #[test]
-    fn concurrent_first_spawns_single_team() {
-        use parking_lot::Mutex;
-        use std::sync::Arc;
-
-        for _ in 0..100 {
-            let (mut m, _root) = MultiplexerState::new();
-            let parent = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
-            let c1 = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
-            let c2 = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
-            let state = Arc::new(Mutex::new(m));
-
-            let (s1, s2) = (Arc::clone(&state), Arc::clone(&state));
-            let (p1, p2) = (parent.clone(), parent.clone());
-            let (child1, child2) = (c1.clone(), c2.clone());
-            let t1 = std::thread::spawn(move || {
-                s1.lock()
-                    .set_tab_role(&child1, AgentRole::Worker, Some(&p1))
-                    .unwrap();
-            });
-            let t2 = std::thread::spawn(move || {
-                s2.lock()
-                    .set_tab_role(&child2, AgentRole::Worker, Some(&p2))
-                    .unwrap();
-            });
-            t1.join().unwrap();
-            t2.join().unwrap();
-
-            let guard = state.lock();
-            assert_eq!(
-                guard.team_count(),
-                1,
-                "two concurrent first-spawns yield exactly one team"
-            );
-            let team_id = guard.get_tab(&parent).unwrap().team_id.clone().unwrap();
-            assert_eq!(
-                guard.get_tab(&c1).unwrap().team_id.as_deref(),
-                Some(team_id.as_str())
-            );
-            assert_eq!(
-                guard.get_tab(&c2).unwrap().team_id.as_deref(),
-                Some(team_id.as_str())
-            );
-        }
-    }
-}
+mod tests;

@@ -3,7 +3,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::multiplexer::types::AgentRole;
 use crate::plan::{AgentRef, Plan, ReviewCapacityClass};
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
@@ -58,14 +57,14 @@ fn validate_bound_orchestrator_identity(
     live_session_id: Option<&str>,
     configured_nonce: Option<&str>,
     reported_nonce: Option<&str>,
-    role: Option<AgentRole>,
+    anchors_team: bool,
 ) -> Result<(), JsonRpcError> {
     let owner_matches = plan.owner.tab_id.as_deref() == Some(tab_id)
         && plan.owner.session_id.as_deref() == Some(session_id);
     let live_matches = live_session_id == Some(session_id)
         && configured_nonce == Some(claimed_nonce)
         && reported_nonce == Some(claimed_nonce)
-        && role == Some(AgentRole::Orchestrator);
+        && anchors_team;
     if tab_id.is_empty()
         || session_id.is_empty()
         || claimed_nonce.is_empty()
@@ -427,7 +426,7 @@ mod tests {
             Some("session"),
             Some("nonce"),
             Some("nonce"),
-            Some(AgentRole::Orchestrator),
+            true,
         )
         .unwrap();
 
@@ -440,7 +439,7 @@ mod tests {
                 Some("session"),
                 Some("nonce"),
                 Some("nonce"),
-                Some(AgentRole::Worker),
+                false,
             ),
             validate_bound_orchestrator_identity(
                 &plan,
@@ -450,7 +449,7 @@ mod tests {
                 Some("foreign"),
                 Some("nonce"),
                 Some("nonce"),
-                Some(AgentRole::Orchestrator),
+                true,
             ),
             validate_bound_orchestrator_identity(
                 &plan,
@@ -460,7 +459,7 @@ mod tests {
                 Some("session"),
                 Some("nonce"),
                 Some("nonce"),
-                Some(AgentRole::Orchestrator),
+                true,
             ),
         ] {
             assert_eq!(rejected.unwrap_err().code, -32003);

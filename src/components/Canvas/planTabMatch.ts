@@ -1,4 +1,5 @@
 import type { Tab, Team, Workspace } from "../../lib/types";
+import { anchorsTeam } from "../../lib/roleKind";
 import type { PlanIndexEntry } from "./plansApi";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { TaskStatus, type OrchestratorRef, type Plan } from "./types";
@@ -57,7 +58,7 @@ export function resolveOrchestratorTabId(
   tabs: Record<string, Tab>,
 ): string {
   for (const tab of collectTabChain(tabId, tabs)) {
-    if (tab.role === "Orchestrator" || tab.can_spawn) return tab.id;
+    if (anchorsTeam(tab) || tab.can_spawn) return tab.id;
   }
   return tabId;
 }

@@ -46,7 +46,7 @@ function tab(overrides: Partial<Tab>): Tab {
 /** Renders the leadership badges + sections the way the real sidebar composes
  *  an orchestration group, from a seeded tab set. */
 function Group({ tabs }: { tabs: Tab[] }) {
-  const orch = tabs.find((p) => p.role === "Orchestrator")!;
+  const orch = tabs.find((p) => p.role_profile === "orchestrator")!;
   const children = tabs.filter((p) => p.id !== orch.id);
   const managers = children.filter((p) => roleBadgeLabel(p) != null);
   const workers = children.filter((p) => roleBadgeLabel(p) == null);
@@ -91,7 +91,7 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
   const { host, root } = await render(
     <Group
       tabs={[
-        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator" }),
         tab({ id: "planner", title: "Planner", role: "Manager", role_profile: "planner" }),
         tab({ id: "w1", title: "Worker A", role: "Worker" }),
         tab({ id: "w2", title: "Worker B", role: "Worker" }),
@@ -122,7 +122,7 @@ test("one-planner group keeps the MANAGERS header (non-empty section always labe
   const { host, root } = await render(
     <Group
       tabs={[
-        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator" }),
         tab({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
       ]}
     />,
@@ -138,7 +138,7 @@ test("lone worker (no planner) keeps the WORKERS header (non-empty section alway
   const { host, root } = await render(
     <Group
       tabs={[
-        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator" }),
         tab({ id: "w1", title: "Worker A", role: "Worker" }),
       ]}
     />,
@@ -154,7 +154,7 @@ test("headers RETURN when a section disambiguates: >1 worker, or both sections p
   const many = await render(
     <Group
       tabs={[
-        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator" }),
         tab({ id: "w1", title: "Worker A", role: "Worker" }),
         tab({ id: "w2", title: "Worker B", role: "Worker" }),
       ]}
@@ -167,7 +167,7 @@ test("headers RETURN when a section disambiguates: >1 worker, or both sections p
   const both = await render(
     <Group
       tabs={[
-        tab({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator" }),
         tab({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
         tab({ id: "w1", title: "Worker A", role: "Worker" }),
       ]}

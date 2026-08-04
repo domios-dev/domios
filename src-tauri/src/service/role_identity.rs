@@ -10,7 +10,11 @@ pub(crate) struct RoleIdentityContext<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ManagerBootstrapInputs {
+    /// Display label for the manager kind (e.g. "Orchestrator", "Planner").
     pub role: String,
+    /// Role kind id — the preset key. Guidance is resolved from this, never
+    /// from the display label.
+    pub role_kind: String,
     pub team_id: String,
     pub team_name: String,
     pub plan_id: String,
@@ -20,11 +24,7 @@ pub(crate) struct ManagerBootstrapInputs {
 
 impl ManagerBootstrapInputs {
     pub(crate) fn compose(&self) -> String {
-        let role_guidance = if self.role == "Orchestrator" {
-            crate::prompts::orchestrator_suffix()
-        } else {
-            crate::prompts::planner_suffix()
-        };
+        let role_guidance = crate::service::role_preset::manager_guidance(&self.role_kind);
         let identity = compose_role_identity(RoleIdentityContext {
             role: &self.role,
             team_id: &self.team_id,
