@@ -65,6 +65,12 @@ pub struct AgentIdentitySnapshot {
     pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epochs: Vec<crate::multiplexer::types::ContextEpochArchive>,
+    /// Lifecycle lineage this snapshot was written under. Recovery matches it
+    /// against the journal; absent lineage is unproven, never permissive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

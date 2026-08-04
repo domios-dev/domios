@@ -243,6 +243,8 @@ impl MultiplexerState {
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
+            lifecycle_epoch: None,
+            lifecycle_operation_id: None,
             role: Some(AgentRole::Manager),
             role_profile: Some(role_kind::builtins::ORCHESTRATOR.to_string()),
             team_id: None,

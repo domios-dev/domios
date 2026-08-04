@@ -80,6 +80,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/API-CLI.md"
     ),
     doc!(
+        "TAB-LIFECYCLE",
+        "Tab lifecycle journal, checkpoints, and exact-checkpoint recovery",
+        "../../../docs/TAB-LIFECYCLE.md"
+    ),
+    doc!(
         "MESH",
         "Peer discovery, trust, and remote routing",
         "../../../docs/MESH.md"

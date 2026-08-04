@@ -198,9 +198,11 @@ impl ServiceContext {
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
     ) -> Result<Vec<String>, String> {
+        let tab_id = request.tab_id.clone();
         let mut mux = self.mux.write();
         let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
         drop(mux);
+        self.record_role_transition(&tab_id);
         self.emit_state_changed();
         for plan_id in &changed_plan_ids {
             self.emit_plan_changed(plan_id);

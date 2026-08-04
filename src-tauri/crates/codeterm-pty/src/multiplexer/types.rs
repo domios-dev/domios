@@ -486,6 +486,13 @@ pub struct Tab {
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
+    /// Lifecycle lineage of the operation that owns this tab's authority.
+    /// Stamped only by the journal writer, and persisted so a restore can prove
+    /// the snapshot belongs to the operation the journal committed.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle_operation_id: Option<String>,
     /// Structural orchestration role. The finer-grained kind lives in
     /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -708,6 +715,8 @@ mod tests {
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
+            lifecycle_epoch: None,
+            lifecycle_operation_id: None,
             role: None,
             role_profile: None,
             team_id: None,
