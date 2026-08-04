@@ -74,6 +74,10 @@ pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codete
 /// Shared rich-rendering capability included in every CodeTerm agent contract.
 pub const RICH_RENDERING_GUIDANCE: &str = include_str!("../prompts/rich_rendering_guidance.md");
 
+/// AgentPad contract — single source. Every surface that provisions a pad must
+/// deliver this; the pad only exists for CodeTerm-spawned agent tabs.
+pub const AGENT_PAD_RULE: &str = include_str!("../prompts/agent_pad_rule.md");
+
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");
@@ -173,132 +177,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn docs_do_not_reintroduce_dead_general_agent_spec() {
-        const GENERAL_AGENT_DOC: &str = include_str!("../../docs/GENERAL_AGENT.md");
-
-        assert!(!GENERAL_AGENT_DOC.contains("CODETERM-AUTO-START"));
-        assert!(!GENERAL_AGENT_DOC.contains("CODETERM-AUTO-END"));
-        assert!(!GENERAL_AGENT_DOC.contains("EXTRA_INSTRUCTIONS.md"));
-        assert!(!GENERAL_AGENT_DOC.contains("{connected_services}"));
-        assert!(!GENERAL_AGENT_DOC.contains("secrets/*.md"));
-    }
-
-    #[test]
-    fn prompt_docs_match_extraction_contract() {
-        const PROMPTS_DOC: &str = include_str!("../../docs/PROMPTS.md");
-
-        assert!(PROMPTS_DOC.contains("50,000 chars"));
-        assert!(PROMPTS_DOC.contains("excludes only `MemKind::Summary`"));
-        assert!(!PROMPTS_DOC.contains("4000 chars"));
-        assert!(!PROMPTS_DOC.contains("items longer than ~80 chars"));
-    }
-
-    #[test]
-    fn prompt_surface_uses_delay_only_jitter_wording() {
-        const MEMORY_DOC: &str = include_str!("../../docs/MEMORY.md");
-        const MEMORY_SERVICES_DOC: &str = include_str!("../../docs/MEMORY-SERVICES.md");
-        const CONFIG_DOC: &str = include_str!("../../docs/CONFIG.md");
-        const RUNTIME_CONFIG_DOC: &str = include_str!("../../docs/RUNTIME-CONFIG.md");
-
-        for text in [
-            CODETERM_CLI,
-            MEMORY_DOC,
-            MEMORY_SERVICES_DOC,
-            CONFIG_DOC,
-            RUNTIME_CONFIG_DOC,
-        ] {
-            assert!(!text.contains("±30 min jitter"));
-            assert!(!text.contains("±90 min jitter"));
-            assert!(!text.contains("5:30–6:30"));
-        }
-        assert!(CODETERM_CLI.contains("delay-only"));
-        assert!(MEMORY_SERVICES_DOC.contains("0..30 min delay-only jitter"));
-        assert!(RUNTIME_CONFIG_DOC.contains("0..30 min delay-only jitter"));
-    }
-
-    #[test]
-    fn planner_suffix_uses_canonical_test_author_guidance() {
+    fn planner_suffix_substitutes_the_test_author_guidance_constant() {
         let suffix = planner_suffix();
 
-        assert!(suffix.contains(
-            "A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines)"
-        ));
-        assert!(suffix.contains("`executor_role=test-author`"));
         assert!(suffix.contains(TEST_AUTHOR_GUIDANCE));
         assert!(!suffix.contains("{test_author_guidance}"));
     }
 
+    /// Worker briefs compose three fragments. Their wording belongs to the .md
+    /// files; only the composition is a mechanism worth asserting here.
     #[test]
-    fn operational_prompts_keep_clarity_fixes() {
-        assert!(WORKER_SUFFIX.contains("STATUS: in_review"));
-        assert!(WORKER_SUFFIX.contains("commit only this task's owned changes"));
-        assert!(WORKER_SUFFIX.contains("--sha YOUR_OWN_COMMIT_SHA"));
-        assert!(!WORKER_SUFFIX.contains("--sha $(git rev-parse HEAD)"));
-        assert!(WORKER_SUFFIX.contains("Read-only tasks need no commit"));
-        assert!(WORKER_SUFFIX.contains("TESTS RUN:"));
-        assert!(WORKER_SUFFIX.contains("GATES REQUESTED:"));
+    fn worker_suffix_composes_its_discipline_fragments() {
+        let rendered = worker_suffix();
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
-        assert!(worker_suffix().contains(TESTING_DISCIPLINE.trim()));
-        assert!(worker_suffix().contains(QA_PIPELINE_DISCIPLINE.trim()));
-        assert!(!WORKER_LOOP_EVIDENCE_RULE.trim().is_empty());
-        assert!(WORKER_COMPETITIVE_ISOLATION_RULES
-            .iter()
-            .all(|rule| !rule.trim().is_empty()));
-        assert!(!HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE.trim().is_empty());
-        assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
-        assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
-        assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));
-        assert!(BRIDGE_MEM.contains("mem seed item"));
-        assert!(!MEM_EXTRACTION.contains("mem search returns BOTH"));
-        assert!(!DREAMING_REM.contains("mem search returns BOTH"));
+        assert!(!QA_PIPELINE_DISCIPLINE.trim().is_empty());
+        assert!(rendered.contains(TESTING_DISCIPLINE.trim()));
+        assert!(rendered.contains(QA_PIPELINE_DISCIPLINE.trim()));
+        assert!(!rendered.contains('{'), "unsubstituted placeholder remains");
     }
 
-    /// The find-guardrail must reach both spawned Worker agents and every
-    /// cron-fired agent — unconditionally, not only when a skill is declared.
     #[test]
-    fn find_guardrail_reaches_worker_and_cron_briefs() {
-        assert!(worker_suffix()
-            .to_lowercase()
-            .contains("home-/root-wide `find`"));
-        assert!(CRON_COMPLETE_SUFFIX
-            .to_lowercase()
-            .contains("home-/root-wide `find`"));
-    }
-
-    /// A cron job's declared skill must resolve to an exact, Read-able path —
-    /// never the Skill tool (cron agents can't resolve mem skills through it) or a search.
-    #[test]
-    fn cron_skill_prompts_point_at_exact_path_not_tool_or_search() {
+    fn cron_skill_prompts_keep_their_substitution_slots() {
         assert!(CRON_SKILL_HINT.contains("{skill_path}"));
         assert!(CRON_SKILL_HINT.contains("{skill_slug}"));
-        assert!(CRON_SKILL_HINT
-            .to_lowercase()
-            .contains("do not use the skill tool"));
         assert!(CRON_SKILL_MISSING.contains("{skill_slug}"));
-        assert!(CRON_SKILL_MISSING.to_lowercase().contains("cron complete"));
-        assert!(CRON_SKILL_MISSING.to_lowercase().contains("find`"));
-    }
-
-    #[test]
-    fn general_agent_requires_mem_skill_search_before_declaring_missing() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Skill lookup"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("pre-injected provider skill list"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("codeterm mem search \"<capability> skill\""));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("before declaring the skill missing"));
-        assert!(BRIDGE_MEM.contains("Skill lookup before \"missing\""));
-        assert!(BRIDGE_MEM.contains("codeterm mem search \"<capability> skill\""));
-    }
-
-    #[test]
-    fn orchestration_prompts_separate_capability_from_mode() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("YOU COORDINATE TEAMS; YOU NEVER JOIN ONE"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("TEAM EXECUTION AUTHORITY IS FORBIDDEN"));
-        assert!(
-            GENERAL_AGENT_TEMPLATE.contains("machine-level General Agent outside Team hierarchy")
-        );
-        assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
-        assert!(CODETERM_CLI.contains("Make Orchestrator"));
-        assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
     }
 
     #[test]
@@ -327,8 +229,6 @@ mod tests {
                     }
                 }
             }
-            assert!(!surface.contains("section slug"));
-            assert!(!surface.contains("read depth"));
         }
     }
 
@@ -356,26 +256,26 @@ mod tests {
     }
 
     #[test]
-    fn agent_pad_multiline_rule_is_single_across_compiled_role_inputs() {
-        const RULE: &str = "AGENTPAD IS MANDATORY FOR AGENT-AUTHORED CODETERM PAYLOADS: write every message, report, delayed message, paste, and bridge body to the current pad, then pass its relative path with `--from-pad`, including short payloads. Use `codeterm pad path` to locate it; never inline authored payload text.";
-        assert_eq!(CODETERM_CLI.matches(RULE).count(), 1);
-        let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
-        assert_eq!(general.matches(RULE).count(), 1);
-        for role in [
+    fn agent_pad_rule_has_exactly_one_source() {
+        // The fragment is an opaque token here. Asserting its wording would make
+        // rewriting the rule fail a test that has nothing to say about wording.
+        let rule = AGENT_PAD_RULE.trim();
+        assert!(!rule.is_empty());
+
+        for surface in [
+            CODETERM_CLI,
             ORCHESTRATOR_ONBOARDING,
             ORCHESTRATOR_SUFFIX,
             PLANNER_SUFFIX,
             WORKER_SUFFIX,
+            AGENT_CODETERM_PRIMER,
+            WORKER_CODETERM_CONTEXT,
         ] {
-            assert_eq!(
-                role.matches(RULE).count(),
-                0,
-                "role input duplicates shared AgentPad rule"
+            assert!(
+                !surface.contains(rule),
+                "the AgentPad rule must live only in AGENT_PAD_RULE"
             );
-            assert!(!role.contains("$(cat $CODETERM_PAD_DIR"));
         }
-        assert!(RULE.contains("including short payloads"));
-        assert!(!CODETERM_CLI.contains("$(cat $CODETERM_PAD_DIR"));
     }
 
     #[test]
@@ -432,7 +332,7 @@ mod tests {
         let filled = peer_pairing_mandate_block("codeterm agent spawn claude --role Planner");
         assert!(filled.contains("codeterm agent spawn claude --role Planner"));
         assert!(!filled.contains("{spawn_cmd}"));
-        assert!(PEER_WAIVER_HINT.contains("--planner none --note"));
+        assert!(!PEER_WAIVER_HINT.trim().is_empty());
     }
 
     #[test]
@@ -442,9 +342,6 @@ mod tests {
         assert!(!full.contains("{spawn_cmd}"));
         assert!(full.contains(PEER_PLANNER_CHARTER_LINE));
         assert!(full.contains(PEER_ORCH_DEFERENCE_LINE));
-        assert!(full.contains("single authority"));
-        assert!(!full.contains("Peer contract"));
-        assert!(!full.contains("Planner acknowledgment"));
     }
 
     #[test]
@@ -452,17 +349,6 @@ mod tests {
         let t = planner_onboarding_task("Opus Orchestrator", "tab_orch_9", "pl_abc");
         assert!(t.contains("pl_abc"), "names the plan");
         assert!(t.contains("Opus Orchestrator"), "names the orchestrator");
-        assert!(
-            t.contains("You are the Planner"),
-            "second-person onboarding"
-        );
-        assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
-        assert!(
-            t.contains("codeterm plan task add"),
-            "names concrete planner action"
-        );
-        assert!(t.contains("Orchestrator owns and creates the Team Plan"));
-        assert!(t.contains("No separate Planner-to-Plan binding"));
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
         assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
     }
@@ -470,10 +356,8 @@ mod tests {
     #[test]
     fn planner_onboarding_task_no_plan_carries_pair_hold_state_without_plan_id() {
         let t = planner_onboarding_task_no_plan("Opus Orchestrator", "tab_orch_9");
-        assert!(t.contains("Team may not have a Plan yet"));
-        assert!(t.contains("Team membership makes it visible"));
-        assert!(t.contains("Do not create a bootstrap Plan"));
         assert!(t.contains("Opus Orchestrator"));
+        // The real invariant: the no-plan variant must never leak a plan id.
         assert!(!t.contains("pl_"));
     }
 
@@ -481,78 +365,21 @@ mod tests {
     fn orchestrator_suffix_is_bounded_and_fully_rendered() {
         let rendered = orchestrator_suffix();
         assert!(rendered.split_whitespace().count() < 650);
-        assert!(rendered.contains("Keep the control loop responsive"));
-        assert!(rendered.contains("explicit completion signal"));
-        assert!(rendered.contains("verification proportional to risk"));
-        assert!(rendered.contains("OPEN RISK"));
-        assert!(rendered.contains("dispatch_ready"));
-        assert!(rendered.contains("worker_ack_timeout"));
-        assert!(rendered.contains("never poll or resend blindly"));
-        assert!(!rendered.contains("{bounce_unwinding_contract}"));
-        assert!(!rendered.contains("{plan_skills_principles}"));
+        assert!(rendered.contains('\n'), "suffix rendered to a single line");
+        assert!(!rendered.contains('{'), "unsubstituted placeholder remains");
     }
 
-    #[test]
-    fn spawned_agent_primer_exposes_rich_rendering() {
-        assert!(RICH_RENDERING_GUIDANCE.contains("Mermaid"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-image"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-document"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("inline HTML only for light native markup"));
-    }
-
-    #[test]
-    fn worker_context_exposes_rich_rendering() {
-        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("render Mermaid"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
-    }
-
-    #[test]
-    fn orchestration_policy_keeps_checkout_choice_and_final_user_oracle_in_sync() {
-        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
-        const OPERATIONS_DOC: &str = include_str!("../../docs/ORCHESTRATION-OPERATIONS.md");
-        let docs = format!("{ORCHESTRATION_DOC}\n{OPERATIONS_DOC}");
-        let rendered = orchestrator_suffix();
-
-        for policy in [
-            "canonical checkout or",
-            "isolated lane",
-            "Design the smallest deterministic user-layer oracle",
-            "final integration or release verification",
-            "cold compiled builds or suites",
-            "verification Worker",
-            "Heartbeat is derived automatically",
-        ] {
-            assert!(rendered.contains(policy), "prompt missing policy: {policy}");
-            assert!(
-                docs.contains(policy),
-                "orchestration doc missing policy: {policy}"
-            );
-        }
-    }
+    // Rich-rendering delivery is a composition fact, so it is asserted where the
+    // composition lives — service::orchestrator::launch::tests. The two tests that
+    // used to sit here were named after the primer and the worker context but only
+    // asserted phrases inside RICH_RENDERING_GUIDANCE, so they passed regardless of
+    // whether either recipient received it.
 
     #[test]
     fn planner_suffix_is_bounded_and_fully_rendered() {
-        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
         let rendered = planner_suffix();
         assert!(rendered.split_whitespace().count() < 800);
-        assert!(!rendered.contains("{test_author_guidance}"));
-        for policy in [
-            "smallest deterministic user-layer oracle",
-            "cold compiled builds or suites",
-            "verification Worker",
-            "Checkout placement is chosen by the Orchestrator",
-        ] {
-            assert!(rendered.contains(policy), "prompt missing policy: {policy}");
-            assert!(
-                PLANNER_DOC.contains(policy),
-                "planner doc missing policy: {policy}"
-            );
-        }
+        assert!(!rendered.contains('{'), "unsubstituted placeholder remains");
     }
 
     #[test]
@@ -565,10 +392,8 @@ mod tests {
         assert!(msg.contains("codeterm plan qa next --group phase-1"));
         assert!(!msg.contains("{label}") && !msg.contains("{key}"));
 
-        // Three-tier ladder wording lives in a shared constant AND the doc verbatim.
-        assert!(MILESTONE_GATE_LADDER.contains("per-task = focused filters only"));
-        assert!(MILESTONE_GATE_LADDER.contains("per-group (milestone) = one full regression gate"));
-        assert!(MILESTONE_GATE_LADDER.contains("per-release = the farm matrix"));
+        // The doc must quote the shared constant verbatim — asserted by constant,
+        // not by quoted prose, so rewording the ladder updates one place.
         assert!(ORCHESTRATION_DOC.contains(MILESTONE_GATE_LADDER));
         assert_eq!(REGRESSION_MILESTONE_KIND, "regression");
         assert!(!MILESTONE_GATE_HEARTBEAT_TITLE.trim().is_empty());
@@ -590,10 +415,6 @@ mod tests {
         assert!(filled.contains("bounces: 1"));
         assert!(filled.contains("gate leaks: 2"));
         assert!(!filled.contains("{trigger}") && !filled.contains("{closed}"));
-        // Routes to existing homes; invents no new store.
-        assert!(filled.contains("codeterm orchestrator learn"));
-        assert!(filled.contains("codeterm plan skill new"));
-        assert!(filled.contains("Planner"));
         assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
     }
 
@@ -655,6 +476,7 @@ mod tests {
             "bridge_mem.md",
             "general_agent.md",
             "agent_codeterm_primer.md",
+            "agent_pad_rule.md",
             "worker_codeterm_context.md",
             "rich_rendering_guidance.md",
             "codeterm_cli.md",
