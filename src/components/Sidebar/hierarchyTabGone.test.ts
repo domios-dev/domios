@@ -28,7 +28,6 @@ function collectIds(nodes: ReturnType<typeof buildHierarchySubtree>): string[] {
 // A worker tab assigned to an in_review task is closed on the backend. Once the
 // tab snapshot drops it, the sidebar tree must not resurrect it as a live child
 // even though the plan task still carries its assigned_tab_id.
-// The Team anchor is Manager + the `orchestrator` kind; `anchorsTeam` reads the kind.
 const orchestrator = tab("orch", "Manager", ORCHESTRATOR_KIND);
 const liveWorker = tab("worker-live", "Worker", null, "orch");
 const goneWorker = tab("worker-gone", "Worker", null, "orch");

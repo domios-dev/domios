@@ -1,7 +1,5 @@
 // Run: npx tsx src/components/Terminal/useChatSession.optimisticIdentity.test.ts
-// addOptimistic reaches memoized chat rows as a prop, so streaming must not
-// churn its identity — while the arrival ordinal still comes from the live
-// transcript rather than one captured when the callback was created.
+// addOptimistic reaches memoized rows: identity survives streaming, ordinal stays live.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
