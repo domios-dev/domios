@@ -1,3 +1,4 @@
+import { projectContextEpochs } from "./contextEpoch";
 import { reduceToolEvents } from "./toolEvents";
 import { stabilizeTimelineItems } from "./timelineStability";
 import type { NormalizedChatMessage } from "./types";
@@ -80,6 +81,35 @@ function assistant(id: string, content: string): NormalizedChatMessage {
   );
   assert(second[0] !== first[0], "errored tool item is replaced");
   assert(second[0].kind === "tool" && second[0].event.status === "error", "error status propagates");
+}
+
+// --- re-materialized messages recover identity (the real streaming path) ---
+// The chat view runs projectContextEpochs before reducing, and that stamps
+// contextEpoch onto every message, so each pass hands stabilize a fresh object
+// for rows that never changed. Comparing by reference alone made every bubble
+// re-render once per streamed chunk.
+{
+  const stable = [assistant("a-1", "one"), assistant("a-2", "two")];
+  const project = (tail: NormalizedChatMessage) =>
+    reduceToolEvents(projectContextEpochs([...stable, tail]));
+
+  const first = stabilizeTimelineItems(undefined, project(assistant("tail", "stream")));
+  const second = stabilizeTimelineItems(first, project(assistant("tail", "streamxx")));
+
+  assert(second[0] === first[0], "re-materialized unchanged message keeps identity");
+  assert(second[1] === first[1], "every unchanged row keeps identity, not just the first");
+  assert(second[2] !== first[2], "the streamed tail still gets a fresh wrapper");
+}
+
+// --- an equivalent-looking message with a changed field is not reused ---
+{
+  const base = [assistant("a-1", "one")];
+  const first = stabilizeTimelineItems(undefined, reduceToolEvents(base));
+  const second = stabilizeTimelineItems(
+    first,
+    reduceToolEvents([{ ...base[0], timestamp: "42" }]),
+  );
+  assert(second[0] !== first[0], "a new field on the message invalidates the wrapper");
 }
 
 console.log("timeline stability checks passed");
