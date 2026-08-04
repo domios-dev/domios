@@ -43,16 +43,14 @@ impl SnapshotAuthorityClaim {
     }
 }
 
-/// Why a claim was refused. Every variant names the missing proof rather than
-/// describing the tab, so the forensic record stays actionable.
+/// Why a claim was refused. Each variant names the missing proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveryRefusal {
     /// The tab never reached a sealed operation. The db79d2da shape.
     NoCommittedCheckpoint,
     /// The snapshot predates the journal contract and carries no lineage.
     UnprovenLineage,
-    /// Role or Team authority with no provider session behind it — a
-    /// role-bearing plain shell is never restorable, however it was persisted.
+    /// Role or Team authority with no provider session behind it.
     UnbackedRoleAuthority,
     EpochMismatch {
         snapshot: LifecycleEpoch,
@@ -119,9 +117,8 @@ impl RecoveryVerdict {
     }
 }
 
-/// The whole recovery rule. A checkpoint authorizes a snapshot only when the
-/// tab id, lifecycle epoch, and operation id are all the same operation and
-/// every field the snapshot claims is the field the operation committed.
+/// The whole recovery rule: same tab, same epoch, same operation, and every
+/// claimed field equal to what that operation committed.
 pub fn authorize(
     claim: &SnapshotAuthorityClaim,
     checkpoint: Option<&LifecycleCheckpoint>,
@@ -165,8 +162,7 @@ pub fn authorize(
     RecoveryVerdict::Restored(Box::new(checkpoint.authority.clone()))
 }
 
-/// A snapshot may hold less than the checkpoint (a field was cleared before
-/// shutdown), never more and never different.
+/// A snapshot may hold less than the checkpoint, never more or different.
 fn disagreeing_field(
     claim: &SnapshotAuthorityClaim,
     authority: &CommittedAuthority,

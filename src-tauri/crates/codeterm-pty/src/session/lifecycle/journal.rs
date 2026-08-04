@@ -10,9 +10,7 @@ use super::record::{
 
 pub const JOURNAL_FILE_NAME: &str = "tab-lifecycle.jsonl";
 
-/// Compaction threshold. Bounded by construction: past this many records the
-/// next append rewrites the file as checkpoints plus the tail that follows
-/// them.
+/// Records after which the next append compacts, bounding the file.
 pub const COMPACT_AT_RECORDS: usize = 4096;
 
 /// How the loader classified the end of the file.
@@ -90,8 +88,8 @@ impl TabLifecycleJournal {
         &self.path
     }
 
-    /// Append one committed transition and return its sequence. The caller owns
-    /// the mutation this records; the journal never infers a transition.
+    /// Append one committed transition. The caller owns the mutation; the
+    /// journal never infers one.
     pub fn append(
         &self,
         key: LifecycleKey,
@@ -160,9 +158,8 @@ impl TabLifecycleJournal {
         Ok(coverage_id)
     }
 
-    /// Rewrite the file as one checkpoint per tab that has one, followed by the
-    /// transitions that came after the newest checkpoint. Replaying the result
-    /// reaches the same checkpoints as replaying the full history.
+    /// Rewrite as one checkpoint per tab plus the transitions no checkpoint
+    /// covers. Replay reaches the same checkpoints as the full history.
     pub fn compact(&self) -> Result<usize, String> {
         let mut cursor = self
             .cursor
@@ -204,8 +201,8 @@ fn write_all_records(path: &Path, records: &[JournalRecord]) -> Result<(), Strin
         .map_err(|error| format!("replace {}: {error}", path.display()))
 }
 
-/// Parse the file strictly. A malformed or out-of-order line refuses itself and
-/// everything after it — a truncated tail must never silently become history.
+/// A malformed or out-of-order line refuses itself and everything after it: a
+/// truncated tail must never silently become history.
 fn read_journal(path: &Path) -> JournalLoad {
     let Ok(body) = fs::read_to_string(path) else {
         return JournalLoad::empty();

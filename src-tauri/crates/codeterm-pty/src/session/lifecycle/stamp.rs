@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Diagnostic-only UTC stamp (`YYYY-MM-DDTHH:MM:SSZ`) for journal readability.
-/// Nothing in recovery, ordering, or lineage may read it back.
+/// Diagnostic-only UTC stamp. Nothing in recovery, ordering, or lineage reads
+/// it back.
 pub fn now_utc() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)

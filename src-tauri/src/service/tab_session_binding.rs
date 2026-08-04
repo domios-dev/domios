@@ -14,14 +14,8 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
-    /// Set agent session ID on a tab. Kept as `set_agent_session_id`.
-    ///
-    /// Rejects assignments where the same session_id is already claimed by a
-    /// different tab — opencode/codex can have multiple tabs detecting in
-    /// the same cwd in parallel and the cheap "exclude list" race lets two
-    /// of them lock onto the same fresh session unless we deduplicate
-    /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
-    /// same id on the same tab and are unaffected.
+    /// Reject a session_id already claimed by another tab: parallel detection
+    /// in one cwd otherwise locks two tabs onto the same fresh session.
     pub fn set_agent_session_id(&self, tab_id: &str, session_id: Option<String>) {
         let session_bound = session_id.is_some();
         let bound_session_id = session_id.clone();
@@ -75,9 +69,8 @@ impl ServiceContext {
         self.heal_recovery_state_if_ready();
     }
 
-    /// Rotate the per-launch binding nonce before a provider command is written.
-    /// This is the launch boundary, so it opens the lifecycle operation every
-    /// later transition of this launch is keyed to.
+    /// Rotate the per-launch binding nonce before a provider command is
+    /// written. This is the launch boundary, so it opens the operation.
     pub fn rotate_session_binding_nonce(&self, tab_id: &str) -> String {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
@@ -113,9 +106,8 @@ impl ServiceContext {
         nonce
     }
 
-    /// Per-session shell-integration nonce, generated once and reused. Exported as
-    /// CODETERM_SHELL_NONCE so the injected shell script can stamp it onto OSC 633;E;
-    /// the marker consumer (OSC3) rejects command-line text whose nonce mismatches.
+    /// Per-session nonce exported as CODETERM_SHELL_NONCE. The OSC 633;E
+    /// consumer rejects command text whose nonce mismatches.
     pub fn ensure_shell_integration_nonce(&self, tab_id: &str) -> String {
         let mut mux = self.mux.write();
         if let Some(tab) = mux.get_tab_mut(tab_id) {

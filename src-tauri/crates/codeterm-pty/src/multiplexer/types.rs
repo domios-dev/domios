@@ -486,9 +486,8 @@ pub struct Tab {
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
-    /// Lifecycle lineage of the operation that owns this tab's authority.
-    /// Stamped only by the journal writer, and persisted so a restore can prove
-    /// the snapshot belongs to the operation the journal committed.
+    /// Lineage of the operation owning this tab's authority. Stamped only by
+    /// the journal writer; persisted so a restore can prove the match.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lifecycle_epoch: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
