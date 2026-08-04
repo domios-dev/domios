@@ -200,7 +200,7 @@ fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
     let prompt =
         role_onboarding_task(None, Some("Orchestrator"), None).expect("orchestrator prompt");
     assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
     assert_eq!(
         prompt
             .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
@@ -217,7 +217,7 @@ fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
             .count(),
         1
     );
-    assert!(spawned.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(spawned.contains(crate::prompts::orchestrator_suffix().trim()));
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn paired_orchestrator_starts_with_system_contract_without_a_synthetic_turn() {
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
     let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
-    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
 }
 
 #[test]
@@ -239,7 +239,7 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     assert!(
         task.find("inspect the launch path").unwrap()
             < task
-                .find(crate::prompts::ORCHESTRATOR_SUFFIX.trim())
+                .find(crate::prompts::orchestrator_suffix().trim())
                 .unwrap()
     );
 }
