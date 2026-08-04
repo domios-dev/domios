@@ -59,7 +59,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
     }
-    let authority = task_mutation_authority(params)?;
+    let authority = task_mutation_authority(params, svc)?;
     if detail.task.interruption.owner_epoch != authority.owner_epoch {
         return Err(rpc_error("task mutation owner epoch is stale"));
     }
@@ -99,6 +99,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
 
 pub(super) fn task_mutation_authority(
     params: &Option<Value>,
+    svc: &ServiceState,
 ) -> Result<TaskMutationAuthority, JsonRpcError> {
     let required = |field: &str| {
         params
@@ -113,10 +114,30 @@ pub(super) fn task_mutation_authority(
                 data: None,
             })
     };
+    let tab_id = required("caller_tab_id")?;
+    let session_binding_nonce = required("session_binding_nonce")?;
+    let requested_session = params
+        .as_ref()
+        .and_then(|value| value.get("session_id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+    let session_id = svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| {
+            let live_session = tab.agent_session_id.as_deref()?;
+            (requested_session.is_none_or(|requested| requested == live_session)
+                && tab.session_binding_nonce.as_deref() == Some(session_binding_nonce.as_str())
+                && tab.reported_session_binding_nonce.as_deref()
+                    == Some(session_binding_nonce.as_str()))
+            .then(|| live_session.to_string())
+        })
+        .ok_or_else(|| rpc_error("task mutation caller binding is stale or rebound"))?;
     Ok(TaskMutationAuthority {
-        tab_id: required("caller_tab_id")?,
-        session_id: required("session_id")?,
-        session_binding_nonce: required("session_binding_nonce")?,
+        tab_id,
+        session_id,
+        session_binding_nonce,
         owner_epoch: params
             .as_ref()
             .and_then(|value| value.get("owner_epoch"))
