@@ -95,6 +95,20 @@ impl StarterPrompt {
             Self::NoStarter | Self::AssignedTask | Self::IdleWakeup => None,
         }
     }
+
+    pub fn system_prefix(self) -> Option<String> {
+        let context = match self {
+            Self::AssignedTask => "assigned-task",
+            Self::IdleWakeup => "idle-wakeup",
+            Self::TeamBootstrap => "team-bootstrap",
+            Self::NoStarter => return None,
+        };
+        Some(
+            codeterm_types::message_markers::Marker::new("system")
+                .attr("context", context)
+                .build(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default)]

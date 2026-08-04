@@ -279,6 +279,7 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "task": p.task,
         "starterPrompt": p.starter_prompt,
         "starterPromptText": p.starter_prompt.host_text(),
+        "starterPromptPrefix": p.starter_prompt.system_prefix(),
         "args": p.args,
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,
