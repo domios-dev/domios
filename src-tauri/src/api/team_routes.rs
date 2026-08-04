@@ -204,7 +204,7 @@ mod tests {
                     &events,
                     &team_id,
                     name,
-                    Some(&caller_tab_id),
+                    &crate::service::TeamMutationCaller::AgentTab(caller_tab_id),
                 )
             },
         )
@@ -235,7 +235,7 @@ mod tests {
                         &events,
                         &team_id,
                         name,
-                        Some(&caller_tab_id),
+                        &crate::service::TeamMutationCaller::AgentTab(caller_tab_id),
                     )
                 },
             )
@@ -258,7 +258,7 @@ mod tests {
                         &events,
                         &team_id,
                         name,
-                        Some(&caller_tab_id),
+                        &crate::service::TeamMutationCaller::AgentTab(caller_tab_id),
                     )
                 },
             )
@@ -303,7 +303,7 @@ mod tests {
                         &events,
                         &team_id,
                         name,
-                        Some(&caller_tab_id),
+                        &crate::service::TeamMutationCaller::AgentTab(caller_tab_id),
                     )
                 },
             )
@@ -335,7 +335,7 @@ mod tests {
                     &events,
                     &plan_store,
                     &team_id,
-                    Some(&caller),
+                    &crate::service::TeamMutationCaller::AgentTab(caller),
                     1,
                 )
                 .map(|result| result.0)
@@ -355,7 +355,7 @@ mod tests {
                     &events,
                     &plan_store,
                     &team_id,
-                    Some(&caller),
+                    &crate::service::TeamMutationCaller::AgentTab(caller),
                     1,
                 )
                 .map(|result| result.0)
@@ -373,7 +373,7 @@ mod tests {
                     &events,
                     &plan_store,
                     &team_id,
-                    Some(&caller),
+                    &crate::service::TeamMutationCaller::AgentTab(caller),
                     1,
                 )
                 .map(|result| result.0)

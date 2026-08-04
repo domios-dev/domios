@@ -17,9 +17,8 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
         .team_id;
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let planner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&planner, AgentRole::Manager, Some(&orchestrator))
+    mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&orchestrator))
         .unwrap();
-    mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
     let worker = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
         .unwrap();
@@ -31,14 +30,21 @@ fn team_manager_permission_allows_orchestrator_and_planner() {
     let (mut mux, team_id, orchestrator, planner, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let custom_manager = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&custom_manager, AgentRole::Manager, Some(&orchestrator))
-        .unwrap();
-    mux.get_tab_mut(&custom_manager).unwrap().role_profile = Some("review_lead".into());
+    mux.set_tab_role_kind(
+        &custom_manager,
+        AgentRole::Manager,
+        Some("review_lead"),
+        Some(&orchestrator),
+    )
+    .unwrap();
     let by_tab = |tab_id: &str| TeamMutationCaller::AgentTab(tab_id.to_string());
     assert!(authorize_team_manager(&mux, &team_id, &TeamMutationCaller::Human).is_ok());
     assert!(authorize_team_manager(&mux, &team_id, &by_tab(&orchestrator)).is_ok());
     assert!(authorize_team_manager(&mux, &team_id, &by_tab(&planner)).is_ok());
-    assert!(authorize_team_manager(&mux, &team_id, &by_tab(&custom_manager)).is_ok());
+    assert!(
+        authorize_team_manager(&mux, &team_id, &by_tab(&custom_manager)).is_err(),
+        "an overlay manager kind resolves to leaf capability and holds no Team authority"
+    );
     assert!(authorize_team_mutation(&mux, &team_id, &by_tab(&planner)).is_ok());
 }
 
@@ -86,7 +92,7 @@ fn team_member_role_accepts_builtin_team_roles() {
     );
     assert_eq!(
         team_member_role("orchestrator").unwrap(),
-        ("Orchestrator".into(), None)
+        ("Manager".into(), Some("orchestrator".into()))
     );
     assert!(team_member_role("manager").is_err());
 }
@@ -157,17 +163,63 @@ fn multiple_orchestrators_keep_team_membership_and_spawner_routing_separate() {
 #[test]
 fn plan_owner_uses_the_acting_orchestrator_when_team_has_multiple() {
     let (mut mux, team_id, first_orchestrator, planner, _) = team_members();
+    let (plan_dir, plan_store) = isolated_plan_store();
     let workspace_id = mux.find_workspace_for_tab(&first_orchestrator).unwrap();
     let second_orchestrator = mux.create_tab(&workspace_id).unwrap();
     mux.set_orchestrator_role(&second_orchestrator)
         .unwrap();
     mux.get_tab_mut(&second_orchestrator).unwrap().team_id = Some(team_id.clone());
+    let plan = plan_store
+        .create_plan_for_team(
+            "Owner resolution".into(),
+            plan_dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&first_orchestrator),
+            team_id.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let by_tab = |tab_id: &str| TeamMutationCaller::AgentTab(tab_id.to_string());
 
     assert_eq!(
-        team_plan_owner(&mux, &team_id, &second_orchestrator).unwrap(),
+        team_plan_owner(
+            &mux,
+            &plan_store,
+            &team_id,
+            &plan.id,
+            &by_tab(&second_orchestrator)
+        )
+        .unwrap(),
         second_orchestrator
     );
-    assert!(team_plan_owner(&mux, &team_id, &planner).is_err());
+    assert_eq!(
+        team_plan_owner(&mux, &plan_store, &team_id, &plan.id, &by_tab(&planner)).unwrap(),
+        first_orchestrator,
+        "a managing leaf resolves through its own chain, not a global scan"
+    );
+    assert_eq!(
+        team_plan_owner(
+            &mux,
+            &plan_store,
+            &team_id,
+            &plan.id,
+            &TeamMutationCaller::Human
+        )
+        .unwrap(),
+        first_orchestrator,
+        "a human names no chain, so the plan's recorded anchor stays the owner"
+    );
+    assert!(
+        team_plan_owner(
+            &mux,
+            &plan_store,
+            &team_id,
+            "pl_missing",
+            &TeamMutationCaller::Human
+        )
+        .is_err(),
+        "with several anchors and no recorded owner the caller must name one"
+    );
 }
 
 #[test]
@@ -197,7 +249,7 @@ fn close_team_removes_registry_and_members_with_one_state_change() {
         &events,
         &plan_store,
         &team_id,
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         1,
     )
     .unwrap();
@@ -249,7 +301,7 @@ fn close_team_archives_and_detaches_bound_plan() {
         &events,
         &plan_store,
         &team_id,
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         3,
     )
     .unwrap();
@@ -303,7 +355,7 @@ fn close_team_staging_failure_leaves_mux_and_plan_unchanged_without_events() {
         &events,
         &plan_store,
         &team_id,
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         2,
         {
             let mut calls = 0;
@@ -693,7 +745,15 @@ fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
     mux.close_tab(&worker).unwrap();
     assert!(mux.get_team(&team_id).is_some());
     let events = crate::api::events::EventBroadcaster::new();
-    close_team_with_state_change(&mut mux, &events, &plan_store, &team_id, None, 1).unwrap();
+    close_team_with_state_change(
+        &mut mux,
+        &events,
+        &plan_store,
+        &team_id,
+        &TeamMutationCaller::Human,
+        1,
+    )
+    .unwrap();
     assert!(mux.get_team(&team_id).is_none());
 }
 
@@ -707,7 +767,7 @@ fn close_team_unknown_and_repeat_are_structured_errors() {
         &events,
         &plan_store,
         "team_missing",
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         1,
     )
     .unwrap_err()
@@ -717,7 +777,7 @@ fn close_team_unknown_and_repeat_are_structured_errors() {
         &events,
         &plan_store,
         &team_id,
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         1,
     )
     .unwrap();
@@ -726,7 +786,7 @@ fn close_team_unknown_and_repeat_are_structured_errors() {
         &events,
         &plan_store,
         &team_id,
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         1,
     )
     .unwrap_err()
@@ -748,7 +808,7 @@ fn close_team_removes_chat_backend_member_and_registry() {
         &events,
         &plan_store,
         &team_id,
-        Some(&orchestrator),
+        &TeamMutationCaller::AgentTab(orchestrator.clone()),
         1,
     )
     .unwrap();

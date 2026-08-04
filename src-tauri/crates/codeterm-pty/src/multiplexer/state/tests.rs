@@ -536,7 +536,7 @@ fn manager_close_keeps_children_alive() {
         .unwrap();
     let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(&manager_id, AgentRole::Manager, Some("planner"), Some(&root_id))
         .unwrap();
     state.link_pty(&manager_id, "pty-manager".to_string());
 
@@ -578,7 +578,7 @@ fn manager_close_preserves_team_registry_and_chat_backend_child() {
     let team_before = state.get_team(&team_id).cloned().unwrap();
     let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(&manager_id, AgentRole::Manager, Some("planner"), Some(&root_id))
         .unwrap();
     let chat_id = state.create_tab(&ws_id).unwrap();
     state
@@ -607,11 +607,16 @@ fn multi_manager_close_detaches_only_the_closed_managers_children() {
         .unwrap();
     let first_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&first_manager, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(&first_manager, AgentRole::Manager, Some("planner"), Some(&root_id))
         .unwrap();
     let second_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&second_manager, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(
+            &second_manager,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     let worker_id = state.create_tab(&ws_id).unwrap();
     state

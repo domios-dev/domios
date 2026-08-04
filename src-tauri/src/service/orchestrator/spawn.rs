@@ -1024,6 +1024,7 @@ mod hierarchy_defaults_tests {
         let mut params = SpawnAgentParams {
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
                 role: "Orchestrator".into(),
+                role_kind: "orchestrator".into(),
                 team_id: "not yet established".into(),
                 team_name: "not yet established".into(),
                 plan_id: "no plan bound yet".into(),
@@ -1048,6 +1049,7 @@ mod hierarchy_defaults_tests {
             task: Some("Audit the delivery path.".into()),
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
                 role: "Orchestrator".into(),
+                role_kind: "orchestrator".into(),
                 team_id: "team-1".into(),
                 team_name: "Delivery".into(),
                 plan_id: "plan-1".into(),

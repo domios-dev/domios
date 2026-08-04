@@ -148,6 +148,7 @@ fn outcome(session_id: Option<&str>, stale: bool, auto_approve: bool) -> Restart
         restart_accepted: true,
         old_pty_torn_down: true,
         agent_ready: true,
+        binding_restored: true,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
     }

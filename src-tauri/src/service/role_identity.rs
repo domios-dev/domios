@@ -115,6 +115,7 @@ mod tests {
     fn pair_bootstrap_never_fabricates_team_or_plan_ids() {
         let text = ManagerBootstrapInputs {
             role: "Planner".into(),
+            role_kind: "planner".into(),
             team_id: "not yet established".into(),
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),
@@ -133,6 +134,7 @@ mod tests {
         let coordination = "Your Planner counterpart is Euler (tab planner-1).";
         let mut inputs = ManagerBootstrapInputs {
             role: "Orchestrator".into(),
+            role_kind: "orchestrator".into(),
             team_id: "not yet established".into(),
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),
