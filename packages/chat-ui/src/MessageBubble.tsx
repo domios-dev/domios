@@ -226,6 +226,42 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
+    if (effectiveOrigin?.kind === "system") {
+      const title = effectiveOrigin.context ? `System · ${effectiveOrigin.context}` : "System";
+      return (
+        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role="status">
+          <div
+            data-testid="chat-system-event"
+            className="max-w-full min-w-0 rounded-md border"
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 94%, var(--ct-accent, #58a6ff) 6%)",
+              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpandedPersistent(!expanded)}
+              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
+            >
+              <Info size={14} aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium">{title}</span>
+              <ChevronIcon expanded={expanded} className="opacity-60" />
+            </button>
+            {expanded && (
+              <div
+                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
+                style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" }}
+              >
+                <RichMarkdown text={message.content} fontScale={fontScale} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     if (effectiveOrigin?.kind === "reminder") {
       return (
         <ReminderCard

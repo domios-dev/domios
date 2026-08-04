@@ -194,7 +194,10 @@ fn fallback_provider_receives_one_composed_startup_turn() {
         super::compose_startup_message(true, contract.clone(), Some("BOOTSTRAP_SENTINEL".into()))
             .unwrap();
 
-    assert_eq!(message, "BOOTSTRAP_SENTINEL");
+    assert_eq!(
+        message,
+        "-=-codeterm:system context=general-bootstrap-=-BOOTSTRAP_SENTINEL"
+    );
     assert_runtime_contract_cardinality(&contract, &message);
     assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
 }
@@ -206,7 +209,10 @@ fn provider_with_native_system_prompt_receives_only_bootstrap_turn() {
         super::compose_startup_message(false, contract.clone(), Some("BOOTSTRAP_SENTINEL".into()))
             .unwrap();
 
-    assert_eq!(message, "BOOTSTRAP_SENTINEL");
+    assert_eq!(
+        message,
+        "-=-codeterm:system context=general-bootstrap-=-BOOTSTRAP_SENTINEL"
+    );
     assert_runtime_contract_cardinality(&contract, &message);
     assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
 }

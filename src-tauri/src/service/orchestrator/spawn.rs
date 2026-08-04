@@ -50,6 +50,16 @@ fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
     );
 }
 
+fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
+    if system_prompt_capable {
+        return body;
+    }
+    crate::service::messenger::Messenger::from(
+        crate::service::messenger::MessageEnvelope::codeterm_reminder("team-bootstrap"),
+    )
+    .wrap(&body)
+}
+
 fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
     let assignment = params.system_prompt.take().or_else(|| params.task.take());
     let assignment = match params.manager_bootstrap.as_ref() {
@@ -548,16 +558,11 @@ impl ServiceContext {
         } else {
             spawn_launch_task(&params, system_prompt_capable)
         };
-        // Planner gets a short display hint (pending_greeting, user-facing only)
-        // plus its FULL onboarding as real launch input attributed to CodeTerm —
-        // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
+        // Planner gets a short display hint plus its full onboarding as launch input.
         let is_planner = params.role_kind() == Some(builtins::PLANNER);
-        // A pair-spawned Orchestrator carries its onboarding in the launch task and
-        // skips the separate deliver — attribute that onboarding to CodeTerm too, so
-        // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
+        // A pair-spawned Orchestrator carries its onboarding in the launch task.
         let is_orch_onboarding =
             params.spawns_anchor() && params.skip_orchestrator_onboarding == Some(true);
-        let codeterm_pfx = crate::service::messenger::Messenger::codeterm_prefix();
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
@@ -575,12 +580,12 @@ impl ServiceContext {
                     } else {
                         onboard
                     };
-                    Some(format!("{codeterm_pfx}{onboarding}"))
+                    Some(team_bootstrap_payload(system_prompt_capable, onboarding))
                 }
                 None => bg_task,
             }
-        } else if is_orch_onboarding {
-            bg_task.map(|t| format!("{codeterm_pfx}{t}"))
+        } else if is_orch_onboarding && !system_prompt_capable {
+            bg_task.map(|task| team_bootstrap_payload(false, task))
         } else {
             bg_task
         };
@@ -1073,6 +1078,21 @@ mod hierarchy_defaults_tests {
             crate::agent::provider::StarterPrompt::AssignedTask
         );
         assert_eq!(params.task.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn team_bootstrap_marks_only_the_fallback_transport() {
+        let system_prompt = team_bootstrap_payload(true, "system contract".into());
+        assert_eq!(system_prompt, "system contract");
+        assert!(!system_prompt.contains("codeterm:system"));
+
+        let fallback = team_bootstrap_payload(false, "fallback contract".into());
+        assert_eq!(
+            fallback,
+            "-=-codeterm:system context=team-bootstrap-=-fallback contract"
+        );
+        assert!(!fallback.contains("tab="));
+        assert!(!fallback.contains("[to reply"));
     }
 
     #[test]
