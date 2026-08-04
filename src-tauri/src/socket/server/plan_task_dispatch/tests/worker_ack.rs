@@ -508,6 +508,24 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
     store
         .acknowledge_task_attempt(&plan.id, &task_id, &attempts[1].0, &attempts[1].1, 21)
         .unwrap();
+    // Progression is authorized by the exact live attempt, so the competitive
+    // task still carries no single task-level executor tab.
+    let progressed = store.show_task(&task_id).unwrap().task;
+    assert_eq!(progressed.status, TaskStatus::InProgress);
+    assert_eq!(progressed.assigned_tab_id, None);
+    assert_eq!(progressed.lane.tab_id, None);
+    assert_eq!(progressed.execution_attempts[0].acknowledged_at, Some(20));
+    assert_eq!(progressed.execution_attempts[1].acknowledged_at, Some(21));
+    assert!(store
+        .acknowledge_task_attempt(&plan.id, &task_id, &attempts[2].0, "attempt-absent", 22)
+        .is_err());
+    assert!(store
+        .acknowledge_task_attempt(&plan.id, &task_id, "foreign-tab", &attempts[2].1, 22)
+        .is_err());
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.execution_attempts[2].acknowledged_at,
+        None
+    );
     assert!(store.worker_startup_attempt_owns(
         &plan.id,
         &task_id,
