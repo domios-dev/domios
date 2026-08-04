@@ -13,7 +13,7 @@ use crate::plan::{
 };
 use crate::service::plan::IndexEntry;
 use crate::service::plan::PlanError;
-use crate::service::FirstPlanTeamError;
+use crate::service::TeamPlanCreationError;
 use crate::service::TeamPlanError;
 
 use super::{
@@ -42,6 +42,10 @@ pub(crate) struct CreatePlanBody {
     pub(crate) kinds: Option<String>,
     #[serde(default)]
     pub(crate) from_spec: Option<String>,
+    #[serde(default)]
+    pub(crate) session_id: Option<String>,
+    #[serde(default)]
+    pub(crate) session_binding_nonce: Option<String>,
 }
 
 fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -86,17 +90,22 @@ pub async fn create(
     let from_spec = body.from_spec.filter(|s| !s.trim().is_empty());
     let outcome = state
         .svc
-        .create_first_plan_for_orchestrator(
+        .create_team_plan_for_caller(
             body.title,
             project,
             owner,
+            crate::service::TeamPlanCaller {
+                tab_id: crate::api::tab_routes::caller_tab_header(&headers),
+                session_id: body.session_id,
+                binding_nonce: body.session_binding_nonce,
+            },
             kinds,
             from_spec.clone(),
             now,
         )
         .map_err(|error| match error {
-            FirstPlanTeamError::Plan(error) => plan_err(error),
-            FirstPlanTeamError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+            TeamPlanCreationError::Plan(error) => plan_err(error),
+            TeamPlanCreationError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
         })?;
     let plan = outcome.plan.clone();
     let _ = state
@@ -772,27 +781,42 @@ pub async fn mode_set(
     match mode {
         PlanMode::Approved => state
             .svc
-            .plan_store
-            .set_planning_state(
+            .approve_and_activate_plan(
                 &id,
-                PlanningState::Approved,
-                PlanningAuthor::User,
+                &crate::api::tab_routes::authenticated_plan_caller(&headers),
                 None,
                 now,
             )
-            .map_err(plan_err)?,
-        PlanMode::Planning => state
+            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?,
+        PlanMode::Planning => {
+            state
+                .svc
+                .authorize_plan_orchestrator(
+                    &id,
+                    &crate::api::tab_routes::authenticated_plan_caller(&headers),
+                )
+                .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
+            state
+                .svc
+                .plan_store
+                .set_planning_state(
+                    &id,
+                    PlanningState::StructureReady,
+                    PlanningAuthor::User,
+                    None,
+                    now,
+                )
+                .map_err(plan_err)?
+        }
+        PlanMode::Execution => state
             .svc
-            .plan_store
-            .set_planning_state(
+            .enter_execution_mode(
                 &id,
-                PlanningState::StructureReady,
-                PlanningAuthor::User,
-                None,
+                &crate::api::tab_routes::authenticated_plan_caller(&headers),
                 now,
             )
-            .map_err(plan_err)?,
-        PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => state
+            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?,
+        PlanMode::Paused | PlanMode::Complete => state
             .svc
             .plan_store
             .set_mode(&id, mode, now)

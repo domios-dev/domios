@@ -1,15 +1,35 @@
 import type { TimelineItem } from "@codeterm/chat-core";
 
+/** The UI renders at most 220 rows; the retained source bound lives with the
+ * transcript reducer, which evicts the oldest rows under byte-range authority. */
 export const CHAT_WINDOW_SIZE = 220;
 export const CHAT_WINDOW_STEP = 160;
 
 export function timelineItemKey(item: TimelineItem): string {
-  return item.kind === "message" ? item.message.id : item.event.id;
+  return item.kind === "message" ? item.message.id : item.event.message.id;
 }
 
 export interface ChatWindowRange {
   start: number;
   end: number;
+}
+
+export interface ChatWindowProjection {
+  items: TimelineItem[];
+}
+
+export function chatWindowProjection(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+  size: number = CHAT_WINDOW_SIZE,
+): ChatWindowProjection {
+  const tailRange = chatWindowRange(items, null, size);
+  const tail = items.slice(tailRange.start, tailRange.end);
+  if (anchorKey == null) return { items: tail };
+
+  const anchorIndex = items.findIndex((item) => timelineItemKey(item) === anchorKey);
+  if (anchorIndex < 0) return { items: tail };
+  return { items: items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1) };
 }
 
 /** Anchor `null` = follow the tail. An anchor names the LAST visible item, so

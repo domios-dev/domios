@@ -10,7 +10,7 @@ mutation work.
   English-dominant.
 - Use `--skip-extract` on every save — dream outputs must not spawn
   extraction workers (they create new orphans we'd then have to clean up).
-- **NO FABRICATION — numbers AND strings.** Every value in the `<log>`
+- NO FABRICATION — numbers AND strings. Every value in the `<log>`
   block (counts, bridged=N, aliases=N, CALIBRATION skipped=<reason>,
   etc.) must come from a command output you captured THIS session into a
   variable, file, or stdout you can see right now. NEVER copy a value
@@ -22,12 +22,12 @@ mutation work.
 - Every stage has a VERIFY step. Do not move past a stage until its verify
   passes. Skipping a stage is a failed run, not a fast run.
 - No stage is "optional" or "the rest of your job". You finish all of them.
-- **DIARY IS WRITTEN INCREMENTALLY.** Save a skeleton diary right after
+- DIARY IS WRITTEN INCREMENTALLY. Save a skeleton diary right after
   Stage A.1 with placeholder zeros, then `mem update <id>` after each
   subsequent stage to fill in real numbers. If the model is rate-limited
   or exits mid-run, a partial diary is still in mem and the user knows
   what happened. Half a run logged is infinitely better than silence.
-- **DREAM DIARIES NEVER INFLATE HUBS.** A dream diary (`daily_dream_*`,
+- DREAM DIARIES NEVER INFLATE HUBS. A dream diary (`daily_dream_*`,
   kind=daily, area=_dreams) records its analysis in its BODY, not as graph
   edges to everything it touched. It must NOT link into project / topic /
   person / tech hubs via `applies_to`, `works_on`, `about`, `postmortem_for`,
@@ -172,37 +172,37 @@ hub is bad. If the article has a real specific point, the hub is good.
 
 ### How to break up bad hubs
 
-1. **Read the neighbor titles.** Group them by what they're really about,
+1. Read the neighbor titles. Group them by what they're really about,
    not by relation_type. `applies_to` is just glue; the title on the
    other end tells you the real grouping.
 
-2. **Reuse existing anchors first.** The graph already has `topic_*` and
+2. Reuse existing anchors first. The graph already has `topic_*` and
    `role_*` slugs from prior reorganizations (see `existing_anchors` in
    the hubs JSON). Routing 5 neighbors into an existing themed anchor is
    strictly better than inventing a new dated slug like
    `topic_<theme>_2026_05_08`. The user's mental categories are stable;
    don't fragment them.
 
-3. **Invent new topic slugs only when no existing anchor fits.** Use
+3. Invent new topic slugs only when no existing anchor fits. Use
    `topic_<lowercase_theme>` (snake_case). Themes specific enough to add
    information (a focused phrase, not `topic_misc`), broad enough to
    recur (a topic with only 1 source is just a renaming).
 
-4. **Multiple themes per hub is normal.** A hub with 30 mixed neighbors
+4. Multiple themes per hub is normal. A hub with 30 mixed neighbors
    usually yields 3-5 themed sub-clusters.
 
-5. **For `machine_<id>` and `person_<id>` parents,** the canonical sub-
+5. For `machine_<id>` and `person_<id>` parents, the canonical sub-
    anchors to try first are: `_tech_stack`, `_roles`, `_decisions`,
    `_quirks`, `_setup`, `_releases`. These cover the common groupings.
    For `topic_<x>`: `_release_history`, `_dev_workflow`, etc.
 
-6. **The CLI:**
+6. The CLI:
        codeterm mem graph introduce-topic --topic-id <slug> --type Topic \
          --sources s1,s2,s3 --anchor <hub-id> --reason "dreamer-recluster"
    At least 2 sources per cluster (3 ideal). Atomic — one bad call
    doesn't poison others.
 
-7. **Second pass.** If the parent is still above threshold, look at what's
+7. Second pass. If the parent is still above threshold, look at what's
    left. Any pair of 2+ neighbors that share a theme → make a sub-anchor.
    Drive the parent's direct degree toward zero so it ends as a pure root
    anchoring sub-topics, not a sink for raw facts.
@@ -212,35 +212,35 @@ hub is bad. If the article has a real specific point, the hub is good.
 If a node is in the hubs list, the system already decided it violates the
 "no node is a sink" property. The only valid SKIPs:
 
-- **Popular source, not a hub**: a single mem_item (kind=learning/fact/
+- Popular source, not a hub: a single mem_item (kind=learning/fact/
   skill) with N `extracted_from` edges pointing at it. Provenance pointers,
   not structure. SKIP, log reason="popular source, not a structural hub".
-- **Genuinely homogeneous fact bag**: you read all neighbor titles and
+- Genuinely homogeneous fact bag: you read all neighbor titles and
   honestly cannot name even one pair of 2+ neighbors that share a theme.
   Every neighbor is a different unique dimension. SKIP, log reason=
   "neighbors don't form coherent themes (read N titles, no 2+ groups of 2+)".
 
 If you're tempted to skip for any other reason — "this is a person, of
 course they have many facts", "this is a machine, all facts are about it",
-**or "this hub is too big to handle right now"** — that's the wrong call.
+or "this hub is too big to handle right now" — that's the wrong call.
 Re-read titles, find the sub-themes. They're almost always there.
 
 ### Bigger hub = higher priority, never an excuse to skip
 
-**Sort hubs by degree DESCENDING, work biggest first.** A hub with degree
+Sort hubs by degree DESCENDING, work biggest first. A hub with degree
 71 is 3.5x more harmful to graph health than a hub with degree 22 — it's
 where search noise concentrates. If your token budget runs short mid-run,
 the hubs you skip MUST be the smallest ones, not the scariest ones.
 
-**Hubs of degree >= 50 are RED ZONE — there is no valid SKIP reason for
-them.** It's mathematically impossible for 50+ neighbors to share zero
+Hubs of degree >= 50 are RED ZONE — there is no valid SKIP reason for
+them. It's mathematically impossible for 50+ neighbors to share zero
 decomposable themes; "homogeneous fact bag" only applies up to ~30 neighbors.
 Re-read the titles in chunks of 10 — sub-themes always emerge. If the hub
 sample looks incomplete, re-call `codeterm mem graph hubs --threshold 20
 --sample 100` (or higher) so you actually see every neighbor before
 declaring there's no structure.
 
-**Partial decomposition beats no decomposition.** If a RED-ZONE hub has
+Partial decomposition beats no decomposition. If a RED-ZONE hub has
 70+ neighbors and you genuinely cannot drain it under 20 this run, still
 pull at least 3-5 themed sub-clusters out of it (each via
 `introduce-topic` with 2-3 sources). Leaving 70 untouched is a failed
@@ -296,7 +296,7 @@ and sees fairy-dust around the edges. Your job: bridge them.
 
 Walk the islands JSON top-to-bottom. For each component:
 
-- **Pre-fab anchor — `suggested_anchor` is an existing entity** (starts
+- Pre-fab anchor — `suggested_anchor` is an existing entity (starts
   with `project_`, `tech_`, or an existing `topic_<x>` you've seen
   before): bridge with one `relate` call:
 
@@ -307,8 +307,8 @@ Walk the islands JSON top-to-bottom. For each component:
   first member in the list) — adjacency lets the rest reach the anchor
   via the island's internal edges.
 
-- **No good pre-fab anchor — `suggested_anchor` is `topic_misc` or you
-  see a coherent theme the heuristic missed**: invent the topic and
+- No good pre-fab anchor — `suggested_anchor` is `topic_misc` or you
+  see a coherent theme the heuristic missed: invent the topic and
   promote in one shot:
 
       codeterm mem graph introduce-topic --topic-id topic_<theme> --type Topic \
@@ -319,7 +319,7 @@ Walk the islands JSON top-to-bottom. For each component:
   existing top hubs (run `mem graph hubs --threshold 5 --sample 0`
   earlier and remember the top 3-5 names).
 
-- **Garbage island** — extraction-worker leftovers like `auto: User has
+- Garbage island — extraction-worker leftovers like `auto: User has
   mentioned (instead_of): …` joined to nothing real, or duplicate
   `tech_*` stubs that already have a canonical sibling: delete each
   member with `mem delete <id>` (or alias the entity with `mem graph
@@ -347,8 +347,8 @@ node *findable through its topic*". A rule with no area is a real
 orphan; a peer entity that documents a laptop is just a top-level
 node, not an orphan.
 
-Don't try to drain the list. Process the **first 15-20 islands and the
-first 20 orphans**, log how many you did, log how many remain. The
+Don't try to drain the list. Process the first 15-20 islands and the
+first 20 orphans, log how many you did, log how many remain. The
 next REM run finishes the queue.
 
 ### Verify A.2 (paste this into the log)
@@ -444,11 +444,11 @@ level — don't try `g["from_id"]`, use `g["key"]["from_id"]`):
 
 Read each group's `rowids` and `sample`. Decide per group:
 
-- **Exact duplicates, identical payload** → drop all but the lowest rowid:
+- Exact duplicates, identical payload → drop all but the lowest rowid:
 
       codeterm mem graph delete-relations --rowids <r2,r3,...> --actor dreamer
 
-- **Same key but different `confidence` or `properties_json`** → fold them
+- Same key but different `confidence` or `properties_json` → fold them
   into one. Pick the keeper (highest confidence; lowest rowid if tied):
 
       codeterm mem graph merge-relations --keep <keeper-rowid> --merge <other-rowids> --actor dreamer
@@ -456,7 +456,7 @@ Read each group's `rowids` and `sample`. Decide per group:
   This carries the union of properties (keeper wins on collision) and
   the `max(confidence)`. The other rowids are deleted.
 
-- **Unsure (semantics ambiguous)** → SKIP and note in diary. Do NOT guess.
+- Unsure (semantics ambiguous) → SKIP and note in diary. Do NOT guess.
 
 ### A.4a2 Collapse parallel synonym edges (ONE bulk call — do NOT loop)
 
@@ -623,7 +623,7 @@ The technical receipt of what changed. Plain text, fixed labels,
 machine-friendly. The user collapses this by default; agents and the
 audit reader expand it.
 
-**Every numeric line is a receipt** — the number must come from a
+Every numeric line is a receipt — the number must come from a
 command output captured this session. If you didn't run the command,
 the field is `0` or `n/a`, never an estimate.
 

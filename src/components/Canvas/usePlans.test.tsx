@@ -26,7 +26,10 @@ const API: ApiConfig = {
 
 type ListenHandler = (ev: { payload: unknown }) => void;
 const listenHandlers = new Map<string, Set<ListenHandler>>();
-let fetchCalls = 0;
+// Desktop plan reads are IPC into PlanStore, so the call oracle counts invokes.
+let planReadCalls = 0;
+let lastFullProject: string | null | undefined;
+let failPlanReads = false;
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,27 +40,21 @@ function setupDom() {
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "fetch", {
-    configurable: true,
-    value: async (input: RequestInfo | URL, init?: RequestInit) => {
-      fetchCalls++;
-      const url = String(input);
-      if (url.includes("/api/plans?full=1")) {
-        return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
-      }
-      if (url.endsWith("/api/plans") && (!init || init.method === undefined || init.method === "GET")) {
-        return new Response(JSON.stringify({ plans: [{ plan_id: FIXTURE_PLAN.id }] }), { status: 200 });
-      }
-      if (url.includes(`/api/plans/${FIXTURE_PLAN.id}`)) {
-        return new Response(JSON.stringify(FIXTURE_PLAN), { status: 200 });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
 }
 
-async function installListenMock() {
-  const { __setListenForTest } = await import("../../lib/bridge");
+async function installBridgeMocks() {
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(async (command, args) => {
+    planReadCalls++;
+    if (failPlanReads) throw new TypeError("Load failed");
+    if (command === "list_plans_full") {
+      lastFullProject = (args?.project as string | null | undefined) ?? null;
+      return [FIXTURE_PLAN] as never;
+    }
+    if (command === "get_plan_full") return FIXTURE_PLAN as never;
+    if (command === "list_plan_index") return [] as never;
+    throw new Error(`unexpected invoke: ${command}`);
+  });
   __setListenForTest(async (event, handler) => {
     if (!listenHandlers.has(event)) listenHandlers.set(event, new Set());
     listenHandlers.get(event)!.add(handler as ListenHandler);
@@ -105,12 +102,12 @@ async function renderProbe(
 
 async function main() {
   setupDom();
-  await installListenMock();
+  await installBridgeMocks();
   const { usePlans } = await import("./usePlans");
-  const { __setListenForTest } = await import("../../lib/bridge");
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
 
   test("usePlans loads plans on mount", async () => {
-    fetchCalls = 0;
+    planReadCalls = 0;
     const holder: { current: UsePlansResult | null } = { current: null };
     const { root } = await renderProbe(usePlans, (state) => {
       holder.current = state;
@@ -122,12 +119,12 @@ async function main() {
     assert(!holder.current.loading, "finished loading");
     assert(holder.current.plans.length === 1, "one plan loaded");
     assert(holder.current.plans[0]?.title === "Auth rollout", "plan title");
-    assert(fetchCalls === 1, "one batched full fetch on load");
+    assert(planReadCalls === 1, "one batched full plan read on load");
     await act(async () => root.unmount());
   });
 
   test("usePlans refetches changed plan on plan-changed", async () => {
-    fetchCalls = 0;
+    planReadCalls = 0;
     const holder: { current: UsePlansResult | null } = { current: null };
     const { root } = await renderProbe(usePlans, (state) => {
       holder.current = state;
@@ -135,19 +132,19 @@ async function main() {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    const callsAfterLoad = fetchCalls;
+    const callsAfterLoad = planReadCalls;
     emitPlanChanged(FIXTURE_PLAN.id);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    assert(fetchCalls > callsAfterLoad, "refetch after plan-changed");
+    assert(planReadCalls > callsAfterLoad, "refetch after plan-changed");
     if (!holder.current) throw new Error("state captured");
     assert(holder.current.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
     await act(async () => root.unmount());
   });
 
   test("usePlans refetches full plans on plans-loaded", async () => {
-    fetchCalls = 0;
+    planReadCalls = 0;
     const holder: { current: UsePlansResult | null } = { current: null };
     const { root } = await renderProbe(usePlans, (state) => {
       holder.current = state;
@@ -155,30 +152,19 @@ async function main() {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    const callsAfterLoad = fetchCalls;
+    const callsAfterLoad = planReadCalls;
     await act(async () => {
       emitPlansLoaded();
       await new Promise((r) => setTimeout(r, 20));
     });
-    assert(fetchCalls > callsAfterLoad, "plans-loaded refetches full plans");
+    assert(planReadCalls > callsAfterLoad, "plans-loaded refetches full plans");
     assert(holder.current?.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
     await act(async () => root.unmount());
   });
 
-  test("usePlans passes project filter to full fetch", async () => {
-    fetchCalls = 0;
-    let seenProject: string | null = null;
-    const prevFetch = globalThis.fetch;
-    globalThis.fetch = async (input) => {
-      fetchCalls++;
-      const url = String(input);
-      if (url.includes("/api/plans?")) {
-        const parsed = new URL(url, "http://127.0.0.1");
-        seenProject = parsed.searchParams.get("project");
-        return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
-      }
-      return prevFetch(input);
-    };
+  test("usePlans passes project filter to the full plan read", async () => {
+    planReadCalls = 0;
+    lastFullProject = "unset";
 
     const holder: { current: UsePlansResult | null } = { current: null };
     const { root } = await renderProbe(
@@ -190,21 +176,14 @@ async function main() {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    assert(seenProject === "/tmp/project-a", "project query param sent");
-    assert(fetchCalls === 1, "one fetch on load");
-    globalThis.fetch = prevFetch;
+    assert(lastFullProject === "/tmp/project-a", "project scope reached the plan read");
+    assert(planReadCalls === 1, "one plan read on load");
     await act(async () => root.unmount());
   });
 
-  test("usePlans recovers after transient fetch failure", async () => {
-    fetchCalls = 0;
-    let fail = true;
-    const prevFetch = globalThis.fetch;
-    globalThis.fetch = async (input, init) => {
-      fetchCalls++;
-      if (fail) throw new TypeError("Load failed");
-      return prevFetch(input, init);
-    };
+  test("usePlans recovers after a transient plan-read failure", async () => {
+    planReadCalls = 0;
+    failPlanReads = true;
 
     const holder: { current: UsePlansResult | null } = { current: null };
     const { root } = await renderProbe(usePlans, (state) => {
@@ -216,13 +195,12 @@ async function main() {
     assert(holder.current?.error?.includes("Reconnecting"), "friendly error on failure");
     assert(!holder.current?.error?.includes("TypeError"), "no raw TypeError");
 
-    fail = false;
+    failPlanReads = false;
     await act(async () => {
       await holder.current!.refetch();
     });
     assert(holder.current?.plans.length === 1, "plans loaded after recovery");
     assert(holder.current?.error === null, "error cleared");
-    globalThis.fetch = prevFetch;
     await act(async () => root.unmount());
   });
 
@@ -238,6 +216,7 @@ async function main() {
     }
   }
   console.log(`\n${tests.length - failed} passed, ${failed} failed`);
+  __setInvokeForTest(null);
   __setListenForTest(null);
   if (failed > 0) process.exit(1);
 }

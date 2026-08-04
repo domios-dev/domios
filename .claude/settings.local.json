@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Skill(update-config)"
+    ]
+  },
   "enabledPlugins": {
     "superpowers@superpowers-marketplace": true
   }

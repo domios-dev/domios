@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { DeferredLoader } from "../shared/DeferredLoader";
 import type { BootStage, Tab } from "../../lib/types";
+import { roleKindLabel } from "../../lib/roleKind";
 import type { TabBootOverlayView } from "./bootOverlay";
 
 const STAGE_PROGRESS: Record<BootStage, number> = {
@@ -20,11 +21,7 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
 };
 
 export function chatSetupSubject(tab: Tab | null | undefined, providerName: string): string {
-  if (tab?.role === "Orchestrator") return "Orchestrator";
-  if (tab?.role === "Worker") return "Worker";
-  if (tab?.role === "Manager" && tab.role_profile === "planner") return "Planner";
-  if (tab?.role === "Manager") return "Manager";
-  return providerName;
+  return roleKindLabel(tab) ?? providerName;
 }
 
 export function chatSetupStageLabel(stage: BootStage | null | undefined, subject: string): string {
@@ -98,19 +95,6 @@ interface ChatSetupStateProps {
   onEscape?: () => void;
 }
 
-function useReducedMotion(): boolean {
-  const read = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-  const [reduced, setReduced] = useState(read);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return reduced;
-}
-
 interface LaunchGlyphProps {
   providerName: string;
   iconSvg?: string | null;
@@ -127,33 +111,14 @@ function LaunchGlyph({ providerName, iconSvg, iconColor, iconHint }: LaunchGlyph
       aria-label={providerName}
       style={{ color: iconColor ?? "var(--ct-accent, #58a6ff)" }}
     >
-      <ProviderGlyph iconSvg={iconSvg} iconColor={iconColor} iconHint={iconHint} title={providerName} className="text-[56px]" />
+      <ProviderGlyph
+        iconSvg={iconSvg}
+        iconColor={iconColor}
+        iconHint={iconSvg ? iconHint : "◆"}
+        title={providerName}
+        className={iconSvg ? "text-[56px]" : "text-[18px]"}
+      />
     </span>
-  );
-}
-
-export function ChatSetupStatusLine({
-  tab,
-  providerName,
-  chatLoading = false,
-}: {
-  tab: Tab | null | undefined;
-  providerName: string;
-  chatLoading?: boolean;
-}) {
-  if (!chatLoading && chatSetupView(tab).kind !== "starting") return null;
-  const label = chatLoading && chatSetupView(tab).kind === "none"
-    ? "Loading chat…"
-    : chatSetupStageLabel(tab?.boot_stage, chatSetupSubject(tab, providerName));
-  return (
-    <div
-      className="flex shrink-0 items-center border-t px-3 py-1.5 text-[11px]"
-      data-testid="chat-setup-status-line"
-      style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
-      aria-live="polite"
-    >
-      {label}
-    </div>
   );
 }
 
@@ -166,48 +131,17 @@ export function ChatSetupState({
   providerIconHint,
   onEscape,
 }: ChatSetupStateProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [transitionState, setTransitionState] = useState<"hidden" | "present" | "exiting">(
-    view.kind === "none" ? "hidden" : "present",
-  );
-  const reducedMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (view.kind !== "none") {
-      setTransitionState("present");
-      return;
-    }
-    if (reducedMotion) {
-      setTransitionState("hidden");
-    } else {
-      setTransitionState((state) => state === "present" ? "exiting" : state);
-    }
-  }, [reducedMotion, view.kind]);
-
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
     onEscape?.();
   }, [onEscape]);
 
-  const handleTransitionEnd = useCallback((event: React.TransitionEvent<HTMLDivElement>) => {
-    if (event.target !== cardRef.current || event.propertyName !== "opacity" || transitionState !== "exiting") return;
-    setTransitionState("hidden");
-  }, [transitionState]);
-
-  if (transitionState === "hidden") return null;
-
-  const cardStyle: React.CSSProperties = {
-    opacity: transitionState === "exiting" ? 0 : 1,
-    pointerEvents: transitionState === "exiting" ? "none" : undefined,
-    transition: reducedMotion ? "none" : "opacity 120ms ease",
-  };
-
-  if (view.kind !== "starting" && transitionState !== "exiting") return null;
+  if (view.kind !== "starting") return null;
 
   const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;
   return (
-    <DeferredLoader ref={cardRef} state={transitionState} className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
+    <DeferredLoader state="present" className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
       <div className="flex w-full max-w-sm flex-col items-center text-center">
         <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
           <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />

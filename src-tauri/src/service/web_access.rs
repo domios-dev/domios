@@ -59,13 +59,7 @@ pub async fn enable(
     api_port: u16,
     https_port: Option<u16>,
 ) -> Result<mesh::ServeResult, String> {
-    mutate(
-        app,
-        mesh_state,
-        api_port,
-        Mutation::Enable(https_port),
-    )
-    .await
+    mutate(app, mesh_state, api_port, Mutation::Enable(https_port)).await
 }
 
 pub async fn disable(

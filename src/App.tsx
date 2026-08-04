@@ -38,6 +38,8 @@ import {
   useMultiplexer,
   useMuxState,
 } from "./store/multiplexer";
+import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
+import { openNewSessionPicker } from "./lib/newSessionChoice";
 import { matchesBinding } from "./lib/keybindings";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
@@ -161,7 +163,7 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme } = useConfig();
+  const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -406,6 +408,17 @@ function AppInner() {
         openSettings: () => { setSettingsSection(undefined); setSettingsOpen(true); },
         toggleSidebar: () => setSidebarOpen((v) => !v),
         spawnClaude: async () => {
+          const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
+          if (!wsId) return;
+          if (config.agent.full_access === undefined) {
+            const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
+            openNewSessionPicker({
+              workspaceId: wsId,
+              workspaceCwd: workspace?.cwd ?? null,
+              initialProviderId: defaultSpawnProviderId(),
+            });
+            return;
+          }
           let folder: string | null;
           try {
             folder = await openDialog({
@@ -417,17 +430,14 @@ function AppInner() {
             return;
           }
           if (!folder) return;
-          const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
-          if (wsId) {
-            const skipPerms = configRef.current.agents?.claude?.spawn_skip_permissions === true;
-            spawnClaudeTab(wsId, skipPerms, folder);
-          }
+          spawnClaudeTab(wsId, folder);
         },
       }),
     [
       handleNewTab,
       handleCloseCurrentTab,
       createWorkspace,
+      config.agent.full_access,
       spawnClaudeTab,
     ],
   );
@@ -524,7 +534,7 @@ function AppInner() {
         onDismissToast={dismissToast}
         onNavigateToast={navigateToNotificationTab}
       />
-      <PlansProvider api={stableApiConfig}>
+      <PlansProvider api={stableApiConfig} enabled={!configLoading}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
           <>

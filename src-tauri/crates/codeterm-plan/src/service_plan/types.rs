@@ -27,6 +27,7 @@ pub enum PlanError {
     BadMode,
     BadPriority,
     TaskCreationRequiresApproval,
+    TaskDispatchRequiresApproval,
     HeartbeatRequiresExecution,
     TaskPauseRequiresReason,
     PauseRequiresReason,
@@ -151,6 +152,10 @@ impl fmt::Display for PlanError {
             PlanError::TaskCreationRequiresApproval => write!(
                 f,
                 "plan is still in planning mode; run `codeterm plan approve <plan>` before creating tasks, or pass --force for deliberate draft tasks"
+            ),
+            PlanError::TaskDispatchRequiresApproval => write!(
+                f,
+                "draft tasks are not dispatchable; the Plan Orchestrator must run `codeterm plan approve <plan>`"
             ),
             PlanError::HeartbeatRequiresExecution => write!(
                 f,
@@ -315,6 +320,9 @@ impl PlanError {
             PlanError::TaskCreationRequiresApproval => {
                 serde_json::json!({ "type": "task_creation_requires_approval" })
             }
+            PlanError::TaskDispatchRequiresApproval => {
+                serde_json::json!({ "type": "task_dispatch_requires_approval" })
+            }
             PlanError::HeartbeatRequiresExecution => {
                 serde_json::json!({ "type": "heartbeat_requires_execution" })
             }
@@ -472,6 +480,7 @@ pub struct NewTask {
     pub executor_role: Option<String>,
     pub competition: Option<crate::plan::TaskCompetitionMetadata>,
     pub intent: Option<String>,
+    pub execution_intent: crate::plan::TaskExecutionIntent,
     pub parent_task_id: Option<String>,
     pub depends_on: Vec<String>,
     pub assigned_tab_id: Option<String>,

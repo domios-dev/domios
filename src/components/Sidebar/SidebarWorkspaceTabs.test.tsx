@@ -10,6 +10,7 @@ import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import type { TeamMemberRole } from "../../lib/teamActions";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import {
@@ -97,7 +98,7 @@ async function renderSidebar({
   onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
-    role: "planner" | "worker",
+    role: TeamMemberRole,
     providerId: string,
     managerTabId: string,
     model?: string,
@@ -132,7 +133,6 @@ async function renderSidebar({
           planIndex={nextPlanIndex}
           plans={nextPlans}
           activeWork={null}
-          remoteWorkers={{}}
           providers={providers}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
@@ -141,7 +141,7 @@ async function renderSidebar({
           touchMode={true}
           compact={false}
           sidebarActionText="text-xs"
-          orchestrators={Object.values(tabs).filter((member) => member.role === "Orchestrator")}
+          orchestrators={Object.values(tabs).filter((member) => member.role_profile === "orchestrator")}
           onBeforeOpenPlan={() => {}}
           onActivateTab={onActivateTab}
           onCloseTab={onCloseTab}
@@ -205,10 +205,10 @@ test("team_renders_flat_sections", async () => {
   const tabs: Record<string, Tab> = {
     plannerTwo: tab({ id: "plannerTwo", title: "Planner Two", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
     workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id, parent_tab_id: "orchOne" }),
-    orchTwo: tab({ id: "orchTwo", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
+    orchTwo: tab({ id: "orchTwo", title: "Orchestrator Two", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     plannerOne: tab({ id: "plannerOne", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id, parent_tab_id: "workerOne" }),
-    orchOne: tab({ id: "orchOne", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
+    orchOne: tab({ id: "orchOne", title: "Orchestrator One", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id, parent_tab_id: "orchTwo" }),
   };
   const ids = Object.keys(tabs);
@@ -233,7 +233,7 @@ test("team_renders_flat_sections", async () => {
 
 test("plans have only a Team-owned sidebar home", async () => {
   const tabs = {
-    orch: tab({ id: "orch", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orch: tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const sortedTabs = [tab("tab-orch", "orch", 0)];
   const bound = plan([]);
@@ -241,17 +241,16 @@ test("plans have only a Team-owned sidebar home", async () => {
   const { host, root, rerender } = await renderSidebar({
     sortedTabs,
     tabs,
-    plans: [bound],
+    plans: [],
     planIndex: [planIndexEntry()],
   });
-
+  assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "the plan index keeps the Team plan visible before its full body arrives");
+  await rerender([bound], [planIndexEntry()]);
   assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "bound plan is owned by its Team card");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "bound plan has no standalone row");
-
   await rerender([detached], [planIndexEntry("plan-team", null)]);
   assert(!host.querySelector('[data-testid="team-card-activation"]'), "detach removes the plan from the Team card");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "orphan plan has no workspace home");
-
   await rerender([bound], [planIndexEntry()]);
   assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "adopt restores the Team-owned plan");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "adopt removes the standalone row without reload");
@@ -261,7 +260,7 @@ test("plans have only a Team-owned sidebar home", async () => {
 test("team menu enables staffing only for a Team with a manager", async () => {
   const closed: string[] = [];
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   canvasFocusStore.closeWorkspace();
   const { host, root } = await renderSidebar({
@@ -325,7 +324,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
   assert(menu?.textContent?.includes("Add worker"), "worker staffing is enabled with a handler and manager");
   assert(menu?.textContent?.includes("Add planner"), "planner staffing is enabled with a handler and manager");
-  assert(!menu?.textContent?.includes("Add orchestrator"), "orchestrator staffing remains hidden");
+  assert(menu?.textContent?.includes("Add orchestrator"), "orchestrator staffing is enabled with a handler and manager");
   assert(!menu?.textContent?.includes("Create effort"), "humans cannot create efforts from Team UI");
   assert(!menu?.textContent?.includes("Open effort"), "no effort action is shown without a plan");
   const close = Array.from(menu?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Close Team")) as HTMLButtonElement | undefined;
@@ -341,9 +340,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
 
 test("managerless Team hides staffing and makes no request", async () => {
   const requests: unknown[] = [];
-  const tabs = {
-    worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
-  };
+  const tabs = { worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }) };
   const { host, root } = await renderSidebar({
     tabs,
     sortedTabs: [tab("tab-worker", "worker", 0)],
@@ -353,20 +350,20 @@ test("managerless Team hides staffing and makes no request", async () => {
   assert(trigger, "team menu trigger exists");
   await act(async () => trigger.click());
   const menu = document.querySelector('[data-testid="team-menu"]');
-  assert(!menu?.textContent?.includes("Add worker"), "managerless Team hides worker staffing");
-  assert(!menu?.textContent?.includes("Add planner"), "managerless Team hides planner staffing");
+  for (const role of ["worker", "planner", "orchestrator"])
+    assert(!menu?.textContent?.includes(`Add ${role}`), `managerless Team hides ${role} staffing`);
   assert(!menu?.textContent?.includes("Rename"), "managerless Team hides rename");
   assert(requests.length === 0, "managerless Team does not issue a staffing request");
   await act(async () => root.unmount());
 });
 
 test("staffing selects the first eligible manager in visible Orchestrator-first order", async () => {
-  const requests: Array<[string, "planner" | "worker", string, string]> = [];
+  const requests: Array<[string, TeamMemberRole, string, string]> = [];
   const tabs = {
     unrelated: tab({ id: "unrelated", title: "Unrelated Tab", role: "Worker" }),
-    "a-O2": tab({ id: "a-O2", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
+    "a-O2": tab({ id: "a-O2", title: "Orchestrator Two", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     "p-P1": tab({ id: "p-P1", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
-    "z-O1": tab({ id: "z-O1", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
+    "z-O1": tab({ id: "z-O1", title: "Orchestrator One", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const providers = [{
     id: "registry-provider",
@@ -409,10 +406,10 @@ test("staffing selects the first eligible manager in visible Orchestrator-first 
 });
 
 test("staffing selects a planner when no Orchestrator is eligible", async () => {
-  const requests: Array<[string, "planner" | "worker", string, string]> = [];
+  const requests: Array<[string, TeamMemberRole, string, string]> = [];
   const tabs = {
     watcher: tab({ id: "A0", title: "Watcher", role: "Manager", role_profile: "watcher", team_id: TEAM.id }),
-    planner: tab({ id: "P1", title: "Planner", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
+    planner: tab({ id: "P1", title: "Planner", role: "Manager", role_profile: "planner", team_id: TEAM.id, can_spawn: true }),
   };
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
@@ -431,15 +428,15 @@ test("staffing selects a planner when no Orchestrator is eligible", async () => 
   await act(async () => provider.click());
   assert(
     JSON.stringify(requests) === JSON.stringify([[TEAM.id, "worker", "registry-provider", "P1"]]),
-    "planner is selected while ineligible manager profiles are skipped",
+    "a spawn-capable planner is selected while a leaf manager is skipped",
   );
   await act(async () => root.unmount());
 });
 
 test("staffing picker uses descriptor icons and requires a descriptor model choice", async () => {
-  const requests: Array<[string, "planner" | "worker", string, string, string?]> = [];
+  const requests: Array<[string, TeamMemberRole, string, string, string?]> = [];
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const providers = [{
     id: "provider-a",
@@ -515,7 +512,7 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
 
 test("staffing failure stays visible without local mutation or refetch", async () => {
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const tabsBefore = JSON.stringify(tabs);
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
@@ -558,7 +555,7 @@ test("staffing provider action ignores an immediate double click", async () => {
   let invocations = 0;
   let finish: (() => void) | undefined;
   const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
@@ -606,7 +603,7 @@ test("teamless_tabs_render_plain", async () => {
 
 test("team header renders the live compact status tally", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
   const currentPlan = plan([
@@ -689,7 +686,7 @@ test("team header renders the live compact status tally", async () => {
 
 test("Team card keeps plan activation separate from collapse and menu controls", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const currentPlan = plan([task("done", TaskStatus.Done)]);
   canvasFocusStore.closeWorkspace();
@@ -786,7 +783,7 @@ test("Team card keeps plan activation separate from collapse and menu controls",
 
 test("workers_collapse_summary", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id }),
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id }),
@@ -810,7 +807,7 @@ test("team worker rows follow tab sort order", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
@@ -832,7 +829,7 @@ test("team worker rows follow tab sort order", async () => {
 
 test("clicking a team worker activates it", async () => {
   const tabs: Record<string, Tab> = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
     worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
   const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
@@ -857,7 +854,6 @@ test("clicking a team worker activates it", async () => {
           planIndex={[]}
           plans={[]}
           activeWork={null}
-          remoteWorkers={{}}
           providers={[]}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
@@ -922,7 +918,7 @@ test("waiting team worker keeps prompt pill without status rail", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     attention: tab({
@@ -955,7 +951,7 @@ test("working team worker keeps activity dots without status rail", async () => 
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     worker: tab({
@@ -986,7 +982,7 @@ test("team worker and manager descriptions do not add row lines", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     manager: tab({
@@ -1026,7 +1022,7 @@ test("team worker close control calls onCloseTab", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     worker: tab({
@@ -1051,7 +1047,7 @@ test("team worker close control calls onCloseTab", async () => {
 
 test("Team disclosure stays user-owned across rerenders and remounts", async () => {
   const tabs = {
-    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0)];
   const first = await renderSidebar({ tabs, sortedTabs });
@@ -1151,7 +1147,7 @@ test("team manager close control calls onCloseTab", async () => {
     orchestrator: tab({
       id: "orchestrator",
       title: "Orchestrator",
-      role: "Orchestrator",
+      role: "Manager", role_profile: "orchestrator",
       team_id: TEAM.id,
     }),
     manager: tab({

@@ -16,7 +16,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 fn orchestrator(tab: &str) -> KpiAttribution {
     KpiAttribution::for_tab(tab)
         .plan(Some("pl_dwojf1".into()), Some("task_xr8mx3".into()))
-        .role(Some(AgentRole::Orchestrator))
+        .role(Some(AgentRole::Manager), Some("orchestrator"))
         .provider(Some("codex".into()))
         .model(Some("gpt-5.6-terra".into()))
 }
@@ -24,7 +24,7 @@ fn orchestrator(tab: &str) -> KpiAttribution {
 fn worker(tab: &str) -> KpiAttribution {
     KpiAttribution::for_tab(tab)
         .plan(Some("pl_dwojf1".into()), Some("task_xr8mx3".into()))
-        .role(Some(AgentRole::Worker))
+        .role(Some(AgentRole::Worker), None)
         .provider(Some("claude".into()))
         .model(Some("claude-opus-4-8".into()))
 }
@@ -422,6 +422,7 @@ fn deliver_kind_mapping_never_double_counts_owned_traffic() {
     );
     assert_eq!(deliver_event_kind(MessageKind::Report), None);
     assert_eq!(deliver_event_kind(MessageKind::Reminder), None);
+    assert_eq!(deliver_event_kind(MessageKind::System), None);
 }
 
 #[test]

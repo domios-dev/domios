@@ -21,7 +21,7 @@ use crate::agent::registry::AgentRegistry;
 /// Caller-supplied sink. Real impl emits a Tauri event with the
 /// messages; tests pass a `Vec<RichMessage>` collector.
 pub trait DeltaSink: Send + Sync {
-    fn emit(&self, tab_id: &str, messages: Vec<RichMessage>);
+    fn emit(&self, tab_id: &str, messages: Vec<RichMessage>, start_offset: u64, offset: u64);
 }
 
 /// Sink for raw JSONL text deltas. The chat UI uses this — frontend
@@ -193,7 +193,7 @@ pub fn spawn_tailer(
                 off.store(delta.new_offset, Ordering::Release);
             }
             if !delta.messages.is_empty() {
-                sink.emit(&cfg.tab_id, delta.messages);
+                sink.emit(&cfg.tab_id, delta.messages, from, delta.new_offset);
             }
             thread::sleep(cfg.poll_interval);
         }

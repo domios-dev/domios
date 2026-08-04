@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import type { Notification } from "../../lib/types";
+import type { Notification, NotificationAction } from "../../lib/types";
+import { invoke } from "../../lib/bridge";
 import { Bell, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
@@ -38,6 +39,17 @@ export function NotificationPanel({
     },
     [onMarkRead],
   );
+  const runAction = useCallback(async (action: NotificationAction) => {
+    try {
+      if (action.type === "url" && action.value) {
+        window.open(action.value, "_blank");
+      } else if (action.type === "invoke" && action.value) {
+        await invoke(action.value, action.args ?? {});
+      }
+    } catch (error) {
+      console.warn(`Notification action '${action.value ?? action.type}' failed:`, error);
+    }
+  }, []);
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
 
@@ -152,6 +164,23 @@ export function NotificationPanel({
                   >
                     Show Tab
                   </button>
+                )}
+                {(notif.actions?.length ?? 0) > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {notif.actions!.map((action, index) => (
+                      <button
+                        type="button"
+                        key={`${action.label}-${index}`}
+                        className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void runAction(action);
+                        }}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
               <button

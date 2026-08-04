@@ -95,6 +95,20 @@ impl StarterPrompt {
             Self::NoStarter | Self::AssignedTask | Self::IdleWakeup => None,
         }
     }
+
+    pub fn system_prefix(self) -> Option<String> {
+        let context = match self {
+            Self::AssignedTask => "assigned-task",
+            Self::IdleWakeup => "idle-wakeup",
+            Self::TeamBootstrap => "team-bootstrap",
+            Self::NoStarter => return None,
+        };
+        Some(
+            codeterm_types::message_markers::Marker::new("system")
+                .attr("context", context)
+                .build(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -112,6 +126,13 @@ pub struct AgentLaunchParams {
     /// provider's server flags. Fixes the W3 leading-dash `--args` ergonomics
     /// gap — the host allocates the port instead of the caller hand-passing args.
     pub structured_prompt_server: Option<StructuredPromptServer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntegrationInstallOptions {
+    pub consent: bool,
+    #[serde(default)]
+    pub precompact_memory_export: bool,
 }
 
 /// A provider-owned response for its directory trust prompt. Core only asks
@@ -315,6 +336,21 @@ pub enum SystemPromptDelivery {
     External,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSelfUpdateCapability {
+    pub in_session: bool,
+    pub restart_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_signal: Option<ProviderUpdateCompletionSignal>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderUpdateCompletionSignal {
+    ProviderClassification,
+}
+
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
 ///
@@ -353,6 +389,9 @@ pub struct ProviderDescriptor {
     pub notifications_schema: Vec<SettingField>,
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
+    /// Provider supplies its own explicit permission/sandbox bypass flags.
+    #[serde(default)]
+    pub supports_permission_bypass: bool,
     /// CLI binary name the provider expects on PATH (e.g. `claude`, `codex`,
     /// `opencode`). When present, the frontend renders an "Installation"
     /// section that polls `which <binary>` and offers an Install button.
@@ -377,6 +416,8 @@ pub struct ProviderDescriptor {
     /// provider-id literal. Absent means no compact capability (mode-B fallback).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_update: Option<ProviderSelfUpdateCapability>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
@@ -428,8 +469,14 @@ pub enum ProviderTrust {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ProviderAllowanceCapability {
+    pub default_reserve_pct: f32,
+    pub telemetry_max_age_ms: u64,
+}
+
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 10;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 13;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -529,6 +576,15 @@ pub trait AgentProvider: Send + Sync {
     }
     fn usage_parser(&self) -> Option<&dyn crate::usage_parser::UsageParser> {
         None
+    }
+
+    fn provider_allowance_capability(&self) -> Option<ProviderAllowanceCapability> {
+        self.usage_parser()
+            .is_some()
+            .then_some(ProviderAllowanceCapability {
+                default_reserve_pct: 5.0,
+                telemetry_max_age_ms: 15 * 60 * 1_000,
+            })
     }
 
     fn usage_probe_command(&self) -> Option<&str> {
@@ -678,6 +734,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Runtime-confirmed reasoning effort from this exact claimed session.
+    /// Providers must not consult a global/latest record when implementing it.
+    fn detect_session_reasoning_effort(&self, _cwd: &str, _session_id: &str) -> Option<String> {
+        None
+    }
+
     /// When the TUI silently rolls into a new on-disk session (opencode does
     /// this on `/model` swap), the tab's cached `session_id` goes stale and
     /// `detect_session_model` keeps returning the previous model. Providers
@@ -804,6 +866,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn provider_self_update_capability(&self) -> Option<ProviderSelfUpdateCapability> {
+        None
+    }
+
     /// In-agent command that starts a fresh context in the same tab, if supported.
     fn fresh_context_command(&self) -> Option<&str> {
         None
@@ -880,7 +946,16 @@ pub trait AgentProvider: Send + Sync {
 
     /// Install CodeTerm's notification integration. `api_port` is the local
     /// CodeTerm HTTP port that callbacks should target. Default no-op.
-    fn install_integration(&self, _api_port: u16) -> Result<(), String> {
+    fn install_integration(
+        &self,
+        _api_port: u16,
+        options: &IntegrationInstallOptions,
+    ) -> Result<(), String> {
+        if !options.consent {
+            return Err(
+                "provider integration installation requires explicit local-user consent".into(),
+            );
+        }
         Ok(())
     }
 
@@ -888,8 +963,11 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    /// Idempotent auto-install on startup. Called once per registered
-    /// provider during boot. Default no-op.
+    fn restore_integration(&self) -> Result<(), String> {
+        Err("provider integration has no recoverable backup".into())
+    }
+
+    /// Startup checks are read-only; global provider config is never repaired implicitly.
     fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
     // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.
@@ -995,11 +1073,13 @@ pub trait AgentProvider: Send + Sync {
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
+            supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
+            self_update: self.provider_self_update_capability(),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),

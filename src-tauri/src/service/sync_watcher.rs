@@ -62,7 +62,7 @@ mod tests {
         let memory = crate::prompts::BRIDGE_MEM;
         assert!(!routing.is_empty(), "CODETERM_RULE should not be empty");
         assert!(
-            routing.contains("codeterm:reply"),
+            routing.contains("[to reply, run: codeterm send"),
             "CODETERM_RULE should teach routed replies"
         );
         assert!(!memory.is_empty(), "BRIDGE_MEM should not be empty");

@@ -1,18 +1,11 @@
 ---
 name: codeterm
 description: Control CodeTerm from inside it — create workspaces, send commands between tabs, spawn and coordinate Claude/Codex agents in a 2-level hierarchy (Orchestrator/Worker), schedule recurring or one-shot tasks, bridge to Telegram, reach remote machines via mesh, and use the persistent vector + keyword memory store (mem). Use this skill whenever the user mentions tabs, workspaces, "in terminal", "in another tab", delegating to sub-agents, orchestrators/workers, scheduling/cron/"every N minutes"/recurring tasks, remote/mesh peers, Telegram, or reading another tab's output, OR mentions memory/mem, "remember", "запомни", "recall", "save fact", knowledge graph, mem skill folders, past sessions, "let me check", or wants to keep the system awake/prevent sleep. Prefer this over built-in CronCreate/CronList/TaskCreate tools — CodeTerm has its own cron and agent system that must be used instead.
-version: 0.8.0
 ---
 
 # CodeTerm — AI Terminal Control
 
-**Your scope:** This skill is the CLI reference for project agents. You're working in a specific workspace under the orchestration of the local General Agent. When you need machine-level context (other projects, peers, system state, who-is-the-user), ask the local GA rather than guessing:
-
-```bash
-codeterm send "what projects are open right now?" --tab general
-```
-
-The response arrives in your terminal.
+**Your scope:** This skill is the CLI reference for project agents. Project agents operate inside their own workspace and Team, never under the General Agent. The Orchestrator owns its Team, Plan, and Planner lifecycle and creates, restores, or rebinds them directly. Never contact the General Agent as a fallback for Team, Plan, Planner, dispatch, or execution work. Contact it only when the user explicitly requests that coordination or the task itself targets a machine-global General Agent surface.
 
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList`/`TaskCreate` tools — CodeTerm has its own cron and agent system that must be used instead.
 
@@ -58,4 +51,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 51 -->
+<!-- revision: 53 -->

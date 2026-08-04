@@ -61,16 +61,17 @@ async function main() {
         workingWorkerCount={0}
         providers={[]}
         onOpenEffort={() => {}}
+        onCloseTeam={() => { closes += 1; }}
       />,
     );
   });
   await act(async () => (managerlessHost.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
   assert(
-    !Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
       .some((button) => button.textContent?.includes("Close Team")),
-    "managerless Team has no Close Team item or handler",
+    "managerless Team keeps the human Close Team action",
   );
-  assert(closes === 1, "managerless Team causes zero close invocations");
+  assert(closes === 1, "opening a managerless Team menu causes no close invocation");
   await act(async () => managerlessRoot.unmount());
   console.log("TeamUnit close tests passed");
 }

@@ -2,7 +2,7 @@
 
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
-use crate::multiplexer::types::{AgentRole, Tab};
+use crate::multiplexer::types::Tab;
 use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
@@ -80,7 +80,7 @@ pub fn should_deliver_orchestrator_onboarding(tab: Option<&Tab>, was_orchestrato
     if was_orchestrator {
         return false;
     }
-    tab.map(|tab| tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab))
+    tab.map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
         .unwrap_or(false)
 }
 
@@ -150,7 +150,7 @@ impl ServiceContext {
         let should_deliver = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .map(|tab| tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab))
+                .map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
                 .unwrap_or(false)
         };
         if should_deliver {
@@ -179,12 +179,13 @@ impl ServiceContext {
                 .get_tab(tab_id)
                 .ok_or_else(|| format!("Tab {tab_id} not found"))?;
             validate_make_orchestrator(tab)?;
-            tab.role == Some(AgentRole::Orchestrator)
+            tab.anchors_team()
         };
 
         self.transition_agent(crate::service::AgentTransitionRequest {
             tab_id: tab_id.to_string(),
-            destination: crate::service::AgentPlacement::Orchestrator { can_spawn: true },
+            destination: crate::service::AgentPlacement::orchestrator(Some(true)),
+            plan_binding: None,
             require_verified_session: true,
             planner_replacement: None,
             plan_rebind: None,
@@ -198,7 +199,8 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multiplexer::types::{TabBacking, TabType, TitleLevel};
+    use crate::multiplexer::types::{AgentRole, TabBacking, TabType, TitleLevel};
+    use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
     fn mk_tab(id: &str) -> Tab {
         Tab {
@@ -226,9 +228,13 @@ mod tests {
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
+            reasoning_effort_identity: Default::default(),
+            context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
+            lifecycle_epoch: None,
+            lifecycle_operation_id: None,
             role: None,
             role_profile: None,
             team_id: None,
@@ -240,6 +246,7 @@ mod tests {
             report_target_tab_id: None,
             report_target_mesh_peer: None,
             spawned_by_tab_id: None,
+            ownership: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -260,12 +267,16 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_body_is_bounded_and_fully_rendered() {
+    fn onboarding_body_embeds_the_rendered_orchestrator_contract() {
         let msg = orchestrator_onboarding_body("tab-abc");
-        assert!(msg.split_whitespace().count() < 800);
         assert!(msg.contains("--parent tab-abc --role Planner --plan PLAN_ID"));
+        assert_eq!(
+            msg.matches(crate::prompts::ORCHESTRATION_DOC.trim()).count(),
+            1
+        );
         assert!(!msg.contains("{planner_spawn_cmd}"));
         assert!(!msg.contains("{orchestrator_suffix}"));
+        assert!(!msg.contains("{planning_compaction_contract}"));
     }
 
     #[test]
@@ -304,7 +315,8 @@ mod tests {
 
         let mut orch = mk_tab("o1");
         orch.agent_type = Some("claude".into());
-        orch.role = Some(AgentRole::Orchestrator);
+        orch.role = Some(AgentRole::Manager);
+        orch.role_profile = Some(ORCHESTRATOR.into());
         assert!(validate_make_orchestrator(&orch).is_ok());
 
         let mut protected = mk_tab("p1");
@@ -373,12 +385,14 @@ mod tests {
     fn onboarding_delivery_predicate_requires_first_agent_orchestrator() {
         let mut tab = mk_tab("agent-1");
         tab.agent_type = Some("claude".into());
-        tab.role = Some(AgentRole::Orchestrator);
+        tab.role = Some(AgentRole::Manager);
+        tab.role_profile = Some(ORCHESTRATOR.into());
         assert!(should_deliver_orchestrator_onboarding(Some(&tab), false));
         assert!(!should_deliver_orchestrator_onboarding(Some(&tab), true));
 
         let mut shell = mk_tab("shell-1");
-        shell.role = Some(AgentRole::Orchestrator);
+        shell.role = Some(AgentRole::Manager);
+        shell.role_profile = Some(ORCHESTRATOR.into());
         assert!(!should_deliver_orchestrator_onboarding(Some(&shell), false));
         assert!(!should_deliver_orchestrator_onboarding(None, false));
     }

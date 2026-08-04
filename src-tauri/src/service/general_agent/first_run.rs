@@ -137,6 +137,7 @@ pub fn complete_first_run_core(
     config: &crate::config::ConfigState,
     app: &AppHandle,
     provider_id: &str,
+    full_access: bool,
 ) -> Result<(), String> {
     let known = svc
         .agent_registry
@@ -152,6 +153,7 @@ pub fn complete_first_run_core(
         let mut cfg = config.lock();
         cfg.general_agent.agent_provider = provider_id.to_string();
         cfg.general_agent.first_run_complete = true;
+        cfg.agent.full_access = Some(full_access);
         let snapshot = cfg.clone();
         let default_chat_view =
             default_chat_view_for_provider(&snapshot, &svc.agent_registry, provider_id);
@@ -374,10 +376,12 @@ mod tests {
                         spawned_by_tab_id: None,
                         report_target_tab_id: None,
                         report_target_mesh_peer: None,
+                        ownership: None,
                         can_spawn: false,
                         depth: 0,
                         chat_view: Some(false),
                         auto_approve: false,
+                        audience: crate::multiplexer::types::TabAudience::User,
                         agent_session_model: None,
                         agent_planned_model: None,
                         agent_requested_model: None,

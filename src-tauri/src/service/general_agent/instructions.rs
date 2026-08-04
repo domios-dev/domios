@@ -59,6 +59,10 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
 /// Split out from [`generate_instructions`] so unit tests can verify the
 /// {wake_up} substitution without hitting real disk paths.
 pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> String {
+    render_agent_md_at(&general_dir(), provider_name, wake_up_section)
+}
+
+fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_section: &str) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") {
         "Windows"
@@ -70,8 +74,6 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
-
-    let dir = general_dir();
 
     let identity = std::fs::read_to_string(dir.join("identity.md")).unwrap_or_default();
     let soul = std::fs::read_to_string(dir.join("soul.md")).unwrap_or_default();
@@ -88,7 +90,7 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
         format!("\n## Soul\n\n{}\n", soul.trim())
     };
 
-    crate::prompts::GENERAL_AGENT_TEMPLATE
+    let role_contract = crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
@@ -102,15 +104,38 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
         .replace("{identity}", &identity_section)
         .replace("{soul}", &soul_section)
         .replace("{wake_up}", wake_up_section)
-        .replace("{codeterm_cli}", crate::prompts::CODETERM_CLI)
+        .replace("{codeterm_cli}", &general_cli_reference());
+    compose_system_prompt(&role_contract)
+}
+
+fn general_cli_reference() -> String {
+    format!(
+        "{}\n{}",
+        cli_without_memory_section(),
+        crate::prompts::AGENT_PAD_RULE.trim()
+    )
+}
+
+/// The GA receives memory guidance from its own sections, so the shared CLI
+/// reference drops that block. Falls back to the whole reference if the section
+/// headings move — losing the trim is harmless, losing the text would not be.
+fn cli_without_memory_section() -> String {
+    let cli = crate::prompts::CODETERM_CLI;
+    let Some(memory_start) = cli.find("## Memory (mem)") else {
+        return cli.to_string();
+    };
+    let Some(platform_offset) = cli[memory_start..].find("## Platform notes") else {
+        return cli.to_string();
+    };
+    let platform_start = memory_start + platform_offset;
+    format!("{}{}", &cli[..memory_start], &cli[platform_start..])
 }
 
 pub(super) fn render_system_prompt(
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) -> String {
-    let agent = render_agent_md(provider_name, &render_wake_up_section(mem));
-    compose_system_prompt(&agent)
+    render_agent_md(provider_name, &render_wake_up_section(mem))
 }
 
 fn compose_system_prompt(agent: &str) -> String {
@@ -120,6 +145,48 @@ fn compose_system_prompt(agent: &str) -> String {
         crate::prompts::CODETERM_RULE,
         crate::prompts::BRIDGE_MEM,
     )
+}
+
+const GENERATED_START: &str = "<!-- CODETERM-GENERATED-START -->";
+const GENERATED_END: &str = "<!-- CODETERM-GENERATED-END -->";
+const LEGACY_CONTRACT_START: &str = "# CodeTerm General Agent (v";
+
+fn generated_contract_bounds(existing: &str) -> Option<(usize, usize)> {
+    match (existing.find(GENERATED_START), existing.find(GENERATED_END)) {
+        (Some(start), Some(end)) if start < end => Some((start, end + GENERATED_END.len())),
+        _ => {
+            let start = existing.find(LEGACY_CONTRACT_START)?;
+            let memory_offset = existing[start..].find(crate::prompts::BRIDGE_MEM.trim())?;
+            let end = start + memory_offset + crate::prompts::BRIDGE_MEM.trim().len();
+            Some((start, end))
+        }
+    }
+}
+
+fn generated_contract_file(existing: &str, contract: &str) -> String {
+    let generated = format!("{GENERATED_START}\n{contract}\n{GENERATED_END}");
+    if let Some((start, end)) = generated_contract_bounds(existing) {
+        return format!("{}{generated}{}", &existing[..start], &existing[end..]);
+    }
+    if existing.is_empty() {
+        return format!("{generated}\n");
+    }
+    format!("{generated}\n\n{existing}")
+}
+
+fn claude_import_file(existing: &str) -> String {
+    let notes = existing
+        .lines()
+        .filter(|line| line.trim() != "@./AGENT.md")
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if notes.is_empty() {
+        "@./AGENT.md\n".to_string()
+    } else {
+        format!("@./AGENT.md\n\n{notes}\n")
+    }
 }
 
 /// Render the L0+L1 wake-up payload as a markdown section, or empty when
@@ -159,8 +226,16 @@ pub fn generate_instructions(
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
 ) {
     let dir = general_dir();
+    generate_instructions_at(&dir, provider_name, mem);
+}
+
+fn generate_instructions_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+) {
     let wake_up_section = render_wake_up_section(mem);
-    let agent_content = render_agent_md(provider_name, &wake_up_section);
+    let agent_content = render_agent_md_at(dir, provider_name, &wake_up_section);
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
@@ -168,13 +243,16 @@ pub fn generate_instructions(
         log::info!("[general-agent] AGENT.md updated");
     }
 
-    let claude_content = "@./AGENT.md\n";
-    if let Err(e) = std::fs::write(dir.join("CLAUDE.md"), claude_content) {
+    let claude_path = dir.join("CLAUDE.md");
+    let existing_claude = std::fs::read_to_string(&claude_path).unwrap_or_default();
+    if let Err(e) = std::fs::write(&claude_path, claude_import_file(&existing_claude)) {
         log::error!("[general-agent] Failed to write CLAUDE.md: {}", e);
     }
 
-    let agents_content = compose_system_prompt(&agent_content);
-    if let Err(e) = std::fs::write(dir.join("AGENTS.md"), agents_content) {
+    let agents_path = dir.join("AGENTS.md");
+    let existing_agents = std::fs::read_to_string(&agents_path).unwrap_or_default();
+    let agents_content = generated_contract_file(&existing_agents, &agent_content);
+    if let Err(e) = std::fs::write(agents_path, agents_content) {
         log::error!("[general-agent] Failed to write AGENTS.md: {}", e);
     }
 }
@@ -245,6 +323,7 @@ mod tests {
 
     #[test]
     fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
+        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let rendered = render_system_prompt("codex", None);
         assert_eq!(
             rendered
@@ -257,8 +336,96 @@ mod tests {
             1
         );
         assert!(rendered.contains("You are the General Agent"));
+        assert_eq!(rendered.matches("You are the General Agent").count(), 1);
+        assert_eq!(rendered.matches("# CodeTerm CLI reference").count(), 1);
+        assert_eq!(rendered.matches("# CodeTerm Memory Protocol").count(), 1);
+        assert_eq!(rendered.matches(DOCS_RULE).count(), 1);
         assert!(!rendered.contains("<!-- bootstrap: true -->"));
         assert!(!rendered.contains("first-ever boot"));
+    }
+
+    #[test]
+    fn generated_instruction_files_are_provider_correct_and_single_copy() {
+        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
+        let dir = std::env::temp_dir().join(format!("ga-instructions-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("identity.md"), "IDENTITY_SENTINEL").unwrap();
+        std::fs::write(dir.join("soul.md"), "SOUL_SENTINEL").unwrap();
+        std::fs::write(dir.join("CLAUDE.md"), "@./AGENT.md\n\nUSER_CLAUDE_NOTE\n").unwrap();
+        std::fs::write(dir.join("AGENTS.md"), "USER_AGENTS_NOTE\n").unwrap();
+
+        generate_instructions_at(&dir, "codex", None);
+
+        let agent = std::fs::read_to_string(dir.join("AGENT.md")).unwrap();
+        let claude = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+        let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        for contract in [&agent, &agents] {
+            assert_eq!(contract.matches("You are the General Agent").count(), 1);
+            assert_eq!(contract.matches("# CodeTerm CLI reference").count(), 1);
+            assert_eq!(contract.matches("# CodeTerm Memory Protocol").count(), 1);
+            assert_eq!(contract.matches("IDENTITY_SENTINEL").count(), 1);
+            assert_eq!(contract.matches("SOUL_SENTINEL").count(), 1);
+            assert_eq!(contract.matches(DOCS_RULE).count(), 1);
+        }
+        assert_eq!(claude.matches("@./AGENT.md").count(), 1);
+        assert_eq!(claude.matches(DOCS_RULE).count(), 0);
+        assert!(claude.contains("USER_CLAUDE_NOTE"));
+        assert!(agents.contains("USER_AGENTS_NOTE"));
+
+        generate_instructions_at(&dir, "codex", None);
+        let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        assert_eq!(agents.matches(GENERATED_START).count(), 1);
+        assert_eq!(agents.matches("USER_AGENTS_NOTE").count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_unmarked_agents_md_upgrades_without_preserving_generated_contract_as_notes() {
+        let dir = std::env::temp_dir().join(format!("ga-legacy-agents-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("identity.md"), "LEGACY_IDENTITY").unwrap();
+        std::fs::write(dir.join("soul.md"), "LEGACY_SOUL").unwrap();
+        let legacy_contract = render_agent_md_at(&dir, "codex", "");
+        let prepended_notes = "USER PREFIX\r\nkeep-leading-space:  yes\n";
+        let appended_notes = "\n\nUSER SUFFIX  \r\nkeep-final-newline\n";
+        std::fs::write(
+            dir.join("AGENTS.md"),
+            format!("{prepended_notes}{legacy_contract}{appended_notes}"),
+        )
+        .unwrap();
+
+        for _ in 0..2 {
+            generate_instructions_at(&dir, "codex", None);
+            let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+            assert!(agents.starts_with(prepended_notes));
+            assert!(agents.ends_with(appended_notes));
+            assert_eq!(agents.matches(GENERATED_START).count(), 1);
+            assert_eq!(agents.matches("You are the General Agent").count(), 1);
+            assert_eq!(agents.matches("# CodeTerm CLI reference").count(), 1);
+            assert_eq!(agents.matches("# CodeTerm Memory Protocol").count(), 1);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn general_agent_contract_preserves_memory_recall_save_graph_semantics() {
+        let rendered = render_system_prompt("codex", None);
+        for invariant in [
+            "ENGLISH IN MEM",
+            "SEARCH BEFORE ANSWERING",
+            "NEVER GUESS IDS",
+            "\"REMEMBER\" → SAVE NOW",
+            "Facts change → save the new one",
+            "TEMPORAL FACTS REQUIRE THE GRAPH",
+            "Past conversation → `codeterm sessions search`",
+            "codeterm mem skill new <slug>",
+        ] {
+            assert_eq!(
+                rendered.matches(invariant).count(),
+                1,
+                "memory invariant must appear once: {invariant}"
+            );
+        }
     }
 
     /// Reproduces the GA-auto-resume regression: when something else holds

@@ -155,19 +155,11 @@ pub async fn install_hooks_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let port = state.api_port;
-    state
-        .svc
-        .agent_registry
-        .with_provider(&q.provider, |p| p.install_integration(port))
-        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to install integration",
-            )
-        })?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let _ = q;
+    Err((
+        StatusCode::FORBIDDEN,
+        "Global provider integration install requires review in the local Settings UI",
+    ))
 }
 
 pub async fn uninstall_hooks_api(

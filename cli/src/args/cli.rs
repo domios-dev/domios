@@ -21,6 +21,8 @@ use super::misc::{
 };
 use super::orchestration::OrchestrationAction;
 use super::orchestrator::OrchestratorAction;
+use super::pad::PadAction;
+use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
@@ -61,8 +63,14 @@ pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,
 
-    /// List all available API methods
+    /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
+
+    /// Inspect the current agent tab's private ephemeral filesystem pad
+    Pad {
+        #[command(subcommand)]
+        action: PadAction,
+    },
 
     /// Plugin management — install, update, remove, manage channels
     Plugin {
@@ -104,6 +112,12 @@ pub enum Commands {
         action: OrchestrationAction,
     },
 
+    /// Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
+    Persona {
+        #[command(subcommand)]
+        action: PersonaAction,
+    },
+
     /// Tab management
     #[command(name = "tab")]
     Tab {
@@ -137,6 +151,10 @@ pub enum Commands {
         /// pass payloads that would otherwise be eaten by shell quoting.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+
+        /// Read text from a relative file in the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
+        from_pad: Option<String>,
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
@@ -337,31 +355,10 @@ pub enum Commands {
         action: SystemAction,
     },
 
-    /// Read embedded CodeTerm documentation. Docs are bundled into the
-    /// CLI binary at compile time so agents can request them on demand
-    /// without bloating the system prompt. `codeterm docs` lists, `codeterm
-    /// docs <name>` prints a bounded preview inside CodeTerm tabs; pass
-    /// --full for the complete doc. Names are case-insensitive and match the
-    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
+    /// Read embedded CodeTerm documentation in full. Omit NAME to list documents.
     Docs {
-        /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
+        /// Document name. Omit to list every available name and purpose.
         name: Option<String>,
-
-        /// Print the complete document even inside a CodeTerm tab.
-        #[arg(long, conflicts_with = "head")]
-        full: bool,
-
-        /// Print at most N lines.
-        #[arg(long)]
-        head: Option<usize>,
-    },
-
-    /// Read one embedded CodeTerm document in full.
-    ///
-    /// Canonical recovery entry for agents: `codeterm doc orchestration`.
-    Doc {
-        /// Doc name (e.g. orchestration).
-        name: String,
     },
 
     /// Internal diagnostics — verify crash reporter, etc. Dev-only;

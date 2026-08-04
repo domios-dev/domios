@@ -583,6 +583,7 @@ function codexParseWeeklyResets(raw, nowMs) {
 }
 
 // plugins/provider-codex/src/execWrapper.ts
+var MAX_SUMMARY_CHARS = 160;
 function quotedValue(source, key) {
   const keyMatch = new RegExp("\\b" + key + "\\s*:\\s*").exec(source);
   if (!keyMatch) return null;
@@ -610,8 +611,7 @@ function decodeString(value, quote) {
     return "\\" + escaped;
   });
 }
-function callObject(source) {
-  const start = source.indexOf("tools.shell_command");
+function callObjectAt(source, start) {
   const open = start < 0 ? -1 : source.indexOf("{", start);
   if (open < 0) return null;
   let depth = 0;
@@ -630,6 +630,19 @@ function callObject(source) {
     }
   }
   return null;
+}
+function callObjects(source, toolName) {
+  const objects = [];
+  const needle = `tools.${toolName}`;
+  let offset = 0;
+  while (offset < source.length) {
+    const start = source.indexOf(needle, offset);
+    if (start < 0) break;
+    const body = callObjectAt(source, start);
+    if (body) objects.push(body);
+    offset = start + needle.length;
+  }
+  return objects;
 }
 function jsonCallObject(source) {
   const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
@@ -652,7 +665,7 @@ function unwrapShellCommand(raw) {
       const timeout_ms2 = typeof value.timeout_ms === "number" ? value.timeout_ms : void 0;
       return { command: command2, ...workdir2 ? { workdir: workdir2 } : {}, ...timeout_ms2 !== void 0 ? { timeout_ms: timeout_ms2 } : {} };
     }
-    const body = callObject(raw);
+    const body = callObjects(raw, "shell_command")[0];
     if (!body) return null;
     const command = quotedValue(body, "command") || quotedValue(body, "cmd");
     if (!command || !command.trim()) return null;
@@ -663,6 +676,51 @@ function unwrapShellCommand(raw) {
   } catch (_) {
     return null;
   }
+}
+function compactCommand(command) {
+  return command.replace(/\s+/g, " ").trim();
+}
+function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
+  if (value.length <= limit) return value;
+  return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
+}
+function commandSummary(commands) {
+  const compact = commands.map(compactCommand).filter(Boolean);
+  const first = compact[0];
+  const suffix = compact.length > 1 ? ` (+${compact.length - 1} more)` : "";
+  const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
+  return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
+}
+function readableToolName(name) {
+  const leaf = name.split("__").pop() || name;
+  return leaf.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+function fallbackSummary(raw) {
+  const nested = /\btools\.([A-Za-z_$][\w$]*)/.exec(raw);
+  const firstLine = raw.split(/\r\n?|\n/).map((line) => line.trim()).find(Boolean) || "Tool activity";
+  const summary = nested ? readableToolName(nested[1]) : firstLine;
+  return { kind: "generic", summary: clipSummary(summary), detail: raw.trim() };
+}
+function summarizeExecScript(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const commandBodies = [
+    ...callObjects(raw, "exec_command"),
+    ...callObjects(raw, "shell_command")
+  ];
+  const commands = commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+  if (commands.length > 0) return commandSummary(commands);
+  const image = callObjects(raw, "view_image")[0];
+  if (image) {
+    const path = quotedValue(image, "path");
+    if (path) return { kind: "read", summary: clipSummary(path), detail: path };
+  }
+  const stdin = callObjects(raw, "write_stdin")[0];
+  if (stdin) {
+    const chars = quotedValue(stdin, "chars");
+    const summary = chars ? "Send input to running command" : "Wait for command output";
+    return { kind: "generic", summary, detail: summary };
+  }
+  return fallbackSummary(raw);
 }
 
 // plugins/provider-codex/src/patchEdits.ts
@@ -698,6 +756,183 @@ function patchEdits(patch) {
   }
 }
 
+// plugins/provider-codex/src/tabState.ts
+var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
+function classifyCodexTabState(snapshot, nowMs) {
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  if (!screen.trim()) return null;
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+  const activeChoice = parseActiveTerminalChoice(screen);
+  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
+  if (authConfidence >= CLASSIFY_THRESHOLD) {
+    return {
+      state: "waiting_on_auth",
+      confidence: authConfidence,
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+    };
+  }
+  if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
+  const update = scoreUpdatePrompt(screen);
+  if (update.confidence >= CLASSIFY_THRESHOLD && update.installKeys && update.installKeys.length > 0 && update.skipKeys && update.skipKeys.length > 0) {
+    return {
+      state: "update_prompt",
+      confidence: update.confidence,
+      action: {
+        providerUpdate: {
+          installKeys: update.installKeys,
+          declineKeys: update.skipKeys
+        }
+      }
+    };
+  }
+  const rateLimit = scoreRateLimit(screen, nowMs);
+  if (rateLimit.confidence >= CLASSIFY_THRESHOLD) {
+    const action = {};
+    const data = {};
+    if (rateLimit.resetAtMs !== null) {
+      data.resetAt = new Date(rateLimit.resetAtMs).toISOString();
+      action.delayedResume = {
+        at: new Date(rateLimit.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+        text: "continue your work",
+        thenKeys: ["enter"]
+      };
+    } else {
+      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+    }
+    return {
+      state: "rate_limited",
+      confidence: rateLimit.confidence,
+      data: rateLimit.resetAtMs !== null ? data : void 0,
+      action
+    };
+  }
+  if (activeChoice) {
+    return {
+      state: "clarifying_question",
+      confidence: 1,
+      data: { questions: [activeChoice.question] },
+      action: {
+        surface: {
+          kind: "clarifying_question",
+          payload: { questions: [activeChoice.question] }
+        }
+      }
+    };
+  }
+  const partial = rateLimit.confidence > update.confidence ? rateLimit.confidence : update.confidence;
+  if (partial > 0) return { state: "unknown", confidence: partial };
+  return { state: "working", confidence: 0 };
+}
+function navigationKeys(options, matches) {
+  if (options.length === 0) return null;
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  let targetIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (matches(options[i].label)) {
+      targetIdx = i;
+      break;
+    }
+  }
+  if (targetIdx === -1) return null;
+  const keys = [];
+  const delta = targetIdx - highlightIdx;
+  if (delta > 0) {
+    for (let i = 0; i < delta; i++) keys.push("down");
+  } else if (delta < 0) {
+    for (let i = 0; i < -delta; i++) keys.push("up");
+  }
+  keys.push("enter");
+  return keys;
+}
+function skipNavigationKeys(options) {
+  return navigationKeys(
+    options,
+    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)
+  );
+}
+function scoreUpdatePrompt(screen) {
+  const options = parseMenuOptions(screen);
+  let hasUpdateOption = false;
+  let hasSkipOption = false;
+  for (let i = 0; i < options.length; i++) {
+    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
+    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
+  }
+  const actionableMenu = hasUpdateOption && hasSkipOption;
+  let confidence = 0;
+  if (actionableMenu) confidence += 0.45;
+  if (/\b(update|version)\s+available\b/i.test(screen)) confidence += 0.2;
+  if (/\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen)) {
+    confidence += 0.15;
+  }
+  if (/press\s+enter\s+to\s+continue/i.test(screen)) confidence += 0.1;
+  if (/release\s+notes/i.test(screen)) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  return {
+    confidence,
+    skipKeys: actionableMenu ? skipNavigationKeys(options) : null,
+    installKeys: actionableMenu ? navigationKeys(options, (label) => /\bupdate\b/i.test(label)) : null
+  };
+}
+function looksBusy(screen) {
+  return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(screen) || /\bWorking[….]/.test(screen) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(screen);
+}
+function looksLikeModelPicker(screen) {
+  if (!/\bselect\s+(?:model|reasoning)\b/i.test(screen)) return false;
+  return /\bpress\s+enter\s+to\s+confirm\b/i.test(screen) && /\besc\s+to\s+go\s+back\b/i.test(screen);
+}
+function scoreRateLimit(screen, nowMs) {
+  let confidence = 0;
+  if (/\bhit your usage limit\b/i.test(screen) || /\breached your usage limit\b/i.test(screen)) {
+    confidence += 0.5;
+  }
+  if (/\btry again at\b/i.test(screen)) confidence += 0.3;
+  if (/chatgpt\.com\/codex\/settings/i.test(screen)) confidence += 0.1;
+  if (/\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen)) {
+    confidence += 0.1;
+  }
+  if (confidence > 1) confidence = 1;
+  return { confidence, resetAtMs: parseTryAgainClock(screen, nowMs) };
+}
+function parseTryAgainClock(screen, nowMs) {
+  const match = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(screen);
+  return match ? parseTodayClock(match[1], nowMs) : null;
+}
+function parseTodayClock(value, nowMs) {
+  const match = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(value.trim());
+  if (!match) return null;
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2] || "0", 10);
+  if (hour === 0 || hour > 12 || minute > 59) return null;
+  const hour24 = hour % 12 + (match[3].toLowerCase() === "pm" ? 12 : 0);
+  const now = new Date(nowMs);
+  let candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, minute, 0, 0);
+  if (candidate.getTime() <= nowMs) {
+    candidate = new Date(candidate.getTime() + 24 * 3600 * 1e3);
+  }
+  return candidate.getTime();
+}
+function scoreAuthPrompt(screen) {
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(screen)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(screen)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(screen)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(screen)) score += 0.6;
+  if (/\bapi key\b/i.test(screen)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(screen)) score += 0.6;
+  if (/\bauthorization code\b/i.test(screen)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(screen)) score += 0.6;
+  return score > 1 ? 1 : score;
+}
+
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
@@ -717,12 +952,14 @@ var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
   if (params.starterPrompt === "no_starter") return void 0;
-  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  let body;
+  if (params.starterPrompt === "idle_wakeup") body = IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
-    return params.starterPromptText;
+    body = params.starterPromptText;
   }
-  return ASSIGNED_TASK_START_PROMPT;
+  body ??= ASSIGNED_TASK_START_PROMPT;
+  return params.starterPromptPrefix ? ` ${params.starterPromptPrefix}${body}` : body;
 }
 function hasPromptAndStatusFooter(screen) {
   if (screen.indexOf("\u203A") === -1) return false;
@@ -1016,7 +1253,7 @@ var plugin = {
   checkIntegration() {
     const path = codexHooksPath();
     if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "hook trust"] };
     }
     const json = host.fs.readJson(path);
     if (!json) {
@@ -1042,26 +1279,106 @@ var plugin = {
       hooks_installed: current && trustOk,
       session_start_hook: current && trustOk,
       hook_trust_state: trustState,
-      hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null
+      hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null,
+      target: path,
+      backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["SessionStart hook", "hook trust"]
     };
   },
-  installIntegration(apiPort) {
+  installIntegration(apiPort, options) {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const path = codexHooksPath();
     if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-    const json = host.fs.fileExists(path) ? host.fs.readJson(path) || {} : {};
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
-    if (!Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = [];
+    const hooksExisted = host.fs.fileExists(path);
+    const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+    if (hooksExisted && typeof originalHooksValue !== "string") {
+      return { ok: false, error: "could not read existing hooks JSON at " + path };
+    }
+    const originalHooks = typeof originalHooksValue === "string" ? originalHooksValue : "";
+    let parsedHooks = {};
+    if (hooksExisted) {
+      try {
+        parsedHooks = JSON.parse(originalHooks);
+      } catch (_) {
+        return { ok: false, error: "existing hooks JSON is malformed at " + path };
+      }
+    }
+    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) {
+      return { ok: false, error: "existing hooks JSON must contain an object at " + path };
+    }
+    const json = parsedHooks;
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    if (json.hooks?.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
+    const configPath = codexConfigPath();
+    const configExisted = !!configPath && host.fs.fileExists(configPath);
+    const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+    if (configExisted && typeof originalConfigValue !== "string") {
+      return { ok: false, error: "could not read existing Codex config at " + configPath };
+    }
+    const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
+    const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
+    const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+    if (scriptExisted && typeof originalScriptValue !== "string") {
+      return { ok: false, error: "could not read existing hook script at " + scriptPath };
+    }
+    const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
+    const ownershipPath = codexHookTrustOwnershipPath();
+    const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
+    if (ownershipPath && !ownershipSnapshot) {
+      return { ok: false, error: "could not read existing Codex trust ownership record" };
+    }
+    const artifactPaths = [
+      path + ".codeterm-backup",
+      path + ".codeterm-backup-state",
+      ...configPath && configExisted ? [configPath + ".codeterm-backup"] : [],
+      ...scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []
+    ];
+    const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
+    if (artifactSnapshots.some((snapshot) => snapshot === null)) {
+      return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
+    }
+    const rollbackSnapshots = [
+      { path, existed: hooksExisted, bytes: originalHooks },
+      ...configPath ? [{ path: configPath, existed: configExisted, bytes: originalConfig }] : [],
+      ...scriptPath ? [{ path: scriptPath, existed: scriptExisted, bytes: originalScript }] : [],
+      ...ownershipSnapshot ? [ownershipSnapshot] : [],
+      ...artifactSnapshots
+    ];
+    const fail = (error) => {
+      const restored = restoreIntegrationFiles(rollbackSnapshots);
+      return { ok: false, error: restored ? error : error + "; exact rollback failed" };
+    };
+    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks) || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
+      return fail("could not write recoverable backup for " + path);
+    }
+    if (configPath && configExisted && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
+      return fail("could not write recoverable backup for " + configPath);
+    }
+    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript) || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
+      return fail("could not write recoverable backup for " + scriptPath);
+    }
+    if (!json.hooks) json.hooks = {};
+    if (json.hooks.SessionStart !== void 0 && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
+    if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
     json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
     const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     const port = apiPort | 0;
-    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const cmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true";
-    const scriptPath = codexWindowsHookScriptPath();
+    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+    const cmd = guard + `curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
     const commandWindows = scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"' : cmd;
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
-      return { ok: false, error: "writeFile failed for " + scriptPath };
+      return fail("writeFile failed for " + scriptPath);
     }
     json.hooks.SessionStart.push({
       matcher: "startup|resume|clear|compact",
@@ -1076,28 +1393,80 @@ var plugin = {
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       const trust = enableExistingCodexHookTrust(path);
+      if (trust.write_failed) return fail("could not enable existing Codex hook trust");
+      if (trust.changed) {
+        if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
+          return fail("could not record owned Codex hook trust expansion");
+        }
+      }
       host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
-      return { ok: true, hook_trust_state: trust };
+      return { ok: true, hook_trust_state: trust.state };
     }
-    return { ok: false, error: "writeJson failed for " + path };
+    return fail("writeJson failed for " + path);
   },
   uninstallIntegration() {
     const path = codexHooksPath();
-    if (!path || !host.fs.fileExists(path)) return { ok: true };
-    const json = host.fs.readJson(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    if (Array.isArray(json.hooks.SessionStart)) {
-      json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+    if (!path) return { ok: true };
+    let hooksOk = true;
+    if (host.fs.fileExists(path)) {
+      const json = host.fs.readJson(path);
+      if (!json || !json.hooks || typeof json.hooks !== "object") {
+        return { ok: false, error: "could not safely read hooks JSON at " + path };
+      }
+      if (Array.isArray(json.hooks.SessionStart)) {
+        json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      }
+      hooksOk = host.fs.writeJson(path, json);
     }
-    const ok = host.fs.writeJson(path, json);
+    const ownershipPath = codexHookTrustOwnershipPath();
+    if (ownershipPath && host.fs.fileExists(ownershipPath)) {
+      const ownedTarget = host.fs.readFile(ownershipPath);
+      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
+        host.fs.removeFile(ownershipPath);
+      }
+    }
     const scriptPath = codexWindowsHookScriptPath();
-    if (scriptPath && host.fs.fileExists(scriptPath)) host.fs.removeFile(scriptPath);
-    return ok ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
+      host.fs.removeFile(scriptPath);
+    }
+    return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+  },
+  restoreIntegration() {
+    const path = codexHooksPath();
+    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const hooks = host.fs.readFile(backup);
+    if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
+    const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+    if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
+      if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
+    } else if (!host.fs.writeFile(path, hooks)) {
+      return { ok: false, error: "restore failed for " + path };
+    }
+    const config = codexConfigPath();
+    if (config && host.fs.fileExists(config + ".codeterm-backup")) {
+      const original = host.fs.readFile(config + ".codeterm-backup");
+      if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+      const ownershipPath = codexHookTrustOwnershipPath();
+      if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
+    }
+    const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    if (script && host.fs.fileExists(script + ".codeterm-backup")) {
+      const original = host.fs.readFile(script + ".codeterm-backup");
+      if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
+      const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+      if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
+        if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
+      } else if (!host.fs.writeFile(script, original)) {
+        return { ok: false, error: "restore failed for " + script };
+      }
+    }
+    return { ok: true };
   },
   ensureIntegrationOnStartup(apiPort) {
-    const status = this.checkIntegration();
-    if (status && status.hooks_installed) return { ok: true };
-    return this.installIntegration(apiPort);
+    void apiPort;
+    return { ok: true, changed: false };
   },
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
@@ -1213,187 +1582,16 @@ var plugin = {
     return out;
   },
   classifyTabState(snapshot) {
-    const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
-    if (!screen.trim()) return null;
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
-    const activeChoice = parseActiveTerminalChoice(screen);
-    const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
-    if (authConfidence >= CLASSIFY_THRESHOLD) {
-      return {
-        state: "waiting_on_auth",
-        confidence: authConfidence,
-        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
-      };
-    }
-    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
-    const upd = scoreUpdatePrompt(screen);
-    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
-      return {
-        state: "update_prompt",
-        confidence: upd.confidence,
-        action: { keys: upd.skipKeys }
-      };
-    }
-    const rl = scoreRateLimit(screen, host.unixNowMs());
-    if (rl.confidence >= CLASSIFY_THRESHOLD) {
-      const action = {};
-      const data = {};
-      if (rl.resetAtMs !== null) {
-        data.resetAt = new Date(rl.resetAtMs).toISOString();
-        action.delayedResume = {
-          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
-          text: "continue your work",
-          thenKeys: ["enter"]
-        };
-      } else {
-        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
-      }
-      return {
-        state: "rate_limited",
-        confidence: rl.confidence,
-        data: rl.resetAtMs !== null ? data : void 0,
-        action
-      };
-    }
-    if (activeChoice) {
-      return {
-        state: "clarifying_question",
-        confidence: 1,
-        data: { questions: [activeChoice.question] },
-        action: {
-          surface: {
-            kind: "clarifying_question",
-            payload: { questions: [activeChoice.question] }
-          }
-        }
-      };
-    }
-    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
-    if (partial > 0) return { state: "unknown", confidence: partial };
-    return { state: "working", confidence: 0 };
+    return classifyCodexTabState(snapshot, host.unixNowMs());
+  },
+  providerSelfUpdateCapability() {
+    return {
+      inSession: true,
+      restartRequired: true,
+      completionSignal: "provider_classification"
+    };
   }
 };
-var CLASSIFY_THRESHOLD = 0.8;
-var RESUME_BUFFER_MS = 60 * 1e3;
-function skipNavigationKeys(options) {
-  if (options.length === 0) return null;
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  let skipIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    const label = options[i].label;
-    if (/\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)) {
-      skipIdx = i;
-      break;
-    }
-  }
-  if (skipIdx === -1) return null;
-  const keys = [];
-  const delta = skipIdx - highlightIdx;
-  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
-  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
-  keys.push("enter");
-  return keys;
-}
-function scoreUpdatePrompt(screen) {
-  const options = parseMenuOptions(screen);
-  let hasUpdateOption = false;
-  let hasSkipOption = false;
-  for (let i = 0; i < options.length; i++) {
-    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
-    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
-  }
-  const sigUpdateSkipMenu = hasUpdateOption && hasSkipOption;
-  const sigAvailable = /\b(update|version)\s+available\b/i.test(screen);
-  const sigVersionArrow = /\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen);
-  const sigPressEnter = /press\s+enter\s+to\s+continue/i.test(screen);
-  const sigReleaseNotes = /release\s+notes/i.test(screen);
-  let confidence = 0;
-  if (sigUpdateSkipMenu) confidence += 0.45;
-  if (sigAvailable) confidence += 0.2;
-  if (sigVersionArrow) confidence += 0.15;
-  if (sigPressEnter) confidence += 0.1;
-  if (sigReleaseNotes) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
-  return { confidence, skipKeys };
-}
-function looksBusy(screen) {
-  const s = String(screen || "");
-  return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
-}
-function looksLikeModelPicker(screen) {
-  const s = String(screen || "");
-  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
-  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
-}
-function scoreRateLimit(screen, nowMs) {
-  const s = String(screen || "");
-  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s);
-  const sigTryAgain = /\btry again at\b/i.test(s);
-  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);
-  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);
-  let confidence = 0;
-  if (sigHitLimit) confidence += 0.5;
-  if (sigTryAgain) confidence += 0.3;
-  if (sigSettingsLink) confidence += 0.1;
-  if (sigResetClock) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const resetAtMs = parseTryAgainClock(s, nowMs);
-  return { confidence, resetAtMs };
-}
-function parseTryAgainClock(screen, nowMs) {
-  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
-  if (!m) return null;
-  return codexParseTodayClock(m[1], nowMs);
-}
-function codexParseHMmAmPm(s) {
-  s = String(s || "").trim().toLowerCase();
-  let pm;
-  if (s.slice(-2) === "pm") pm = true;
-  else if (s.slice(-2) === "am") pm = false;
-  else return null;
-  const stripped = s.slice(0, -2).trim();
-  let hh, mm;
-  const idx = stripped.indexOf(":");
-  if (idx !== -1) {
-    hh = parseInt(stripped.slice(0, idx).trim(), 10);
-    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
-  } else {
-    hh = parseInt(stripped, 10);
-    mm = 0;
-  }
-  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
-  return { hh, mm, pm };
-}
-function codexParseTodayClock(s, nowMs) {
-  const t = codexParseHMmAmPm(s);
-  if (!t) return null;
-  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
-  return cand.getTime();
-}
-function scoreAuthPrompt(screen) {
-  const s = String(screen || "");
-  let score = 0;
-  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
-  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
-  if (/\bapi key\b/i.test(s)) score += 0.6;
-  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
-  if (/\bauthorization code\b/i.test(s)) score += 0.6;
-  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
-  return score > 1 ? 1 : score;
-}
 function nestedApplyPatch(raw) {
   const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
   if (!call) return null;
@@ -1414,9 +1612,11 @@ function nestedApplyPatch(raw) {
 function canonicalToolFields(name, input) {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
   const shell = raw ? unwrapShellCommand(raw) : null;
   const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
   const edits = patch ? patchEdits(patch) : [];
+  if (script) return { tool_kind: script.kind, tool_summary: script.summary, tool_detail: script.detail };
   if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
   if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
   if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
@@ -1452,15 +1652,32 @@ function codexWindowsHookScriptPath() {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
 }
-function codexWindowsHookScript(apiPort) {
+function codexHookTrustOwnershipPath() {
+  const config = codexConfigPath();
+  return config ? config + ".codeterm-hook-trust-owned" : null;
+}
+function captureIntegrationFile(path) {
+  const existed = host.fs.fileExists(path);
+  const bytes = existed ? host.fs.readFile(path) : "";
+  return typeof bytes === "string" ? { path, existed, bytes } : null;
+}
+function restoreIntegrationFiles(snapshots) {
+  let restored = true;
+  for (let i = snapshots.length - 1; i >= 0; i--) {
+    const snapshot = snapshots[i];
+    const ok = snapshot.existed ? host.fs.writeFile(snapshot.path, snapshot.bytes) : !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+    restored = ok && restored;
+  }
+  return restored;
+}
+function codexWindowsHookScript(_apiPort) {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$tab = $env:CODETERM_TAB_ID",
-    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
-    '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
-    '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
+    "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
+    '$base = $env:CODETERM_API_URL.TrimEnd("/")',
     "$headers = @{",
     '  "Content-Type" = "application/json"',
     '  "X-CodeTerm-Agent-Provider" = "codex"',
@@ -1468,9 +1685,7 @@ function codexWindowsHookScript(apiPort) {
     "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
     '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
     "}",
-    "if ($env:CODETERM_API_TOKEN) {",
-    '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
-    "}",
+    '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
     "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
@@ -1494,6 +1709,10 @@ function isCodetermCodexHook(entry) {
   }
   return false;
 }
+function isOwnedCodexWindowsHookScript(path) {
+  const text = host.fs.readFile(path);
+  return typeof text === "string" && text === codexWindowsHookScript(0);
+}
 function codexHookTrustState(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
@@ -1507,18 +1726,32 @@ function codexHookTrustState(hooksPath) {
 }
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
   const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return "missing";
+  if (!text) return { state: "missing", changed: false, write_failed: false };
   const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  if (!span) return "missing";
+  if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    return codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    const state = codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next) ? "enabled" : "unknown";
+  return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
+}
+function disableOwnedCodexHookTrust(hooksPath) {
+  const cfg = codexConfigPath();
+  if (!cfg || !host.fs.fileExists(cfg)) return true;
+  const text = host.fs.readFile(cfg);
+  if (typeof text !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  if (!span) return true;
+  const block = text.substring(span.start, span.end);
+  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
+  if (nextBlock === block) return true;
+  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  return host.fs.writeFile(cfg, next);
 }
 function findCodexHookTrustBlock(text, hooksPath) {
   const span = findCodexHookTrustBlockSpan(text, hooksPath);

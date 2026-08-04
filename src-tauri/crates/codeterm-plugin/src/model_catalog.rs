@@ -192,6 +192,53 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
     reg.insert(provider_id.to_string(), ProviderModels::seed(defaults));
 }
 
+/// Replace one provider's registered catalog without preserving a live overlay.
+/// Capability lifecycles use this when the provider implementation itself was
+/// replaced, so models from the prior implementation cannot survive a refresh.
+pub fn replace(provider_id: &str, defaults: RegisteredDefaults) {
+    seed_registry()
+        .write()
+        .insert(provider_id.to_string(), defaults.clone());
+    registry()
+        .write()
+        .insert(provider_id.to_string(), ProviderModels::seed(defaults));
+}
+
+/// Replace one provider, resolve user override precedence once, then retain the
+/// resolved in-memory snapshot for pure descriptor reads.
+pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> RegisteredDefaults {
+    replace(provider_id, defaults);
+    let resolved = RegisteredDefaults {
+        models: resolve_models(provider_id),
+        default: resolve_default(provider_id),
+    };
+    registry().write().insert(
+        provider_id.to_string(),
+        ProviderModels::seed(resolved.clone()),
+    );
+    resolved
+}
+
+/// Remove only `provider_id` from every in-memory catalog registry.
+pub fn unregister(provider_id: &str) {
+    registry().write().remove(provider_id);
+    seed_registry().write().remove(provider_id);
+    effort_registry().write().remove(provider_id);
+    override_cache().write().remove(provider_id);
+}
+
+/// Pure in-memory snapshot used by descriptor hot paths.
+pub fn registered_snapshot(provider_id: &str) -> RegisteredDefaults {
+    registry()
+        .read()
+        .get(provider_id)
+        .map(ProviderModels::as_defaults)
+        .unwrap_or(RegisteredDefaults {
+            models: Vec::new(),
+            default: None,
+        })
+}
+
 pub fn register_reasoning_efforts(
     provider_id: &str,
     efforts: Vec<ReasoningEffortInfo>,

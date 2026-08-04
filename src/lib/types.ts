@@ -1,3 +1,5 @@
+import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
+
 /** Title priority: higher levels cannot be overwritten by lower ones. */
 export enum TitleLevel {
   Default = "Default",
@@ -48,7 +50,7 @@ export interface ClosedTabView extends ClosedTab {
   group_kind: "single" | "cascade" | "workspace";
 }
 
-export type AgentRole = "Orchestrator" | "Manager" | "Worker";
+export type AgentRole = "Manager" | "Worker";
 
 export interface PromptOption {
   label: string;
@@ -145,6 +147,7 @@ export interface TabBootStageEvent {
 
 export interface Tab {
   id: string;
+  workspace_id?: string | null;
   /** Per-group sibling ordinal within the owning workspace or hierarchy. */
   sort_order?: number;
   pty_id: string | null;
@@ -168,6 +171,18 @@ export interface Tab {
   session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
+  reasoning_effort_identity?: {
+    planned?: string | null;
+    requested?: string | null;
+    resolved?: string | null;
+    actual: string | null;
+    actual_source?: "session-owned" | "provider-default-unverified" | null;
+  };
+  context_epoch_archives?: Array<{
+    provider: string;
+    cwd: string;
+    session_id: string;
+  }>;
   role?: AgentRole | null;
   role_profile?: string | null;
   team_id?: string | null;
@@ -186,12 +201,27 @@ export interface Tab {
   show_in_tabbar?: boolean;
   worker_id?: string | null;
   agent_booting?: boolean;
+  /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
+  auto_approve?: boolean;
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
   boot_failure_reason?: string | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
+  remote_peer_id?: string;
+  remote_peer_name?: string;
+  remote_tab_id?: string;
+  remote_channels?: RemoteChannelAvailabilityMap;
+  ownership?: RemoteOwnership;
+}
+
+export interface RemoteOwnership {
+  controller_title: string;
+  controller_tab_id?: string;
+  peer_id: string;
+  peer_name: string;
+  team?: { id: string; title?: string };
 }
 
 export interface MultiplexerState {
@@ -222,6 +252,8 @@ export interface Team {
   lifecycle: TeamLifecycle;
   created_at: number;
   workspace_id: string;
+  /** Set only on a synthesized remote Team; shows the origin peer once in the header. */
+  remote_peer_name?: string | null;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_tab`). */
@@ -460,7 +492,7 @@ export interface AgentConfig {
   poll_interval_ms: number;
   idle_timeout_s: number;
   resume_sessions: boolean;
-  resume_skip_permissions: boolean;
+  full_access?: boolean;
 }
 
 export interface ApiConfig {
@@ -469,6 +501,7 @@ export interface ApiConfig {
   port: number;
   token: string | null;
   cors: boolean;
+  cors_allow_origins?: string[];
 }
 
 export interface GeneralAgentConfig {
@@ -594,7 +627,6 @@ export interface MeshPeersResponse {
 /// Mirrors `src-tauri/src/config/schema.rs::ProviderConfig`.
 export interface ProviderConfig {
   resume_sessions?: boolean;
-  resume_skip_permissions?: boolean;
   default_model?: string;
   /// When false, the provider is hidden from the per-workspace
   /// "New <Provider> Session" menu. Defaults to true (visible).
@@ -770,6 +802,7 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
+  supports_permission_bypass?: boolean;
   /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
   supports_chat_ui?: boolean;
@@ -790,6 +823,11 @@ export interface ProviderDescriptor {
   /// Provider-declared in-agent context-compaction command. Consumed
   /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
   compact_command?: string | null;
+  self_update?: {
+    inSession: boolean;
+    restartRequired: boolean;
+    completionSignal?: "provider_classification" | null;
+  } | null;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

@@ -44,12 +44,6 @@ struct DelayedOnly {
 }
 
 #[derive(Parser)]
-enum DocsOnly {
-    Docs,
-    Doc { name: String },
-}
-
-#[derive(Parser)]
 struct SendOnly {
     #[arg(allow_hyphen_values = true)]
     text: Option<String>,
@@ -202,17 +196,30 @@ fn standalone_task_add_parses_qa_plan_file() {
 
 #[test]
 fn top_level_docs_parse() {
-    let parsed = DocsOnly::try_parse_from(["codeterm", "docs"]).expect("docs parses");
-    assert!(matches!(parsed, DocsOnly::Docs));
+    let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
+    assert!(matches!(parsed.command, Commands::Docs { name: None }));
 }
 
 #[test]
-fn top_level_doc_parse() {
+fn named_docs_parse_without_selectors() {
     let parsed =
-        DocsOnly::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");
-    match parsed {
-        DocsOnly::Doc { name } => assert_eq!(name, "orchestration"),
-        _ => panic!("expected doc"),
+        Cli::try_parse_from(["codeterm", "docs", "ORCHESTRATION"]).expect("named document parses");
+
+    match parsed.command {
+        Commands::Docs { name } => assert_eq!(name.as_deref(), Some("ORCHESTRATION")),
+        _ => panic!("expected docs"),
+    }
+}
+
+#[test]
+fn removed_docs_selectors_and_alias_are_rejected() {
+    for args in [
+        vec!["codeterm", "docs", "ORCHESTRATION", "--section", "the-loop"],
+        vec!["codeterm", "docs", "ORCHESTRATION", "--full"],
+        vec!["codeterm", "docs", "ORCHESTRATION", "--head", "12"],
+        vec!["codeterm", "doc", "ORCHESTRATION"],
+    ] {
+        assert!(Cli::try_parse_from(args).is_err());
     }
 }
 
@@ -295,6 +302,29 @@ fn tab_new_without_chat_backend_defaults_to_none() {
 }
 
 #[test]
+fn tab_restart_parses_replacement_shell_parameters() {
+    let parsed = TabOnly::try_parse_from([
+        "tab",
+        "restart",
+        "--tab",
+        "tab-1",
+        "--cwd",
+        "D:/repo",
+        "--cmd",
+        ".\\build.ps1 dev",
+    ])
+    .expect("tab restart parses");
+    match parsed.action {
+        TabAction::Restart { tab, cwd, cmd } => {
+            assert_eq!(tab.as_deref(), Some("tab-1"));
+            assert_eq!(cwd.as_deref(), Some("D:/repo"));
+            assert_eq!(cmd.as_deref(), Some(".\\build.ps1 dev"));
+        }
+        _ => panic!("expected tab restart"),
+    }
+}
+
+#[test]
 fn tab_list_defaults_to_compact_current_workspace_scope() {
     let parsed = TabOnly::try_parse_from(["tab", "list"]).expect("tab list parses");
     assert!(matches!(
@@ -323,8 +353,16 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         TabOnly::try_parse_from(["tab", "inspect", "tab_1", "tab_2"]).expect("tab inspect parses");
     assert!(matches!(
         inspected.action,
-        TabAction::Inspect { tabs } if tabs == ["tab_1", "tab_2"]
+        TabAction::Inspect { tabs, tab } if tabs == ["tab_1", "tab_2"] && tab.is_empty()
     ));
+    let canonical = TabOnly::try_parse_from(["tab", "inspect", "--tab", "tab_1", "--tab", "tab_2"])
+        .expect("canonical tab selectors parse");
+    assert!(matches!(
+        canonical.action,
+        TabAction::Inspect { tabs, tab } if tabs.is_empty() && tab == ["tab_1", "tab_2"]
+    ));
+    assert!(TabOnly::try_parse_from(["tab", "focus", "--tab", "tab_1"]).is_ok());
+    assert!(TabOnly::try_parse_from(["tab", "close", "--tab", "tab_1"]).is_ok());
     let all = TabOnly::try_parse_from(["tab", "list", "--all-workspaces"])
         .expect("all-workspaces tab list parses");
     assert!(matches!(
@@ -339,6 +377,32 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         TabOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
             .is_err()
     );
+}
+
+#[test]
+fn every_tab_command_accepts_canonical_tab_flag() {
+    for command in ["focus", "close"] {
+        let mut parsed = TabOnly::try_parse_from(["tab", command, "--tab", "tab_1"])
+            .expect("canonical selector parses");
+        crate::args::misc::normalize_required_tab_selector(&mut parsed.action)
+            .expect("canonical selector normalizes");
+        assert!(matches!(
+            parsed.action,
+            TabAction::Focus { id: Some(ref id), tab: None }
+                | TabAction::Close { id: Some(ref id), tab: None }
+                if id == "tab_1"
+        ));
+    }
+    let mut positional = TabOnly::try_parse_from(["tab", "close", "tab_2"]).unwrap();
+    crate::args::misc::normalize_required_tab_selector(&mut positional.action).unwrap();
+    assert!(matches!(
+        positional.action,
+        TabAction::Close { id: Some(ref id), tab: None } if id == "tab_2"
+    ));
+    let mut missing = TabOnly::try_parse_from(["tab", "close"]).unwrap();
+    let error = crate::args::misc::normalize_required_tab_selector(&mut missing.action)
+        .expect_err("missing selector is a CLI error");
+    assert_eq!(error, "tab close requires --tab <ID>");
 }
 
 #[test]
@@ -427,6 +491,114 @@ fn delayed_create_parses() {
             ..
         } if v == "5m"
     ));
+}
+
+#[test]
+fn from_pad_parses_for_every_text_body_consumer() {
+    for argv in [
+        vec!["codeterm", "send", "--from-pad", "message.md"],
+        vec![
+            "codeterm",
+            "delayed",
+            "create",
+            "--delay",
+            "5m",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "delayed",
+            "edit",
+            "delayed-1",
+            "--from-pad",
+            "message.md",
+        ],
+        vec!["codeterm", "agent", "report", "--from-pad", "report.md"],
+        vec!["codeterm", "paste", "put", "--from-pad", "message.md"],
+        vec![
+            "codeterm",
+            "bridge",
+            "send",
+            "--to",
+            "42",
+            "--from-pad",
+            "message.md",
+        ],
+    ] {
+        Cli::try_parse_from(argv).expect("--from-pad consumer must parse");
+    }
+}
+
+#[test]
+fn from_pad_conflicts_with_other_body_sources() {
+    for argv in [
+        vec!["codeterm", "send", "inline", "--from-pad", "message.md"],
+        vec![
+            "codeterm",
+            "send",
+            "--from-file",
+            "other.md",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "delayed",
+            "create",
+            "inline",
+            "--delay",
+            "5m",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "agent",
+            "report",
+            "inline",
+            "--from-pad",
+            "report.md",
+        ],
+        vec![
+            "codeterm",
+            "agent",
+            "report",
+            "--doc",
+            "report.md",
+            "--from-pad",
+            "report.md",
+        ],
+        vec![
+            "codeterm",
+            "paste",
+            "put",
+            "inline",
+            "--from-pad",
+            "message.md",
+        ],
+        vec![
+            "codeterm",
+            "bridge",
+            "send",
+            "inline",
+            "--to",
+            "42",
+            "--from-pad",
+            "message.md",
+        ],
+    ] {
+        match Cli::try_parse_from(argv) {
+            Ok(_) => panic!("--from-pad body source conflict must fail"),
+            Err(error) => assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+}
+
+#[test]
+fn pad_path_and_list_parse_without_a_tab_selector() {
+    Cli::try_parse_from(["codeterm", "pad", "path"]).unwrap();
+    Cli::try_parse_from(["codeterm", "pad", "list"]).unwrap();
 }
 
 #[test]

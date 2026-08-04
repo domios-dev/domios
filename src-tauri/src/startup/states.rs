@@ -39,6 +39,39 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
+/// Reduce a snapshot to the authority the journal proves, tab by tab. A tab
+/// whose lifecycle predates the journal is judged by the prior contract only.
+fn quarantine_unproven_authority(snapshot: &mut crate::session::store::SessionSnapshot) {
+    use crate::session::lifecycle::{gate_session_snapshot, RecoveryVerdict, TabLifecycleJournal};
+
+    let load = TabLifecycleJournal::shared().load();
+    if let crate::session::lifecycle::TailStatus::Refused { line, reason } = &load.tail {
+        log::error!(
+            "[tab-lifecycle] journal unreadable from line {line} ({reason}); every authority claim fails closed"
+        );
+    }
+    for outcome in gate_session_snapshot(snapshot, &load) {
+        match outcome.verdict {
+            RecoveryVerdict::Stripped(refusal) => log::warn!(
+                "[tab-lifecycle] tab {} restored without authority: {}",
+                outcome.tab_id,
+                refusal.reason()
+            ),
+            RecoveryVerdict::Restored(authority) => log::info!(
+                "[tab-lifecycle] tab {} restored from committed checkpoint (provider={}, session={})",
+                outcome.tab_id,
+                authority.provider,
+                authority.session_id
+            ),
+            RecoveryVerdict::PreJournal => log::info!(
+                "[tab-lifecycle] tab {} has no journaled lifecycle; restored under the pre-journal contract",
+                outcome.tab_id
+            ),
+            RecoveryVerdict::NoAuthorityClaimed => {}
+        }
+    }
+}
+
 /// Orchestration bindings the dead epoch persisted, versus what came back.
 /// Roleless tabs are ordinary terminals, not in-flight work.
 fn snapshot_role_bindings(
@@ -168,7 +201,8 @@ pub(crate) fn init_states() -> AppStates {
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
-            Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+            Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
+                quarantine_unproven_authority(&mut snapshot);
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
@@ -218,6 +252,28 @@ pub(crate) fn init_states() -> AppStates {
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
+    let restored_agent_tabs = mux_state_inner
+        .snapshot()
+        .tabs
+        .into_values()
+        .filter(|tab| tab.agent_type.is_some() || tab.role.is_some() || tab.is_chat_backend())
+        .map(|tab| {
+            let role = service::agent_pad::pad_role_for_tab(&tab);
+            (tab.id, role)
+        })
+        .collect::<Vec<_>>();
+    for (tab_id, role) in &restored_agent_tabs {
+        if let Err(error) = service::agent_pad::restore(&crate::paths::data_dir(), tab_id, *role) {
+            log::warn!("[agent-pad] restore failed for Tab {tab_id}: {error}");
+        }
+    }
+    let live_agent_tabs = restored_agent_tabs
+        .into_iter()
+        .map(|(tab_id, _)| tab_id)
+        .collect();
+    if let Err(error) = service::agent_pad::reconcile(&crate::paths::data_dir(), &live_agent_tabs) {
+        log::warn!("[agent-pad] startup reconciliation failed: {error}");
+    }
     if ghost_count > 0 {
         log::info!(
             "[restore] purged {} ephemeral ghost tab(s) from restored session snapshot",

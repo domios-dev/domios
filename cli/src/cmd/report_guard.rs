@@ -81,6 +81,9 @@ pub fn enrich_ready_report(
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
+    if task_scope.is_some_and(|scope| !scope.requires_repository) {
+        return Ok((branch, sha, changed_files));
+    }
     let lane_worktree = task_scope.and_then(|scope| scope.worktree_path.as_deref());
     let base = base.or_else(|| task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(
@@ -165,11 +168,8 @@ fn enrich_ready_report_in_scope(
     }
     if !acknowledge_dirty {
         let owned_sha = sha.as_deref().and_then(|given| resolve_commit(cwd, given));
-        if let Some(dirty) = load_lane_dirty(
-            cwd,
-            inspection.base.as_deref(),
-            owned_sha.as_deref(),
-        )? {
+        if let Some(dirty) = load_lane_dirty(cwd, inspection.base.as_deref(), owned_sha.as_deref())?
+        {
             return Err(readiness_dirty_error(dirty));
         }
     }
@@ -1058,7 +1058,11 @@ mod tests {
         )
         .expect_err("a missing lane worktree must not silently fall back to the pane checkout");
 
-        assert!(err.reason.contains("is not a git worktree"), "{}", err.reason);
+        assert!(
+            err.reason.contains("is not a git worktree"),
+            "{}",
+            err.reason
+        );
     }
 
     #[test]

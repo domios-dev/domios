@@ -11,6 +11,9 @@ use codeterm_types::pty::{AgentLiveState, PendingPrompt, QuestionSubtype, Timeli
 #[derive(Debug)]
 enum NotificationAdmission {
     Diagnostic,
+    ProviderUpdate {
+        prompt_id: String,
+    },
     AgentInputRequest {
         session_id: String,
         prompt_identity: String,
@@ -51,8 +54,8 @@ fn admit_agent_input_request(
     }
     // agent_state.question is diagnostic only; admission requires the
     // authoritative pending_prompt record for this tab/session.
-    let prompt =
-        pending_prompt.ok_or_else(|| "Authoritative pending prompt is not available".to_string())?;
+    let prompt = pending_prompt
+        .ok_or_else(|| "Authoritative pending prompt is not available".to_string())?;
     if prompt.options.is_empty() && prompt.submit_available != Some(true) {
         return Err("Prompt exposes no actuatable input control".to_string());
     }
@@ -101,6 +104,20 @@ fn create_notification_with_delivery(
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
+        NotificationAdmission::ProviderUpdate { prompt_id } => {
+            let mut store = store.lock();
+            match store.add_provider_update(
+                prompt_id,
+                title.clone(),
+                body.clone().unwrap_or_default(),
+                actions.clone().unwrap_or_else(|| serde_json::json!([])),
+                tab_id.clone().expect("provider update has a tab"),
+                workspace_id.clone(),
+            ) {
+                AgentInputAdmission::Added(id) => id,
+                AgentInputAdmission::Duplicate(id) => return id,
+            }
+        }
         NotificationAdmission::AgentInputRequest {
             session_id,
             prompt_identity,
@@ -145,6 +162,52 @@ fn create_notification_with_delivery(
 }
 
 impl ServiceContext {
+    pub(crate) fn create_provider_update_notification(
+        &self,
+        prompt_id: String,
+        provider_name: &str,
+        message: String,
+        tab_id: String,
+    ) -> String {
+        let workspace_id = self.mux.read().find_workspace_for_tab(&tab_id);
+        let actions = serde_json::json!([
+            {
+                "label": "Update",
+                "type": "invoke",
+                "value": "respond_provider_update_prompt",
+                "args": { "promptId": prompt_id, "accept": true }
+            },
+            {
+                "label": "Not now",
+                "type": "invoke",
+                "value": "respond_provider_update_prompt",
+                "args": { "promptId": prompt_id, "accept": false }
+            }
+        ]);
+        create_notification_with_delivery(
+            NotificationAdmission::ProviderUpdate {
+                prompt_id: prompt_id.clone(),
+            },
+            &self.notif,
+            |_, _| {},
+            format!("{provider_name} update available"),
+            Some(message),
+            Some("info"),
+            Some(actions),
+            Some(true),
+            Some(tab_id),
+            workspace_id,
+            |payload| self.notify_event("notification-created", payload),
+        )
+    }
+
+    pub(crate) fn resolve_provider_update_notification(&self, prompt_id: &str) {
+        let resolved = self.notif.lock().resolve_provider_update(prompt_id);
+        if let Some(id) = resolved {
+            self.notify_event("notification-cleared", serde_json::json!({ "id": id }));
+        }
+    }
+
     pub fn create_notification(
         &self,
         title: String,
@@ -254,10 +317,11 @@ impl ServiceContext {
         session_id: &str,
         prompt_identity: &str,
     ) {
-        let resolved = self
-            .notif
-            .lock()
-            .resolve_agent_input_request(tab_id, session_id, prompt_identity.trim());
+        let resolved = self.notif.lock().resolve_agent_input_request(
+            tab_id,
+            session_id,
+            prompt_identity.trim(),
+        );
         if let Some(id) = resolved {
             self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
         }
@@ -442,7 +506,10 @@ mod tests {
                 Some(&pending),
                 Some("Select model"),
             );
-            assert!(result.is_ok(), "user-facing authoritative prompt admits: {result:?}");
+            assert!(
+                result.is_ok(),
+                "user-facing authoritative prompt admits: {result:?}"
+            );
         }
 
         assert_eq!(probe.store.lock().list(false).len(), 1);
@@ -511,7 +578,10 @@ mod tests {
             None,
         );
 
-        assert!(result.is_err(), "unclassified question fails closed: {result:?}");
+        assert!(
+            result.is_err(),
+            "unclassified question fails closed: {result:?}"
+        );
         probe.assert_silent();
     }
 
@@ -585,7 +655,10 @@ mod tests {
             None,
         );
 
-        assert!(result.is_ok(), "explicit submit control is actuatable: {result:?}");
+        assert!(
+            result.is_ok(),
+            "explicit submit control is actuatable: {result:?}"
+        );
         assert_eq!(probe.store.lock().list(false).len(), 1);
     }
 
@@ -611,7 +684,10 @@ mod tests {
                 None,
             );
 
-            assert!(result.is_ok(), "{subtype:?} admits a genuine prompt: {result:?}");
+            assert!(
+                result.is_ok(),
+                "{subtype:?} admits a genuine prompt: {result:?}"
+            );
             assert_eq!(probe.store.lock().list(false).len(), 1);
         }
     }
@@ -630,7 +706,10 @@ mod tests {
                 Some(&pending),
                 Some("Which deployment region should I use?"),
             );
-            assert!(result.is_ok(), "authoritative prompt is admitted: {result:?}");
+            assert!(
+                result.is_ok(),
+                "authoritative prompt is admitted: {result:?}"
+            );
         }
 
         assert_eq!(probe.store.lock().list(false).len(), 1);
@@ -711,14 +790,11 @@ mod tests {
                 None,
             )
             .expect("genuine prompt admits");
-        probe
-            .store
-            .lock()
-            .resolve_agent_input_request(
-                "tab-owned",
-                "session-owned",
-                "Which deployment region should I use?",
-            );
+        probe.store.lock().resolve_agent_input_request(
+            "tab-owned",
+            "session-owned",
+            "Which deployment region should I use?",
+        );
         probe
             .admit_and_deliver(
                 Some("session-owned"),

@@ -67,10 +67,7 @@ pub enum Command {
     TabInspect { tab_ids: Vec<String> },
 
     /// Send text to a tab's PTY
-    SendText {
-        tab_id: String,
-        text: String,
-    },
+    SendText { tab_id: String, text: String },
 
     /// Get tab output (terminal buffer)
     GetOutput {
@@ -447,9 +444,20 @@ pub(crate) fn build_tab_summary_json(
                 "agent_type": tab.agent_type,
                 "agent_session_id": tab.agent_session_id,
                 "agent_session_model": tab.agent_session_model,
+                "reasoning_effort_identity": tab.reasoning_effort_identity,
+                "context_epoch": tab.context_epoch_archives.len(),
+                "provider_context_session_id": tab.agent_session_id,
+                "archived_context_epochs": tab.context_epoch_archives,
+                "pty_id": tab.pty_id,
+                "tab_type": tab.tab_type,
+                "cwd": tab.cwd,
                 "boot_stage": tab.boot_stage,
                 "status": tab.agent_state.as_ref().map(|state| state.state),
                 "role": tab.role,
+                "role_profile": tab.role_profile,
+                "ownership": tab.ownership,
+                "chat_view": tab.chat_view,
+                "backing": tab.backing,
                 "backing_kind": backing_kind,
                 "pending_delivery": tab.pending_delivery,
                 "focused": focused_id == Some(tab.id.as_str()),

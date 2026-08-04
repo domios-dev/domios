@@ -294,6 +294,60 @@ pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String
         .or_else(|| scan_tail(&path, 4 * 1024 * 1024))
 }
 
+pub(super) fn detect_session_reasoning_effort(cwd: &str, session_id: &str) -> Option<String> {
+    let path = session_file_path(cwd, session_id)?;
+    scan_effort_tail(&path, 64 * 1024)
+        .or_else(|| scan_effort_tail(&path, 512 * 1024))
+        .or_else(|| scan_effort_tail(&path, 4 * 1024 * 1024))
+}
+
+fn scan_effort_tail(path: &Path, tail_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    if len == 0 {
+        return None;
+    }
+    let start = len.saturating_sub(tail_bytes);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::with_capacity((len - start) as usize);
+    file.read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
+    lines.iter().rev().find_map(|line| {
+        let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        session_entry_reasoning_effort(&value)
+    })
+}
+
+fn session_entry_reasoning_effort(value: &serde_json::Value) -> Option<String> {
+    let candidates = [
+        value.get("effort"),
+        value.get("reasoning_effort"),
+        value.get("reasoningEffort"),
+        value
+            .get("message")
+            .and_then(|message| message.get("effort")),
+        value
+            .get("message")
+            .and_then(|message| message.get("reasoning_effort")),
+        value
+            .get("message")
+            .and_then(|message| message.get("metadata"))
+            .and_then(|metadata| metadata.get("effort")),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::trim)
+        .find(|effort| matches!(*effort, "low" | "medium" | "high" | "xhigh" | "max"))
+        .map(str::to_string)
+}
+
 fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
@@ -453,6 +507,26 @@ mod model_label_tests {
         writeln!(f, r#"{{"type":"user","message":{{"content":"<local-command-stdout>Set model to \u001b[1mOpus 4.7\u001b[22m</local-command-stdout>"}}}}"#).unwrap();
         drop(f);
         assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn effort_tail_uses_only_the_exact_session_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let owned = dir.path().join("owned.jsonl");
+        let latest = dir.path().join("latest.jsonl");
+        std::fs::write(
+            &owned,
+            "{\"type\":\"assistant\",\"message\":{\"metadata\":{\"effort\":\"high\"}}}\n",
+        )
+        .unwrap();
+        std::fs::write(&latest, "{\"type\":\"assistant\",\"effort\":\"max\"}\n").unwrap();
+
+        assert_eq!(scan_effort_tail(&owned, 64 * 1024).as_deref(), Some("high"));
+        assert_eq!(scan_effort_tail(&latest, 64 * 1024).as_deref(), Some("max"));
+        assert_eq!(
+            scan_effort_tail(&dir.path().join("missing.jsonl"), 64 * 1024),
+            None
+        );
     }
 
     #[test]

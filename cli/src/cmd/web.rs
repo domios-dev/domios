@@ -69,7 +69,7 @@ fn link(
 }
 
 fn fetch_local_network_status(base: &str, token: &str) -> Option<serde_json::Value> {
-    let http = crate::build_http(&Some(token.to_string())).ok()?;
+    let http = crate::build_local_api().ok()?;
     http.get(format!("{}/api/network", base))
         .header("Authorization", format!("Bearer {}", token))
         .send()
@@ -175,7 +175,7 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");
         std::process::exit(1);
     };
-    let Ok(http) = crate::build_http(&Some(token.clone())) else {
+    let Ok(http) = crate::build_local_api() else {
         eprintln!("Error: failed to build HTTP client.");
         std::process::exit(1);
     };

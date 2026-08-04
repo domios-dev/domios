@@ -8,6 +8,8 @@ pub mod mem;
 pub mod misc;
 pub mod orchestration;
 pub mod orchestrator;
+pub mod pad;
+pub mod persona;
 pub mod plan;
 pub mod plugin;
 pub mod service;

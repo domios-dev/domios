@@ -83,7 +83,11 @@ pub async fn mesh_announce_inbound(
             log::info!(
                 "[mesh/announce] sender={} old={:?} new={:?}",
                 sender_id,
-                change.previous_addresses.iter().map(|a| &a.ip).collect::<Vec<_>>(),
+                change
+                    .previous_addresses
+                    .iter()
+                    .map(|a| &a.ip)
+                    .collect::<Vec<_>>(),
                 ann.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
             );
             drop(mesh);

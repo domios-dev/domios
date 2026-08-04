@@ -73,6 +73,7 @@ pub(super) fn compete(
     let store = &svc.plan_store;
     let p = params.as_ref();
     let (id, tid) = plan_refs::resolve_task(store, params)?;
+    super::plan_task_rpc::authorize_execution(svc, &id, p)?;
     preflight_compete_review_capacity(store, &id, &tid).map_err(plan_rpc_err)?;
     let body = p.ok_or(JsonRpcError {
         code: -32602,

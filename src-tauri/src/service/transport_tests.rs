@@ -1,5 +1,6 @@
 use super::{backend_owned_pty_launch, finish_launch, AtomicSpawnParams};
 use crate::multiplexer::state::MultiplexerState;
+use crate::service::agent_pad::{AgentPad, AgentPadRole};
 
 #[test]
 fn launch_failure_runs_rollback_and_propagates_error() {
@@ -130,21 +131,71 @@ fn atomic_spawn_params_deserialize_camel_case() {
         "agentId": "claude",
         "workspaceId": "ws1",
         "cwd": "/tmp",
-        "skipPermissions": false,
     }))
     .expect("camelCase params deserialize");
     assert_eq!(p.agent_id, "claude");
     assert_eq!(p.workspace_id.as_deref(), Some("ws1"));
     assert_eq!(p.cwd.as_deref(), Some("/tmp"));
-    assert!(!p.skip_permissions);
 }
 
 #[test]
-fn atomic_spawn_params_skip_permissions_defaults_true() {
-    let p: AtomicSpawnParams =
-        serde_json::from_value(serde_json::json!({ "agentId": "claude" })).unwrap();
-    assert!(
-        p.skip_permissions,
-        "skipPermissions omitted → defaults to true"
+fn agent_pad_launch_env_for_pty_and_chat_backend() {
+    let temp = tempfile::tempdir().unwrap();
+    let pty = AgentPad::create(temp.path(), "pty-full-id", AgentPadRole::Worker).unwrap();
+    let chat = AgentPad::create(temp.path(), "chat-full-id", AgentPadRole::Worker).unwrap();
+    let pty_env = std::collections::HashMap::from([("CODETERM_PAD_DIR", pty.env_value())]);
+    let chat_ctx = serde_json::json!({"padDir": chat.env_value()});
+    assert_eq!(pty_env["CODETERM_PAD_DIR"], pty.path().to_string_lossy());
+    assert_eq!(
+        chat_ctx["padDir"],
+        chat.path().to_string_lossy().to_string()
     );
+}
+
+#[test]
+fn failed_launch_removes_agent_pad() {
+    let temp = tempfile::tempdir().unwrap();
+    let pad = AgentPad::create(temp.path(), "failed-full-id", AgentPadRole::Worker).unwrap();
+    let path = pad.path().to_path_buf();
+    let result = finish_launch(Err::<Option<String>, _>("launch failed".into()), || {
+        pad.revoke().unwrap()
+    });
+    assert!(result.is_err());
+    assert!(!path.exists());
+}
+
+#[test]
+fn provider_restart_retains_agent_pad() {
+    let temp = tempfile::tempdir().unwrap();
+    let pad = AgentPad::create(temp.path(), "restart-full-id", AgentPadRole::Worker).unwrap();
+    std::fs::write(pad.path().join("report.md"), "snapshot").unwrap();
+    drop(pad);
+    let restored = AgentPad::open(temp.path(), "restart-full-id").unwrap();
+    assert_eq!(
+        restored
+            .read_utf8(std::path::Path::new("report.md"))
+            .unwrap(),
+        "snapshot"
+    );
+}
+
+#[test]
+fn close_tab_removes_agent_pad() {
+    let temp = tempfile::tempdir().unwrap();
+    let pad = AgentPad::create(temp.path(), "closed-full-id", AgentPadRole::Worker).unwrap();
+    let path = pad.path().to_path_buf();
+    pad.revoke().unwrap();
+    assert!(!path.exists());
+}
+
+#[test]
+fn team_close_removes_each_agent_pad() {
+    let temp = tempfile::tempdir().unwrap();
+    let pads = ["orchestrator-full-id", "planner-full-id", "worker-full-id"]
+        .map(|id| AgentPad::create(temp.path(), id, AgentPadRole::Worker).unwrap());
+    let paths = pads.each_ref().map(|pad| pad.path().to_path_buf());
+    for pad in pads {
+        pad.revoke().unwrap();
+    }
+    assert!(paths.iter().all(|path| !path.exists()));
 }

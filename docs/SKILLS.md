@@ -26,7 +26,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_TAB_ID` for self-identification), it can use the `codeterm` CLI to:
 
-1. **Send commands**: `codeterm send "npm test"` (sends immediately to the current tab, newline appended automatically). Sending to a **shell** tab delivers the raw text/keys verbatim — no `-=-codeterm:tab...-=-` return-address marker is injected, so the shell runs exactly what you send; the marker is added only when the target is an **agent** tab (so it knows who to reply to). For quote-heavy or multiline text, use `codeterm send --stdin --tab ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --tab ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm tab new --cmd "cd /repo && ./build.sh dev"` (waits for the PTY to be ready before delivering, so it runs reliably). To schedule a future tab message without blocking yourself, use `codeterm send --delay 10m --tab ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
+1. **Send commands**: `codeterm send "npm test"` (sends immediately to the current tab, newline appended automatically). Sending to a **shell** tab delivers the raw text/keys verbatim — no `-=-codeterm:tab...-=-` return-address marker is injected, so the shell runs exactly what you send; the marker is added only when the target is an **agent** tab (so it knows who to reply to). For quote-heavy or multiline text, use `codeterm send --stdin --tab ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --tab ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm tab new --cmd "cd /repo && ./build.sh dev"`. Replace that process later with `codeterm tab restart --tab ID --cwd /repo --cmd "./build.sh dev"`; it preserves the tab and Team metadata instead of creating another tab. To schedule a future tab message without blocking yourself, use `codeterm send --delay 10m --tab ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
 2. **Send notifications**: `codeterm notify "Done" --level info`
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
 4. **Read visible terminal text**: `codeterm tab get-text` (reads what the user sees)
@@ -99,38 +99,9 @@ codeterm bridge send --to 123456789 --service telegram --append "...continued"
 
 Connected tabs show service icons in the sidebar (`connected_services` field).
 
-#### Hot-relocating the poller (`bridge migrate`)
+#### Hot-relocating the poller
 
-Telegram (and any future single-poller bridge) holds an exclusive long-poll lock against the upstream API — only one poller per bot token at a time. `bridge migrate` moves that poller to a paired mesh peer without restarting either daemon. **Run on the source machine**; `--mesh PEER bridge migrate` exits `6`.
-
-```bash
-# Move the active Telegram bridge from this host to the paired peer "office-mac"
-codeterm bridge migrate --to office-mac
-
-# Same, but also post a sentinel "now serving from office-mac" to the bridge owner's chat
-codeterm bridge migrate --to office-mac --announce
-
-# Tighten the upstream-lock claim window (default 10000 ms)
-codeterm bridge migrate --to office-mac --claim-timeout-ms 5000
-
-# Skip the target preflight (no token + no vault entry → still try)
-codeterm bridge migrate --to office-mac --force
-
-# Don't auto-rollback if the target claim fails (leave source disabled)
-codeterm bridge migrate --to office-mac --no-rollback
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--to` | *(required)* | Target peer `instance_name` or `instance_id` from `codeterm mesh peers`. |
-| `--service` | `telegram` | Which bridge to migrate. Only `telegram` today. |
-| `--announce` | `false` | Post a one-shot `[CodeTerm] Telegram bridge migrated to <to> from <from>` sentinel after success. |
-| `--announce-chat-id` | *(first allow-listed user)* | Telegram chat id for `--announce`. Defaults to the target's first allow-listed bridge user. |
-| `--no-rollback` | `false` | Skip source-recovery on failure (leaves source disabled). |
-| `--force` | `false` | Skip the target preflight that requires `token_present` or `has_secret_in_vault`. |
-| `--claim-timeout-ms` | `10000` | How long the target has to claim the upstream lock before the migration is failed. |
-
-**Exit codes:** `0` success / `1` generic failure (rollback OK) / `5` preflight (target unreachable, no token + no vault, missing peer) / `6` usage error (e.g. `--mesh`) / `7` split-brain (rollback also failed — see CLI output for the manual repair command). Each daemon resolves its own vault — secrets never cross the mesh, matching `--mesh PEER mem secret …` (also exit `7`). Full orchestration steps live in `docs/MESH.md`.
+Bridge migration, its flags, exit codes, rollback, and split-brain recovery are owned by `codeterm docs MESH`.
 
 ### Config Management
 Read/write CodeTerm config at runtime:
@@ -141,116 +112,8 @@ codeterm config get general_agent                    # read entire section
 ```
 Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["array"]).
 
-## Agent Integration
+## Related documents
 
-External agents (personal assistants, gateways, CI/CD) can connect via REST API:
+Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-```bash
-# Create workspace for agent
-curl -X POST http://localhost:7685/api/workspaces \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Agent"}'
-
-# Create tab
-curl -X POST http://localhost:7685/api/workspaces/$WS_ID/tabs
-
-# Send command to a tab (enter: true is default, appends \r automatically)
-curl -X POST http://localhost:7685/api/tabs/$TAB_ID/send \
-  -H "Content-Type: application/json" \
-  -d '{"text":"npm run build"}'
-
-# Press terminal keys / navigation actions
-curl -X POST http://localhost:7685/api/tabs/$TAB_ID/send \
-  -H "Content-Type: application/json" \
-  -d '{"actions":[{"type":"key","key":"esc"},{"type":"delay","ms":200},{"type":"key","key":"enter"}]}'
-
-# Read tab output
-curl http://localhost:7685/api/tabs/$TAB_ID/output
-
-# Notify
-curl -X POST http://localhost:7685/api/notifications \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Build complete","level":"info"}'
-```
-
-## Agent Hierarchy
-
-CodeTerm has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not a nested layout. IDs are 8-char hex (e.g. `a3f1b2c7`).
-
-**Roles:**
-- **Orchestrator** (was Conductor) -- top-level, spawns Workers.
-- **Worker** -- executes one task, reports back. Cannot spawn. Cannot call `set-orchestrator`, `unlink`, or `agent spawn`.
-
-Backward-compat alias: `Conductor` -> `Orchestrator`.
-
-**Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
-
-```bash
-# Mark current tab as orchestrator
-codeterm agent set-orchestrator --tab $CODETERM_TAB_ID
-
-# View tabs as a workspace tree (sub-agents nested); --agents = agent tabs only
-codeterm tab list
-
-# Get one tab's agent state (type, session, prompt)
-codeterm tab status --tab $WORKER
-
-# Clear role: detach a Worker from its Orchestrator (or orphan an Orchestrator's Workers)
-codeterm agent unlink --tab $CODETERM_TAB_ID
-```
-
-The `agent.report` webhook event fires when any agent sends a report, enabling async orchestration patterns.
-
-### One-call agent spawn
-
-The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn returns immediately (non-blocking) -- PTY readiness and agent launch happen in a background thread. Each spawned agent gets its own tab (does NOT auto-switch active tab). Uses socket API for reliability.
-
-```bash
-# Spawn a Worker under the Orchestrator
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
-
-# Spawn defaults to claude if no agent specified
-codeterm agent spawn --title "Helper" --role Worker --parent-tab $CODETERM_TAB_ID
-
-# Cross-workspace spawn
-codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab $CODETERM_TAB_ID
-```
-
-Returns: tab_id, tab_id, pty_id, agent, title, role.
-
-The `--agent-name` option (for loading `.claude/agents/<name>.md`) is only available via the REST API (`POST /api/agents/spawn`), not the CLI.
-
-### Batch API (REST and Tauri IPC)
-
-Spawn an Orchestrator and its Workers in one call. The batch API is available via both `POST /api/batch` (REST) and the `mux_batch` Tauri IPC command, with identical semantics and $ref resolution. Both delegate to the unified ServiceContext.
-
-```bash
-curl -X POST http://localhost:7685/api/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "can_spawn": true}},
-      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
-      {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_tab_id": "$boss", "task": "run tests"}}
-    ]
-  }'
-```
-
-Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`. Use `$id` references to chain command results (e.g. `"parent_tab_id": "$boss"` resolves to the tab_id from the "boss" spawn).
-
-## Command Palette
-
-`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, settings, and theme switching.
-
-## Session Persistence
-
-CodeTerm tracks and restores terminal state across sessions:
-
-- **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per tab on restart.
-- **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, CodeTerm validates the session file exists on disk via `AgentProvider::session_exists` — missing JSONLs (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
-- **Pre-generated session ids**: For providers reporting `SessionIdInjection != None` (Claude today), CodeTerm pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
-- **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/tabs/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
-- **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
-- **Auto-save**: Session state is persisted every 30 seconds.
-
-<!-- revision: 38 -->
+<!-- revision: 41 -->

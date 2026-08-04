@@ -32,12 +32,16 @@ fn restored_snapshot_launch_input(
     registry: &crate::agent::registry::AgentRegistry,
     launch: RestoredLaunch,
     _historical_task: Option<String>,
-    skip_permissions: bool,
+    permission_bypass_authorization: Option<
+        crate::service::permission_policy::PermissionBypassAuthorization,
+    >,
 ) -> RestoredSnapshotLaunchInput {
+    let skip_permissions = permission_bypass_authorization.is_some();
     let params = crate::service::SpawnAgentParams {
         agent: Some(launch.provider_id),
         cwd: launch.cwd,
         skip_permissions: Some(skip_permissions),
+        permission_bypass_authorization,
         model: launch.model,
         resume_session_id: launch.session_id,
         role: launch.role,
@@ -261,6 +265,9 @@ impl ServiceContext {
     pub(crate) fn tab_env(&self, tab_id: &str) -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.to_string());
+        if let Ok(pad) = self.ensure_agent_pad(tab_id) {
+            env_vars.insert("CODETERM_PAD_DIR".into(), pad.env_value());
+        }
         env_vars.insert(
             "CODETERM_SESSION_BINDING_NONCE".into(),
             self.ensure_session_binding_nonce(tab_id),
@@ -433,6 +440,11 @@ impl ServiceContext {
                 tab_id
             )
         })?;
+        let permission_bypass_authorization =
+            crate::service::permission_policy::configured_permission_bypass(
+                &self.agent_registry,
+                &provider_id,
+            )?;
         let scheduled = restore_materialization_core(
             &self.mux,
             tab_id,
@@ -447,12 +459,11 @@ impl ServiceContext {
             },
             |stage, error| self.emit_boot_stage(tab_id, stage, Some(error)),
             |launch, restored_task| {
-                let pc = crate::config::provider_config(&launch.provider_id);
                 let input = restored_snapshot_launch_input(
                     &self.agent_registry,
                     launch,
                     restored_task,
-                    pc.resume_skip_permissions.unwrap_or(true),
+                    permission_bypass_authorization.clone(),
                 );
                 let provider_id = input
                     .params
@@ -589,7 +600,7 @@ mod restored_snapshot_launch_tests {
         let (mut state, parent_id) = MultiplexerState::new();
         let workspace_id = state.find_workspace_for_tab(&parent_id).unwrap();
         state
-            .set_tab_role(&parent_id, AgentRole::Orchestrator, None)
+            .set_orchestrator_role(&parent_id)
             .unwrap();
         let team_id = state
             .resolve_or_mint_team_for_parent(&parent_id)
@@ -601,7 +612,7 @@ mod restored_snapshot_launch_tests {
             .unwrap();
         let historical_task = historical_task.map(str::to_string);
         let tab = state.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_type = Some("claude".into());
         tab.agent_session_id = Some("fixture-session".into());
         tab.agent_session_model = Some("fixture-model".into());
         tab.cwd = Some("fixture-cwd".into());
@@ -625,6 +636,15 @@ mod restored_snapshot_launch_tests {
     #[test]
     fn restored_materialization_preserves_worker_identity_without_assignment_replay() {
         let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::plugin::agent_claude::ClaudeProvider::new(),
+        ));
+        let permission_bypass_authorization =
+            crate::service::permission_policy::authorize_permission_bypass(
+                &registry,
+                "claude",
+                true,
+            );
         for historical_task in [Some("historical assigned task"), None] {
             let (mux, tab_id, parent_id, team_id, historical_task) =
                 restored_worker(historical_task);
@@ -634,7 +654,7 @@ mod restored_snapshot_launch_tests {
             let launch = restore_materialization_core(
                 &mux,
                 &tab_id,
-                "fixture-provider",
+                "claude",
                 Some("fixture-session"),
                 Some("fixture-cwd"),
                 true,
@@ -646,7 +666,7 @@ mod restored_snapshot_launch_tests {
                         &registry,
                         launch,
                         restored_task,
-                        true,
+                        permission_bypass_authorization.clone(),
                     ));
                 },
             )
@@ -655,8 +675,17 @@ mod restored_snapshot_launch_tests {
             let input = observed.into_inner().unwrap();
             let tab = mux.read().get_tab(&tab_id).unwrap().clone();
 
-            assert_eq!(launch.provider_id, "fixture-provider");
-            assert_eq!(input.params.agent.as_deref(), Some("fixture-provider"));
+            assert_eq!(launch.provider_id, "claude");
+            assert_eq!(input.params.agent.as_deref(), Some("claude"));
+            assert!(input.params.permission_bypass_requested("claude"));
+            let command = crate::service::orchestrator::build_agent_command(
+                "claude",
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                &registry,
+            );
+            assert!(command.contains("--dangerously-skip-permissions"));
             assert_eq!(
                 input.params.resume_session_id.as_deref(),
                 Some("fixture-session")

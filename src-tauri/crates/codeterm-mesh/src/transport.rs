@@ -62,16 +62,20 @@ pub struct PeerClient {
 }
 
 impl PeerClient {
-    /// Create a client with signed JWT auth.
-    pub fn new_signed(address: &str, port: u16, signed_token: &str) -> Self {
+    pub fn new_signed_url(base_url: String, signed_token: &str) -> Self {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .unwrap_or_default(),
-            base_url: format!("http://{}:{}", address, port),
+            base_url,
             signed_token: Some(signed_token.to_string()),
         }
+    }
+
+    /// Create a client with signed JWT auth.
+    pub fn new_signed(address: &str, port: u16, signed_token: &str) -> Self {
+        Self::new_signed_url(format!("http://{}:{}", address, port), signed_token)
     }
 
     /// Create a client without auth (for pairing requests only).

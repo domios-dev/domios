@@ -240,6 +240,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the report body from a relative file in the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "kind",
               "positional": false,
               "value_name": "KIND",
@@ -440,6 +448,14 @@
               "aliases": []
             },
             {
+              "name": "execution-intent",
+              "positional": false,
+              "value_name": "EXECUTION_INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "interval",
               "positional": false,
               "value_name": "INTERVAL",
@@ -512,6 +528,14 @@
               "aliases": []
             },
             {
+              "name": "provider-reserve-pct",
+              "positional": false,
+              "value_name": "PROVIDER_RESERVE_PCT",
+              "default": "5",
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "reasoning-effort",
               "positional": false,
               "value_name": "REASONING_EFFORT",
@@ -556,7 +580,7 @@
               "positional": false,
               "value_name": "PATH",
               "default": null,
-              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task",
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task",
               "aliases": []
             },
             {
@@ -759,6 +783,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the text body from the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "raw-text",
               "positional": false,
               "value_name": "RAW_TEXT",
@@ -861,7 +893,7 @@
     },
     {
       "name": "capabilities",
-      "about": "List all available API methods",
+      "about": "List CLI commands and clearly marked RPC-only/internal methods",
       "aliases": [],
       "args": [],
       "subcommands": []
@@ -1350,6 +1382,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read text from a relative file in the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "stdin",
               "positional": false,
               "value_name": "STDIN",
@@ -1424,6 +1464,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read replacement text from the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
               "value_name": "ID",
@@ -1487,48 +1535,16 @@
       ]
     },
     {
-      "name": "doc",
-      "about": "Read one embedded CodeTerm document in full",
-      "aliases": [],
-      "args": [
-        {
-          "name": "name",
-          "positional": true,
-          "value_name": "NAME",
-          "default": null,
-          "help": "Doc name (e.g. orchestration)",
-          "aliases": []
-        }
-      ],
-      "subcommands": []
-    },
-    {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
+      "about": "Read embedded CodeTerm documentation in full. Omit NAME to list documents",
       "aliases": [],
       "args": [
-        {
-          "name": "full",
-          "positional": false,
-          "value_name": "FULL",
-          "default": null,
-          "help": "Print the complete document even inside a CodeTerm tab",
-          "aliases": []
-        },
-        {
-          "name": "head",
-          "positional": false,
-          "value_name": "HEAD",
-          "default": null,
-          "help": "Print at most N lines",
-          "aliases": []
-        },
         {
           "name": "name",
           "positional": true,
           "value_name": "NAME",
           "default": null,
-          "help": "Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs",
+          "help": "Document name. Omit to list every available name and purpose",
           "aliases": []
         }
       ],
@@ -4500,6 +4516,28 @@
       ]
     },
     {
+      "name": "pad",
+      "about": "Inspect the current agent tab's private ephemeral filesystem pad",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List relative regular files in the current agent tab's pad",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "path",
+          "about": "Print the current agent tab's private ephemeral pad path",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "paste",
       "about": "Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)",
       "aliases": [],
@@ -4545,7 +4583,7 @@
               "name": "body",
               "positional": true,
               "value_name": "BODY",
-              "default": "",
+              "default": null,
               "help": "Body (positional). Omit and use --from-file or --from-stdin",
               "aliases": []
             },
@@ -4563,6 +4601,14 @@
               "value_name": "PATH",
               "default": null,
               "help": "Read body from a file instead",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a relative file in the current agent tab's pad",
               "aliases": []
             },
             {
@@ -4603,6 +4649,68 @@
               "value_name": "ID",
               "default": null,
               "help": "Paste id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "persona",
+      "about": "Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List every role kind the resolver can reach, with refused overlays",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "reload",
+          "about": "Re-read the overlay directory without restarting or rebuilding",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Render the exact preset text a role kind receives at each delivery occasion",
+          "aliases": [],
+          "args": [
+            {
+              "name": "guidance",
+              "positional": false,
+              "value_name": "GUIDANCE",
+              "default": null,
+              "help": "Task-owned persona layered over the kind's base, as a dispatch supplies it",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)",
+              "aliases": []
+            },
+            {
+              "name": "occasion",
+              "positional": false,
+              "value_name": "OCCASION",
+              "default": null,
+              "help": "Render only this occasion",
+              "aliases": []
+            },
+            {
+              "name": "role",
+              "positional": false,
+              "value_name": "ROLE",
+              "default": "Worker",
+              "help": "Structural role — Manager or Worker",
               "aliases": []
             }
           ],
@@ -6380,7 +6488,7 @@
         },
         {
           "name": "planning-state",
-          "about": "Advance planner-owned planning state: drafting | structure_ready | approved",
+          "about": "Return a draft to drafting; approval uses `plan approve`",
           "aliases": [],
           "args": [
             {
@@ -6412,7 +6520,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Planner tab id advancing the state (records author as planner; omit = user)",
+              "help": "Deprecated author label retained for draft reset records",
               "aliases": []
             }
           ],
@@ -6522,7 +6630,7 @@
                   "positional": false,
                   "value_name": "NOTE",
                   "default": null,
-                  "help": null,
+                  "help": "Claim note. Required with --claim",
                   "aliases": []
                 },
                 {
@@ -7686,6 +7794,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "execution-intent",
+                  "positional": false,
+                  "value_name": "EXECUTION_INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "executor-role",
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
@@ -7778,7 +7894,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
                   "aliases": []
                 },
                 {
@@ -7826,7 +7942,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -7905,6 +8021,30 @@
                   "name": "worktree",
                   "positional": false,
                   "value_name": "WORKTREE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "adopt-checkpoint",
+              "about": "Adopt a sealed handoff checkpoint into this authenticated Worker tab",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8110,6 +8250,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "execution-intent",
+                  "positional": false,
+                  "value_name": "EXECUTION_INTENT",
+                  "default": null,
+                  "help": "Explicit task intent used by provider reserve policy",
+                  "aliases": []
+                },
+                {
                   "name": "model",
                   "positional": false,
                   "value_name": "MODEL",
@@ -8131,6 +8279,14 @@
                   "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "provider-reserve-pct",
+                  "positional": false,
+                  "value_name": "PROVIDER_RESERVE_PCT",
+                  "default": "5",
+                  "help": "Minimum remaining provider allowance for mutating work",
                   "aliases": []
                 },
                 {
@@ -8626,7 +8782,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
                   "aliases": []
                 },
                 {
@@ -8674,7 +8830,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -9295,6 +9451,14 @@
           "aliases": []
         },
         {
+          "name": "from-pad",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Read the report body from a relative file in the current agent tab's pad",
+          "aliases": []
+        },
+        {
           "name": "kind",
           "positional": false,
           "value_name": "KIND",
@@ -9420,6 +9584,14 @@
           "value_name": "PATH",
           "default": null,
           "help": "Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting",
+          "aliases": []
+        },
+        {
+          "name": "from-pad",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Read text from a relative file in the current agent tab's pad",
           "aliases": []
         },
         {
@@ -10417,7 +10589,15 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID",
+              "help": "Temporary positional alias for the tab id. Prefer --tab",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID to close",
               "aliases": []
             }
           ],
@@ -10505,7 +10685,15 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID",
+              "help": "Temporary positional alias for the tab id. Prefer --tab",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID to focus",
               "aliases": []
             }
           ],
@@ -10541,11 +10729,19 @@
           "aliases": [],
           "args": [
             {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "One or more tab ids to inspect. Repeat the flag for multiple tabs",
+              "aliases": []
+            },
+            {
               "name": "tabs",
               "positional": true,
               "value_name": "TABS",
               "default": null,
-              "help": "One or more tab ids to inspect",
+              "help": "Temporary positional aliases for tab ids. Prefer --tab",
               "aliases": []
             }
           ],
@@ -10680,6 +10876,38 @@
           "subcommands": []
         },
         {
+          "name": "restart",
+          "about": "Replace a plain shell's process in the same tab, preserving tab identity and metadata",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cmd",
+              "positional": false,
+              "value_name": "CMD",
+              "default": null,
+              "help": "Command to execute after the replacement shell is ready",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory for the replacement shell",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": "Tab ID to restart (default: current tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "search",
           "about": "Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
           "aliases": [],
@@ -10776,6 +11004,14 @@
               "name": "criterion",
               "positional": false,
               "value_name": "CRITERION",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "execution-intent",
+              "positional": false,
+              "value_name": "EXECUTION_INTENT",
               "default": null,
               "help": null,
               "aliases": []
@@ -11255,7 +11491,7 @@
               "positional": false,
               "value_name": "PATH",
               "default": null,
-              "help": "Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing",
+              "help": "Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network",
               "aliases": []
             },
             {

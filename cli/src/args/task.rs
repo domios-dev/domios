@@ -68,6 +68,8 @@ pub enum TaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
+        #[arg(long, value_parser = ["repository_mutation", "non_repository"])]
+        execution_intent: Option<String>,
         #[arg(long = "assign-tab", value_name = "TAB")]
         assign_tab: Option<String>,
     },

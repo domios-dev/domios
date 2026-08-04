@@ -38,9 +38,16 @@ console.log("detectChatPrefix");
 
 {
   const r = detectChatPrefix(
-    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
+    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n[to reply, run: codeterm send \"YOUR REPLY\" --tab 12e450b4]",
   );
   eq(r?.body, "Hey", "reply routing hint stays hidden from chat body");
+}
+
+{
+  const r = detectChatPrefix(
+    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
+  );
+  eq(r?.body, "Hey", "legacy reply routing hint stays hidden from chat body");
 }
 
 {
@@ -73,6 +80,12 @@ console.log("detectChatPrefix");
   const r = detectChatPrefix("-=-codeterm:system_prompt-=-# Shell rules\n\nUse tools carefully.");
   eq(r?.origin, { kind: "system_prompt" }, "ct system_prompt marker parses");
   eq(r?.body, "# Shell rules\n\nUse tools carefully.", "ct system_prompt marker body stripped");
+}
+
+{
+  const r = detectChatPrefix("-=-codeterm:system context=plan-=-Reconcile the active Plan.");
+  eq(r?.origin, { kind: "system", context: "plan" }, "ct system marker is not a Tab origin");
+  eq(r?.body, "Reconcile the active Plan.", "ct system marker body stripped");
 }
 
 {

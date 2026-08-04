@@ -2,7 +2,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
-use crate::service::{BatchOp, ServiceState};
+use crate::service::{BatchOp, ServiceState, TeamMutationCaller};
 use codeterm_types::team::Team;
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,7 +70,7 @@ pub fn mux_rename_team_core(
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
     let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
-    crate::service::rename_team_core(mux, &team_id, name, Some(&caller_tab_id))
+    crate::service::rename_team_core(mux, &team_id, name, &TeamMutationCaller::AgentTab(caller_tab_id))
 }
 
 pub(crate) fn mux_rename_team_service_core(
@@ -80,7 +80,7 @@ pub(crate) fn mux_rename_team_service_core(
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
     let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
-    svc.rename_team(&team_id, name, Some(&caller_tab_id))
+    svc.rename_team(&team_id, name, TeamMutationCaller::AgentTab(caller_tab_id))
 }
 
 fn require_team_rename_caller(caller_tab_id: Option<String>) -> Result<String, String> {
@@ -104,18 +104,20 @@ pub(crate) fn mux_close_team_service_core(
     team_id: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_tab_id =
-        caller_tab_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
-    svc.close_team(&team_id, Some(&caller_tab_id))
+    svc.close_team(&team_id, close_team_caller(caller_tab_id))
+}
+
+fn close_team_caller(caller_tab_id: Option<String>) -> TeamMutationCaller {
+    caller_tab_id.map_or(TeamMutationCaller::Human, TeamMutationCaller::AgentTab)
 }
 
 #[tauri::command]
 pub fn mux_close_team(
     svc: State<'_, ServiceState>,
     team_id: String,
-    caller_tab_id: String,
+    caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    mux_close_team_service_core(svc.inner(), team_id, Some(caller_tab_id))
+    mux_close_team_service_core(svc.inner(), team_id, caller_tab_id)
 }
 
 pub(crate) async fn mux_add_team_member_service_core(
@@ -184,9 +186,8 @@ mod tests {
             .team_id;
         let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
         let planner = mux.create_tab(&workspace_id).unwrap();
-        mux.set_tab_role(&planner, AgentRole::Manager, Some(&orchestrator))
+        mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&orchestrator))
             .unwrap();
-        mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
         let worker = mux.create_tab(&workspace_id).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
@@ -198,6 +199,15 @@ mod tests {
         assert_eq!(
             require_team_rename_caller(None).unwrap_err(),
             "callerTabId is required to rename a Team"
+        );
+    }
+
+    #[test]
+    fn desktop_close_is_human_while_explicit_callers_keep_agent_authority() {
+        assert_eq!(close_team_caller(None), TeamMutationCaller::Human);
+        assert_eq!(
+            close_team_caller(Some("manager".into())),
+            TeamMutationCaller::AgentTab("manager".into())
         );
     }
 
@@ -258,7 +268,7 @@ mod tests {
             &events,
             &team_id,
             "Renamed".into(),
-            Some(&orchestrator),
+            &TeamMutationCaller::AgentTab(orchestrator.clone()),
         )
         .unwrap();
         assert_eq!(
@@ -528,9 +538,13 @@ pub fn mux_set_claude_session_id(
 pub fn build_agent_launch_command(
     svc: State<'_, ServiceState>,
     agent_id: String,
-    skip_permissions: bool,
 ) -> Result<String, String> {
     svc.require_agent_provider_ready(&agent_id)?;
+    let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
+        &svc.agent_registry,
+        &agent_id,
+    )?
+    .is_some();
     let model_args = crate::service::spawn::resolve_fresh_agent_model(
         &svc.agent_registry,
         &agent_id,
@@ -553,7 +567,7 @@ pub fn build_agent_launch_command(
         } else {
             Some(model_args)
         },
-        skip_permissions,
+        skip_permissions: permission_bypass,
         session_id: None,
         structured_prompt_server: None,
     };
@@ -566,11 +580,14 @@ pub fn build_agent_launch_command(
 
 /// The one atomic spawn command: create + cwd + agent_type + activate + focus a tab.
 #[tauri::command]
-pub fn mux_spawn_tab(
+pub async fn mux_spawn_tab(
     svc: State<'_, ServiceState>,
     params: crate::service::transport::AtomicSpawnParams,
 ) -> Result<crate::service::transport::AtomicSpawn, String> {
-    svc.spawn_tab_atomic(params)
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.spawn_tab_atomic(params))
+        .await
+        .map_err(|error| format!("atomic spawn task failed: {error}"))?
 }
 
 /// Paired orchestration creation.

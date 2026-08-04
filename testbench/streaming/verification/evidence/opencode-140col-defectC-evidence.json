@@ -1,0 +1,46 @@
+{
+  "defect_C": "opencode at 140x36: motion_decoder emits ONLY footer-region rows; zero content rows -> preview shows nothing",
+  "capture_dir": "captures/streaming/opencode-wide140/ (tab 15aabb2b, cols=140 rows=36)",
+  "decoder_evidence": {
+    "frames": 550,
+    "decoder_rows_total": 1060,
+    "unique_nonblank_row_shapes": 11,
+    "row_shapes": [
+      "\u2503  Build \u00b7 DeepSeek V4 Flash Free (New) OpenCode Zen (259x)",
+      "wrapped cwd fragments (186x/155x/119x)",
+      "\u2579\u2580\u2580\u2580\u2026 border (182x)",
+      "\u2503 blank (146x)",
+      "progress '\u25a0\u25a0\u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d  esc interrupt' (13x total)"
+    ],
+    "content_row_hits": 0,
+    "searched_keys": [
+      "fizzbuzz",
+      "pseudo-terminal",
+      "scrollback",
+      "200 OK",
+      "FizzBuzz"
+    ]
+  },
+  "ground_truth_cast_proves_content_was_on_screen": {
+    "file": "captures/streaming/opencode-wide140/session.cast",
+    "occurrences": {
+      "fizzbuzz": 135,
+      "pseudo-terminal": 35,
+      "scrollback": 227
+    }
+  },
+  "same_provider_120col_control": {
+    "capture": "captures/streaming/opencode/timeline-motion.json",
+    "frames": 20810,
+    "decoder_rows": 187230,
+    "content_row_hits": 23737,
+    "example": "\u2503  Reply with exactly one short sentence: what is a PTY?"
+  },
+  "conclusion": "Geometry-dependent: at 120 cols the decoder captures content richly; at 140x36 it captures only the footer region for the same provider and same question set. Matcher-untouchable (nothing to filter or match).",
+  "suspected_area": "motion_decoder.rs turn/region classification (same family as Defect A claude question dialog: composer/chrome cut excluding the real content region)",
+  "reproduce": "record opencode questions.json at cols=140 rows=36 and render_timeline; inspect turn_frozen/turn_live rows: all footer.",
+  "related": [
+    "Defect A: zero preview events for claude question dialog",
+    "Defect B: claude question-state never detected (no Input-needed notification)"
+  ]
+}

@@ -1,24 +1,25 @@
 //! Agent hierarchy: roles, reports, status queries.
 
-mod first_plan;
 mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+mod report_event;
 mod report_persistence;
 mod status;
+mod team_plan_creation;
 mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
-pub(crate) use first_plan::FirstPlanTeamError;
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub use status::TabStatusInfo;
+pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
 };
-use report_persistence::persist_local_task_report;
+use report_persistence::{persist_authorized_local_task_report, rejected_report_delivery_message};
 
-use super::{ReportResult, ServiceContext, ServiceState};
+use super::{RejectedTaskTransition, ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
@@ -391,13 +392,40 @@ impl ServiceContext {
         task_id: Option<&str>,
         milestone_kind: Option<&str>,
     ) -> Result<ReportResult, String> {
-        let task_status = report_task_status_transition(details.status)?;
+        let (task_status, mut task_transition_refusal) =
+            match report_task_status_transition(details.status) {
+                Ok(status) => (status, None),
+                Err(cause) => (None, Some(cause)),
+            };
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
         let mut notices: Vec<String> = Vec::new();
         let (eff_plan_id, eff_task_id) =
-            resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices)?;
+            match resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices) {
+                Ok(context) => context,
+                Err(cause) => {
+                    task_transition_refusal = Some(match task_transition_refusal {
+                        Some(existing) => format!("{existing}\n{cause}"),
+                        None => cause,
+                    });
+                    let fallback_plan = plan_id
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
+                        .map(str::to_string);
+                    let fallback_task = task_id
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_string);
+                    (fallback_plan, fallback_task)
+                }
+            };
         let mut persisted_task = None;
+        let mut rejected_task_transition =
+            task_transition_refusal.map(|cause| RejectedTaskTransition {
+                plan_id: eff_plan_id.clone(),
+                task_id: eff_task_id.clone(),
+                cause,
+            });
 
         let (from_title, default_target_opt, model_identity, from_ref) = {
             let mux = self.mux.read();
@@ -414,6 +442,7 @@ impl ServiceContext {
                 provider_resolved_model: p.agent_provider_resolved_model.clone(),
                 fallback: p.model_fallback.clone(),
                 mismatch: p.model_identity_mismatch.clone(),
+                reasoning_effort: p.reasoning_effort_identity.clone(),
             });
             let from_ref = tab.map_or_else(
                 || AgentRef::from_tab(tab_id),
@@ -493,66 +522,97 @@ impl ServiceContext {
         };
 
         if let Some(ref plan_id) = eff_plan_id {
-            if !homed_to_remote && !foreign {
-                let task_id = eff_task_id.as_deref().ok_or_else(|| {
-                    report_persistence::report_persistence_incident(
-                        tab_id,
-                        plan_id,
-                        None,
-                        "the report resolved a plan but no exact task",
-                    )
-                })?;
-                persist_local_task_report(
-                    &self.plan_store,
-                    tab_id,
-                    plan_id,
-                    task_id,
-                    &from_ref,
-                    message,
-                    &details,
-                    task_status,
-                    milestone_kind,
-                    epoch_ms(),
-                )?;
-                persisted_task = Some((plan_id.clone(), task_id.to_string()));
-                self.plan_turn_counter.reset_activity(tab_id);
-                crate::api::events::emit_everywhere(
-                    &self.app_handle,
-                    "plan-changed",
-                    serde_json::json!({ "plan_id": plan_id }),
-                );
+            if !homed_to_remote && !foreign && rejected_task_transition.is_none() {
+                let persistence = eff_task_id
+                    .as_deref()
+                    .ok_or_else(|| {
+                        report_persistence::report_persistence_incident(
+                            tab_id,
+                            plan_id,
+                            None,
+                            "the report resolved a plan but no exact task",
+                        )
+                    })
+                    .and_then(|task_id| {
+                        persist_authorized_local_task_report(
+                            self,
+                            tab_id,
+                            plan_id,
+                            task_id,
+                            &from_ref,
+                            message,
+                            &details,
+                            task_status,
+                            milestone_kind,
+                            epoch_ms(),
+                        )
+                        .map(|()| task_id.to_string())
+                    });
+                match persistence {
+                    Ok(task_id) => {
+                        persisted_task = Some((plan_id.clone(), task_id));
+                        self.plan_turn_counter.reset_activity(tab_id);
+                        crate::api::events::emit_everywhere(
+                            &self.app_handle,
+                            "plan-changed",
+                            serde_json::json!({ "plan_id": plan_id }),
+                        );
+                    }
+                    Err(cause) => {
+                        rejected_task_transition = Some(RejectedTaskTransition {
+                            plan_id: Some(plan_id.clone()),
+                            task_id: eff_task_id.clone(),
+                            cause,
+                        });
+                    }
+                }
             }
         }
 
         let storage_key = target.storage_key();
+        let delivered_message = rejected_task_transition.as_ref().map_or_else(
+            || message.to_string(),
+            |rejection| rejected_report_delivery_message(&rejection.cause, message),
+        );
+        if rejected_task_transition.is_some() {
+            notices.push(
+                "task transition was rejected; the report was still recorded and delivered, so do not resend it"
+                    .to_string(),
+            );
+        }
         let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
             tab_id,
             &from_title,
-            message,
+            &delivered_message,
             details,
             model_identity,
         );
         self.report_store.lock().claim(&report.id);
         report_requirement.accept();
 
+        let task_report = report_event::task_report_outcome(
+            persisted_task.as_ref(),
+            rejected_task_transition.as_ref(),
+        );
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
                 "target_tab_id": storage_key,
                 "report": report.clone(),
+                "task_report": task_report.clone(),
             }),
         );
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "agent-report",
-            serde_json::json!({
-                "target_tab_id": storage_key,
-                "from_tab_id": tab_id,
-                "from_title": from_title,
-                "message": message,
-                "report": report.clone(),
-            }),
+            report_event::agent_report_event(
+                &storage_key,
+                tab_id,
+                &from_title,
+                &report,
+                task_report,
+            ),
         );
 
         match target {
@@ -608,6 +668,7 @@ impl ServiceContext {
             orchestrator_tab_id: storage_key,
             notices,
             persisted_task,
+            rejected_task_transition,
         })
     }
 

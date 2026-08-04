@@ -1,6 +1,8 @@
 use super::*;
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
+mod role_restore;
+
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         tab_id: tab_id.into(),
@@ -19,10 +21,12 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 0,
         chat_view: Some(true),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -34,6 +38,16 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         watcher: None,
         pending_delivery: None,
     }
+}
+
+fn leaf_pending_bytes(node: &SplitNodeSnapshot) -> Vec<u8> {
+    let SplitNodeSnapshot::Leaf {
+        pending_delivery, ..
+    } = node
+    else {
+        panic!("expected a leaf");
+    };
+    serde_json::to_vec(pending_delivery).unwrap()
 }
 
 fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
@@ -119,15 +133,22 @@ fn pending_record_snapshot_round_trip() {
             started_at_ms: 1_700_000_000_000,
         })
         .unwrap();
-    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending);
+    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending.clone());
 
     let snapshot = state.to_session_snapshot();
-    let before = serde_json::to_vec(&snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+    let before = leaf_pending_bytes(&snapshot.workspaces[0].tabs[0].split_tree);
     let restored = MultiplexerState::from_session_snapshot(&snapshot);
     let after_snapshot = restored.to_session_snapshot();
-    let after = serde_json::to_vec(&after_snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+    let after = leaf_pending_bytes(&after_snapshot.workspaces[0].tabs[0].split_tree);
 
     assert_eq!(before, after);
+    let tab = restored.get_tab(&tab_id).expect("Tab restored");
+    assert_eq!(tab.pending_delivery, Some(pending));
+    // The bootstrap root claims an anchor kind but never launched a provider,
+    // so the delivery record survives while the unproven claim stays rolled back.
+    assert_eq!(tab.role, None);
+    assert!(!tab.can_spawn);
+    assert_eq!(tab.depth, 0);
 }
 
 #[test]
@@ -170,7 +191,7 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
@@ -178,22 +199,53 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
         .team_id;
     let manager_id = state.create_tab(&workspace_id).unwrap();
     state
-        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(
+            &manager_id,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     let worker_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.repoint_parent(&worker_id, &manager_id);
+    for tab_id in [&root_id, &manager_id, &worker_id] {
+        state.get_tab_mut(tab_id).unwrap().agent_type = Some("codex".into());
+    }
 
     state.close_tab(&manager_id).unwrap();
     let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
 
     assert!(restored.get_tab(&manager_id).is_none());
     let worker = restored.get_tab(&worker_id).expect("worker restores");
+    assert_eq!(worker.role, Some(AgentRole::Worker));
     assert!(worker.parent_tab_id.is_none());
     assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
     assert!(restored.get_team(&team_id).is_some());
+}
+
+/// A Manager with no kind carries no capability, so placement fails closed
+/// before such a tab can ever reach a snapshot.
+#[test]
+fn a_profileless_manager_is_refused_before_it_can_reach_a_snapshot() {
+    use crate::multiplexer::types::AgentRole;
+
+    let (mut state, root_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state.set_orchestrator_role(&root_id).unwrap();
+    let manager_id = state.create_tab(&workspace_id).unwrap();
+
+    let error = state
+        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .unwrap_err();
+
+    assert!(error.contains("role_profile"), "{error}");
+    let manager = state.get_tab(&manager_id).expect("tab survives the refusal");
+    assert_eq!(manager.role, None);
+    assert_eq!(manager.team_id, None);
+    assert!(!manager.can_spawn);
 }
 
 #[test]
@@ -328,7 +380,7 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 }
 
 #[test]
-fn pty_tab_round_trips_without_chatbackend_fields() {
+fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
         tab_id: "p2".into(),
@@ -347,10 +399,12 @@ fn pty_tab_round_trips_without_chatbackend_fields() {
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 0,
         chat_view: Some(false),
-        auto_approve: false,
+        auto_approve: true,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -365,6 +419,53 @@ fn pty_tab_round_trips_without_chatbackend_fields() {
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let tab = state.tabs.get("p2").expect("Tab restored");
     assert_eq!(tab.backing, TabBacking::Pty);
+    assert!(
+        !tab.auto_approve,
+        "snapshot trust never authorizes a resumed launch"
+    );
+}
+
+#[test]
+fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).expect("initial tab");
+    tab.agent_type = Some("claude".into());
+    tab.agent_session_id = Some("automation-session".into());
+    tab.audience = TabAudience::Automation;
+    tab.auto_approve = true;
+
+    let snapshot = state.to_session_snapshot();
+    match &snapshot.workspaces[0].tabs[0].split_tree {
+        SplitNodeSnapshot::Leaf { audience, .. } => {
+            assert_eq!(*audience, TabAudience::Automation);
+        }
+        _ => panic!("expected a leaf"),
+    }
+    let persisted: SessionSnapshot =
+        serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&persisted);
+    let restored_tab = restored.get_tab(&tab_id).expect("restored automation tab");
+    assert_eq!(restored_tab.audience, TabAudience::Automation);
+    assert!(
+        !restored_tab.auto_approve,
+        "restored automation remains sandboxed"
+    );
+
+    let mut legacy_json = serde_json::to_value(persisted).unwrap();
+    legacy_json["workspaces"][0]["tabs"][0]["split_tree"]
+        .as_object_mut()
+        .unwrap()
+        .remove("audience");
+    let legacy_snapshot: SessionSnapshot = serde_json::from_value(legacy_json).unwrap();
+    let legacy_restored = MultiplexerState::from_session_snapshot(&legacy_snapshot);
+    let legacy_tab = legacy_restored
+        .get_tab(&tab_id)
+        .expect("legacy automation tab");
+    assert_eq!(legacy_tab.audience, TabAudience::Automation);
+    assert!(
+        !legacy_tab.auto_approve,
+        "missing audience must fail closed"
+    );
 }
 
 #[test]
@@ -386,10 +487,12 @@ fn tab_description_round_trips_through_snapshot() {
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -446,10 +549,12 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         spawned_by_tab_id: Some("spawner-1".into()),
         report_target_tab_id: Some("target-1".into()),
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -495,10 +600,12 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         spawned_by_tab_id: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -538,6 +645,27 @@ fn remote_report_target_round_trips_through_snapshot() {
         Some("Mac-Air"),
         "remote report peer must survive restore"
     );
+}
+
+#[test]
+fn remote_ownership_round_trips_through_snapshot() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let tab_id = state.create_tab(&wsid).unwrap();
+    let ownership = codeterm_types::pty::RemoteOwnership {
+        controller_title: "Puccini".into(),
+        controller_tab_id: Some("af5919cb".into()),
+        peer_id: "peer-mac".into(),
+        peer_name: "Mac-Air".into(),
+        team: Some(codeterm_types::pty::RemoteOwnershipTeam {
+            id: "team-remote".into(),
+            title: Some("Remote Tab Portal".into()),
+        }),
+    };
+    state.get_tab_mut(&tab_id).unwrap().ownership = Some(ownership.clone());
+
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+    assert_eq!(restored.get_tab(&tab_id).unwrap().ownership, Some(ownership));
 }
 
 #[test]
@@ -790,10 +918,12 @@ fn spawned_by_round_trips_through_snapshot() {
         spawned_by_tab_id: Some("spawner".into()),
         report_target_tab_id: None,
         report_target_mesh_peer: None,
+        ownership: None,
         can_spawn: false,
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
         agent_requested_model: None,
@@ -873,11 +1003,14 @@ fn provisioned_cwd_round_trips_through_snapshot() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
     let tab_id = state.create_tab(&wsid).unwrap();
-    let cwd = state
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.cwd.clone())
-        .expect("tab cwd");
-    state.get_tab_mut(&tab_id).unwrap().provisioned_cwd = Some(cwd.clone());
+    // `create_tab` mints a cwd-less record; the provisioning step is what
+    // assigns one, so the fixture has to perform it before asserting.
+    let cwd = "/srv/provisioned".to_string();
+    {
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some(cwd.clone());
+        tab.provisioned_cwd = Some(cwd.clone());
+    }
 
     let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
     let tab = restored.get_tab(&tab_id).expect("Tab restored");

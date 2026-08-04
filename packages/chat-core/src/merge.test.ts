@@ -84,15 +84,20 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
-// ── c73becde launch race: chat_start snapshot and tab-chat-msg live event
-// have separate transport ids but share the parser's user sequence.
+// ── seq is a per-batch ordinal, never an identity. Two independently parsed
+// bounded windows reuse the same seq for unrelated rows, so a seq match must
+// not collapse (or worse, overwrite) a committed row. Overlap between ranged
+// batches is proven by byte range in `reduceTranscript`, not here.
 {
-  const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
   const merged = mergeById(
-    [msg("snapshot-user-1", { content: startupText, seq: 1, sourceSessionId: "c73becde" })],
-    [msg("live-user-1", { content: startupText, seq: 1, sourceSessionId: "c73becde" })],
+    [msg("window-a-0", { type: "assistant", content: "prior answer", seq: 0, sourceSessionId: "sid" })],
+    [msg("window-b-0", { type: "assistant", content: "unrelated newer row", seq: 0, sourceSessionId: "sid" })],
   );
-  eq(merged.map((m) => m.id), ["live-user-1"], "snapshot/live user seq-1 projects one launch bubble");
+  eq(
+    merged.map((m) => m.content),
+    ["prior answer", "unrelated newer row"],
+    "a reused window-local seq never replaces a committed row",
+  );
 }
 
 {
@@ -105,12 +110,15 @@ function msg(id: string, opts: Partial<M> = {}): M {
 }
 
 {
-  const reply = "I traced the merge path and will fix the source identity.";
   const merged = mergeById(
-    [msg("snapshot-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
-    [msg("live-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
+    [msg("u-9", { type: "user", content: "continue", seq: 9, sourceSessionId: "sid" })],
+    [msg("a-9", { type: "assistant", content: "on it", seq: 9, sourceSessionId: "sid" })],
   );
-  eq(merged.map((m) => m.id), ["live-assistant-7"], "snapshot/live assistant seq-7 projects one reply bubble");
+  eq(
+    merged.map((m) => m.id),
+    ["u-9", "a-9"],
+    "rows sharing a batch ordinal keep distinct identities",
+  );
 }
 
 {
@@ -136,6 +144,66 @@ function msg(id: string, opts: Partial<M> = {}): M {
     [msg("new-session", { content: "continue", seq: 1, sourceSessionId: "new" })],
   );
   eq(merged.map((m) => m.id), ["old-session", "new-session"], "session scope preserves a later seq reset");
+}
+
+// ── projection batch identity: snapshot and live transport can assign every
+// row a different id and shifted seq while describing one canonical batch.
+{
+  const snapshot = [
+    msg("snapshot-prose", { type: "assistant", content: "I will inspect the failing projection.", timestamp: "2026-08-02T12:00:00Z", seq: 40, sourceSessionId: "batch-session" }),
+    msg("snapshot-tool", { type: "tool_call", content: "Read chatWindow.ts", timestamp: "2026-08-02T12:00:01Z", seq: 41, sourceSessionId: "batch-session", toolId: "call-old", toolName: "read", toolInput: { path: "chatWindow.ts" } }),
+    msg("snapshot-command", { type: "local_command", content: "/compact", timestamp: "2026-08-02T12:00:02Z", seq: 42, sourceSessionId: "batch-session" }),
+    msg("snapshot-mesh", { type: "custom", content: "Sent report to build-machine", timestamp: "2026-08-02T12:00:03Z", seq: 43, sourceSessionId: "batch-session", inboundKind: "mesh", fromMesh: "build-machine" }),
+    msg("snapshot-status", { type: "status", content: "Waiting for build-machine", timestamp: "2026-08-02T12:00:04Z", seq: 44, sourceSessionId: "batch-session", level: "info" }),
+  ];
+  const transportDuplicate = snapshot.map((message, index) => ({
+    ...message,
+    id: `transport-${index}`,
+    seq: 940 + index,
+    timestamp: message.timestamp,
+    toolId: message.toolId ? "call-new" : undefined,
+  }));
+  const merged = mergeById(snapshot, transportDuplicate);
+  eq(
+    merged.map((message) => message.id),
+    snapshot.map((message) => message.id),
+    "whole semantic event batch projects once despite transport id and seq drift",
+  );
+}
+
+{
+  const batch = [
+    msg("assistant-a", { type: "assistant", content: "Done.", sourceSessionId: "batch-session" }),
+    msg("status-a", { type: "status", content: "Idle", sourceSessionId: "batch-session" }),
+  ];
+  const duplicate = batch.map((message, index) => ({ ...message, id: `duplicate-${index}`, seq: index + 20 }));
+  const merged = mergeById([], [...batch, ...duplicate]);
+  eq(merged.map((message) => message.id), ["assistant-a", "status-a"], "one duplicated incoming batch collapses at projection");
+}
+
+{
+  const repeated = [
+    msg("first-a", { type: "assistant", content: "Continue", sourceSessionId: "batch-session" }),
+    msg("first-status", { type: "status", content: "Ready", sourceSessionId: "batch-session" }),
+    msg("second-a", { type: "assistant", content: "Continue", sourceSessionId: "batch-session" }),
+    msg("second-status", { type: "status", content: "Ready", sourceSessionId: "batch-session" }),
+  ];
+  const merged = mergeById([], repeated);
+  eq(merged.map((message) => message.id), ["first-a", "first-status"], "adjacent identical semantic batches project once");
+}
+
+{
+  const merged = mergeById([], [
+    msg("first-a", { type: "assistant", content: "Continue", timestamp: "2026-08-02T12:00:00Z" }),
+    msg("first-status", { type: "status", content: "Ready", timestamp: "2026-08-02T12:00:01Z" }),
+    msg("second-a", { type: "assistant", content: "Continue", timestamp: "2026-08-02T12:05:00Z" }),
+    msg("second-status", { type: "status", content: "Ready", timestamp: "2026-08-02T12:05:01Z" }),
+  ]);
+  eq(
+    merged.map((message) => message.id),
+    ["first-a", "first-status", "second-a", "second-status"],
+    "later identical content with distinct timestamps remains a real second batch",
+  );
 }
 
 {

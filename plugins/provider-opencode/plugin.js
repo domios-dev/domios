@@ -151,6 +151,7 @@ var plugin = {
       parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
     }
     parts.push("opencode");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
       const platform = host.platform();
@@ -174,8 +175,8 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    void skipPermissions;
     const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
     return parts.join(" ");
   },
   // absent from opencode's env, or event field structure changed in a new release).
@@ -254,7 +255,7 @@ var plugin = {
       plugin_installed: installed
     };
   },
-  installIntegration(apiPort) {
+  installIntegration(apiPort, _options) {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
@@ -296,7 +297,7 @@ var plugin = {
   ensureIntegrationOnStartup(apiPort) {
     const status = this.checkIntegration();
     if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration(apiPort);
+    return this.installIntegration(apiPort, { consent: true });
   },
   sessionExists(_cwd, sessionId) {
     const db = opencodeDbPath();

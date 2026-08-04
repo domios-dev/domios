@@ -54,14 +54,24 @@ async function run() {
   );
   assert(!JSON.stringify(noModelCall?.args).includes("parentTabId"), "staffing payload omits parent Tab ids");
   assert(!JSON.stringify(noModelCall?.args).includes("providerId"), "staffing payload uses only the bridge provider key");
+  await actions.onAddTeamMember("team-1", "orchestrator", "codex", "manager-tab");
+  assert(
+    JSON.stringify(calls[calls.length - 1]?.args) === JSON.stringify({
+      teamId: "team-1",
+      role: "orchestrator",
+      provider: "codex",
+      callerTabId: "manager-tab",
+    }),
+    "orchestrator staffing reaches the same Team member bridge",
+  );
   const callsBeforeClose = calls.length;
-  await actions.onCloseTeam("team-1", "O1");
+  await actions.onCloseTeam("team-1");
   assert(calls.length === callsBeforeClose + 1, "close invokes exactly once");
   const closeCall = calls[calls.length - 1];
   assert(closeCall?.command === "mux_close_team", "close uses the bridge command");
   assert(
-    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1", callerTabId: "O1" }),
-    "close sends the selected manager as caller identity",
+    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1" }),
+    "close is a human UI action and sends no agent authority",
   );
 
   const rejected = buildTeamActions({

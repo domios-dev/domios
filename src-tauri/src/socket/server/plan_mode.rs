@@ -30,26 +30,25 @@ pub(super) fn dispatch(
             // planning_state (which mirrors mode). Execution/complete are lifecycle.
             match mode {
                 PlanMode::Approved => svc
-                    .plan_store
-                    .set_planning_state(
-                        &id,
-                        PlanningState::Approved,
-                        PlanningAuthor::User,
-                        note.as_deref(),
-                        epoch_ms(),
-                    )
-                    .map_err(plan_rpc_err)?,
-                PlanMode::Planning => svc
-                    .plan_store
-                    .set_planning_state(
-                        &id,
-                        PlanningState::StructureReady,
-                        PlanningAuthor::User,
-                        note.as_deref(),
-                        epoch_ms(),
-                    )
-                    .map_err(plan_rpc_err)?,
-                PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => svc
+                    .approve_and_activate_plan(&id, &caller(params), note.as_deref(), epoch_ms())
+                    .map_err(authority_error)?,
+                PlanMode::Planning => {
+                    svc.authorize_plan_orchestrator(&id, &caller(params))
+                        .map_err(authority_error)?;
+                    svc.plan_store
+                        .set_planning_state(
+                            &id,
+                            PlanningState::StructureReady,
+                            PlanningAuthor::User,
+                            note.as_deref(),
+                            epoch_ms(),
+                        )
+                        .map_err(plan_rpc_err)?
+                }
+                PlanMode::Execution => svc
+                    .enter_execution_mode(&id, &caller(params), epoch_ms())
+                    .map_err(authority_error)?,
+                PlanMode::Paused | PlanMode::Complete => svc
                     .plan_store
                     .set_mode(&id, mode, epoch_ms())
                     .map_err(plan_rpc_err)?,
@@ -87,10 +86,19 @@ pub(super) fn dispatch(
             let state = get_string_param(params, "state")?;
             let state =
                 PlanningState::parse(&state).ok_or_else(|| plan_rpc_err(PlanError::BadMode))?;
-            let by = match optional_string(params, "by_tab") {
-                Some(tab) => PlanningAuthor::Planner { tab_id: tab },
-                None => PlanningAuthor::User,
-            };
+            if matches!(
+                state,
+                PlanningState::StructureReady | PlanningState::Approved
+            ) {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "structure readiness is derived; the Orchestrator approves and activates with `codeterm plan approve <plan>`".into(),
+                    data: Some(json!({ "type": "manual_structure_activation_forbidden" })),
+                });
+            }
+            let by = svc
+                .authorize_draft_structure_mutation(&id, &caller(params))
+                .map_err(authority_error)?;
             let note = optional_string(params, "note");
             svc.plan_store
                 .set_planning_state(&id, state, by, note.as_deref(), epoch_ms())
@@ -104,6 +112,23 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
+    }
+}
+
+fn caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCaller {
+    let field = |key| optional_string(params, key);
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: field("caller_tab_id"),
+        session_id: field("session_id"),
+        binding_nonce: field("session_binding_nonce"),
+    }
+}
+
+fn authority_error(message: String) -> JsonRpcError {
+    JsonRpcError {
+        code: -32003,
+        message,
+        data: Some(json!({ "type": "plan_approval_authorization_required" })),
     }
 }
 

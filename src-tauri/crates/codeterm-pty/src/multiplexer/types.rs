@@ -42,6 +42,37 @@ pub struct ModelFallbackNotice {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReasoningEffortIdentity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
+    #[serde(default)]
+    pub actual: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextEpochArchive {
+    pub provider: String,
+    pub cwd: String,
+    pub session_id: String,
+}
+
+impl ReasoningEffortIdentity {
+    pub fn is_empty(&self) -> bool {
+        self.planned.is_none()
+            && self.requested.is_none()
+            && self.resolved.is_none()
+            && self.actual.is_none()
+            && self.actual_source.is_none()
+    }
+}
+
 /// A closed tab retained for browser-style reopen. Captures just enough to
 /// re-materialize the tab with the SAME backing — the `backing` reuses the
 /// existing `TabBacking` serialization, and `agent_type` / `agent_session_id`
@@ -440,6 +471,10 @@ pub struct Tab {
     /// Runtime evidence that the provider ran a different model than requested.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
+    #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
+    pub reasoning_effort_identity: ReasoningEffortIdentity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
@@ -451,10 +486,18 @@ pub struct Tab {
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
-    /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
+    /// Lineage of the operation owning this tab's authority. Stamped only by
+    /// the journal writer; persisted so a restore can prove the match.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle_operation_id: Option<String>,
+    /// Structural orchestration role. The finer-grained kind lives in
+    /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
-    /// Behavioral profile layered on top of the structural role.
+    /// Role kind id layered on the structural role (`orchestrator`,
+    /// `general_agent`, `planner`, `watcher`, or a Worker subtype).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
     /// Team membership. Roleless members are Team utility terminals; their
@@ -493,6 +536,10 @@ pub struct Tab {
     /// so a top-level orchestrator's report still reaches its spawning agent.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub spawned_by_tab_id: Option<String>,
+    /// Authenticated control ownership (controller identity, origin peer, origin
+    /// Team) — separate from transport identity. Drives target-side attribution.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,
@@ -589,6 +636,43 @@ impl Tab {
     pub fn is_chat_backend(&self) -> bool {
         matches!(self.backing, TabBacking::ChatBackend { .. })
     }
+
+    /// Role kind resolved from this tab's own `(role, role_profile)` pair.
+    pub fn role_kind_id(&self) -> Option<&str> {
+        codeterm_types::agent::role_kind::kind_id(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn anchors_team(&self) -> bool {
+        codeterm_types::agent::role_kind::anchors_team(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn kind_can_spawn(&self) -> bool {
+        codeterm_types::agent::role_kind::can_spawn(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn has_team_authority(&self) -> bool {
+        codeterm_types::agent::role_kind::has_team_authority(self.role, self.role_profile.as_deref())
+    }
+
+    pub fn has_team_orchestrator_authority(&self) -> bool {
+        self.anchors_team() && self.team_id.is_some()
+    }
+
+    pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
+        if session_id.is_empty()
+            || self
+                .context_epoch_archives
+                .iter()
+                .any(|archive| archive.provider == provider && archive.session_id == session_id)
+        {
+            return;
+        }
+        self.context_epoch_archives.push(ContextEpochArchive {
+            provider: provider.to_string(),
+            cwd: self.cwd.clone().unwrap_or_default(),
+            session_id: session_id.to_string(),
+        });
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -625,9 +709,13 @@ mod tests {
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
+            reasoning_effort_identity: ReasoningEffortIdentity::default(),
+            context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
+            lifecycle_epoch: None,
+            lifecycle_operation_id: None,
             role: None,
             role_profile: None,
             team_id: None,
@@ -639,6 +727,7 @@ mod tests {
             report_target_tab_id: None,
             report_target_mesh_peer: None,
             spawned_by_tab_id: None,
+            ownership: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,

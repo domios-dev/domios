@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
   ChatSetupState,
-  ChatSetupStatusLine,
   chatSetupSubject,
   chatSetupStageLabel,
   chatSetupView,
@@ -65,7 +64,7 @@ async function main() {
   });
 
   await test("role identity takes precedence over provider during launch", () => {
-    const orchestrator = { ...tab("agent_launching"), role: "Orchestrator" } as Tab;
+    const orchestrator = { ...tab("agent_launching"), role: "Manager", role_profile: "orchestrator" } as Tab;
     const planner = { ...tab("agent_launching"), role: "Manager", role_profile: "planner" } as Tab;
     assert(chatSetupSubject(orchestrator, "Codex") === "Orchestrator", "orchestrator label");
     assert(chatSetupSubject(planner, "Claude Code") === "Planner", "planner label");
@@ -99,22 +98,6 @@ async function main() {
     assert(host.querySelectorAll('[data-testid="chat-launch-ticks"] i').length === 8, "static reduced-motion tick marks are present");
   });
 
-  await test("history can keep rendering while the compact boot status remains visible", async () => {
-    const host = await render(
-      <ChatSetupStatusLine tab={tab("pty_spawned")} providerName="Codex" />,
-    );
-    const status = host.querySelector('[data-testid="chat-setup-status-line"]');
-    assert(status, "compact status rendered");
-    assert(status.textContent?.includes("Spawn accepted"), "real boot stage is shown");
-  });
-
-  await test("compact boot status disappears when the provider is ready", async () => {
-    const host = await render(
-      <ChatSetupStatusLine tab={tab("agent_ready")} providerName="Codex" />,
-    );
-    assert(!host.querySelector('[data-testid="chat-setup-status-line"]'), "ready status hidden");
-  });
-
   await test("failed launch remains a neutral provider loader", async () => {
     const p = tab("spawn_failed", "SYSTEM REMINDER: secret launch details");
     const host = await render(
@@ -127,14 +110,16 @@ async function main() {
     assert(!host.textContent?.includes("SYSTEM REMINDER"), "raw failure detail is hidden");
   });
 
-  await test("chat loading uses the compact line after content exists", async () => {
+  await test("missing provider art uses a contained diamond fallback", async () => {
     const host = await render(
-      <ChatSetupStatusLine tab={tab("agent_ready")} providerName="Codex" chatLoading />,
+      <ChatSetupState tab={tab("agent_launching")} view={chatSetupView(tab("agent_launching"))} providerName="Codex" providerIconHint="</>" />,
     );
-    assert(host.querySelector('[data-testid="chat-setup-status-line"]')?.textContent === "Loading chat…", "neutral loading line rendered");
+    const glyph = host.querySelector(".chat-launch-glyph .agent-icon");
+    assert(glyph?.textContent === "◆", "fallback is a single diamond");
+    assert(glyph?.classList.contains("text-[18px]"), "fallback stays inside the launch ring");
   });
 
-  await test("ready overlaps the transcript only through its opacity transition", async () => {
+  await test("ready removes the setup overlay in the transcript commit", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -147,42 +132,8 @@ async function main() {
     };
     await renderState(starting);
     await renderState(ready);
-    const exiting = host.querySelector('[data-testid="chat-setup-state"]') as HTMLDivElement | null;
-    assert(exiting?.dataset.transitionState === "exiting", "ready begins event-driven exit");
-    assert(exiting.style.opacity === "0", "exit changes opacity");
-    assert(host.querySelector('[data-testid="incoming-transcript"]'), "transcript is present beneath exiting card");
-    const transitionEnd = new window.Event("transitionend", { bubbles: true });
-    Object.defineProperty(transitionEnd, "propertyName", { value: "opacity" });
-    await act(async () => {
-      exiting.dispatchEvent(transitionEnd);
-    });
-    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "card unmounts after opacity transition");
-    assert(host.querySelector('[data-testid="incoming-transcript"]'), "transcript remains after card exits");
-  });
-
-  await test("reduced motion removes the card immediately on ready", async () => {
-    const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
-    });
-    try {
-      const host = document.createElement("div");
-      document.body.appendChild(host);
-      const root = createRoot(host);
-      const starting = tab("agent_launching");
-      const ready = tab("agent_ready");
-      await act(async () => {
-        root.render(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="Codex" />);
-      });
-      await act(async () => {
-        root.render(<ChatSetupState tab={ready} view={chatSetupView(ready)} providerName="Codex" />);
-      });
-      assert(!host.querySelector('[data-testid="chat-setup-state"]'), "reduced motion skips exit overlap");
-    } finally {
-      if (matchMediaDescriptor) Object.defineProperty(window, "matchMedia", matchMediaDescriptor);
-      else Reflect.deleteProperty(window, "matchMedia");
-    }
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "ready unmounts setup immediately");
+    assert(host.querySelector('[data-testid="incoming-transcript"]'), "transcript remains visible");
   });
 
   await test("ready renders nothing (empty-state text stays the caller's job)", async () => {

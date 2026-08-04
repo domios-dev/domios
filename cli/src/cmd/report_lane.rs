@@ -4,10 +4,11 @@ use serde_json::Value;
 
 use crate::client::SocketClient;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskReadinessScope {
     pub worktree_path: Option<PathBuf>,
     pub base: Option<String>,
+    pub requires_repository: bool,
 }
 
 pub fn task_readiness_scope(
@@ -46,6 +47,18 @@ fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessSc
             .and_then(|record| nonempty(record.get("worktree_path")))
             .map(PathBuf::from),
         base: record.and_then(|record| nonempty(record.get("base"))),
+        requires_repository: task.get("execution_intent").and_then(Value::as_str)
+            != Some("non_repository"),
+    }
+}
+
+impl Default for TaskReadinessScope {
+    fn default() -> Self {
+        Self {
+            worktree_path: None,
+            base: None,
+            requires_repository: true,
+        }
     }
 }
 
@@ -144,6 +157,21 @@ mod tests {
 
         assert_eq!(scope.worktree_path.as_deref(), Some(Path::new("/lanes/a")));
         assert_eq!(scope.base.as_deref(), Some("base-a"));
+        assert!(scope.requires_repository);
+    }
+
+    #[test]
+    fn only_explicit_nonrepository_intent_skips_repository_guards() {
+        let nonrepo = task_readiness_scope_from_task(
+            &json!({ "execution_intent": "non_repository" }),
+            "tab-a",
+        );
+        let malformed =
+            task_readiness_scope_from_task(&json!({ "execution_intent": "read_only" }), "tab-a");
+
+        assert!(!nonrepo.requires_repository);
+        assert!(malformed.requires_repository);
+        assert!(TaskReadinessScope::default().requires_repository);
     }
 
     #[test]
@@ -308,6 +336,7 @@ mod tests {
         let task_scope = TaskReadinessScope {
             worktree_path: Some(lane),
             base: Some("stale-task-base".into()),
+            requires_repository: true,
         };
 
         let (_, reported, _) = crate::cmd::report_guard::enrich_ready_report(

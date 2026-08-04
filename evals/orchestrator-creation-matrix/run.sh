@@ -23,6 +23,7 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+source "$ROOT/evals/_lib/role_preset.sh"
 PYTHON_BIN="$(command -v python3 || command -v python)"
 if [ -z "$PYTHON_BIN" ]; then
   echo "ABORT: neither python3 nor python is available on PATH" >&2
@@ -89,6 +90,14 @@ if ! curl -s --max-time 3 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
 fi
 BUILD=$(dev_get /api/health | "$PYTHON_BIN" -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
 echo "  dev build: $BUILD"
+
+# Creation routes must all reach the one shared preset resolver; a kind that
+# escalated capability would poison every route below.
+if assert_manager_kinds_resolve && assert_planner_team_authority; then
+  pass "role-preset" "every creation-route kind resolves through the shared resolver"
+else
+  fail "role-preset" "role kind capability or manager guidance drifted"
+fi
 
 # Baseline plan-id set — cleanup sweeps everything created past this, and
 # the result gate asserts the set returned to it (before == after).

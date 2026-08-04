@@ -156,6 +156,7 @@ const plugin: PluginModule = {
         : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
     }
     parts.push("opencode");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
@@ -184,9 +185,8 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    // Resume uses the normal TUI path; permission rules come from saved session config.
-    void skipPermissions;
     const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
     return parts.join(" ");
   },
 
@@ -289,7 +289,10 @@ const plugin: PluginModule = {
     };
   },
 
-  installIntegration(apiPort: number): unknown {
+  installIntegration(
+    apiPort: number,
+    _options: { consent: boolean; precompact_memory_export?: boolean },
+  ): unknown {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
@@ -341,7 +344,7 @@ const plugin: PluginModule = {
       plugin_file_current?: boolean;
     };
     if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration!(apiPort);
+    return this.installIntegration!(apiPort, { consent: true });
   },
 
   sessionExists(_cwd: string, sessionId: string): boolean {

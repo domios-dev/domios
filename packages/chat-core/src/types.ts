@@ -75,6 +75,8 @@ export interface NormalizedChatMessage {
   /** Frontend-only arrival/send order hint for live optimistic merges. Providers
    *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
   clientOrder?: number;
+  /** Persisted provider-context generation reconstructed from reset markers. */
+  contextEpoch?: number;
   provider?: string;
   subtype?: string;
   tagName?: string;
@@ -103,7 +105,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram";
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
   interactive?: InteractiveElement[];
   /** `shell_command` items only — the command line, lifecycle status, exit code
@@ -138,6 +140,7 @@ export type ChatOrigin =
   | { kind: "mesh"; peerId: string }
   | { kind: "service"; service: string; userId: string }
   | { kind: "plugin_config"; pluginId: string; name: string }
+  | { kind: "system"; context?: string }
   | { kind: "system_prompt" }
   | {
       kind: "reminder";

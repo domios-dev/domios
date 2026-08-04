@@ -33,6 +33,18 @@ export function AgentsOverview({
 
       <SettingsCard
         icon={<Bot size={16} />}
+        title="Agent access"
+        description="One permission policy for every agent provider. Applied whenever an agent starts or restarts."
+      >
+        <Toggle
+          label="Full access for agents"
+          checked={config.agent?.full_access ?? true}
+          onChange={(value) => onUpdate("agent", { full_access: value })}
+        />
+      </SettingsCard>
+
+      <SettingsCard
+        icon={<Bot size={16} />}
         title="General Agent"
         description="Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm. Changes provider on next restart, or click Restart now."
       >

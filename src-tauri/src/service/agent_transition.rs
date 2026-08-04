@@ -1,3 +1,5 @@
+use codeterm_types::agent::role_kind::{self, builtins};
+
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::PlannerRef;
@@ -11,23 +13,51 @@ pub(crate) enum AgentPlacement {
     Roleless,
     Worker {
         parent_tab_id: String,
-    },
-    Planner {
-        plan_id: String,
-    },
-    Manager {
-        parent_tab_id: String,
         role_profile: Option<String>,
     },
-    Orchestrator {
-        can_spawn: bool,
+    /// Any manager kind. The descriptor decides parenting and spawning;
+    /// `can_spawn` only overrides the kind's default.
+    Manager {
+        role_profile: String,
+        parent_tab_id: Option<String>,
+        can_spawn: Option<bool>,
     },
+}
+
+impl AgentPlacement {
+    pub(crate) fn orchestrator(can_spawn: Option<bool>) -> Self {
+        Self::Manager {
+            role_profile: builtins::ORCHESTRATOR.to_string(),
+            parent_tab_id: None,
+            can_spawn,
+        }
+    }
+
+    /// The kind this placement lands on, when it names one.
+    fn role_profile(&self) -> Option<&str> {
+        match self {
+            Self::Manager { role_profile, .. } => Some(role_profile),
+            Self::Worker { role_profile, .. } => role_profile.as_deref(),
+            Self::Roleless => None,
+        }
+    }
+
+    fn anchors_team(&self) -> bool {
+        matches!(self, Self::Manager { .. })
+            && role_kind::anchors_team(Some(AgentRole::Manager), self.role_profile())
+    }
+
+    fn is_planner(&self) -> bool {
+        self.role_profile() == Some(builtins::PLANNER) && matches!(self, Self::Manager { .. })
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct AgentTransitionRequest {
     pub tab_id: String,
     pub destination: AgentPlacement,
+    /// Plan this placement binds to as planner. An occasion, not a tier.
+    pub plan_binding: Option<String>,
     pub require_verified_session: bool,
     pub planner_replacement: Option<(String, Option<PlannerRef>)>,
     pub plan_rebind: Option<AgentLifecyclePlanRebind>,
@@ -38,6 +68,7 @@ impl AgentTransitionRequest {
         Self {
             tab_id: tab_id.into(),
             destination: AgentPlacement::Roleless,
+            plan_binding: None,
             require_verified_session: false,
             planner_replacement: None,
             plan_rebind: None,
@@ -77,30 +108,64 @@ impl ServiceContext {
         parent_tab_id: Option<&str>,
         can_spawn: Option<bool>,
     ) -> Result<(), String> {
-        let destination = match Self::parse_role(role_str)? {
-            AgentRole::Orchestrator => AgentPlacement::Orchestrator {
-                can_spawn: can_spawn.unwrap_or(true),
-            },
-            AgentRole::Manager => AgentPlacement::Manager {
-                parent_tab_id: parent_tab_id
-                    .ok_or("Manager requires a parent_tab_id")?
-                    .to_string(),
-                role_profile: role_profile.map(str::to_string),
-            },
+        let (role, profile) = Self::parse_role_kind(role_str, role_profile)?;
+        let destination = match role {
+            AgentRole::Manager => {
+                let role_profile = profile.clone().unwrap_or_default();
+                let needs_parent = role_kind::requires_parent(Some(role), Some(&role_profile));
+                AgentPlacement::Manager {
+                    parent_tab_id: match needs_parent {
+                        true => Some(
+                            parent_tab_id
+                                .ok_or_else(|| {
+                                    format!("{role_profile} requires a parent_tab_id")
+                                })?
+                                .to_string(),
+                        ),
+                        false => None,
+                    },
+                    role_profile,
+                    can_spawn,
+                }
+            }
             AgentRole::Worker => AgentPlacement::Worker {
                 parent_tab_id: parent_tab_id
                     .ok_or("Worker requires a parent_tab_id")?
                     .to_string(),
+                role_profile: profile.clone(),
             },
         };
         self.transition_agent(AgentTransitionRequest {
             tab_id: tab_id.to_string(),
             destination,
+            plan_binding: None,
             require_verified_session: false,
             planner_replacement: None,
             plan_rebind: None,
         })?;
         Ok(())
+    }
+
+    /// The plan record names the owner, so no parent is supplied or invented.
+    /// Placement and planner binding commit in one transaction.
+    pub(crate) fn place_planner_on_plan(
+        &self,
+        tab_id: &str,
+        plan_id: &str,
+        require_verified_session: bool,
+    ) -> Result<Vec<String>, String> {
+        self.transition_agent(AgentTransitionRequest {
+            tab_id: tab_id.to_string(),
+            destination: AgentPlacement::Manager {
+                role_profile: builtins::PLANNER.to_string(),
+                parent_tab_id: None,
+                can_spawn: None,
+            },
+            plan_binding: Some(plan_id.to_string()),
+            require_verified_session,
+            planner_replacement: None,
+            plan_rebind: None,
+        })
     }
 
     pub fn clear_tab_role(&self, tab_id: &str) -> Result<(), String> {
@@ -132,9 +197,17 @@ impl ServiceContext {
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
     ) -> Result<Vec<String>, String> {
+        let tab_id = request.tab_id.clone();
         let mut mux = self.mux.write();
         let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
+        let parent_tab_id = mux
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.parent_tab_id.clone());
         drop(mux);
+        self.record_role_transition(&tab_id);
+        if let Some(parent_tab_id) = parent_tab_id {
+            self.record_role_transition(&parent_tab_id);
+        }
         self.emit_state_changed();
         for plan_id in &changed_plan_ids {
             self.emit_plan_changed(plan_id);
@@ -150,9 +223,12 @@ impl ServiceContext {
         if let Some(PlannerRef::Tab { tab_id, .. }) = &planner {
             return self.transition_agent(AgentTransitionRequest {
                 tab_id: tab_id.clone(),
-                destination: AgentPlacement::Planner {
-                    plan_id: plan_id.to_string(),
+                destination: AgentPlacement::Manager {
+                    role_profile: builtins::PLANNER.to_string(),
+                    parent_tab_id: None,
+                    can_spawn: None,
                 },
+                plan_binding: Some(plan_id.to_string()),
                 require_verified_session: true,
                 planner_replacement: None,
                 plan_rebind: None,
@@ -173,6 +249,7 @@ impl ServiceContext {
                 return self.transition_agent(AgentTransitionRequest {
                     tab_id: tab_id.clone(),
                     destination: AgentPlacement::Roleless,
+                    plan_binding: None,
                     require_verified_session: false,
                     planner_replacement: Some((plan_id.to_string(), planner)),
                     plan_rebind: None,
@@ -230,7 +307,8 @@ pub(crate) fn transition_plan_to_orchestrator_core(
         plan_store,
         AgentTransitionRequest {
             tab_id,
-            destination: AgentPlacement::Orchestrator { can_spawn: true },
+            destination: AgentPlacement::orchestrator(Some(true)),
+            plan_binding: None,
             require_verified_session: false,
             planner_replacement: None,
             plan_rebind: Some(rebind.clone()),
@@ -296,11 +374,12 @@ fn prepare_transition(
     let staged = staged_mux.state_mut();
     let mut plan_changes = Vec::new();
     let plan_rebind = destination_plan_rebind(mux, plan_store, request, &source)?;
-    let preserve_owned_plans = matches!(request.destination, AgentPlacement::Orchestrator { .. })
-        && source.role == Some(AgentRole::Orchestrator)
+    let preserve_owned_plans = request.destination.anchors_team()
+        && source.anchors_team()
+        && source.role_kind_id() == request.destination.role_profile()
         && source.parent_tab_id.is_none();
     let preserve_task_bindings_for_owner = match &request.destination {
-        AgentPlacement::Worker { parent_tab_id }
+        AgentPlacement::Worker { parent_tab_id, .. }
             if source.role == Some(AgentRole::Worker)
                 && source.parent_tab_id.as_deref() == Some(parent_tab_id.as_str()) =>
         {
@@ -312,6 +391,7 @@ fn prepare_transition(
     let incumbent = planner_incumbent(
         plan_store,
         &request.destination,
+        request.plan_binding.as_ref(),
         plan_rebind.as_ref(),
         &request.tab_id,
     );
@@ -353,43 +433,71 @@ fn apply_destination(
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Vec<String>, String> {
     if preserve_owned_plans {
-        normalize_orchestrator(mux, &request.tab_id)?;
+        let role_profile = request
+            .destination
+            .role_profile()
+            .ok_or("preserved plan ownership requires an anchoring destination")?;
+        normalize_anchor(mux, &request.tab_id, role_profile)?;
         return Ok(Vec::new());
     }
 
     let affected = clear_lifecycle(mux, &request.tab_id)?;
     match &request.destination {
         AgentPlacement::Roleless => {}
-        AgentPlacement::Worker { parent_tab_id } => {
-            mux.set_tab_role(&request.tab_id, AgentRole::Worker, Some(parent_tab_id))?;
-            set_report_owner(mux, &request.tab_id, parent_tab_id)?;
-        }
-        AgentPlacement::Manager {
+        AgentPlacement::Worker {
             parent_tab_id,
             role_profile,
         } => {
-            mux.set_tab_role(&request.tab_id, AgentRole::Manager, Some(parent_tab_id))?;
+            mux.set_tab_role_kind(
+                &request.tab_id,
+                AgentRole::Worker,
+                role_profile.as_deref(),
+                Some(parent_tab_id),
+            )?;
+            set_report_owner(mux, &request.tab_id, parent_tab_id)?;
+        }
+        AgentPlacement::Manager {
+            role_profile,
+            parent_tab_id,
+            can_spawn,
+        } => {
+            let parent = resolved_manager_parent(request, plan_rebind, parent_tab_id)?;
+            mux.set_tab_role_kind(
+                &request.tab_id,
+                AgentRole::Manager,
+                Some(role_profile),
+                parent.as_deref(),
+            )?;
+            if let Some(can_spawn) = can_spawn {
+                mux.set_can_spawn(&request.tab_id, *can_spawn)?;
+            }
             let tab = mux
                 .get_tab_mut(&request.tab_id)
                 .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
-            tab.role_profile = role_profile.clone();
-            tab.report_target_tab_id = Some(parent_tab_id.clone());
-        }
-        AgentPlacement::Planner { plan_id } => {
-            let owner = rebind_owner_tab(plan_rebind, plan_id)?;
-            mux.set_tab_role(&request.tab_id, AgentRole::Manager, Some(&owner))?;
-            let tab = mux
-                .get_tab_mut(&request.tab_id)
-                .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
-            tab.role_profile = Some("planner".into());
-            tab.report_target_tab_id = Some(owner);
-        }
-        AgentPlacement::Orchestrator { can_spawn } => {
-            mux.set_tab_role(&request.tab_id, AgentRole::Orchestrator, None)?;
-            mux.set_can_spawn(&request.tab_id, *can_spawn)?;
+            tab.report_target_tab_id = parent;
         }
     }
     Ok(affected)
+}
+
+/// The anchor a Manager placement sits under. A caller-supplied parent wins;
+/// otherwise a plan-bound managing leaf takes the owner its plan names.
+fn resolved_manager_parent(
+    request: &AgentTransitionRequest,
+    plan_rebind: Option<&AgentLifecyclePlanRebind>,
+    parent_tab_id: &Option<String>,
+) -> Result<Option<String>, String> {
+    if let Some(parent) = parent_tab_id {
+        return Ok(Some(parent.clone()));
+    }
+    if request.destination.anchors_team() {
+        return Ok(None);
+    }
+    let plan_id = request
+        .plan_binding
+        .as_deref()
+        .ok_or("a managing leaf needs a parent_tab_id or a plan binding")?;
+    rebind_owner_tab(plan_rebind, plan_id).map(Some)
 }
 
 fn clear_lifecycle(mux: &mut MultiplexerState, tab_id: &str) -> Result<Vec<String>, String> {
@@ -441,12 +549,16 @@ fn revocation_change(tab_id: String) -> AgentLifecyclePlanChange {
     }
 }
 
-fn normalize_orchestrator(mux: &mut MultiplexerState, tab_id: &str) -> Result<(), String> {
+fn normalize_anchor(
+    mux: &mut MultiplexerState,
+    tab_id: &str,
+    role_profile: &str,
+) -> Result<(), String> {
     let tab = mux
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-    tab.role = Some(AgentRole::Orchestrator);
-    tab.role_profile = None;
+    tab.role = Some(AgentRole::Manager);
+    tab.role_profile = Some(role_profile.to_string());
     tab.parent_tab_id = None;
     tab.can_spawn = true;
     tab.depth = 1;
@@ -465,7 +577,6 @@ fn set_report_owner(
     let tab = mux
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-    tab.role_profile = None;
     tab.report_target_tab_id = Some(owner_tab_id.to_string());
     Ok(())
 }
@@ -507,23 +618,23 @@ fn destination_plan_rebind(
     source: &Tab,
 ) -> Result<Option<AgentLifecyclePlanRebind>, String> {
     if let Some(rebind) = &request.plan_rebind {
-        if !matches!(request.destination, AgentPlacement::Orchestrator { .. }) {
-            return Err("plan rebind requires an Orchestrator destination".into());
+        if !request.destination.anchors_team() {
+            return Err("plan rebind requires an anchoring destination".into());
         }
         verify_live_rebind_destination(mux, &request.tab_id, rebind)?;
         verify_rebind_team_available(plan_store, rebind)?;
         return Ok(Some(rebind.clone()));
     }
-    let AgentPlacement::Planner { plan_id } = &request.destination else {
+    let (true, Some(plan_id)) = (request.destination.is_planner(), request.plan_binding.as_ref())
+    else {
         return Ok(None);
     };
+    // No caller-supplied parent is required or invented: an already-placed
+    // Planner keeps its anchor, otherwise the plan record names the owner.
     let placed_owner = source
         .parent_tab_id
         .as_deref()
-        .filter(|tab_id| {
-            mux.get_tab(tab_id)
-                .is_some_and(|tab| tab.role == Some(AgentRole::Orchestrator))
-        })
+        .filter(|tab_id| mux.get_tab(tab_id).is_some_and(|tab| tab.anchors_team()))
         .map(str::to_string);
     let owner_tab_id = match placed_owner {
         Some(owner) => owner,
@@ -583,7 +694,7 @@ fn orchestrator_ref(
 ) -> Result<crate::plan::OrchestratorRef, String> {
     let tab = mux
         .get_tab(tab_id)
-        .filter(|tab| tab.role == Some(AgentRole::Orchestrator))
+        .filter(|tab| tab.anchors_team())
         .ok_or_else(|| format!("Destination tab {tab_id} is not an Orchestrator"))?;
     Ok(crate::plan::OrchestratorRef {
         tab_id: Some(tab_id.to_string()),
@@ -595,7 +706,7 @@ fn orchestrator_ref(
 fn live_orchestrator_team(mux: &MultiplexerState, tab_id: &str) -> Result<String, String> {
     let tab = mux
         .get_tab(tab_id)
-        .filter(|tab| tab.role == Some(AgentRole::Orchestrator))
+        .filter(|tab| tab.anchors_team())
         .ok_or_else(|| format!("Destination tab {tab_id} is not an Orchestrator"))?;
     tab.team_id
         .as_deref()
@@ -644,13 +755,20 @@ fn planner_binding(
     request: &AgentTransitionRequest,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Option<(String, Option<PlannerRef>)>, String> {
-    let AgentPlacement::Planner { plan_id } = &request.destination else {
+    let (true, Some(plan_id)) = (request.destination.is_planner(), request.plan_binding.as_ref())
+    else {
         return Ok(None);
     };
     let tab = mux
         .get_tab(&request.tab_id)
         .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
-    let (session_id, _) = verified_session(tab)?;
+    // A live Planner must prove its session; a Planner placed at spawn has no
+    // session yet, so the ref records `None` rather than borrowing another's.
+    let session_id = if request.require_verified_session {
+        Some(verified_session(tab)?.0.to_string())
+    } else {
+        tab.agent_session_id.clone()
+    };
     let owner = rebind_owner_tab(plan_rebind, plan_id)?;
     if tab.parent_tab_id.as_deref() != Some(owner.as_str()) {
         return Err("planner parent does not match the destination plan owner".into());
@@ -659,7 +777,7 @@ fn planner_binding(
         plan_id.clone(),
         Some(PlannerRef::Tab {
             tab_id: request.tab_id.clone(),
-            session_id: Some(session_id.to_string()),
+            session_id,
             title: Some(tab.title.clone()),
         }),
     )))
@@ -668,12 +786,13 @@ fn planner_binding(
 fn planner_incumbent(
     plan_store: &crate::service::plan::PlanStore,
     destination: &AgentPlacement,
+    plan_binding: Option<&String>,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
     target_tab_id: &str,
 ) -> Option<String> {
-    let plan_id = match destination {
-        AgentPlacement::Planner { plan_id } => plan_id,
-        AgentPlacement::Orchestrator { .. } => {
+    let plan_id = match plan_binding {
+        Some(plan_id) if destination.is_planner() => plan_id,
+        _ if destination.anchors_team() => {
             let rebind = plan_rebind.filter(|rebind| rebind.clear_planner)?;
             &rebind.plan_id
         }
@@ -704,34 +823,43 @@ fn verify_destination(
                 return Err("roleless transition post-condition failed".into());
             }
         }
-        AgentPlacement::Worker { parent_tab_id } => {
-            verify_leaf(tab, AgentRole::Worker, None, parent_tab_id, mux)?
-        }
-        AgentPlacement::Manager {
+        AgentPlacement::Worker {
             parent_tab_id,
             role_profile,
         } => verify_leaf(
             tab,
-            AgentRole::Manager,
+            AgentRole::Worker,
             role_profile.as_deref(),
             parent_tab_id,
             mux,
         )?,
-        AgentPlacement::Planner { plan_id } => {
-            let owner = rebind_owner_tab(plan_rebind, plan_id)?;
-            verify_leaf(tab, AgentRole::Manager, Some("planner"), &owner, mux)?;
-            verified_session(tab)?;
-        }
-        AgentPlacement::Orchestrator { can_spawn } => {
-            if tab.role != Some(AgentRole::Orchestrator)
-                || tab.parent_tab_id.is_some()
-                || tab.depth != 1
-                || tab.can_spawn != *can_spawn
-                || tab.report_target_tab_id.is_some()
-            {
-                return Err("Orchestrator transition post-condition failed".into());
+        AgentPlacement::Manager {
+            role_profile,
+            parent_tab_id,
+            can_spawn,
+        } => match resolved_manager_parent(request, plan_rebind, parent_tab_id)? {
+            Some(parent_tab_id) => {
+                verify_leaf(tab, AgentRole::Manager, Some(role_profile), &parent_tab_id, mux)?;
+                if request.require_verified_session && request.destination.is_planner() {
+                    verified_session(tab)?;
+                }
             }
-        }
+            None => verify_anchor(tab, role_profile, *can_spawn)?,
+        },
+    }
+    Ok(())
+}
+
+fn verify_anchor(tab: &Tab, role_profile: &str, can_spawn: Option<bool>) -> Result<(), String> {
+    if tab.role != Some(AgentRole::Manager)
+        || tab.role_kind_id() != Some(role_profile)
+        || !tab.anchors_team()
+        || tab.parent_tab_id.is_some()
+        || tab.depth != 1
+        || tab.can_spawn != can_spawn.unwrap_or(true)
+        || tab.report_target_tab_id.is_some()
+    {
+        return Err(format!("{role_profile} transition post-condition failed"));
     }
     Ok(())
 }

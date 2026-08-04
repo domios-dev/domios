@@ -81,6 +81,7 @@ const baseHost = (over: Record<string, unknown>) => ({
   platform: () => "linux",
   unixNowMs: () => 0,
   envGet: () => null,
+  exec: () => JSON.stringify({ error: "not configured" }),
   fetch: () => JSON.stringify({ error: "not configured" }),
   shell: {
     quoteFor: (value: unknown) => String(value),
@@ -442,6 +443,88 @@ for (const [label, fetchImpl] of [
   eq(p.discoverModels(), null, `discoverModels returns null on ${label} — never the manifest fallback`);
 }
 
+console.log("\n--- integration consent and exact-byte transactions ---\n");
+
+for (const [name, fixture] of [
+  ["malformed", "{not-json"],
+  ["non-object", "[]"],
+  ["empty", ""],
+] as const) {
+  const settingsPath = "/tmp/.claude/settings.json";
+  const files = new Map<string, string>([[settingsPath, fixture]]);
+  let writes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: () => null,
+      writeFile: () => { writes += 1; return true; },
+      writeJson: () => { writes += 1; return true; },
+    },
+  }));
+  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  assert(result.ok === false, `${name} Claude settings JSON is rejected`);
+  eq(writes, 0, `${name} rejection has no side effects`);
+  eq(files.get(settingsPath), fixture, `${name} Claude input bytes remain unchanged`);
+}
+
+for (const [name, fixture] of [
+  ["malformed", "{not-json"],
+  ["non-object", "[]"],
+  ["malformed hook array", '{"hooks":{"Stop":{}}}'],
+] as const) {
+  const settingsPath = "/tmp/.claude/settings.json";
+  const files = new Map<string, string>([[settingsPath, fixture]]);
+  let writes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: () => null,
+      writeFile: (path: string, value: string) => { writes += 1; files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { writes += 1; files.set(path, JSON.stringify(value)); return true; },
+    },
+  }));
+  const result = p.uninstallIntegration();
+  assert(result.ok === false, `${name} Claude uninstall input is rejected`);
+  eq(writes, 0, `${name} Claude uninstall rejection has no side effects`);
+  eq(files.get(settingsPath), fixture, `${name} Claude uninstall bytes remain unchanged`);
+}
+
+{
+  const settingsPath = "/tmp/.claude/settings.json";
+  const original = '{\n  "foreign": true,\n  "hooks": {"Stop": []}\n}\n';
+  const files = new Map<string, string>([[settingsPath, original]]);
+  const host = baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => {
+        const value = files.get(path);
+        return value === undefined ? null : JSON.parse(value);
+      },
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+    },
+  });
+  const p = loadClaudeWithHost(host);
+  const denied = p.installIntegration(7686, { consent: false });
+  assert(denied.ok === false && files.size === 1, "Claude integration writes nothing before consent");
+  assert(p.installIntegration(7686, { consent: true, precompact_memory_export: false }).ok === true, "Claude consented install succeeds");
+  eq(files.get(settingsPath + ".codeterm-backup"), original, "Claude backup preserves exact original bytes");
+  const installed = JSON.parse(files.get(settingsPath) || "{}");
+  assert(installed.foreign === true, "Claude install preserves foreign settings");
+  assert(!installed.hooks.PreCompact, "Claude PreCompact export remains separately opt-in");
+  assert(p.restoreIntegration().ok === true, "Claude restore succeeds");
+  eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
+}
+
 console.log("\n--- Windows task launch shape ---\n");
 {
   const p = loadClaudeWithHost(baseHost({
@@ -579,6 +662,62 @@ console.log("\n--- quota-free usage fetch ---\n");
   eq(fetched?.weekly_pct, 92, "fetchUsage maps the seven-day window");
   eq(fetched?.weekly_resets_at_ms, Date.parse("2026-08-02T16:59:59.000Z"), "fetchUsage maps ISO reset time");
   assert(!raw.includes("secret-token"), "fetchUsage output never persists credentials");
+}
+
+{
+  let execRequest: Record<string, unknown> | null = null;
+  let fetchRequest: Record<string, unknown> | null = null;
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "macos",
+    envGet: (name: string) => name === "USER" ? "mac-user" : null,
+    exec: (raw: string) => {
+      execRequest = JSON.parse(raw);
+      return JSON.stringify({
+        code: 0,
+        stdout: JSON.stringify({ claudeAiOauth: { accessToken: "keychain-token" } }),
+      });
+    },
+    fetch: (raw: string) => {
+      fetchRequest = JSON.parse(raw);
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({ five_hour: { utilization: 8 }, seven_day: { utilization: 7 } }),
+      });
+    },
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-file-token" } }),
+    },
+  }));
+  const raw = p.fetchUsage();
+  eq(execRequest?.bin, "security", "fetchUsage reads current macOS Claude credentials from Keychain");
+  assert(
+    Array.isArray(execRequest?.args) && execRequest.args.includes("Claude Code-credentials"),
+    "fetchUsage requests Claude's scoped Keychain service",
+  );
+  eq(
+    (fetchRequest?.headers as Record<string, string>)?.Authorization,
+    "Bearer keychain-token",
+    "macOS Keychain credentials take precedence over a stale legacy file",
+  );
+  assert(!raw.includes("keychain-token"), "Keychain credentials never persist in usage output");
+}
+
+for (const [label, response, expected] of [
+  ["network timeout", { error: "request failed: operation timed out" }, "operation timed out"],
+  ["HTTP failure", { status: 503, body: "unavailable" }, "HTTP 503"],
+] as const) {
+  const p = loadClaudeWithHost(baseHost({
+    fetch: () => JSON.stringify(response),
+    fs: {
+      ...baseHost({}).fs,
+      readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: "secret-token" } }),
+    },
+  }));
+  let message = "";
+  try { p.fetchUsage(); } catch (error) { message = String(error); }
+  assert(message.includes(expected), `fetchUsage reports ${label} without collapsing it to null`);
+  assert(!message.includes("secret-token"), `${label} diagnostics omit credentials`);
 }
 
 console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
