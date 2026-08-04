@@ -226,6 +226,28 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
+    if (effectiveOrigin?.kind === "system") {
+      return (
+        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role="status">
+          <div
+            data-testid="chat-system-event"
+            className={`max-w-full min-w-0 rounded-md border px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 94%, var(--ct-accent, #58a6ff) 6%)",
+              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            <div className="mb-1 flex items-center gap-1.5 text-xs font-medium">
+              <Info size={13} aria-hidden="true" />
+              <span>{effectiveOrigin.context ? `System · ${effectiveOrigin.context}` : "System"}</span>
+            </div>
+            <RichMarkdown text={message.content} fontScale={fontScale} />
+          </div>
+        </div>
+      );
+    }
+
     if (effectiveOrigin?.kind === "reminder") {
       return (
         <ReminderCard
