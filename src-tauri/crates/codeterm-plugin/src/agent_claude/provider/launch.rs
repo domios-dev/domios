@@ -48,8 +48,13 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push("--append-system-prompt-file".to_string());
         parts.push(ShellSyntax::quote(&path));
         if let Some(prompt) = starter_prompt_text(params.starter_prompt) {
+            let prompt = params
+                .starter_prompt
+                .system_prefix()
+                .map(|prefix| format!(" {prefix}{prompt}"))
+                .unwrap_or_else(|| prompt.to_string());
             parts.push("--".to_string());
-            parts.push(ShellSyntax::quote(prompt));
+            parts.push(ShellSyntax::quote(&prompt));
         }
     }
 
@@ -122,6 +127,7 @@ mod tests {
         assert!(!cmd.contains("$(cat "));
         assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
         assert!(cmd.contains(ASSIGNED_TASK_START_PROMPT));
+        assert!(cmd.contains("-=-codeterm:system context=assigned-task-=-"));
     }
 
     #[test]
@@ -150,6 +156,17 @@ mod tests {
             starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap),
             Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim())
         );
+    }
+
+    #[test]
+    fn team_manager_visible_turn_is_a_cli_safe_system_event() {
+        let command = build_launch_command(&AgentLaunchParams {
+            task: Some("system instructions".into()),
+            starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
+            ..Default::default()
+        });
+        assert!(command.contains("-=-codeterm:system context=team-bootstrap-=-"));
+        assert!(command.contains(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()));
     }
 
     #[test]
