@@ -340,9 +340,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
 
 test("managerless Team hides staffing and makes no request", async () => {
   const requests: unknown[] = [];
-  const tabs = {
-    worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
-  };
+  const tabs = { worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }) };
   const { host, root } = await renderSidebar({
     tabs,
     sortedTabs: [tab("tab-worker", "worker", 0)],
@@ -352,9 +350,8 @@ test("managerless Team hides staffing and makes no request", async () => {
   assert(trigger, "team menu trigger exists");
   await act(async () => trigger.click());
   const menu = document.querySelector('[data-testid="team-menu"]');
-  assert(!menu?.textContent?.includes("Add worker"), "managerless Team hides worker staffing");
-  assert(!menu?.textContent?.includes("Add planner"), "managerless Team hides planner staffing");
-  assert(!menu?.textContent?.includes("Add orchestrator"), "managerless Team hides orchestrator staffing");
+  for (const role of ["worker", "planner", "orchestrator"])
+    assert(!menu?.textContent?.includes(`Add ${role}`), `managerless Team hides ${role} staffing`);
   assert(!menu?.textContent?.includes("Rename"), "managerless Team hides rename");
   assert(requests.length === 0, "managerless Team does not issue a staffing request");
   await act(async () => root.unmount());

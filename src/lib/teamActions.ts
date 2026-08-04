@@ -7,7 +7,7 @@ export interface TeamActions {
     managerTabId: string,
     model?: string,
   ) => Promise<void>;
-  onCloseTeam: (teamId: string, managerTabId: string) => Promise<void>;
+  onCloseTeam: (teamId: string) => Promise<void>;
 }
 
 export type TeamMemberRole = "orchestrator" | "planner" | "worker";
@@ -32,8 +32,8 @@ export function buildTeamActions({
         callerTabId: managerTabId,
       });
     },
-    async onCloseTeam(teamId, managerTabId) {
-      await invoke("mux_close_team", { teamId, callerTabId: managerTabId });
+    async onCloseTeam(teamId) {
+      await invoke("mux_close_team", { teamId });
     },
   };
 }

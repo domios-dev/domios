@@ -29,7 +29,7 @@ export interface SidebarTeamActions {
     managerTabId: string,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string, managerTabId: string) => void | Promise<void>;
+  onCloseTeam?: (teamId: string) => void | Promise<void>;
 }
 
 export interface TeamTaskBucket {

@@ -31,7 +31,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Terminal/NewSessionPicker.tsx", line: 150, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 157, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 246, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
-  { file: "src/components/Sidebar/Sidebar.tsx", line: 564, cls: "platform-adaptation", note: "web-only peer picker lives in the General sidebar header" },
+  { file: "src/components/Sidebar/Sidebar.tsx", line: 562, cls: "platform-adaptation", note: "web-only peer picker lives in the General sidebar header" },
   { file: "src/components/StaleBuildBanner.tsx", line: 18, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
   { file: "src/components/FrontendCrashBoundary.tsx", line: 8, cls: "platform-adaptation", note: "native crash fallback can reload the Tauri window directly" },
   { file: "src/components/Terminal/composerFiles.ts", line: 27, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },

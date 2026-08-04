@@ -104,18 +104,20 @@ pub(crate) fn mux_close_team_service_core(
     team_id: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_tab_id =
-        caller_tab_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
-    svc.close_team(&team_id, TeamMutationCaller::AgentTab(caller_tab_id))
+    svc.close_team(&team_id, close_team_caller(caller_tab_id))
+}
+
+fn close_team_caller(caller_tab_id: Option<String>) -> TeamMutationCaller {
+    caller_tab_id.map_or(TeamMutationCaller::Human, TeamMutationCaller::AgentTab)
 }
 
 #[tauri::command]
 pub fn mux_close_team(
     svc: State<'_, ServiceState>,
     team_id: String,
-    caller_tab_id: String,
+    caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    mux_close_team_service_core(svc.inner(), team_id, Some(caller_tab_id))
+    mux_close_team_service_core(svc.inner(), team_id, caller_tab_id)
 }
 
 pub(crate) async fn mux_add_team_member_service_core(
@@ -197,6 +199,15 @@ mod tests {
         assert_eq!(
             require_team_rename_caller(None).unwrap_err(),
             "callerTabId is required to rename a Team"
+        );
+    }
+
+    #[test]
+    fn desktop_close_is_human_while_explicit_callers_keep_agent_authority() {
+        assert_eq!(close_team_caller(None), TeamMutationCaller::Human);
+        assert_eq!(
+            close_team_caller(Some("manager".into())),
+            TeamMutationCaller::AgentTab("manager".into())
         );
     }
 
