@@ -16,28 +16,20 @@ export interface ChatWindowRange {
 
 export interface ChatWindowProjection {
   items: TimelineItem[];
-  readingItems: TimelineItem[];
 }
 
 export function chatWindowProjection(
   items: readonly TimelineItem[],
   anchorKey: string | null,
-  cachedReadingItems: readonly TimelineItem[] = [],
   size: number = CHAT_WINDOW_SIZE,
 ): ChatWindowProjection {
   const tailRange = chatWindowRange(items, null, size);
   const tail = items.slice(tailRange.start, tailRange.end);
-  if (anchorKey == null) return { items: tail, readingItems: [] };
+  if (anchorKey == null) return { items: tail };
 
   const anchorIndex = items.findIndex((item) => timelineItemKey(item) === anchorKey);
-  const currentItems = new Map(items.map((item) => [timelineItemKey(item), item]));
-  const readingItems = anchorIndex >= 0
-    ? items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1)
-    : cachedReadingItems.map((item) => currentItems.get(timelineItemKey(item)) ?? item);
-  return {
-    items: readingItems,
-    readingItems,
-  };
+  if (anchorIndex < 0) return { items: tail };
+  return { items: items.slice(Math.max(0, anchorIndex + 1 - size), anchorIndex + 1) };
 }
 
 /** Anchor `null` = follow the tail. An anchor names the LAST visible item, so
