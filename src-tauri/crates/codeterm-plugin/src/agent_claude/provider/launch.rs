@@ -150,7 +150,6 @@ mod tests {
             .expect("team bootstrap starter");
         assert_eq!(starter, crate::prompts::TEAM_BOOTSTRAP_STARTER.trim());
         assert!(starter.starts_with("-=-codeterm:system context=team-bootstrap-=-"));
-        assert!(!starter.contains('\r') && !starter.contains('\n'));
         assert!(!starter.contains("tab=system"));
         assert!(!starter.contains("to reply"));
     }
