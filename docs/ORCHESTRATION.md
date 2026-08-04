@@ -47,6 +47,8 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 
 The Planner drafts structure. The Orchestrator approves or revises it, dispatches
 execution, judges reports, integrates accepted lanes, and owns cleanup.
+The Orchestrator may implement a genuinely small local change when delegation
+would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
 
 ## The loop
 
@@ -86,6 +88,11 @@ When a Planner is present:
 - never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
+- after a green doctor, summarize the proposed plan to the user and explicitly
+  ask for approval; never stop silently at a completed draft;
+- do not dispatch until approval is durably recorded. After UI approval, verify
+  `planning_state=approved`; after explicit conversational approval, run the
+  approve action and verify the same state;
 - never ask the Planner to self-approve or manually set `structure_ready`;
 - draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
@@ -178,4 +185,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

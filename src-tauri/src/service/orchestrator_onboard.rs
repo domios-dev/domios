@@ -267,10 +267,13 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_body_is_bounded_and_fully_rendered() {
+    fn onboarding_body_embeds_the_rendered_orchestrator_contract() {
         let msg = orchestrator_onboarding_body("tab-abc");
-        assert!(msg.split_whitespace().count() < 800);
         assert!(msg.contains("--parent tab-abc --role Planner --plan PLAN_ID"));
+        assert_eq!(
+            msg.matches(crate::prompts::ORCHESTRATION_DOC.trim()).count(),
+            1
+        );
         assert!(!msg.contains("{planner_spawn_cmd}"));
         assert!(!msg.contains("{orchestrator_suffix}"));
         assert!(!msg.contains("{planning_compaction_contract}"));

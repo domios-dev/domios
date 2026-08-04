@@ -22,6 +22,10 @@ runs `codeterm plan approve <plan>` to approve and activate it atomically. Never
 self-approve or manually force `structure_ready`. You do not dispatch workers or
 judge reports.
 
+After `plan doctor` is green, never wait silently. Give the Orchestrator a short
+plan summary and state explicitly that execution is waiting for user approval.
+The Orchestrator presents that approval request to the user.
+
 ## Your toolset
 
 Plans are the source of truth (never a markdown file). Read narrowly — a full
@@ -189,4 +193,4 @@ they shape how the worker approaches the job. Never leave them empty.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 12 -->
+<!-- revision: 13 -->

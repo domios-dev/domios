@@ -4,13 +4,13 @@ How CodeTerm ships instructions to LLM agents: where prompt files live, how they
 
 ## Overview
 
-Every system-level prompt in CodeTerm is a plain `.md` file compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
+Every system-level prompt in CodeTerm is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `docs/ORCHESTRATION.md` and `docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
 **One in-binary prompt location.** Every prompt the project owns and ships with CodeTerm lives here:
 
 1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, role suffixes, framework rules, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
 
-Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. If you find a project-owned prompt source anywhere else in this repo, that is a bug — move it into `src-tauri/prompts/` and expose it from the module that owns its runtime use.
+Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. Apart from the two canonical role manuals above, a project-owned prompt source outside `src-tauri/prompts/` is a bug.
 
 Prompts reach the model through these pathways:
 
@@ -37,8 +37,8 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `planning_compaction.md` | `PLANNING_COMPACTION_CONTRACT` | Shared planning fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that cuts a task graph and the role that judges it share one decomposition contract |
 | `bounce_unwinding_contract.md` | `BOUNCE_UNWINDING_CONTRACT` | Shared protocol + embedded `BOUNCE` doc | — | `cli/src/cmd/docs.rs` exposes the detailed record on demand to both planning roles; deterministic fixtures use the same source |
-| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role suffix | `{test_author_guidance}` `{planning_compaction_contract}` | `service/orchestrator/launch.rs` — rendered and appended for Planner-profile workers; deep mechanics stay in embedded docs |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role suffix | `{planning_compaction_contract}` | `service/orchestrator/launch.rs` — appended for `--role Orchestrator`; deep mechanics stay in embedded docs |
+| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role prefix | `{test_author_guidance}` `{planning_compaction_contract}` | `prompts.rs` — rendered before the complete embedded `docs/PLANNER.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{planning_compaction_contract}` | `prompts.rs` — rendered before the complete embedded `docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
@@ -236,4 +236,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
