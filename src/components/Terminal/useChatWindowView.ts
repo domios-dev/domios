@@ -174,8 +174,14 @@ export function useChatWindowView({
     updateWindowAnchor(item ? timelineItemKey(item) : null);
   }, [allTimelineItems, anchorKey, followTailRef, showLatest, updateWindowAnchor, windowRange.end]);
 
+  // Consumers hand this straight to memoized rows, so it must not churn with the
+  // streaming transcript; the ordinal is read from the live one at call time.
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
+
   const addOptimistic = useCallback((content: string) => {
     const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const clientOrder = nextOptimisticOrder(transcriptRef.current);
     setOptimistic((previous) => [
       ...previous.slice(-(MAX_RETAINED_OPTIMISTIC_MESSAGES - 1)),
       {
@@ -183,11 +189,11 @@ export function useChatWindowView({
         type: "user",
         content,
         timestamp: String(Date.now()),
-        clientOrder: nextOptimisticOrder(transcript),
+        clientOrder,
       },
     ]);
     return id;
-  }, [transcript]);
+  }, []);
 
   /** Replace an optimistic bubble's content in place — used to morph a
    * "transcribing…" placeholder into the final transcript (or an error)
