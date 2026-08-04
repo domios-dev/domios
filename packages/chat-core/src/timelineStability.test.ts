@@ -84,10 +84,7 @@ function assistant(id: string, content: string): NormalizedChatMessage {
 }
 
 // --- re-materialized messages recover identity (the real streaming path) ---
-// The chat view runs projectContextEpochs before reducing, and that stamps
-// contextEpoch onto every message, so each pass hands stabilize a fresh object
-// for rows that never changed. Comparing by reference alone made every bubble
-// re-render once per streamed chunk.
+// projectContextEpochs reallocates every row per pass, so a reference check churned.
 {
   const stable = [assistant("a-1", "one"), assistant("a-2", "two")];
   const project = (tail: NormalizedChatMessage) =>
