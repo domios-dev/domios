@@ -49,9 +49,12 @@ setup_env() {
     export RC="$SDK_BASE/bin/$SDK_VER/x64/rc.exe"
     # Use /c/ prefix for git bash PATH compatibility
     export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/x64:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/x64:$PATH"
+    export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
     echo "MSVC env loaded (VS 2022 BuildTools, MSVC $MSVC_VER)"
   fi
 }
+
+export CODETERM_FRONTEND_BUILD_HASH="$(git rev-parse --short HEAD 2>/dev/null || true)"
 
 # --- Kill THIS dev instance only (never prod, never another worktree) ---
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.

@@ -10,7 +10,7 @@
     "task:check": "node scripts/task.mjs check",
     "task:sizes": "node scripts/task.mjs sizes",
     "task:test-cli": "node scripts/task.mjs test-cli",
-    "build": "tsc && vite build",
+    "build": "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:unit": "node scripts/run-ts-unit-tests.mjs",
