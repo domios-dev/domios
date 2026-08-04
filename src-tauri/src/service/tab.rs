@@ -1062,13 +1062,13 @@ mod self_close_tests {
 
     #[test]
     fn bound_planner_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Worker), false, true));
+        assert!(is_coordinator(Some(AgentRole::Worker), None, false, true));
     }
 
     #[test]
     fn plain_worker_is_not_coordinator() {
-        assert!(!is_coordinator(Some(AgentRole::Worker), false, false));
-        assert!(!is_coordinator(None, false, false));
+        assert!(!is_coordinator(Some(AgentRole::Worker), None, false, false));
+        assert!(!is_coordinator(None, None, false, false));
     }
 }
 

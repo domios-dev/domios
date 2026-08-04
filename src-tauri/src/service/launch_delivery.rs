@@ -442,6 +442,7 @@ mod tests {
     fn pair_fallback_bootstrap_submits_identity_once_without_work() {
         let bootstrap = crate::service::role_identity::ManagerBootstrapInputs {
             role: "Orchestrator".into(),
+            role_kind: "orchestrator".into(),
             team_id: "not yet established".into(),
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),

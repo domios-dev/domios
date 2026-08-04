@@ -184,9 +184,8 @@ mod tests {
             .team_id;
         let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
         let planner = mux.create_tab(&workspace_id).unwrap();
-        mux.set_tab_role(&planner, AgentRole::Manager, Some(&orchestrator))
+        mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&orchestrator))
             .unwrap();
-        mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
         let worker = mux.create_tab(&workspace_id).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
@@ -258,7 +257,7 @@ mod tests {
             &events,
             &team_id,
             "Renamed".into(),
-            Some(&orchestrator),
+            &TeamMutationCaller::AgentTab(orchestrator.clone()),
         )
         .unwrap();
         assert_eq!(
