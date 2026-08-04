@@ -117,6 +117,21 @@ Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-d
 
 Full testing guide: `docs/TESTING.md`; authoring contract: `docs/contributing/test-authoring.md`.
 
+**Never assert prompt wording.** Test the mechanism — that a recipient receives
+the fragments it should, that placeholders were substituted, that a surface stays
+within its size bound — never which words a prompt contains, and never that a
+prompt and a markdown doc share a phrase. A phrase assertion fails on a rewrite
+and passes while delivery is broken, so it taxes editing and proves nothing. Pass
+fragments as opaque tokens; if a rule must be unique or present, assert it by
+constant, not by quoted prose.
+
+The discriminator: asserting a value the test itself supplied (a round-trip
+through substitution) or the absence of placeholder residue is mechanism, and is
+welcome. Asserting words baked into the prompt is prose, and is not. A test named
+for a mechanism must exercise that mechanism — two prompt tests were named for the
+primer and the worker context while asserting phrases in a third constant neither
+of them composed, so both stayed green through a real delivery bug.
+
 **Playwright is suspended.** Agents must not run, repair, migrate, or add
 Playwright tests, and no local or CI gate may invoke them. Keep the existing
 suite and manual commands intact. A Playwright run is allowed only when Andrey

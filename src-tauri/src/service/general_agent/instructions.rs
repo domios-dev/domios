@@ -109,6 +109,17 @@ fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_sectio
 }
 
 fn general_cli_reference() -> String {
+    format!(
+        "{}\n{}",
+        cli_without_memory_section(),
+        crate::prompts::AGENT_PAD_RULE.trim()
+    )
+}
+
+/// The GA receives memory guidance from its own sections, so the shared CLI
+/// reference drops that block. Falls back to the whole reference if the section
+/// headings move — losing the trim is harmless, losing the text would not be.
+fn cli_without_memory_section() -> String {
     let cli = crate::prompts::CODETERM_CLI;
     let Some(memory_start) = cli.find("## Memory (mem)") else {
         return cli.to_string();
