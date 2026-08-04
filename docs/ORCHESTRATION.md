@@ -49,6 +49,8 @@ The Planner drafts structure. The Orchestrator approves or revises it, dispatche
 execution, judges reports, integrates accepted lanes, and owns cleanup.
 The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
+When Team-bound, attach utility shells and cron jobs to the same Team with
+`--team <team-id>` so Team close and cleanup own their lifecycle.
 
 ## The loop
 
@@ -185,4 +187,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->
