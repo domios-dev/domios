@@ -38,7 +38,7 @@ fn qa_next_claim_requires_note_and_teaches_only_positional_plan_id() {
     let rendered = error.to_string();
     assert!(rendered.contains("--note"), "{rendered}");
     assert!(!rendered.contains("--plan"), "{rendered}");
-    assert_eq!(rendered.matches("[PLAN_ID]").count(), 1, "{rendered}");
+    assert_eq!(rendered.matches("<PLAN_ID>").count(), 1, "{rendered}");
     assert!(PlanOnly::try_parse_from([
         "plan",
         "qa",
