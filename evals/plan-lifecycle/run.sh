@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 # shellcheck source=/dev/null
 source "$ROOT/evals/_lib/lib.sh"
+# shellcheck source=/dev/null
+source "$ROOT/evals/_lib/role_preset.sh"
 
 RUN_ID="$(date +%s)-$$"
 OUT="$ROOT/target-check/evals/plan-lifecycle/$RUN_ID"
@@ -57,6 +59,12 @@ assert_error_contains() {
 
 need jq
 dev_alive || fail "dev daemon not running on port 7686; start it with ./build.sh dev --wait"
+
+# A dispatched Worker's personality must reach its launch prompt as the shared
+# preset's task overlay, not through a private Worker injection path.
+assert_worker_task_preset_layering || fail "worker task preset layering drifted"
+assert_declared_fallback || fail "an unmatched preset pair lost its declared fallback"
+pass "worker task preset layers over the shared Worker base"
 
 cat > "$SPEC" <<'EOF'
 # Canvas lifecycle fixture
