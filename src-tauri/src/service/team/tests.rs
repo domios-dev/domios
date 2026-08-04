@@ -829,8 +829,8 @@ fn spawn_fixture_member(
     profile: Option<&str>,
 ) -> String {
     let tab_id = mux.create_tab(workspace_id).unwrap();
-    mux.set_tab_role(&tab_id, role, Some(parent)).unwrap();
-    mux.get_tab_mut(&tab_id).unwrap().role_profile = profile.map(str::to_string);
+    mux.set_tab_role_kind(&tab_id, role, profile, Some(parent))
+        .unwrap();
     tab_id
 }
 
