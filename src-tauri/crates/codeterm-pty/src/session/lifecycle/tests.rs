@@ -453,7 +453,6 @@ fn restart_restores_only_the_snapshot_of_its_own_epoch() {
         .unwrap();
     commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
 
-    let load = journal.load();
     let mut current = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
     assert!(matches!(
         verdict_for(&gate(&journal, &coverage, &mut current), "tab-a"),
