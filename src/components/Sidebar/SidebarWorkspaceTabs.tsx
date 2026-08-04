@@ -127,7 +127,7 @@ export interface SidebarWorkspaceTabsProps {
     managerTabId: string,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string, managerTabId: string) => void;
+  onCloseTeam?: (teamId: string) => void;
 }
 
 export function SidebarWorkspaceTabs({
@@ -417,9 +417,7 @@ export function SidebarWorkspaceTabs({
         onAddMember={onAddTeamMember && managerTabId
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
-        onCloseTeam={onCloseTeam && managerTabId
-          ? (teamId) => onCloseTeam(teamId, managerTabId)
-          : undefined}
+        onCloseTeam={onCloseTeam}
       />,
     );
   }

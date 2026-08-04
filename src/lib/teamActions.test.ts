@@ -65,13 +65,13 @@ async function run() {
     "orchestrator staffing reaches the same Team member bridge",
   );
   const callsBeforeClose = calls.length;
-  await actions.onCloseTeam("team-1", "O1");
+  await actions.onCloseTeam("team-1");
   assert(calls.length === callsBeforeClose + 1, "close invokes exactly once");
   const closeCall = calls[calls.length - 1];
   assert(closeCall?.command === "mux_close_team", "close uses the bridge command");
   assert(
-    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1", callerTabId: "O1" }),
-    "close sends the selected manager as caller identity",
+    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1" }),
+    "close is a human UI action and sends no agent authority",
   );
 
   const rejected = buildTeamActions({

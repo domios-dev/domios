@@ -410,7 +410,6 @@ export function Sidebar({
   }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
     teamId: string;
-    managerTabId: string;
     teamName: string;
     members: OrchestrationGroupMember[];
   } | null>(null);
@@ -435,7 +434,7 @@ export function Sidebar({
     performCloseTab(wsId, tabId);
   }, [performCloseTab]);
 
-  const requestTeamClose = useCallback((wsId: string, teamId: string, managerTabId: string) => {
+  const requestTeamClose = useCallback((wsId: string, teamId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
     const teamTabs = tabsInWorkspace(ws.tabs, state.tabs).filter(
@@ -444,7 +443,6 @@ export function Sidebar({
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
       teamId,
-      managerTabId,
       teamName: team?.name?.trim() || "Team",
       members: teamTabs.map((tab) => {
         return {
@@ -594,7 +592,7 @@ export function Sidebar({
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       onCloseTeam={teamActions?.onCloseTeam
-                        ? (teamId, managerTabId) => requestTeamClose(generalWorkspace.id, teamId, managerTabId)
+                        ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
                         : undefined}
                     />}
                   </section>
@@ -756,7 +754,7 @@ export function Sidebar({
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
                           onCloseTeam={teamActions?.onCloseTeam
-                            ? (teamId, managerTabId) => requestTeamClose(ws.id, teamId, managerTabId)
+                            ? (teamId) => requestTeamClose(ws.id, teamId)
                             : undefined}
                         />
                       </div>
@@ -911,7 +909,6 @@ export function Sidebar({
           onConfirm={() => {
             void teamActions?.onCloseTeam?.(
               pendingTeamClose.teamId,
-              pendingTeamClose.managerTabId,
             );
             setPendingTeamClose(null);
           }}
