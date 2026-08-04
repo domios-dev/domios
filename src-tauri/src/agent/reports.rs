@@ -119,11 +119,6 @@ impl AgentReport {
             (None, Some(result)) => lines.push(format!("tests: -> {}", result)),
             (None, None) => {}
         }
-        if let Some(ref changed) = self.changed_files {
-            if !changed.is_empty() {
-                lines.push(format!("changed: {}", changed.join(", ")));
-            }
-        }
         if let Some(ref skipped) = self.skipped {
             lines.push(format!("skipped: {}", skipped));
         }
@@ -692,7 +687,6 @@ mod tests {
              branch: feature-x\n\
              sha: abc123\n\
              tests: cargo test -> 42 passed\n\
-             changed: src/a.rs, src/b.rs\n\
              skipped: manual UI step\n\
              the freeform body";
         assert_eq!(report.inject_body(), expected);
