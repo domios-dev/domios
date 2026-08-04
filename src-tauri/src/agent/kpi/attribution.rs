@@ -115,7 +115,7 @@ pub fn deliver_event_kind(kind: MessageKind) -> Option<KpiEventKind> {
         MessageKind::Message | MessageKind::Mesh | MessageKind::Telegram => {
             Some(KpiEventKind::Send)
         }
-        MessageKind::Report | MessageKind::Reminder => None,
+        MessageKind::Report | MessageKind::Reminder | MessageKind::System => None,
     }
 }
 

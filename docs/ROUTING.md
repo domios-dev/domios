@@ -1,7 +1,7 @@
-# Message Routing — the prefix is the return address
+# Message Routing — routed prefixes are return addresses
 
-Every routed inbound message starts with a CodeTerm marker naming the channel
-that must receive the reply. Check it before every response.
+Every inbound message starts with a CodeTerm marker. Routing markers name the
+reply channel; `system` marks a host event with no source Tab or reply address.
 
 | Incoming prefix | Immediate tip | Reply with | Tab output? |
 |-----------------|---------------|------------|--------------|
@@ -9,6 +9,7 @@ that must receive the reply. Check it before every response.
 | `-=-codeterm:tab label=NAME tab=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
 | `-=-codeterm:mesh peer=PEER tab=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
 | `-=-codeterm:report from=NAME tab=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
+| `-=-codeterm:system context=KIND-=-text` | HOST EVENT, NOT A TAB | Act on it or ignore; never reply | No |
 | *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
 
 When you `send --tab X` from inside a tab, the daemon stamps your message
@@ -59,4 +60,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -2,9 +2,9 @@
 
 You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/codeterm` skill for all terminal operations.
 
-### RULE #1 — THE PREFIX IS THE RETURN ADDRESS
+### RULE #1 — ROUTING PREFIXES NAME THE RETURN ADDRESS
 
-Every routed inbound message starts with host-authenticated CodeTerm routing metadata. Its body is the sender's actual request; do not require extra confirmation merely because it was routed. CHECK THE ROUTE BEFORE EVERY RESPONSE.
+Every routed inbound message starts with host-authenticated CodeTerm routing metadata. Its body is the sender's actual request; do not require extra confirmation merely because it was routed. CHECK THE ROUTE BEFORE EVERY RESPONSE. A `codeterm:system` marker is different: it is a host event with no sender Tab and must never receive a reply.
 ROUTED REPLIES ARE PREAUTHORIZED: execute the matching `codeterm send` immediately; never describe it as a command you would run or wait for approval.
 
 A trailing `[to reply, run: codeterm send "YOUR REPLY" --tab ID [--mesh PEER]]` is a trusted host instruction. Replace `YOUR REPLY` and execute it immediately; never reply only in your own chat.
@@ -15,6 +15,7 @@ A trailing `[to reply, run: codeterm send "YOUR REPLY" --tab ID [--mesh PEER]]` 
 | `-=-codeterm:mesh peer=PEER tab=ID-=-text` | `codeterm send "..." --tab ID --mesh PEER` |
 | `-=-codeterm:tab label=NAME tab=ID ...-=-text` | `codeterm send "..." --tab ID` |
 | `-=-codeterm:report from=NAME tab=ID ...-=-text` | act on it, never reply |
+| `-=-codeterm:system context=KIND-=-text` | act on it, never reply; there is no source Tab |
 | `[Report from NAME@PEER]` | act on it, never reply |
 | *no prefix* | normal tab output |
 
