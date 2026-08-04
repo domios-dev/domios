@@ -234,6 +234,33 @@ fn update_install_local_only_options_are_rejected_over_mesh() {
     assert!(b.is_none());
 }
 
+/// Persona reads the serving daemon's compiled prompts and its own overlay
+/// directory, so a mesh call must refuse rather than answer from local state.
+#[test]
+fn persona_inspection_is_refused_over_mesh_for_every_subcommand() {
+    use crate::args::persona::PersonaAction;
+
+    for action in [
+        PersonaAction::List,
+        PersonaAction::Reload,
+        PersonaAction::Show {
+            role: "Worker".into(),
+            kind: Some("rust-backend-dev".into()),
+            guidance: None,
+            occasion: None,
+        },
+    ] {
+        let (m, reason, b) = cli_command_to_api(&Commands::Persona { action });
+        assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+        assert!(reason.contains("socket-only"), "reason: {reason}");
+        assert!(
+            reason.contains("overlay directory"),
+            "the refusal must say whose catalog would be wrong: {reason}"
+        );
+        assert!(b.is_none(), "a refused command carries no body");
+    }
+}
+
 #[test]
 fn capabilities_is_not_misrouted_to_identify() {
     let (m, reason, b) = cli_command_to_api(&Commands::Capabilities);
