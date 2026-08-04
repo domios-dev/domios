@@ -108,6 +108,14 @@ unreadable: no sealed checkpoint for that tab (which is also what a deleted,
 rebuilt, or unavailable journal looks like), a different epoch or operation id, a
 field the checkpoint disagrees with, or a refused journal tail.
 
+Only the PTY transport commits lifecycle transitions, so only a PTY tab can
+carry lineage — `open_lifecycle_epoch` refuses to stamp a chatBackend-backed
+tab. A chatBackend tab is therefore always pre-journal and restores under the
+prior contract. If one ever turns up carrying lineage anyway, it is stripped
+with `tab carries lifecycle lineage its transport never commits`: the committed
+binding is PTY-shaped (provider, session, launch nonce) and must never stand in
+for a plugin binding.
+
 So existing tabs are never swept up. An untouched legacy agent tab keeps its
 provider, session, role, and Team until its own next launch journals an
 operation; from that launch on it is covered and enforced exactly. The db79d2da
@@ -148,7 +156,8 @@ stage, agent state, and chatBackend binding, and logs the refusal:
 
 Refusal reasons are `no committed lifecycle checkpoint for this tab operation`,
 `snapshot carries only half a lifecycle lineage`, `role authority claimed
-without a provider identity`, `epoch mismatch`, `operation mismatch`, a named
+without a provider identity`, `tab carries lifecycle lineage its transport never
+commits`, `epoch mismatch`, `operation mismatch`, a named
 field disagreement, or `journal tail refused`.
 
 A role, Team, parent, `can_spawn`, or `depth` claim is refused outright unless
@@ -214,9 +223,15 @@ to render.
 
 - **Tab creation** is not journaled. Creation confers no authority, and the
   first `epoch_opened` already marks where a lifecycle begins.
+- **chatBackend lifecycle commits do not exist.** No chatBackend path opens a
+  lifecycle operation, so those tabs stay pre-journal and keep the prior restore
+  contract. Covering them means modelling the committed binding structurally
+  (PTY provider/session/nonce versus plugin/session), branching on transport
+  shape rather than a provider id, and journaling from the chatBackend
+  authentication path — a larger change than this audit.
 - **Rollback to a named checkpoint** is not implemented. Restoring a tab to an
   earlier committed checkpoint needs an in-process authority boundary that
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

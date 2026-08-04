@@ -8,6 +8,7 @@ pub struct SnapshotAuthorityClaim {
     pub epoch: Option<LifecycleEpoch>,
     pub operation_id: Option<String>,
     pub provider: Option<String>,
+    /// Transport shape, not a provider id: a chatBackend-backed tab.
     pub chat_backend: bool,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
@@ -73,6 +74,9 @@ pub enum RecoveryRefusal {
     PartialLineage,
     /// Role or Team authority with nothing behind it.
     UnbackedRoleAuthority,
+    /// The tab carries lineage its transport never commits, so the checkpoint
+    /// schema cannot prove it either way.
+    UnjournaledTransport,
     EpochMismatch {
         snapshot: LifecycleEpoch,
         checkpoint: LifecycleEpoch,
@@ -100,6 +104,9 @@ impl RecoveryRefusal {
             Self::PartialLineage => "snapshot carries only half a lifecycle lineage".to_string(),
             Self::UnbackedRoleAuthority => {
                 "role authority claimed without a provider identity".to_string()
+            }
+            Self::UnjournaledTransport => {
+                "tab carries lifecycle lineage its transport never commits".to_string()
             }
             Self::EpochMismatch {
                 snapshot,
@@ -139,7 +146,7 @@ impl RecoveryVerdict {
 }
 
 /// The whole recovery rule, applied per tab. A tab enters coverage only once
-/// its own lifecycle operation is journaled.
+/// its own lifecycle operation is journaled, which only the PTY transport does.
 pub fn authorize(
     claim: &SnapshotAuthorityClaim,
     checkpoint: Option<&LifecycleCheckpoint>,
@@ -156,6 +163,12 @@ pub fn authorize(
             operation_id,
         } => (epoch, operation_id),
     };
+    // The committed binding is PTY-shaped: provider, session, launch nonce.
+    // A chatBackend tab must never reach here; if one does, its lineage is
+    // unprovable rather than merely unmatched.
+    if claim.chat_backend {
+        return RecoveryVerdict::Stripped(RecoveryRefusal::UnjournaledTransport);
+    }
     if claim.claims_role_authority() && (claim.provider.is_none() || claim.session_id.is_none()) {
         return RecoveryVerdict::Stripped(RecoveryRefusal::UnbackedRoleAuthority);
     }

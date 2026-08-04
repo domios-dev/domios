@@ -9,6 +9,16 @@ impl ServiceContext {
     /// Open a lifecycle operation and bind the tab to it. Later transitions
     /// key off the returned lineage.
     pub(crate) fn open_lifecycle_epoch(&self, tab_id: &str) -> Option<LifecycleKey> {
+        // Only the PTY transport commits lifecycle transitions, so only it may
+        // carry lineage. A chatBackend tab stays pre-journal by construction.
+        if self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.is_chat_backend())
+        {
+            return None;
+        }
         let journal = TabLifecycleJournal::shared();
         let epoch = crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id);
         let key = LifecycleKey::new(tab_id, epoch, uuid::Uuid::new_v4().to_string());
