@@ -102,7 +102,7 @@ fn authorized_orchestrator_actor(
         tab.agent_session_id.as_deref(),
         tab.session_binding_nonce.as_deref(),
         tab.reported_session_binding_nonce.as_deref(),
-        tab.role,
+        tab.anchors_team(),
     )?;
     Ok(AgentRef {
         tab_id: Some(tab.id.clone()),

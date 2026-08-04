@@ -48,8 +48,7 @@ impl AgentPlacement {
     }
 
     fn is_planner(&self) -> bool {
-        self.role_profile() == Some(builtins::PLANNER)
-            && matches!(self, Self::Manager { .. })
+        self.role_profile() == Some(builtins::PLANNER) && matches!(self, Self::Manager { .. })
     }
 }
 
@@ -611,7 +610,7 @@ fn destination_plan_rebind(
     source: &Tab,
 ) -> Result<Option<AgentLifecyclePlanRebind>, String> {
     if let Some(rebind) = &request.plan_rebind {
-        if !request.destination.is_anchor() {
+        if !request.destination.anchors_team() {
             return Err("plan rebind requires an anchoring destination".into());
         }
         verify_live_rebind_destination(mux, &request.tab_id, rebind)?;

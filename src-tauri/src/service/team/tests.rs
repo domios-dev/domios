@@ -34,22 +34,47 @@ fn team_manager_permission_allows_orchestrator_and_planner() {
     mux.set_tab_role(&custom_manager, AgentRole::Manager, Some(&orchestrator))
         .unwrap();
     mux.get_tab_mut(&custom_manager).unwrap().role_profile = Some("review_lead".into());
-    assert!(authorize_team_manager(&mux, &team_id, None).is_ok());
-    assert!(authorize_team_manager(&mux, &team_id, Some(&orchestrator)).is_ok());
-    assert!(authorize_team_manager(&mux, &team_id, Some(&planner)).is_ok());
-    assert!(authorize_team_manager(&mux, &team_id, Some(&custom_manager)).is_ok());
-    assert!(
-        authorize_team_mutation(&mux, &team_id, TeamMutationCaller::AgentTab(planner),).is_ok()
-    );
+    let by_tab = |tab_id: &str| TeamMutationCaller::AgentTab(tab_id.to_string());
+    assert!(authorize_team_manager(&mux, &team_id, &TeamMutationCaller::Human).is_ok());
+    assert!(authorize_team_manager(&mux, &team_id, &by_tab(&orchestrator)).is_ok());
+    assert!(authorize_team_manager(&mux, &team_id, &by_tab(&planner)).is_ok());
+    assert!(authorize_team_manager(&mux, &team_id, &by_tab(&custom_manager)).is_ok());
+    assert!(authorize_team_mutation(&mux, &team_id, &by_tab(&planner)).is_ok());
 }
 
 #[test]
 fn mux_rename_team_rejects_worker_and_foreign_tab() {
     let (mut mux, team_id, _, _, worker) = team_members();
-    assert!(authorize_team_manager(&mux, &team_id, Some(&worker)).is_err());
+    assert!(authorize_team_manager(&mux, &team_id, &TeamMutationCaller::AgentTab(worker.clone()))
+        .is_err());
     let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
     let foreign = mux.create_tab(&workspace_id).unwrap();
-    assert!(authorize_team_manager(&mux, &team_id, Some(&foreign)).is_err());
+    assert!(
+        authorize_team_manager(&mux, &team_id, &TeamMutationCaller::AgentTab(foreign)).is_err()
+    );
+}
+
+#[test]
+fn a_human_plan_transfer_keeps_the_source_refusal_instead_of_borrowing_destination_authority() {
+    let (mut mux, _source_team, source_owner, _, _) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
+    let destination_owner = mux.create_tab(&workspace_id).unwrap();
+    mux.set_orchestrator_role(&destination_owner).unwrap();
+    let destination_team = mux
+        .resolve_or_mint_team_for_parent(&destination_owner)
+        .unwrap()
+        .team_id;
+    let error = authorize_plan_transfer(
+        &mux,
+        "team_missing",
+        &destination_team,
+        &destination_owner,
+        TeamMutationCaller::Human,
+    )
+    .unwrap_err();
+    assert!(error.contains("team_missing"));
+    assert!(error.contains("not found"));
+    assert!(!error.contains("plan rebind authority"));
 }
 
 #[test]
