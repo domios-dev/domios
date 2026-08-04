@@ -40,8 +40,9 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
 
 /**
  * Reuses items from a previous timeline when their content is unchanged, so
- * downstream React.memo consumers keep identity across streamed chunks (tool
- * events are re-materialized as fresh objects on every reduce pass).
+ * downstream React.memo consumers keep identity across streamed chunks. Both
+ * arms must compare by content: tool events are re-materialized on every reduce
+ * pass, and messages are re-materialized by the context-epoch projection.
  */
 export function stabilizeTimelineItems(
   previous: TimelineItem[] | undefined,
@@ -54,7 +55,7 @@ export function stabilizeTimelineItems(
     const prior = previousById.get(timelineItemId(item));
     if (!prior || prior.kind !== item.kind) return item;
     if (item.kind === "message" && prior.kind === "message") {
-      return prior.message === item.message ? prior : item;
+      return messagesEquivalent(prior.message, item.message) ? prior : item;
     }
     if (item.kind === "tool" && prior.kind === "tool") {
       return toolEventsEquivalent(prior.event, item.event) ? prior : item;
