@@ -35,6 +35,34 @@ fn startup_attempt<'a>(
     .then_some((attempt, false))
 }
 
+/// Entering `in_progress` needs a persisted executor: a competitive task proves
+/// it with the exact live attempt, an assigned task with its own task-level tab.
+fn progression_authority(
+    plan: &crate::plan::Plan,
+    task_index: usize,
+    competitive: bool,
+    attempt_id: &str,
+) -> Result<(), PlanError> {
+    let task = &plan.tasks[task_index];
+    if competitive {
+        super::mutations::validate_competitive_attempt_status_transition(
+            plan,
+            &task.id,
+            &task.status,
+            &crate::plan::TaskStatus::InProgress,
+            attempt_id,
+        )
+    } else {
+        super::mutations::validate_task_status_transition(
+            plan,
+            &task.id,
+            &task.status,
+            &crate::plan::TaskStatus::InProgress,
+            None,
+        )
+    }
+}
+
 fn startup_status_allows(task: &crate::plan::Task, competitive: bool) -> bool {
     task.status == crate::plan::TaskStatus::Pending
         || (competitive && task.status == crate::plan::TaskStatus::InProgress)
@@ -435,9 +463,11 @@ impl PlanStore {
             attempt.base = task.lane.base.clone();
             attempt.destination = task.lane.destination.clone();
             if attempt.acknowledged_at.is_some() {
+                if task.status != crate::plan::TaskStatus::InProgress {
+                    task.status_changed_at = now_ms;
+                }
                 task.status = crate::plan::TaskStatus::InProgress;
-                task.status_label = None;
-                task.status_changed_at = now_ms;
+                task.status_label = Some("acknowledged".into());
             } else {
                 task.status_label = Some("awaiting_worker_ack".into());
             }
@@ -454,7 +484,8 @@ impl PlanStore {
                     Self::task_readback_error("task_dispatch_finish", "attempt missing")
                 })?;
             let ready_state = if attempt.acknowledged_at.is_some() {
-                task.status == crate::plan::TaskStatus::InProgress && task.status_label.is_none()
+                task.status == crate::plan::TaskStatus::InProgress
+                    && task.status_label.as_deref() == Some("acknowledged")
             } else {
                 task.status_label.as_deref() == Some("awaiting_worker_ack")
             };
@@ -535,13 +566,7 @@ impl PlanStore {
                 ));
             }
             if plan.tasks[task_index].status == crate::plan::TaskStatus::Pending {
-                super::mutations::validate_task_status_transition(
-                    plan,
-                    &plan.tasks[task_index].id,
-                    &plan.tasks[task_index].status,
-                    &crate::plan::TaskStatus::InProgress,
-                    None,
-                )?;
+                progression_authority(plan, task_index, competitive, attempt_id)?;
             }
             let task = &mut plan.tasks[task_index];
             let attempt = &mut task.execution_attempts[attempt_index];
@@ -569,10 +594,17 @@ impl PlanStore {
                 .iter()
                 .find(|candidate| candidate.id == attempt_id)
                 .ok_or_else(|| Self::task_readback_error("task_dispatch_ack", "attempt missing"))?;
+            let executor_persisted = if competitive {
+                task.status_label.as_deref() == Some("competitive")
+                    && super::mutations::live_competitive_executor(&task, attempt_id)
+            } else {
+                task.status_label.as_deref() == Some("acknowledged")
+                    && task.assigned_tab_id.as_deref() == Some(tab_id)
+            };
             if persisted.executor_tab_id != tab_id
                 || persisted.acknowledged_at != attempt.acknowledged_at
                 || task.status != crate::plan::TaskStatus::InProgress
-                || (!competitive && task.status_label.as_deref() != Some("acknowledged"))
+                || !executor_persisted
             {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
@@ -659,13 +691,10 @@ impl PlanStore {
                 .is_some();
             if acknowledged && plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress
             {
-                super::mutations::validate_task_status_transition(
-                    plan,
-                    &plan.tasks[task_index].id,
-                    &plan.tasks[task_index].status,
-                    &crate::plan::TaskStatus::InProgress,
-                    None,
-                )?;
+                let competitive = plan.tasks[task_index].execution_attempts.iter().any(|attempt| {
+                    attempt.id == attempt_id && attempt.competition_group_id.is_some()
+                });
+                progression_authority(plan, task_index, competitive, attempt_id)?;
             }
             let task = &mut plan.tasks[task_index];
             let attempt = &mut task.execution_attempts[attempt_index];
@@ -701,10 +730,13 @@ impl PlanStore {
                 .ok_or_else(|| {
                     Self::task_readback_error("task_attempt_runtime_ready", "attempt missing")
                 })?;
+            let executor_persisted = persisted.acknowledged_at.is_none()
+                || (task.status == crate::plan::TaskStatus::InProgress
+                    && (persisted.competition_group_id.is_none()
+                        || super::mutations::live_competitive_executor(&task, attempt_id)));
             if persisted.executor_tab_id != tab_id
                 || persisted.session_id.as_deref() != Some(session_id)
-                || (persisted.acknowledged_at.is_some()
-                    && task.status != crate::plan::TaskStatus::InProgress)
+                || !executor_persisted
             {
                 return Err(Self::task_readback_error(
                     "task_attempt_runtime_ready",

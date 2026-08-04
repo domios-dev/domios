@@ -408,9 +408,10 @@ impl super::ServiceContext {
 }
 
 fn git(worktree: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(worktree)
+    let mut command = Command::new("git");
+    command.args(args).current_dir(worktree);
+    crate::process_util::no_window_std(&mut command);
+    let output = command
         .output()
         .map_err(|error| format!("git {}: {error}", args.join(" ")))?;
     if !output.status.success() {

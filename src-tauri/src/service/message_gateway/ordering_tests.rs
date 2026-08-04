@@ -85,6 +85,43 @@ fn seed_bound_worker() -> BoundWorker {
     }
 }
 
+/// Bind the exact live Worker session on both sides of the seam: the tab record
+/// the daemon reads, and the attempt the plan write authorizes against.
+fn bind_live_worker_session(bw: &BoundWorker) {
+    {
+        let mut mux = bw.fx.service.mux.write();
+        let tab = mux.get_tab_mut(&bw.worker).unwrap();
+        tab.agent_session_id = Some("worker-session".into());
+        tab.session_binding_nonce = Some("worker-nonce".into());
+        tab.reported_session_binding_nonce = Some("worker-nonce".into());
+    }
+    bw.fx
+        .service
+        .plan_store
+        .update_attempt_executor_identity(
+            &bw.plan_id,
+            &bw.task_id,
+            &bw.worker,
+            None,
+            Some("worker-session"),
+            Some("worker-nonce"),
+            4,
+        )
+        .unwrap();
+}
+
+/// The authority a Worker's own `codeterm agent report` carries.
+fn worker_report_details(bw: &BoundWorker, status: ReportStatus) -> ReportDetails {
+    ReportDetails {
+        status: Some(status),
+        caller_tab_id: Some(bw.worker.clone()),
+        caller_session_id: Some("worker-session".into()),
+        session_binding_nonce: Some("worker-nonce".into()),
+        owner_epoch: Some(bw.task().interruption.owner_epoch),
+        ..Default::default()
+    }
+}
+
 fn deliver_ack(bw: &BoundWorker) {
     let envelope = MessageEnvelope::tab("Orchestrator", bw.orch.clone());
     bw.fx
@@ -107,6 +144,7 @@ fn deliver_ack(bw: &BoundWorker) {
 )]
 fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     let bw = seed_bound_worker();
+    bind_live_worker_session(&bw);
     let svc = &bw.fx.service;
 
     // Dispatch is the turn-starting boundary: it arms the obligation explicitly.
@@ -118,10 +156,7 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     svc.submit_report(
         &bw.worker,
         "STATUS: in_review\nCHANGES: fix landed\nTESTS RUN: focused",
-        ReportDetails {
-            status: Some(ReportStatus::InReview),
-            ..Default::default()
-        },
+        worker_report_details(&bw, ReportStatus::InReview),
         None,
         None,
         None,
@@ -244,6 +279,7 @@ fn worker_done_policy_cannot_suppress_report_delivery() {
 )]
 fn dispatched_brief_still_arms_and_provider_stop_still_fabricates_handoff() {
     let bw = seed_bound_worker();
+    bind_live_worker_session(&bw);
     let svc = &bw.fx.service;
 
     svc.gateway.require_worker_report(&bw.worker);
