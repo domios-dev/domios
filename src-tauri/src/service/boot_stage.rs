@@ -113,8 +113,22 @@ impl ServiceContext {
             }),
         );
         if stage == BootStage::AgentReady {
+            // Sealing transition: this is the only place an operation becomes
+            // restorable, and only if provider + session already committed.
+            self.record_lifecycle(
+                tab_id,
+                crate::session::lifecycle::LifecycleTransition::LaunchReady,
+            );
             self.schedule_planner_replay(tab_id);
             self.heal_recovery_state_if_ready();
+        }
+        if stage == BootStage::SpawnFailed {
+            self.record_lifecycle_end(
+                tab_id,
+                crate::session::lifecycle::LifecycleTransition::RolledBack {
+                    reason: reason.unwrap_or("spawn failed").to_string(),
+                },
+            );
         }
     }
 

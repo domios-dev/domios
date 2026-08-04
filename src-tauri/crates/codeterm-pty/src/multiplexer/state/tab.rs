@@ -1,7 +1,37 @@
 use super::{names, MultiplexerState};
 use crate::multiplexer::types::{TabBacking, TitleLevel};
+use crate::session::lifecycle::{LifecycleEpoch, LifecycleKey};
 
 impl MultiplexerState {
+    /// Bind a tab to the lifecycle operation that now owns its authority. Only
+    /// the journal writer calls this; nothing else may mint lineage.
+    pub fn stamp_lifecycle(
+        &mut self,
+        tab_id: &str,
+        epoch: LifecycleEpoch,
+        operation_id: &str,
+    ) -> bool {
+        match self.tabs.get_mut(tab_id) {
+            Some(tab) => {
+                tab.lifecycle_epoch = Some(epoch.0);
+                tab.lifecycle_operation_id = Some(operation_id.to_string());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The operation a tab is currently bound to, if any. A tab with no lineage
+    /// cannot journal a transition and so can never earn a checkpoint.
+    pub fn lifecycle_key(&self, tab_id: &str) -> Option<LifecycleKey> {
+        let tab = self.tabs.get(tab_id)?;
+        Some(LifecycleKey::new(
+            tab_id,
+            LifecycleEpoch(tab.lifecycle_epoch?),
+            tab.lifecycle_operation_id.clone()?,
+        ))
+    }
+
     pub fn create_tab(&mut self, workspace_id: &str) -> Result<String, String> {
         let workspace_idx = self
             .workspaces

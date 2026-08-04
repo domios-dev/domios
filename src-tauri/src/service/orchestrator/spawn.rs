@@ -729,6 +729,8 @@ impl ServiceContext {
             if let Some(can_spawn) = can_spawn {
                 mux.set_can_spawn(tab_id, can_spawn)?;
             }
+            drop(mux);
+            self.record_role_transition(tab_id);
         }
         if let Some(parent) = parent_tab_id {
             self.expect_spawn_parent_link(tab_id, parent)?;
