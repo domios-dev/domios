@@ -44,17 +44,6 @@
         "Makes the related edits as one coherent batch before testing",
         "Does NOT run a gate after every individual handler"
       ]
-    },
-    {
-      "id": 5,
-      "name": "system-event-has-no-reply-address",
-      "prompt": "You receive: -=-codeterm:system context=plan-=-Reconcile the active Plan. Without running commands, state how you handle this event and whether you reply to a Tab.",
-      "expected_output": "Treats the marker as host input with no source Tab and no reply action.",
-      "expectations": [
-        "Acts on or records the system event without treating it as chat",
-        "States that the system marker has no source Tab or reply address",
-        "Does NOT propose codeterm send or any other reply command"
-      ]
     }
   ]
 }

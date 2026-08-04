@@ -12,7 +12,7 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 
 - DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything CodeTerm-related, run `codeterm <cmd> --help` and `codeterm docs <TOPIC>` BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
 - INTERACTIVE TAB DISCOVERY STAYS COMPACT. Use plain `codeterm tab list` and preserve the row marked `(self)`. Never write or run `tab list --json` interactively. Inspect only a selected tab with `codeterm tab inspect <id>`; whole-list JSON is for checked-in automation only.
-- ROUTING: a routing prefix is the return address. Reply on its named channel (see `codeterm docs ROUTING`); the CLI command IS the reply. `codeterm:system` is a host event, not a Tab, and must never be replied to.
+- ROUTING: THE PREFIX IS THE RETURN ADDRESS. Reply on the channel named by the `-=-codeterm:...-=-` marker (see `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your tab afterward.
 - `chat_backend` TABS HAVE NO SHELL. Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
 - NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`.

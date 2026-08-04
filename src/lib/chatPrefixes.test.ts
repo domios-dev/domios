@@ -83,12 +83,6 @@ console.log("detectChatPrefix");
 }
 
 {
-  const r = detectChatPrefix("-=-codeterm:system context=plan-=-Reconcile the active Plan.");
-  eq(r?.origin, { kind: "system", context: "plan" }, "ct system marker is not a Tab origin");
-  eq(r?.body, "Reconcile the active Plan.", "ct system marker body stripped");
-}
-
-{
   const r = detectChatPrefix(
     "-=-codeterm:reminder from=Main tab=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-water the plants",
   );
