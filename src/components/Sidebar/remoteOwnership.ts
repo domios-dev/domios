@@ -1,4 +1,5 @@
 import type { Tab } from "../../lib/types";
+import { roleKindLabel, hasTeamAuthority } from "../../lib/roleKind";
 
 export interface RemoteTeamIdentity {
   id: string;
@@ -22,7 +23,7 @@ function titleCaseRole(profile: string): string {
 export function namedManagerRole(tab: Tab): string | null {
   const profile = tab.role_profile?.trim();
   if (profile) return titleCaseRole(profile);
-  return tab.role === "Orchestrator" ? "Orchestrator" : null;
+  return hasTeamAuthority(tab) ? roleKindLabel(tab) : null;
 }
 
 export function remoteIdentity(tab: Tab): { role: string | null; peer: string } | null {

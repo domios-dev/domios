@@ -22,7 +22,7 @@ function tab(id: string, overrides: Partial<Tab> = {}): Tab {
 
 test("collects the planner and workers under an orchestrator, but not siblings", () => {
   const tabs: Record<string, Tab> = {
-    orch: tab("orch", { role: "Orchestrator" }),
+    orch: tab("orch", { role: "Manager", role_profile: "orchestrator" }),
     planner: tab("planner", { parent_tab_id: "orch", role: "Manager" }),
     worker1: tab("worker1", { parent_tab_id: "orch", role: "Worker" }),
     unrelated: tab("unrelated"),
@@ -34,7 +34,7 @@ test("collects the planner and workers under an orchestrator, but not siblings",
 
 test("collects a valid manager and worker tree", () => {
   const tabs: Record<string, Tab> = {
-    orch: tab("orch", { role: "Orchestrator" }),
+    orch: tab("orch", { role: "Manager", role_profile: "orchestrator" }),
     planner: tab("planner", { parent_tab_id: "orch", role: "Manager" }),
     worker1: tab("worker1", { parent_tab_id: "orch", role: "Worker" }),
     worker2: tab("worker2", { parent_tab_id: "orch", role: "Worker" }),
@@ -46,7 +46,7 @@ test("collects a valid manager and worker tree", () => {
 
 test("collects workers nested under a manager", () => {
   const tabs: Record<string, Tab> = {
-    orch: tab("orch", { role: "Orchestrator" }),
+    orch: tab("orch", { role: "Manager", role_profile: "orchestrator" }),
     manager: tab("manager", { parent_tab_id: "orch", role: "Manager" }),
     worker1: tab("worker1", { parent_tab_id: "manager", role: "Worker" }),
     worker2: tab("worker2", { parent_tab_id: "worker1", role: "Worker" }),
@@ -58,7 +58,7 @@ test("collects workers nested under a manager", () => {
 
 test("section counts match visible worker rows for a valid tree", () => {
   const tabs: Record<string, Tab> = {
-    orch: tab("orch", { role: "Orchestrator" }),
+    orch: tab("orch", { role: "Manager", role_profile: "orchestrator" }),
     planner: tab("planner", { parent_tab_id: "orch", role: "Manager" }),
     worker1: tab("worker1", { parent_tab_id: "orch", role: "Worker" }),
     worker2: tab("worker2", { parent_tab_id: "orch", role: "Worker" }),
@@ -77,7 +77,7 @@ test("section counts match visible worker rows for a valid tree", () => {
 
 test("an orchestrator with no live children returns an empty list", () => {
   const tabs: Record<string, Tab> = {
-    orch: tab("orch", { role: "Orchestrator" }),
+    orch: tab("orch", { role: "Manager", role_profile: "orchestrator" }),
   };
   assertEqual(collectOrchestrationGroupMembers("orch", tabs), [], "no members");
 });

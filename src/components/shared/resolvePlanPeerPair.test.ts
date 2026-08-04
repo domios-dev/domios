@@ -54,7 +54,7 @@ function mkPlan(over: Partial<Plan> = {}): Plan {
 {
   const plans = [mkPlan()];
   const tabs = {
-    "orch-1": mkTab("orch-1", { role: "Orchestrator" }),
+    "orch-1": mkTab("orch-1", { role: "Manager", role_profile: "orchestrator" }),
     "plan-1": mkTab("plan-1", { role: "Manager", role_profile: "planner", parent_tab_id: "orch-1" }),
     "worker-1": mkTab("worker-1", { role: "Worker", parent_tab_id: "orch-1" }),
   };
@@ -72,7 +72,7 @@ function mkPlan(over: Partial<Plan> = {}): Plan {
     }),
   ];
   const tabs = {
-    "orch-1": mkTab("orch-1", { role: "Orchestrator" }),
+    "orch-1": mkTab("orch-1", { role: "Manager", role_profile: "orchestrator" }),
     "plan-1": mkTab("plan-1", { parent_tab_id: "orch-1" }),
   };
   assert(findOwnedPlanForOrchestrator("orch-1", plans, tabs) === null, "no owner match");

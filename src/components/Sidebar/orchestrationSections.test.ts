@@ -49,7 +49,7 @@ try {
   console.debug = origDebug;
 }
 
-assert(roleBadgeLabel(tab({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator badge");
+assert(roleBadgeLabel(tab({ role: "Manager", role_profile: "orchestrator" })) === "ORCHESTRATOR", "orchestrator badge");
 assert(
   roleBadgeLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER",
   "planner badge",
@@ -60,7 +60,7 @@ assert(
 );
 assert(roleBadgeLabel(tab({ role: "Worker" })) === null, "plain worker has no leadership badge label");
 assert(roleShieldLabel(tab({ role: "Worker" })) === null, "workers have no role shield");
-assert(roleShieldLabel(tab({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
+assert(roleShieldLabel(tab({ role: "Manager", role_profile: "orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: null })) === null, "unnamed manager has no UI role");
 assert(roleShieldLabel(null) === null, "null Tab → no shield");
@@ -77,9 +77,9 @@ assert(part.managers.map((n) => n.tab.id).join(",") === "planner", "managers = p
 assert(part.workers.map((n) => n.tab.id).join(",") === "w1,w2", "workers keep spawn order");
 const sortedManagers = sortTeamManagers([
   { tab: tab({ id: "planner-1", role: "Manager", role_profile: "planner" }) },
-  { tab: tab({ id: "orch-1", role: "Orchestrator" }) },
+  { tab: tab({ id: "orch-1", role: "Manager", role_profile: "orchestrator" }) },
   { tab: tab({ id: "planner-2", role: "Manager", role_profile: "planner" }) },
-  { tab: tab({ id: "orch-2", role: "Orchestrator" }) },
+  { tab: tab({ id: "orch-2", role: "Manager", role_profile: "orchestrator" }) },
 ]);
 assert(
   sortedManagers.map((node) => node.tab.id).join(",") === "orch-1,orch-2,planner-1,planner-2",
