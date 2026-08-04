@@ -157,9 +157,13 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
     );
     let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
     let identity = task.find("You are Hopper").unwrap();
+    let primer = task
+        .find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+        .unwrap();
     let context = task
         .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
         .unwrap();
+    let agent_pad = task.find(crate::prompts::AGENT_PAD_RULE.trim()).unwrap();
     let assignment = task.find("## Assignment").unwrap();
     let brief = task.find("# Repair delivery").unwrap();
     let ack = task.find("codeterm agent ack").unwrap();
@@ -170,10 +174,14 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
         .find("load the provider skill named `codeterm`")
         .unwrap();
 
-    assert!(identity < context);
-    assert!(context < assignment && assignment < brief);
+    assert!(identity < primer && primer < context);
+    assert!(context < agent_pad && agent_pad < assignment && assignment < brief);
     assert!(ack < brief && brief < report && report < fallback);
-    assert!(!task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert_eq!(
+        task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
     assert!(task.ends_with(
         "If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference."
