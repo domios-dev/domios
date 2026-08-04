@@ -1,4 +1,4 @@
-use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
+use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
 use codeterm_types::team::Team;
 use tauri::Manager;
 
@@ -648,22 +648,24 @@ pub(crate) fn commit_team_member_spawn(
     expected_role: &str,
     expected_profile: &Option<String>,
 ) -> Result<AddTeamMemberResult, String> {
-    let expected_role = AgentRole::from_str_compat(expected_role)
-        .ok_or_else(|| format!("Unknown Team member role {expected_role}"))?;
-    let expected_parent = (expected_role != AgentRole::Orchestrator).then_some(caller_tab_id);
+    let (expected_role, expected_kind) =
+        ServiceContext::parse_role_kind(expected_role, expected_profile.as_deref())?;
+    // An anchoring member takes no parent and binds its Team after placement.
+    let anchors = role_kind::anchors_team(Some(expected_role), expected_kind.as_deref());
+    let expected_parent = (!anchors).then_some(caller_tab_id);
     let tab = mux
         .get_tab(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found after member spawn"))?;
     let invalid_hierarchy = tab.parent_tab_id.as_deref() != expected_parent
-        || (expected_role != AgentRole::Orchestrator && tab.team_id.as_deref() != Some(team_id))
+        || (!anchors && tab.team_id.as_deref() != Some(team_id))
         || tab.role != Some(expected_role)
-        || tab.role_profile != *expected_profile
+        || tab.role_kind_id() != expected_kind.as_deref()
         || mux.find_workspace_for_tab(tab_id) != mux.find_workspace_for_tab(caller_tab_id);
     if invalid_hierarchy {
         mux.close_tab(tab_id)?;
         return Err("Team member spawn did not preserve the manager hierarchy".into());
     }
-    if expected_role == AgentRole::Orchestrator {
+    if anchors {
         mux.get_tab_mut(tab_id)
             .expect("Tab validated before Team assignment")
             .team_id = Some(team_id.into());

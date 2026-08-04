@@ -21,7 +21,8 @@ fn explicit_orchestrator_promotion_sets_role_and_can_spawn() {
     mux.set_orchestrator_role(&tab_id)
         .expect("explicit promotion");
     let tab = mux.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert!(tab.anchors_team(), "orchestrator kind anchors its Team");
     assert!(tab.can_spawn);
 }
 

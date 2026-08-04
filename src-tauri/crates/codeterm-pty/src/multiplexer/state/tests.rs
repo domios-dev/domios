@@ -379,7 +379,8 @@ fn test_set_orchestrator_role() {
         .set_orchestrator_role(&tab_id)
         .unwrap();
     let tab = state.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert!(tab.anchors_team(), "orchestrator kind anchors its Team");
     assert_eq!(tab.depth, 1);
     assert!(tab.can_spawn);
     assert!(tab.parent_tab_id.is_none());
@@ -388,7 +389,7 @@ fn test_set_orchestrator_role() {
 #[test]
 fn test_orchestrator_cannot_have_parent() {
     let (mut state, tab_id) = MultiplexerState::new();
-    let result = state.set_tab_role(&tab_id, AgentRole::Orchestrator, Some("fake"));
+    let result = state.set_tab_role_kind(&tab_id, AgentRole::Manager, Some("orchestrator"), Some("fake"));
     assert!(result.is_err());
 }
 
@@ -779,7 +780,8 @@ fn test_session_snapshot_roundtrip() {
     // Restore agent_type even when session_id is missing.
     // Without it, a previously silent tab can reappear as plain powershell after restart.
     assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert!(tab.anchors_team(), "orchestrator kind anchors its Team");
     assert_eq!(tab.depth, 1);
     assert!(tab.can_spawn);
     assert!(tab.pty_id.is_none());
@@ -1069,7 +1071,8 @@ fn test_session_snapshot_preserves_hierarchy() {
     let restored = MultiplexerState::from_session_snapshot(&snap);
 
     let cond = restored.get_tab(&cond_id).unwrap();
-    assert_eq!(cond.role, Some(AgentRole::Orchestrator));
+    assert_eq!(cond.role, Some(AgentRole::Manager));
+    assert!(cond.anchors_team(), "orchestrator kind anchors its Team");
 
     let worker = restored.get_tab(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
