@@ -94,21 +94,26 @@ impl ServiceContext {
         let role = role_probe.role.unwrap_or_else(|| "Worker".into());
         let parent = json_str(params, "parent_tab_id");
         let can_spawn = params.get("can_spawn").and_then(|v| v.as_bool());
-        let parsed_role = Self::parse_role(&role)?;
+        let (parsed_role, parsed_profile) =
+            Self::parse_role_kind(&role, role_probe.role_profile.as_deref())?;
+        let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
+            Some(parsed_role),
+            parsed_profile.as_deref(),
+        );
         let was_orchestrator = {
             let mux = self.mux.read();
             mux.get_tab(&tab_id)
-                .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Orchestrator))
+                .map(|p| p.anchors_team())
                 .unwrap_or(false)
         };
-        self.set_tab_role(&tab_id, &role, parent.as_deref(), can_spawn)?;
-        if let Some(profile) = role_probe.role_profile {
-            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-                tab.role_profile = Some(profile);
-            }
-            self.emit_state_changed();
-        }
-        if parsed_role == crate::multiplexer::types::AgentRole::Orchestrator {
+        self.set_tab_role_with_profile(
+            &tab_id,
+            &role,
+            parsed_profile.as_deref(),
+            parent.as_deref(),
+            can_spawn,
+        )?;
+        if becomes_anchor {
             self.maybe_deliver_orchestrator_promotion_onboarding(&tab_id, was_orchestrator);
         }
         Ok(serde_json::json!({"ok": true}))

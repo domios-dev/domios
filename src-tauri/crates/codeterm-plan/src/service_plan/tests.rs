@@ -313,6 +313,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         executor_role: None,
         competition: None,
         intent: None,
+        execution_intent: Default::default(),
         parent_task_id: None,
         depends_on: vec![],
         assigned_tab_id: None,
@@ -323,6 +324,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
+        interruption: Default::default(),
         pause_reason: None,
         personality: None,
         personality_provenance: None,
@@ -603,6 +605,37 @@ fn close_task_sets_done_and_optional_milestone() {
 }
 
 #[test]
+fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
+    store
+        .with_plan(&id, 25, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
+            task.execution_attempts
+                .push(crate::plan::TaskExecutionAttempt {
+                    id: "attempt-vanished".into(),
+                    executor_tab_id: "tab-vanished".into(),
+                    assigned_at: Some(10),
+                    acknowledged_at: Some(11),
+                    ..Default::default()
+                });
+            Ok(())
+        })
+        .unwrap();
+
+    store
+        .close_task(&id, &tid, None, AgentRef::from_tab("w"), 30)
+        .unwrap();
+
+    let plan = store.get(&id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == tid).unwrap();
+    assert!(task
+        .execution_attempts
+        .iter()
+        .all(|attempt| attempt.closed_at == Some(30)));
+}
+
+#[test]
 fn closed_task_assignment_is_not_indexed_or_bound() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
@@ -646,7 +679,7 @@ fn tab_gone_cleanup_clears_lane_tab() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
 
-    assert!(store.flag_tab_gone(&id, &tid, 30).unwrap());
+    assert!(store.flag_tab_gone(&id, &tid, "tab-live", 30).unwrap());
 
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
@@ -805,7 +838,7 @@ fn set_layout_accepts_prefixed_ids_from_cli_and_docs() {
 }
 
 #[test]
-fn task_creation_requires_plan_approval_unless_forced() {
+fn draft_task_creation_does_not_activate_execution() {
     use crate::plan::PlanMode;
 
     let root = tempfile::tempdir().unwrap().keep();
@@ -818,18 +851,15 @@ fn task_creation_requires_plan_approval_unless_forced() {
     let id = plan.id.clone();
     store.save(&mut plan, 1).unwrap();
 
-    let err = store
-        .ensure_task_creation_allowed(&id, "implement", false)
-        .unwrap_err();
-    assert!(matches!(err, PlanError::TaskCreationRequiresApproval));
     store
-        .ensure_task_creation_allowed(&id, "implement", true)
+        .ensure_task_creation_allowed(&id, "implement", false)
         .unwrap();
 
     // Planning-kind tasks are first-class in planning mode: allowed without --force.
     store
         .ensure_task_creation_allowed(&id, "planning", false)
         .unwrap();
+    assert!(!store.get(&id).unwrap().execution_tasks_unlocked());
 
     store.set_mode(&id, PlanMode::Approved, 2).unwrap();
     store

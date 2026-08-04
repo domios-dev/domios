@@ -46,19 +46,18 @@ pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiv
 `codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.\n\
 Graduate the proven ones: a durable know-how skill or helper script earned in this effort belongs in machine mem (`codeterm mem skill`) and, when it is repo-shaped, in `.agents/skills/` or `scripts/` — landed through a reviewed lane, never edited straight into the integration checkout.";
 
-pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning specialist: \
-     draft GOAL, Spec, and Plan structure, CUT the tasks (`codeterm plan task add` — with \
-     briefs, acceptance criteria, test plan, correctness), and surface decision options when \
-     the Orchestrator delegates planning. The Orchestrator dispatches and accepts — it does \
-     not create the tasks.";
+pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is an optional Team planning specialist: \
+     read the Team's active Plan without a separate binding, refine delegated GOAL, Spec, Plan \
+     structure, and task briefs, and surface decision options. The Orchestrator creates and owns \
+     the Team Plan, dispatches, and accepts.";
 
 pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
      Bind one with `codeterm plan update --planner <TAB_ID>` or waive with \
      `codeterm plan update --planner none --note <reason>`.";
 
 pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
-    "Planning is not approved yet — delegate GOAL/spec/plan/task-graph drafting to {planner}, \
-     then review and approve the structure as Orchestrator.";
+    "Planning is not approved yet — create or revise the Team Plan as Orchestrator; optionally \
+     ask {planner} to refine a bounded part, then review and approve it.";
 
 pub fn orch_defer_structure_line(planner: &str) -> String {
     PEER_ORCH_DEFER_STRUCTURE_LINE.replace("{planner}", planner)

@@ -1,11 +1,15 @@
 use super::plan::{emit_plan_changed, plan_rpc_err};
-use super::plan_fields::{optional_string_field, string_array_field, tab_and_ancestors, tab_role};
+use super::plan_fields::{
+    execution_intent_field, optional_string_field, string_array_field, tab_and_ancestors, tab_role,
+};
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
 use super::plan_role_helpers::{
     assign_task_with_profile, record_spawned_attempt, RespawnAttemptRoleExt,
 };
+pub(super) use super::plan_task_authority::authorize_draft_mutation;
+use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
@@ -16,6 +20,35 @@ use crate::service::{
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+fn authenticated_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: params
+            .and_then(|v| v.get("caller_tab_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        session_id: params
+            .and_then(|v| v.get("session_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        binding_nonce: params
+            .and_then(|v| v.get("session_binding_nonce"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+pub(super) fn authorize_execution(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: Option<&Value>,
+) -> Result<(), JsonRpcError> {
+    svc.authorize_execution_action(plan_id, &authenticated_caller(params))
+        .map_err(|message| JsonRpcError {
+            code: -32003,
+            message,
+            data: Some(json!({ "type": "plan_execution_authorization_required" })),
+        })
+}
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
     let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
     else {
@@ -108,6 +141,7 @@ pub(super) fn handles(method: &str) -> bool {
             | "plan.task.attempts"
             | "plan.task.attempt.show"
             | "plan.task.respawn"
+            | "plan.task.adopt_checkpoint"
             | "plan.task.compete"
             | "plan.task.judge"
             | "plan.task.rm"
@@ -123,7 +157,40 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
     let store = &svc.plan_store;
+    verify_owner_epoch_for_task_mutation(method, params, svc)?;
     match method {
+        "plan.task.adopt_checkpoint" => {
+            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
+            let tab_id = get_string_param(params, "caller_tab_id")?;
+            let session_id = svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+                .ok_or_else(|| JsonRpcError {
+                    code: -32603,
+                    message: "adoption caller has no authenticated session".into(),
+                    data: None,
+                })?;
+            let (owner_epoch, attempt_id) = svc
+                .adopt_worker_checkpoint_sync(&task_id, &tab_id, &session_id, now)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            emit_plan_changed(app, &plan_id);
+            Ok(json!({
+                "ok": true,
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "owner_epoch": owner_epoch,
+                "tab_id": tab_id,
+                "session_id": session_id,
+                "state": "awaiting_worker_ack"
+            }))
+        }
         "task.list" => {
             let caller = p
                 .and_then(|x| x.get("caller_tab_id"))
@@ -182,9 +249,16 @@ pub(super) fn dispatch(
 
         "task.take" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
+            let (plan_id, task_id) = svc
+                .authorize_task_execution_action(&task_id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
             let tab_id = get_string_param(params, "caller_tab_id")?;
             let role = tab_role(svc, &tab_id);
-            let plan_id = store
+            store
                 .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
@@ -193,7 +267,14 @@ pub(super) fn dispatch(
 
         "task.drop" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
-            let plan_id = store
+            let (plan_id, task_id) = svc
+                .authorize_task_execution_action(&task_id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
+            store
                 .set_task_assignment(&task_id, None, None, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
@@ -278,6 +359,7 @@ pub(super) fn dispatch(
                             .get("intent")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
+                        execution_intent: execution_intent_field(Some(body))?,
                         competition: super::plan_competition::metadata_field(p)?,
                         depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_tab_id: assign_tab.clone(),
@@ -325,10 +407,22 @@ pub(super) fn dispatch(
             let section_ids = store
                 .resolve_task_section_ids(&id, &requested_sections)
                 .map_err(plan_rpc_err)?;
-            let force = p.and_then(|x| x.get("force")).and_then(|v| v.as_bool()) == Some(true);
-            store
-                .ensure_task_creation_allowed(&id, &kind, force)
-                .map_err(plan_rpc_err)?;
+            let author = svc
+                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
+            crate::service::ensure_planner_task_fields_are_structural(
+                &author,
+                p.unwrap_or(&Value::Null),
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
             let has_sections = !section_ids.is_empty();
             let has_model = p
                 .and_then(|x| x.get("model"))
@@ -406,6 +500,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        execution_intent: execution_intent_field(p)?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
                             .and_then(|v| v.as_str())
@@ -482,6 +577,22 @@ pub(super) fn dispatch(
             validate_task_update_params(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            let author = svc
+                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
+            crate::service::ensure_planner_task_fields_are_structural(
+                &author,
+                p.unwrap_or(&Value::Null),
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
                     .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))
@@ -600,7 +711,35 @@ pub(super) fn dispatch(
         }
 
         "plan.task.assign" => {
-            let id = assign_task_with_profile(store, svc, params, p, now)?;
+            let (id, task_id) = plan_refs::resolve_task(store, params)?;
+            authorize_execution(svc, &id, p)?;
+            let owner_epoch = store
+                .show_task(&task_id)
+                .map(|detail| detail.task.interruption.owner_epoch)
+                .unwrap_or(0);
+            let id = if owner_epoch > 0 {
+                let authority = task_mutation_authority(params, svc)?;
+                let mux = svc.mux.read();
+                let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+                    tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                        && tab.session_binding_nonce.as_deref()
+                            == Some(&authority.session_binding_nonce)
+                        && tab.reported_session_binding_nonce.as_deref()
+                            == Some(&authority.session_binding_nonce)
+                });
+                if !authenticated {
+                    return Err(JsonRpcError {
+                        code: -32603,
+                        message: "task mutation caller binding is stale or rebound".into(),
+                        data: None,
+                    });
+                }
+                let id = assign_task_with_profile(store, svc, params, p, Some(&authority), now)?;
+                drop(mux);
+                id
+            } else {
+                assign_task_with_profile(store, svc, params, p, None, now)?
+            };
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
@@ -621,6 +760,7 @@ pub(super) fn dispatch(
 
         "plan.task.respawn" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            authorize_execution(svc, &id, p)?;
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
@@ -746,7 +886,7 @@ pub(super) fn dispatch(
                 original_task,
                 original_plan_mode,
                 lane_for_commit: task.lane.clone(),
-                provenance,
+                provenance: Some(provenance),
                 provisioned_lane: None,
                 spawn_command: format!(
                     "codeterm plan task respawn {id} {tid} --attempt {}",
@@ -779,10 +919,12 @@ pub(super) fn dispatch(
             let all = p.and_then(|x| x.get("all")).and_then(|v| v.as_bool()) == Some(true);
             let (id, count) = if all {
                 let id = plan_refs::resolve_plan(store, params)?;
+                authorize_draft_mutation(svc, &id, p)?;
                 let count = store.rm_all_tasks(&id, now).map_err(plan_rpc_err)?;
                 (id, count)
             } else {
                 let (id, tid) = plan_refs::resolve_task(store, params)?;
+                authorize_draft_mutation(svc, &id, p)?;
                 store.rm_task(&id, &tid, now).map_err(plan_rpc_err)?;
                 (id, 1)
             };
@@ -799,225 +941,4 @@ pub(super) fn dispatch(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{dependency_vec_field, dispatch, external_ref_values, validate_model_field};
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
-    use crate::plan::{OrchestratorRef, Plan};
-    use crate::service::plan::NewTask;
-    use crate::service::test_fixture::ServiceFixture;
-    use serde_json::json;
-    use std::sync::Arc;
-
-    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
-        let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        let mut plan = Plan::new(
-            "Update validation".into(),
-            fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        fixture.service.plan_store.save(&mut plan, 1).unwrap();
-        let parent_task_id = fixture
-            .service
-            .plan_store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "Parent".into(),
-                    kind: "implement".into(),
-                    ..Default::default()
-                },
-                2,
-            )
-            .unwrap();
-        let dependency_task_id = fixture
-            .service
-            .plan_store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "Dependency".into(),
-                    kind: "implement".into(),
-                    ..Default::default()
-                },
-                3,
-            )
-            .unwrap();
-        let task_id = fixture
-            .service
-            .plan_store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "Original".into(),
-                    kind: "implement".into(),
-                    ..Default::default()
-                },
-                4,
-            )
-            .unwrap();
-        (
-            fixture,
-            plan.id,
-            task_id,
-            parent_task_id,
-            dependency_task_id,
-        )
-    }
-
-    fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
-        let plan = fixture.service.plan_store.get(plan_id).unwrap();
-        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-        serde_json::to_string_pretty(task).unwrap()
-    }
-
-    #[test]
-    fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
-        for key in ["nonsense_field", "external_ref", "externalRefs"] {
-            let (fixture, plan_id, task_id, _, _) = update_fixture();
-            let service = Arc::new(fixture.service.clone());
-            let before = full_task_record(&fixture, &plan_id, &task_id);
-            let mut params = json!({
-                "plan_id": plan_id.clone(),
-                "task_id": task_id.clone()
-            });
-            params[key] = json!("ignored");
-            let params = Some(params);
-
-            let result = dispatch(
-                "plan.task.update",
-                &params,
-                &fixture.service.app_handle,
-                &service,
-                99,
-            );
-            let after = full_task_record(&fixture, &plan_id, &task_id);
-            assert!(
-                result.is_err(),
-                "key {key} unexpectedly succeeded\nbefore:\n{before}\nafter:\n{after}"
-            );
-            let error = result.unwrap_err();
-
-            assert_eq!(error.code, -32602, "key: {key}");
-            assert!(error.message.contains(key), "{}", error.message);
-            assert!(error.message.contains("accepted"), "{}", error.message);
-            assert!(error.message.contains("external_refs"), "{}", error.message);
-            assert_eq!(error.data.as_ref().unwrap()["key"], key);
-            assert_eq!(
-                after,
-                before,
-                "rejected key {key} changed the full task record"
-            );
-        }
-    }
-
-    #[test]
-    fn socket_every_supported_update_key_reaches_the_real_handler() {
-        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
-        let service = Arc::new(fixture.service.clone());
-        let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
-        assert_eq!(
-            payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
-            TASK_UPDATE_KEYS
-        );
-
-        for (index, (key, mut params)) in payloads.into_iter().enumerate() {
-            params["plan_id"] = json!(plan_id.clone());
-            params["task_id"] = json!(task_id.clone());
-            let result = dispatch(
-                "plan.task.update",
-                &Some(params),
-                &fixture.service.app_handle,
-                &service,
-                100 + index as u64,
-            );
-            let failure = result
-                .as_ref()
-                .err()
-                .map(|error| error.message.as_str())
-                .unwrap_or("");
-            assert!(
-                result.is_ok(),
-                "Socket failed supported key {key}: {failure}"
-            );
-        }
-    }
-
-    #[test]
-    fn socket_update_external_refs_round_trips_non_null() {
-        let (fixture, plan_id, task_id, _, _) = update_fixture();
-        let service = Arc::new(fixture.service.clone());
-        let params = Some(json!({
-            "plan_id": plan_id.clone(),
-            "task_id": task_id.clone(),
-            "external_refs": ["rollacode/codeterm-releases#17"]
-        }));
-
-        dispatch(
-            "plan.task.update",
-            &params,
-            &fixture.service.app_handle,
-            &service,
-            99,
-        )
-        .unwrap();
-
-        let plan = fixture.service.plan_store.get(&plan_id).unwrap();
-        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-        assert_eq!(task.external_refs.len(), 1);
-        assert_eq!(
-            task.external_refs[0].canonical_url,
-            "https://github.com/rollacode/codeterm-releases/issues/17"
-        );
-    }
-
-    #[test]
-    fn rpc_dependency_field_omitted_is_none() {
-        assert!(matches!(dependency_vec_field(Some(&json!({}))), Ok(None)));
-    }
-
-    #[test]
-    fn rpc_dependency_field_array_replaces() {
-        assert!(matches!(
-            dependency_vec_field(Some(&json!({ "depends_on": ["task_a", "task_b"] }))),
-            Ok(Some(ids)) if ids == ["task_a", "task_b"]
-        ));
-    }
-
-    #[test]
-    fn rpc_dependency_field_null_or_empty_clears() {
-        assert!(matches!(
-            dependency_vec_field(Some(&json!({ "depends_on": null }))),
-            Ok(Some(ids)) if ids.is_empty()
-        ));
-        assert!(matches!(
-            dependency_vec_field(Some(&json!({ "depends_on": [] }))),
-            Ok(Some(ids)) if ids.is_empty()
-        ));
-    }
-
-    #[test]
-    fn rpc_external_ref_values_require_an_array_of_strings() {
-        assert_eq!(
-            external_ref_values(Some(&json!({
-                "external_refs": ["rollacode/codeterm-releases#17"]
-            })))
-            .unwrap(),
-            vec!["rollacode/codeterm-releases#17".to_string()]
-        );
-        let error = external_ref_values(Some(&json!({ "external_refs": "#17" }))).unwrap_err();
-        assert_eq!(error.code, -32602);
-        assert!(error.message.contains("array of reference strings"));
-    }
-
-    #[test]
-    fn provider_id_is_rejected_in_model_field_with_canonical_syntax() {
-        let providers = vec!["claude".into(), "codex".into()];
-        let error =
-            validate_model_field(Some(&json!({ "model": "claude" })), &providers).unwrap_err();
-        assert_eq!(error.code, -32602);
-        assert_eq!(error.data.unwrap()["type"], "provider_id_in_model_field");
-        assert!(error.message.contains("<provider>:<model>"));
-    }
-}
+mod tests;

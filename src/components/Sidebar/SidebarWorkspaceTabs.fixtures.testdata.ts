@@ -20,6 +20,7 @@ export function tab(
     role: null,
     role_profile: null,
     parent_tab_id: null,
+    can_spawn: overridesOrRowId.role_profile === "orchestrator",
     ...overridesOrRowId,
   } as Tab;
 }

@@ -294,8 +294,26 @@ finish_build_gateway_logging() {
   else
     reader_status=$?
   fi
+  rm -f -- "${CT_BUILD_GATEWAY_LOG_FIFO:-}"
   exec 3>&- 4>&-
   return "$reader_status"
+}
+
+complete_build_gateway_before_install_handoff() {
+  local reader_status=0 finish_status=0
+  trap - EXIT INT TERM
+  if [ -n "${CT_BUILD_GATEWAY_LOG_PATH:-}" ]; then
+    printf 'Build gateway job %s build exit: 0\n' "$CT_BUILD_JOB_ID"
+    finish_build_gateway_logging || reader_status=$?
+    if [ "$reader_status" -ne 0 ]; then
+      printf 'ERROR: build gateway logging path broke before installer handoff (exit %s); log: %s\n' \
+        "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+      ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "0" logging_failed
+      return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+    fi
+  fi
+  ct_gateway_finish 0 0 || finish_status=$?
+  return "$finish_status"
 }
 
 build_gateway_logging_on_exit() {
@@ -327,7 +345,7 @@ build_gateway_logging_on_exit() {
 
 break_build_gateway_log_reader() {
   [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] || return 2
-  kill -TERM "$CT_BUILD_GATEWAY_LOG_READER_PID"
+  kill -KILL "$CT_BUILD_GATEWAY_LOG_READER_PID"
   if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
     CT_BUILD_GATEWAY_LOG_READER_STATUS=0
   else
@@ -356,8 +374,17 @@ enter_build_gateway() {
   exec 3>&1 4>&2
   trap '' PIPE
   unset CT_BUILD_GATEWAY_LOG_READER_STATUS
-  exec > >(run_build_gateway_log_reader "$gateway_log" >&3) 2>&1
+  CT_BUILD_GATEWAY_LOG_FIFO="${gateway_log}.fifo.$$"
+  if ! mkfifo "$CT_BUILD_GATEWAY_LOG_FIFO"; then
+    printf 'ERROR: build gateway log channel could not be created: %s\n' \
+      "$CT_BUILD_GATEWAY_LOG_FIFO" >&4
+    exec 3>&- 4>&-
+    ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "" logging_failed
+    return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+  fi
+  run_build_gateway_log_reader "$gateway_log" < "$CT_BUILD_GATEWAY_LOG_FIFO" >&3 &
   CT_BUILD_GATEWAY_LOG_READER_PID=$!
+  exec > "$CT_BUILD_GATEWAY_LOG_FIFO" 2>&1
   CT_BUILD_GATEWAY_LOG_PATH="$gateway_log"
   CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=0
   trap 'build_gateway_logging_on_exit' EXIT
@@ -373,7 +400,7 @@ enter_build_gateway() {
 }
 
 check_build_gateway_logging() {
-  local root success_log reader_success_status reader_failure_status open_status killed_status
+  local root success_log handoff_log reader_success_status reader_failure_status open_status killed_status piped_status
   root="$(mktemp -d "${TMPDIR:-/tmp}/codeterm-gateway-logging.XXXXXX")"
   CT_BUILD_GATEWAY_CHECK_ROOT="$root"
   trap 'rm -rf -- "$CT_BUILD_GATEWAY_CHECK_ROOT"' EXIT
@@ -389,6 +416,32 @@ check_build_gateway_logging() {
     return 1
   }
   echo "success: final marker reached console and gateway log"
+  CT_BUILD_JOB_ID=handoff-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+    ./build.sh gateway-log-probe handoff-success > "$root/handoff.console" 2>&1
+  handoff_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/handoff.console" | head -1 | tr -d '\r')"
+  grep -q '^HANDOFF_AFTER_GATEWAY$' "$root/handoff.console" || {
+    echo "build gateway handoff regression: post-gateway handoff did not run" >&2
+    return 1
+  }
+  if grep -q '^HANDOFF_AFTER_GATEWAY$' "$handoff_log"; then
+    echo "build gateway handoff regression: installer handoff remained inside the build log" >&2
+    return 1
+  fi
+  echo "handoff: gateway completed and logging closed before installer handoff"
+  set +e
+  CT_BUILD_JOB_ID=piped CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
+    /bin/bash ./build.sh gateway-log-probe success 2>&1 | tail -n 20 > "$root/piped.console"
+  piped_status=${PIPESTATUS[0]}
+  set -e
+  [ "$piped_status" -eq 0 ] || {
+    echo "build gateway logging regression: piped Bash 3 invocation exited $piped_status" >&2
+    return 1
+  }
+  grep -q '^MARKER_LAST$' "$root/piped.console" || {
+    echo "build gateway logging regression: piped console lost the final marker" >&2
+    return 1
+  }
+  echo "pipeline: Bash 3 retained the log reader child and command status"
   if CT_BUILD_JOB_ID=reader-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
       ./build.sh gateway-log-probe reader-failure-success > "$root/reader-success.console" 2>&1; then
     reader_success_status=0
@@ -457,6 +510,8 @@ const status = require(process.argv[2]);
 const jobs = Object.fromEntries(status.recent.map((job) => [job.job_id, job]));
 const expected = {
   healthy: ["success", 0, 0],
+  piped: ["success", 0, 0],
+  "handoff-success": ["success", 0, 0],
   "reader-success": ["logging_failed", 74, 0],
   "reader-failure": ["logging_failed", 74, 101],
   "open-failure": ["logging_failed", 74, null],
@@ -1192,7 +1247,8 @@ CodeTerm build commands
   dev-prebuilt                Restart a validated dev build without Cargo
   check                       Fast Rust compile check
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <app|pty|cli> NAME Run one focused capped Rust test
+  test-one <app|plan|pty|types|mem|plugin|cli> NAME
+                              Run one focused capped Rust test
   test                        Run the application Rust unit suite
   verify                      Run check, tests, and source-size gate
   qa-prep                     Prepare a worktree for QA
@@ -1261,6 +1317,10 @@ EOF
       command-killed)
         kill -TERM "$$"
         ;;
+      handoff-success)
+        complete_build_gateway_before_install_handoff
+        printf 'HANDOFF_AFTER_GATEWAY\n'
+        ;;
     esac
     printf 'MARKER_LAST\n'
     ;;
@@ -1315,13 +1375,17 @@ EOF
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ;;
   test-one)
-    test_scope="${2:?test-one requires app, pty, or cli}"
+    test_scope="${2:?test-one requires app, plan, pty, types, mem, plugin, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter" ;;
+      plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
+      types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --lib "$test_filter" ;;
+      mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
+      plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected app, pty, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, types, mem, plugin, or cli)" >&2; exit 2 ;;
     esac
     ;;
   verify)
@@ -1412,6 +1476,8 @@ EOF
       echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
       INSTALL_ARGS+=(--no-continue)
     fi
+    complete_build_gateway_before_install_handoff
+    echo "Build gateway released; starting detached installer handoff."
     env \
       -u CODETERM_INSTANCE \
       -u CODETERM_VITE_PORT \

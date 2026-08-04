@@ -74,6 +74,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 )
             }
         },
+        // Every persona answer is about the serving daemon: its compiled prompt
+        // text and its own overlay directory. A remote answer would be a lie.
+        Commands::Persona { .. } => unsupported(
+            "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
+        ),
         Commands::Task { .. } => {
             unsupported("task management is local-only — run it on the target machine")
         }
@@ -88,10 +93,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Capabilities => {
             unsupported("capabilities is socket-only; run it on the target machine")
         }
+        Commands::Pad { .. } => unsupported("pad is caller-local and cannot target a mesh peer"),
         Commands::SendText {
             text,
             tab,
             from_file,
+            from_pad,
             stdin: use_stdin,
             actions,
             delay,
@@ -99,9 +106,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             } else {
-                send_text_to_api(text, tab, from_file, *use_stdin, actions, &mut stdin)
+                send_text_to_api(text, tab, from_file, from_pad, *use_stdin, actions, &mut stdin)
             }
         }
         Commands::Delayed { action } => match action {
@@ -119,10 +126,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 delay,
                 at,
                 from_file,
+                from_pad,
                 stdin: use_stdin,
             } => {
                 let mut stdin = std::io::stdin();
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             }
             crate::DelayedAction::Edit {
                 id,
@@ -130,13 +138,15 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 delay,
                 at,
                 from_file,
+                from_pad,
                 stdin: use_stdin,
             } => {
                 let mut body = serde_json::Map::new();
-                if text.is_some() || from_file.is_some() || *use_stdin {
+                if text.is_some() || from_file.is_some() || from_pad.is_some() || *use_stdin {
                     match resolve_send_text_input(
                         text.clone(),
                         from_file.clone(),
+                        from_pad.clone(),
                         *use_stdin,
                         &mut std::io::stdin(),
                     ) {
@@ -217,11 +227,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
             }
-            crate::TabAction::Inspect { tabs } => (
+            crate::TabAction::Inspect { tabs, tab } => (
                 "GET".into(),
                 format!(
                     "/api/tabs/inspect?tab_ids={}",
                     tabs.iter()
+                        .chain(tab.iter())
                         .map(|tab| urlencoding::encode(tab).into_owned())
                         .collect::<Vec<_>>()
                         .join(",")
@@ -271,11 +282,28 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("POST".into(), "/api/tabs".into(), Some(body.to_string()))
             }
-            crate::TabAction::Focus { id } => {
+            crate::TabAction::Focus { id, tab } => {
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "focus") else {
+                    return unsupported("tab focus requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
-            crate::TabAction::Close { id } => {
+            crate::TabAction::Close { id, tab } => {
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "close") else {
+                    return unsupported("tab close requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/close", id), None)
+            }
+            crate::TabAction::Restart { tab, cwd, cmd } => {
+                if cmd.is_some() {
+                    return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
+                }
+                let id = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/restart", id),
+                    Some(serde_json::json!({"cwd": cwd}).to_string()),
+                )
             }
             crate::TabAction::Rename { title, tab } => {
                 let p = tab.as_deref().unwrap_or("general");
@@ -369,12 +397,17 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::PasteAction::Put {
                 body,
                 from_file,
+                from_pad,
                 from_stdin,
                 ttl,
                 content_type,
                 pop,
             } => {
-                let resolved = if *from_stdin {
+                let resolved = if let Some(path) = from_pad {
+                    crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
+                        eprintln!("Error: {e}"); std::process::exit(1)
+                    })
+                } else if *from_stdin {
                     use std::io::Read;
                     let mut buf = String::new();
                     if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
@@ -393,7 +426,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                         }
                     }
                 } else {
-                    body.clone()
+                    body.clone().unwrap_or_default()
                 };
                 if resolved.trim().is_empty() {
                     eprintln!("Error: paste put (mesh) body is empty");
@@ -453,11 +486,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 max_actions,
                 bound_task,
                 plan_task,
+                execution_intent,
+                provider_reserve_pct,
                 non_user_facing,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
                     task_file.clone(),
+                    cwd.as_deref(),
                     &mut std::io::stdin(),
                 ) {
                     Ok(t) => t,
@@ -562,6 +598,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(pt) = plan_task {
                     body["plan_task"] = serde_json::json!(pt);
+                }
+                if let Some(intent) = execution_intent {
+                    body["execution_intent"] = serde_json::json!(intent);
+                    body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
                 }
                 if *non_user_facing {
                     body["audience"] = serde_json::json!("automation");
@@ -776,6 +816,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::BridgeAction::Send {
                 text,
+                from_pad,
                 raw_text,
                 to,
                 append,
@@ -785,9 +826,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 "/api/bridge/send".into(),
                 Some(
                     serde_json::json!({
-                        "text": text
-                            .as_ref()
-                            .map(|text| crate::cmd::bridge::bridge_text(text.clone(), *raw_text)),
+                        "text": from_pad.as_ref().map(|path| crate::cmd::payload_source::read_from_pad(path)
+                            .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1) }))
+                            .or_else(|| text.clone())
+                            .map(|text| crate::cmd::bridge::bridge_text(text, *raw_text)),
                         "chat_id": to,
                         "append": append,
                     })
@@ -886,7 +928,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
         // `docs` / `doc` read embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
-        Commands::Doc { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,

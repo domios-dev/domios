@@ -31,6 +31,9 @@ assert(picker.includes("overflow-hidden rounded-xl"), "popup card never creates 
 assert(!picker.includes("max-h-[calc(100vh-3rem)]"), "popup does not use an internally scrolling viewport");
 assert(/\.new-session-picker\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*z-index:\s*1000;/s.test(css), "popup CSS cannot override the full-screen fixed portal");
 assert(!picker.includes("closeSessionPicker"), "picker no longer depends on synthetic tab cleanup");
+assert(picker.includes("Full access for agents"), "the first agent choice is inline in the existing session picker");
+assert(picker.includes("agentConfig?.full_access === undefined"), "the access choice is shown only until the user decides");
+assert(!picker.includes("permissionPopup"), "the access choice never opens a second permission popup");
 assert(
   /\.new-session-picker-card \.pair-affordance--card\s*\{[^}]*display:\s*grid;/s.test(css),
   "picker pair affordance uses a grid layout",

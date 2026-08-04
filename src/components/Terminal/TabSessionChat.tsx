@@ -1,9 +1,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
-import { MessageBubble } from "@codeterm/chat-ui";
+import { MessageBubble, OutboundReportCard } from "@codeterm/chat-ui";
 import { extractPlanRefs } from "@codeterm/chat-ui";
-import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
+import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import {
@@ -24,7 +24,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
-import { AgentStateIndicator, shouldRenderAgentStateIndicator } from "./AgentStateIndicator";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
@@ -32,12 +32,14 @@ import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagn
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
-import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupState";
+import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
+import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
+import { useAgentReportProjection } from "./agentReportProjection";
 
 interface Props {
   tabId: string;
@@ -110,7 +112,7 @@ export function TabSessionChat({
   const touchMode = useTouchOptimizedUi();
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
-  const [longIdle, setLongIdle] = useState(false);
+  const chatFollowTailRef = useRef(true);
 
   const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace } = useMultiplexer();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
@@ -127,13 +129,13 @@ export function TabSessionChat({
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
   const backendState = tab?.agent_state ?? null;
-  const [waitingGeneration, setWaitingGeneration] = useState<number | null>(null);
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
   const isActive = isVisible;
+  const resolvePeerName = useMeshPeerNameResolver(isActive);
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -156,11 +158,11 @@ export function TabSessionChat({
     attachmentState,
     enrichedMessages,
     hiddenMessageCount,
-    hiddenNewerCount,
     canBackfillOlder,
     backfillLoading,
     loadOlder,
     showLatest,
+    setHistoryReading,
     addOptimistic,
     updateOptimistic,
   } = useChatSession({
@@ -171,25 +173,37 @@ export function TabSessionChat({
     active: isActive,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
+    followTailRef: chatFollowTailRef,
   });
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
-  const chatLoading = loading || recovering || error != null;
-  const setupView = chatLoading && enrichedMessages.length === 0
-    ? { kind: "starting", label: "Starting" } as const
-    : bootSetupView;
+  const hasTranscript = enrichedMessages.length > 0;
+  // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
+  // reachability); remote PTY/output channel state never gates it.
+  const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
+  const chatChannelLoading = loading || recovering || (!hasTranscript && remoteChatReconnecting);
+  const chatLoading = chatChannelLoading || error != null;
+  const setupView = hasTranscript
+    ? { kind: "none" } as const
+    : chatLoading
+      ? { kind: "starting", label: "Starting" } as const
+      : bootSetupView;
 
   const {
     scrollRef,
-    contentRef: scrollContentRef,
     showScrollDown,
     scrollToBottom,
     followSend: rawFollowSentMessage,
+    prepareForHistoryPrepend,
     handleScroll,
   } = useChatScroll({
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
     messageCount: enrichedMessages.length,
+    contentVersion: enrichedMessages,
+    prependVersion: enrichedMessages[0]?.msg.id ?? null,
+    followTailRef: chatFollowTailRef,
+    onModeChange: (mode) => setHistoryReading(mode === "detached"),
   });
 
   // Sending or jumping to latest must leave history-browsing mode first, or the
@@ -304,9 +318,52 @@ export function TabSessionChat({
     onError: showComposerError,
   });
 
+  // Names change far more rarely than the transcript that carries them; keep the
+  // map (and resolveTabName below) stable while streaming only appends content.
+  const communicationTabNamesRef = useRef<{ key: string; value: Map<string, string> }>({
+    key: "",
+    value: new Map(),
+  });
+  const communicationTabNames = useMemo(() => {
+    const names = new Map(tabTitleMap);
+    for (const { origin } of enrichedMessages) {
+      if (origin?.kind !== "tab") continue;
+      const sender = origin.title.split("@")[0]?.trim();
+      if (sender) names.set(origin.tabIdShort.slice(0, 8), sender);
+    }
+    const key = JSON.stringify([...names]);
+    const prev = communicationTabNamesRef.current;
+    if (key === prev.key) return prev.value;
+    communicationTabNamesRef.current = { key, value: names };
+    return names;
+  }, [enrichedMessages, tabTitleMap]);
+
   const resolveTabName = useCallback(
-    (tabRef: string): string | undefined => tabTitleMap.get(tabRef.slice(0, 8)),
-    [tabTitleMap],
+    (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),
+    [communicationTabNames],
+  );
+
+  const reportProjection = useAgentReportProjection(tabId);
+  // The sender's own transcript never contains the report it just sent, so the
+  // outbound card comes from the accepted-report event, keyed by report_id.
+  const outboundReports = useMemo<Array<{ targetTabId: string; descriptor: OutboundReportDescriptor }>>(
+    () => reportProjection.outbound.map((report) => ({
+      targetTabId: report.targetTabId,
+      descriptor: {
+        reportId: report.reportId,
+        recipient: tabTitleMap.get(report.targetTabId.slice(0, 8)) ?? report.targetTabId.slice(0, 8),
+        task: report.task,
+        status: report.status,
+        sha: report.sha,
+        message: report.message,
+        taskOutcome: report.taskOutcome && {
+          persisted: report.taskOutcome.persisted,
+          transitionRejected: report.taskOutcome.transition_rejected,
+          cause: report.taskOutcome.cause ?? null,
+        },
+      },
+    })),
+    [reportProjection, tabTitleMap],
   );
 
   const renderedEnrichedMessages = enrichedMessages;
@@ -435,23 +492,9 @@ export function TabSessionChat({
     return next;
   }, [renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
 
-  useEffect(() => {
-    if (backendState?.state === "working" || pendingPrompt) {
-      setLongIdle(false);
-      return;
-    }
-    const id = window.setTimeout(() => setLongIdle(true), 90_000);
-    return () => window.clearTimeout(id);
-  }, [backendState?.state, pendingPrompt]);
-
   // The key covers every admission input (incl. late-arriving options/submit),
   // so the effect re-observes exactly when the admission decision can change.
   const admissionKey = admissionDependencyKey(
-    pendingPrompt,
-    backendState?.state ?? null,
-    backendState?.subtype ?? null,
-  );
-  const inputRequestAdmission = deriveInputRequestAdmission(
     pendingPrompt,
     backendState?.state ?? null,
     backendState?.subtype ?? null,
@@ -462,7 +505,7 @@ export function TabSessionChat({
       backendState?.state ?? null,
       backendState?.subtype ?? null,
     );
-    const generation = waitingQuestionTracker.observeAndNotify(
+    waitingQuestionTracker.observeAndNotify(
       tabId,
       agentSessionId,
       backendState?.state ?? null,
@@ -481,7 +524,6 @@ export function TabSessionChat({
           },
         ),
     );
-    setWaitingGeneration(generation);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentSessionId, tabId, admissionKey]);
 
@@ -492,19 +534,13 @@ export function TabSessionChat({
       state: kind,
       subtype: backendState?.subtype,
       status_line: backendState?.status_line,
-      last_turn_summary: backendState?.last_turn_summary,
       phase: backendState?.phase,
-      elapsed_ms: backendState?.elapsed_ms,
-      longIdle: kind === "idle" && longIdle,
     };
   }, [
     backendState?.state,
     backendState?.status_line,
-    backendState?.last_turn_summary,
     backendState?.phase,
-    backendState?.elapsed_ms,
     backendState?.subtype,
-    longIdle,
   ]);
 
   const composerModelBubble = useMemo(() => {
@@ -527,16 +563,25 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  const agentStateIndicatorVisible = !inlinePrompt && shouldRenderAgentStateIndicator(
-    liveAgentState.state,
-    renderedEnrichedMessages.length > 0,
-    inputRequestAdmission.notificationReady,
-  );
+  const statusRowState: AgentState = useMemo(() => {
+    if (error) return { state: "idle", status_line: "Chat unavailable" };
+    if (chatChannelLoading) return { state: "working", status_line: "Loading chat…" };
+    if (!hasTranscript && bootSetupView.kind === "starting") {
+      return {
+        state: "working",
+        status_line: chatSetupStageLabel(
+          tab?.boot_stage,
+          chatSetupSubject(tab, provider?.displayName ?? "the agent"),
+        ),
+      };
+    }
+    return liveAgentState;
+  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, tab]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
-    && !inlinePrompt
-    && !agentStateIndicatorVisible;
+    && outboundReports.length === 0
+    && !inlinePrompt;
 
   return (
     <div
@@ -546,7 +591,7 @@ export function TabSessionChat({
       data-tab-id={tabId}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={loading || recovering}
+      aria-busy={chatChannelLoading}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -586,7 +631,7 @@ export function TabSessionChat({
         aria-label="Conversation"
         aria-live="polite"
       >
-        <div ref={scrollContentRef}>
+        <div>
         {touchMode && (
           <div
             aria-hidden="true"
@@ -599,7 +644,10 @@ export function TabSessionChat({
             <button
               type="button"
               data-testid="chat-load-older"
-              onClick={() => void loadOlder()}
+              onClick={() => {
+                prepareForHistoryPrepend();
+                void loadOlder();
+              }}
               disabled={backfillLoading}
               className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
               style={{
@@ -633,6 +681,7 @@ export function TabSessionChat({
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolveTabName={resolveTabName}
+                resolvePeerName={resolvePeerName}
                 onOpenPlan={onOpenPlan}
                 resolvePlanRef={resolvePlanRef}
                 fontScale={uiFontScale}
@@ -647,6 +696,23 @@ export function TabSessionChat({
             </div>
           );
         })}
+        {outboundReports.map(({ targetTabId, descriptor }) => (
+          <div
+            key={descriptor.reportId}
+            data-testid="chat-outbound-report-row"
+            data-report-id={descriptor.reportId}
+            role="article"
+            aria-label={`Report to ${descriptor.recipient}`}
+          >
+            <OutboundReportCard
+              report={descriptor}
+              onFocusTab={() => resolveFocusTab(targetTabId)}
+              fontScale={uiFontScale}
+              onOpenPlan={onOpenPlan}
+              resolvePlanRef={resolvePlanRef}
+            />
+          </div>
+        ))}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -656,24 +722,10 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
-        {agentStateIndicatorVisible && (
-          // with the message text instead of the far-left container edge.
-          <div className="w-full max-w-4xl min-w-0 mx-auto">
-            <AgentStateIndicator
-              state={liveAgentState}
-              questionGeneration={waitingGeneration}
-              providerName={provider?.displayName ?? null}
-              model={workingModelBadge}
-              onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
-              onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
-              onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-            />
-          </div>
-        )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
-      {(showScrollDown || hiddenNewerCount > 0) && (
+      {showScrollDown && (
         <button
           type="button"
           data-testid="chat-scroll-bottom"
@@ -682,15 +734,10 @@ export function TabSessionChat({
             scrollToBottom();
           }}
           title="Scroll to latest"
-          aria-label={hiddenNewerCount > 0 ? `Show latest (${hiddenNewerCount} newer)` : "Scroll to latest"}
-          className="absolute right-4 bottom-4 z-10 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
+          aria-label="Scroll to latest"
+          className="absolute right-4 bottom-4 z-30 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
         >
-          {hiddenNewerCount > 0 && (
-            <span className="text-[10px] font-mono" data-testid="chat-hidden-newer-count">
-              {hiddenNewerCount}
-            </span>
-          )}
           <ChevronDown size={16} strokeWidth={2.2} />
         </button>
       )}
@@ -702,13 +749,17 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      {renderedEnrichedMessages.length > 0 && (chatLoading || bootSetupView.kind === "starting") && (
-        <ChatSetupStatusLine
-          tab={tab}
-          providerName={provider?.displayName ?? "the agent"}
-          chatLoading={chatLoading}
+      <div className="w-full px-3">
+        <AgentStateIndicator
+          state={statusRowState}
+          providerName={provider?.displayName ?? tabProvider}
+          model={workingModelBadge}
+          className="mx-auto w-full max-w-4xl"
+          onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+          onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+          onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         />
-      )}
+      </div>
       <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}

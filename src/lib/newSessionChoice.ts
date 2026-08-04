@@ -1,6 +1,17 @@
 import type { ProviderDescriptor } from "./types";
 
 export const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
+export const OPEN_NEW_SESSION_EVENT = "codeterm:open-new-session";
+
+export interface OpenNewSessionDetail {
+  workspaceId: string;
+  workspaceCwd: string | null;
+  initialProviderId?: string;
+}
+
+export function openNewSessionPicker(detail: OpenNewSessionDetail): void {
+  window.dispatchEvent(new CustomEvent<OpenNewSessionDetail>(OPEN_NEW_SESSION_EVENT, { detail }));
+}
 
 export type NewSessionMode = "single" | "pair";
 

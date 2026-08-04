@@ -295,15 +295,49 @@ pub(crate) fn finalize_task_done(
     }
     task.status = TaskStatus::Done;
     crate::service_plan::qa::normalize_task_review_fields(task);
-    let assigned = task.assigned_tab_id.clone();
-    crate::service_plan::task_attempts::mark_task_assignment_closed(
-        task,
-        assigned.as_deref(),
+    crate::service_plan::task_attempts::close_all_live_attempts(
+        &mut task.execution_attempts,
         now_ms,
     );
     clear_task_assignment(task);
     task.updated_at = now_ms;
     Ok(())
+}
+
+/// The current competition group is the one the newest open competitive attempt
+/// belongs to; attempts from a superseded group are foreign.
+fn current_competition_group(task: &Task) -> Option<&str> {
+    task.execution_attempts
+        .iter()
+        .rev()
+        .find(|attempt| attempt.closed_at.is_none() && attempt.competition_group_id.is_some())
+        .and_then(|attempt| attempt.competition_group_id.as_deref())
+}
+
+/// A competitive task's durable executor: one exact open current-group attempt
+/// that already bound a session or acknowledged.
+pub(super) fn live_competitive_executor(task: &Task, attempt_id: &str) -> bool {
+    let current_group = current_competition_group(task);
+    task.execution_attempts.iter().any(|attempt| {
+        attempt.id == attempt_id
+            && attempt.closed_at.is_none()
+            && !attempt.executor_tab_id.trim().is_empty()
+            && attempt.competition_group_id.is_some()
+            && attempt.competition_group_id.as_deref() == current_group
+            && (attempt.acknowledged_at.is_some()
+                || attempt
+                    .session_id
+                    .as_deref()
+                    .is_some_and(|session| !session.trim().is_empty()))
+    })
+}
+
+/// Who is executing the task at the moment it enters `in_progress`.
+pub(super) enum InProgressExecutor<'a> {
+    /// A lane tab assignment written in the same transaction.
+    LaneAssignment(&'a super::TaskLaneUpdate),
+    /// One exact competitive attempt already persisted on the task.
+    CompetitiveAttempt(&'a str),
 }
 
 pub(super) fn validate_task_status_transition(
@@ -313,7 +347,7 @@ pub(super) fn validate_task_status_transition(
     next: &TaskStatus,
     incoming_label: Option<Option<&str>>,
 ) -> Result<(), PlanError> {
-    validate_task_status_transition_with_lane(plan, task_id, current, next, incoming_label, None)
+    validate_task_status_transition_for(plan, task_id, current, next, incoming_label, None)
 }
 
 pub(super) fn validate_task_status_transition_with_lane(
@@ -324,17 +358,60 @@ pub(super) fn validate_task_status_transition_with_lane(
     incoming_label: Option<Option<&str>>,
     lane: Option<&super::TaskLaneUpdate>,
 ) -> Result<(), PlanError> {
+    validate_task_status_transition_for(
+        plan,
+        task_id,
+        current,
+        next,
+        incoming_label,
+        lane.map(InProgressExecutor::LaneAssignment),
+    )
+}
+
+/// Entry for competitive startup, where progression is authorized by the exact
+/// live attempt itself rather than by a task-level tab assignment.
+pub(super) fn validate_competitive_attempt_status_transition(
+    plan: &Plan,
+    task_id: &str,
+    current: &TaskStatus,
+    next: &TaskStatus,
+    attempt_id: &str,
+) -> Result<(), PlanError> {
+    validate_task_status_transition_for(
+        plan,
+        task_id,
+        current,
+        next,
+        None,
+        Some(InProgressExecutor::CompetitiveAttempt(attempt_id)),
+    )
+}
+
+fn validate_task_status_transition_for(
+    plan: &Plan,
+    task_id: &str,
+    current: &TaskStatus,
+    next: &TaskStatus,
+    incoming_label: Option<Option<&str>>,
+    executor: Option<InProgressExecutor<'_>>,
+) -> Result<(), PlanError> {
     let status_unchanged = current == next;
     let invariants_on = std::env::var("CODETERM_STATE_INVARIANTS").map_or(true, |v| v != "off");
     if invariants_on {
         let task = plan.tasks.iter().find(|t| t.id == task_id);
         if matches!(next, TaskStatus::InProgress) {
-            let incoming_lane_tab = lane.and_then(|update| update.tab_id.as_ref());
-            let has_tab = match incoming_lane_tab {
-                Some(tab) => tab.as_deref().is_some_and(|p| !p.trim().is_empty()),
-                None => task
-                    .and_then(|t| t.assigned_tab_id.as_deref().or(t.lane.tab_id.as_deref()))
-                    .is_some_and(|p| !p.trim().is_empty()),
+            let task_level_tab = task
+                .and_then(|t| t.assigned_tab_id.as_deref().or(t.lane.tab_id.as_deref()))
+                .is_some_and(|p| !p.trim().is_empty());
+            let has_tab = match executor {
+                Some(InProgressExecutor::LaneAssignment(update)) => match update.tab_id.as_ref() {
+                    Some(tab) => tab.as_deref().is_some_and(|p| !p.trim().is_empty()),
+                    None => task_level_tab,
+                },
+                Some(InProgressExecutor::CompetitiveAttempt(attempt_id)) => {
+                    task.is_some_and(|task| live_competitive_executor(task, attempt_id))
+                }
+                None => task_level_tab,
             };
             if !has_tab {
                 return Err(PlanError::InProgressRequiresTab);
@@ -387,6 +464,8 @@ pub(super) fn validate_task_status_transition_with_lane(
 }
 
 pub mod agent_lifecycle;
+#[cfg(test)]
+mod in_progress_executor_tests;
 mod plan_ops;
 mod task_ops;
 #[cfg(test)]

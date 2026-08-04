@@ -44,20 +44,26 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     text: &Option<String>,
     tab: &Option<String>,
     from_file: &Option<String>,
+    from_pad: &Option<String>,
     from_stdin: bool,
     actions: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
     let source = std::env::var("CODETERM_TAB_ID").unwrap_or_else(|_| "unknown".to_string());
-    let (body_text, input_source) =
-        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
-            Ok(value) => value,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        };
+    let (body_text, input_source) = match resolve_send_text_input(
+        text.clone(),
+        from_file.clone(),
+        from_pad.clone(),
+        from_stdin,
+        stdin,
+    ) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
     let parsed_actions = actions
         .as_deref()
         .map(parse_actions_spec)
@@ -72,6 +78,9 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
         eprintln!("      try --from-file <path> with a real tempfile.");
         eprintln!("      to send a bare Enter, pass --actions enter.");
         std::process::exit(2);
+    }
+    if !body_text.trim().is_empty() {
+        println!("{}", crate::cmd::send_text::resolved_text_echo(&body_text));
     }
     let mut body = serde_json::json!({"source_tab": source});
     if !body_text.is_empty() {
@@ -94,20 +103,26 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     text: &Option<String>,
     tab: &Option<String>,
     from_file: &Option<String>,
+    from_pad: &Option<String>,
     from_stdin: bool,
     delay: &Option<String>,
     at: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
-    let (body_text, input_source) =
-        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
-            Ok(value) => value,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        };
+    let (body_text, input_source) = match resolve_send_text_input(
+        text.clone(),
+        from_file.clone(),
+        from_pad.clone(),
+        from_stdin,
+        stdin,
+    ) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
     if body_text.trim().is_empty() {
         eprintln!("Error: delayed message payload is empty (mesh path, source: {input_source})");
         std::process::exit(2);

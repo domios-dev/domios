@@ -202,8 +202,7 @@ impl ActionStyle {
 // Reusable settings schema builders — shared across providers.
 
 /// Build the "Session Resume" settings section common to all providers.
-/// `skip_flag` is the provider-specific CLI flag for skipping approvals.
-pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingField {
+pub fn session_resume_section(description: &str, _skip_flag: &str) -> SettingField {
     SettingField::Section {
         title: "Session Resume".into(),
         description: Some(description.into()),
@@ -213,24 +212,6 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
                 label: "Resume previous sessions".into(),
                 default: true,
                 description: None,
-            },
-            SettingField::Toggle {
-                key: "resume_skip_permissions".into(),
-                label: "Skip permission prompts when resuming".into(),
-                default: true,
-                description: Some(format!(
-                    "Relaunches resumed sessions with {skip_flag} so they don't re-ask for tool approvals."
-                )),
-            },
-            SettingField::When {
-                field: "resume_skip_permissions".into(),
-                equals: serde_json::Value::Bool(true),
-                then: vec![SettingField::Info {
-                    title: None,
-                    body: "The agent runs without asking before each tool use. Convenient for resume, but it can edit files and run commands unattended."
-                        .into(),
-                    level: NoteLevel::Warn,
-                }],
             },
         ],
     }

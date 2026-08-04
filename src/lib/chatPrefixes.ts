@@ -84,6 +84,12 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
       body,
     };
   }
+  if (marker.kind === "system") {
+    return {
+      origin: { kind: "system", ...(marker.attrs.context ? { context: marker.attrs.context } : {}) },
+      body,
+    };
+  }
   if (marker.kind === "reminder") {
     return {
       origin: {
@@ -108,6 +114,10 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
 }
 
 function stripReplyHint(payload: string): string {
+  const instructionStart = payload.lastIndexOf("\n[to reply, run: codeterm send ");
+  if (instructionStart >= 0 && payload.endsWith("]")) {
+    return payload.slice(0, instructionStart).trimEnd();
+  }
   const start = payload.lastIndexOf("\n-=-codeterm:reply");
   if (start < 0) return payload;
   const marker = parseMarker(payload.slice(start + 1));
@@ -234,6 +244,8 @@ export function labelFor(origin: ChatOrigin): string {
       return `${origin.service} · ${origin.userId.slice(0, 12)}`;
     case "plugin_config":
       return `Configure · ${origin.name}`;
+    case "system":
+      return origin.context ? `System · ${origin.context}` : "System";
     case "system_prompt":
       return "System prompt";
     case "reminder":

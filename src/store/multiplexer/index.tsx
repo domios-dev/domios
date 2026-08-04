@@ -37,6 +37,17 @@ import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
+import type { Tab } from "../../lib/types";
+import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
+import {
+  loadAttachedRemoteTabs,
+  projectAttachedRemoteTab,
+  saveAttachedRemoteTabs,
+  type RemotePeerTabs,
+} from "../../lib/remoteTabPortal";
+import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
+import { resumeRemoteOutputStreams } from "../../lib/outputStream";
+import { resumeRemoteTabEvents } from "../../lib/remoteTabEvents";
 
 export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
@@ -113,13 +124,24 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // confirms the switch, rejects it, or removes the target tab.
   const pendingTabSwitchRef = useRef<TabGuards>({});
   const peerSwitchRef = useRef(0);
+  const attachedRemoteTabsRef = useRef<Record<string, Tab>>(loadAttachedRemoteTabs());
+
+  const applyRemoteProjection = useCallback((tabs: Record<string, Tab>) => {
+    dispatch({ type: "SET_REMOTE_TABS", tabs: { ...tabs, ...attachedRemoteTabsRef.current } });
+  }, []);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
     dispatch({ type: "SET_STATE", state: guarded });
+    const remoteTabs = Object.fromEntries(
+      Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
+    );
+    if (Object.keys(remoteTabs).length > 0) {
+      applyRemoteProjection(remoteTabs);
+    }
     if (IS_WEB) saveStateSnapshot(s);
-  }, []);
+  }, [applyRemoteProjection]);
 
   // letting a cache-painted UI act on a target that may no longer exist.
   const guardedInvoke = useCallback(
@@ -174,6 +196,52 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => mountWebLifecycle(), []);
 
+  const refreshRemoteProjection = useCallback(async () => {
+    const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
+    const remote = remoteTabsFromOrdinaryProjection(ordinary);
+    applyRemoteProjection(remote);
+    resumeRemoteOutputStreams();
+    resumeRemoteTabEvents();
+  }, [applyRemoteProjection]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshRemoteTabs = async () => {
+      const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
+      if (!active) return;
+      const remote = remoteTabsFromOrdinaryProjection(ordinary);
+      applyRemoteProjection(remote);
+      resumeRemoteOutputStreams();
+      resumeRemoteTabEvents();
+    };
+    void refreshRemoteTabs().catch(() => undefined);
+    let unlisten: (() => void) | undefined;
+    void listen("mesh-state-changed", () => {
+      for (const tab of Object.values(stateRef.current.tabs)) {
+        if (!tab.remote_peer_id) continue;
+        for (const channel of ["control", "output", "chat"] as const) {
+          dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: tab.id, channel, availability: "reconnecting" });
+        }
+      }
+      void refreshRemoteTabs();
+    }).then((fn) => { unlisten = fn; });
+    return () => { active = false; unlisten?.(); };
+  }, [applyRemoteProjection]);
+
+  const attachRemoteTab = useCallback((workspaceId: string, peer: RemotePeerTabs, tab: Tab) => {
+    const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
+    attachedRemoteTabsRef.current = { ...attachedRemoteTabsRef.current, [projected.id]: projected };
+    saveAttachedRemoteTabs(attachedRemoteTabsRef.current);
+    applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+    dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: projected.id });
+    dispatch({ type: "SET_FOCUSED_TAB", tabId: projected.id });
+  }, [applyRemoteProjection]);
+
+  useEffect(() => onRemoteTransportState(({ ordinaryTabId, channel, availability }) => {
+    dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: ordinaryTabId, channel, availability });
+  }), []);
+
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
 
@@ -207,6 +275,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     listen<{ id: string }>("notification-resolved", (event) => {
       if (!event.payload?.id) return;
       dispatch({ type: "MARK_READ", id: event.payload.id });
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    listen<{ id: string }>("notification-cleared", (event) => {
+      if (!event.payload?.id) return;
+      dispatch({ type: "DELETE_NOTIFICATION", id: event.payload.id });
+      dispatch({ type: "DISMISS_TOAST", id: event.payload.id });
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ tab_id: string; status: TabStatus }>(
@@ -521,7 +595,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
     agentId: string,
-    skipPermissions: boolean,
     cwd?: string,
     model?: string,
   ): Promise<SpawnedTab | null> => {
@@ -532,7 +605,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           agent: agentId,
           workspace_id: workspaceId,
           cwd,
-          skip_permissions: skipPermissions,
           model,
           activate: true,
         });
@@ -549,7 +621,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, skipPermissions, model },
+        params: { agentId, workspaceId, cwd, model },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
@@ -571,8 +643,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState, notifySpawnFailure]);
 
   // from the descriptor registry rather than hardcoding a vendor id.
-  const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
-    spawnAgentTab(workspaceId, defaultSpawnProviderId(), skipPermissions, cwd);
+  const spawnClaudeTab = useCallback(async (workspaceId: string, cwd?: string) => {
+    spawnAgentTab(workspaceId, defaultSpawnProviderId(), cwd);
   }, [spawnAgentTab]);
 
   const createOrchestrationPair = useCallback(
@@ -600,20 +672,41 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const { workspaces } = stateRef.current;
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws?.tabs.includes(tabId)) return;
+      const remote = stateRef.current.tabs[tabId];
+      const isRemote = Boolean(remote?.remote_peer_id);
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
       // Refresh only after the close is acknowledged; on rejection the tab
       // still lives, so drop its tombstone and restore from authoritative state.
       guardedInvoke("mux_close_tab", { workspaceId, tabId })
-        .then(() => refreshFromBackend())
+        .then(() => {
+          if (isRemote) {
+            if (attachedRemoteTabsRef.current[tabId]) {
+              const { [tabId]: _, ...remaining } = attachedRemoteTabsRef.current;
+              attachedRemoteTabsRef.current = remaining;
+              saveAttachedRemoteTabs(remaining);
+            }
+            void refreshRemoteProjection();
+          }
+          else refreshFromBackend();
+        })
         .catch(() => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
-          refreshFromBackend();
+          if (isRemote) void refreshRemoteProjection();
+          else refreshFromBackend();
         });
     },
-    [refreshFromBackend, guardedInvoke],
+    [refreshFromBackend, refreshRemoteProjection, guardedInvoke],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
+    const remote = stateRef.current.tabs[tabId];
+    if (remote?.remote_peer_id) {
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+      dispatch({ type: "SET_FOCUSED_TAB", tabId });
+      void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
+      return;
+    }
     pendingTabSwitchRef.current[workspaceId] = { tabId };
     guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {
       delete pendingTabSwitchRef.current[workspaceId];
@@ -756,6 +849,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
+      attachRemoteTab,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -787,6 +881,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
+      attachRemoteTab,
       closeTab,
       reopenClosed,
       reopenGroup,

@@ -1,0 +1,110 @@
+{
+  "summary": {
+    "turns": 6,
+    "turns_with_preview": 2,
+    "avg_lead_ms": null,
+    "min_lead_ms": null,
+    "median_lead_ms": null,
+    "max_lead_ms": null,
+    "turns_with_leftovers": 0,
+    "total_jank_frames": 0,
+    "total_dupe_frames": 0,
+    "total_height_shrink_frames": 0
+  },
+  "turns": [
+    {
+      "seq": 1,
+      "started_ms": 150,
+      "first_preview_ms": null,
+      "first_canonical_ms": 186,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 2,
+      "started_ms": 1125,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 3,
+      "started_ms": 2100,
+      "first_preview_ms": 2400,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 8,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "  ┃  What would you like me to do next?",
+        "  ┃",
+        "  ┃     Conclude the probe and report final status",
+        "  ┃  2. Debug RPC issue",
+        "  ┃     Investigate the tab RPC 'Method not found' anomaly",
+        "  ┃  3. Keep exploring"
+      ],
+      "handover_rows": 8
+    },
+    {
+      "seq": 4,
+      "started_ms": 2475,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 5,
+      "started_ms": 3450,
+      "first_preview_ms": 4200,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 2,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     Final status: probe complete. Environment verified (CodeTerm 1.7.8 dev), session rated smooth, no pending tasks.",
+        "     Note for later: `"
+      ],
+      "handover_rows": 2
+    },
+    {
+      "seq": 6,
+      "started_ms": 4500,
+      "first_preview_ms": null,
+      "first_canonical_ms": 4754,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    }
+  ]
+}

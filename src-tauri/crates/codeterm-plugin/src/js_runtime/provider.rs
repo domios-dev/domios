@@ -279,6 +279,7 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "task": p.task,
         "starterPrompt": p.starter_prompt,
         "starterPromptText": p.starter_prompt.host_text(),
+        "starterPromptPrefix": p.starter_prompt.system_prefix(),
         "args": p.args,
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,
@@ -498,6 +499,14 @@ impl AgentProvider for JsProvider {
                     resolved.id
                 }
             })
+    }
+
+    fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
+        self.try_call::<Option<String>>(
+            "detectSessionReasoningEffort",
+            &[json!(cwd), json!(session_id)],
+        )
+        .flatten()
     }
 
     fn session_created_at(&self, cwd: &str, session_id: &str) -> Option<std::time::SystemTime> {
@@ -875,6 +884,15 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.compact.as_deref()
     }
 
+    fn provider_self_update_capability(&self) -> Option<provider::ProviderSelfUpdateCapability> {
+        if !self.has_js("providerSelfUpdateCapability") {
+            return self
+                .native()
+                .and_then(|native| native.provider_self_update_capability());
+        }
+        self.try_call("providerSelfUpdateCapability", &[])
+    }
+
     fn fresh_context_command(&self) -> Option<&str> {
         self.manifest.commands.fresh_context.as_deref()
     }
@@ -1033,8 +1051,17 @@ impl AgentProvider for JsProvider {
             .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
     }
 
-    fn install_integration(&self, api_port: u16) -> Result<(), String> {
-        self.try_call_result("installIntegration", &[json!(api_port)])
+    fn install_integration(
+        &self,
+        api_port: u16,
+        options: &crate::provider::IntegrationInstallOptions,
+    ) -> Result<(), String> {
+        if !options.consent {
+            return Err(
+                "provider integration installation requires explicit local-user consent".into(),
+            );
+        }
+        self.try_call_result("installIntegration", &[json!(api_port), json!(options)])
             .unwrap_or(Ok(()))
     }
 
@@ -1043,26 +1070,14 @@ impl AgentProvider for JsProvider {
             .unwrap_or(Ok(()))
     }
 
+    fn restore_integration(&self) -> Result<(), String> {
+        self.try_call_result("restoreIntegration", &[])
+            .unwrap_or_else(|| Err("provider integration has no recoverable backup".into()))
+    }
+
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        // failed hook install must not block startup.
-        if let Some(r) = self.try_call_result("ensureIntegrationOnStartup", &[json!(api_port)]) {
-            let _ = r;
-            return;
-        }
-        let installed = self
-            .check_integration()
-            .get("hooks_installed")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false);
-        if installed {
-            return;
-        }
-        if let Err(e) = self.install_integration(api_port) {
-            log::warn!(
-                "[js-plugin {}] auto-install integration failed: {e}",
-                self.manifest.id
-            );
-        }
+        let _ = api_port;
+        let _ = self.check_integration();
     }
 }
 

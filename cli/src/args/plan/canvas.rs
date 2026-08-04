@@ -55,7 +55,8 @@ pub enum PlanQaAction {
         /// Record ONE group-scoped regression working point instead of claiming a task
         #[arg(long)]
         group: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        /// Claim note. Required with --claim.
+        #[arg(long, allow_hyphen_values = true, required_if_eq("claim", "true"))]
         note: Option<String>,
     },
     /// Mark QA passed and close the task

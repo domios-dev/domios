@@ -1,6 +1,6 @@
 # Lane Lifecycle Standard
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -16,19 +16,17 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
 2. Record the Tab, branch, worktree, workspace, model, and target branch on the
    task when the worker starts. `in_progress` without a live owner is stale
    state, not work.
-3. Workers are code-only by default. They may run focused checks that match the
-   task body, but broad builds, full suites, UI sweeps, packaging, and release
-   gates are requested for QA instead of run from every lane. Dev-start waits
-   in a fresh worktree are delegated: the orchestrator runs the repo's
-   QA-prep/build step (if it has one) before handing the worktree to a dev run.
+3. Isolated Workers are source-only. They inspect, edit, review, and commit
+   owned source, but never build, run project tests, start dev services, or
+   execute validation gates. They author coverage and report exact deferred QA
+   commands. After real merge, the Orchestrator runs all executable verification
+   in canonical; delegation requires a Worker assigned there plus exact permission.
 4. Reports must include branch, SHA, worktree, tests run, and gates requested.
    A report without enough provenance is not ready for review.
-5. QA is serialized per physical machine and parallel across machines. A QA gate
-   may fix a failure it directly diagnosed when the fix is mechanical and local
-   to that gate; design changes bounce to the worker.
-   The Orchestrator works from the repository's canonical integration checkout:
-   workers own isolated lanes, while merges, code review, broad QA, and release
-   gates run in that warm canonical checkout rather than cold lane worktrees.
+5. QA is serialized per physical machine and parallel across machines. The
+   Orchestrator works from the repository's canonical integration checkout:
+   Workers own isolated source lanes, while merges, executable review, focused
+   and broad QA, dev verification, and release gates run only in canonical.
 6. Integrate accepted work with a real merge commit from the lane into the
    integration target. Never cherry-pick, squash, replay, or patch-copy lane
    commits. Rebase the lane onto the target when necessary, re-run its bounded
@@ -55,4 +53,3 @@ Mechanism ownership:
 | Board/card lane visibility | `task_03bf8da6` / `task_73ea1b9d` |
 | Auto cleanup | `task_540e7afa` |
 | Polling-smell nudges | `task_25dbe180` |
-

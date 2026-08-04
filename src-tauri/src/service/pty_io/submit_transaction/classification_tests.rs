@@ -93,7 +93,8 @@ impl SubmitTransport for PtyDiesAfterPaste {
     }
 
     fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
-        self.submit_key_attempts.set(self.submit_key_attempts.get() + 1);
+        self.submit_key_attempts
+            .set(self.submit_key_attempts.get() + 1);
         Err(InjectionError::PtyClosed {
             pty_id: "died-after-paste".into(),
         })

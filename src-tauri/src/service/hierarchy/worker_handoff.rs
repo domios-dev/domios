@@ -77,6 +77,27 @@ fn fallback_report_message(source: &str) -> String {
     )
 }
 
+/// Absent or mismatched binding evidence stays absent, so persistence fails
+/// closed instead of inventing an authority the Worker never proved.
+fn observed_handoff_authority(svc: &ServiceContext, tab_id: &str) -> ReportDetails {
+    let session_binding_nonce = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        let reported = tab.reported_session_binding_nonce.clone()?;
+        (tab.session_binding_nonce.as_deref() == Some(reported.as_str())).then_some(reported)
+    });
+    let owner_epoch = svc
+        .plan_store
+        .task_binding_for_tab(tab_id)
+        .and_then(|(_, task_id)| svc.plan_store.show_task(&task_id))
+        .map(|detail| detail.task.interruption.owner_epoch);
+    ReportDetails {
+        status: Some(ReportStatus::Partial),
+        caller_tab_id: Some(tab_id.to_string()),
+        session_binding_nonce,
+        owner_epoch,
+        ..Default::default()
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn complete_worker_turn_without_report(
         &self,
@@ -88,10 +109,7 @@ impl ServiceContext {
         }
         let source = signal.source();
         let message = fallback_report_message(source);
-        let details = ReportDetails {
-            status: Some(ReportStatus::Partial),
-            ..Default::default()
-        };
+        let details = observed_handoff_authority(self, tab_id);
         if let Err(error) = self.submit_report(tab_id, &message, details, None, None, None) {
             self.gateway.require_worker_report(tab_id);
             log::warn!(

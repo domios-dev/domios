@@ -110,7 +110,6 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
                     .map(String::from)
             })
     };
-    let signed_token = crate::read_mesh_signed_token();
     let env_token = std::env::var("CODETERM_API_TOKEN")
         .ok()
         .filter(|value| !value.is_empty());
@@ -124,9 +123,9 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
             .map(|value| !value.trim().is_empty() && value.trim() != "7685")
             .unwrap_or(false);
     let token = if targets_dev {
-        config_token().or(signed_token).or(env_token)
+        config_token().or(env_token)
     } else {
-        env_token.or(signed_token).or_else(config_token)
+        env_token.or_else(config_token)
     };
 
     ResolvedApiConfig {
@@ -155,12 +154,18 @@ struct ConnectionIdentity {
     instance_source: ResolutionSource,
 }
 
+#[derive(Serialize)]
+struct CliIdentity {
+    version: &'static str,
+    build_sha: &'static str,
+}
+
 pub fn handle(
     client: &mut impl RpcClient,
     json: bool,
     socket: ResolvedSocket,
 ) -> Result<serde_json::Value, String> {
-    let identity = client.call("system.identify", None)?;
+    let identity = extend_cli_identity(client.call("system.identify", None)?)?;
     if !json {
         return Ok(identity);
     }
@@ -182,6 +187,21 @@ pub fn handle(
             instance_source: instance.source,
         },
     )
+}
+
+fn extend_cli_identity(mut identity: serde_json::Value) -> Result<serde_json::Value, String> {
+    let object = identity
+        .as_object_mut()
+        .ok_or_else(|| "system.identify returned a non-object payload".to_string())?;
+    object.insert(
+        "cli".to_string(),
+        serde_json::to_value(CliIdentity {
+            version: env!("CARGO_PKG_VERSION"),
+            build_sha: env!("CODETERM_CLI_BUILD_SHA"),
+        })
+        .map_err(|error| error.to_string())?,
+    );
+    Ok(identity)
 }
 
 fn extend_payload(
@@ -248,6 +268,19 @@ mod tests {
                 "instance_source": "CODETERM_INSTANCE"
             })
         );
+    }
+
+    #[test]
+    fn cli_identity_includes_version_and_build_sha() {
+        let payload = extend_cli_identity(serde_json::json!({
+            "name": "CodeTerm",
+            "version": "1.7.8"
+        }))
+        .unwrap();
+
+        assert_eq!(payload["cli"]["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(payload["cli"]["build_sha"], env!("CODETERM_CLI_BUILD_SHA"));
+        assert_eq!(payload["cli"]["build_sha"].as_str().unwrap().len(), 40);
     }
 
     #[test]

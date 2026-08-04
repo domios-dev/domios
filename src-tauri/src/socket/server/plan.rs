@@ -6,7 +6,7 @@ use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service::plan::adopt::AdoptPlanExt;
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::{hints, PlanError};
-use crate::service::{FirstPlanTeamError, ServiceState};
+use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
@@ -65,13 +65,25 @@ pub(super) fn dispatch(
         return super::plan_task_rpc::dispatch(method, params, app, svc, now);
     }
     if super::plan_skills_rpc::handles(method) {
-        return super::plan_skills_rpc::dispatch(method, params, &svc.plan_store);
+        return super::plan_skills_rpc::dispatch(method, params, svc, now);
     }
     let p = params.as_ref();
     let store = &svc.plan_store;
 
     match method {
-        "plan.binding.resolve" => plan_refs::task_binding(store, params),
+        "plan.binding.resolve" => {
+            let tab_id = params
+                .as_ref()
+                .and_then(|value| value.get("tab_id"))
+                .and_then(|value| value.as_str());
+            let team_id = tab_id.and_then(|tab_id| {
+                svc.mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.team_id.clone())
+            });
+            plan_refs::task_binding(store, params, team_id.as_deref())
+        }
         "plan.batch" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
@@ -134,17 +146,31 @@ pub(super) fn dispatch(
                 .map(str::to_string);
             let owner = owner_from_params(body);
             let outcome = svc
-                .create_first_plan_for_orchestrator(
+                .create_team_plan_for_caller(
                     title,
                     project,
                     owner,
+                    crate::service::TeamPlanCaller {
+                        tab_id: body
+                            .get("caller_tab_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        session_id: body
+                            .get("session_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        binding_nonce: body
+                            .get("session_binding_nonce")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                    },
                     kinds,
                     from_spec.clone(),
                     now,
                 )
                 .map_err(|error| match error {
-                    FirstPlanTeamError::Plan(error) => plan_rpc_err(error),
-                    FirstPlanTeamError::Team(message) => JsonRpcError {
+                    TeamPlanCreationError::Plan(error) => plan_rpc_err(error),
+                    TeamPlanCreationError::Team(message) => JsonRpcError {
                         code: -32602,
                         message,
                         data: None,
@@ -152,7 +178,6 @@ pub(super) fn dispatch(
                 })?;
             let plan = outcome.plan.clone();
             let plan_id = plan.id.clone();
-            let _ = svc.bind_pending_paired_planner(&plan_id, &plan.owner, now);
             let empty_sections = plan.sections.is_empty();
             let mut response = json!({
                 "plan_id": plan_id.clone(),
@@ -350,6 +375,7 @@ pub(super) fn dispatch(
 
         "plan.ingest" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             let markdown = get_string_param(params, "markdown")?;
             let result = store
                 .ingest_plan_sections(&id, &markdown, now)
@@ -360,6 +386,7 @@ pub(super) fn dispatch(
 
         "plan.section.add" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             let title =
                 get_string_param(params, "title").or_else(|_| get_string_param(params, "name"))?;
             let body = p
@@ -396,6 +423,7 @@ pub(super) fn dispatch(
 
         "plan.section.update" => {
             let (id, sid) = plan_refs::resolve_section(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store
                 .update_section(
                     &id,
@@ -426,6 +454,7 @@ pub(super) fn dispatch(
 
         "plan.section.rm" => {
             let (id, sid) = plan_refs::resolve_section(store, params)?;
+            super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "section_id": sid }))

@@ -70,6 +70,9 @@ pub struct ReportArgs {
     /// Markdown document to append to the report milestone
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
+    /// Read the report body from a relative file in the current agent tab's pad
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["message", "text", "doc"])]
+    pub from_pad: Option<String>,
     /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
     #[arg(long = "tab", value_name = "TAB")]
     pub tab: Option<String>,
@@ -249,8 +252,8 @@ pub enum AgentAction {
         #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         /// Read the task body from a file (or `-` for stdin) instead of --task.
-        /// Bypasses the caller's shell, so backticks / $(...) in the body are
-        /// never evaluated. Mutually exclusive with --task.
+        /// Relative paths resolve from --cwd. Content bypasses the caller's shell
+        /// and remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
         /// Extra args for the agent
@@ -297,6 +300,14 @@ pub enum AgentAction {
         /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
+        #[arg(
+            long = "execution-intent",
+            value_parser = ["read_only", "mutating"],
+            requires = "plan_task"
+        )]
+        execution_intent: Option<String>,
+        #[arg(long = "provider-reserve-pct", default_value_t = 5.0)]
+        provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its interactive
         /// prompts never raise user-visible Input-needed notifications.
         #[arg(long = "non-user-facing")]

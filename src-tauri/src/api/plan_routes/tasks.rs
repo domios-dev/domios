@@ -206,6 +206,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
+    execution_intent: crate::plan::TaskExecutionIntent,
+    #[serde(default)]
     parent: Option<String>,
     #[serde(default, alias = "dependency_task_ids")]
     depends_on: Vec<String>,
@@ -221,8 +223,6 @@ pub(crate) struct TaskAddBody {
     handle: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default)]
-    force: bool,
 }
 
 pub async fn task_add(
@@ -232,6 +232,28 @@ pub async fn task_add(
     Json(body): Json<TaskAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let author = state
+        .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    let execution_fields = serde_json::json!({
+        "assign_tab": body.assign_tab.clone(),
+        "executor_role": body.executor_role.clone(),
+        "role_guidance": body.role_guidance.clone(),
+        "personality": body.personality.clone(),
+        "personality_provenance": body.personality_provenance.clone(),
+        "competition": body.competition.clone(),
+        "lane": if body.lane == TaskLaneMetadata::default() {
+            serde_json::Value::Null
+        } else {
+            serde_json::to_value(&body.lane).unwrap_or_default()
+        },
+    });
+    crate::service::ensure_planner_task_fields_are_structural(&author, &execution_fields)
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     let requested_sections = body
         .sections
         .as_deref()
@@ -253,11 +275,6 @@ pub async fn task_add(
     } else {
         body.kind.clone()
     };
-    state
-        .svc
-        .plan_store
-        .ensure_task_creation_allowed(&id, &kind, body.force)
-        .map_err(plan_err)?;
     let has_sections = !section_ids.is_empty();
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
     let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -296,6 +313,7 @@ pub async fn task_add(
                 personality_provenance: body.personality_provenance,
                 competition: body.competition,
                 intent: body.intent,
+                execution_intent: body.execution_intent,
                 parent_task_id: body.parent,
                 depends_on: body.depends_on,
                 assigned_tab_id: body.assign_tab,
@@ -332,6 +350,7 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     task_update_core(&state.svc, &headers, &id, &tid, body)
 }
 
@@ -347,6 +366,14 @@ fn task_update_core(
         crate::plan::task_update_fields::TaskUpdateSeam::Rest,
     )
     .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
+    let author = service
+        .authorize_draft_structure_mutation(
+            id,
+            &crate::api::tab_routes::authenticated_plan_caller(headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    crate::service::ensure_planner_task_fields_are_structural(&author, &body)
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     let section_ids = if body.get("sections").is_some() {
         let requested_sections = body
             .get("sections")
@@ -530,12 +557,48 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
-    state
+    let owner_epoch = state
         .svc
         .plan_store
-        .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
-        .map_err(plan_err)?;
+        .show_task(&tid)
+        .map(|detail| detail.task.interruption.owner_epoch)
+        .unwrap_or(0);
+    if owner_epoch > 0 {
+        let authority = rest_task_mutation_authority(&headers)?;
+        let mux = state.svc.mux.read();
+        if !mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+                && tab.reported_session_binding_nonce.as_deref()
+                    == Some(&authority.session_binding_nonce)
+        }) {
+            return Err(text_err(
+                axum::http::StatusCode::CONFLICT,
+                "task mutation caller rebound",
+            ));
+        }
+        state
+            .svc
+            .plan_store
+            .close_task_authorized(
+                &id,
+                &tid,
+                body.result.as_deref(),
+                from,
+                &authority,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        drop(mux);
+    } else {
+        state
+            .svc
+            .plan_store
+            .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
+            .map_err(plan_err)?;
+    }
     emit_plan_changed(&state, &id);
     let mut resp = serde_json::json!({ "ok": true });
     if let Some(plan) = state.svc.plan_store.get(&id) {
@@ -569,16 +632,60 @@ pub async fn task_assign(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
-        .plan_store
-        .assign_task_with_role(
+        .authorize_execution_action(
             &id,
-            &tid,
-            &body.tab,
-            body.peer.as_deref(),
-            planner_role_for_tab(&state, &body.tab),
-            epoch_ms(),
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
-        .map_err(plan_err)?;
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    let owner_epoch = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .map(|detail| detail.task.interruption.owner_epoch)
+        .unwrap_or(0);
+    if owner_epoch > 0 {
+        let authority = rest_task_mutation_authority(&headers)?;
+        let mux = state.svc.mux.read();
+        if !mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+                && tab.reported_session_binding_nonce.as_deref()
+                    == Some(&authority.session_binding_nonce)
+        }) {
+            return Err(text_err(
+                axum::http::StatusCode::CONFLICT,
+                "task mutation caller rebound",
+            ));
+        }
+        state
+            .svc
+            .plan_store
+            .assign_task_with_role_authorized(
+                &id,
+                &tid,
+                &body.tab,
+                body.peer.as_deref(),
+                planner_role_for_tab(&state, &body.tab),
+                &authority,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        drop(mux);
+    } else {
+        state
+            .svc
+            .plan_store
+            .assign_task_with_role(
+                &id,
+                &tid,
+                &body.tab,
+                body.peer.as_deref(),
+                planner_role_for_tab(&state, &body.tab),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -619,6 +726,165 @@ pub async fn task_attempt_show(
     })))
 }
 
+fn rest_task_mutation_authority(
+    headers: &HeaderMap,
+) -> Result<
+    crate::service::plan::interruption::TaskMutationAuthority,
+    (axum::http::StatusCode, Json<Value>),
+> {
+    let required = |name: &'static str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                text_err(
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    format!("missing {name}"),
+                )
+            })
+    };
+    Ok(crate::service::plan::interruption::TaskMutationAuthority {
+        tab_id: required("X-CodeTerm-Tab-Id")?,
+        session_id: required("X-CodeTerm-Session-Id")?,
+        session_binding_nonce: required("X-CodeTerm-Session-Binding-Nonce")?,
+        owner_epoch: headers
+            .get("X-CodeTerm-Owner-Epoch")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| {
+                text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch")
+            })?,
+    })
+}
+
+fn verify_task_mutation_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+    plan_id: &str,
+    task_id: &str,
+) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(task_id)
+        .filter(|detail| detail.plan_id == plan_id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    if detail.task.interruption.owner_epoch == 0 {
+        return Ok(());
+    }
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::UNAUTHORIZED,
+                "missing Worker tab id",
+            )
+        })?;
+    let session_id = headers
+        .get("X-CodeTerm-Session-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::UNAUTHORIZED,
+                "missing Worker session id",
+            )
+        })?;
+    let nonce = headers
+        .get("X-CodeTerm-Session-Binding-Nonce")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::UNAUTHORIZED,
+                "missing session binding nonce",
+            )
+        })?;
+    let caller_epoch = headers
+        .get("X-CodeTerm-Owner-Epoch")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch"))?;
+    if detail.task.interruption.owner_epoch != caller_epoch {
+        return Err(text_err(
+            axum::http::StatusCode::CONFLICT,
+            "task mutation owner epoch is stale",
+        ));
+    }
+    let binding_matches = state.svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(session_id)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+    });
+    if !binding_matches {
+        return Err(text_err(
+            axum::http::StatusCode::CONFLICT,
+            "task mutation caller binding is stale or rebound",
+        ));
+    }
+    let orchestrator = state.svc.plan_store.owner_of(plan_id).is_some_and(|owner| {
+        owner.tab_id.as_deref() == Some(tab_id) && owner.session_id.as_deref() == Some(session_id)
+    });
+    if orchestrator {
+        return Ok(());
+    }
+    state
+        .svc
+        .verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
+}
+
+pub async fn task_adopt_checkpoint(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let tab_id = headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| text_err(axum::http::StatusCode::BAD_REQUEST, "missing Worker tab id"))?;
+    let session_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::CONFLICT,
+                "adoption caller has no authenticated session",
+            )
+        })?;
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .filter(|detail| detail.plan_id == id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    let (owner_epoch, attempt_id) = state
+        .svc
+        .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
+        .await
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "attempt_id": attempt_id,
+        "owner_epoch": owner_epoch,
+        "tab_id": tab_id,
+        "session_id": session_id,
+        "state": "awaiting_worker_ack"
+    })))
+}
+
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -626,6 +892,14 @@ pub async fn task_respawn(
     Json(body): Json<TaskRespawnRequest>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .authorize_execution_action(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
     let draft = state
         .svc
         .plan_store
@@ -696,6 +970,14 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    state
+        .svc
+        .authorize_draft_structure_mutation(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     state
         .svc
         .plan_store
@@ -706,265 +988,4 @@ pub async fn task_rm(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lock_hold::TimedRwLock;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
-    use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
-    use crate::service::plan::NewTask;
-    use crate::service::test_fixture::ServiceFixture;
-    use serde_json::json;
-    use std::sync::Arc;
-
-    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
-        let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        let mut plan = Plan::new(
-            "Update validation".into(),
-            fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        fixture.service.plan_store.save(&mut plan, 1).unwrap();
-        let parent_task_id = fixture
-            .service
-            .plan_store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "Parent".into(),
-                    kind: "implement".into(),
-                    ..Default::default()
-                },
-                2,
-            )
-            .unwrap();
-        let dependency_task_id = fixture
-            .service
-            .plan_store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "Dependency".into(),
-                    kind: "implement".into(),
-                    ..Default::default()
-                },
-                3,
-            )
-            .unwrap();
-        let task_id = fixture
-            .service
-            .plan_store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "Original".into(),
-                    kind: "implement".into(),
-                    ..Default::default()
-                },
-                4,
-            )
-            .unwrap();
-        (
-            fixture,
-            plan.id,
-            task_id,
-            parent_task_id,
-            dependency_task_id,
-        )
-    }
-
-    fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
-        let plan = fixture.service.plan_store.get(plan_id).unwrap();
-        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-        serde_json::to_string_pretty(task).unwrap()
-    }
-
-    #[test]
-    fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
-        for key in ["nonsense_field", "external_ref", "externalRefs"] {
-            let (fixture, plan_id, task_id, _, _) = update_fixture();
-            let service = Arc::new(fixture.service.clone());
-            let before = full_task_record(&fixture, &plan_id, &task_id);
-            let mut body = json!({});
-            body[key] = json!("ignored");
-
-            let result = task_update_core(
-                &service,
-                &HeaderMap::new(),
-                &plan_id,
-                &task_id,
-                body,
-            );
-            let after = full_task_record(&fixture, &plan_id, &task_id);
-            assert!(
-                result.is_err(),
-                "key {key} unexpectedly succeeded\nbefore:\n{before}\nafter:\n{after}"
-            );
-            let (status, Json(error)) = result.unwrap_err();
-
-            assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "key: {key}");
-            let message = error["error"].as_str().unwrap();
-            assert!(message.contains(key), "{message}");
-            assert!(message.contains("accepted"), "{message}");
-            assert!(message.contains("external_refs"), "{message}");
-            assert_eq!(
-                after,
-                before,
-                "rejected key {key} changed the full task record"
-            );
-        }
-    }
-
-    #[test]
-    fn rest_every_supported_update_key_reaches_the_real_handler() {
-        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
-        let service = Arc::new(fixture.service.clone());
-        let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
-        assert_eq!(
-            payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
-            TASK_UPDATE_KEYS
-        );
-
-        for (key, body) in payloads {
-            let result = task_update_core(
-                &service,
-                &HeaderMap::new(),
-                &plan_id,
-                &task_id,
-                body,
-            );
-            let failure = result
-                .as_ref()
-                .err()
-                .map(|error| {
-                    let status = &error.0;
-                    let body = &error.1.0;
-                    format!("{status}: {body}")
-                })
-                .unwrap_or_default();
-            assert!(
-                result.is_ok(),
-                "REST failed supported key {key}: {failure}"
-            );
-        }
-    }
-
-    #[test]
-    fn rest_update_external_refs_round_trips_non_null() {
-        let (fixture, plan_id, task_id, _, _) = update_fixture();
-        let service = Arc::new(fixture.service.clone());
-
-        task_update_core(
-            &service,
-            &HeaderMap::new(),
-            &plan_id,
-            &task_id,
-            json!({ "external_refs": ["rollacode/codeterm-releases#17"] }),
-        )
-        .unwrap();
-
-        let plan = fixture.service.plan_store.get(&plan_id).unwrap();
-        let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-        assert_eq!(task.external_refs.len(), 1);
-        assert_eq!(
-            task.external_refs[0].canonical_url,
-            "https://github.com/rollacode/codeterm-releases/issues/17"
-        );
-    }
-
-    #[test]
-    fn rest_respawn_persists_spawned_attempt_title_and_session() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::service::plan::PlanStore::new_for_test(dir.path());
-        let (mux_state, _) = MultiplexerState::new();
-        let mux = Arc::new(TimedRwLock::new("mux", mux_state));
-        let mut plan = Plan::new(
-            "Respawn".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        store.save(&mut plan, 1).unwrap();
-        let task_id = store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: "task".into(),
-                    kind: "code".into(),
-                    lane: TaskLaneMetadata {
-                        workspace_id: Some("ws-rest".into()),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                2,
-            )
-            .unwrap();
-        let source_draft = crate::service::plan::task_attempts::TaskRespawnDraft {
-            plan_id: plan.id.clone(),
-            task_id: task_id.clone(),
-            source_attempt: Default::default(),
-            provider: "test-provider".into(),
-            planned_model: None,
-            model: None,
-            parent_tab_id: None,
-            workspace_id: Some("ws-rest".into()),
-            title: None,
-            explicit_title: false,
-            cwd: dir.path().display().to_string(),
-            task_prompt: "prompt".into(),
-            report_command: "report".into(),
-        };
-        let created = store
-            .record_task_respawn_attempt(
-                &plan.id,
-                &task_id,
-                "source-tab",
-                &source_draft,
-                Some("worker"),
-                3,
-            )
-            .unwrap();
-        let ws = mux
-            .write()
-            .create_workspace("REST".into(), Some(dir.path().display().to_string()))
-            .id;
-        let tab_id = mux.write().create_tab(&ws).unwrap();
-        mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("rest-session".into());
-        let draft = store
-            .build_task_respawn_draft(
-                &plan.id,
-                &task_id,
-                crate::service::plan::task_attempts::TaskRespawnRequest {
-                    attempt_id: created.attempt.id.clone(),
-                    provider: None,
-                    model: None,
-                    parent_tab_id: None,
-                    workspace_id: Some("ws-rest".into()),
-                    title: Some("Exact User Title".into()),
-                },
-            )
-            .unwrap();
-        let persisted = record_respawn_attempt_and_persist_identity_for(
-            &store,
-            &mux,
-            Some("worker"),
-            &plan.id,
-            &task_id,
-            &tab_id,
-            &draft,
-            "Exact User Title",
-            4,
-        )
-        .unwrap();
-        let task = store.show_task(&task_id).unwrap();
-        let attempt = task
-            .task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == persisted.attempt.id)
-            .unwrap();
-        assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
-        assert_eq!(attempt.session_id.as_deref(), Some("rest-session"));
-    }
-}
+mod tests;

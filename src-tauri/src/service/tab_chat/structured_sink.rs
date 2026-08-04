@@ -19,6 +19,10 @@ struct ChatMsgEvent<'a> {
     tab_id: &'a str,
     messages: &'a [ChatMsg],
     cursor: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offset: Option<u64>,
     source_session_id: Option<&'a str>,
     session_binding_nonce: Option<&'a str>,
 }
@@ -36,6 +40,8 @@ pub fn emit_chat_msgs(
         tab_id,
         messages,
         cursor,
+        start_offset: None,
+        offset: None,
         source_session_id,
         session_binding_nonce,
     };
@@ -168,7 +174,13 @@ pub struct FlattenDeltaSink {
 }
 
 impl super::tailer::DeltaSink for FlattenDeltaSink {
-    fn emit(&self, tab_id: &str, messages: Vec<crate::agent::chat_types::RichMessage>) {
+    fn emit(
+        &self,
+        tab_id: &str,
+        messages: Vec<crate::agent::chat_types::RichMessage>,
+        start_offset: u64,
+        offset: u64,
+    ) {
         use std::sync::atomic::Ordering;
         let mut out: Vec<ChatMsg> = Vec::new();
         for r in &messages {
@@ -192,6 +204,8 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
             tab_id,
             messages: &out,
             cursor: None,
+            start_offset: Some(start_offset),
+            offset: Some(offset),
             source_session_id: self.source_session_id.as_deref(),
             session_binding_nonce: self.session_binding_nonce.as_deref(),
         };

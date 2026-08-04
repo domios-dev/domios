@@ -1,7 +1,7 @@
 use crate::plan::Task;
 
 pub const WORKER_IDENTITY_END: &str = "<!-- codeterm-worker-identity-end -->";
-pub const WORKER_ACK_INSTRUCTION: &str = "Before inspecting files or narrating work, run `codeterm agent ack`. It confirms task ownership and does not replace the final report.";
+pub const WORKER_ACK_INSTRUCTION: &str = "Highest-priority startup action: run codeterm agent ack before any work. Do not continue until the CLI confirms acknowledgement.";
 
 fn trimmed(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
@@ -79,9 +79,10 @@ pub fn compose_worker_identity_contract(
 
 pub fn attach_worker_identity(identity: &str, assignment: &str) -> String {
     format!(
-        "{}\n\n{}\n\n{}",
+        "{}\n\n{}\n\n{}\n\n{}",
         identity.trim(),
         WORKER_IDENTITY_END,
+        WORKER_ACK_INSTRUCTION,
         assignment.trim_start()
     )
 }
@@ -101,7 +102,7 @@ pub fn split_worker_identity(prompt: &str) -> (Option<&str>, &str) {
 mod tests {
     use super::{
         attach_worker_identity, compose_worker_identity, compose_worker_identity_contract,
-        split_worker_identity,
+        split_worker_identity, WORKER_ACK_INSTRUCTION,
     };
 
     #[test]
@@ -177,6 +178,8 @@ mod tests {
         let (identity, assignment) = split_worker_identity(&prompt);
 
         assert_eq!(identity, Some("You are Hopper."));
-        assert_eq!(assignment, "# Repair delivery");
+        assert_eq!(assignment.matches(WORKER_ACK_INSTRUCTION).count(), 1);
+        assert!(assignment.starts_with(WORKER_ACK_INSTRUCTION));
+        assert!(assignment.find(WORKER_ACK_INSTRUCTION).unwrap() < assignment.find('#').unwrap());
     }
 }

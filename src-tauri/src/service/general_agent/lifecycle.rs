@@ -48,16 +48,16 @@ fn deliver_confirmed_general_message(
 }
 
 fn compose_startup_message(
-    fallback_system_prompt: bool,
-    system_prompt: String,
+    _fallback_system_prompt: bool,
+    _system_prompt: String,
     bootstrap: Option<String>,
 ) -> Option<String> {
-    match (fallback_system_prompt, bootstrap) {
-        (true, Some(bootstrap)) => Some(format!("{system_prompt}\n\n{bootstrap}")),
-        (true, None) => Some(system_prompt),
-        (false, Some(bootstrap)) => Some(bootstrap),
-        (false, None) => None,
-    }
+    bootstrap.map(|body| {
+        crate::service::messenger::Messenger::from(
+            crate::service::messenger::MessageEnvelope::codeterm_reminder("general-bootstrap"),
+        )
+        .wrap(&body)
+    })
 }
 
 /// Start the General Agent — called from start_servers on a background thread.
@@ -81,19 +81,15 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
+    let permission_bypass = match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!("[general-agent] Start blocked: {error}");
+            return;
+        }
+    };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
-    if let Err(error) =
-        crate::commands::install_provider_integration_for_launch(&svc.agent_registry, provider_name)
-    {
-        log::error!(
-            "[general-agent] Provider integration is not ready for {}: {}",
-            provider_name,
-            error
-        );
-        return;
-    }
-
     // Regenerate AGENT.md in a background thread.
     // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
     {
@@ -108,16 +104,17 @@ pub fn start_general_agent(
 
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
-        let (tab_id_opt, current_agent, current_pty_id) = {
+        let (tab_id_opt, current_agent, current_pty_id, current_auto_approve) = {
             let m = mux.write();
             match m.resolve_tab_id(GENERAL_ALIAS) {
                 Some(pid) => {
                     let tab = m.get_tab(&pid);
                     let at = tab.and_then(|p| p.agent_type.clone());
                     let pt = tab.and_then(|p| p.pty_id.clone());
-                    (Some(pid), at, pt)
+                    let auto_approve = tab.is_some_and(|p| p.auto_approve);
+                    (Some(pid), at, pt, auto_approve)
                 }
-                None => (None, None, None),
+                None => (None, None, None, false),
             }
         };
         if let (Some(pid), Some(current_agent)) = (tab_id_opt.clone(), current_agent.clone()) {
@@ -131,7 +128,7 @@ pub fn start_general_agent(
                             &pty_id,
                             std::time::Duration::from_secs(3),
                         );
-                        if agent_visible {
+                        if agent_visible && current_auto_approve == permission_bypass {
                             let unbound = mux
                                 .write()
                                 .get_tab(&pid)
@@ -150,7 +147,11 @@ pub fn start_general_agent(
                             log::info!("[general-agent] Already running (tab={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
-                        log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                        if agent_visible {
+                            log::info!("[general-agent] Permission policy changed for PTY {} — terminating before relaunch", pty_id);
+                        } else {
+                            log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                        }
                         if let Err(reason) =
                             terminate_pty_before_relaunch(pty, screen_state, &pty_id)
                         {
@@ -165,6 +166,7 @@ pub fn start_general_agent(
                             pty_id
                         );
                         screen_state.lock().remove(&pty_id);
+                        crate::service::stream_preview::remove(&pty_id);
                         clear_stale_general_binding(svc, mux, &pid);
                     }
                 }
@@ -276,8 +278,19 @@ pub fn start_general_agent(
 
     let cols = 120u16;
     let rows = 40u16;
-    let env_vars =
-        general_agent_env_vars(&tab_id, svc.rotate_session_binding_nonce(&tab_id), config);
+    let pad = match svc.ensure_agent_pad(&tab_id) {
+        Ok(pad) => pad,
+        Err(error) => {
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
+    };
+    let env_vars = general_agent_env_vars(
+        &tab_id,
+        pad.env_value(),
+        svc.rotate_session_binding_nonce(&tab_id),
+        config,
+    );
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -285,6 +298,7 @@ pub fn start_general_agent(
             Ok((id, _)) => id,
             Err(e) => {
                 log::error!("[general-agent] Failed to spawn PTY: {}", e);
+                let _ = svc.revoke_agent_pad(&tab_id);
                 fail_general_agent_start(svc, mux, &tab_id, &e);
                 return;
             }
@@ -295,7 +309,7 @@ pub fn start_general_agent(
         let mut m = mux.write();
         let d = m.link_pty(&tab_id, pty_id.clone());
         if let Some(tab) = m.get_tab_mut(&tab_id) {
-            tab.auto_approve = true;
+            tab.auto_approve = permission_bypass;
         }
         d
     };
@@ -364,11 +378,12 @@ pub fn start_general_agent(
     let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match svc
-            .agent_registry
-            .with_provider(provider_name, |p| p.build_resume_command(sid, true))
-            .flatten()
-        {
+        match build_general_agent_resume_command(
+            &svc.agent_registry,
+            provider_name,
+            sid,
+            permission_bypass,
+        ) {
             Some(cmd) => cmd,
             None => {
                 log::error!(
@@ -433,7 +448,7 @@ pub fn start_general_agent(
             task: (!fallback).then_some(system_prompt.clone()),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: None,
-            skip_permissions: true,
+            skip_permissions: permission_bypass,
             session_id: pre_session_id,
             structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                 svc,
@@ -460,8 +475,8 @@ pub fn start_general_agent(
             provider_name,
             &command,
             params.task.as_deref().or(startup_message.as_deref()),
-            Some("Orchestrator"),
-            Some("general_agent"),
+            Some("General Agent"),
+            Some("machine_general"),
             if fallback {
                 "confirmed_fallback"
             } else {
@@ -478,8 +493,8 @@ pub fn start_general_agent(
             provider_name,
             &cmd,
             None,
-            Some("Orchestrator"),
-            Some("general_agent"),
+            Some("General Agent"),
+            Some("machine_general"),
             "resumed_session",
         );
     }
@@ -763,7 +778,29 @@ fn terminate_pty_before_relaunch(
         reaper.wait_bounded(std::time::Duration::from_secs(5))?;
     }
     screen_state.lock().remove(pty_id);
+    crate::service::stream_preview::remove(pty_id);
     Ok(())
+}
+
+fn build_general_agent_resume_command(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    session_id: &str,
+    permission_bypass: bool,
+) -> Option<String> {
+    registry
+        .with_provider(provider, |p| {
+            p.build_resume_command(session_id, permission_bypass)
+        })
+        .flatten()
+}
+
+fn general_agent_permission_bypass(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+) -> Result<bool, String> {
+    crate::service::permission_policy::configured_permission_bypass(registry, provider)
+        .map(|authorization| authorization.is_some())
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {
@@ -790,11 +827,13 @@ fn fail_general_agent_start(
 
 fn general_agent_env_vars(
     tab_id: &str,
+    pad_dir: String,
     session_binding_nonce: String,
     config: &crate::config::ConfigState,
 ) -> std::collections::HashMap<String, String> {
     let mut env = std::collections::HashMap::new();
     env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
+    env.insert("CODETERM_PAD_DIR".to_string(), pad_dir);
     // Per-launch binding nonce so the session-start hook report can prove it owns this tab.
     env.insert(
         "CODETERM_SESSION_BINDING_NONCE".to_string(),
@@ -804,7 +843,10 @@ fn general_agent_env_vars(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
-    env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
+    env.insert(
+        "CODETERM_MACHINE_AGENT_IDENTITY".to_string(),
+        "general_agent".to_string(),
+    );
     // Derive URL+port from the daemon config, not a parent CodeTerm env leak —
     // an inherited prod CODETERM_API_URL (7685) 401s this instance's token.
     let (api_url, api_port) = crate::config::api_callback_url(&config.lock().api);

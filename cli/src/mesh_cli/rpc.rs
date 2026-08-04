@@ -1,24 +1,14 @@
 use crate::client::{RpcClient, SocketCallError};
 
 pub struct MeshRpcClient {
-    http: reqwest::blocking::Client,
-    peer_url: String,
-    signed_token: String,
+    target: String,
 }
 
 impl MeshRpcClient {
-    pub fn connect(base: &str, token: &Option<String>, target: &str) -> Result<Self, String> {
-        let http =
-            crate::build_http(token).map_err(|e| format!("failed to build HTTP client: {e}"))?;
-        let peer_url = super::relay::resolve_peer_url(&http, base, token, target)
-            .ok_or_else(|| format!("peer '{target}' not found or has no reachable address"))?;
-        let signed_token = crate::read_mesh_signed_token().ok_or_else(|| {
-            "cannot sign mesh request: local mesh identity is unavailable".to_string()
-        })?;
+    pub fn connect(_base: &str, _token: &Option<String>, target: &str) -> Result<Self, String> {
+        crate::build_local_api().map_err(|e| format!("failed to connect to local API: {e}"))?;
         Ok(Self {
-            http,
-            peer_url,
-            signed_token,
+            target: target.to_owned(),
         })
     }
 }
@@ -34,16 +24,14 @@ impl RpcClient for MeshRpcClient {
             "params": params,
             "request_id": uuid::Uuid::new_v4().to_string(),
         });
-        let response = super::relay::relay_call(
-            &self.http,
-            &self.peer_url,
-            &self.signed_token,
+        let response = super::relay::mesh_relay_invoke_result(
+            &self.target,
             "POST",
             "/api/mesh/rpc",
             Some(&body.to_string()),
         )
-        .map_err(SocketCallError::Transport)?;
-        parse_relay_response(response)
+        .map_err(|failure| SocketCallError::Transport(failure.to_string()))?;
+        parse_rpc_data(response)
     }
 
     fn is_remote(&self) -> bool {
@@ -51,6 +39,7 @@ impl RpcClient for MeshRpcClient {
     }
 }
 
+#[cfg(test)]
 fn parse_relay_response(response: serde_json::Value) -> Result<serde_json::Value, SocketCallError> {
     if response.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
         return Err(SocketCallError::Transport(
@@ -65,6 +54,19 @@ fn parse_relay_response(response: serde_json::Value) -> Result<serde_json::Value
         .get("data")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
+    if let Some(error) = data.get("error") {
+        let error = serde_json::from_value(error.clone()).map_err(|e| {
+            SocketCallError::Transport(format!("invalid mesh RPC error response: {e}"))
+        })?;
+        return Err(SocketCallError::Rpc(error));
+    }
+    Ok(data
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
+}
+
+fn parse_rpc_data(data: serde_json::Value) -> Result<serde_json::Value, SocketCallError> {
     if let Some(error) = data.get("error") {
         let error = serde_json::from_value(error.clone()).map_err(|e| {
             SocketCallError::Transport(format!("invalid mesh RPC error response: {e}"))

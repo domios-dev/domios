@@ -1,6 +1,8 @@
 use super::*;
 use crate::multiplexer::types::{AgentRole, TabBacking, TabType};
 
+mod snapshot;
+
 #[test]
 fn test_new_state_has_default_workspace() {
     let (state, initial_tab_id) = MultiplexerState::new();
@@ -376,10 +378,11 @@ fn test_get_tab_mut() {
 fn test_set_orchestrator_role() {
     let (mut state, tab_id) = MultiplexerState::new();
     state
-        .set_tab_role(&tab_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&tab_id)
         .unwrap();
     let tab = state.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert!(tab.anchors_team(), "orchestrator kind anchors its Team");
     assert_eq!(tab.depth, 1);
     assert!(tab.can_spawn);
     assert!(tab.parent_tab_id.is_none());
@@ -388,7 +391,7 @@ fn test_set_orchestrator_role() {
 #[test]
 fn test_orchestrator_cannot_have_parent() {
     let (mut state, tab_id) = MultiplexerState::new();
-    let result = state.set_tab_role(&tab_id, AgentRole::Orchestrator, Some("fake"));
+    let result = state.set_tab_role_kind(&tab_id, AgentRole::Manager, Some("orchestrator"), Some("fake"));
     assert!(result.is_err());
 }
 
@@ -396,7 +399,7 @@ fn test_orchestrator_cannot_have_parent() {
 fn test_worker_requires_orchestrator_parent() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orch_id)
         .unwrap();
     let worker_id = state
         .create_tab(&state.list_workspaces()[0].id.clone())
@@ -416,7 +419,7 @@ fn test_worker_requires_orchestrator_parent() {
 fn test_worker_parent_must_not_be_worker() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orch_id)
         .unwrap();
     let worker_parent = state
         .create_tab(&state.list_workspaces()[0].id.clone())
@@ -435,7 +438,7 @@ fn test_worker_parent_must_not_be_worker() {
 fn test_worker_parent_must_allow_spawn() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orch_id)
         .unwrap();
     state.set_can_spawn(&orch_id, false).unwrap();
 
@@ -451,7 +454,7 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
     // 2-level hierarchy: a Worker sits directly under the Orchestrator, and there is no third level — a Worker can't parent another Worker.
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orch_id)
         .unwrap();
 
     let worker_id = state
@@ -480,7 +483,7 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
 fn test_get_children_ids() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orch_id)
         .unwrap();
     let w1 = state
         .create_tab(&state.list_workspaces()[0].id.clone())
@@ -505,7 +508,7 @@ fn test_get_children_ids() {
 fn test_clear_role_orphans_children() {
     let (mut state, orch_id) = MultiplexerState::new();
     state
-        .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orch_id)
         .unwrap();
     let worker_id = state
         .create_tab(&state.list_workspaces()[0].id.clone())
@@ -531,11 +534,11 @@ fn manager_close_keeps_children_alive() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(&manager_id, AgentRole::Manager, Some("planner"), Some(&root_id))
         .unwrap();
     state.link_pty(&manager_id, "pty-manager".to_string());
 
@@ -568,7 +571,7 @@ fn manager_close_preserves_team_registry_and_chat_backend_child() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
@@ -577,7 +580,7 @@ fn manager_close_preserves_team_registry_and_chat_backend_child() {
     let team_before = state.get_team(&team_id).cloned().unwrap();
     let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(&manager_id, AgentRole::Manager, Some("planner"), Some(&root_id))
         .unwrap();
     let chat_id = state.create_tab(&ws_id).unwrap();
     state
@@ -602,15 +605,20 @@ fn multi_manager_close_detaches_only_the_closed_managers_children() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     let first_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&first_manager, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(&first_manager, AgentRole::Manager, Some("planner"), Some(&root_id))
         .unwrap();
     let second_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role(&second_manager, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(
+            &second_manager,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     let worker_id = state.create_tab(&ws_id).unwrap();
     state
@@ -629,7 +637,7 @@ fn last_manager_close_keeps_team_and_members() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
@@ -652,7 +660,7 @@ fn explicit_close_team_still_cascades() {
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     state
-        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&root_id)
         .unwrap();
     state.link_pty(&root_id, "pty-root".into());
     let worker_id = state.create_tab(&workspace_id).unwrap();
@@ -681,7 +689,7 @@ fn test_set_can_spawn_requires_role() {
 fn test_set_can_spawn_on_orchestrator() {
     let (mut state, tab_id) = MultiplexerState::new();
     state
-        .set_tab_role(&tab_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&tab_id)
         .unwrap();
     assert!(state.get_tab(&tab_id).unwrap().can_spawn);
 
@@ -751,324 +759,6 @@ fn test_move_last_tab_fails() {
 
     let result = state.move_tab(&tab_id, &ws1_id, &ws2.id);
     assert!(result.is_err());
-}
-
-#[test]
-fn test_session_snapshot_roundtrip() {
-    let (mut state, tab_id) = MultiplexerState::new();
-    state.link_pty(&tab_id, "pty-1".to_string());
-    if let Some(tab) = state.get_tab_mut(&tab_id) {
-        tab.cwd = Some("/test/path".to_string());
-        tab.agent_type = Some("claude".to_string());
-    }
-    state
-        .set_tab_role(&tab_id, AgentRole::Orchestrator, None)
-        .unwrap();
-
-    let _ws2 = state.create_workspace("Second".to_string(), None);
-
-    let snap = state.to_session_snapshot();
-    assert_eq!(snap.workspaces.len(), 2);
-
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-    let ws_list = restored.list_workspaces();
-    assert_eq!(ws_list.len(), 2);
-
-    let tab = restored.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.cwd.as_deref(), Some("/test/path"));
-    // Restore agent_type even when session_id is missing.
-    // Without it, a previously silent tab can reappear as plain powershell after restart.
-    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
-    assert_eq!(tab.depth, 1);
-    assert!(tab.can_spawn);
-    assert!(tab.pty_id.is_none());
-}
-
-#[test]
-fn test_session_snapshot_preserves_agent_type_with_session_id() {
-    // Preserve `agent_type` on snapshot restore.
-    // Dropping to default claude prevented codex/opencode sessions from resuming.
-    for provider in ["claude", "codex", "opencode"] {
-        let (mut state, tab_id) = MultiplexerState::new();
-        if let Some(tab) = state.get_tab_mut(&tab_id) {
-            tab.cwd = Some("/work".to_string());
-            tab.agent_type = Some(provider.to_string());
-            tab.agent_session_id = Some(format!("session-{}", provider));
-        }
-
-        let snap = state.to_session_snapshot();
-        let restored = MultiplexerState::from_session_snapshot(&snap);
-        let tab = restored.get_tab(&tab_id).unwrap();
-
-        assert_eq!(
-            tab.agent_type.as_deref(),
-            Some(provider),
-            "agent_type must survive snapshot roundtrip when session_id is present (provider={})",
-            provider,
-        );
-        assert_eq!(
-            tab.agent_session_id.as_deref(),
-            Some(format!("session-{}", provider).as_str()),
-        );
-    }
-}
-
-#[test]
-fn test_session_snapshot_preserves_chat_view() {
-    let (mut state, tab_id) = MultiplexerState::new();
-    if let Some(tab) = state.get_tab_mut(&tab_id) {
-        tab.agent_type = Some("codex".to_string());
-        tab.agent_session_id = Some("session-codex".to_string());
-        tab.chat_view = true;
-    }
-
-    let snap = state.to_session_snapshot();
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-    let tab = restored.get_tab(&tab_id).unwrap();
-    assert!(tab.chat_view, "chat_view must survive snapshot roundtrip");
-}
-
-#[test]
-fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
-    use crate::session::store::{
-        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
-    };
-
-    // the provider name. Restore must recover agent_type so tab-bar icons show.
-    for (title, expected) in [
-        ("codex", "codex"),
-        ("opencode session", "opencode"),
-        ("claude", "claude"),
-        ("Codex — /repo", "codex"),
-    ] {
-        let snap = SessionSnapshot {
-            version: "test".to_string(),
-            timestamp: 0,
-            active_workspace_id: Some("ws-1".to_string()),
-            teams: vec![],
-            workspaces: vec![WorkspaceSnapshot {
-                id: "ws-1".to_string(),
-                name: "W".to_string(),
-                active_tab_id: Some("tab-1".to_string()),
-                cwd: None,
-                protected: false,
-                sort_order: 0,
-                tabs: vec![TabSnapshot {
-                    id: "tab-1".to_string(),
-                    title: "Tab".to_string(),
-                    description: None,
-                    sort_order: 0,
-                    split_tree: SplitNodeSnapshot::Leaf {
-                        tab_id: "tab-1".to_string(),
-                        cwd: None,
-                        title: Some(title.to_string()),
-                        description: None,
-                        title_level: None,
-                        agent_type: None,
-                        agent_type_locked: false,
-                        claude_session_id: None,
-                        agent_identity: None,
-                        role: None,
-                        role_profile: None,
-                        team_id: None,
-                        parent_tab_id: None,
-                        spawned_by_tab_id: None,
-                        report_target_tab_id: None,
-                        report_target_mesh_peer: None,
-                        can_spawn: false,
-                        depth: 0,
-                        chat_view: None,
-                        auto_approve: false,
-                        agent_session_model: None,
-                        agent_planned_model: None,
-                        agent_requested_model: None,
-                        agent_provider_resolved_model: None,
-                        model_fallback: None,
-                        model_identity_mismatch: None,
-                        chatbackend_plugin_id: None,
-                        chatbackend_session_id: None,
-                        watcher: None,
-                        pending_delivery: None,
-                    },
-                }],
-            }],
-        };
-
-        let restored = MultiplexerState::from_session_snapshot(&snap);
-        let tab = restored.get_tab("tab-1").unwrap();
-        assert_eq!(
-            tab.agent_type.as_deref(),
-            Some(expected),
-            "title {:?} should derive agent_type {:?}",
-            title,
-            expected,
-        );
-    }
-}
-
-#[test]
-fn test_session_snapshot_no_agent_type_for_plain_title() {
-    use crate::session::store::{
-        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
-    };
-
-    let snap = SessionSnapshot {
-        version: "test".to_string(),
-        timestamp: 0,
-        active_workspace_id: Some("ws-1".to_string()),
-        teams: vec![],
-        workspaces: vec![WorkspaceSnapshot {
-            id: "ws-1".to_string(),
-            name: "W".to_string(),
-            active_tab_id: Some("tab-1".to_string()),
-            cwd: None,
-            protected: false,
-            sort_order: 0,
-            tabs: vec![TabSnapshot {
-                id: "tab-1".to_string(),
-                title: "Tab".to_string(),
-                description: None,
-                sort_order: 0,
-                split_tree: SplitNodeSnapshot::Leaf {
-                    tab_id: "tab-1".to_string(),
-                    cwd: None,
-                    title: Some("~/repo — zsh".to_string()),
-                    description: None,
-                    title_level: None,
-                    agent_type: None,
-                    agent_type_locked: false,
-                    claude_session_id: None,
-                    agent_identity: None,
-                    role: None,
-                    role_profile: None,
-                    team_id: None,
-                    parent_tab_id: None,
-                    spawned_by_tab_id: None,
-                    report_target_tab_id: None,
-                    report_target_mesh_peer: None,
-                    can_spawn: false,
-                    depth: 0,
-                    chat_view: None,
-                    auto_approve: false,
-                    agent_session_model: None,
-                    agent_planned_model: None,
-                    agent_requested_model: None,
-                    agent_provider_resolved_model: None,
-                    model_fallback: None,
-                    model_identity_mismatch: None,
-                    chatbackend_plugin_id: None,
-                    chatbackend_session_id: None,
-                    watcher: None,
-                    pending_delivery: None,
-                },
-            }],
-        }],
-    };
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-    assert!(restored.get_tab("tab-1").unwrap().agent_type.is_none());
-}
-
-#[test]
-fn test_session_snapshot_preserves_agent_type_locked() {
-    let (mut state, tab_id) = MultiplexerState::new();
-    if let Some(tab) = state.get_tab_mut(&tab_id) {
-        tab.agent_type = Some("codex".to_string());
-        tab.agent_type_locked = true;
-    }
-    let snap = state.to_session_snapshot();
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-    let tab = restored.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.agent_type.as_deref(), Some("codex"));
-    assert!(tab.agent_type_locked, "locked flag must survive roundtrip");
-}
-
-#[test]
-fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
-    use crate::session::store::{
-        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
-    };
-    // persisted agent_type via a real spawn or detection, both qualify as explicit intent.
-    let snap = SessionSnapshot {
-        version: "test".to_string(),
-        timestamp: 0,
-        active_workspace_id: Some("ws-1".to_string()),
-        teams: vec![],
-        workspaces: vec![WorkspaceSnapshot {
-            id: "ws-1".to_string(),
-            name: "W".to_string(),
-            active_tab_id: Some("tab-1".to_string()),
-            cwd: None,
-            protected: false,
-            sort_order: 0,
-            tabs: vec![TabSnapshot {
-                id: "tab-1".to_string(),
-                title: "Tab".to_string(),
-                description: None,
-                sort_order: 0,
-                split_tree: SplitNodeSnapshot::Leaf {
-                    tab_id: "tab-1".to_string(),
-                    cwd: None,
-                    title: None,
-                    description: None,
-                    title_level: None,
-                    agent_type: Some("claude".to_string()),
-                    agent_type_locked: false,
-                    claude_session_id: None,
-                    agent_identity: None,
-                    role: None,
-                    role_profile: None,
-                    team_id: None,
-                    parent_tab_id: None,
-                    spawned_by_tab_id: None,
-                    report_target_tab_id: None,
-                    report_target_mesh_peer: None,
-                    can_spawn: false,
-                    depth: 0,
-                    chat_view: None,
-                    auto_approve: false,
-                    agent_session_model: None,
-                    agent_planned_model: None,
-                    agent_requested_model: None,
-                    agent_provider_resolved_model: None,
-                    model_fallback: None,
-                    model_identity_mismatch: None,
-                    chatbackend_plugin_id: None,
-                    chatbackend_session_id: None,
-                    watcher: None,
-                    pending_delivery: None,
-                },
-            }],
-        }],
-    };
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-    let tab = restored.get_tab("tab-1").unwrap();
-    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert!(tab.agent_type_locked, "legacy agent_type implies lock");
-}
-
-#[test]
-fn test_session_snapshot_preserves_hierarchy() {
-    let (mut state, cond_id) = MultiplexerState::new();
-    let ws_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_tab_role(&cond_id, AgentRole::Orchestrator, None)
-        .unwrap();
-    let worker_id = state.create_tab(&ws_id).unwrap();
-    state
-        .set_tab_role(&worker_id, AgentRole::Worker, Some(&cond_id))
-        .unwrap();
-
-    let snap = state.to_session_snapshot();
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-
-    let cond = restored.get_tab(&cond_id).unwrap();
-    assert_eq!(cond.role, Some(AgentRole::Orchestrator));
-
-    let worker = restored.get_tab(&worker_id).unwrap();
-    assert_eq!(worker.role, Some(AgentRole::Worker));
-    assert_eq!(worker.parent_tab_id.as_deref(), Some(cond_id.as_str()));
-    assert_eq!(worker.depth, 2);
 }
 
 #[test]

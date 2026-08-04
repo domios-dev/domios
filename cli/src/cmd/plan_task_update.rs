@@ -1,5 +1,5 @@
 use crate::client::RpcClient;
-use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_tab, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, inject_trusted_session, resolve_text};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
@@ -132,7 +132,7 @@ fn build_params(
     if !external_refs.is_empty() {
         params["external_refs"] = json!(external_refs);
     }
-    maybe_inject_caller_tab(&mut params);
+    inject_trusted_session(&mut params);
     params
 }
 

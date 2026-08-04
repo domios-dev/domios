@@ -14,6 +14,7 @@ import type {
 } from "../../lib/types";
 import { usageTrackingEnabled } from "./usageTracking";
 import { tabSessionActionView } from "./tabSessionActions";
+import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -49,6 +50,7 @@ export function TabContent({
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
+  if (tab.remote_peer_id) configureRemoteTabTransport(api);
 
   if (isFirstRunGeneralTab(tab)) {
     return (

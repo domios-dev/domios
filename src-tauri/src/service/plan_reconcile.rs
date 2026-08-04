@@ -5,14 +5,6 @@ use serde::Serialize;
 use super::ServiceContext;
 
 pub(crate) fn tab_has_live_agent(tab: &crate::multiplexer::types::Tab) -> bool {
-    let accepting_work = match tab.agent_state.as_ref() {
-        Some(state) => matches!(
-            state.state,
-            crate::agent::offline_state_classifier::TimelineState::Working
-                | crate::agent::offline_state_classifier::TimelineState::Idle
-        ),
-        None => tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
-    };
     let delivery_target = tab.chat_view
         && match &tab.backing {
             crate::multiplexer::types::TabBacking::ChatBackend { .. } => true,
@@ -24,7 +16,6 @@ pub(crate) fn tab_has_live_agent(tab: &crate::multiplexer::types::Tab) -> bool {
         && tab.session_binding_nonce == tab.reported_session_binding_nonce
         && tab.exit_suspected_at.is_none()
         && delivery_target
-        && accepting_work
 }
 use crate::multiplexer::types::AgentRole;
 use crate::plan::cleanup_debt::CleanupDebtTask;
@@ -206,7 +197,8 @@ impl ServiceContext {
             match mux.get_tab(tab_id) {
                 Some(tab) => (
                     true,
-                    tab.role.map(map_role),
+                    tab.role
+                        .map(|role| map_role(role, tab.role_profile.as_deref())),
                     tab.parent_tab_id.clone(),
                     tab.agent_session_id.clone(),
                     tab.session_binding_nonce.clone(),
@@ -291,12 +283,11 @@ fn live_attempt_session_for_assignment(
         .map(str::to_string)
 }
 
-fn map_role(role: AgentRole) -> TabRole {
-    match role {
-        AgentRole::Orchestrator => TabRole::Orchestrator,
-        AgentRole::Manager => TabRole::Worker,
-        AgentRole::Worker => TabRole::Worker,
+fn map_role(role: AgentRole, role_profile: Option<&str>) -> TabRole {
+    if codeterm_types::agent::role_kind::anchors_team(Some(role), role_profile) {
+        return TabRole::Orchestrator;
     }
+    TabRole::Worker
 }
 
 fn drift_counts(items: &[DriftItem]) -> HashMap<DriftKind, usize> {
@@ -481,6 +472,15 @@ mod tests {
         tab.chat_view = true;
         tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         tab.pty_id = Some("pty-1".into());
+        assert!(tab_has_live_agent(tab));
+
+        tab.agent_state = Some(
+            codeterm_types::pty::TabVerdict {
+                state: codeterm_types::pty::TimelineState::Question,
+                subtype: None,
+            }
+            .into(),
+        );
         assert!(tab_has_live_agent(tab));
 
         tab.exit_suspected_at = Some(std::time::Instant::now());

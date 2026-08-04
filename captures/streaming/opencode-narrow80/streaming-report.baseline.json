@@ -1,0 +1,382 @@
+{
+  "summary": {
+    "turns": 21,
+    "turns_with_preview": 14,
+    "avg_lead_ms": 1509.7142857142858,
+    "min_lead_ms": 10,
+    "median_lead_ms": 592,
+    "max_lead_ms": 5593,
+    "turns_with_leftovers": 12,
+    "total_jank_frames": 40,
+    "total_dupe_frames": 99,
+    "total_height_shrink_frames": 2
+  },
+  "turns": [
+    {
+      "seq": 1,
+      "started_ms": 150,
+      "first_preview_ms": 300,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 2,
+      "started_ms": 1200,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 3,
+      "started_ms": 2175,
+      "first_preview_ms": 2250,
+      "first_canonical_ms": 2484,
+      "peak_preview_rows": 4,
+      "leftover_rows": 4,
+      "leftover_sample": [
+        "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "   /private/tmp/claude-502/-Users-dev-Developer-     27.7K (14ctrl+p",
+        "   codeterm-worktrees-lane-streaming-consilium/501ecdcd-          commands",
+        "   ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode"
+      ],
+      "jank_frames": 2,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "   /private/tmp/claude-502/-Users-dev-Developer-     27.7K (14ctrl+p",
+        "   codeterm-worktrees-lane-streaming-consilium/501ecdcd-          commands",
+        "   ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 4,
+      "started_ms": 4950,
+      "first_preview_ms": 5025,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 5,
+      "started_ms": 5925,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 6,
+      "started_ms": 6975,
+      "first_preview_ms": 7200,
+      "first_canonical_ms": 12793,
+      "peak_preview_rows": 8,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 7.8s"
+      ],
+      "jank_frames": 23,
+      "dupe_frames": 24,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 7.8s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 7,
+      "started_ms": 15600,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 8,
+      "started_ms": 16575,
+      "first_preview_ms": 17475,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 2,
+      "leftover_rows": 2,
+      "leftover_sample": [
+        "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                        28.6K (14%)  ctrl+p commands"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                        28.6K (14%)  ctrl+p commands"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 9,
+      "started_ms": 17550,
+      "first_preview_ms": 17550,
+      "first_canonical_ms": 18142,
+      "peak_preview_rows": 2,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 2.5s"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 2.5s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 10,
+      "started_ms": 20625,
+      "first_preview_ms": 20625,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 11,
+      "started_ms": 21600,
+      "first_preview_ms": 22275,
+      "first_canonical_ms": 22592,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 1.9s"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 1.9s"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 12,
+      "started_ms": 22650,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 13,
+      "started_ms": 25125,
+      "first_preview_ms": 25275,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 14,
+      "started_ms": 26175,
+      "first_preview_ms": 26850,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 15,
+      "started_ms": 27150,
+      "first_preview_ms": 27150,
+      "first_canonical_ms": 27160,
+      "peak_preview_rows": 3,
+      "leftover_rows": 3,
+      "leftover_sample": [
+        "   /private/tmp/claude-502/-Users-dev-Developer-     29.0K (14ctrl+p",
+        "   codeterm-worktrees-lane-streaming-consilium/501ecdcd-          commands",
+        "   ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "   /private/tmp/claude-502/-Users-dev-Developer-     29.0K (14ctrl+p",
+        "   codeterm-worktrees-lane-streaming-consilium/501ecdcd-          commands",
+        "   ad6a-4126-a64c-a27f7643937c/scratchpad/probe-opencode"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 16,
+      "started_ms": 29700,
+      "first_preview_ms": 29700,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 1,
+      "leftover_rows": 1,
+      "leftover_sample": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     ▣  Build · DeepSeek V4 Flash Free (New)"
+      ],
+      "handover_rows": 0
+    },
+    {
+      "seq": 17,
+      "started_ms": 30675,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 18,
+      "started_ms": 31650,
+      "first_preview_ms": 33600,
+      "first_canonical_ms": 35652,
+      "peak_preview_rows": 5,
+      "leftover_rows": 2,
+      "leftover_sample": [
+        "     → Read streaming-probe.txt",
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 5.8s"
+      ],
+      "jank_frames": 3,
+      "dupe_frames": 38,
+      "height_shrink_frames": 0,
+      "boundary_rows": [
+        "     → Read streaming-probe.txt",
+        "",
+        "     hello streaming",
+        "",
+        "     ▣  Build · DeepSeek V4 Flash Free (New) · 5.8s"
+      ],
+      "handover_rows": 3
+    },
+    {
+      "seq": 19,
+      "started_ms": 38325,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 20,
+      "started_ms": 39300,
+      "first_preview_ms": null,
+      "first_canonical_ms": null,
+      "peak_preview_rows": 0,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 0,
+      "dupe_frames": 0,
+      "height_shrink_frames": 0,
+      "boundary_rows": [],
+      "handover_rows": 0
+    },
+    {
+      "seq": 21,
+      "started_ms": 40275,
+      "first_preview_ms": 40575,
+      "first_canonical_ms": 42345,
+      "peak_preview_rows": 8,
+      "leftover_rows": 0,
+      "leftover_sample": [],
+      "jank_frames": 12,
+      "dupe_frames": 37,
+      "height_shrink_frames": 1,
+      "boundary_rows": [
+        "     scrollback works in prose. I listed common HTTP status codes as a",
+        "     markdown bullet list. I wrote the fizzbuzz(n) function and then",
+        "     shortened it to at most five lines. I created streaming-probe.txt",
+        "     containing the line hello streaming and displayed its contents.",
+        "",
+        "     lines = [\"Verified CodeTerm probe environment; no pending tasks.\","
+      ],
+      "handover_rows": 8
+    }
+  ]
+}

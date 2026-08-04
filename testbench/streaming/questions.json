@@ -1,0 +1,33 @@
+{
+  "description": "Repeatable conversation set for streaming-preview quality runs. Same set across providers (claude, opencode, codex, model variants).",
+  "questions": [
+    {
+      "id": "short-answer",
+      "prompt": "Reply with exactly one short sentence: what is a PTY?"
+    },
+    {
+      "id": "long-prose",
+      "prompt": "Explain in 10-15 sentences how terminal scrollback works. Prose only, no code, no lists."
+    },
+    {
+      "id": "list-formatting",
+      "prompt": "Give me a markdown bullet list of 8 common HTTP status codes with a one-line meaning each."
+    },
+    {
+      "id": "code-block",
+      "prompt": "Write a python function fizzbuzz(n) that returns a list of strings. Show only one code block, no explanation."
+    },
+    {
+      "id": "rapid-followup",
+      "prompt": "Now shorten that fizzbuzz to at most 5 lines and show the code block again."
+    },
+    {
+      "id": "tool-run",
+      "prompt": "Create a file streaming-probe.txt containing the line 'hello streaming' and then show its contents."
+    },
+    {
+      "id": "mixed-closing",
+      "prompt": "Summarize what you did this session in exactly 5 sentences, then add a 3-line code snippet that prints them."
+    }
+  ]
+}

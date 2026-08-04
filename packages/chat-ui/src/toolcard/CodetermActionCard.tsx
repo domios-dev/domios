@@ -1,6 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
-import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type TabNameResolver } from "../codeterm/templates";
+import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
@@ -21,6 +21,7 @@ interface Props {
   expanded: boolean;
   onToggle: () => void;
   resolveTabName?: TabNameResolver;
+  resolvePeerName?: PeerNameResolver;
   onFocusTab?: (tabRef: string) => void;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: PlanFocusKind) => ResolvedChatPlanRef | null;
@@ -109,6 +110,7 @@ export function CodetermActionCard({
   expanded,
   onToggle,
   resolveTabName,
+  resolvePeerName,
   onFocusTab,
   onOpenPlan,
   resolvePlanRef,
@@ -118,10 +120,10 @@ export function CodetermActionCard({
   onOpenSource,
 }: Props) {
   const inv = recognize(commandFor(event));
-  const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName) : undefined;
+  const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
   const sendSucceeded = sent?.status?.ok === true;
   const target = inv ? navigationTarget(inv, event.result) : null;
-  const descriptor = inv ? describeAction(inv, event.result, resolveTabName) : { lead: "codeterm", chips: [] };
+  const descriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName) : { lead: "codeterm", chips: [] };
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
   const canNavigate = target != null && (
     target.kind === "tab" ? Boolean(onFocusTab) :
@@ -148,13 +150,13 @@ export function CodetermActionCard({
       summary={descriptor.object}
       variant="codeterm"
       visualOverride={inv ? actionVisual(inv) : undefined}
-      command={<div data-testid="toolcard-command" className="border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)" }}>{sent && <div className="mb-1 text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>Source as typed</div>}{event.detail || event.summary}</div>}
+      command={<div data-testid="toolcard-command" className="border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)" }}>{sent && <div className="mb-1 text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>{sent.bodySource === "pad" ? "AgentPad command" : "Source as typed"}</div>}{event.detail || event.summary}</div>}
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
       action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
       {sent ? (
         <div>
-          <div className="mb-1 font-mono text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>{sent.bodySource === "resolved" ? "Delivered text" : "Source as typed"}</div>
+          <div className="mb-1 font-mono text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>{sent.bodySource === "resolved" ? "Delivered text" : sent.bodySource === "pad" ? "AgentPad source" : "Source as typed"}</div>
           <CompactMessageContent
             text={sent.body}
           onOpenPlan={onOpenPlan}

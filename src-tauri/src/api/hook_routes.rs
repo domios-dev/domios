@@ -332,6 +332,23 @@ pub async fn hook_session_start(
         claim.nonce_verified,
         claim.changed,
     );
+    // Authoritative identity commit: journaled only on a nonce-proven binding,
+    // so an unverified report can never become restorable authority.
+    if let (true, Some(binding_nonce)) = (claim.nonce_verified, reported_nonce.clone()) {
+        state.svc.record_lifecycle(
+            &tab_id,
+            crate::session::lifecycle::LifecycleTransition::ProviderIdentityCommitted {
+                provider: provider_id.clone(),
+            },
+        );
+        state.svc.record_lifecycle(
+            &tab_id,
+            crate::session::lifecycle::LifecycleTransition::SessionBound {
+                session_id: sid.clone(),
+                binding_nonce,
+            },
+        );
+    }
     crate::service::general_agent::binding_wait::notify_session_bound();
     acknowledge_authenticated_launch(&state.svc.mux, &tab_id, &claim, report_nonce.as_deref());
     if claim.nonce_verified {
@@ -369,9 +386,7 @@ pub async fn hook_session_start(
             .plan_store
             .observe_handoff_session_start(&tab_id, &sid, epoch_ms())
     {
-        state
-            .svc
-            .send_text_detached(&resume.tab_id, &resume.text);
+        state.svc.send_text_detached(&resume.tab_id, &resume.text);
         let _ = state.svc.plan_store.mark_handoff_resume_sent(
             &resume.plan_id,
             &resume.handoff_id,
@@ -391,6 +406,34 @@ pub async fn hook_session_start(
     state.svc.chat_registry.shutdown_tab(&tab_id);
     state.svc.bind_planner_session(&tab_id);
     state.svc.schedule_planner_replay(&tab_id);
+    let effort_cwd = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.cwd.clone());
+    let persist_svc = state.svc.clone();
+    let effort_tab_id = tab_id.clone();
+    let effort_provider_id = provider_id.clone();
+    let effort_session_id = sid.clone();
+    if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {
+        if let Some(cwd) = effort_cwd {
+            persist_svc.refresh_session_reasoning_effort_once(
+                &effort_tab_id,
+                &effort_provider_id,
+                &cwd,
+                &effort_session_id,
+            );
+        }
+        crate::service::session_persist::persist_session_after_mutation(
+            &persist_svc,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+    })
+    .await
+    {
+        log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+    }
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
@@ -700,6 +743,9 @@ fn commit_reported_session(
     let prev = tab.agent_session_id.clone();
     let changed = prev.as_deref() != Some(sid);
     if changed {
+        if let Some(previous_session_id) = prev.as_deref() {
+            tab.archive_context_epoch(provider_id, previous_session_id);
+        }
         tab.agent_session_id = Some(sid.to_string());
         crate::service::tab::clear_runtime_model_evidence(tab);
     }

@@ -1,4 +1,4 @@
-## Bounce-unwinding protocol
+# Bounce-unwinding protocol
 
 - Treat a bounce as evidence that the task, plan, oracle, or routing may be wrong. Diagnose it instead of requesting a blind retry.
 - Research is repo-first and bounded. Start with local code, touched files, plan skills, existing evals, and executable fixtures. External research is allowed only when those surfaces cannot answer the one missing fact that blocked the bounce.

@@ -48,12 +48,20 @@ pub(crate) struct PendingBind {
     pub(crate) configured: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct RestApiRuntimePolicy {
+    pub(crate) enabled: bool,
+    pub(crate) cors: bool,
+    pub(crate) cors_allow_origins: Vec<String>,
+}
+
 #[derive(Clone)]
 struct RestApiLifecycle {
     status: RestApiStatus,
     listener_owned: bool,
     recovery_transition: u64,
     bound_addr: Option<SocketAddr>,
+    runtime_policy: RestApiRuntimePolicy,
 }
 
 #[derive(Clone)]
@@ -112,6 +120,7 @@ impl RestApiControl {
                 listener_owned: false,
                 recovery_transition: 0,
                 bound_addr: None,
+                runtime_policy: RestApiRuntimePolicy::default(),
             })),
             status_events,
             lifecycle_events,
@@ -187,6 +196,14 @@ impl RestApiControl {
     pub(crate) fn bound_addr(&self) -> Option<SocketAddr> {
         let lifecycle = self.lifecycle.lock();
         lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
+    }
+
+    pub(crate) fn set_runtime_policy(&self, policy: RestApiRuntimePolicy) {
+        self.lifecycle.lock().runtime_policy = policy;
+    }
+
+    pub(crate) fn runtime_policy(&self) -> RestApiRuntimePolicy {
+        self.lifecycle.lock().runtime_policy.clone()
     }
 
     /// None only when the live socket is provably serving `configured`; anything
@@ -658,11 +675,16 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         control.listener_bound(generation, local_addr);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let mut server = Box::pin(
-            axum::serve(listener, router.clone())
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .into_future(),
+            axum::serve(
+                listener,
+                router
+                    .clone()
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .into_future(),
         );
         let health = prove_health(local_addr);
         tokio::pin!(health);

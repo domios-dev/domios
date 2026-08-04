@@ -7,7 +7,7 @@ use crate::multiplexer::types::AgentRole;
 fn test_parse_role() {
     assert!(matches!(
         ServiceContext::parse_role("Conductor"),
-        Ok(AgentRole::Orchestrator)
+        Ok(AgentRole::Manager)
     ));
     assert!(matches!(
         ServiceContext::parse_role("Worker"),
@@ -73,7 +73,12 @@ fn test_spawn_agent_params_from_json() {
     let params = SpawnAgentParams::from_json(&json).unwrap();
     assert_eq!(params.agent.as_deref(), Some("claude"));
     assert_eq!(params.agent_name.as_deref(), Some("architect"));
-    assert_eq!(params.role.as_deref(), Some("Orchestrator"));
+    // Wire sugar resolves once: stored authority is the structural role plus kind.
+    assert_eq!(params.role.as_deref(), Some("Manager"));
+    assert_eq!(
+        params.role_profile.as_deref(),
+        Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR)
+    );
     assert_eq!(params.can_spawn, Some(true));
     assert_eq!(params.task.as_deref(), Some("do something"));
     assert_eq!(params.args.as_ref().unwrap().len(), 1);
@@ -86,6 +91,17 @@ fn test_spawn_agent_params_from_json_minimal() {
     assert!(params.agent.is_none());
     assert!(params.role.is_none());
     assert!(params.task.is_none());
+}
+
+#[test]
+fn spawn_payload_cannot_override_global_agent_access() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "skip_permissions": true,
+    }))
+    .unwrap();
+    assert_eq!(params.skip_permissions, None);
+    assert!(params.permission_bypass_authorization.is_none());
 }
 
 #[test]
@@ -148,21 +164,21 @@ fn spawn_agent_params_from_json_maps_plan_task() {
 }
 
 #[test]
-fn manager_requires_known_profile() {
+fn manager_requires_named_extensible_profile() {
     let missing = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Manager",
     }))
     .unwrap_err();
-    assert!(missing.contains("Manager requires a known role_profile"));
+    assert!(missing.contains("Manager requires a named role_profile"));
 
-    let unknown = SpawnAgentParams::from_json(&serde_json::json!({
+    let custom = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Manager",
-        "role_profile": "reviewer",
+        "role_profile": "Review Lead",
     }))
-    .unwrap_err();
-    assert!(unknown.contains("Manager requires a known role_profile"));
+    .unwrap();
+    assert_eq!(custom.role_profile.as_deref(), Some("review_lead"));
 }
 
 #[test]

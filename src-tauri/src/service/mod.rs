@@ -13,6 +13,7 @@
 //! - `notification` — create notification with OS toast
 
 pub mod activity;
+pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
 pub mod boot_stage;
@@ -41,18 +42,27 @@ mod orchestrator_onboard;
 mod output;
 mod output_feed;
 pub(crate) mod pending_delivery_payloads;
+pub(crate) mod permission_policy;
 pub mod plan;
+mod plan_authority;
 mod plan_reconcile;
 pub mod plugin_host;
+pub(crate) mod persona;
+pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
+mod reasoning_effort;
+pub mod remote_tabs;
 pub mod remote_workers;
+mod restored_binding;
 mod role_identity;
+pub(crate) mod role_preset;
 mod role_profile;
 pub mod session_persist;
+mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
@@ -63,11 +73,14 @@ mod spawn_plan_task;
 pub(crate) mod spawn_title;
 mod status_reconciliation;
 pub mod store;
+pub(crate) mod stream_preview;
 pub mod structured_prompt;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub mod tab_budget;
 pub mod tab_chat;
+pub(crate) mod tab_lifecycle;
+pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
@@ -87,6 +100,7 @@ pub mod watcher;
 pub mod web_access;
 pub(crate) mod worker_ack;
 mod worker_identity;
+pub(crate) mod worker_interruption;
 mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
@@ -111,9 +125,9 @@ use crate::{
 
 // Re-export public types used by callers.
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
-pub(crate) use hierarchy::FirstPlanTeamError;
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
+pub(crate) use hierarchy::{TeamPlanCaller, TeamPlanCreationError};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
@@ -129,6 +143,9 @@ pub(crate) use orchestrator::{
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
+};
+pub(crate) use plan_authority::{
+    ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
 };
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
@@ -188,6 +205,7 @@ pub struct ServiceContext {
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
     /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
+    pub provider_updates: provider_update::ProviderUpdateRegistry,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
     pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,
@@ -700,15 +718,31 @@ impl ServiceContext {
     }
 
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
-        match role_str {
-            "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
-            "Manager" => Ok(AgentRole::Manager),
-            "Worker" => Ok(AgentRole::Worker),
-            _ => Err(format!(
-                "Invalid role: {}. Use: Orchestrator, Manager, Worker",
-                role_str
-            )),
+        AgentRole::from_str_compat(role_str).ok_or_else(|| {
+            format!("Invalid role: {role_str}. Use: Orchestrator, Manager, Worker")
+        })
+    }
+
+    /// The one place wire role sugar resolves: legacy `Orchestrator`/`Conductor`
+    /// literals name the orchestrator kind. Core code branches on the kind.
+    pub(crate) fn parse_role_kind(
+        role_str: &str,
+        role_profile: Option<&str>,
+    ) -> Result<(AgentRole, Option<String>), String> {
+        let role = Self::parse_role(role_str)?;
+        let profile = match role_str {
+            "Orchestrator" | "Conductor" => {
+                Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR.to_string())
+            }
+            _ => role_profile
+                .map(str::trim)
+                .filter(|profile| !profile.is_empty())
+                .map(str::to_string),
+        };
+        if role == AgentRole::Manager && profile.is_none() {
+            return Err("Manager requires a named role_profile".into());
         }
+        Ok((role, profile))
     }
 }
 
@@ -725,6 +759,14 @@ pub struct ReportResult {
     /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
     pub notices: Vec<String>,
     pub persisted_task: Option<(String, String)>,
+    pub rejected_task_transition: Option<RejectedTaskTransition>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RejectedTaskTransition {
+    pub plan_id: Option<String>,
+    pub task_id: Option<String>,
+    pub cause: String,
 }
 
 /// Helper: extract optional string from JSON value.

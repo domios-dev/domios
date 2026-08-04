@@ -697,18 +697,20 @@ impl MeshManager {
             return None;
         }
         let peer = self.paired_peers.get(peer_id)?;
+        let token = self.sign_request().ok()?;
+        if let Some(url) = crate::web_ui_endpoints::preferred_https_url(peer.web_ui.as_ref()) {
+            return Some(transport::PeerClient::new_signed_url(url, &token));
+        }
         let addr = peer
             .addresses
             .iter()
             .min_by_key(|a| types::address_tier(a))?;
-        let token = self.sign_request().ok()?;
         Some(transport::PeerClient::new_signed(
             &addr.ip,
             peer.api_port,
             &token,
         ))
     }
-
 }
 
 #[cfg(test)]
@@ -870,9 +872,7 @@ mod pairing_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
-        PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, WebUiEndpoint,
-    };
+    use crate::types::{PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, WebUiEndpoint};
 
     fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         let mut m = MeshManager::new("test-host".into(), 7685);

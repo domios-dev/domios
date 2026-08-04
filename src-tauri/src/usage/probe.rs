@@ -11,7 +11,7 @@ pub struct UsageProbeOutcome {
 #[derive(Debug, Clone)]
 pub enum ProbeError {
     BinaryMissing(String),
-    NotReady(String),
+    FetchFailed(String),
     /// The provider exposes no way to read its meter without moving it. There is
     /// deliberately no metered fallback: telemetry must never bill the user.
     NoQuotaFreeSource(String),
@@ -22,7 +22,7 @@ impl std::fmt::Display for ProbeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BinaryMissing(p) => write!(f, "binary missing: {}", p),
-            Self::NotReady(m) => write!(f, "usage fetch not ready: {}", m),
+            Self::FetchFailed(m) => write!(f, "usage fetch failed: {}", m),
             Self::NoQuotaFreeSource(p) => write!(
                 f,
                 "{} exposes no quota-free usage source; refusing to spend quota to read it",
@@ -93,7 +93,7 @@ fn quota_free_outcome(
             raw_text,
             elapsed_ms,
         }),
-        Some(Err(e)) => Err(ProbeError::NotReady(e)),
+        Some(Err(e)) => Err(ProbeError::FetchFailed(e)),
         None => Err(ProbeError::NoQuotaFreeSource(provider.to_string())),
     }
 }
@@ -125,7 +125,7 @@ mod tests {
         let err = quota_free_outcome(Some(Err("no token".into())), "fetch-provider", 0)
             .expect_err("must not succeed");
         assert!(
-            matches!(err, ProbeError::NotReady(ref m) if m == "no token"),
+            matches!(err, ProbeError::FetchFailed(ref m) if m == "no token"),
             "a failing fetch must not be reported as a missing source, got {:?}",
             err
         );

@@ -1,5 +1,9 @@
+use super::execution::TaskExecutionIntent;
 use super::external_refs::ExternalRef;
 use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
+use super::{
+    TaskCompetitionMetadata, TaskExecutionAttempt, TaskInterruptionState, TaskLaneMetadata,
+};
 use serde::{Deserialize, Serialize};
 
 pub const INBOX_PLAN_ID: &str = "inbox";
@@ -203,120 +207,6 @@ pub struct PlannerRequest {
     pub delivered_to_session_id: Option<String>,
     #[serde(default)]
     pub delivered_with_binding_nonce: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskLaneMetadata {
-    #[serde(default)]
-    pub tab_id: Option<String>,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-    #[serde(default)]
-    pub workspace_name: Option<String>,
-    #[serde(default)]
-    pub worktree_path: Option<String>,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub base: Option<String>,
-    #[serde(default)]
-    pub destination: Option<String>,
-    #[serde(default)]
-    pub cleanup_status: Option<String>,
-    #[serde(default)]
-    pub cleanup_hints: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskCompetitionMetadata {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub attempts: Option<u32>,
-    #[serde(default)]
-    pub models: Vec<String>,
-    #[serde(default)]
-    pub judge_hint: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskExecutionReportSnapshot {
-    pub id: String,
-    #[serde(default)]
-    pub message: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub sha: Option<String>,
-    /// Tab that submitted a proxy report; None means the executor reported.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reporter_tab_id: Option<String>,
-    #[serde(default)]
-    pub changed_files: Vec<String>,
-    #[serde(default)]
-    pub test_cmd: Option<String>,
-    #[serde(default)]
-    pub test_result: Option<String>,
-    #[serde(default)]
-    pub skipped: Option<String>,
-    #[serde(default)]
-    pub attachments: Vec<AttachmentRef>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct TaskExecutionAttempt {
-    pub id: String,
-    pub executor_tab_id: String,
-    #[serde(default)]
-    pub executor_title: Option<String>,
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub agent_type: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub parent_tab_id: Option<String>,
-    #[serde(default)]
-    pub orchestrator_tab_id: Option<String>,
-    #[serde(default)]
-    pub mesh_peer: Option<String>,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub worktree_path: Option<String>,
-    #[serde(default)]
-    pub base: Option<String>,
-    #[serde(default)]
-    pub destination: Option<String>,
-    #[serde(default)]
-    pub report: Option<TaskExecutionReportSnapshot>,
-    #[serde(default)]
-    pub assigned_at: Option<u64>,
-    #[serde(default)]
-    pub acknowledged_at: Option<u64>,
-    #[serde(default)]
-    pub reported_at: Option<u64>,
-    #[serde(default)]
-    pub reviewed_at: Option<u64>,
-    #[serde(default)]
-    pub closed_at: Option<u64>,
-    #[serde(default)]
-    pub competition_group_id: Option<String>,
-    #[serde(default)]
-    pub competition_lane: Option<u32>,
-    #[serde(default)]
-    pub judge_verdict: Option<String>,
-    #[serde(default)]
-    pub judge_reason: Option<String>,
-    #[serde(default)]
-    pub judged_at: Option<u64>,
-    #[serde(default)]
-    pub winner: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -593,6 +483,8 @@ pub struct Task {
     pub competition: Option<TaskCompetitionMetadata>,
     pub intent: Option<String>,
     #[serde(default)]
+    pub execution_intent: TaskExecutionIntent,
+    #[serde(default)]
     pub parent_task_id: Option<String>,
     #[serde(default, alias = "dependency_task_ids")]
     pub depends_on: Vec<String>,
@@ -612,6 +504,8 @@ pub struct Task {
     pub execution_attempts: Vec<TaskExecutionAttempt>,
     #[serde(default)]
     pub pause_reason: Option<String>,
+    #[serde(default)]
+    pub interruption: TaskInterruptionState,
     #[serde(default)]
     pub attachments: Vec<AttachmentRef>,
 }
@@ -818,7 +712,7 @@ impl Plan {
     }
 
     /// Single source of truth for whether execution (non-planning) tasks may be
-    /// created. planning_state is authoritative going forward; an Approved/Execution
+    /// dispatched. planning_state is authoritative going forward; an Approved/Execution
     /// lifecycle mode bridges plans predating planning_state. Complete never unlocks.
     pub fn execution_tasks_unlocked(&self) -> bool {
         !matches!(self.mode, PlanMode::Complete | PlanMode::Paused)
@@ -976,7 +870,7 @@ mod tests {
             title: None,
         });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"kind\":\"Tab\""));
+        assert!(json.contains("\"kind\":\"tab\""));
         assert!(json.contains("\"tab_id\":\"tab_plan\""));
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.planner, p.planner);
@@ -1080,6 +974,7 @@ mod tests {
         assert!(p.tasks[0].review_evidence.is_empty());
         assert_eq!(p.tasks[0].review_override, None);
         assert!(p.tasks[0].review_audit.is_empty());
+        assert!(p.tasks[0].execution_intent.requires_repository());
     }
 
     #[test]
@@ -1144,6 +1039,7 @@ mod tests {
             executor_role: None,
             competition: None,
             intent: None,
+            execution_intent: Default::default(),
             parent_task_id: None,
             depends_on: vec![],
             assigned_tab_id: None,
@@ -1155,6 +1051,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             pause_reason: None,
+            interruption: Default::default(),
             attachments: vec![],
         };
         t.review_round = 1;

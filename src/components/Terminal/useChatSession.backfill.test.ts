@@ -1,7 +1,5 @@
 // Run: npx tsx src/components/Terminal/useChatSession.backfill.test.ts
-// Bounded "Show older" backfill: cursor from chat_start.start_offset, paged
-// chat_backfill fetches, ordering at the page/snapshot boundary, own-session
-// authority, and the ~220-item DOM window with slide/show-latest.
+// Pins paged byte ordering, own-session authority, and one detached window.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -38,7 +36,6 @@ interface HookView {
   allMessages: NormalizedChatMessage[];
   enrichedCount: number;
   hiddenOlder: number;
-  hiddenNewer: number;
   canBackfillOlder: boolean;
   backfillLoading: boolean;
   loadOlder: () => Promise<void> | void;
@@ -63,7 +60,8 @@ async function main(): Promise<void> {
     snapshot: [] as NormalizedChatMessage[],
     startOffset: 0,
     pages: new Map<number, BackfillPage>(),
-    backfillCalls: [] as Array<{ beforeOffset: number; maxBytes: number }>,
+    endOffset: 0,
+    backfillCalls: [] as Array<{ beforeOffset: number }>,
   };
 
   (bridge as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(async () => () => {});
@@ -73,7 +71,7 @@ async function main(): Promise<void> {
         return {
           text: "",
           start_offset: state.startOffset,
-          offset: 1,
+          offset: state.endOffset,
           pending: false,
           messages: [...state.snapshot],
           source_session_id: "sid-1",
@@ -83,7 +81,7 @@ async function main(): Promise<void> {
       }
       if (command === "chat_backfill") {
         const beforeOffset = Number(args.beforeOffset);
-        state.backfillCalls.push({ beforeOffset, maxBytes: Number(args.maxBytes) });
+        state.backfillCalls.push({ beforeOffset });
         const page = state.pages.get(beforeOffset);
         if (!page) throw new Error(`no page for ${beforeOffset}`);
         return { text: "", session_binding_nonce: "nonce-1", ...page };
@@ -109,7 +107,6 @@ async function main(): Promise<void> {
       allMessages: session.allMessages,
       enrichedCount: session.enrichedMessages.length,
       hiddenOlder: session.hiddenMessageCount,
-      hiddenNewer: session.hiddenNewerCount,
       canBackfillOlder: session.canBackfillOlder,
       backfillLoading: session.backfillLoading,
       loadOlder: session.loadOlder,
@@ -121,6 +118,7 @@ async function main(): Promise<void> {
   // Large session: bounded snapshot tail + a positive start_offset cursor.
   state.snapshot = Array.from({ length: 30 }, (_, i) => msg(`s-${i}`, `snap-${i}`, 20_000 + i, i));
   state.startOffset = 5000;
+  state.endOffset = 8000;
   // Page 1: older window immediately below the snapshot; boundary timestamp COLLIDES
   // with the snapshot's first message (codex floors to seconds) and seq is
   // window-relative 0..N exactly like the server parser produces.
@@ -157,14 +155,13 @@ async function main(): Promise<void> {
   await flush();
   assert((state.backfillCalls.length as number) === 1, "one bounded backfill request per click");
   assert(state.backfillCalls[0].beforeOffset === 5000, "backfill pages from the snapshot window start");
-  assert(state.backfillCalls[0].maxBytes === 256 * 1024, "page size is bounded");
   {
     const contents = v().allMessages.map((m) => m.content);
     assert(contents[0] === "page1-0", `older page sorts first (got ${contents[0]})`);
     const boundary = contents.indexOf("page1-19");
     const snapFirst = contents.indexOf("snap-0");
     assert(boundary >= 0 && snapFirst >= 0 && boundary < snapFirst,
-      "equal-timestamp boundary keeps the backfilled message before the snapshot");
+      "the page's byte range keeps its rows before the snapshot despite an equal timestamp");
     assert(v().canBackfillOlder, "cursor advanced to the next older window");
   }
 
@@ -205,10 +202,11 @@ async function main(): Promise<void> {
   await act(async () => root.unmount());
   host.remove();
 
-  // --- windowing: DOM stays bounded and show-latest returns to the tail ---
+  // --- detached history is one bounded reading window; show-latest returns to the tail ---
   {
     state.snapshot = Array.from({ length: 300 }, (_, i) => msg(`b-${i}`, `bulk-${i}`, 30_000 + i, i));
     state.startOffset = 0;
+    state.endOffset = 30_000;
     state.backfillCalls = [];
     const host2 = document.createElement("div");
     document.body.appendChild(host2);
@@ -217,26 +215,28 @@ async function main(): Promise<void> {
       root2.render(createElement(Harness));
     });
     await flush();
+    await act(async () => v().showLatest());
+    await flush();
 
+    const loadedMessageCount = v().allMessages.length;
     assert(v().enrichedCount <= CHAT_WINDOW_SIZE, `DOM window stays bounded (${v().enrichedCount})`);
-    assert(v().hiddenOlder === 300 - CHAT_WINDOW_SIZE, "older items beyond the window are hidden, not rendered");
-    assert(v().hiddenNewer === 0, "follow mode hides nothing newer");
+    assert(v().hiddenOlder === loadedMessageCount - CHAT_WINDOW_SIZE, "older loaded items beyond the window are hidden, not rendered");
 
     await act(async () => {
       void v().loadOlder();
     });
     await flush();
     assert((state.backfillCalls.length as number) === 0, "local hidden items slide without a backfill request");
-    assert(v().hiddenNewer > 0, "sliding back leaves newer items outside the window");
-    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, "window size holds after sliding");
-    assert(v().allMessages.length === 300, "sliding never drops data, only DOM");
+    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, "detached reading mounts one bounded window");
+    assert(v().enrichedCount < loadedMessageCount, "detached reading never mounts rows outside its window");
+    assert(v().allMessages.length === loadedMessageCount, "sliding never drops data, only DOM");
 
     await act(async () => {
       v().showLatest();
     });
     await flush();
-    assert(v().hiddenNewer === 0, "show-latest returns to the tail");
-    assert(v().hiddenOlder === 300 - CHAT_WINDOW_SIZE, "tail window hides older items again");
+    assert(v().enrichedCount === CHAT_WINDOW_SIZE, "show-latest collapses to the bounded tail");
+    assert(v().hiddenOlder === loadedMessageCount - CHAT_WINDOW_SIZE, "tail window hides older items again");
 
     await act(async () => root2.unmount());
     host2.remove();

@@ -1,13 +1,12 @@
 use super::{
-    build_agent_command, command_with_binding_nonce_for_shell, provider_launch_failure,
-    replacement_pty_candidate, spawn_onboarding_task, take_reader_termination,
-    worker_brief_delivery_incident, AgentRegistry, LaunchFailure, LaunchGeneration, LaunchRegistry,
-    ProviderSessionBinding,
+    build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
+    spawn_onboarding_task, take_reader_termination, worker_brief_delivery_incident, AgentRegistry,
+    LaunchFailure, LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
-    AgentRole, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+    PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
 };
 use crate::service::boot_stage::BootStageSink;
 use crate::service::inject_verify::InjectionResult;
@@ -292,10 +291,6 @@ fn production_driver_uses_typed_terminal_causes() {
         LaunchFailure::ReaderSetup("closed".into()).reason(),
         "ReaderSetupFailed: closed"
     );
-    assert_eq!(
-        LaunchFailure::ProviderReadyTimeout.reason(),
-        "ProviderReadyTimeout"
-    );
     assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
     assert_eq!(
         LaunchFailure::ShellReadyTimeout.reason(),
@@ -308,7 +303,7 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
     let prompt =
         spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
     assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
 }
 
 #[test]
@@ -330,12 +325,13 @@ fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let tab_id = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&tab_id)
         .unwrap();
     let tab = mux.get_tab(&tab_id).unwrap();
+    // The identity channel carries structural authority, not the display label.
     assert_eq!(
         tab_identity_env(tab).get("CODETERM_ROLE"),
-        Some(&"Orchestrator".to_string())
+        Some(&"Manager".to_string())
     );
 }
 
@@ -368,27 +364,6 @@ fn matching_authenticated_session_binding_resolves_readiness() {
         }
     ));
     assert!(launch.await_provider_ack(std::time::Duration::ZERO));
-}
-
-#[test]
-fn live_provider_tui_is_ready_before_session_hook() {
-    assert_eq!(provider_launch_failure(false, false, true), None);
-}
-
-#[test]
-fn missing_hook_and_tui_is_a_real_timeout() {
-    assert_eq!(
-        provider_launch_failure(false, false, false),
-        Some(LaunchFailure::ProviderReadyTimeout)
-    );
-}
-
-#[test]
-fn reader_eof_overrides_visual_readiness() {
-    assert_eq!(
-        provider_launch_failure(true, false, true),
-        Some(LaunchFailure::PtyEof)
-    );
 }
 
 #[test]
@@ -512,7 +487,7 @@ impl ChatBackendProvider for SpawnableChatBackend {
 fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
     let params = orchestrator_params(None);
     let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
-    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
     match SpawnTabSpec::from_agent_params(params.clone()).command {
         TabCommand::Agent(agent) => assert_eq!(agent.task, None),
         other => panic!("expected PTY agent route, got {other:?}"),
@@ -529,5 +504,66 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
             assert_eq!(role.as_deref(), Some("Orchestrator"));
         }
         other => panic!("expected chatBackend route, got {other:?}"),
+    }
+}
+
+/// The delivery half of the AgentPad invariant. The pre-existing prompt test
+/// only forbade duplication, so a recipient that never received the rule was
+/// invisible — which is exactly how spawned agents went without it.
+#[test]
+fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
+    let rule = crate::prompts::AGENT_PAD_RULE.trim();
+
+    for (recipient, composed) in [
+        ("spawned non-worker", super::agent_system_prompt(None)),
+        (
+            "spawned worker",
+            super::worker_agent_system_prompt(None, None),
+        ),
+        (
+            "spawned non-worker with assignment",
+            super::agent_system_prompt(Some("do the thing")),
+        ),
+        (
+            "spawned worker with assignment",
+            super::worker_agent_system_prompt(Some("do the thing"), None),
+        ),
+    ] {
+        assert_eq!(
+            composed.matches(rule).count(),
+            1,
+            "{recipient} must receive the AgentPad rule exactly once"
+        );
+    }
+}
+
+/// A Worker is the recipient that had neither the rule nor the pointer to the
+/// skill that carries the full reference.
+#[test]
+fn spawned_worker_receives_the_codeterm_primer() {
+    let composed = super::worker_agent_system_prompt(Some("do the thing"), None);
+    assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(composed.contains("provider skill named `codeterm`"));
+}
+
+/// Rich-rendering guidance is a delivery fact. Two tests in prompts.rs were named
+/// for the primer and the worker context but asserted phrases inside
+/// RICH_RENDERING_GUIDANCE itself, so they proved nothing about either recipient.
+#[test]
+fn every_spawned_recipient_receives_rich_rendering_guidance() {
+    let guidance = crate::prompts::RICH_RENDERING_GUIDANCE.trim();
+
+    for (recipient, composed) in [
+        ("spawned non-worker", super::agent_system_prompt(None)),
+        (
+            "spawned worker",
+            super::worker_agent_system_prompt(None, None),
+        ),
+    ] {
+        assert_eq!(
+            composed.matches(guidance).count(),
+            1,
+            "{recipient} must receive the rich-rendering guidance exactly once"
+        );
     }
 }

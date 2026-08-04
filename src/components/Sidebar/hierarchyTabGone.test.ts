@@ -1,13 +1,14 @@
 // Run: npx tsx src/components/Sidebar/hierarchyTabGone.test.ts
 
 import type { Tab, TabStatus } from "../../lib/types";
+import { ORCHESTRATOR_KIND } from "../../lib/roleKind";
 import { buildHierarchySubtree, buildHierarchyTree } from "./HierarchyTree";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function tab(id: string, role: Tab["role"], parent?: string): Tab {
+function tab(id: string, role: Tab["role"], roleProfile: string | null, parent?: string): Tab {
   return {
     id,
     pty_id: id,
@@ -15,6 +16,7 @@ function tab(id: string, role: Tab["role"], parent?: string): Tab {
     title: id,
     cwd: null,
     role,
+    role_profile: roleProfile,
     parent_tab_id: parent ?? null,
   } as Tab;
 }
@@ -23,12 +25,11 @@ function collectIds(nodes: ReturnType<typeof buildHierarchySubtree>): string[] {
   return nodes.flatMap((n) => [n.tab.id, ...collectIds(n.children)]);
 }
 
-// A worker tab assigned to an in_review task is closed on the backend. Once the
-// tab snapshot drops it, the sidebar tree must not resurrect it as a live child
-// even though the plan task still carries its assigned_tab_id.
-const orchestrator = tab("orch", "Orchestrator");
-const liveWorker = tab("worker-live", "Worker", "orch");
-const goneWorker = tab("worker-gone", "Worker", "orch");
+// A closed worker Tab drops out of the snapshot; the tree must not resurrect it
+// from a plan task that still carries its assigned_tab_id.
+const orchestrator = tab("orch", "Manager", ORCHESTRATOR_KIND);
+const liveWorker = tab("worker-live", "Worker", null, "orch");
+const goneWorker = tab("worker-gone", "Worker", null, "orch");
 const statuses: Record<string, TabStatus> = {
   orch: "Idle",
   "worker-live": "Working",

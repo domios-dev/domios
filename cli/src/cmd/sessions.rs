@@ -36,7 +36,7 @@ fn format_unix_ts(ts: i64) -> String {
 pub fn handle_sessions(
     json_mode: bool,
     action: SessionsAction,
-    http: &reqwest::blocking::Client,
+    http: &crate::local_api::LocalApiClient,
     base: &str,
     token: Option<&str>,
 ) {
@@ -203,7 +203,33 @@ pub fn handle_sessions(
                         .unwrap_or("?");
                     let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
                     let cwd = val.get("cwd").and_then(|v| v.as_str()).unwrap_or("?");
-                    println!("Resumed [{}] {}", provider, session_id);
+                    let identity = val.get("identity").cloned().unwrap_or_default();
+                    let identity_status = identity
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("roleless");
+                    if identity_status == "restored" {
+                        println!("Resumed [{}] {}", provider, session_id);
+                        let role = identity
+                            .get("role")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("roleless");
+                        println!("  identity:  restored {role}");
+                    } else {
+                        println!("resumed roleless [{}] {}", provider, session_id);
+                        if let Some(actions) = identity.get("actions") {
+                            if let Some(promotion) =
+                                actions.get("promotion").and_then(|value| value.as_str())
+                            {
+                                println!("  promote:   {promotion}");
+                            }
+                            if let Some(relink) =
+                                actions.get("relink").and_then(|value| value.as_str())
+                            {
+                                println!("  relink:    {relink}");
+                            }
+                        }
+                    }
                     println!("  workspace: {}", ws);
                     println!("  tab:       {}", tab);
                     println!("  cwd:       {}", cwd);

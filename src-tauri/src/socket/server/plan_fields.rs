@@ -1,8 +1,27 @@
 use serde_json::Value;
 
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{tag_facets_from_value, MilestoneKind, TagFacet, TaskGroup};
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
+use crate::plan::{tag_facets_from_value, MilestoneKind, TagFacet, TaskExecutionIntent, TaskGroup};
 use crate::service::ServiceState;
+
+use super::JsonRpcError;
+
+pub(super) fn execution_intent_field(
+    params: Option<&Value>,
+) -> Result<TaskExecutionIntent, JsonRpcError> {
+    params
+        .and_then(|value| value.get("execution_intent"))
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map(|intent| intent.unwrap_or_default())
+        .map_err(|error| JsonRpcError {
+            code: -32602,
+            message: format!("invalid execution_intent: {error}"),
+            data: Some(serde_json::json!({ "type": "invalid_execution_intent" })),
+        })
+}
 
 pub(super) fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
     raw.split(',')
@@ -56,9 +75,9 @@ pub(super) fn tab_role(svc: &ServiceState, tab_id: &str) -> Option<&'static str>
     svc.mux
         .read()
         .get_tab(tab_id)
-        .and_then(|tab| tab.role)
-        .map(|role| match role {
-            AgentRole::Orchestrator => "orchestrator",
+        .and_then(|tab| tab.role.map(|role| (role, tab.role_profile.clone())))
+        .map(|(role, profile)| match role {
+            AgentRole::Manager if profile.as_deref() == Some(ORCHESTRATOR) => "orchestrator",
             AgentRole::Manager => "manager",
             AgentRole::Worker => "worker",
         })

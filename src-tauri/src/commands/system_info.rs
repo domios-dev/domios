@@ -74,9 +74,9 @@ pub fn get_serve_status(
     let port = state.lock().api.port;
     let mut status = crate::mesh::probe_serve_status(port);
     if status.https_url.is_none() {
-        if let Some(cached) = crate::mesh::web_ui_endpoints::preferred_https_url(
-            mesh.lock().local_web_ui.as_ref(),
-        ) {
+        if let Some(cached) =
+            crate::mesh::web_ui_endpoints::preferred_https_url(mesh.lock().local_web_ui.as_ref())
+        {
             status.https_url = Some(cached);
             status.active = true;
         }

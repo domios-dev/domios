@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use crate::api::routes::AppState;
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 use crate::plan::{OrchestratorRef, TaskStatus};
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{NewTask, PlanError};
@@ -25,6 +26,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::BadMode
         | PlanError::BadPriority
         | PlanError::TaskCreationRequiresApproval
+        | PlanError::TaskDispatchRequiresApproval
         | PlanError::HeartbeatRequiresExecution
         | PlanError::InProgressRequiresTab
         | PlanError::BlockedRequiresLabel
@@ -86,9 +88,9 @@ fn tab_role(state: &AppState, tab_id: &str) -> Option<&'static str> {
         .mux
         .read()
         .get_tab(tab_id)
-        .and_then(|tab| tab.role)
-        .map(|role| match role {
-            AgentRole::Orchestrator => "orchestrator",
+        .and_then(|tab| tab.role.map(|role| (role, tab.role_profile.clone())))
+        .map(|(role, profile)| match role {
+            AgentRole::Manager if profile.as_deref() == Some(ORCHESTRATOR) => "orchestrator",
             AgentRole::Manager => "manager",
             AgentRole::Worker => "worker",
         })
@@ -170,10 +172,22 @@ pub async fn take(
             Json(json!({ "error": "X-CodeTerm-Tab-Id is required" })),
         )
     })?;
-    let plan_id = state
+    let (plan_id, task_id) = state
+        .svc
+        .authorize_task_execution_action(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| (StatusCode::FORBIDDEN, Json(json!({ "error": message }))))?;
+    state
         .svc
         .plan_store
-        .set_task_assignment(&id, Some(&tab_id), tab_role(&state, &tab_id), epoch_ms())
+        .set_task_assignment(
+            &task_id,
+            Some(&tab_id),
+            tab_role(&state, &tab_id),
+            epoch_ms(),
+        )
         .map_err(plan_err)?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -181,15 +195,26 @@ pub async fn take(
         json!({ "plan_id": plan_id }),
     );
     Ok(Json(
-        json!({ "ok": true, "plan_id": plan_id, "task_id": id }),
+        json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
 }
 
-pub async fn drop_task(State(state): State<AppState>, Path(id): Path<String>) -> TaskRouteResult {
-    let plan_id = state
+pub async fn drop_task(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> TaskRouteResult {
+    let (plan_id, task_id) = state
+        .svc
+        .authorize_task_execution_action(
+            &id,
+            &crate::api::tab_routes::authenticated_plan_caller(&headers),
+        )
+        .map_err(|message| (StatusCode::FORBIDDEN, Json(json!({ "error": message }))))?;
+    state
         .svc
         .plan_store
-        .set_task_assignment(&id, None, None, epoch_ms())
+        .set_task_assignment(&task_id, None, None, epoch_ms())
         .map_err(plan_err)?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -197,7 +222,7 @@ pub async fn drop_task(State(state): State<AppState>, Path(id): Path<String>) ->
         json!({ "plan_id": plan_id }),
     );
     Ok(Json(
-        json!({ "ok": true, "plan_id": plan_id, "task_id": id }),
+        json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
 }
 
@@ -216,6 +241,8 @@ pub struct AddTaskBody {
     correctness: Option<String>,
     body: Option<String>,
     intent: Option<String>,
+    #[serde(default)]
+    execution_intent: crate::plan::TaskExecutionIntent,
     assign_tab: Option<String>,
     owner: Option<OrchestratorRef>,
 }
@@ -258,6 +285,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 body: body.body.unwrap_or_default(),
                 competition: None,
                 intent: body.intent,
+                execution_intent: body.execution_intent,
                 assigned_tab_id: body.assign_tab,
                 ..Default::default()
             },

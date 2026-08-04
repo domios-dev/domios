@@ -13,6 +13,10 @@ pub struct Notification {
     pub level: NotificationLevel,
     pub timestamp: u64,
     pub read: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticky: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -31,6 +35,7 @@ pub enum AgentInputAdmission {
 pub struct NotificationStore {
     notifications: Vec<Notification>,
     agent_input_requests: HashMap<(String, String, String), String>,
+    provider_updates: HashMap<String, String>,
     max_notifications: usize,
 }
 
@@ -39,6 +44,7 @@ impl NotificationStore {
         Self {
             notifications: Vec::new(),
             agent_input_requests: HashMap::new(),
+            provider_updates: HashMap::new(),
             max_notifications: max,
         }
     }
@@ -51,6 +57,19 @@ impl NotificationStore {
         level: NotificationLevel,
         tab_id: Option<String>,
         workspace_id: Option<String>,
+    ) -> String {
+        self.add_ext(title, body, level, tab_id, workspace_id, None, None)
+    }
+
+    pub fn add_ext(
+        &mut self,
+        title: String,
+        body: Option<String>,
+        level: NotificationLevel,
+        tab_id: Option<String>,
+        workspace_id: Option<String>,
+        actions: Option<serde_json::Value>,
+        sticky: Option<bool>,
     ) -> String {
         let id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now()
@@ -67,6 +86,8 @@ impl NotificationStore {
             level,
             timestamp,
             read: false,
+            actions,
+            sticky,
         };
 
         self.notifications.push(notification);
@@ -78,6 +99,37 @@ impl NotificationStore {
         id
     }
 
+    pub fn add_provider_update(
+        &mut self,
+        prompt_id: String,
+        title: String,
+        body: String,
+        actions: serde_json::Value,
+        tab_id: String,
+        workspace_id: Option<String>,
+    ) -> AgentInputAdmission {
+        if let Some(id) = self.provider_updates.get(&prompt_id) {
+            return AgentInputAdmission::Duplicate(id.clone());
+        }
+        let id = self.add_ext(
+            title,
+            Some(body),
+            NotificationLevel::Info,
+            Some(tab_id),
+            workspace_id,
+            Some(actions),
+            Some(true),
+        );
+        self.provider_updates.insert(prompt_id, id.clone());
+        AgentInputAdmission::Added(id)
+    }
+
+    pub fn resolve_provider_update(&mut self, prompt_id: &str) -> Option<String> {
+        let id = self.provider_updates.remove(prompt_id)?;
+        self.clear(Some(&id));
+        Some(id)
+    }
+
     pub fn add_agent_input_request(
         &mut self,
         tab_id: String,
@@ -87,11 +139,7 @@ impl NotificationStore {
         body: String,
         workspace_id: String,
     ) -> AgentInputAdmission {
-        let key = (
-            tab_id.clone(),
-            session_id.clone(),
-            prompt_identity.clone(),
-        );
+        let key = (tab_id.clone(), session_id.clone(), prompt_identity.clone());
         if let Some(id) = self.agent_input_requests.get(&key) {
             return AgentInputAdmission::Duplicate(id.clone());
         }
@@ -148,9 +196,11 @@ impl NotificationStore {
         match id {
             Some(id) => {
                 self.notifications.retain(|n| n.id != id);
+                self.provider_updates.retain(|_, value| value != id);
             }
             None => {
                 self.notifications.clear();
+                self.provider_updates.clear();
             }
         }
     }
@@ -261,6 +311,37 @@ mod tests {
         assert_eq!(n.workspace_id.as_deref(), Some("ws-1"));
     }
 
+    #[test]
+    fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
+        let mut store = NotificationStore::new(100);
+        let actions = serde_json::json!([{"label":"Update","type":"invoke"}]);
+        let first = store.add_provider_update(
+            "prompt-1".into(),
+            "Update available".into(),
+            "Install separately".into(),
+            actions.clone(),
+            "tab-1".into(),
+            Some("workspace-1".into()),
+        );
+        let second = store.add_provider_update(
+            "prompt-1".into(),
+            "Duplicate".into(),
+            "Duplicate".into(),
+            actions.clone(),
+            "tab-1".into(),
+            Some("workspace-1".into()),
+        );
+        let id = match first {
+            AgentInputAdmission::Added(id) => id,
+            _ => panic!("first provider update must be added"),
+        };
+        assert_eq!(second, AgentInputAdmission::Duplicate(id.clone()));
+        assert_eq!(store.list(false).len(), 1);
+        assert_eq!(store.list(false)[0].actions, Some(actions));
+        assert_eq!(store.resolve_provider_update("prompt-1"), Some(id));
+        assert!(store.list(false).is_empty());
+    }
+
     // Live P0 RED (row b9ad5377): answering a genuine prompt over the PTY
     // resolve path must clear the unread bell row, not only the dedup key.
     #[test]
@@ -280,7 +361,11 @@ mod tests {
             store.resolve_agent_input_request("tab-1", "session-1", "Select Model and Effort");
 
         assert!(resolved.is_some(), "resolution reports the affected row");
-        assert_eq!(store.list(true).len(), 0, "answered prompt leaves no unread row");
+        assert_eq!(
+            store.list(true).len(),
+            0,
+            "answered prompt leaves no unread row"
+        );
         assert_eq!(store.list(false).len(), 1, "history keeps the read row");
         assert!(
             store

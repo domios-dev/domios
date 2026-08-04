@@ -59,7 +59,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
         )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -73,13 +73,15 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name, e.g. Hopper, Dijkstra, Lamport"
+            help = "Executor persona name, e.g. Alex, Emma, Leo"
         )]
         personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
+        #[arg(long, value_parser = ["repository_mutation", "non_repository"])]
+        execution_intent: Option<String>,
         #[arg(long)]
         parent: Option<String>,
         #[arg(
@@ -157,7 +159,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
         )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -171,7 +173,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name, e.g. Hopper, Dijkstra, Lamport"
+            help = "Executor persona name, e.g. Alex, Emma, Leo"
         )]
         personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -299,6 +301,18 @@ pub enum PlanTaskAction {
         workspace: Option<String>,
         #[arg(long)]
         cwd: Option<String>,
+        #[arg(
+            long = "execution-intent",
+            value_parser = ["read_only", "mutating"],
+            help = "Explicit task intent used by provider reserve policy"
+        )]
+        execution_intent: String,
+        #[arg(
+            long = "provider-reserve-pct",
+            default_value_t = 5.0,
+            help = "Minimum remaining provider allowance for mutating work"
+        )]
+        provider_reserve_pct: f32,
     },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },
@@ -332,6 +346,8 @@ pub enum PlanTaskAction {
         #[arg(long)]
         title: Option<String>,
     },
+    /// Adopt a sealed handoff checkpoint into this authenticated Worker tab
+    AdoptCheckpoint { plan_id: String, task_id: String },
     /// Link a task to one or more plan sections (CSV)
     Link {
         plan_id: String,

@@ -739,7 +739,10 @@ mod tests {
             .into_iter()
             .map(|model| model.id)
             .collect();
-        let listed: Vec<_> = reg.list_descriptors().remove(0).available_models
+        let listed: Vec<_> = reg
+            .list_descriptors()
+            .remove(0)
+            .available_models
             .into_iter()
             .map(|model| model.id)
             .collect();

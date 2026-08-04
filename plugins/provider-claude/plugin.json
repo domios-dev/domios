@@ -65,6 +65,13 @@
     }
   ],
   "defaultModel": "sonnet",
+  "reasoningEfforts": [
+    { "id": "low", "displayName": "Low", "description": "Light reasoning for fast responses." },
+    { "id": "medium", "displayName": "Medium", "description": "Balanced reasoning depth." },
+    { "id": "high", "displayName": "High", "description": "Deeper reasoning for complex work." },
+    { "id": "xhigh", "displayName": "Extra high", "description": "Extended reasoning for difficult work." },
+    { "id": "max", "displayName": "Maximum", "description": "Maximum provider-supported reasoning depth." }
+  ],
   "installer": {
     "macos": "curl -fsSL https://claude.ai/install.sh | bash",
     "linux": "curl -fsSL https://claude.ai/install.sh | bash",
@@ -82,9 +89,18 @@
     "modelLaunchArgsFormat": [
       "--model",
       "{model}"
+    ],
+    "reasoningEffortLaunchArgsFormat": [
+      "--effort",
+      "{effort}"
     ]
   },
   "permissions": {
+    "subprocess": {
+      "allow": [
+        "security"
+      ]
+    },
     "network": {
       "allow": [
         "api.anthropic.com"

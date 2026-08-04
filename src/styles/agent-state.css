@@ -20,7 +20,12 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
+  min-height: 22px;
   padding: 4px 0;
+}
+
+.ct-agent-row--chat {
+  padding: 4px 0 8px;
 }
 
 /* Steady block caret — kept only beside the question title. */
@@ -63,7 +68,7 @@
   align-self: baseline;
   height: calc(var(--activity-dot-size) + var(--activity-dot-jump));
   flex: 0 0 auto;
-  color: var(--ct-accent, #58a6ff);
+  color: var(--ct-accent);
   transition: color 0.6s ease;
 }
 .activity-dots {
@@ -87,7 +92,7 @@
   animation-delay: calc(var(--activity-dot-delay) * 2);
 }
 [data-agent-phase="thinking"] .ct-phase-dots {
-  color: var(--ct-think, #a371f7);
+  color: var(--ct-magenta);
 }
 [data-agent-phase="thinking"] .ct-phase-dots i {
   animation-duration: 1.35s;
@@ -124,6 +129,11 @@
   --activity-dot-gap: 1.25px;
   --activity-dot-jump: 1.25px;
 }
+.activity-dots--workspace-badge {
+  --activity-dot-size: 2px;
+  --activity-dot-gap: 1px;
+  --activity-dot-jump: 0.75px;
+}
 .activity-dots--small {
   --activity-dot-size: 3px;
   --activity-dot-gap: 2px;
@@ -135,9 +145,9 @@
   --activity-dot-jump: 3.25px;
 }
 .activity-dots--accent { color: color-mix(in srgb, var(--ct-accent) 72%, var(--ct-fg)); }
-.activity-dots--thinking { color: color-mix(in srgb, var(--ct-thinking, #a371f7) 72%, var(--ct-fg)); }
+.activity-dots--thinking { color: color-mix(in srgb, var(--ct-magenta) 72%, var(--ct-fg)); }
 .activity-dots--muted { color: color-mix(in srgb, currentColor 72%, var(--ct-fg)); }
-.activity-dots--on-accent { color: var(--ct-on-accent, #fff); }
+.activity-dots--on-accent { color: var(--ct-on-accent); }
 .activity-dots i:nth-child(2) { animation-delay: var(--activity-dot-delay); }
 .activity-dots i:nth-child(3) { animation-delay: calc(var(--activity-dot-delay) * 2); }
 .activity-dots--thinking {
@@ -157,7 +167,7 @@
 /* Going idle: the three-dot slot stays intact and settles into a static,
    muted state, so working ↔ idle never shifts the message. */
 [data-agent-state="idle"] .ct-phase-dots {
-  color: var(--ct-muted-fg, #8b949e);
+  color: var(--ct-muted-fg);
 }
 [data-agent-state="idle"] .ct-phase-dots i {
   animation: none;

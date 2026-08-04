@@ -15,9 +15,14 @@ pub(crate) const UNBOUND_TEAM: &str = "not yet established";
 pub(crate) const UNBOUND_PLAN: &str = "no plan bound yet";
 
 /// Role-identity inputs for a manager spawned before its team/plan exist.
-pub(crate) fn forming_identity(role: &str, project: String) -> ManagerBootstrapInputs {
+pub(crate) fn forming_identity(
+    role: &str,
+    role_kind: &str,
+    project: String,
+) -> ManagerBootstrapInputs {
     ManagerBootstrapInputs {
         role: role.into(),
+        role_kind: role_kind.into(),
         team_id: UNBOUND_TEAM.into(),
         team_name: UNBOUND_TEAM.into(),
         plan_id: UNBOUND_PLAN.into(),
@@ -121,7 +126,7 @@ mod tests {
 
     #[test]
     fn forming_identity_carries_placeholders_not_fabricated_ids() {
-        let id = forming_identity("Planner", "CodeTerm".into());
+        let id = forming_identity("Planner", "planner", "CodeTerm".into());
         assert_eq!(id.role, "Planner");
         assert_eq!(id.project, "CodeTerm");
         assert_eq!(id.team_id, UNBOUND_TEAM);

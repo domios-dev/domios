@@ -28,6 +28,26 @@ export {
 export { matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
 export { mergeById } from "./merge";
+export {
+  TRANSCRIPT_RETENTION_LIMIT,
+  createTranscriptState,
+  nextOptimisticOrder,
+  projectTranscript,
+  reduceTranscript,
+  transcriptBackfillCursor,
+  transcriptCommittedEnd,
+  transcriptRowCount,
+  transcriptRows,
+  type TranscriptAuthority,
+  type TranscriptBatch,
+  type TranscriptBatchKind,
+  type TranscriptOutcome,
+  type TranscriptProjection,
+  type TranscriptRange,
+  type TranscriptResult,
+  type TranscriptSegment,
+  type TranscriptState,
+} from "./transcript";
 export { attachToolResults, isRenderableChatMessage } from "./toolResults";
 export { countAddedLines, countRemovedLines, countAdded, countRemoved, type EditPair } from "./toolNormalize";
 export { parseCodexPatch, patchTextFromToolInput, type ParsedPatchFile } from "./toolPatches";
@@ -40,7 +60,15 @@ export {
 } from "./toolEvents";
 export { stabilizeTimelineItems } from "./timelineStability";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";
-export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
+export {
+  isSessionResetMessage,
+  lastSessionResetIndex,
+  trimAfterSessionReset,
+} from "./sessionReset";
+export {
+  CONTEXT_EPOCH_BOUNDARY_TEXT,
+  projectContextEpochs,
+} from "./contextEpoch";
 export {
   MARKER_OPEN,
   MARKER_CLOSE,

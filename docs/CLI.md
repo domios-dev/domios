@@ -1,13 +1,13 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 29 -->
+<!-- revision: 31 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
 do not edit it by hand. Conventions: target tabs use `--tab`; `--json` is
 a global flag on every command.
 
-**Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
+**Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
 The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
@@ -81,6 +81,7 @@ Send a report to your parent in the hierarchy
 - `--branch` — Git branch the work landed on
 - `--changed-files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
+- `--from-pad` — Read the report body from a relative file in the current agent tab's pad
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--plan` — Plan id to append this report to (if available)
@@ -118,6 +119,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--charter-file` — Read watcher charter text from a file
 - `--cwd` — Working directory
 - `--description` — Short tab description (max 200 chars)
+- `--execution-intent`
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
@@ -127,12 +129,13 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--provider-reserve-pct`
 - `--reasoning-effort` — Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
-- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
+- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
@@ -180,6 +183,7 @@ Send a message to Telegram or other service
 - `--caption` — Caption for media (alternative to positional text)
 - `--file` — File path for media types
 - `--filename` — Override filename for document uploads
+- `--from-pad` — Read the text body from the current agent tab's pad
 - `--raw-text` — Preserve literal escape sequences instead of decoding \n into a newline
 - `--service` — Target service
 - `<text>` — Message text (also used as caption for media types)
@@ -206,7 +210,7 @@ Focus the open canvas on a task, tab, or plan
 
 #### `codeterm capabilities`
 
-List all available API methods
+List CLI commands and clearly marked RPC-only/internal methods
 
 #### `codeterm cli-manifest`
 
@@ -333,6 +337,7 @@ Queue a delayed message
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from-file` — Read text from a file instead of the positional arg
+- `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
@@ -350,6 +355,7 @@ Edit a queued or failed delayed message
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from-file` — Read replacement text from a file
+- `--from-pad` — Read replacement text from the current agent tab's pad
 - `<id>` — Delayed message ID
 - `--stdin` — Read replacement text from stdin
 - `--text` — Replacement text
@@ -366,19 +372,11 @@ Send a delayed message immediately
 
 - `<id>` — Delayed message ID
 
-#### `codeterm doc`
-
-Read one embedded CodeTerm document in full
-
-- `<name>` — Doc name (e.g. orchestration)
-
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)
+Read embedded CodeTerm documentation in full. Omit NAME to list documents
 
-- `--full` — Print the complete document even inside a CodeTerm tab
-- `--head` — Print at most N lines
-- `<name>` — Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs
+- `<name>` — Document name. Omit to list every available name and purpose
 
 #### `codeterm effort`
 
@@ -1211,6 +1209,18 @@ Show a compact orchestration summary
 - `--plan`
 - `--tab`
 
+#### `codeterm pad`
+
+Inspect the current agent tab's private ephemeral filesystem pad
+
+#### `codeterm pad list`
+
+List relative regular files in the current agent tab's pad
+
+#### `codeterm pad path`
+
+Print the current agent tab's private ephemeral pad path
+
 #### `codeterm paste`
 
 Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)
@@ -1233,6 +1243,7 @@ Stash a payload. Body from positional / --from-file / stdin
 - `<body>` — Body (positional). Omit and use --from-file or --from-stdin
 - `--content-type` — MIME hint (default text/plain)
 - `--from-file` — Read body from a file instead
+- `--from-pad` — Read body from a relative file in the current agent tab's pad
 - `--from-stdin` — Read body from stdin
 - `--pop` — One-shot — paste self-deletes after first fetch
 - `--ttl` — TTL — e.g. "30m", "1h", "24h". Default 1h. Max 24h
@@ -1242,6 +1253,27 @@ Stash a payload. Body from positional / --from-file / stdin
 Explicit delete
 
 - `<id>` — Paste id
+
+#### `codeterm persona`
+
+Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
+
+#### `codeterm persona list`
+
+List every role kind the resolver can reach, with refused overlays
+
+#### `codeterm persona reload`
+
+Re-read the overlay directory without restarting or rebuilding
+
+#### `codeterm persona show`
+
+Render the exact preset text a role kind receives at each delivery occasion
+
+- `--guidance` — Task-owned persona layered over the kind's base, as a dispatch supplies it
+- `--kind` — Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)
+- `--occasion` — Render only this occasion
+- `--role` — Structural role — Manager or Worker
 
 #### `codeterm plan`
 
@@ -1712,12 +1744,12 @@ Aliases: park
 
 #### `codeterm plan planning-state`
 
-Advance planner-owned planning state: drafting | structure_ready | approved
+Return a draft to drafting; approval uses `plan approve`
 
 - `--note`
 - `<plan_id>`
 - `--set`
-- `--tab` — Planner tab id advancing the state (records author as planner; omit = user)
+- `--tab` — Deprecated author label retained for draft reset records
 
 #### `codeterm plan prune`
 
@@ -1746,7 +1778,7 @@ Show the next queued QA task, claim it, or record a group's full-gate regression
 
 - `--claim`
 - `--group` — Record ONE group-scoped regression working point instead of claiming a task
-- `--note`
+- `--note` — Claim note. Required with --claim
 - `<plan_id>`
 
 #### `codeterm plan qa override`
@@ -2024,6 +2056,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--criterion`
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
+- `--execution-intent`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
@@ -2035,13 +2068,13 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name, e.g. Hopper, Dijkstra, Lamport
+- `--personality` — Executor persona name, e.g. Alex, Emma, Leo
 - `<plan_id>`
 - `--primary`
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
+- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
 - `--tag`
@@ -2052,6 +2085,13 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--workspace-id`
 - `--workspace-name`
 - `--worktree`
+
+#### `codeterm plan task adopt-checkpoint`
+
+Adopt a sealed handoff checkpoint into this authenticated Worker tab
+
+- `<plan_id>`
+- `<task_id>`
 
 #### `codeterm plan task assign`
 
@@ -2101,9 +2141,11 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 
 - `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
 - `--cwd`
+- `--execution-intent` — Explicit task intent used by provider reserve policy
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
+- `--provider-reserve-pct` — Minimum remaining provider allowance for mutating work
 - `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
@@ -2201,13 +2243,13 @@ Update task metadata, status, quality fields, or lane assignment
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name, e.g. Hopper, Dijkstra, Lamport
+- `--personality` — Executor persona name, e.g. Alex, Emma, Leo
 - `<plan_id>`
 - `--primary`
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
+- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
@@ -2364,6 +2406,7 @@ Report worker progress to the owning orchestrator or plan
 - `--branch` — Git branch the work landed on
 - `--changed-files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
+- `--from-pad` — Read the report body from a relative file in the current agent tab's pad
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--plan` — Plan id to append this report to (if available)
@@ -2384,6 +2427,7 @@ Send text to a tab (default: current tab)
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
+- `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
@@ -2638,7 +2682,8 @@ Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 Close a tab by ID
 
-- `<id>` — Tab ID
+- `<id>` — Temporary positional alias for the tab id. Prefer --tab
+- `--tab` — Tab ID to close
 
 #### `codeterm tab current`
 
@@ -2665,7 +2710,8 @@ Execute a command in a tab and return output
 
 Focus a tab by ID
 
-- `<id>` — Tab ID
+- `<id>` — Temporary positional alias for the tab id. Prefer --tab
+- `--tab` — Tab ID to focus
 
 #### `codeterm tab get-text`
 
@@ -2678,7 +2724,8 @@ Get visible terminal text of a tab (what the user sees)
 
 Show the full daemon tab payload for one or more explicit tab ids
 
-- `<tabs>` — One or more tab ids to inspect
+- `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs
+- `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab
 
 #### `codeterm tab list`
 
@@ -2707,6 +2754,14 @@ Rename a tab (default: current tab)
 
 - `--tab` — Tab ID to rename (default: current focused tab)
 - `<title>` — New title
+
+#### `codeterm tab restart`
+
+Replace a plain shell's process in the same tab, preserving tab identity and metadata
+
+- `--cmd` — Command to execute after the replacement shell is ready
+- `--cwd` — Working directory for the replacement shell
+- `--tab` — Tab ID to restart (default: current tab)
 
 #### `codeterm tab search`
 
@@ -2739,6 +2794,7 @@ Add a standalone task to the workspace Inbox
 - `--body-file`
 - `--correctness`
 - `--criterion`
+- `--execution-intent`
 - `--intent`
 - `--intent-file`
 - `--model`
@@ -2869,7 +2925,7 @@ Install update (--auto for automatic download + install + restart)
 - `--auto` — Use Tauri built-in updater: download, install, and restart automatically
 - `--continue-prompt` — Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart
 - `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`
-- `--from-file` — Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing
+- `--from-file` — Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
 - `--no-continue` — Disable the default continuation sent back to the calling tab
 

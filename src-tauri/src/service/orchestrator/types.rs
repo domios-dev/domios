@@ -33,8 +33,9 @@ pub struct ReasoningEffortProvenance {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved: Option<String>,
     /// Runtime-confirmed effort. `None` until the provider reports it.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub actual: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_source: Option<String>,
 }
 
 impl ReasoningEffortProvenance {
@@ -43,6 +44,7 @@ impl ReasoningEffortProvenance {
             && self.requested.is_none()
             && self.resolved.is_none()
             && self.actual.is_none()
+            && self.actual_source.is_none()
     }
 }
 
@@ -113,8 +115,12 @@ pub struct SpawnAgentParams {
     pub task_id: Option<String>,
     #[serde(default, skip)]
     pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
+    #[serde(default, skip)]
+    pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
+    pub execution_intent: Option<crate::plan::ExecutionIntent>,
+    pub provider_reserve_pct: Option<f32>,
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split tab (even with parent).
     pub force_tab: Option<bool>,
@@ -133,14 +139,25 @@ pub struct SpawnAgentParams {
     /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
     /// the spawned worker reports back across the mesh.
     pub report_target_mesh_peer: Option<String>,
-    /// Default true; set false to spawn an agent that asks for permission.
+    /// Host-resolved global access choice. Wire input cannot override it.
+    #[serde(default, skip_deserializing)]
     pub skip_permissions: Option<bool>,
+    /// Host-only proof that the selected bypass passed centralized policy.
+    #[serde(default, skip)]
+    pub(crate) permission_bypass_authorization:
+        Option<crate::service::permission_policy::PermissionBypassAuthorization>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
+    /// Authenticated control ownership carried to the spawned tab (peer identity
+    /// re-stamped at the relay boundary, never trusted from the payload).
+    pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
     /// Plan/task routing model before a launch-time model override.
     pub planned_model: Option<String>,
+    /// Host-owned plan-task dispatch intent. Generic spawn payloads cannot set it.
+    #[serde(default, skip_deserializing)]
+    pub(crate) planned_reasoning_effort: Option<String>,
     /// Explicitly requested reasoning effort. Capability-validated against the
     /// provider before launch; an unsupported value is rejected structurally
     /// (no silent downgrade). Provider maps it to launch flags via
@@ -167,10 +184,21 @@ pub struct SpawnAgentParams {
     pub structured_prompt_server: Option<crate::agent::provider::StructuredPromptServer>,
 }
 
+impl SpawnAgentParams {
+    pub(crate) fn permission_bypass_requested(&self, provider_id: &str) -> bool {
+        self.skip_permissions == Some(true)
+            && self
+                .permission_bypass_authorization
+                .as_ref()
+                .is_some_and(|authorization| authorization.authorizes(provider_id))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TaskLaunchAuthority {
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
+    pub(crate) attempt_id: String,
     pub(crate) lane_base: Option<String>,
 }
 
@@ -179,6 +207,7 @@ impl TaskLaunchAuthority {
         let mut env = std::collections::HashMap::from([
             ("CODETERM_PLAN_ID".into(), self.plan_id.clone()),
             ("CODETERM_TASK_ID".into(), self.task_id.clone()),
+            ("CODETERM_ATTEMPT_ID".into(), self.attempt_id.clone()),
         ]);
         if let Some(base) = self
             .lane_base
@@ -194,6 +223,26 @@ impl TaskLaunchAuthority {
 impl SpawnAgentParams {
     pub(crate) fn normalize_role_profile(&mut self) -> Result<(), String> {
         crate::service::role_profile::normalize_spawn_params(self)
+    }
+
+    /// Role kind these params resolve to. Valid only after
+    /// `normalize_role_profile` has folded the wire sugar.
+    pub(crate) fn role_kind(&self) -> Option<&str> {
+        codeterm_types::agent::role_kind::kind_id(
+            self.role
+                .as_deref()
+                .and_then(crate::multiplexer::types::AgentRole::from_str_compat),
+            self.role_profile.as_deref(),
+        )
+    }
+
+    pub(crate) fn spawns_anchor(&self) -> bool {
+        codeterm_types::agent::role_kind::anchors_team(
+            self.role
+                .as_deref()
+                .and_then(crate::multiplexer::types::AgentRole::from_str_compat),
+            self.role_profile.as_deref(),
+        )
     }
 
     pub(crate) fn task_launch_env(&self) -> std::collections::HashMap<String, String> {

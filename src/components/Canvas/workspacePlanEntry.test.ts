@@ -39,7 +39,7 @@ const orchTab: Tab = {
   tab_type: "Terminal",
   title: "Orchestrator",
   cwd: null,
-  role: "Orchestrator",
+  role: "Manager", role_profile: "orchestrator",
   can_spawn: true,
   agent_session_id: "sess-1",
 };

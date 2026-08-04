@@ -32,16 +32,23 @@ pub(crate) fn persist_attempt_executor_identity_for_mux(
     title: &str,
     now: u64,
 ) -> Result<(), PlanError> {
-    let session_id = mux
+    let (session_id, session_binding_nonce) = mux
         .read()
         .get_tab(tab_id)
-        .and_then(|tab| tab.agent_session_id.clone());
+        .map(|tab| {
+            (
+                tab.agent_session_id.clone(),
+                tab.session_binding_nonce.clone(),
+            )
+        })
+        .unwrap_or_default();
     store.update_attempt_executor_identity(
         plan_id,
         task_id,
         tab_id,
         Some(title),
         session_id.as_deref(),
+        session_binding_nonce.as_deref(),
         now,
     )
 }
@@ -109,6 +116,7 @@ mod tests {
             cwd: ".".into(),
             task_prompt: "prompt".into(),
             report_command: "report".into(),
+            plan_skill_manifest: vec![],
         };
         let ws = mux
             .write()

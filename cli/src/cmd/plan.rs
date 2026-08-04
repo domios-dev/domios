@@ -85,8 +85,36 @@ pub(crate) fn inject_trusted_session(params: &mut Value) {
 pub(crate) fn call_plan_rpc(
     client: &mut dyn RpcClient,
     method: &str,
-    params: Value,
+    mut params: Value,
 ) -> Result<Value, String> {
+    if method == "plan.task.adopt_checkpoint" {
+        inject_trusted_session(&mut params);
+    } else if params.get("task_id").is_some()
+        && (method.starts_with("plan.task.") || matches!(method, "task.take" | "task.drop"))
+        && !matches!(
+            method,
+            "plan.task.add"
+                | "plan.task.attempts"
+                | "plan.task.attempt.show"
+                | "plan.task.adopt_checkpoint"
+        )
+    {
+        inject_trusted_session(&mut params);
+        let lookup = params.clone();
+        let shown = client
+            .call_detailed("task.show", Some(lookup))
+            .map_err(|error| render_plan_call_error(error, &params))?;
+        let owner_epoch = shown
+            .get("task")
+            .unwrap_or(&shown)
+            .get("interruption")
+            .and_then(|value| value.get("owner_epoch"))
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "task mutation could not resolve owner_epoch".to_string())?;
+        if let Some(object) = params.as_object_mut() {
+            object.insert("owner_epoch".into(), json!(owner_epoch));
+        }
+    }
     client
         .call_detailed(method, Some(params.clone()))
         .map_err(|e| render_plan_call_error(e, &params))
@@ -223,6 +251,7 @@ fn run_plan(
                 "title": title,
                 "owner": owner_from_env(),
             });
+            inject_trusted_session(&mut params);
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
@@ -640,18 +669,16 @@ fn run_plan(
 
         PlanAction::Approve { plan_id } => {
             crate::cmd::plan_doctor::assert_quality_ready(client, &plan_id)?;
-            call(
-                client,
-                "plan.mode.set",
-                json!({ "plan_id": plan_id, "mode": "approved" }),
-            )
+            let mut params = json!({ "plan_id": plan_id, "mode": "approved" });
+            inject_trusted_session(&mut params);
+            call(client, "plan.mode.set", params)
         }
 
-        PlanAction::Unapprove { plan_id } => call(
-            client,
-            "plan.mode.set",
-            json!({ "plan_id": plan_id, "mode": "planning" }),
-        ),
+        PlanAction::Unapprove { plan_id } => {
+            let mut params = json!({ "plan_id": plan_id, "mode": "planning" });
+            inject_trusted_session(&mut params);
+            call(client, "plan.mode.set", params)
+        }
 
         PlanAction::PlanningState {
             plan_id,
@@ -666,14 +693,15 @@ fn run_plan(
             if let Some(n) = note {
                 params["note"] = json!(n);
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.planning.set", params)
         }
 
-        PlanAction::Mode { plan_id, set } => call(
-            client,
-            "plan.mode.set",
-            json!({ "plan_id": plan_id, "mode": set }),
-        ),
+        PlanAction::Mode { plan_id, set } => {
+            let mut params = json!({ "plan_id": plan_id, "mode": set });
+            inject_trusted_session(&mut params);
+            call(client, "plan.mode.set", params)
+        }
 
         PlanAction::Pause { plan_id, reason } => call(
             client,
@@ -769,11 +797,9 @@ fn run_plan(
 
         PlanAction::Ingest { plan_id, markdown } => {
             let markdown = read_path_or_stdin(&markdown)?;
-            call(
-                client,
-                "plan.ingest",
-                json!({ "plan_id": plan_id, "markdown": markdown }),
-            )
+            let mut params = json!({ "plan_id": plan_id, "markdown": markdown });
+            inject_trusted_session(&mut params);
+            call(client, "plan.ingest", params)
         }
 
         PlanAction::Handoff { action } => {

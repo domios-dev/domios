@@ -1,3 +1,5 @@
+use codeterm_types::agent::role_kind::builtins;
+
 use super::launch::{
     agent_system_prompt, build_agent_command, launch_agent_in_background, role_onboarding_task,
     skip_local_worker_role, spawn_launch_task,
@@ -8,12 +10,17 @@ use crate::service::{spawn_title, ServiceContext};
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
 /// `actual` stays `None` — the launch flag is a request, not runtime proof.
-pub(crate) fn resolved_effort_provenance(requested: Option<String>) -> ReasoningEffortProvenance {
+pub(crate) fn resolved_effort_provenance(
+    planned: Option<String>,
+    requested: Option<String>,
+) -> ReasoningEffortProvenance {
+    let has_effort = planned.is_some() || requested.is_some();
     ReasoningEffortProvenance {
-        planned: None,
+        planned,
         requested: requested.clone(),
         resolved: requested,
         actual: None,
+        actual_source: has_effort.then(|| "provider-default-unverified".into()),
     }
 }
 
@@ -41,6 +48,30 @@ fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
         params.role.as_deref(),
         params.task.as_deref(),
     );
+}
+
+fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
+    if system_prompt_capable {
+        return body;
+    }
+    crate::service::messenger::Messenger::from(
+        crate::service::messenger::MessageEnvelope::codeterm_reminder("team-bootstrap"),
+    )
+    .wrap(&body)
+}
+
+fn planner_startup_payload(
+    system_prompt_capable: bool,
+    manager_prompt: Option<String>,
+    onboarding: &str,
+) -> String {
+    if !system_prompt_capable {
+        return team_bootstrap_payload(false, onboarding.to_string());
+    }
+    match manager_prompt {
+        Some(prompt) => format!("{prompt}\n\n## Planner startup\n\n{onboarding}"),
+        None => agent_system_prompt(Some(onboarding)),
+    }
 }
 
 fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
@@ -155,6 +186,13 @@ impl ServiceContext {
             params,
         );
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
+        if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
+            crate::service::reasoning_effort::persist_launch_identity(
+                tab,
+                bind_params.planned_reasoning_effort.as_deref(),
+                bind_params.reasoning_effort.as_deref(),
+            );
+        }
         self.persist_unresolved_plugin_model_request(&handle.tab_id, &bind_params);
         let model_identity = self.tab_model_identity(&handle.tab_id);
         self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
@@ -177,7 +215,10 @@ impl ServiceContext {
             provider_resolved_model: model_identity.2,
             actual_model: model_identity.3,
             reasoning_effort: reasoning_effort.clone(),
-            reasoning_effort_provenance: resolved_effort_provenance(reasoning_effort),
+            reasoning_effort_provenance: resolved_effort_provenance(
+                bind_params.planned_reasoning_effort,
+                reasoning_effort,
+            ),
             title,
             description: handle.description,
             role,
@@ -211,7 +252,7 @@ impl ServiceContext {
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
-        if params.role.as_deref() == Some("Orchestrator")
+        if params.spawns_anchor()
             && params.workspace_id.is_none()
             && params.parent_tab_id.is_none()
         {
@@ -250,8 +291,12 @@ impl ServiceContext {
                 self.chatbackend_registry.as_ref(),
                 params,
             );
-            let handle =
-                self.spawn_tab_with_ready_and_state_change(spec, ready_tx, emit_state_change)?;
+            let svc = self.clone();
+            let handle = tokio::task::spawn_blocking(move || {
+                svc.spawn_tab_with_ready_and_state_change(spec, ready_tx, emit_state_change)
+            })
+            .await
+            .map_err(|error| format!("chatBackend spawn task failed: {error}"))??;
             self.persist_unresolved_plugin_model_request(&handle.tab_id, &bind_params);
             let requested_model = model
                 .as_deref()
@@ -395,6 +440,11 @@ impl ServiceContext {
                     }
                 }
             }
+            if let Some(ref ownership) = params.ownership {
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.ownership = Some(ownership.clone());
+                }
+            }
             result
         };
         if emit_state_change {
@@ -409,41 +459,36 @@ impl ServiceContext {
                 params.parent_tab_id.as_deref(),
                 params.report_target_mesh_peer.as_deref(),
             ) {
-                log::info!(
-                    "[spawn] cross-mesh worker {} → {}@{}: skipping local Worker hierarchy (no local parent)",
-                    tab_id,
-                    params.report_target_tab_id.as_deref().unwrap_or("?"),
-                    params.report_target_mesh_peer.as_deref().unwrap_or("?"),
-                );
-            } else {
-                if emit_state_change {
-                    self.set_tab_role_with_profile(
-                        &tab_id,
-                        role_str,
-                        params.role_profile.as_deref(),
-                        params.parent_tab_id.as_deref(),
-                        params.can_spawn,
-                    )?;
-                } else {
-                    let role = Self::parse_role(role_str)?;
-                    let mut mux = self.mux.write();
-                    mux.set_tab_role(&tab_id, role, params.parent_tab_id.as_deref())?;
-                    if let Some(can_spawn) = params.can_spawn {
-                        mux.set_can_spawn(&tab_id, can_spawn)?;
-                    }
-                }
-                if role_str == "Worker" || role_str == "Manager" {
-                    if let Some(ref parent) = params.parent_tab_id {
-                        self.expect_spawn_parent_link(&tab_id, parent)?;
-                    }
-                }
+                // Cross-mesh worker: semantic Worker identity, no target-local parent.
+                let mut mux = self.mux.write();
+                mux.set_detached_worker_role(&tab_id, params.role_profile.as_deref())?;
+            } else if let Err(error) = self.assign_spawn_role_hierarchy(
+                &tab_id,
+                role_str,
+                params.role_profile.as_deref(),
+                params.parent_tab_id.as_deref(),
+                params.plan_id.as_deref(),
+                params.can_spawn,
+                emit_state_change,
+            ) {
+                // A post-creation hierarchy failure must not leave an orphan tab.
+                let _ = self.close_tab(&tab_id);
+                return Err(error);
             }
         }
 
-        if params.skip_permissions.unwrap_or(true) {
+        let permission_bypass_authorization =
+            crate::service::permission_policy::configured_permission_bypass(
+                &self.agent_registry,
+                &agent_cmd,
+            )?;
+        let permission_bypass = permission_bypass_authorization.is_some();
+        params.skip_permissions = Some(permission_bypass);
+        params.permission_bypass_authorization = permission_bypass_authorization;
+        {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
-                tab.auto_approve = true;
+                tab.auto_approve = permission_bypass;
             }
         }
 
@@ -481,6 +526,11 @@ impl ServiceContext {
                 params.planned_model.as_deref(),
                 &model_resolution,
             );
+            crate::service::reasoning_effort::persist_launch_identity(
+                tab,
+                params.planned_reasoning_effort.as_deref(),
+                params.reasoning_effort.as_deref(),
+            );
         }
 
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
@@ -513,6 +563,8 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(false);
+        let fallback_bootstrap = fallback_bootstrap
+            .map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {
             if system_prompt_capable {
                 Some(agent_system_prompt(params.task.as_deref()))
@@ -522,16 +574,11 @@ impl ServiceContext {
         } else {
             spawn_launch_task(&params, system_prompt_capable)
         };
-        // Planner gets a short display hint (pending_greeting, user-facing only)
-        // plus its FULL onboarding as real launch input attributed to CodeTerm —
-        // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
-        let is_planner = params.role_profile.as_deref() == Some("planner");
-        // A pair-spawned Orchestrator carries its onboarding in the launch task and
-        // skips the separate deliver — attribute that onboarding to CodeTerm too, so
-        // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
-        let is_orch_onboarding = params.role.as_deref() == Some("Orchestrator")
-            && params.skip_orchestrator_onboarding == Some(true);
-        let codeterm_pfx = crate::service::messenger::Messenger::codeterm_prefix();
+        // Planner gets a short display hint plus its full onboarding as launch input.
+        let is_planner = params.role_kind() == Some(builtins::PLANNER);
+        // A pair-spawned Orchestrator carries its onboarding in the launch task.
+        let is_orch_onboarding =
+            params.spawns_anchor() && params.skip_orchestrator_onboarding == Some(true);
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
@@ -544,17 +591,14 @@ impl ServiceContext {
                     let orch_tab = orch_tab.as_deref().unwrap_or("unknown");
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
-                    let onboarding = if system_prompt_capable {
-                        agent_system_prompt(Some(&onboard))
-                    } else {
-                        onboard
-                    };
-                    Some(format!("{codeterm_pfx}{onboarding}"))
+                    let onboarding =
+                        planner_startup_payload(system_prompt_capable, bg_task, &onboard);
+                    Some(team_bootstrap_payload(system_prompt_capable, onboarding))
                 }
                 None => bg_task,
             }
-        } else if is_orch_onboarding {
-            bg_task.map(|t| format!("{codeterm_pfx}{t}"))
+        } else if is_orch_onboarding && !system_prompt_capable {
+            bg_task.map(|task| team_bootstrap_payload(false, task))
         } else {
             bg_task
         };
@@ -654,7 +698,10 @@ impl ServiceContext {
             provider_resolved_model: model_resolution.model,
             actual_model: None,
             reasoning_effort: reasoning_effort.clone(),
-            reasoning_effort_provenance: resolved_effort_provenance(reasoning_effort),
+            reasoning_effort_provenance: resolved_effort_provenance(
+                params.planned_reasoning_effort,
+                reasoning_effort,
+            ),
             title,
             description: params.description,
             role: params.role,
@@ -663,6 +710,53 @@ impl ServiceContext {
             model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
+    }
+
+    fn assign_spawn_role_hierarchy(
+        &self,
+        tab_id: &str,
+        role_str: &str,
+        role_profile: Option<&str>,
+        parent_tab_id: Option<&str>,
+        plan_id: Option<&str>,
+        can_spawn: Option<bool>,
+        emit_state_change: bool,
+    ) -> Result<(), String> {
+        let (role, profile) = Self::parse_role_kind(role_str, role_profile)?;
+        // A Planner names its plan, not a parent: the plan record owns the
+        // anchor, and placement + planner binding commit as one transaction.
+        if profile.as_deref() == Some(builtins::PLANNER) && parent_tab_id.is_none() {
+            let plan_id = plan_id
+                .map(str::trim)
+                .filter(|plan_id| !plan_id.is_empty())
+                .ok_or("Planner requires --plan <id> (or an explicit --parent)")?;
+            self.place_planner_on_plan(tab_id, plan_id, false)?;
+            return Ok(());
+        }
+        if emit_state_change {
+            self.set_tab_role_with_profile(
+                tab_id,
+                role_str,
+                role_profile,
+                parent_tab_id,
+                can_spawn,
+            )?;
+        } else {
+            let mut mux = self.mux.write();
+            mux.set_tab_role_kind(tab_id, role, profile.as_deref(), parent_tab_id)?;
+            if let Some(can_spawn) = can_spawn {
+                mux.set_can_spawn(tab_id, can_spawn)?;
+            }
+            drop(mux);
+            self.record_role_transition(tab_id);
+            if let Some(parent) = parent_tab_id {
+                self.record_role_transition(parent);
+            }
+        }
+        if let Some(parent) = parent_tab_id {
+            self.expect_spawn_parent_link(tab_id, parent)?;
+        }
+        Ok(())
     }
 
     fn tab_model_identity(
@@ -711,12 +805,21 @@ impl ServiceContext {
     }
 
     fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, tab_id: &str) {
-        if role_profile != Some("planner") {
+        if role_profile != Some(builtins::PLANNER) {
             return;
         }
         let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) else {
             return;
         };
+        // The atomic Planner placement already bound this tab; re-writing the
+        // ref here would replace a committed binding outside its transaction.
+        let already_bound = matches!(
+            self.plan_store.get(plan_id).and_then(|plan| plan.planner),
+            Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
+        );
+        if already_bound {
+            return;
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -813,6 +916,18 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
 #[cfg(test)]
 mod hierarchy_defaults_tests {
     use super::*;
+
+    #[test]
+    fn effort_provenance_keeps_plan_and_request_distinct() {
+        let planned = resolved_effort_provenance(Some("high".into()), Some("medium".into()));
+        assert_eq!(planned.planned.as_deref(), Some("high"));
+        assert_eq!(planned.requested.as_deref(), Some("medium"));
+        assert_eq!(planned.resolved.as_deref(), Some("medium"));
+
+        let ordinary = resolved_effort_provenance(None, Some("high".into()));
+        assert_eq!(ordinary.planned, None);
+        assert_eq!(ordinary.requested.as_deref(), Some("high"));
+    }
 
     fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {
@@ -917,7 +1032,12 @@ mod hierarchy_defaults_tests {
                 .count(),
             1
         );
-        assert!(!prompt.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+        assert_eq!(
+            prompt
+                .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                .count(),
+            1
+        );
         assert_eq!(
             prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
             1
@@ -932,6 +1052,7 @@ mod hierarchy_defaults_tests {
         let mut params = SpawnAgentParams {
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
                 role: "Orchestrator".into(),
+                role_kind: "orchestrator".into(),
                 team_id: "not yet established".into(),
                 team_name: "not yet established".into(),
                 plan_id: "no plan bound yet".into(),
@@ -956,6 +1077,7 @@ mod hierarchy_defaults_tests {
             task: Some("Audit the delivery path.".into()),
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
                 role: "Orchestrator".into(),
+                role_kind: "orchestrator".into(),
                 team_id: "team-1".into(),
                 team_name: "Delivery".into(),
                 plan_id: "plan-1".into(),
@@ -972,6 +1094,34 @@ mod hierarchy_defaults_tests {
             crate::agent::provider::StarterPrompt::AssignedTask
         );
         assert_eq!(params.task.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn native_planner_startup_keeps_manager_contract_and_onboarding() {
+        let payload = planner_startup_payload(
+            true,
+            Some("system contract".into()),
+            "planner startup",
+        );
+
+        assert!(payload.starts_with("system contract"));
+        assert!(payload.ends_with("planner startup"));
+        assert!(!payload.contains("codeterm:system"));
+    }
+
+    #[test]
+    fn team_bootstrap_marks_only_the_fallback_transport() {
+        let system_prompt = team_bootstrap_payload(true, "system contract".into());
+        assert_eq!(system_prompt, "system contract");
+        assert!(!system_prompt.contains("codeterm:system"));
+
+        let fallback = team_bootstrap_payload(false, "fallback contract".into());
+        assert_eq!(
+            fallback,
+            "-=-codeterm:system context=team-bootstrap-=-fallback contract"
+        );
+        assert!(!fallback.contains("tab="));
+        assert!(!fallback.contains("[to reply"));
     }
 
     #[test]
@@ -1017,10 +1167,8 @@ mod hierarchy_defaults_tests {
         );
     }
 
-    // No agent cwd and no workspace cwd must still pin a concrete dir (the
-    // daemon's own cwd, what the PTY inherits). Leaving it `None` desyncs the
-    // tab record from where the agent writes its session store, so the chat
-    // pipeline resolves the wrong `~/.claude/projects/<encoded>` dir.
+    // Pin the daemon cwd when both inputs are absent; `None` desyncs the tab
+    // from the inherited PTY cwd and points chat at the wrong session store.
     #[test]
     fn no_cwd_and_no_workspace_pins_the_daemon_cwd() {
         let (resolved, warning) = ServiceContext::resolve_agent_cwd(&None, &None);

@@ -508,7 +508,7 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
 }
 
 #[tokio::test]
-async fn pending_bind_discloses_the_live_socket_while_config_diverges() {
+async fn api_host_change_reports_active_listener() {
     let address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()

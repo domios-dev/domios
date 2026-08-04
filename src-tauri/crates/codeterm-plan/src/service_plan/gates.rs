@@ -576,6 +576,7 @@ mod tests {
             executor_role: None,
             competition: None,
             intent: None,
+            execution_intent: Default::default(),
             parent_task_id: None,
             depends_on: vec![],
             assigned_tab_id: None,
@@ -586,6 +587,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            interruption: Default::default(),
             attachments: vec![],
         });
         let findings = gate_doctor_findings(&plan, 1_000);

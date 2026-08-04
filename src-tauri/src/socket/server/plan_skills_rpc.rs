@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use sha2::Digest;
 
 use super::plan::plan_rpc_err;
 use super::{get_string_param, plan_refs, JsonRpcError};
@@ -6,6 +7,7 @@ use crate::service::plan::plan_skills::{
     create_plan_skill, list_plan_skills, show_plan_skill, NewPlanSkill,
 };
 use crate::service::plan::PlanStore;
+use crate::service::ServiceState;
 
 pub(super) fn handles(method: &str) -> bool {
     matches!(
@@ -15,6 +17,71 @@ pub(super) fn handles(method: &str) -> bool {
 }
 
 pub(super) fn dispatch(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    now_ms: u64,
+) -> Result<Value, JsonRpcError> {
+    let store = &svc.plan_store;
+    let result = dispatch_store(method, params, store)?;
+    if method != "plan.skills.show" {
+        return Ok(result);
+    }
+    let plan_id = plan_refs::resolve_plan(store, params)?;
+    let Some(body) = params.as_ref() else {
+        return Ok(result);
+    };
+    let binding = [
+        body.get("caller_tab_id").and_then(Value::as_str),
+        body.get("caller_session_id").and_then(Value::as_str),
+        body.get("session_binding_nonce").and_then(Value::as_str),
+        body.get("task_id").and_then(Value::as_str),
+    ];
+    if binding.iter().any(|value| value.is_some()) && binding.iter().any(|value| value.is_none()) {
+        return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
+            "plan skill caller identity is incomplete".into(),
+        )));
+    }
+    let [Some(tab_id), Some(session_id), Some(nonce), Some(task_id)] = binding else {
+        return Ok(result);
+    };
+    let live = svc.mux.read().get_tab(tab_id).map(|tab| {
+        tab.agent_session_id.as_deref() == Some(session_id)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+    }) == Some(true);
+    if !live {
+        return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
+            "plan skill caller binding is not current".into(),
+        )));
+    }
+    let skill = result.get("skill").ok_or_else(|| JsonRpcError {
+        code: -32603,
+        message: "plan skill response is missing skill".into(),
+        data: None,
+    })?;
+    let slug = skill
+        .get("slug")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let body = skill
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let digest = format!("sha256:{:x}", sha2::Sha256::digest(body.as_bytes()));
+    let attempt_id = params
+        .as_ref()
+        .and_then(|params| params.get("attempt_id"))
+        .and_then(Value::as_str);
+    store
+        .record_plan_skill_load(
+            &plan_id, task_id, tab_id, session_id, nonce, attempt_id, slug, &digest, now_ms,
+        )
+        .map_err(plan_rpc_err)?;
+    Ok(result)
+}
+
+fn dispatch_store(
     method: &str,
     params: &Option<Value>,
     store: &PlanStore,
@@ -66,7 +133,7 @@ mod tests {
     use crate::service::plan::PlanStore;
 
     fn rpc(store: &PlanStore, method: &str, params: Value) -> Result<Value, JsonRpcError> {
-        dispatch(method, &Some(params), store)
+        dispatch_store(method, &Some(params), store)
     }
 
     #[test]
