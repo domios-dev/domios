@@ -1,6 +1,8 @@
 use super::*;
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
+mod role_restore;
+
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         tab_id: tab_id.into(),
@@ -36,6 +38,16 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         watcher: None,
         pending_delivery: None,
     }
+}
+
+fn leaf_pending_bytes(node: &SplitNodeSnapshot) -> Vec<u8> {
+    let SplitNodeSnapshot::Leaf {
+        pending_delivery, ..
+    } = node
+    else {
+        panic!("expected a leaf");
+    };
+    serde_json::to_vec(pending_delivery).unwrap()
 }
 
 fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
@@ -121,15 +133,22 @@ fn pending_record_snapshot_round_trip() {
             started_at_ms: 1_700_000_000_000,
         })
         .unwrap();
-    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending);
+    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending.clone());
 
     let snapshot = state.to_session_snapshot();
-    let before = serde_json::to_vec(&snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+    let before = leaf_pending_bytes(&snapshot.workspaces[0].tabs[0].split_tree);
     let restored = MultiplexerState::from_session_snapshot(&snapshot);
     let after_snapshot = restored.to_session_snapshot();
-    let after = serde_json::to_vec(&after_snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+    let after = leaf_pending_bytes(&after_snapshot.workspaces[0].tabs[0].split_tree);
 
     assert_eq!(before, after);
+    let tab = restored.get_tab(&tab_id).expect("Tab restored");
+    assert_eq!(tab.pending_delivery, Some(pending));
+    // The bootstrap root claims an anchor kind but never launched a provider,
+    // so the delivery record survives while the unproven claim stays rolled back.
+    assert_eq!(tab.role, None);
+    assert!(!tab.can_spawn);
+    assert_eq!(tab.depth, 0);
 }
 
 #[test]
@@ -180,22 +199,53 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
         .team_id;
     let manager_id = state.create_tab(&workspace_id).unwrap();
     state
-        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role_kind(
+            &manager_id,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     let worker_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.repoint_parent(&worker_id, &manager_id);
+    for tab_id in [&root_id, &manager_id, &worker_id] {
+        state.get_tab_mut(tab_id).unwrap().agent_type = Some("codex".into());
+    }
 
     state.close_tab(&manager_id).unwrap();
     let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
 
     assert!(restored.get_tab(&manager_id).is_none());
     let worker = restored.get_tab(&worker_id).expect("worker restores");
+    assert_eq!(worker.role, Some(AgentRole::Worker));
     assert!(worker.parent_tab_id.is_none());
     assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
     assert!(restored.get_team(&team_id).is_some());
+}
+
+/// A Manager with no kind carries no capability, so placement fails closed
+/// before such a tab can ever reach a snapshot.
+#[test]
+fn a_profileless_manager_is_refused_before_it_can_reach_a_snapshot() {
+    use crate::multiplexer::types::AgentRole;
+
+    let (mut state, root_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state.set_orchestrator_role(&root_id).unwrap();
+    let manager_id = state.create_tab(&workspace_id).unwrap();
+
+    let error = state
+        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .unwrap_err();
+
+    assert!(error.contains("role_profile"), "{error}");
+    let manager = state.get_tab(&manager_id).expect("tab survives the refusal");
+    assert_eq!(manager.role, None);
+    assert_eq!(manager.team_id, None);
+    assert!(!manager.can_spawn);
 }
 
 #[test]
@@ -953,11 +1003,14 @@ fn provisioned_cwd_round_trips_through_snapshot() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
     let tab_id = state.create_tab(&wsid).unwrap();
-    let cwd = state
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.cwd.clone())
-        .expect("tab cwd");
-    state.get_tab_mut(&tab_id).unwrap().provisioned_cwd = Some(cwd.clone());
+    // `create_tab` mints a cwd-less record; the provisioning step is what
+    // assigns one, so the fixture has to perform it before asserting.
+    let cwd = "/srv/provisioned".to_string();
+    {
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some(cwd.clone());
+        tab.provisioned_cwd = Some(cwd.clone());
+    }
 
     let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
     let tab = restored.get_tab(&tab_id).expect("Tab restored");
@@ -1064,100 +1117,4 @@ fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
     let persisted = state.to_session_snapshot();
     assert_eq!(persisted.workspaces[0].tabs.len(), 1);
     assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
-}
-
-/// A launch that never completed persists a role with no provider identity.
-fn partial_launch_residue_leaf(role: &str) -> SplitNodeSnapshot {
-    SplitNodeSnapshot::Leaf {
-        tab_id: "db79d2da".into(),
-        cwd: None,
-        title: Some("Plan card fixture".into()),
-        description: None,
-        title_level: Some("User".into()),
-        agent_type: None,
-        agent_type_locked: false,
-        claude_session_id: None,
-        agent_identity: None,
-        role: Some(role.into()),
-        role_profile: None,
-        team_id: Some("team_residue".into()),
-        parent_tab_id: None,
-        spawned_by_tab_id: None,
-        report_target_tab_id: None,
-        report_target_mesh_peer: None,
-        ownership: None,
-        can_spawn: true,
-        depth: 1,
-        chat_view: Some(false),
-        auto_approve: false,
-        audience: TabAudience::User,
-        agent_session_model: None,
-        agent_planned_model: None,
-        agent_requested_model: None,
-        agent_provider_resolved_model: None,
-        model_fallback: None,
-        model_identity_mismatch: None,
-        chatbackend_plugin_id: None,
-        chatbackend_session_id: None,
-        watcher: None,
-        pending_delivery: None,
-    }
-}
-
-#[test]
-fn partial_launch_residue_never_restores_as_a_live_orchestrator() {
-    for role in ["Orchestrator", "Conductor", "Manager", "Worker"] {
-        let restored =
-            MultiplexerState::from_session_snapshot(&snapshot_with(partial_launch_residue_leaf(
-                role,
-            )));
-        let tab = restored.get_tab("db79d2da").expect("residue tab survives");
-
-        assert_eq!(tab.role, None, "{role}: no provider identity, no role");
-        assert_eq!(tab.role_profile, None, "{role}");
-        assert_eq!(tab.team_id, None, "{role}: Team metadata rolls back too");
-        assert_eq!(tab.parent_tab_id, None, "{role}");
-        assert!(!tab.can_spawn, "{role}");
-        assert_eq!(tab.depth, 0, "{role}");
-        assert!(!tab.anchors_team(), "{role}");
-        assert!(!tab.has_team_orchestrator_authority(), "{role}");
-    }
-}
-
-/// The title is not evidence of a provider — an incomplete tab must never be
-/// handed a guessed one just because its name mentions an agent.
-#[test]
-fn residue_titled_like_an_agent_still_loses_its_role() {
-    let mut leaf = partial_launch_residue_leaf("Orchestrator");
-    if let SplitNodeSnapshot::Leaf { ref mut title, .. } = leaf {
-        *title = Some("codex orchestrator".into());
-    }
-
-    let restored = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let tab = restored.get_tab("db79d2da").expect("residue tab survives");
-
-    assert_eq!(tab.role, None, "a title never resurrects Team authority");
-    assert!(!tab.can_spawn);
-}
-
-/// A complete agent tab keeps everything — the guard must not demote real work.
-#[test]
-fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
-    let mut leaf = partial_launch_residue_leaf("Orchestrator");
-    if let SplitNodeSnapshot::Leaf {
-        ref mut agent_type, ..
-    } = leaf
-    {
-        *agent_type = Some("codex".into());
-    }
-
-    let restored = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let tab = restored.get_tab("db79d2da").expect("agent tab");
-
-    assert_eq!(tab.role, Some(crate::multiplexer::types::AgentRole::Manager));
-    assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
-    assert_eq!(tab.team_id.as_deref(), Some("team_residue"));
-    assert!(tab.can_spawn);
-    assert_eq!(tab.depth, 1);
-    assert!(tab.anchors_team());
 }
