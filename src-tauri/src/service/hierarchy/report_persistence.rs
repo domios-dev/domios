@@ -332,6 +332,26 @@ mod tests {
         store
             .assign_task(&plan.id, &task_id, "worker", None, 3)
             .unwrap();
+        store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &task_id,
+                "worker",
+                None,
+                Some("worker-session"),
+                Some("worker-nonce"),
+                4,
+            )
+            .unwrap();
+        // A bound report carries the caller's own authoritative identity; the
+        // refusal below is the product incident, not a default to fill in.
+        let details = ReportDetails {
+            caller_tab_id: Some("worker".into()),
+            caller_session_id: Some("worker-session".into()),
+            session_binding_nonce: Some("worker-nonce".into()),
+            owner_epoch: Some(0),
+            ..Default::default()
+        };
 
         persist_local_task_report(
             &store,
@@ -340,10 +360,10 @@ mod tests {
             &task_id,
             &AgentRef::from_tab("worker"),
             "LATE_BIND_MARKER",
-            &ReportDetails::default(),
+            &details,
             None,
             None,
-            4,
+            5,
         )
         .unwrap();
 
