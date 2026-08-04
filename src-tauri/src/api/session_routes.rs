@@ -205,7 +205,7 @@ pub async fn resume_session_api(
     let identity =
         restorable_identity(persisted_identity, |parent| {
             state.svc.mux.read().get_tab(parent).is_some_and(|tab| {
-                tab.role == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+                tab.anchors_team()
             })
         });
 

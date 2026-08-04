@@ -2,7 +2,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
-use crate::service::{BatchOp, ServiceState};
+use crate::service::{BatchOp, ServiceState, TeamMutationCaller};
 use codeterm_types::team::Team;
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,7 +70,7 @@ pub fn mux_rename_team_core(
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
     let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
-    crate::service::rename_team_core(mux, &team_id, name, Some(&caller_tab_id))
+    crate::service::rename_team_core(mux, &team_id, name, &TeamMutationCaller::AgentTab(caller_tab_id))
 }
 
 pub(crate) fn mux_rename_team_service_core(
@@ -80,7 +80,7 @@ pub(crate) fn mux_rename_team_service_core(
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
     let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
-    svc.rename_team(&team_id, name, Some(&caller_tab_id))
+    svc.rename_team(&team_id, name, TeamMutationCaller::AgentTab(caller_tab_id))
 }
 
 fn require_team_rename_caller(caller_tab_id: Option<String>) -> Result<String, String> {
@@ -106,7 +106,7 @@ pub(crate) fn mux_close_team_service_core(
 ) -> Result<Team, String> {
     let caller_tab_id =
         caller_tab_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
-    svc.close_team(&team_id, Some(&caller_tab_id))
+    svc.close_team(&team_id, TeamMutationCaller::AgentTab(caller_tab_id))
 }
 
 #[tauri::command]

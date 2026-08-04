@@ -98,7 +98,7 @@ impl ServiceContext {
         let was_orchestrator = {
             let mux = self.mux.read();
             mux.get_tab(&tab_id)
-                .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Orchestrator))
+                .map(|p| p.anchors_team())
                 .unwrap_or(false)
         };
         self.set_tab_role(&tab_id, &role, parent.as_deref(), can_spawn)?;

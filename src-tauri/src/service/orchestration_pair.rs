@@ -431,7 +431,7 @@ impl ServiceContext {
             &reserved.planner_tab_id,
         );
         let mut orchestrator_bootstrap =
-            crate::service::spawn_factory::forming_identity("Orchestrator", project.clone());
+            crate::service::spawn_factory::forming_identity("Orchestrator", ORCHESTRATOR, project.clone());
         orchestrator_bootstrap.coordination =
             Some(crate::service::spawn_factory::introduction_body(
                 &orch_counterpart,
@@ -472,7 +472,7 @@ impl ServiceContext {
         let orch_tab_id = orch_result.tab_id.clone();
 
         let mut planner_bootstrap =
-            crate::service::spawn_factory::forming_identity("Planner", project);
+            crate::service::spawn_factory::forming_identity("Planner", PLANNER, project);
         planner_bootstrap.coordination = Some(crate::service::spawn_factory::introduction_body(
             &planner_counterpart,
             &orch_counterpart,

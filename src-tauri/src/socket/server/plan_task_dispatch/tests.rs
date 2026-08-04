@@ -256,7 +256,7 @@ impl DispatchRuntime {
         let (mut mux, _) = MultiplexerState::new();
         let workspace = mux.list_workspaces().into_iter().next().unwrap();
         let parent_tab_id = workspace.tab_ids.first().unwrap().clone();
-        mux.set_tab_role(&parent_tab_id, AgentRole::Orchestrator, None)
+        mux.set_orchestrator_role(&parent_tab_id)
             .unwrap();
         Self {
             baseline_tab_count: workspace.tab_count,

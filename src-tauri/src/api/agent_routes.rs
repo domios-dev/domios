@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
 /// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
@@ -445,16 +446,20 @@ pub async fn set_tab_role(
         .normalize_role_profile()
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let role = role_probe.role.unwrap_or_else(|| "Worker".into());
-    let parsed_role = crate::service::ServiceContext::parse_role(&role)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let (parsed_role, parsed_profile) = crate::service::ServiceContext::parse_role_kind(
+        &role,
+        role_probe.role_profile.as_deref(),
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let becomes_anchor =
+        codeterm_types::agent::role_kind::anchors_team(Some(parsed_role), parsed_profile.as_deref());
     let was_orchestrator = {
         let mux = state.svc.mux.read();
-        mux.get_tab(&id)
-            .map(|p| p.role == Some(AgentRole::Orchestrator))
-            .unwrap_or(false)
+        mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
     };
     let destination = match parsed_role {
-        AgentRole::Orchestrator => crate::service::AgentPlacement::Orchestrator {
+        AgentRole::Manager if becomes_anchor => crate::service::AgentPlacement::Anchor {
+            role_profile: parsed_profile.clone().unwrap_or_default(),
             can_spawn: body.can_spawn.unwrap_or(true),
         },
         AgentRole::Worker => crate::service::AgentPlacement::Worker {
@@ -465,7 +470,7 @@ pub async fn set_tab_role(
                 )
             })?,
         },
-        AgentRole::Manager if role_probe.role_profile.as_deref() == Some("planner") => {
+        AgentRole::Manager if parsed_profile.as_deref() == Some(PLANNER) => {
             crate::service::AgentPlacement::Planner {
                 plan_id: body.plan_id.ok_or_else(|| {
                     (
@@ -482,7 +487,7 @@ pub async fn set_tab_role(
                     "Manager requires a parent_tab_id".to_string(),
                 )
             })?,
-            role_profile: role_probe.role_profile,
+            role_profile: parsed_profile.clone(),
         },
     };
     state
@@ -495,7 +500,7 @@ pub async fn set_tab_role(
             plan_rebind: None,
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if parsed_role == AgentRole::Orchestrator {
+    if becomes_anchor {
         state
             .svc
             .maybe_deliver_orchestrator_promotion_onboarding(&id, was_orchestrator);

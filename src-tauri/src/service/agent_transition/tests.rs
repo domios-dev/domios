@@ -22,9 +22,9 @@ impl Fixture {
         arm_session(mux.get_tab_mut(&owner).unwrap(), "owner");
         arm_session(mux.get_tab_mut(&other_owner).unwrap(), "other-owner");
         arm_session(mux.get_tab_mut(&target).unwrap(), "target");
-        mux.set_tab_role(&owner, AgentRole::Orchestrator, None)
+        mux.set_orchestrator_role(&owner)
             .unwrap();
-        mux.set_tab_role(&other_owner, AgentRole::Orchestrator, None)
+        mux.set_orchestrator_role(&other_owner)
             .unwrap();
         mux.resolve_or_mint_team_for_parent(&owner).unwrap();
         mux.resolve_or_mint_team_for_parent(&other_owner).unwrap();
@@ -158,11 +158,7 @@ fn agent_transition_matrix_oracle() {
     let mut orchestrator_to_planner = Fixture::new(dir.path());
     orchestrator_to_planner
         .mux
-        .set_tab_role(
-            &orchestrator_to_planner.target,
-            AgentRole::Orchestrator,
-            None,
-        )
+        .set_orchestrator_role(&orchestrator_to_planner.target)
         .unwrap();
     let workspace_id = orchestrator_to_planner
         .mux
@@ -333,7 +329,7 @@ fn regression_orchestrator_to_planner_single_command_sets_role_and_report_owner(
     let mut fixture = Fixture::new(dir.path());
     fixture
         .mux
-        .set_tab_role(&fixture.target, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&fixture.target)
         .unwrap();
     fixture
         .mux

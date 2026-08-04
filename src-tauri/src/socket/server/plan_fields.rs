@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 use crate::plan::{tag_facets_from_value, MilestoneKind, TagFacet, TaskExecutionIntent, TaskGroup};
 use crate::service::ServiceState;
 
@@ -74,9 +75,9 @@ pub(super) fn tab_role(svc: &ServiceState, tab_id: &str) -> Option<&'static str>
     svc.mux
         .read()
         .get_tab(tab_id)
-        .and_then(|tab| tab.role)
-        .map(|role| match role {
-            AgentRole::Orchestrator => "orchestrator",
+        .and_then(|tab| tab.role.map(|role| (role, tab.role_profile.clone())))
+        .map(|(role, profile)| match role {
+            AgentRole::Manager if profile.as_deref() == Some(ORCHESTRATOR) => "orchestrator",
             AgentRole::Manager => "manager",
             AgentRole::Worker => "worker",
         })

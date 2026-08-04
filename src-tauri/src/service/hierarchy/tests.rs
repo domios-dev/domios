@@ -914,7 +914,7 @@ fn teamless_orchestrator(mux: &MuxState) -> (String, String) {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&owner_tab_id, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&owner_tab_id)
         .unwrap();
     (workspace_id, owner_tab_id)
 }

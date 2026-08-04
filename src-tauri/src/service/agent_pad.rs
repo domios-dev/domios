@@ -13,6 +13,19 @@ pub enum AgentPadRole {
     Worker,
 }
 
+/// The one mapping from a tab's role kind to its pad identity. Restore and
+/// spawn both go through here so a restarted tab reopens the SAME pad.
+pub fn pad_role_for_tab(tab: &crate::multiplexer::types::Tab) -> AgentPadRole {
+    use codeterm_types::agent::role_kind::builtins;
+    match (tab.role, tab.role_kind_id()) {
+        (Some(crate::multiplexer::types::AgentRole::Worker), _) => AgentPadRole::Worker,
+        (Some(_), Some(builtins::ORCHESTRATOR)) => AgentPadRole::Orchestrator,
+        (Some(_), Some(builtins::GENERAL_AGENT)) => AgentPadRole::General,
+        (Some(_), _) => AgentPadRole::Planner,
+        (None, _) => AgentPadRole::General,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AgentPad {
     root: PathBuf,
@@ -127,13 +140,12 @@ pub(crate) fn restore(
 
 impl super::ServiceContext {
     pub(crate) fn ensure_agent_pad(&self, tab_id: &str) -> Result<AgentPad, String> {
-        let role = self.mux.read().get_tab(tab_id).and_then(|tab| tab.role);
-        let role = match role {
-            Some(crate::multiplexer::types::AgentRole::Worker) => AgentPadRole::Worker,
-            Some(crate::multiplexer::types::AgentRole::Orchestrator) => AgentPadRole::Orchestrator,
-            Some(crate::multiplexer::types::AgentRole::Manager) => AgentPadRole::Planner,
-            _ => AgentPadRole::General,
-        };
+        let role = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(pad_role_for_tab)
+            .unwrap_or(AgentPadRole::General);
         restore(&crate::paths::data_dir(), tab_id, role)
     }
 

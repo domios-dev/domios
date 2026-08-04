@@ -659,6 +659,35 @@ impl PlanStore {
         })
     }
 
+    /// Refresh the live session identity of the plan's CURRENT owner after its
+    /// tab restarted. Ownership does not move, so this records no
+    /// `owner_history` entry — a restart is not a handover. No-ops (returning
+    /// `false`) unless `tab_id` is already the owner.
+    pub fn refresh_owner_session(
+        &self,
+        plan_id: &str,
+        tab_id: &str,
+        session_id: Option<&str>,
+        title: Option<&str>,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let mut refreshed = false;
+        self.with_plan(plan_id, now_ms, |p| {
+            if p.owner.tab_id.as_deref() != Some(tab_id) {
+                return Ok(());
+            }
+            let session_id = session_id.map(str::to_string);
+            let title = title.map(str::to_string).or_else(|| p.owner.title.clone());
+            if p.owner.session_id != session_id || p.owner.title != title {
+                p.owner.session_id = session_id;
+                p.owner.title = title;
+                refreshed = true;
+            }
+            Ok(())
+        })?;
+        Ok(refreshed)
+    }
+
     pub fn disown(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             p.owner_history.push(TransferRecord {
