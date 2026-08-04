@@ -76,7 +76,7 @@ pub async fn create(
     });
     let owner = body
         .owner
-        .unwrap_or_else(|| OrchestratorRef::from_pane("unknown"));
+        .unwrap_or_else(|| OrchestratorRef::from_tab("unknown"));
     let kinds = body
         .kinds
         .as_deref()
@@ -159,11 +159,11 @@ pub async fn list(
         });
     }
     if q.unowned == Some(true) {
-        entries.retain(|e| e.owner.pane_id.is_none() && e.owner.session_id.is_none());
+        entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
     }
     if let Some(orch) = &q.orchestrator {
         entries.retain(|e| {
-            e.owner.pane_id.as_deref() == Some(orch.as_str())
+            e.owner.tab_id.as_deref() == Some(orch.as_str())
                 || e.owner.session_id.as_deref() == Some(orch.as_str())
         });
     }
@@ -214,8 +214,9 @@ struct ResolvedRef {
     task_title: Option<String>,
     section_title: Option<String>,
     file_path: Option<String>,
+    canonical_project_path: Option<String>,
     status: Option<PlanStatus>,
-    owner_pane_id: Option<String>,
+    owner_tab_id: Option<String>,
     owner_session_id: Option<String>,
 }
 
@@ -253,10 +254,13 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
     let file_path = index_entry
         .as_ref()
         .map(|entry| entry.file_path.display().to_string());
-    let status = index_entry.as_ref().map(|entry| entry.status.clone());
-    let owner_pane_id = index_entry
+    let canonical_project_path = index_entry
         .as_ref()
-        .and_then(|entry| entry.owner.pane_id.clone());
+        .map(|entry| entry.canonical_project_path.clone());
+    let status = index_entry.as_ref().map(|entry| entry.status.clone());
+    let owner_tab_id = index_entry
+        .as_ref()
+        .and_then(|entry| entry.owner.tab_id.clone());
     let owner_session_id = index_entry
         .as_ref()
         .and_then(|entry| entry.owner.session_id.clone());
@@ -284,8 +288,9 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             task_title: None,
             section_title: None,
             file_path,
+            canonical_project_path,
             status,
-            owner_pane_id,
+            owner_tab_id,
             owner_session_id,
         };
     };
@@ -293,7 +298,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
     let mut state_name = "resolved";
     if plan.status == PlanStatus::Archived {
         state_name = "archived";
-    } else if plan.owner.pane_id.is_none() && plan.owner.session_id.is_none() {
+    } else if plan.owner.tab_id.is_none() && plan.owner.session_id.is_none() {
         state_name = "unowned";
     }
 
@@ -308,8 +313,9 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             task_title: None,
             section_title: None,
             file_path,
+            canonical_project_path,
             status,
-            owner_pane_id,
+            owner_tab_id,
             owner_session_id,
         },
         ResolveTargetKind::Task => {
@@ -337,8 +343,9 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
                 task_title,
                 section_title: None,
                 file_path,
+                canonical_project_path,
                 status,
-                owner_pane_id,
+                owner_tab_id,
                 owner_session_id,
             }
         }
@@ -370,8 +377,9 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
                 task_title: None,
                 section_title,
                 file_path,
+                canonical_project_path,
                 status,
-                owner_pane_id,
+                owner_tab_id,
                 owner_session_id,
             }
         }
@@ -467,12 +475,13 @@ mod tests {
         IndexEntry {
             plan_id: plan_id.to_string(),
             file_path,
+            canonical_project_path: "/repo".into(),
             owner: OrchestratorRef::default(),
             team_id: None,
             title: "Indexed plan".into(),
             status,
             updated_at: 1,
-            assigned_pane_ids: vec![],
+            assigned_tab_ids: vec![],
             task_count: 0,
             open_task_count: 0,
             section_count: 0,
@@ -590,17 +599,17 @@ mod tests {
     #[test]
     fn transfer_caller_requires_agent_header() {
         let mut headers = HeaderMap::new();
-        headers.insert("X-CodeTerm-Pane-Id", "source-manager".parse().unwrap());
+        headers.insert("X-CodeTerm-Tab-Id", "source-manager".parse().unwrap());
         assert_eq!(transfer_caller(&headers).unwrap(), "source-manager");
         let missing = transfer_caller(&HeaderMap::new()).unwrap_err();
         assert_eq!(missing.0, StatusCode::FORBIDDEN);
         assert_eq!(
             missing.1 .0["error"],
-            "X-CodeTerm-Pane-Id is required for plan transfer"
+            "X-CodeTerm-Tab-Id is required for plan transfer"
         );
         assert_eq!(
             team_plan_err(TeamPlanError::Team(
-                "Caller pane worker is not authorized to manage Team team_source".into(),
+                "Caller tab worker is not authorized to manage Team team_source".into(),
             ))
             .0,
             StatusCode::FORBIDDEN
@@ -673,7 +682,7 @@ pub(crate) struct ReconcileQuery {
     #[serde(default, deserialize_with = "de_truthy")]
     fix: Option<bool>,
     #[serde(default)]
-    caller_pane_id: Option<String>,
+    caller_tab_id: Option<String>,
 }
 
 pub async fn reconcile(
@@ -688,7 +697,7 @@ pub async fn reconcile(
         .reconcile_plan(
             &id,
             q.fix == Some(true),
-            q.caller_pane_id.as_deref(),
+            q.caller_tab_id.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -737,9 +746,8 @@ pub async fn update(
             .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
         state
             .svc
-            .plan_store
-            .set_planner_ref(&id, planner_ref, now)
-            .map_err(plan_err)?;
+            .transition_plan_planner(&id, planner_ref)
+            .map_err(|error| text_err(StatusCode::CONFLICT, error))?;
     }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -823,8 +831,8 @@ pub async fn archive(
     emit_plan_changed(&state, &id);
     let mut resp = serde_json::json!({ "ok": true });
     if let Some(plan) = state.svc.plan_store.get(&id) {
-        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
-            state.svc.pane_probe(pane).exists
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |tab| {
+            state.svc.tab_probe(tab).exists
         });
         push_hints(
             &mut resp,
@@ -893,12 +901,12 @@ pub(crate) struct TransferBody {
 }
 
 fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
-    crate::api::pane_routes::caller_pane_header(headers)
-        .filter(|pane_id| !pane_id.trim().is_empty())
+    crate::api::tab_routes::caller_tab_header(headers)
+        .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
             text_err(
                 StatusCode::FORBIDDEN,
-                "X-CodeTerm-Pane-Id is required for plan transfer",
+                "X-CodeTerm-Tab-Id is required for plan transfer",
             )
         })
 }
@@ -922,7 +930,9 @@ fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
         TeamPlanError::Team(message)
-            if message.contains("not authorized") || message.contains("not a member") =>
+            if message.contains("not authorized")
+                || message.contains("not a member")
+                || message.contains("authority") =>
         {
             text_err(StatusCode::FORBIDDEN, message)
         }

@@ -151,6 +151,51 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        function messageOf(value) {
+          if (value && typeof value.message === "string") return value.message;
+          if (typeof value === "string") return value;
+          return "The frontend module failed to load.";
+        }
+        function showBootError(value) {
+          if (document.documentElement.dataset.codetermMounted === "true") return;
+          var root = document.getElementById("root");
+          if (!root || root.dataset.bootError === "true") return;
+          root.dataset.bootError = "true";
+          root.innerHTML =
+            '<div style="display:flex;height:100%;flex-direction:column;background:#0d1117">' +
+            '<header data-tauri-drag-region style="box-sizing:border-box;display:flex;height:32px;flex:0 0 32px;align-items:center;justify-content:space-between;padding-left:12px;border-bottom:1px solid #334155;background:#111827;color:#94a3b8;font:12px/1 system-ui,sans-serif;user-select:none">' +
+            '<span data-tauri-drag-region>CodeTerm</span><nav data-window-controls aria-label="Window controls" style="display:flex;height:100%">' +
+            '<button type="button" data-window-action="minimize" aria-label="Minimize">—</button><button type="button" data-window-action="toggle_maximize" aria-label="Maximize">□</button><button type="button" data-window-action="close" aria-label="Close">×</button></nav></header>' +
+            '<main role="alert" style="box-sizing:border-box;display:grid;min-height:0;flex:1;padding:32px;place-items:center;color:#d8dee9;background:#0d1117">' +
+            '<section style="box-sizing:border-box;width:min(760px,100%);padding:28px;border:1px solid #334155;border-radius:14px;background:#111827">' +
+            '<strong style="color:#fb7185">CodeTerm UI failed to start</strong>' +
+            '<pre style="max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-word;color:#fecdd3">' +
+            messageOf(value).replace(/[&<>"']/g, function (char) {
+              return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char];
+            }) +
+            '</pre><button type="button" onclick="window.location.reload()" style="padding:9px 14px;border:1px solid #60a5fa;border-radius:8px;background:#2563eb;color:white">Reload interface</button>' +
+            "</section></main></div>";
+          var internals = window.__TAURI_INTERNALS__;
+          var controls = root.querySelector("[data-window-controls]");
+          if (!internals || !internals.metadata || !internals.metadata.currentWindow) {
+            if (controls) controls.remove();
+            return;
+          }
+          root.querySelectorAll("[data-window-action]").forEach(function (button) {
+            button.style.cssText = "width:46px;height:100%;border:0;background:transparent;color:inherit;cursor:pointer";
+            button.addEventListener("click", function () {
+              internals.invoke("plugin:window|" + button.dataset.windowAction, {
+                label: internals.metadata.currentWindow.label,
+              });
+            });
+          });
+        }
+        window.addEventListener("error", function (event) { showBootError(event.error || event.message); });
+        window.addEventListener("unhandledrejection", function (event) { showBootError(event.reason); });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

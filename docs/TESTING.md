@@ -10,8 +10,8 @@ For assertion discipline and layer-specific recipes, see `docs/contributing/writ
 
 | Layer | Lives in | Runner | Real LLM? | Needs dev daemon? | CI | Budget/test |
 |---|---|---|---|---|---|---|
-| Rust unit | `src-tauri/src/**/tests.rs` | `cargo test --lib` | no | no | yes (D7) | <1s |
-| TS unit | `src/**/*.test.ts`, `packages/**` | vitest (`pnpm test:unit`) | no | no | yes (D7) | <1s |
+| Rust unit | `src-tauri/src/**/tests.rs` | `scripts/test-capped.sh … --lib` | no | no | yes (D7) | <1s |
+| TS unit | `src/**/*.test.ts`, `packages/**` | tsx scripts (`npm run test:unit`) | no | no | yes (D7) | <1s |
 | Plugin | `plugins/*/tests/` | `pnpm test:plugins` | no | no | yes (exists) | <5s |
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
@@ -42,7 +42,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 | Layer | Exact command | When required |
 |---|---|---|
-| Narrow Rust or TS unit | `cargo test <narrow filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
+| Narrow Rust or TS unit | `scripts/test-capped.sh … <filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
 | All implemented layers | `./build.sh test:all` | Before claiming done |
 | PR gate | `./build.sh test:all` | Before opening a PR |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
@@ -51,8 +51,8 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
 
-1. `rust-unit` — `cargo test --lib` (always runs)
-2. `ts-unit` — `pnpm test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
+1. `rust-unit` — capped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
+2. `ts-unit` — `npm run test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
 
@@ -60,6 +60,11 @@ One command runs every non-LLM layer and prints a per-layer summary table. Layer
 run. Behaviour benches and the suspended Playwright suite are excluded. With dev
 down you still get full unit coverage and a clear record of
 what was skipped.
+
+The canonical dev monitor owns the machine build gateway while port 7686 is
+running. Stop dev with `./build.sh kill` before `test:all`; otherwise the gate
+queues behind dev and cannot start. If its caller exits while queued, cancel the
+orphan with `./build.sh gateway-cancel <job-id>` before retrying.
 
 ## Unit tests
 
@@ -78,23 +83,71 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p 
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::delivery_prefers_system_prompt_when_declared -- -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::system_prompt_channel_consumes_launch_content_without_a_fallback_turn -- -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::launch_delivery::tests::external_provider_defers_identical_content_to_confirmed_fallback -- -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_text_present_enter_absent_is_error -- -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_exactly_once_on_submission_evidence -- -- --exact
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::claude -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::codex -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::opencode -- -- --nocapture
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib submission_matrix::cursor -- -- --nocapture
+```
+
+The matrix reads each provider's `readinessStrategy`, `verifySubmit`, and
+`hasHooks` capabilities from `plugins/provider-*/plugin.json`. Claude, Codex,
+and OpenCode run all sixteen dimensions. Cursor runs readiness plus byte-exact
+ASCII, Unicode, and 5000-character multiline ingestion with zero submit writes;
+every submit-dependent dimension prints a quota-constraint skip reason.
+
+The frontend key and delivery-ledger oracles are focused and bounded:
+
+```bash
+npm run test:unit -- ChatComposer.submission-keys
+npm run test:unit -- chatSendStatus
+npm run test:unit -- TabSessionChat.delivery
+```
+
+The provider-row harness verifies the real `codeterm` CLI before running those
+focused oracles. Its help and dry-run surface are:
+
+```bash
+bash scripts/submission-matrix.sh --help
+bash scripts/submission-matrix.sh --provider claude --dry-run
 ```
 
 ```bash
-# Rust (210 tests): agent detection, multiplexer state, prompt parsing, config
-cargo test --manifest-path src-tauri/Cargo.toml --lib
+# Rust: agent detection, multiplexer state, prompt parsing, config
+scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
-# TypeScript: every src/** + packages/** unit test (tsx scripts)
-pnpm test:unit
-# …or one file while iterating:
-npx tsx src/lib/colors.test.ts
+# TypeScript: every src/** + packages/** unit test (direct Node scheduler, 90s outer cap)
+bash -lc 'timeout --signal=TERM --kill-after=5s 90s npm run test:unit'
+# …or one file through the same bounded scheduler:
+npm run test:unit -- colors.test
 
 # Shortcuts
 ./build.sh test       # Rust unit tests only
 ./build.sh test:all   # every non-LLM layer (see Runbook)
 ```
+
+### Chat attach/hydration lifecycle
+
+Use the deterministic hook oracle for Terminal → Chat activation, tab-owned
+authority, bounded hydration, resync, and subscription cleanup:
+
+```bash
+npx tsx src/components/Terminal/useChatSession.attachHydration.test.tsx
+npx tsx src/components/Terminal/TabContent.chatContinuity.test.tsx
+npx tsx src/components/Terminal/ChatSetupState.test.tsx
+```
+
+The harness starts hidden with null Tab authority, activates into
+`awaiting_session`, and proves a global/foreign candidate cannot create Chat
+authority. It then commits the Tab's own session id and binding nonce while
+hidden, reactivates, and requires the pre-existing transcript exactly once with
+one subscription. Its resync replaces the subscription without duplicating
+rows; wrong-tab, wrong-session, wrong-nonce, cancelled-generation, and
+prior-lifecycle inputs remain rejected. The setup-state oracle proves a
+hydrated current-authority transcript suppresses stale `shell_ready` and earlier
+launch overlays. The `TabContent` oracle refreshes the mux with a new Tab
+snapshot carrying the same provider, model, session id, and binding nonce, then
+drives Terminal → Chat and requires one pre-existing row and one subscription
+without losing the mode switch or identity labels.
 
 ### Capped Rust test preflight
 
@@ -112,7 +165,7 @@ bash scripts/test-capped.test.sh
 ```
 
 **Windows: cargo test target isolation**
-Running `cargo test` against the app crate while a dev build occupies the same
+Running the capped Rust test runner against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
 in-use `.exe`. The required wrapper detects a healthy dev instance and
 automatically routes focused tests to the worktree-local
@@ -121,6 +174,41 @@ automatically routes focused tests to the worktree-local
 ```bash
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib <filter>
 ```
+
+### REST generation liveness
+
+Run the listener-exit and worker-starvation fixtures separately:
+
+```bash
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::unexpected_exit_autonomously_replaces_generation_after_health_proof -- --exact
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::diagnostics_distinguish_listener_exit_from_worker_stall -- --exact
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::repeated_same_generation_outages_emit_exactly_one_resync_each -- --exact
+```
+
+The first fixture sends no manual recovery command and observes lifecycle
+events through the replacement's real `/api/health` response. The second uses
+explicit barriers to hold all four REST workers while leaving the listener
+bound, asserts an unanswered health request within a bounded failure deadline,
+and verifies that its diagnostic differs from listener exit without publishing
+a false healthy state. This worker gate is synthetic diagnostic coverage, not
+the incident cause. The third fixture proves two stalls in one generation each
+claim one distinct recovery resync and duplicate observation claims none.
+
+Run the real-load dev oracle separately:
+
+```bash
+bash evals/api-liveness-mesh-load/run.sh
+```
+
+It is locked to dev 7686 through `evals/_lib/lib.sh` and `dc`, has a 15-second
+failure deadline, and issues no readiness poll or delay. One barrier releases
+four sparse 476 MiB Claude transcript reads, health/tab observations, signed
+report/heartbeat-shaped relays, a duplicate relay, and a structured-error
+relay. It requires health/tab within one second, relay/send acknowledgement
+within two seconds, one durable delivery per id, and the original structured
+delivery error. The real load owner is the session parser; the bounded 4 MiB
+tail and blocking-worker route keep it off the four REST runtime workers.
+Neither the fixtures nor the oracle address production port 7685.
 
 ## E2E tests
 
@@ -155,14 +243,14 @@ CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 |------|-------|------|
 | `test_health.py` | 2 | API health, identify |
 | `test_workspaces.py` | 4 | Workspace CRUD |
-| `test_panes.py` | 6 | Tab create, split, close, rename |
+| `test_tabs.py` | 6 | Tab create, split, close, rename |
 | `test_pty_io.py` | 13 | PTY read/write, exec, streaming |
-| `test_env.py` | 4 | CODETERM_PANE_ID env injection |
+| `test_env.py` | 4 | CODETERM_TAB_ID env injection |
 | `test_notifications.py` | 3 | Notification create, list |
 | `test_cron.py` | 5 | Cron CRUD |
 | `test_agents.py` | 5 | Agent hierarchy |
 | `test_hooks.py` | 10 | Hook endpoints, prompt parsing accuracy, full approval flow |
-| `test_multi_pane.py` | 5 | Multi-tab prompt isolation |
+| `test_multi_tab.py` | 5 | Multi-tab prompt isolation |
 | `test_attachments.py` | 3 | File attachment via API |
 | `test_logging.py` | 4 | Log file, levels |
 | `test_claude_spawn.py` | 8 | Real Claude spawn (**slow**, 30-90s each) |
@@ -192,7 +280,7 @@ OS targets in parallel from a macOS host:
 
 | Lane | Where | What runs | Coverage |
 |------|-------|-----------|----------|
-| `macos` | native host | `cargo test --lib` (src-tauri) + cli tests + `pnpm test:unit` + `pnpm test:plugins` | full execution |
+| `macos` | native host | capped `cargo test --lib` (src-tauri) + cli tests + `pnpm test:unit` + `pnpm test:plugins` | full execution |
 | `linux` | Docker (ubuntu:24.04, aarch64) | same suites | full execution, isolated |
 | `windows-cross` | Docker + cargo-xwin | `cargo check --target x86_64-pc-windows-msvc --lib --tests` (src-tauri + cli) | compile-level only |
 
@@ -212,6 +300,19 @@ Logs land in `$TMPDIR/codeterm-test-matrix/<lane>.log`. Containers shadow
 (`codeterm-linux-*`, `codeterm-xwin-*`) — the host checkout is never dirtied,
 and warm reruns are incremental. To reclaim disk:
 `docker volume rm $(docker volume ls -q | grep '^codeterm-')`.
+
+### Cross-platform CI troubleshooting
+
+- A Tauri test harness that must populate a production `AppHandle` uses
+  `tauri::Builder::default()`. `mock_builder()` changes the runtime type. A
+  libtest-thread harness uses `any_thread()` on Windows; macOS requires the
+  process main thread and headless Linux cannot initialize GTK, so the real
+  AppHandle oracle runs on Windows while pure lifecycle tests cover every OS.
+- Real-socket tests that reserve an ephemeral address and then rebind it must
+  serialize that reservation inside the test module. Parallel bind-drop-bind
+  fixtures can claim each other's released ports, especially on Windows.
+- Run `scripts/clippy-gate.sh` before pushing. Toolchain lint changes are release
+  failures even when focused tests and `cargo check` pass.
 
 ## Logging
 
@@ -275,12 +376,12 @@ The permission prompt detection pipeline detects when AI agents show interactive
 
 ### Pipeline
 
-1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-pane VT100 parser (`vt100` crate).
+1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-tab VT100 parser (`vt100` crate).
 2. **`process_pty_output()`** (`src-tauri/src/service/output.rs`) calls `has_event_markers()` on the cleaned chunk text. This is a cheap string check that gates the expensive path.
 3. **If markers found** -- `get_screen_text()` on `OutputBuffer` returns the actual terminal screen content (what the user sees), correctly handling cursor positioning, alternate screen, and TUI overlays.
 4. **`PromptDetector.evaluate_pty_output()`** (`src-tauri/src/agent/prompt.rs`) runs the state machine. It delegates to `parse_permission_prompt()` for structural fingerprint detection.
-5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the pane and emits `mux-state-changed`.
-6. **Frontend** (`ChatView.tsx`) polls mux state, sees the pending prompt, and renders Yes/No buttons. User clicks a button, which calls `mux_respond_prompt()` and sends the chosen keystroke to the PTY.
+5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the Tab and emits `mux-state-changed`.
+6. **Frontend** (`TabSessionChat.tsx`) reads mux state, sees the pending prompt, and renders response controls. User responds, which calls `mux_respond_prompt()` and sends the chosen keystroke to the PTY.
 
 ### Key source files
 
@@ -288,9 +389,9 @@ The permission prompt detection pipeline detects when AI agents show interactive
 |------|------|
 | `src-tauri/src/agent/prompt.rs` | `PromptDetector` state machine (Idle -> Active -> Cooldown -> Idle) |
 | `src-tauri/src/agent/detector.rs` | Structural fingerprint detection (`detect_interactive_prompt`, `parse_permission_prompt`) + event detection (`detect_claude_events`) |
-| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-pane VT100 parser, `get_screen_text()` |
+| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-tab VT100 parser, `get_screen_text()` |
 | `src-tauri/src/service/output.rs` | `process_pty_output()` orchestration + `apply_prompt_decision()` |
-| `src/components/ChatView/ChatView.tsx` | Frontend polling + button rendering |
+| `src/components/Terminal/TabSessionChat.tsx` | Frontend prompt state + response controls |
 
 ### State machine: PromptDetector
 
@@ -339,8 +440,8 @@ The status tracker (`agent_tracker`) determines whether an agent is Working, Wai
 
 | Path | Entry point | When used |
 |------|-------------|-----------|
-| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent panes; reliable fallback |
-| **Hook (API)** | `POST /api/panes/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
+| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent Tabs; reliable fallback |
+| **Hook (API)** | `POST /api/tabs/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
 
 Both paths converge on the same `PromptDetector` state machine and `apply_prompt_decision()`.
 
@@ -350,10 +451,10 @@ Unit tests cover the full matrix:
 
 ```bash
 # PromptDetector state machine (14 tests)
-cargo test --manifest-path src-tauri/Cargo.toml --lib prompt::tests
+scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib prompt::tests
 
 # Structural fingerprint detection (30+ tests)
-cargo test --manifest-path src-tauri/Cargo.toml --lib detector::tests
+scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib detector::tests
 ```
 
 Key test categories in `detector.rs`:
@@ -376,4 +477,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 18 -->
+<!-- revision: 30 -->

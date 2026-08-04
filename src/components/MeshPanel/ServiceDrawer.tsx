@@ -2,6 +2,7 @@ import { invoke } from "../../lib/bridge";
 import { useEffect, useState } from "react";
 import { serviceIdToCronId, type Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
+import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import {
   servicesDelete,
   servicesRegenerateToken,
@@ -68,7 +69,7 @@ export function ServiceDrawer({
   if (state.kind === "peer") {
     const isSelf = state.id === thisMachineName;
     const peer = peers.find((p) => p.name === state.id) ?? (isSelf
-      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full", last_seen: null } satisfies PeerStatus
+      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full", last_seen: null, relay_protocol_version: RELAY_PROTOCOL_VERSION } satisfies PeerStatus
       : null);
     if (!peer) return null;
 
@@ -351,7 +352,7 @@ function SvcDrawer({
   return (
     <>
       <DrawerBackdrop onClose={onClose} />
-      <div className={PANEL_BASE} style={{ width: 400 }}>
+      <div className={PANEL_BASE} style={{ width: isCron ? "min(860px, calc(100vw - 32px))" : 400 }}>
         <div className="flex items-center justify-between">
           <strong className="text-[var(--ct-fg)] truncate">{service.name}</strong>
           <button

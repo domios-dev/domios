@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
 import { isStubTransportActive } from "../../helpers/stub-gate";
-import { ApiClient, type Pane } from "../../helpers/api-client";
+import { ApiClient, type Tab } from "../../helpers/api-client";
 import { PlanRegistry } from "../../helpers/plan-cleanup";
 
 const TEST_WS_PREFIX = "pw-picker";
@@ -16,7 +16,7 @@ const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
 
 interface MuxTab {
   id: string;
-  pane_id: string;
+  tab_id: string;
 }
 interface MuxWorkspace {
   id: string;
@@ -24,10 +24,10 @@ interface MuxWorkspace {
   tabs: MuxTab[];
   active_tab_id?: string | null;
 }
-interface MuxPane {
+interface MuxTab {
   id: string;
   role?: string | null;
-  parent_pane_id?: string | null;
+  parent_tab_id?: string | null;
   agent_type?: string | null;
   title: string;
   hidden?: boolean;
@@ -35,9 +35,9 @@ interface MuxPane {
 }
 interface MuxState {
   workspaces: MuxWorkspace[];
-  panes: Record<string, MuxPane>;
+  tabs: Record<string, MuxTab>;
   active_workspace_id?: string | null;
-  focused_pane_id?: string | null;
+  focused_tab_id?: string | null;
 }
 
 async function muxState(api: ApiClient): Promise<MuxState> {
@@ -74,7 +74,7 @@ async function expandWorkspace(page: Page, wsId: string): Promise<void> {
   if (await expand.isVisible().catch(() => false)) await expand.click();
 }
 
-/** Opens the VIRTUAL picker; no backend pane/PTY exists until confirm. */
+/** Opens the VIRTUAL picker; no backend tab/PTY exists until confirm. */
 async function openPicker(page: Page, wsId: string): Promise<void> {
   await expandWorkspace(page, wsId);
   await workspaceGroup(page, wsId).getByText("New session", { exact: true }).click();
@@ -110,18 +110,18 @@ async function selectFirstDifferentOption(page: Page, testId: string): Promise<s
   return current ?? "";
 }
 
-function paneCount(panes: Pane[]): number {
-  return panes.length;
+function tabCount(tabs: Tab[]): number {
+  return tabs.length;
 }
-function ptyCount(panes: Pane[]): number {
-  return panes.filter((p) => p.pty_id != null).length;
+function ptyCount(tabs: Tab[]): number {
+  return tabs.filter((p) => p.pty_id != null).length;
 }
 
 function visibleTabsInWorkspace(state: MuxState, wsId: string): MuxTab[] {
   const ws = state.workspaces.find((w) => w.id === wsId);
   return (ws?.tabs ?? []).filter((tab) => {
-    const pane = state.panes[tab.pane_id];
-    return pane && pane.hidden !== true && pane.show_in_tabbar !== false;
+    const tab = state.tabs[tab.tab_id];
+    return tab && tab.hidden !== true && tab.show_in_tabbar !== false;
   });
 }
 
@@ -150,25 +150,25 @@ function peerOrchGreetingSegments(): string[] {
     .filter((s) => s.length > 0);
 }
 
-async function waitForOrchestrator(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; pane: MuxPane }> {
+async function waitForOrchestrator(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; tab: MuxTab }> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const s = await muxState(api);
     const ws = s.workspaces.find((w) => w.id === wsId);
-    const tab = ws?.tabs.find((t) => s.panes[t.pane_id]?.role === "Orchestrator");
-    if (tab && s.panes[tab.pane_id]?.agent_type) return { tab, pane: s.panes[tab.pane_id] };
+    const tab = ws?.tabs.find((t) => s.tabs[t.tab_id]?.role === "Orchestrator");
+    if (tab && s.tabs[tab.tab_id]?.agent_type) return { tab, tab: s.tabs[tab.tab_id] };
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no orchestrator agent materialized in workspace ${wsId}`);
 }
 
-async function waitForSingleAgent(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; pane: MuxPane }> {
+async function waitForSingleAgent(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; tab: MuxTab }> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const s = await muxState(api);
     const ws = s.workspaces.find((w) => w.id === wsId);
-    const tab = ws?.tabs.find((t) => s.panes[t.pane_id]?.agent_type);
-    if (tab) return { tab, pane: s.panes[tab.pane_id] };
+    const tab = ws?.tabs.find((t) => s.tabs[t.tab_id]?.agent_type);
+    if (tab) return { tab, tab: s.tabs[tab.tab_id] };
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no single agent materialized in workspace ${wsId}`);
@@ -245,21 +245,21 @@ test.describe("new-session picker", () => {
     ).toHaveLength(0);
   });
 
-  test("@golden OPEN: New session shows the VIRTUAL picker, no backend pane/PTY", async ({ api, ui }) => {
-    const panes = await api.panes();
+  test("@golden OPEN: New session shows the VIRTUAL picker, no backend tab/PTY", async ({ api, ui }) => {
+    const tabs = await api.tabs();
     const state = await muxState(api);
     expect(visibleTabsInWorkspace(state, ws.id), "picker must not create a rendered backend tab").toHaveLength(0);
-    // …and no snapshot pane carries the virtual picker's title.
+    // …and no snapshot tab carries the virtual picker's title.
     expect(
-      Object.values(state.panes).some((p) => p.title === "New session"),
-      "no picker pane may appear in the snapshot",
+      Object.values(state.tabs).some((p) => p.title === "New session"),
+      "no picker tab may appear in the snapshot",
     ).toBe(false);
     // The picker's own tab in the sidebar is titled, never a "…"/empty husk.
     for (const title of await sidebarTabTitles(ui.page, ws.id).catch(() => [])) {
       expect(isPlaceholderTitle(title), `sidebar tab title "${title}" must not be a placeholder`).toBe(false);
     }
-    // Sanity: the picker pane is virtual, so /panes never lists it.
-    expect(panes.some((p) => p.title === "New session")).toBe(false);
+    // Sanity: the picker tab is virtual, so /tabs never lists it.
+    expect(tabs.some((p) => p.title === "New session")).toBe(false);
   });
 
   test("@golden MODE CARDS: exactly one card selected at a time, pair-affordance follows it", async ({ ui }) => {
@@ -359,11 +359,11 @@ test.describe("new-session picker", () => {
       })
       .toBe(2);
 
-    const { pane: orchestrator } = await waitForOrchestrator(api, ws.id);
+    const { tab: orchestrator } = await waitForOrchestrator(api, ws.id);
     expect(orchestrator.role).toBe("Orchestrator");
     // No leftover virtual husk anywhere in the snapshot.
     const after = await muxState(api);
-    expect(Object.values(after.panes).some((p) => p.title === "New session")).toBe(false);
+    expect(Object.values(after.tabs).some((p) => p.title === "New session")).toBe(false);
 
     // is never the bare, pile-up-prone "Orchestration".
     // Plan creation is the live orchestrator's first act (lazy, LLM-driven) —
@@ -377,14 +377,14 @@ test.describe("new-session picker", () => {
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
 
-    const { pane } = await waitForOrchestrator(api, ws.id);
+    const { tab } = await waitForOrchestrator(api, ws.id);
     const segments = peerOrchGreetingSegments();
     await expect
       .poll(
         async () => {
           try {
             const res = await api.post<{ messages?: { type?: string; content?: string }[] }>(
-              `/panes/${pane.id}/chat-raw/start`,
+              `/tabs/${tab.id}/chat-raw/start`,
             );
             return res.messages?.[0]?.content ?? "";
           } catch {
@@ -396,7 +396,7 @@ test.describe("new-session picker", () => {
       // the subordinate-framing reword tracks automatically.
       .toContain(segments[0]);
     const greeting = (
-      await api.post<{ messages?: { content?: string }[] }>(`/panes/${pane.id}/chat-raw/start`)
+      await api.post<{ messages?: { content?: string }[] }>(`/tabs/${tab.id}/chat-raw/start`)
     ).messages?.[0]?.content ?? "";
     for (const seg of segments) {
       expect(greeting, `greeting must contain constant segment "${seg}"`).toContain(seg);
@@ -418,7 +418,7 @@ test.describe("new-session picker", () => {
           timeout: 60_000,
         })
         .toBeGreaterThanOrEqual(2);
-      const { pane: orchestrator } = await waitForOrchestrator(api, wsB.id);
+      const { tab: orchestrator } = await waitForOrchestrator(api, wsB.id);
       expect(orchestrator.role, "orchestrator must land in workspace B").toBe("Orchestrator");
 
       // …and A keeps NO husk: the virtual picker just vanished, no backend tab.
@@ -440,7 +440,7 @@ test.describe("new-session picker", () => {
     if (await launch.isVisible({ timeout: 3_000 }).catch(() => false)) await launch.click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-    const { tab, pane } = await waitForSingleAgent(api, ws.id);
+    const { tab, tab } = await waitForSingleAgent(api, ws.id);
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
         timeout: 30_000,
@@ -448,7 +448,7 @@ test.describe("new-session picker", () => {
       .toBe(tab.id);
     const s = await muxState(api);
     expect(s.active_workspace_id, "active workspace is the picker host").toBe(ws.id);
-    expect(s.focused_pane_id, "the created agent pane is focused").toBe(pane.id);
+    expect(s.focused_tab_id, "the created agent tab is focused").toBe(tab.id);
     // No lingering virtual picker tab in the workspace.
     expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.every((t) => t.id !== "virtual"), "no virtual tab").toBe(true);
   });
@@ -461,7 +461,7 @@ test.describe("new-session picker", () => {
     await page.locator('[data-testid="picker-confirm"]').click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-    const { tab: orchTab, pane: orchestrator } = await waitForOrchestrator(api, ws.id);
+    const { tab: orchTab, tab: orchestrator } = await waitForOrchestrator(api, ws.id);
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
         timeout: 30_000,
@@ -472,7 +472,7 @@ test.describe("new-session picker", () => {
     // Stub agents boot in seconds, so the planner's focus grab can land after
     // the product refocuses the orchestrator — assert the settled state.
     await expect
-      .poll(async () => (await muxState(api)).focused_pane_id, { timeout: 30_000 })
+      .poll(async () => (await muxState(api)).focused_tab_id, { timeout: 30_000 })
       .toBe(orchestrator.id);
 
     await ui.page.screenshot({ path: "tests/playwright/artifacts/picker-pair-selected.png" });
@@ -489,14 +489,14 @@ test.describe("new-session picker", () => {
       await page.locator('[data-testid="picker-confirm"]').click();
 
       await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-      const { tab: orchTab, pane: orchestrator } = await waitForOrchestrator(api, wsB.id);
+      const { tab: orchTab, tab: orchestrator } = await waitForOrchestrator(api, wsB.id);
       await expect
         .poll(async () => (await muxState(api)).active_workspace_id ?? null, { timeout: 30_000 })
         .toBe(wsB.id);
       const s = await muxState(api);
       expect(s.workspaces.find((w) => w.id === wsB.id)?.active_tab_id, "B's orchestrator tab is active").toBe(orchTab.id);
       await expect
-      .poll(async () => (await muxState(api)).focused_pane_id, { timeout: 30_000 })
+      .poll(async () => (await muxState(api)).focused_tab_id, { timeout: 30_000 })
       .toBe(orchestrator.id);
       // Host A keeps no husk.
       expect(visibleTabsInWorkspace(s, ws.id)).toHaveLength(0);
@@ -566,23 +566,23 @@ test.describe("new-session picker", () => {
 
     await page.reload();
     await expect(picker).toBeHidden();
-    const basePanes = await api.panes();
+    const baseTabs = await api.tabs();
     const baseState = await muxState(api);
     const baseTabs = visibleTabsInWorkspace(baseState, ws.id).length;
 
     await openPicker(page, ws.id);
 
-    const openPanes = await api.panes();
-    expect(paneCount(openPanes), "pane count unchanged while picker open").toBe(paneCount(basePanes));
-    expect(ptyCount(openPanes), "PTY count unchanged while picker open").toBe(ptyCount(basePanes));
+    const openTabs = await api.tabs();
+    expect(tabCount(openTabs), "tab count unchanged while picker open").toBe(tabCount(baseTabs));
+    expect(ptyCount(openTabs), "PTY count unchanged while picker open").toBe(ptyCount(baseTabs));
     const openState = await muxState(api);
     expect(
       visibleTabsInWorkspace(openState, ws.id).length,
       "no rendered backend tab added on open",
     ).toBe(baseTabs);
     expect(
-      Object.values(openState.panes).some((p) => p.title === "New session"),
-      "snapshot has no picker pane entry",
+      Object.values(openState.tabs).some((p) => p.title === "New session"),
+      "snapshot has no picker tab entry",
     ).toBe(false);
 
     // Ghost-title guard at picker-open: no sidebar tab renders empty/"…".
@@ -633,7 +633,7 @@ test.describe("new-session picker", () => {
  *
  * These tests verify that no sidebar tab ever renders as a bare "…"/empty
  * placeholder — whether from snapshot restore, a leaked virtual tab, or a
- * blank backend pane that lost its title. The Rust unit tests in
+ * blank backend tab that lost its title. The Rust unit tests in
  * snapshot.rs prove the root fix (skip_snapshot); these Playwright tests
  * guard the invariant at the UI layer on a live dev session.
  */
@@ -641,7 +641,7 @@ test.describe("ghost-tab invariant", () => {
   test.describe.configure({ timeout: 30_000, retries: 0 });
 
   test("@golden GHOST-TAB: current session sidebar has no placeholder titles", async ({ api, ui }) => {
-    // pane restored with a blank title, this catches it immediately.
+    // tab restored with a blank title, this catches it immediately.
     const state = await muxState(api);
     const allTitles: Array<{ ws: string; title: string }> = [];
 
@@ -659,7 +659,7 @@ test.describe("ghost-tab invariant", () => {
     }
   });
 
-  test("@golden GHOST-TAB: skip_snapshot pane is absent from backend snapshot after picker creates it", async ({ api, ui }) => {
+  test("@golden GHOST-TAB: skip_snapshot tab is absent from backend snapshot after picker creates it", async ({ api, ui }) => {
     const testWs = await createTestWorkspace(api, `${TEST_WS_PREFIX}-ghost-snap`);
     try {
       await openPicker(ui.page, testWs.id);

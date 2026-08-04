@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
-import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from "../../lib/outputStream";
+import { subscribeTabOutput, webOutputStreamActive, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
@@ -20,17 +20,17 @@ import {
   type TerminalHistoryClaim,
 } from "./terminalHistoryReplay";
 
-async function fetchPaneHistory(paneId: string): Promise<string> {
+async function fetchTabHistory(tabId: string): Promise<string> {
   try {
-    const raw = await invoke<string>("get_pane_history_raw", { paneId });
+    const raw = await invoke<string>("get_tab_history_raw", { tabId });
     if (raw) return raw;
   } catch { /* fall back to screen dump */ }
   try {
-    const formatted = await invoke<string>("get_pane_text", { paneId, formatted: true });
+    const formatted = await invoke<string>("get_tab_text", { tabId, formatted: true });
     if (formatted) return formatted;
   } catch { /* fall back to plain */ }
   try {
-    const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
+    const text = await invoke<string>("get_tab_text", { tabId, formatted: false });
     if (text) return text;
   } catch { /* ignore */ }
   return "";
@@ -40,10 +40,10 @@ export interface UsePtyConnectionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
   fitAddonRef: React.MutableRefObject<FitAddon | null>;
   connectedPtyRef: React.MutableRefObject<string | null>;
-  paneId: string;
+  tabId: string;
   ptyId?: string | null;
   termReady: boolean;
-  onPtySpawned?: (paneId: string, ptyId: string) => void;
+  onPtySpawned?: (tabId: string, ptyId: string) => void;
   onShellReady: () => void;
   onOutputChunk: (text: string) => void;
   localFitEnabled?: boolean;
@@ -62,7 +62,7 @@ export function usePtyConnection({
   termRef,
   fitAddonRef,
   connectedPtyRef,
-  paneId,
+  tabId,
   ptyId,
   termReady,
   onPtySpawned,
@@ -75,11 +75,11 @@ export function usePtyConnection({
   onHistoryReplayStateChange,
   onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
-  const paneCwd = useMuxSelector(
-    (s) => s.panes[paneId]?.cwd ?? null,
+  const tabCwd = useMuxSelector(
+    (s) => s.tabs[tabId]?.cwd ?? null,
     (a, b) => a === b,
   );
-  const paneCwdRef = useRef(paneCwd);
+  const tabCwdRef = useRef(tabCwd);
   const localFitEnabledRef = useRef(localFitEnabled);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
@@ -133,8 +133,8 @@ export function usePtyConnection({
   }, [localFitEnabled]);
 
   useEffect(() => {
-    paneCwdRef.current = paneCwd;
-  }, [paneCwd]);
+    tabCwdRef.current = tabCwd;
+  }, [tabCwd]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -208,16 +208,16 @@ export function usePtyConnection({
       if (ptyId && IS_WEB) {
         if (!webReplayedPtysRef.current.has(ptyId)) {
           webReplayedPtysRef.current.add(ptyId);
-          // Stream mode replays via its own pane-keyed offset tracking (outputStream.ts);
+          // Stream mode replays via its own tab-keyed offset tracking (outputStream.ts);
           // the long-poll tail cursor only matters to the read_pty fallback transport.
           if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
-        const claim = claimInitialTerminalHistory(paneId, term);
+        const claim = claimInitialTerminalHistory(tabId, term);
         if (claim) {
           historyClaim = claim;
           historySettled = false;
-          const history = await fetchPaneHistory(paneId);
+          const history = await fetchTabHistory(tabId);
           if (disposed) {
             abandonInitialTerminalHistory(claim);
             return;
@@ -327,12 +327,12 @@ export function usePtyConnection({
         try {
           const cols = Math.max(term.cols, 80);
           const rows = Math.max(term.rows, 24);
-          const paneCwdNow = paneCwdRef.current;
-          const paneData = paneCwdNow != null ? { cwd: paneCwdNow } : undefined;
-          const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
-          const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, paneId });
+          const tabCwdNow = tabCwdRef.current;
+          const tabData = tabCwdNow != null ? { cwd: tabCwdNow } : undefined;
+          const cwd = consumePendingCwd(tabId) || tabData?.cwd || undefined;
+          const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, tabId });
           if (!disposed) {
-            onPtySpawned?.(paneId, spawnedId);
+            onPtySpawned?.(tabId, spawnedId);
             connectedPtyRef.current = null;
           }
         } catch (respawnError) {
@@ -389,20 +389,20 @@ export function usePtyConnection({
       if (!ptyId) {
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
-        const cwd = consumePendingCwd(paneId) || paneCwdRef.current || undefined;
+        const cwd = consumePendingCwd(tabId) || tabCwdRef.current || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
-          cols, rows, predictedId, cwd, paneId,
+          cols, rows, predictedId, cwd, tabId,
         });
         if (disposed) {
-          // killing here leaves backend pane state pointing at a dead PTY. Pane/tab close paths own real teardown.
+          // killing here leaves backend tab state pointing at a dead PTY. Tab/tab close paths own real teardown.
           return;
         }
-        onPtySpawned?.(paneId, spawnedId);
+        onPtySpawned?.(tabId, spawnedId);
 
         if (!cwd) {
           const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
           if (defaultCwd) {
-            invoke("mux_update_pane_cwd", { paneId, cwd: defaultCwd }).catch(() => {});
+            invoke("mux_update_tab_cwd", { tabId, cwd: defaultCwd }).catch(() => {});
           }
         }
 
@@ -428,7 +428,7 @@ export function usePtyConnection({
 
       let unsubscribeOutputStream: (() => void) | null = null;
       if (useOutputStream) {
-        const sink: PaneOutputSink = {
+        const sink: TabOutputSink = {
           onOutput: (text) => enqueueTermWrite(new TextEncoder().encode(text)),
           onTruncated: (from) => {
             term.writeln(
@@ -439,7 +439,7 @@ export function usePtyConnection({
             void respawnStalePty();
           },
         };
-        unsubscribeOutputStream = subscribePaneOutput(paneId, sink);
+        unsubscribeOutputStream = subscribeTabOutput(tabId, sink);
       } else {
         readLoop();
       }
@@ -467,7 +467,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory, onConnectionStateChange]);
+  }, [ptyId, tabId, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory, onConnectionStateChange]);
 
   return { writePty };
 }

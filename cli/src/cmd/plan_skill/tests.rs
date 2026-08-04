@@ -29,9 +29,25 @@ impl RpcClient for FakeRpc {
                     "verdict": "keep"
                 }
             }),
+            "plan.files" => json!({
+                "index_path": "C:/Users/User/.codeterm/plans/active/plan_rpc/INDEX.md",
+                "entries": []
+            }),
             other => panic!("unexpected RPC method {other}"),
         })
     }
+}
+
+#[test]
+fn local_skill_edit_resolves_authoritative_plan_directory_from_rpc() {
+    let mut client = FakeRpc::default();
+
+    let (plan_id, plan_dir) = resolve_local(&mut client, Some("plan_rpc".into())).unwrap();
+
+    assert_eq!(plan_id, "plan_rpc");
+    assert!(plan_dir.ends_with("active/plan_rpc"));
+    assert_eq!(client.calls[0].0, "plan.files");
+    assert_eq!(client.calls[0].1.as_ref().unwrap()["plan_id"], "plan_rpc");
 }
 
 #[test]

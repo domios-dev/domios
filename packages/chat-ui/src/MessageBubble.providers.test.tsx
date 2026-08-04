@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
 import { parseInboundReport } from "./codeterm/InboundReportCard";
-import { CROSS_PANE_BUBBLE_TESTID } from "./crossPaneBubble";
+import { CROSS_TAB_BUBBLE_TESTID } from "./crossTabBubble";
 import { reduceToolEvents } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
@@ -1078,12 +1078,12 @@ test("chatBackend unknown tool falls back gracefully", async () => {
 test("chatBackend structured inbound renders an expanded typed message card", async () => {
   const { host, root } = await renderMessages([
     {
-      id: "inbound-pane-1",
+      id: "inbound-tab-1",
       provider: "lmstudio",
       type: "user",
       content: "Please inspect the last run.",
       fromLabel: "Worker A",
-      fromPane: "abc12345",
+      fromTab: "abc12345",
       fromModel: "gpt-5",
       inboundKind: "tab",
     },
@@ -1094,7 +1094,7 @@ test("chatBackend structured inbound renders an expanded typed message card", as
     assertIncludes(host, "tab", "structured inbound channel");
     assertIncludes(host, "Please inspect the last run.", "expanded inbound body");
     assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed inbound message card");
-    assert(!host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`), "inbound message must not use legacy bubble");
+    assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "inbound message must not use legacy bubble");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -1114,7 +1114,7 @@ test("structured report uses compact typed card instead of a nested message bubb
     type: "user",
     content,
     fromLabel: "Hugo",
-    fromPane: "e7f14bec",
+    fromTab: "e7f14bec",
     fromModel: "opus",
     inboundKind: "report",
   }]);
@@ -1123,7 +1123,7 @@ test("structured report uses compact typed card instead of a nested message bubb
     assertIncludes(host, "report · Hugo", "report sender");
     assertIncludes(host, "task_2iw42e", "report task summary");
     assertIncludes(host, "1e096cba6", "report sha chip");
-    assert(!host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`), "report must not use nested cross-pane bubble");
+    assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "report must not use nested cross-tab bubble");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -1138,7 +1138,7 @@ test("chatBackend structured mesh inbound renders peer in sender header", async 
       type: "user",
       content: "Remote status is green.",
       fromLabel: "Edison",
-      fromPane: "mesh1234",
+      fromTab: "mesh1234",
       fromModel: "sonnet",
       fromMesh: "BLACKSTAR",
       inboundKind: "mesh",

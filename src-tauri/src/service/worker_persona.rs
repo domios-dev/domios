@@ -35,6 +35,9 @@ struct ReservationScope {
 struct ReservationEntry {
     scope: ReservationScope,
     title: String,
+    /// Set once the persona is handed to a tab: the claim is then keyed on the
+    /// tab id and survives any later rename of that tab's display title.
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -46,6 +49,17 @@ pub(crate) struct WorkerPersonaReservations {
 pub(crate) struct WorkerPersonaReservationGuard {
     reservations: Arc<Mutex<WorkerPersonaReservations>>,
     reservation_id: Option<u64>,
+}
+
+impl WorkerPersonaReservationGuard {
+    /// Hand the persona to `tab_id` for that tab's lifetime, disarming the
+    /// spawn-window release. Identity is keyed on the tab id from here on, so a
+    /// self-rename relabels the tab without releasing its persona.
+    pub(crate) fn commit_to_tab(mut self, tab_id: &str) {
+        if let Some(id) = self.reservation_id.take() {
+            self.reservations.lock().commit(id, tab_id);
+        }
+    }
 }
 
 impl Drop for WorkerPersonaReservationGuard {
@@ -64,12 +78,32 @@ impl WorkerPersonaReservations {
     ) -> WorkerPersonaReservationGuardToken {
         self.next_id += 1;
         let id = self.next_id;
-        self.entries.insert(id, ReservationEntry { scope, title });
+        self.entries.insert(
+            id,
+            ReservationEntry {
+                scope,
+                title,
+                tab_id: None,
+            },
+        );
         WorkerPersonaReservationGuardToken(id)
     }
 
     fn release(&mut self, reservation_id: u64) {
         self.entries.remove(&reservation_id);
+    }
+
+    /// Bind a reservation to the tab now carrying the persona, so the claim
+    /// outlives the spawn window.
+    fn commit(&mut self, reservation_id: u64, tab_id: &str) {
+        if let Some(entry) = self.entries.get_mut(&reservation_id) {
+            entry.tab_id = Some(tab_id.to_string());
+        }
+    }
+
+    fn release_for_tab(&mut self, tab_id: &str) {
+        self.entries
+            .retain(|_, entry| entry.tab_id.as_deref() != Some(tab_id));
     }
 
     #[cfg(test)]
@@ -127,6 +161,13 @@ impl ServiceContext {
         }))
     }
 
+    /// Release the persona held by a closing tab, returning it to the pool.
+    pub(crate) fn release_worker_persona_for_tab(&self, tab_id: &str) {
+        self.worker_identity_allocator
+            .lock()
+            .release_for_tab(tab_id);
+    }
+
     fn worker_persona_intent(
         &self,
         params: &mut SpawnAgentParams,
@@ -153,8 +194,8 @@ impl ServiceContext {
             let mux = self.mux.read();
             resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
-                params.parent_pane_id.as_deref(),
-                |pid| mux.find_workspace_for_pane(pid),
+                params.parent_tab_id.as_deref(),
+                |pid| mux.find_workspace_for_tab(pid),
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?
@@ -180,8 +221,8 @@ impl ServiceContext {
         let mut names = {
             let mux = self.mux.read();
             let mut names = workspace_live_titles(&mux, &scope.workspace_id);
-            if let Some(parent_id) = params.parent_pane_id.as_deref() {
-                let title = mux.display_label_for_pane(parent_id);
+            if let Some(parent_id) = params.parent_tab_id.as_deref() {
+                let title = mux.display_label_for_tab(parent_id);
                 if !title.trim().is_empty() {
                     names.insert(title);
                 }
@@ -197,7 +238,7 @@ impl ServiceContext {
     }
 }
 
-/// Every non-empty display title of a live pane in `workspace_id`, regardless
+/// Every non-empty display title of a live tab in `workspace_id`, regardless
 /// of role or owning session.
 fn workspace_live_titles(
     mux: &crate::multiplexer::state::MultiplexerState,
@@ -206,9 +247,9 @@ fn workspace_live_titles(
     mux.list_workspaces()
         .into_iter()
         .filter(|ws| ws.id == workspace_id)
-        .flat_map(|ws| ws.pane_ids)
-        .filter(|pane_id| mux.get_pane(pane_id).is_some())
-        .map(|pane_id| mux.display_label_for_pane(&pane_id))
+        .flat_map(|ws| ws.tab_ids)
+        .filter(|tab_id| mux.get_tab(tab_id).is_some())
+        .map(|tab_id| mux.display_label_for_tab(&tab_id))
         .filter(|title| !title.trim().is_empty())
         .collect()
 }
@@ -322,8 +363,8 @@ fn seed_for_worker_persona(
     params.plan_id.hash(&mut hasher);
     params.task_id.hash(&mut hasher);
     params.plan_task.hash(&mut hasher);
-    params.parent_pane_id.hash(&mut hasher);
-    params.spawned_by_pane_id.hash(&mut hasher);
+    params.parent_tab_id.hash(&mut hasher);
+    params.spawned_by_tab_id.hash(&mut hasher);
     params.cwd.hash(&mut hasher);
     suggested_title.map(str::trim).hash(&mut hasher);
     hasher.finish()
@@ -420,30 +461,102 @@ mod tests {
     }
 
     #[test]
+    fn pane_self_rename_does_not_release_a_live_worker_persona() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::AgentRole;
+
+        let (mut mux, orch_tab) = MultiplexerState::new();
+        let ws_id = mux.find_workspace_for_tab(&orch_tab).unwrap();
+        mux.rename_tab(&orch_tab, "Holst").unwrap();
+
+        let worker = mux.create_tab(&ws_id).unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch_tab))
+            .unwrap();
+
+        // Spawn allocates the persona, applies it as the creation title, and
+        // commits the claim to the tab id.
+        let reservations = Arc::new(Mutex::new(WorkerPersonaReservations::default()));
+        let token = reservations.lock().reserve(
+            ReservationScope {
+                workspace_id: ws_id.clone(),
+                session_id: None,
+            },
+            "Vera".into(),
+        );
+        WorkerPersonaReservationGuard {
+            reservations: reservations.clone(),
+            reservation_id: Some(token.0),
+        }
+        .commit_to_tab(&worker);
+        mux.rename_tab(&worker, "Vera").unwrap();
+
+        // The pane renames its own tab mid-task — the documented session-start rule.
+        mux.rename_tab(&worker, "pane rename identity").unwrap();
+
+        // Exactly what used_worker_persona_names_locked composes.
+        let mut reserved = workspace_live_titles(&mux, &ws_id);
+        reserved.extend(reservations.lock().reserved_titles_in_workspace(&ws_id));
+        assert!(
+            reserved.contains("Vera"),
+            "a live Worker's assigned persona must stay reserved across its own rename; reserved={reserved:?}"
+        );
+        assert_ne!(
+            allocate_worker_persona_name(&reserved, Some("Vera"), None, 0).title,
+            "Vera",
+            "persona reissued to a second Worker while the first is still live"
+        );
+    }
+
+    #[test]
+    fn closing_a_renamed_worker_returns_its_persona_to_the_pool() {
+        let reservations = Arc::new(Mutex::new(WorkerPersonaReservations::default()));
+        let token = reservations
+            .lock()
+            .reserve(scope(), "Vera".into());
+        WorkerPersonaReservationGuard {
+            reservations: reservations.clone(),
+            reservation_id: Some(token.0),
+        }
+        .commit_to_tab("tab-1");
+        assert_eq!(
+            reservations.lock().reserved_titles_in_workspace("ws"),
+            vec!["Vera".to_string()]
+        );
+
+        reservations.lock().release_for_tab("tab-1");
+        assert!(
+            reservations
+                .lock()
+                .reserved_titles_in_workspace("ws")
+                .is_empty(),
+            "a closed tab must not keep holding its persona"
+        );
+    }
+
+    #[test]
     fn workspace_live_titles_excludes_non_worker_roles() {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::AgentRole;
 
-        let (mut mux, orch_pane) = MultiplexerState::new();
+        let (mut mux, orch_tab) = MultiplexerState::new();
         let ws_id = mux
-            .find_workspace_for_pane(&orch_pane)
-            .expect("initial pane has a workspace");
-        mux.rename_pane(&orch_pane, "Orchestrator-Prime")
-            .expect("rename orchestrator pane");
+            .find_workspace_for_tab(&orch_tab)
+            .expect("initial Tab has a workspace");
+        mux.rename_tab(&orch_tab, "Orchestrator-Prime")
+            .expect("rename orchestrator Tab");
 
-        let (_tab_id, plain_pane) = mux.create_tab(&ws_id).expect("create plain tab");
-        mux.rename_pane(&plain_pane, "Kai").expect("rename pane");
+        let plain_tab = mux.create_tab(&ws_id).expect("create plain tab");
+        mux.rename_tab(&plain_tab, "Kai").expect("rename Tab");
 
-        let (_tab_id, worker_pane) = mux.create_tab(&ws_id).expect("create worker tab");
-        mux.set_pane_role(&worker_pane, AgentRole::Worker, Some(&orch_pane))
+        let worker_tab = mux.create_tab(&ws_id).expect("create worker tab");
+        mux.set_tab_role(&worker_tab, AgentRole::Worker, Some(&orch_tab))
             .expect("attach worker");
-        mux.rename_pane(&worker_pane, "Esme")
-            .expect("rename worker");
+        mux.rename_tab(&worker_tab, "Esme").expect("rename worker");
 
         let titles = workspace_live_titles(&mux, &ws_id);
         assert!(
             titles.contains("Orchestrator-Prime"),
-            "the parent Orchestrator's own tab title must count as used, not just Worker panes: {titles:?}"
+            "the parent Orchestrator's own tab title must count as used, not just Worker Tabs: {titles:?}"
         );
         assert!(
             titles.contains("Kai"),
@@ -457,23 +570,23 @@ mod tests {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::AgentRole;
 
-        let (mut mux, orch_pane) = MultiplexerState::new();
-        let ws_id = mux.find_workspace_for_pane(&orch_pane).unwrap();
+        let (mut mux, orch_tab) = MultiplexerState::new();
+        let ws_id = mux.find_workspace_for_tab(&orch_tab).unwrap();
 
-        let (_tab_id, other_session_worker) = mux.create_tab(&ws_id).unwrap();
-        mux.set_pane_role(&other_session_worker, AgentRole::Worker, Some(&orch_pane))
+        let other_session_worker = mux.create_tab(&ws_id).unwrap();
+        mux.set_tab_role(&other_session_worker, AgentRole::Worker, Some(&orch_tab))
             .unwrap();
-        mux.rename_pane(&other_session_worker, "Nora").unwrap();
-        if let Some(pane) = mux.get_pane_mut(&other_session_worker) {
-            pane.agent_session_id = Some("some-other-session".into());
+        mux.rename_tab(&other_session_worker, "Nora").unwrap();
+        if let Some(tab) = mux.get_tab_mut(&other_session_worker) {
+            tab.agent_session_id = Some("some-other-session".into());
         }
 
-        // The old scan filtered live panes to the caller's own session_id,
+        // The old scan filtered live tabs to the caller's own session_id,
         // so a Worker title claimed under a different session was invisible.
         let titles = workspace_live_titles(&mux, &ws_id);
         assert!(
             titles.contains("Nora"),
-            "a title held by a pane from a different session must still be excluded: {titles:?}"
+            "a title held by a Tab from a different session must still be excluded: {titles:?}"
         );
     }
 

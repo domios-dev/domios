@@ -23,19 +23,19 @@ pub(crate) fn attach_planned_model(
 }
 
 pub(crate) fn persist_model_launch_identity(
-    pane: &mut crate::multiplexer::types::Pane,
+    tab: &mut crate::multiplexer::types::Tab,
     planned_model: Option<&str>,
     resolution: &FreshAgentModelResolution,
 ) {
-    pane.agent_planned_model = planned_model
+    tab.agent_planned_model = planned_model
         .map(str::trim)
         .filter(|model| !model.is_empty())
         .map(str::to_string);
-    pane.agent_requested_model = resolution.requested_model.clone();
-    pane.agent_provider_resolved_model = resolution.model.clone();
-    pane.agent_session_model = None;
-    pane.model_fallback = resolution.fallback_notice.clone();
-    pane.model_identity_mismatch = None;
+    tab.agent_requested_model = resolution.requested_model.clone();
+    tab.agent_provider_resolved_model = resolution.model.clone();
+    tab.agent_session_model = None;
+    tab.model_fallback = resolution.fallback_notice.clone();
+    tab.model_identity_mismatch = None;
 }
 
 pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> String {
@@ -43,16 +43,6 @@ pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> Strin
         "model {} unavailable -> using {}",
         notice.requested_model, notice.provider_resolved_model
     )
-}
-
-/// Kept as a thin, direct-`Option` convenience wrapper over
-/// [`CatalogBackgroundModelPort`] — call sites that only need "does this
-/// model resolve cleanly, yes/no" (vs. the fuller `(model, fell_back)` pair
-/// the shared `codeterm_mem::worker_agent` resolver needs) can use this.
-pub(crate) fn compatible_background_model(provider_id: &str, configured: &str) -> Option<String> {
-    use codeterm_mem::worker_agent::BackgroundModelPort;
-    let (model, fell_back) = CatalogBackgroundModelPort.resolve(provider_id, configured);
-    (!model.is_empty() && !fell_back).then_some(model)
 }
 
 /// [`codeterm_mem::worker_agent::BackgroundModelPort`] impl over the catalog

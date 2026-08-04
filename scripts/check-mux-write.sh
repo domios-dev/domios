@@ -10,7 +10,7 @@ REPO="$(git rev-parse --show-toplevel)"
 SRC="${REPO}/src-tauri/src"
 
 # Methods that are &self on MultiplexerState — never need an exclusive write guard.
-READ_METHODS="snapshot|get_pane|pane_id_for_pty|resolve_pane_id|get_focused_pane_id|other_session_ids|pane_ids_with_session|list_workspaces|to_session_snapshot"
+READ_METHODS="snapshot|get_tab|tab_id_for_pty|resolve_tab_id|get_focused_tab_id|other_session_ids|tab_ids_with_session|list_workspaces|to_session_snapshot"
 
 BAD=$(grep -rn --include="*.rs" \
     -E "\.(mux|mux_state|state)\.write\(\)\.(${READ_METHODS})\b" \

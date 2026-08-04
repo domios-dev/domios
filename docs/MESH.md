@@ -12,6 +12,23 @@
 
 Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are shown in the mesh, unpaired peers appear in the "Discovered" list.
 
+## Local REST availability
+
+The local REST supervisor, not the mesh liveness detector, owns listener
+recovery. Listener/server exit produces a failed lifecycle event and exactly
+one newer generation; that replacement is advertised healthy only after socket
+ownership and a successful real `/api/health` response. Bind ownership failure
+and a still-bound listener with all four REST workers blocked have distinct
+diagnostics, so worker starvation does not cause listener-generation churn.
+
+Replacement readiness is queued to the liveness owner with a monotonic recovery
+transition id, which restores local HTTP health, emits the existing
+`mesh-state-changed` resync signal, and broadcasts the refreshed announce
+exactly once. Distinct worker-stall recoveries within one listener generation
+receive distinct ids; a duplicate observation cannot claim another resync.
+Relay delivery keeps its existing at-most-once and structured-error behavior
+across the outage.
+
 ## Auth Model
 
 Every paired peer has an Ed25519 keypair. Requests between peers are signed with the sender's private key and verified against known public keys.
@@ -19,7 +36,8 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - `sign_request()` — signs a request with this peer's private key
 - `verify_signed_request()` — verifies signature against known paired peer public keys
 - Paired = allowed. Not paired = rejected.
-- AccessLevel check can be added per-endpoint in the future.
+- Normal peer requests and relayed requests use the same `AccessLevel` policy.
+- Secret-vault routes and mesh token minting are local-only at every access level.
 
 ## Flows
 
@@ -53,13 +71,49 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - Public keys exchanged during pairing, verified on every request
 - Unpair = remove pubkey = auth fails
 
+## Web UI discovery and relay
+
+Every live announce carries `relay_protocol_version` and an optional typed
+`web_ui` capability. Endpoints are limited to verified Tailscale HTTPS,
+Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes
+`/api/health` and matches the running build before advertising an origin; the
+receiver validates and reorders the typed endpoints before storing them.
+
+The default **Open** action never sends a remote daemon token to the browser.
+It opens the local Web UI entry origin with the local token in a URL fragment
+and a paired peer ID. The browser removes that fragment from history, resolves
+the peer name from the authenticated local peer list, and sends API traffic
+through the signed Mesh relay. Relay authorization uses the same policy as a
+direct signed peer request. REST config responses redact `api.token`, and
+`/api/secrets/*` cannot be relayed even with Full access.
+
+Relay protocol version `1` is intentionally incompatible with older daemons.
+Both incoming and outgoing relay paths reject a peer with `426 Upgrade
+Required`; the Mesh card keeps **Open** disabled and asks the user to update
+that peer.
+
+The browser origin that served the SPA remains its gateway. An already-loaded
+page can render during a gateway outage, but it cannot fetch data or switch
+peers until that gateway returns. Safe gateway failover requires a separate
+short-lived, single-use handoff grant; permanent API tokens are never shared as
+a fallback.
+
 ## Remote plan commands
 
 `plan`, `spec`, `task`, `effort`, and `team` accept `--mesh PEER`. The CLI resolves
 files and stdin locally, then sends the resulting content through the signed mesh
-RPC endpoint to the peer's in-process plan dispatcher. Implicit local pane identity
+RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identity
 and working-directory defaults are not forwarded; explicit project paths refer to
 the target machine. Mutations require `Full` peer access and carry an idempotency ID.
+
+## Peer API compatibility
+
+Before a relayed CLI operation, the caller reads the peer's authenticated
+`/api/identify` response. Peers older than 1.7.8 use the pane-era wire contract,
+so the caller translates tab routes and identifier fields at the relay boundary
+and normalizes the response back to the current tab contract. The preflight and
+operation use distinct signed nonces. This adapter does not invent endpoints or
+features absent from the older peer.
 
 ## Bridge migration
 
@@ -130,7 +184,7 @@ When `config.mesh.enabled = false`, the auth middleware short-circuits every `/a
 
 ## Mesh tab and service registry
 
-The Mesh tab is the UI surface for the local service registry and peer services. It replaces the old standalone Cron Panel and absorbs the older `[Crons]` sidebar route.
+The Mesh tab is the UI surface for the local service registry and peer services. It replaces the old standalone Cron Tabl and absorbs the older `[Crons]` sidebar route.
 
 ### Sub-tabs
 
@@ -161,7 +215,7 @@ Peer services are **not gossiped** across the mesh. When a peer card is expanded
 
 ### Push tokens
 
-Each daemon service has a per-service push token stored at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix). The token is 64-hex-char random and returned **once** (at create, or via `services.regenerate_token` / `service token --rotate`). Daemons send `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send` to write to a pane without the global access token. The auth middleware validates push tokens (`services::push::validate_push`) **before** falling through to the mesh signed-token check, so a daemon Bearer never accidentally lands in the peer code path. Token comparison is constant-time. Rotating a token also auto-flips `push_enabled = true` (you wouldn't rotate if you didn't intend to push).
+Each daemon service has a per-service push token stored at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix). The token is 64-hex-char random and returned **once** (at create, or via `services.regenerate_token` / `service token --rotate`). Daemons send `Authorization: Bearer <token>` on `POST /api/tabs/<tab_id>/send` to write to a Tab without the global access token. The auth middleware validates push tokens (`services::push::validate_push`) **before** falling through to the mesh signed-token check, so a daemon Bearer never accidentally lands in the peer code path. Token comparison is constant-time. Rotating a token also auto-flips `push_enabled = true` (you wouldn't rotate if you didn't intend to push).
 
 ### Activity log
 
@@ -185,7 +239,7 @@ Probe interval is per-service (`health_interval`, default 30 s). The `services::
 The Mesh canvas renders peers as terminal-window-shaped nodes. Health and push events update the canvas in real time via Tauri events:
 
 - `service-health-changed` — `{service_id, status}`. Fired only on confirmed transitions (3-tick debounced).
-- `service-pushed` — `{service_id, pane_id, body_preview}`. Fired by `POST /api/panes/{id}/send` on token-authenticated writes **and** by the mesh-relay path when a paired peer relays a `/send` to us, so cross-peer push traffic surfaces in the canvas + activity log identically to local pushes.
+- `service-pushed` — `{service_id, tab_id, body_preview}`. Fired by `POST /api/tabs/{id}/send` on token-authenticated writes **and** by the mesh-relay path when a paired peer relays a `/send` to us, so cross-peer push traffic surfaces in the canvas + activity log identically to local pushes.
 
 The ServicesTable lists local services with health badges. ServiceDrawer shows full config + recent activity for a selected service, with cron-aware actions (trigger / enable-disable / edit-schedule / history) and daemon-aware actions (probe / rotate token / enable-disable). The drawer dismisses on ESC, backdrop click, or its visible close button. Self-peer drawers hide pair/access-level UI (pointless for the local node).
 
@@ -224,8 +278,8 @@ services/
   health/           — http / tcp / process / script probes + scheduler (30 s tick, 3-tick debounce)
   activity.rs       — bounded activity log writer/reader (10k rows / 30 days)
   tokens.rs         — per-service push tokens (file-backed, 0600, constant-time)
-  push.rs           — Bearer token middleware for /api/panes/*/send
+  push.rs           — Bearer token middleware for /api/tabs/*/send
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 8 -->
+<!-- revision: 13 -->

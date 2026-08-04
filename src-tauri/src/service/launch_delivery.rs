@@ -4,9 +4,10 @@ use crate::agent::provider::SystemPromptDelivery;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
-    PendingDeliveryTransitionError,
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
+use crate::service::delivery_error::DeliveryError;
+use crate::service::inject_verify::{InjectionError, InjectionResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -23,19 +24,12 @@ pub(crate) struct LaunchContent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingDelivery {
     pub digest: String,
-    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
     pub payload: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum DeliveryError {
-    DeliveryUnconfirmed,
-    RecordTransition(PendingDeliveryTransitionError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,39 +79,52 @@ impl LaunchDeliveryGate {
         self.stage = LaunchConsumptionStage::ProviderReady;
     }
 
+    pub(crate) fn consume_injection<F>(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+        sink: &impl BootStageSink,
+        transaction: F,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
+    where
+        F: FnOnce() -> Result<InjectionResult, InjectionError>,
+    {
+        if let Some(outcome) = self.prepare_consumption(mux, tab_id) {
+            return Ok(outcome);
+        }
+
+        let result = dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            sink,
+            tab_id,
+            Some(transaction),
+        )
+        .expect("fallback delivery dispatch executes the transaction");
+        let transaction_error = result.as_ref().err().map(ToString::to_string);
+        let evidence = result
+            .map(|injection| injection.echo_observed && injection.submit_observed)
+            .map_err(|error| DeliveryError::from_injection(tab_id, error));
+        self.finish_consumption(mux, tab_id, evidence, transaction_error)
+    }
+
+    #[cfg(test)]
     pub(crate) fn consume<F>(
         &self,
         mux: &MuxState,
-        pane_id: &str,
+        tab_id: &str,
         sink: &impl BootStageSink,
         transaction: F,
     ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
     where
         F: FnOnce() -> Result<bool, String>,
     {
-        if self.stage != LaunchConsumptionStage::ProviderReady {
-            return Ok(LaunchConsumptionOutcome::NotReady);
+        if let Some(outcome) = self.prepare_consumption(mux, tab_id) {
+            return Ok(outcome);
         }
-        let should_submit = {
-            let mut mux = mux.write();
-            let pending = mux
-                .get_pane_mut(pane_id)
-                .and_then(|pane| pane.pending_delivery.as_mut())
-                .expect("fallback launch owns a pending delivery record");
-            if pending.state() == PendingDeliveryState::Confirmed {
-                false
-            } else {
-                begin_fallback_attempt(pending, next_attempt()).is_ok()
-            }
-        };
-        if !should_submit {
-            return Ok(LaunchConsumptionOutcome::AlreadyConfirmed);
-        }
-
         let result = dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             sink,
-            pane_id,
+            tab_id,
             Some(transaction),
         )
         .expect("fallback delivery dispatch executes the transaction");
@@ -125,16 +132,19 @@ impl LaunchDeliveryGate {
         let delivery = {
             let mut mux = mux.write();
             let pending = mux
-                .get_pane_mut(pane_id)
-                .and_then(|pane| pane.pending_delivery.as_mut())
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch retains its pending delivery record");
-            confirm_fallback(pending, submission_observed)
+            confirm_fallback(tab_id, pending, submission_observed)
         };
         match delivery {
             Ok(()) => result
                 .map(|_| LaunchConsumptionOutcome::Confirmed)
                 .map_err(|transaction| LaunchConsumptionError {
-                    delivery: DeliveryError::DeliveryUnconfirmed,
+                    delivery: DeliveryError::SubmitUnconfirmed {
+                        tab: tab_id.to_string(),
+                        detail: "launch delivery transaction failed".into(),
+                    },
                     transaction: Some(transaction),
                 }),
             Err(delivery) => Err(LaunchConsumptionError {
@@ -143,18 +153,50 @@ impl LaunchDeliveryGate {
             }),
         }
     }
-}
 
-impl std::fmt::Display for DeliveryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DeliveryUnconfirmed => f.write_str("DeliveryUnconfirmed"),
-            Self::RecordTransition(error) => write!(f, "pending delivery transition: {error:?}"),
+    fn prepare_consumption(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+    ) -> Option<LaunchConsumptionOutcome> {
+        if self.stage != LaunchConsumptionStage::ProviderReady {
+            return Some(LaunchConsumptionOutcome::NotReady);
         }
+        let should_submit = {
+            let mut mux = mux.write();
+            let pending = mux
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
+                .expect("fallback launch owns a pending delivery record");
+            !pending.state().is_accepted()
+                && begin_fallback_attempt(tab_id, pending, next_attempt()).is_ok()
+        };
+        (!should_submit).then_some(LaunchConsumptionOutcome::AlreadyConfirmed)
+    }
+
+    fn finish_consumption(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+        evidence: Result<bool, DeliveryError>,
+        transaction: Option<String>,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError> {
+        let delivery = {
+            let mut mux = mux.write();
+            let pending = mux
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
+                .expect("fallback launch retains its pending delivery record");
+            reconcile_pending_delivery(tab_id, pending, evidence)
+        };
+        delivery
+            .map(|_| LaunchConsumptionOutcome::Confirmed)
+            .map_err(|delivery| LaunchConsumptionError {
+                delivery,
+                transaction,
+            })
     }
 }
-
-impl std::error::Error for DeliveryError {}
 
 pub(crate) fn mode_for_descriptor(descriptor: &SystemPromptDelivery) -> LaunchDeliveryMode {
     match descriptor {
@@ -188,7 +230,6 @@ pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     let digest = Sha256::digest(text.as_bytes());
     PendingDelivery {
         digest: format!("{digest:x}"),
-        confirmed: false,
     }
 }
 
@@ -240,34 +281,76 @@ pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
 }
 
 pub(crate) fn begin_fallback_attempt(
+    tab_id: &str,
     pending: &mut PendingDeliveryRecord,
     attempt: DeliveryAttemptProvenance,
 ) -> Result<(), DeliveryError> {
-    if pending.state() == PendingDeliveryState::Confirmed {
+    if pending.state().is_accepted() {
         return Ok(());
     }
     pending
         .replace_attempt(attempt)
-        .map_err(DeliveryError::RecordTransition)
+        .map_err(|error| DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: format!("pending delivery transition: {error:?}"),
+        })
 }
 
 pub(crate) fn confirm_fallback(
+    tab_id: &str,
     pending: &mut PendingDeliveryRecord,
     submission_observed: bool,
 ) -> Result<(), DeliveryError> {
-    if pending.state() == PendingDeliveryState::Confirmed {
+    if pending.state().is_accepted() {
         return Ok(());
     }
     if !submission_observed {
-        return Err(DeliveryError::DeliveryUnconfirmed);
+        return Err(DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: "delivery acknowledgement not observed".into(),
+        });
     }
-    pending.confirm().map_err(DeliveryError::RecordTransition)
+    pending
+        .confirm()
+        .map_err(|error| DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: format!("pending delivery transition: {error:?}"),
+        })
+}
+
+pub(crate) fn reconcile_pending_delivery(
+    tab_id: &str,
+    pending: &mut PendingDeliveryRecord,
+    evidence: Result<bool, DeliveryError>,
+) -> Result<(), DeliveryError> {
+    if pending.state().is_accepted() {
+        return Ok(());
+    }
+    match evidence {
+        Ok(true) => {
+            pending.mark_ingested();
+            confirm_fallback(tab_id, pending, true)
+        }
+        Ok(false) => {
+            pending.mark_unconfirmed();
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab_id.to_string(),
+                detail: "delivery acknowledgement not observed".into(),
+            })
+        }
+        Err(error) => {
+            if error.bytes_written() {
+                pending.mark_unconfirmed();
+            }
+            Err(error)
+        }
+    }
 }
 
 pub(crate) fn dispatch_initial_delivery<T, F>(
     mode: LaunchDeliveryMode,
     sink: &impl BootStageSink,
-    pane_id: &str,
+    tab_id: &str,
     transaction: Option<F>,
 ) -> Option<T>
 where
@@ -276,7 +359,7 @@ where
     match mode {
         LaunchDeliveryMode::SystemPrompt => None,
         LaunchDeliveryMode::ConfirmedFallback => transaction.map(|transaction| {
-            sink.record(pane_id, BootStage::DeliveringInstructions, None);
+            sink.record(tab_id, BootStage::DeliveringInstructions, None);
             transaction()
         }),
     }
@@ -341,6 +424,7 @@ mod tests {
     fn fallback_first_message_confirmed_exactly_once() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "first".into(),
@@ -349,9 +433,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pending.state(), PendingDeliveryState::Pending);
-        confirm_fallback(&mut pending, true).unwrap();
-        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
-        confirm_fallback(&mut pending, false).unwrap();
+        confirm_fallback("tab", &mut pending, true).unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
+        confirm_fallback("tab", &mut pending, false).unwrap();
     }
 
     #[test]
@@ -388,6 +472,7 @@ mod tests {
             crate::multiplexer::types::PendingDeliveryProvenance::FallbackBootstrap
         );
         begin_fallback_attempt(
+            "pair-tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "bootstrap".into(),
@@ -401,15 +486,15 @@ mod tests {
         dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             &sink,
-            "pair-pane",
+            "pair-tab",
             Some(|| submissions += 1),
         );
-        confirm_fallback(&mut pending, true).unwrap();
-        if pending.state() != PendingDeliveryState::Confirmed {
+        confirm_fallback("pair-tab", &mut pending, true).unwrap();
+        if !pending.state().is_accepted() {
             dispatch_initial_delivery(
                 LaunchDeliveryMode::ConfirmedFallback,
                 &sink,
-                "pair-pane",
+                "pair-tab",
                 Some(|| submissions += 1),
             );
         }
@@ -430,8 +515,8 @@ mod tests {
             spec.payload.contains("Execute the assigned task."),
             assigned
         );
-        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
-        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending);
         let mux = Arc::new(TimedRwLock::new("fallback-delivery-test", state));
         let sink = RecordingSink::default();
         let mut submitted = Vec::new();
@@ -439,21 +524,28 @@ mod tests {
         gate.mark_shell_ready();
         gate.mark_provider_ready();
         assert_eq!(
-            gate.consume(&mux, &pane_id, &sink, || {
+            gate.consume_injection(&mux, &tab_id, &sink, || {
                 submitted.push(spec.payload.clone());
-                Ok(true)
+                Ok(InjectionResult {
+                    bytes_written: spec.payload.len(),
+                    echo_observed: true,
+                    submit_observed: true,
+                    submit_anomaly: false,
+                    submit_key_writes: 1,
+                    elapsed: Duration::ZERO,
+                })
             })
             .unwrap(),
             LaunchConsumptionOutcome::Confirmed
         );
         let pending = mux
             .read()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .unwrap()
             .pending_delivery
             .clone()
             .unwrap();
-        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
         assert_eq!(submitted.len(), 1);
         assert_eq!(
             pending.content_digest,
@@ -484,6 +576,7 @@ mod tests {
 
         fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
             let marker = match params.starter_prompt {
+                crate::agent::provider::StarterPrompt::NoStarter => "INLINE-NONE",
                 crate::agent::provider::StarterPrompt::AssignedTask => "INLINE-ASSIGNED",
                 crate::agent::provider::StarterPrompt::IdleWakeup => "INLINE-IDLE",
                 crate::agent::provider::StarterPrompt::TeamBootstrap => "INLINE-TEAM",
@@ -558,6 +651,7 @@ mod tests {
     fn fallback_deadline_yields_structured_error() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "first".into(),
@@ -566,8 +660,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            confirm_fallback(&mut pending, false),
-            Err(DeliveryError::DeliveryUnconfirmed)
+            confirm_fallback("tab", &mut pending, false)
+                .unwrap_err()
+                .code(),
+            "submit_unconfirmed"
         );
         assert_eq!(pending.state(), PendingDeliveryState::Pending);
         assert_eq!(pending.attempt_provenance().unwrap().attempt_id, "first");
@@ -577,13 +673,14 @@ mod tests {
     fn fallback_reconnect_never_resends_confirmed() {
         let mut pending = pending_record_for("task");
         pending.confirm().unwrap();
-        assert!(confirm_fallback(&mut pending, false).is_ok());
+        assert!(confirm_fallback("tab", &mut pending, false).is_ok());
     }
 
     #[test]
     fn fallback_retry_after_failure_redelivers_once() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "first".into(),
@@ -592,10 +689,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            confirm_fallback(&mut pending, false),
-            Err(DeliveryError::DeliveryUnconfirmed)
+            confirm_fallback("tab", &mut pending, false)
+                .unwrap_err()
+                .code(),
+            "submit_unconfirmed"
         );
         begin_fallback_attempt(
+            "tab",
             &mut pending,
             DeliveryAttemptProvenance {
                 attempt_id: "retry".into(),
@@ -604,18 +704,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pending.attempt_provenance().unwrap().attempt_id, "retry");
-        confirm_fallback(&mut pending, true).unwrap();
-        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
+        confirm_fallback("tab", &mut pending, true).unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
     }
 
     #[test]
     fn fallback_emits_delivering_after_tui_ready() {
         let sink = RecordingSink::default();
-        sink.record("pane-1", BootStage::AgentLaunching, None);
+        sink.record("tab-1", BootStage::AgentLaunching, None);
         dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             &sink,
-            "pane-1",
+            "tab-1",
             Some(|| sink.record_transaction()),
         );
 
@@ -629,12 +729,12 @@ mod tests {
     fn system_prompt_channel_never_emits_delivering() {
         let sink = RecordingSink::default();
         let mut transactions = 0;
-        sink.record("pane-1", BootStage::AgentLaunching, None);
+        sink.record("tab-1", BootStage::AgentLaunching, None);
 
         let result = dispatch_initial_delivery(
             mode_for_descriptor(&SystemPromptDelivery::SessionConfig),
             &sink,
-            "pane-1",
+            "tab-1",
             Some(|| transactions += 1),
         );
 

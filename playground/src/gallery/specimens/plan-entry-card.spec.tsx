@@ -1,9 +1,9 @@
 import { PlanEntryCard } from "../../ds/PlanEntryCard";
-import type { Specimen } from "../types";
+import { defineSpecimen } from "../types";
 
 const base = { title: "General 1.7.2", subtitle: "General 1.7.2 plan", counts: { todo: 1, review: 0, blocked: 0, done: 83 } };
 
-export default {
+export default defineSpecimen({
   id: "plan-entry-card",
   title: "Plan entry card",
   category: "Sidebar",
@@ -18,4 +18,4 @@ export default {
     { id: "working", label: "Working", props: { ...base, working: true } },
     { id: "selected", label: "Selected", props: { ...base, selected: true } },
   ],
-} satisfies Specimen;
+});

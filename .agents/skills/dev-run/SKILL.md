@@ -19,7 +19,7 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ./build.sh dev
 ```
 
-That's it. Hot-reloads Vite on every TSX edit, rebuilds Rust on `src-tauri/` edits, opens the Tauri window. Auto-builds CLI into `~/.codeterm/bin/` on every start.
+That's it. Hot-reloads Vite on every TSX edit, rebuilds Rust on `src-tauri/` edits, opens the Tauri window. Auto-builds CLI into the active `~/.codeterm-dev*/bin/` and routes dev PTYs to that binary.
 
 Run it in the **background** so you can keep working:
 
@@ -113,15 +113,19 @@ The build.sh bg task's own output stream also contains the Rust compile log and 
 - `~/.codeterm-dev/` — config, mem DB, sessions, logs, mesh identity
 - `~/.codeterm-dev/config.toml` — themes, keybindings, api section
 - `~/.codeterm-dev/mem/` — mem SQLite + FTS + vectors
-- `~/.codeterm-dev/sessions/` — persisted workspaces/tabs/panes
+- `~/.codeterm-dev/sessions/` — persisted workspaces/tabs
 
-**Important:** the dev CLI config is separate from prod. The `codeterm` binary in `~/.codeterm/bin/` reads prod's `~/.codeterm/` identity by default — it does NOT auto-target dev. To hit dev from CLI, you either need to run from inside a dev PTY (env vars are set there) or add the dev port explicitly:
+**Important:** the dev CLI config is separate from prod. Dev PTYs receive the
+active data-directory CLI first on `PATH`; production shells continue using
+`~/.codeterm/bin/`. From outside a dev PTY, use the dev environment wrapper:
 
 ```bash
-CODETERM_API_PORT=7686 codeterm <subcommand>
+source evals/_lib/lib.sh
+dc <subcommand>
 ```
 
-Even then, auth will fail unless the dev mesh identity matches — prod-signed tokens are rejected by dev. Cleanest path: just use curl with manual token from `~/.codeterm-dev/config.toml` `[api] token`, or run commands from inside a dev tab.
+The wrapper pins the dev socket, token, and port and refuses to run while dev is
+down. Never use a bare production `codeterm` command as a dev bench shortcut.
 
 ## "Start from a clean dev" / засранный конфиг
 

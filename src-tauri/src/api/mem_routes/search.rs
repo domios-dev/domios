@@ -111,6 +111,7 @@ fn append_plan_hits(
         .map_err(|e| e.to_string())?;
     let mut plan_query = PlanIndexQuery {
         query: q.query.clone(),
+        kind: q.kind.clone(),
         scope: q.scope.clone(),
         limit: q.limit,
     };

@@ -55,6 +55,10 @@ pub enum TaskAction {
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
+        qa_plan: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        qa_plan_file: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
         correctness: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         body: Option<String>,
@@ -65,7 +69,7 @@ pub enum TaskAction {
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
         #[arg(long = "assign-tab", value_name = "TAB")]
-        assign_pane: Option<String>,
+        assign_tab: Option<String>,
     },
 }
 
@@ -76,7 +80,7 @@ pub enum CanvasAction {
         #[arg(long, conflicts_with_all = ["tab", "plan"])]
         task: Option<String>,
         #[arg(long = "tab", value_name = "TAB", conflicts_with_all = ["task", "plan"])]
-        pane: Option<String>,
+        tab: Option<String>,
         #[arg(long, conflicts_with_all = ["task", "tab"])]
         plan: Option<String>,
     },

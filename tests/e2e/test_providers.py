@@ -38,26 +38,26 @@ def _provider_binary(provider: str) -> str | None:
     return next((path for name in candidates if (path := shutil.which(name))), None)
 
 
-def _pane(api: CodeTermAPI, pane_id: str) -> dict | None:
-    return next((p for p in api.list_panes() if p.get("id") == pane_id), None)
+def _tab(api: CodeTermAPI, tab_id: str) -> dict | None:
+    return next((p for p in api.list_tabs() if p.get("id") == tab_id), None)
 
 
-def _wait_for_pane(api: CodeTermAPI, pane_id: str, timeout: float = 20) -> dict:
+def _wait_for_tab(api: CodeTermAPI, tab_id: str, timeout: float = 20) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        pane = _pane(api, pane_id)
-        if pane is not None:
-            return pane
+        tab = _tab(api, tab_id)
+        if tab is not None:
+            return tab
         time.sleep(0.5)
-    raise AssertionError(f"pane {pane_id} was not created")
+    raise AssertionError(f"tab {tab_id} was not created")
 
 
-def _wait_for_nontrivial_output(api: CodeTermAPI, pane_id: str, timeout: float = 90) -> str:
+def _wait_for_nontrivial_output(api: CodeTermAPI, tab_id: str, timeout: float = 90) -> str:
     deadline = time.monotonic() + timeout
     last_text = ""
     while time.monotonic() < deadline:
         try:
-            data = api.get_output(pane_id, strip_ansi_flag=True)
+            data = api.get_output(tab_id, strip_ansi_flag=True)
             text = data.get("output", "")
             last_text = text or last_text
             compact = "".join(text.split())
@@ -66,7 +66,7 @@ def _wait_for_nontrivial_output(api: CodeTermAPI, pane_id: str, timeout: float =
         except Exception:
             pass
         try:
-            text = api.get_screen(pane_id)
+            text = api.get_screen(tab_id)
             last_text = text or last_text
             compact = "".join(text.split())
             if len(compact) >= 20:
@@ -75,7 +75,7 @@ def _wait_for_nontrivial_output(api: CodeTermAPI, pane_id: str, timeout: float =
             pass
         time.sleep(1)
     raise AssertionError(
-        f"pane {pane_id} did not render non-trivial TUI output; last output: {last_text[-300:]}"
+        f"tab {tab_id} did not render non-trivial TUI output; last output: {last_text[-300:]}"
     )
 
 
@@ -87,24 +87,24 @@ def _skip_if_auth_blocked(provider: str, text: str) -> None:
 
 def _wait_for_provider_detection(
     api: CodeTermAPI,
-    pane_id: str,
+    tab_id: str,
     provider: str,
     model_markers: list[str],
     timeout: float = 120,
 ) -> dict:
     deadline = time.monotonic() + timeout
-    last_pane = None
+    last_tab = None
     while time.monotonic() < deadline:
-        last_pane = _pane(api, pane_id)
-        if last_pane is not None:
-            detected = last_pane.get("agent_type")
-            session_model = last_pane.get("agent_session_model")
+        last_tab = _tab(api, tab_id)
+        if last_tab is not None:
+            detected = last_tab.get("agent_type")
+            session_model = last_tab.get("agent_session_model")
             if detected == provider and _model_matches(session_model, model_markers):
-                return last_pane
+                return last_tab
         time.sleep(1)
     raise AssertionError(
         "provider/model detection did not settle for "
-        f"{provider}; last pane state: {last_pane}"
+        f"{provider}; last tab state: {last_tab}"
     )
 
 
@@ -151,26 +151,26 @@ def test_provider_spawn_detection_model_and_tui(
     model_markers: list[str],
 ):
     ws_id = None
-    pane_id = None
+    tab_id = None
     try:
         ws = api.create_workspace(unique_name("e2e-ws-provider"))
         ws_id = ws["id"]
         result = _spawn_provider(api, provider, model, ws_id)
-        pane_id = result.get("pane_id")
+        tab_id = result.get("tab_id")
 
         assert result.get("agent") == provider
-        assert pane_id, f"{provider} spawn response did not include pane_id: {result}"
-        _wait_for_pane(api, pane_id)
-        output = _wait_for_nontrivial_output(api, pane_id)
+        assert tab_id, f"{provider} spawn response did not include tab_id: {result}"
+        _wait_for_tab(api, tab_id)
+        output = _wait_for_nontrivial_output(api, tab_id)
         _skip_if_auth_blocked(provider, output)
-        pane = _wait_for_provider_detection(api, pane_id, provider, model_markers)
+        tab = _wait_for_provider_detection(api, tab_id, provider, model_markers)
 
-        assert pane.get("agent_type") == provider
-        assert _model_matches(pane.get("agent_session_model"), model_markers), pane
+        assert tab.get("agent_type") == provider
+        assert _model_matches(tab.get("agent_session_model"), model_markers), tab
     finally:
-        if pane_id:
+        if tab_id:
             try:
-                api.close_pane(pane_id)
+                api.close_tab(tab_id)
             except Exception:
                 pass
         if ws_id:
@@ -181,7 +181,7 @@ def test_provider_spawn_detection_model_and_tui(
                 pass
 
 
-def test_plain_shell_pane_has_no_agent_detection(api_only: CodeTermAPI, api_pane: str):
-    pane = _wait_for_pane(api_only, api_pane)
-    assert pane.get("agent_type") in (None, "")
-    assert pane.get("agent_session_model") in (None, "")
+def test_plain_shell_tab_has_no_agent_detection(api_only: CodeTermAPI, api_tab: str):
+    tab = _wait_for_tab(api_only, api_tab)
+    assert tab.get("agent_type") in (None, "")
+    assert tab.get("agent_session_model") in (None, "")

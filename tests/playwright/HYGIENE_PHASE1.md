@@ -57,7 +57,7 @@ baseline entries for removed/unmarked sleeps were deleted; future unmarked
 | `tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts` | 1 | 1 | 1 |
 | `tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts` | 2 | 2 | 2 |
 | `tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts` | 1 | 1 | 1 |
-| `tests/playwright/suites/16-chat-view/send-on-fresh-pane.spec.ts` | 1 | 1 | 1 |
+| `tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts` | 1 | 1 | 1 |
 | `tests/playwright/suites/18-reorder/pin-general.spec.ts` | 8 | 8 | 8 |
 | `tests/playwright/suites/18-reorder/reorder.spec.ts` | 5 | 5 | 5 |
 

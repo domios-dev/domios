@@ -5,7 +5,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::Manager;
 
-use crate::multiplexer::types::PaneBacking;
+use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceState;
 use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
 
@@ -14,10 +14,10 @@ use super::states::AppStates;
 fn should_materialize_restored_backend(
     restored_from_snapshot: bool,
     protected: bool,
-    backing: &PaneBacking,
+    backing: &TabBacking,
     pty_id: Option<&str>,
 ) -> bool {
-    restored_from_snapshot && !protected && matches!(backing, PaneBacking::Pty) && pty_id.is_none()
+    restored_from_snapshot && !protected && matches!(backing, TabBacking::Pty) && pty_id.is_none()
 }
 
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
@@ -27,25 +27,25 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
             log::error!("[startup-pty] frontend readiness deadline elapsed");
             return;
         }
-        let pane_ids = service_state
+        let tab_ids = service_state
             .mux
             .read()
             .snapshot()
-            .panes
+            .tabs
             .into_values()
-            .filter(|pane| {
+            .filter(|tab| {
                 should_materialize_restored_backend(
-                    pane.restored_from_snapshot,
-                    pane.protected,
-                    &pane.backing,
-                    pane.pty_id.as_deref(),
+                    tab.restored_from_snapshot,
+                    tab.protected,
+                    &tab.backing,
+                    tab.pty_id.as_deref(),
                 )
             })
-            .map(|pane| pane.id)
+            .map(|tab| tab.id)
             .collect::<Vec<_>>();
-        for pane_id in pane_ids {
-            if let Err(error) = service_state.ensure_pane_pty_for_send(&pane_id) {
-                log::error!("[startup-pty] pane={pane_id} materialization failed: {error}");
+        for tab_id in tab_ids {
+            if let Err(error) = service_state.ensure_tab_pty_for_send(&tab_id) {
+                log::error!("[startup-pty] tab={tab_id} materialization failed: {error}");
             }
         }
     });
@@ -140,6 +140,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 mesh: states.mesh.clone(),
                 keepawake: states.keepawake.clone(),
                 resize_owner: states.resize_owner.clone(),
+                rest_api: states.rest_api.clone(),
                 test_clock: test_clock.clone(),
                 events: states.event_broadcaster.clone(),
                 web_dist: resolve_web_dist(app.path().resource_dir().ok()),
@@ -180,7 +181,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         }
     }
 
-    // Start General Agent PTY + launch agent (workspace/pane already created in init_states)
+    // Start General Agent PTY + launch agent (workspace/tab already created in init_states)
     {
         let config = states.config.lock().general_agent.clone();
         if config.enabled && config.first_run_complete {
@@ -206,12 +207,12 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 ) {
                     let reason = "frontend did not report readiness before the launch deadline";
                     log::error!("[general-agent] {reason}");
-                    if let Some(pane_id) = mux
+                    if let Some(tab_id) = mux
                         .write()
-                        .resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
+                        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
                     {
                         svc.emit_boot_stage(
-                            &pane_id,
+                            &tab_id,
                             codeterm_types::pty::BootStage::SpawnFailed,
                             Some(reason),
                         );
@@ -255,7 +256,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general pane once the agent is ready.
+    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general tab once the agent is ready.
     update::post_update::spawn(service_state.clone());
 }
 
@@ -288,7 +289,7 @@ fn select_web_dist(
 #[cfg(test)]
 mod tests {
     use super::{select_web_dist, should_materialize_restored_backend};
-    use crate::multiplexer::types::PaneBacking;
+    use crate::multiplexer::types::TabBacking;
 
     fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
         let dist = parent.join(name);
@@ -337,25 +338,25 @@ mod tests {
         assert!(should_materialize_restored_backend(
             true,
             false,
-            &PaneBacking::Pty,
+            &TabBacking::Pty,
             None,
         ));
         assert!(!should_materialize_restored_backend(
             false,
             false,
-            &PaneBacking::Pty,
+            &TabBacking::Pty,
             None,
         ));
         assert!(!should_materialize_restored_backend(
             true,
             true,
-            &PaneBacking::Pty,
+            &TabBacking::Pty,
             None,
         ));
         assert!(!should_materialize_restored_backend(
             true,
             false,
-            &PaneBacking::ChatBackend {
+            &TabBacking::ChatBackend {
                 plugin_id: "test".into(),
                 session_id: "session".into(),
             },
@@ -364,7 +365,7 @@ mod tests {
         assert!(!should_materialize_restored_backend(
             true,
             false,
-            &PaneBacking::Pty,
+            &TabBacking::Pty,
             Some("live"),
         ));
     }

@@ -12,11 +12,11 @@ pub trait PluginHostCtx: Send + Sync {
     // ── Memory ──────────────────────────────────────────────────────────
     fn mem_search_json(&self, opts_json: &str) -> String;
 
-    // ── Workspace / pane ────────────────────────────────────────────────
+    // ── Workspace / tab ────────────────────────────────────────────────
     fn workspace_ensure_json(&self, opts_json: &str) -> String;
-    fn workspace_panes_json(&self, workspace_id: &str) -> String;
-    fn close_pane(&self, pane_id: &str);
-    fn spawn_pane_json(&self, spec_json: &str) -> String;
+    fn workspace_tabs_json(&self, workspace_id: &str) -> String;
+    fn close_tab(&self, tab_id: &str);
+    fn spawn_tab_json(&self, spec_json: &str) -> String;
 
     // ── Worker ──────────────────────────────────────────────────────────
     fn worker_get_json(&self, session_id: &str) -> Option<String>;

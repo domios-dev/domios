@@ -7,7 +7,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { expect, test, type Browser, type Page, type PaneCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { expect, test, type Browser, type Page, type TabCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import { auditKnownSurfaces, collectViewportOffenders, INTERACTIVE, revealOwnedHorizontalSurface, type ReachabilityMode } from "../../helpers/mobile-overflow";
 import { tempSpawnCwd } from "../../helpers/spawn-cwd";
@@ -20,9 +20,9 @@ const VIEWPORTS = [
 
 type CanvasLayerExpectation = "overlay" | "inline";
 
-type CreatedPane = { id: string; tab_id?: string };
-type TargetPane = {
-  paneId: string;
+type CreatedTab = { id: string; tab_id?: string };
+type TargetTab = {
+  tabId: string;
   tabTitle: string;
   workspaceId: string;
   planId?: string;
@@ -33,7 +33,7 @@ type MuxState = {
   workspaces: Array<{
     id: string;
     cwd?: string | null;
-    tabs: Array<{ id: string; pane_id: string }>;
+    tabs: Array<{ id: string; tab_id: string }>;
   }>;
 };
 type Health = {
@@ -143,11 +143,11 @@ async function auditViewport(page: Page, label: string, options: { reachability?
   }
 }
 
-async function prepareTargetPane(
+async function prepareTargetTab(
   api: ApiClient,
-  paneCleanup: PaneCleanup,
+  tabCleanup: TabCleanup,
   seedTeam: boolean,
-): Promise<TargetPane> {
+): Promise<TargetTab> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
   let fixtureWorkspaceId: string | undefined;
   let fixtureCwd: string | undefined;
@@ -157,33 +157,33 @@ async function prepareTargetPane(
     fixtureWorkspaceId = (await api.workspaces()).find((workspace) => workspace.cwd === fixtureCwd)?.id;
     if (!fixtureWorkspaceId) throw new Error(`project-backed Team workspace was not created for ${fixtureCwd}`);
   }
-  const pane = await paneCleanup.createPane<CreatedPane>({
+  const tab = await tabCleanup.createTab<CreatedTab>({
     title: tabTitle,
     eager: true,
     ...(fixtureWorkspaceId ? { workspace_id: fixtureWorkspaceId, cwd: fixtureCwd } : {}),
   });
-  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${pane.id}/make-orchestrator`, {});
-  await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
-  const chat = await api.post<ChatStart>(`/panes/${pane.id}/chat-raw/start`);
+  await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tab.id}/make-orchestrator`, {});
+  await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
+  const chat = await api.post<ChatStart>(`/tabs/${tab.id}/chat-raw/start`);
   expect(chat.pending, "authenticated chat-raw/start returns a ready transcript").toBe(false);
-  await api.focusPane(pane.id);
+  await api.focusTab(tab.id);
 
   const mux = await api.get<MuxState>("/mux/state");
   for (const workspace of mux.workspaces) {
     if (fixtureWorkspaceId && workspace.id !== fixtureWorkspaceId) continue;
-    const tab = workspace.tabs.find((candidate) => candidate.pane_id === pane.id);
+    const tab = workspace.tabs.find((candidate) => candidate.tab_id === tab.id);
     if (!tab) continue;
-    if (!seedTeam) return { paneId: pane.id, tabTitle, workspaceId: workspace.id };
+    if (!seedTeam) return { tabId: tab.id, tabTitle, workspaceId: workspace.id };
     if (!workspace.cwd) throw new Error(`Team fixture workspace ${workspace.id} has no cwd`);
     const plan = await api.post<{ plan_id: string; team_id: string }>("/plans", {
       title: `pw-mobile-team-${Date.now()}`,
       project_path: workspace.cwd,
-      owner: { pane_id: pane.id, session_id: null, title: tabTitle },
+      owner: { tab_id: tab.id, session_id: null, title: tabTitle },
       kinds: "implement:#38bdf8",
     });
     return {
-      paneId: pane.id,
+      tabId: tab.id,
       tabTitle,
       workspaceId: workspace.id,
       planId: plan.plan_id,
@@ -191,7 +191,7 @@ async function prepareTargetPane(
       fixtureWorkspaceId,
     };
   }
-  throw new Error(`created pane ${pane.id} has no owning tab in mux state`);
+  throw new Error(`created tab ${tab.id} has no owning tab in mux state`);
 }
 
 async function waitSidebarClosed(page: Page): Promise<void> {
@@ -213,7 +213,7 @@ async function waitSidebarClosed(page: Page): Promise<void> {
   await settleLayout(page);
 }
 
-async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target: TargetPane, label: string): Promise<void> {
+async function openSidebarAndSelectTargetTab(api: ApiClient, page: Page, target: TargetTab, label: string): Promise<void> {
   await api.focusWorkspace(target.workspaceId);
   const workspace = (await api.workspaces()).find((candidate) => candidate.id === target.workspaceId);
   if (!workspace) throw new Error(`${label} target workspace ${target.workspaceId} is missing`);
@@ -231,7 +231,7 @@ async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target
     const disclosure = workspaceRegion.getByRole("button", { name: workspace.name }).first();
     if ((await disclosure.getAttribute("aria-expanded")) !== "true") await disclosure.click();
   }
-  await expect(tab, `${label} target pane tab visible`).toBeVisible({ timeout: 10_000 });
+  await expect(tab, `${label} target tab tab visible`).toBeVisible({ timeout: 10_000 });
   await tab.click();
   await waitSidebarClosed(page);
 }
@@ -250,7 +250,7 @@ async function openWorkspaceCanvasOverlay(page: Page, label: string): Promise<vo
 async function assertActiveManagerReadable(
   api: ApiClient,
   page: Page,
-  target: TargetPane,
+  target: TargetTab,
   label: string,
 ): Promise<void> {
   if (!target.teamId) throw new Error(`${label} has no seeded Team`);
@@ -276,16 +276,16 @@ async function assertActiveManagerReadable(
   await expect(activeManager.locator('[data-testid="tab-title"]'), `${label} active manager title visible`)
     .toHaveText(/\S+/);
 
-  await openSidebarAndSelectTargetPane(api, page, target, `${label} restore target`);
+  await openSidebarAndSelectTargetTab(api, page, target, `${label} restore target`);
 }
 
-async function assertCanvasStateBeforePaneTransition(
+async function assertCanvasStateBeforeTabTransition(
   page: Page,
-  paneId: string,
+  tabId: string,
   expected: CanvasLayerExpectation,
   label: string,
 ): Promise<void> {
-  const state = await page.evaluate(({ targetPaneId, expectedLayer }) => {
+  const state = await page.evaluate(({ targetTabId, expectedLayer }) => {
     const canvas = document.querySelector('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]') as HTMLElement | null;
     if (!canvas) return { kind: "missing-canvas" as const };
     const visible = (el: Element | null): el is HTMLElement => {
@@ -295,46 +295,46 @@ async function assertCanvasStateBeforePaneTransition(
       return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
     };
     const visibleControlsOutsideCanvas = Array.from(document.querySelectorAll(
-      '[data-testid="pane-session-chat"], [data-testid="terminal-pane"], [data-testid="chat-composer"], [data-testid="chat-reconnect"]',
+      '[data-testid="tab-session-chat"], [data-testid="terminal-tab"], [data-testid="chat-composer"], [data-testid="chat-reconnect"]',
     )).filter((el) => visible(el) && !el.closest('[inert], [aria-hidden="true"]') && !canvas.contains(el));
     if (expectedLayer === "inline") {
       return {
         kind: "inline" as const,
-        paneControlCount: visibleControlsOutsideCanvas.length,
+        tabControlCount: visibleControlsOutsideCanvas.length,
       };
     }
-    const paneRoot = document.querySelector(`[data-pane-id="${targetPaneId}"]`) as HTMLElement | null;
-    if (!visible(paneRoot)) {
+    const tabRoot = document.querySelector(`[data-tab-id="${targetTabId}"]`) as HTMLElement | null;
+    if (!visible(tabRoot)) {
       return {
         kind: "overlay" as const,
-        paneRootVisible: false,
+        tabRootVisible: false,
       };
     }
-    const rect = paneRoot.getBoundingClientRect();
+    const rect = tabRoot.getBoundingClientRect();
     const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
     const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
     const hit = document.elementFromPoint(x, y);
     return {
       kind: "overlay" as const,
-      paneRootVisible: true,
-      hitInsidePaneRoot: hit instanceof Node && (hit === paneRoot || paneRoot.contains(hit)),
+      tabRootVisible: true,
+      hitInsideTabRoot: hit instanceof Node && (hit === tabRoot || tabRoot.contains(hit)),
       hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
     };
-  }, { targetPaneId: paneId, expectedLayer: expected });
+  }, { targetTabId: tabId, expectedLayer: expected });
 
-  expect(state.kind, `${label} valid canvas state before pane transition ${JSON.stringify(state)}`).not.toBe("missing-canvas");
+  expect(state.kind, `${label} valid canvas state before tab transition ${JSON.stringify(state)}`).not.toBe("missing-canvas");
   if (state.kind === "inline") {
-    expect(state.paneControlCount, `${label} inline canvas has no outside-canvas chat/terminal controls`).toBe(0);
+    expect(state.tabControlCount, `${label} inline canvas has no outside-canvas chat/terminal controls`).toBe(0);
     return;
   }
-  expect(state.paneRootVisible, `${label} overlay target pane root visible ${JSON.stringify(state)}`).toBe(true);
-  expect(state.hitInsidePaneRoot, `${label} overlay canvas blocks click-through to pane root ${JSON.stringify(state)}`).toBe(false);
+  expect(state.tabRootVisible, `${label} overlay target tab root visible ${JSON.stringify(state)}`).toBe(true);
+  expect(state.hitInsideTabRoot, `${label} overlay canvas blocks click-through to tab root ${JSON.stringify(state)}`).toBe(false);
 }
 
-async function assertWorkspaceLayerTopmost(page: Page, paneId: string, label: string): Promise<void> {
+async function assertWorkspaceLayerTopmost(page: Page, tabId: string, label: string): Promise<void> {
   await expect
     .poll(
-      () => page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`).evaluate((chat) => {
+      () => page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`).evaluate((chat) => {
         const rect = chat.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return false;
         const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
@@ -346,7 +346,7 @@ async function assertWorkspaceLayerTopmost(page: Page, paneId: string, label: st
     )
     .toBe(true);
 
-  const result = await page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`).evaluate((chat) => {
+  const result = await page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`).evaluate((chat) => {
     const rect = chat.getBoundingClientRect();
     const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
     const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
@@ -409,14 +409,14 @@ async function assertControlsReachable(page: Page, selector: string, label: stri
   expect(results.every(Boolean), `${label} controls reachable`).toBe(true);
 }
 
-function targetPaneModeSwitch(page: Page, paneId: string) {
-  return page.locator(`[data-pane-id="${paneId}"]`).locator('[data-testid="pane-mode-switch"]');
+function targetTabModeSwitch(page: Page, tabId: string) {
+  return page.locator(`[data-tab-id="${tabId}"]`).locator('[data-testid="tab-mode-switch"]');
 }
 
-async function assertPaneModeTabsReachable(page: Page, paneId: string, label: string): Promise<void> {
-  const switchLocator = targetPaneModeSwitch(page, paneId);
+async function assertTabModeTabsReachable(page: Page, tabId: string, label: string): Promise<void> {
+  const switchLocator = targetTabModeSwitch(page, tabId);
   const switchCount = await switchLocator.count();
-  expect(switchCount, `${label} target pane mode switch count for ${paneId}`).toBe(1);
+  expect(switchCount, `${label} target tab mode switch count for ${tabId}`).toBe(1);
 
   const results = await switchLocator.locator('[role="tab"]').evaluateAll((nodes) =>
     nodes.map((node) => {
@@ -432,7 +432,7 @@ async function assertPaneModeTabsReachable(page: Page, paneId: string, label: st
       };
     }));
   const tabNames = results.map((item) => item.label).sort();
-  expect(tabNames, `${label} pane mode tabs present ${JSON.stringify(results)}`).toEqual(["Chat", "Terminal"]);
+  expect(tabNames, `${label} tab mode tabs present ${JSON.stringify(results)}`).toEqual(["Chat", "Terminal"]);
   expect(
     results.filter((item) => item.label === "Chat"),
     `${label} one Chat control ${JSON.stringify(results)}`,
@@ -441,13 +441,13 @@ async function assertPaneModeTabsReachable(page: Page, paneId: string, label: st
     results.filter((item) => item.label === "Terminal"),
     `${label} one Terminal control ${JSON.stringify(results)}`,
   ).toHaveLength(1);
-  expect(results.every((item) => item.reachable), `${label} pane mode tabs reachable ${JSON.stringify(results)}`).toBe(true);
+  expect(results.every((item) => item.reachable), `${label} tab mode tabs reachable ${JSON.stringify(results)}`).toBe(true);
 }
 
-async function assertPeerPickerMenuInverseOcclusion(page: Page, paneId: string, label: string): Promise<void> {
-  const switchLocator = targetPaneModeSwitch(page, paneId);
+async function assertPeerPickerMenuInverseOcclusion(page: Page, tabId: string, label: string): Promise<void> {
+  const switchLocator = targetTabModeSwitch(page, tabId);
   const switchCount = await switchLocator.count();
-  expect(switchCount, `${label} inverse-occlusion target pane mode switch count for ${paneId}`).toBe(1);
+  expect(switchCount, `${label} inverse-occlusion target tab mode switch count for ${tabId}`).toBe(1);
 
   const result = await switchLocator.locator('[role="tab"]').evaluateAll((nodes) => {
     const menu = document.querySelector('[data-testid="peer-picker-menu"]');
@@ -466,7 +466,7 @@ async function assertPeerPickerMenuInverseOcclusion(page: Page, paneId: string, 
     });
   });
   const tabNames = result.map((item) => item.label).sort();
-  expect(tabNames, `${label} inverse-occlusion pane mode tabs present ${JSON.stringify(result)}`).toEqual(["Chat", "Terminal"]);
+  expect(tabNames, `${label} inverse-occlusion tab mode tabs present ${JSON.stringify(result)}`).toEqual(["Chat", "Terminal"]);
   expect(
     result.filter((item) => item.label === "Chat"),
     `${label} inverse-occlusion one Chat control ${JSON.stringify(result)}`,
@@ -915,10 +915,10 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(popupCollectorSource).toContain("inPeerPickerMenu ? reachable");
     const popupLayerSource = assertPeerPickerMenuInverseOcclusion.toString();
     expect(popupLayerSource).toContain("inverse-occlusion peer menu covers Chat and Terminal tabs");
-    expect(targetPaneModeSwitch.toString()).toContain('[data-pane-id="${paneId}"]');
-    expect(targetPaneModeSwitch.toString()).toContain('[data-testid="pane-mode-switch"]');
-    expect(assertPaneModeTabsReachable.toString()).toContain("target pane mode switch count");
-    expect(assertPeerPickerMenuInverseOcclusion.toString()).toContain("inverse-occlusion target pane mode switch count");
+    expect(targetTabModeSwitch.toString()).toContain('[data-tab-id="${tabId}"]');
+    expect(targetTabModeSwitch.toString()).toContain('[data-testid="tab-mode-switch"]');
+    expect(assertTabModeTabsReachable.toString()).toContain("target tab mode switch count");
+    expect(assertPeerPickerMenuInverseOcclusion.toString()).toContain("inverse-occlusion target tab mode switch count");
 
     await page.setContent(`
       <style>
@@ -963,20 +963,20 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     await page.setContent(`
       <style>
         html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-        [data-testid="pane-mode-switch"] { position: absolute; left: 40px; top: 40px; display: flex; gap: 8px; }
-        [data-pane-id="foreign-pane"] [data-testid="pane-mode-switch"] { top: 160px; }
+        [data-testid="tab-mode-switch"] { position: absolute; left: 40px; top: 40px; display: flex; gap: 8px; }
+        [data-tab-id="foreign-tab"] [data-testid="tab-mode-switch"] { top: 160px; }
         [role="tab"] { width: 80px; height: 32px; }
         [data-testid="peer-picker-menu"] { position: absolute; left: 32px; top: 32px; width: 196px; height: 52px; z-index: 2; background: white; }
       </style>
       <div id="root">
-        <div data-pane-id="target-pane">
-          <div data-testid="pane-mode-switch">
+        <div data-tab-id="target-tab">
+          <div data-testid="tab-mode-switch">
             <button role="tab">Chat</button>
             <button role="tab">Terminal</button>
           </div>
         </div>
-        <div data-pane-id="foreign-pane">
-          <div data-testid="pane-mode-switch">
+        <div data-tab-id="foreign-tab">
+          <div data-testid="tab-mode-switch">
             <button role="tab">Chat</button>
             <button role="tab">Terminal</button>
           </div>
@@ -984,12 +984,12 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
         <div data-testid="peer-picker-menu"></div>
       </div>
     `);
-    await assertPeerPickerMenuInverseOcclusion(page, "target-pane", "pane cardinality self-check");
+    await assertPeerPickerMenuInverseOcclusion(page, "target-tab", "tab cardinality self-check");
     await page.locator('[data-testid="peer-picker-menu"]').evaluate((el) => el.remove());
-    await assertPaneModeTabsReachable(page, "target-pane", "pane cardinality self-check");
-    await page.locator('[data-pane-id="target-pane"]').evaluate((target) => {
+    await assertTabModeTabsReachable(page, "target-tab", "tab cardinality self-check");
+    await page.locator('[data-tab-id="target-tab"]').evaluate((target) => {
       const duplicate = document.createElement("div");
-      duplicate.dataset.testid = "pane-mode-switch";
+      duplicate.dataset.testid = "tab-mode-switch";
       for (const label of ["Chat", "Terminal"]) {
         const tab = document.createElement("button");
         tab.setAttribute("role", "tab");
@@ -999,43 +999,43 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
       target.appendChild(duplicate);
     });
     await expect(
-      assertPaneModeTabsReachable(page, "target-pane", "duplicate pane cardinality self-check"),
-    ).rejects.toThrow(/target pane mode switch count/);
+      assertTabModeTabsReachable(page, "target-tab", "duplicate tab cardinality self-check"),
+    ).rejects.toThrow(/target tab mode switch count/);
     await expect(
-      assertPeerPickerMenuInverseOcclusion(page, "target-pane", "duplicate pane cardinality self-check"),
-    ).rejects.toThrow(/inverse-occlusion target pane mode switch count/);
+      assertPeerPickerMenuInverseOcclusion(page, "target-tab", "duplicate tab cardinality self-check"),
+    ).rejects.toThrow(/inverse-occlusion target tab mode switch count/);
   } finally {
     await page.context().close();
   }
 });
 
 for (const vp of VIEWPORTS) {
-  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, paneCleanup }, testInfo) => {
+  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, tabCleanup }, testInfo) => {
     const health = await assertHealthMatchesHead();
     await testInfo.attach("health.json", { body: JSON.stringify(health, null, 2), contentType: "application/json" });
 
-    const target = await prepareTargetPane(api, paneCleanup, vp.name === "390x844");
+    const target = await prepareTargetTab(api, tabCleanup, vp.name === "390x844");
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
       await assertBuildIdentity(page, health);
       await settleLayout(page);
-      await openSidebarAndSelectTargetPane(api, page, target, `${vp.name} initial target`);
+      await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} initial target`);
       await expect(
-        page.getByRole("region", { name: `Pane chat: ${target.tabTitle}` }),
-        `${vp.name} authenticated pane chat ready`,
+        page.getByRole("region", { name: `Tab chat: ${target.tabTitle}` }),
+        `${vp.name} authenticated tab chat ready`,
       ).toBeVisible({ timeout: 10_000 });
       await expect(
-        page.locator(`[data-pane-id="${target.paneId}"]`).getByText("Loading chat…", { exact: true }),
+        page.locator(`[data-tab-id="${target.tabId}"]`).getByText("Loading chat…", { exact: true }),
       ).toHaveCount(0);
       await expect(
-        page.locator(`[data-testid="pane-session-chat"][data-pane-id="${target.paneId}"]`),
-        `${vp.name} target pane chat visible before canvas`,
+        page.locator(`[data-testid="tab-session-chat"][data-tab-id="${target.tabId}"]`),
+        `${vp.name} target tab chat visible before canvas`,
       ).toBeVisible({ timeout: 10_000 });
-      await openWorkspaceCanvasOverlay(page, `${vp.name} before pane transition`);
-      await assertCanvasStateBeforePaneTransition(page, target.paneId, "overlay", `${vp.name} before pane transition`);
-      await openSidebarAndSelectTargetPane(api, page, target, `${vp.name} canvas-to-workspace`);
-      await assertWorkspaceLayerTopmost(page, target.paneId, `${vp.name} after target row click`);
+      await openWorkspaceCanvasOverlay(page, `${vp.name} before tab transition`);
+      await assertCanvasStateBeforeTabTransition(page, target.tabId, "overlay", `${vp.name} before tab transition`);
+      await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} canvas-to-workspace`);
+      await assertWorkspaceLayerTopmost(page, target.tabId, `${vp.name} after target row click`);
       await assertPeerPickerTopContained(page, `${vp.name} initial`);
       await auditViewport(page, `${vp.name} initial`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
@@ -1055,9 +1055,9 @@ for (const vp of VIEWPORTS) {
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} peer menu`);
       await auditViewport(page, `${vp.name} peer menu`, { reachability: "peer-picker-menu" });
-      await assertPeerPickerMenuInverseOcclusion(page, target.paneId, `${vp.name} peer menu`);
+      await assertPeerPickerMenuInverseOcclusion(page, target.tabId, `${vp.name} peer menu`);
       await dismissPeerPickerWithSupportedControl(page, `${vp.name} peer menu`);
-      await assertPaneModeTabsReachable(page, target.paneId, `${vp.name} peer menu dismissed`);
+      await assertTabModeTabsReachable(page, target.tabId, `${vp.name} peer menu dismissed`);
 
       await page.locator('[data-testid="titlebar-settings"]').click();
       await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });

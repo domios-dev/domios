@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.7.5",
+  "version": "1.7.8",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -34,6 +34,9 @@
     "test:pw:audit": "node tests/playwright/helpers/audit-combine.mjs",
     "test:manager-bootstrap": "node evals/manager-bootstrap/live-smoke.mjs",
     "test:provider-matrix": "node evals/manager-bootstrap/provider-matrix.mjs",
+    "test:general-agent-provider": "node evals/general-agent/provider-matrix.mjs",
+    "check:unused-exports": "knip --workspace @codeterm/chat-core --exports",
+    "test:unused-exports-gate": "node scripts/test-unused-exports-gate.mjs",
     "lint": "biome check .",
     "sync:versions": "node scripts/sync-plugin-versions.mjs",
     "check:versions": "node scripts/sync-plugin-versions.mjs --check",
@@ -48,6 +51,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@playwright/test": "^1.60.0",
+    "@tailwindcss/browser": "4.2.1",
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^25.9.2",
@@ -58,6 +62,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "esbuild": "^0.28.1",
     "happy-dom": "^20.10.2",
+    "knip": "^6.29.0",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
@@ -97,8 +102,12 @@
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "sigma": "^3.0.0",
+    "unified": "^11.0.5",
     "use-sync-external-store": "^1.6.0"
   }
 }

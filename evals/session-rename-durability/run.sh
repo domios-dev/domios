@@ -19,11 +19,11 @@ fi
 
 cleanup_test_workspaces "WS-rename-"
 
-echo "== create workspace + shell pane"
+echo "== create workspace + shell tab"
 WS_ID=$(new_workspace "WS-rename-durability" "$TEST_CWD")
 [ -n "$WS_ID" ] || { echo "FAIL: workspace create returned no id"; exit 1; }
-PANE_ID=$(new_shell_pane "$WS_ID" "$TEST_CWD" "before-rename")
-[ -n "$PANE_ID" ] || { echo "FAIL: pane create returned no id"; exit 1; }
+TAB_ID=$(new_shell_tab "$WS_ID" "$TEST_CWD" "before-rename")
+[ -n "$TAB_ID" ] || { echo "FAIL: tab create returned no id"; exit 1; }
 
 TAB_ID=$(dev_get "/api/workspaces" | python -c "
 import json, sys

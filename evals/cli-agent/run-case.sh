@@ -28,9 +28,9 @@ mkdir -p "$TMP"
 WS_JSON="$(dc workspace create "bench-$CASE_ID-$PROVIDER" --cwd "$TMP" --json 2>/dev/null || echo '{}')"
 WS="$(echo "$WS_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || echo '')"
 SPAWN="$(dc agent spawn "$PROVIDER" --workspace "$WS" --cwd "$TMP" --title "$CASE_ID" --json 2>/dev/null || echo '{}')"
-PANE="$(echo "$SPAWN" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("pane_id",""))' 2>/dev/null || echo '')"
+TAB="$(echo "$SPAWN" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("tab_id",""))' 2>/dev/null || echo '')"
 
-if [ -z "$PANE" ]; then
+if [ -z "$TAB" ]; then
   echo "{\"case\":\"$CASE_ID\",\"provider\":\"$PROVIDER\",\"status\":\"SKIPPED\",\"reason\":\"spawn failed\"}" \
     > "$RUNS_DIR/$CASE_ID-$PROVIDER.json"
   [ -n "$WS" ] && dc workspace close "$WS" >/dev/null 2>&1 || true
@@ -40,10 +40,10 @@ if [ -z "$PANE" ]; then
 fi
 
 sleep 8   # let the agent boot its REPL before typing
-dc send "$PROMPT" --tab "$PANE" >/dev/null 2>&1 || true
-wait_idle "$PANE" 180 15 90   # timeout=180s, quiet=15s, warmup(first-msg)=90s
+dc send "$PROMPT" --tab "$TAB" >/dev/null 2>&1 || true
+wait_idle "$TAB" 180 15 90   # timeout=180s, quiet=15s, warmup(first-msg)=90s
 
-read_chat "$PANE" > "$RUNS_DIR/$CASE_ID-$PROVIDER.json"
+read_chat "$TAB" > "$RUNS_DIR/$CASE_ID-$PROVIDER.json"
 python3 "$HARNESS_DIR/transcript-md.py" "$RUNS_DIR/$CASE_ID-$PROVIDER.json" \
   "$CASE_ID" "$PROVIDER" "$PROMPT" > "$RUNS_DIR/$CASE_ID-$PROVIDER.md"
 

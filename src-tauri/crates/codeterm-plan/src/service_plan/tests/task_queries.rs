@@ -83,7 +83,7 @@ fn active_task_query_excludes_paused_but_keeps_pending() {
             &id,
             &paused_id,
             "operator hold",
-            crate::plan::AgentRef::from_pane("orch"),
+            crate::plan::AgentRef::from_tab("orch"),
             3,
         )
         .unwrap();

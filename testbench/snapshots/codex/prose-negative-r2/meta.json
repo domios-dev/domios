@@ -2,7 +2,7 @@
   "provider": "codex",
   "situation": "prose-negative-r2",
   "capturedAtMs": 1781997146099,
-  "paneId": "1dcd6c33",
+  "tabId": "1dcd6c33",
   "source": "dev-7686",
   "until": "•.*A.*B.*C",
   "prompt": "Give me a multi-step A/B/C picker, answer in one line — print it as text.",

@@ -1,6 +1,6 @@
 //! Recognises codeterm's own message-injection prefixes and claude's
 //! slash-command XML wrappers inside user chat content. Lets the UI
-//! render them as typed bubbles (cross-pane / telegram / mesh / slash-
+//! render them as typed bubbles (cross-tab / telegram / mesh / slash-
 //! command) instead of raw text.
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
@@ -44,9 +44,9 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
     if (tabIdShort) {
       return {
         origin: {
-          kind: "pane",
+          kind: "tab",
           title,
-          paneIdShort: tabIdShort,
+          tabIdShort: tabIdShort,
           ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
           ...(marker.attrs.mesh ? { mesh: marker.attrs.mesh } : {}),
           ...(marker.kind === "report" ? { report: true } : {}),
@@ -89,7 +89,7 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
       origin: {
         kind: "reminder",
         ...(marker.attrs.from ? { whoSet: marker.attrs.from } : {}),
-        ...(marker.attrs.tab ? { pane: marker.attrs.tab } : {}),
+        ...(marker.attrs.tab ? { tab: marker.attrs.tab } : {}),
         ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
         ...(marker.attrs.set_at ? { setAt: marker.attrs.set_at } : {}),
         ...(marker.attrs.fire_at ? { fireAt: marker.attrs.fire_at } : {}),
@@ -224,7 +224,7 @@ function collectSlashCommands(content: string): PrefixMatch | null {
  */
 export function labelFor(origin: ChatOrigin): string {
   switch (origin.kind) {
-    case "pane":
+    case "tab":
       return origin.title || "tab";
     case "telegram":
       return `Telegram · ${origin.userId.slice(0, 12)}`;

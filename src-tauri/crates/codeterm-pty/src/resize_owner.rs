@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResizeOwner {
-    pub pane_id: String,
+    pub tab_id: String,
     pub pty_id: String,
     pub client_id: String,
     pub cols: u16,
@@ -23,7 +23,7 @@ pub struct ResizeOwnerRegistry {
 impl ResizeOwnerRegistry {
     pub fn claim(
         &mut self,
-        pane_id: String,
+        tab_id: String,
         pty_id: String,
         client_id: String,
         cols: u16,
@@ -36,7 +36,7 @@ impl ResizeOwnerRegistry {
             }
         }
         let owner = ResizeOwner {
-            pane_id,
+            tab_id,
             pty_id: pty_id.clone(),
             client_id,
             cols,
@@ -76,7 +76,7 @@ mod tests {
     fn client_cannot_steal_existing_resize_owner_without_force() {
         let mut registry = ResizeOwnerRegistry::default();
         let first = registry.claim(
-            "pane".into(),
+            "tab".into(),
             "pty".into(),
             "tauri:desktop".into(),
             160,
@@ -84,7 +84,7 @@ mod tests {
             false,
         );
         let second = registry.claim(
-            "pane".into(),
+            "tab".into(),
             "pty".into(),
             "web:phone".into(),
             80,
@@ -102,7 +102,7 @@ mod tests {
     fn same_client_can_refresh_existing_resize_owner_without_force() {
         let mut registry = ResizeOwnerRegistry::default();
         registry.claim(
-            "pane".into(),
+            "tab".into(),
             "pty".into(),
             "web:phone".into(),
             80,
@@ -110,7 +110,7 @@ mod tests {
             false,
         );
         let owner = registry.claim(
-            "pane".into(),
+            "tab".into(),
             "pty".into(),
             "web:phone".into(),
             160,
@@ -127,21 +127,14 @@ mod tests {
     fn explicit_web_takeover_can_reclaim_from_tauri_resize_owner() {
         let mut registry = ResizeOwnerRegistry::default();
         registry.claim(
-            "pane".into(),
+            "tab".into(),
             "pty".into(),
             "tauri:desktop".into(),
             160,
             48,
             false,
         );
-        let owner = registry.claim(
-            "pane".into(),
-            "pty".into(),
-            "web:phone".into(),
-            80,
-            24,
-            true,
-        );
+        let owner = registry.claim("tab".into(), "pty".into(), "web:phone".into(), 80, 24, true);
 
         assert_eq!(owner.client_id, "web:phone");
         assert_eq!(owner.cols, 80);

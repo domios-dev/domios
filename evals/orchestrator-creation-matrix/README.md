@@ -14,23 +14,23 @@ bash evals/orchestrator-creation-matrix/run.sh
 ```
 
 Exit 0 = no hard FAIL. Exit 1 = at least one FAIL. Exit 7 = dev not up.
-The script self-cleans (closes every pane/plan/workspace it created) via an
+The script self-cleans (closes every tab/plan/workspace it created) via an
 `EXIT` trap, so scenarios stay independent across reruns.
 
 ## Routes
 
 | Route | Command under test | Core observable |
 |-------|--------------------|-----------------|
-| **B** CLI pair | `orchestration new --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns plan+2 pane ids; `pane list` shows both; `plan get --json` binds owner **and** planner ref; orchestrator chat carries the peer greeting; **B.IDLE** waits 60s before any goal and asserts the Planner made zero tool calls / file reads |
+| **B** CLI pair | `orchestration new --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns plan+2 tab ids; `tab list` shows both; `plan get --json` binds owner **and** planner ref; orchestrator chat carries the peer greeting; **B.IDLE** waits 60s before any goal and asserts the Planner made zero tool calls / file reads |
 | **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | onboarding carries the peer-pairing mandate block with a pre-filled planner spawn command; unpaired nudge fires next cycle |
-| **D** promotion | `POST /api/panes/{id}/make-orchestrator` (no CLI subcommand exists) | role flips to Orchestrator; **session survives**; mandate delivered; unpaired nudge next cycle |
-| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent <orch>` | plan planner ref binds to the new pane; planner onboarding names the orch pane; **nudge stops** |
+| **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role flips to Orchestrator; **session survives**; mandate delivered; unpaired nudge next cycle |
+| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent <orch>` | plan planner ref binds to the new tab; planner onboarding names the orch tab; **nudge stops** |
 | **F** waiver | `plan update <plan> --planner none --note "solo test"` | waiver recorded (`planner.kind=waived` + note); nudge stops; `--planner none` **without** `--note` refused |
 | **G** doctor ladder | `plan doctor <plan> --kind quality` | `planner_unpaired` = WARNING while unpaired+planning → ERROR on approval attempt → silent once paired/waived |
 | **H** negatives | see below | actionable error + **zero object leak** on every failure path |
 
 **H negatives:**
-1. `agent spawn --role Orchestrator` with **no** `--workspace` → actionable error, zero panes.
+1. `agent spawn --role Orchestrator` with **no** `--workspace` → actionable error, zero tabs.
 2. A Worker attempting `orchestration new` / `spawn --role Orchestrator` → refused by the hierarchy guard.
 3. `orchestration new` with an unknown provider → clean fail, no half-pair (plan absent, or degraded + recovery command printed).
 
@@ -61,7 +61,7 @@ reminder heartbeat (`hierarchy/plan_reminder_nudge.rs`) which is timer-gated at
 nudge (synchronous, deterministic) and mark the literal heartbeat delivery as
 GATED. A live end-to-end nudge assertion would require overriding
 `orchestration.nudge_interval_secs` to a few seconds in dev config and polling
-`pane chat` — out of scope for a bounded matrix.
+`tab chat` — out of scope for a bounded matrix.
 
 ## Known findings surfaced while building the matrix (source-read, pre-run)
 
@@ -73,10 +73,10 @@ These are candidate bounces the run will confirm or refute on live dev:
   wants a *real* plan id pre-filled → divergence, bounce to the
   make-orchestrator / pair lane.
 - **No `codeterm orchestrator promote` CLI.** Make-Orchestrator is only the REST
-  RPC `POST /api/panes/{id}/make-orchestrator`. Route D uses `dev_post`.
+  RPC `POST /api/tabs/{id}/make-orchestrator`. Route D uses `dev_post`.
 - **No backend hierarchy guard** on `orchestration new` / `spawn --role
   Orchestrator` keyed off caller role. "Worker never spawns" is a prompt-level
-  charter, not enforced in the service. Promotion *does* reject panes that
+  charter, not enforced in the service. Promotion *does* reject tabs that
   already have a parent (`validate_make_orchestrator`). H2 confirms/bounces this.
 - **`planner_unpaired` doctor rule** was not located in the quality-doctor
   finding set (`service/plan/gates.rs` emits `paused_task_missing_reason`,

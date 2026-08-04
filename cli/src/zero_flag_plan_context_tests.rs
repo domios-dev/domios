@@ -91,11 +91,17 @@ fn plan_task_list_allows_missing_plan_id() {
         Commands::Plan {
             action:
                 PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::List { plan_id, status },
+                    action:
+                        crate::args::plan::PlanTaskAction::List {
+                            plan_id,
+                            status,
+                            all,
+                        },
                 },
         } => {
             assert_eq!(plan_id, None);
             assert_eq!(status.as_deref(), Some("blocked"));
+            assert!(!all);
         }
         _ => panic!("expected plan task list"),
     }

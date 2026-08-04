@@ -20,16 +20,16 @@ pub(super) fn owner_from_params(p: &Value) -> OrchestratorRef {
     p.get("owner")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .or_else(|| {
-            p.get("pane_id")
+            p.get("tab_id")
                 .and_then(|v| v.as_str())
-                .map(OrchestratorRef::from_pane)
+                .map(OrchestratorRef::from_tab)
         })
         .or_else(|| {
-            p.get("caller_pane_id")
+            p.get("caller_tab_id")
                 .and_then(|v| v.as_str())
-                .map(OrchestratorRef::from_pane)
+                .map(OrchestratorRef::from_tab)
         })
-        .unwrap_or_else(|| OrchestratorRef::from_pane("unknown"))
+        .unwrap_or_else(|| OrchestratorRef::from_tab("unknown"))
 }
 
 pub(super) fn tags_field(params: Option<&Value>) -> Vec<String> {

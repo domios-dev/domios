@@ -9,7 +9,7 @@ export const CAST = {
 export type CastPath = (typeof CAST)[keyof typeof CAST] | string;
 
 export interface InjectCastOptions {
-  paneId: string;
+  tabId: string;
   castPath?: CastPath;
   castText?: string;
   speed?: number;
@@ -36,7 +36,7 @@ export async function injectCast(
   options: InjectCastOptions,
 ): Promise<{ startOffset: number; endOffset: number; response: InjectCastResult }> {
   const body: Record<string, unknown> = {
-    pane_id: options.paneId,
+    tab_id: options.tabId,
     speed: options.speed,
     instant: options.instant,
     classify: options.classify,

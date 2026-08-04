@@ -13,7 +13,7 @@ pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
 
 pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task has no model/why. Capture routing intent: codeterm plan task update {plan_id} {task_id} --model <provider/model> --why <reason>"
+        "hint: task has no model/model_rationale. Capture routing intent: codeterm plan task update {plan_id} {task_id} --model <provider>:<model> --why <reason>"
     )
 }
 
@@ -162,7 +162,7 @@ pub(crate) fn worker_spawn_hints(
     }
     if !has_report_target {
         hints.push(
-            "hint: no --parent/--report-to — this worker's reports land in the spawning pane; pass --parent <orchestrator pane id> so they reach the orchestrator".to_string(),
+            "hint: no --parent-tab/--report-to — this worker's reports land in the spawning Tab; pass --parent-tab <orchestrator Tab id> so they reach the orchestrator".to_string(),
         );
     }
     if !has_task {

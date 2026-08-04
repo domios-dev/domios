@@ -48,7 +48,6 @@ toast_duration = 5  # seconds
 new_tab = "Ctrl+T"
 reopen_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+Shift+W"
-close_pane = "Ctrl+Shift+Q"
 
 [socket]
 # Socket path is auto-generated, override if needed:
@@ -83,8 +82,8 @@ pub fn memory_config() -> schema::MemoryConfig {
 
 /// Loopback callback URL + port string for the running API, with a `0.0.0.0`
 /// bind normalized to `127.0.0.1` so in-process hooks/reports reach the local
-/// listener. Single source so pane-env, the frontend PTY path, hidden spawns,
-/// and the startup env scrub cannot derive divergent targets — a pane built
+/// listener. Single source so tab-env, the frontend PTY path, hidden spawns,
+/// and the startup env scrub cannot derive divergent targets — a tab built
 /// with a prod-inherited URL (7685) 401s this instance's token against prod.
 pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
     let host = if api.host == "0.0.0.0" {
@@ -108,7 +107,7 @@ pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
 ///
 /// This is the single read path for provider-scoped settings — call sites
 /// that previously read `cfg.agent.resume_sessions` should call this with
-/// the actual provider id of the pane.
+/// the actual provider id of the tab.
 pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
     let cfg = load_config();
     let mut out = cfg.agents.get(provider_id).cloned().unwrap_or_default();
@@ -176,8 +175,8 @@ pub fn load_config() -> AppConfig {
 /// Cache the parsed config, keyed by file mtime. The cache lock is held across
 /// the uncached fill so a token auto-generated for a tokenless config is
 /// produced EXACTLY once: concurrent callers can no longer each generate a
-/// different token (the auth-token divergence that 401'd one pane while another
-/// pane with a sibling-generated token succeeded). The mtime is re-read AFTER
+/// different token (the auth-token divergence that 401'd one tab while another
+/// tab with a sibling-generated token succeeded). The mtime is re-read AFTER
 /// the fill because `ensure_api_token` may rewrite the file — caching the
 /// post-write mtime keeps the next call a hit instead of a perpetual miss.
 fn load_config_cached(path: &std::path::Path, cache: &ConfigCache) -> AppConfig {
@@ -195,7 +194,7 @@ fn load_config_cached(path: &std::path::Path, cache: &ConfigCache) -> AppConfig 
             cfg
         }
         // Transient read/parse failure: keep the last-known good config instead
-        // of caching a token-less default that would 401 every pane.
+        // of caching a token-less default that would 401 every tab.
         Err(()) => match guard.as_ref() {
             Some((_, cfg)) => cfg.clone(),
             None => ensure_api_token(AppConfig::default(), None),
@@ -205,7 +204,7 @@ fn load_config_cached(path: &std::path::Path, cache: &ConfigCache) -> AppConfig 
 
 /// `Err` means a TRANSIENT failure (unreadable/unparseable file) — the caller
 /// must keep any previously cached config rather than fall back to a token-less
-/// default, since a token-less config reaching the auth layer 401s every pane.
+/// default, since a token-less config reaching the auth layer 401s every tab.
 fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
     if path.exists() {
         match std::fs::read_to_string(path) {
@@ -259,7 +258,7 @@ fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
 /// Crash-safe config write: serialize to a sibling temp file, then rename over
 /// the target. A concurrent reader sees either the old or the new file whole,
 /// never a truncated `fs::write` in progress (a torn read parses as a token-less
-/// config and 401s the pane that read it). `rename` replaces the destination
+/// config and 401s the tab that read it). `rename` replaces the destination
 /// atomically on both Unix and Windows.
 fn write_config_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -372,7 +371,7 @@ mod tests {
         // Repro for the intermittent multi-agent-boot 401: a tokenless config
         // hit by N concurrent load_config() callers must auto-generate EXACTLY
         // one token that every caller (and the persisted file) agrees on. The
-        // racy version generated a different token per caller, so a pane spawned
+        // racy version generated a different token per caller, so a tab spawned
         // with a sibling-generated token 401'd against the auth-held token.
         const N: usize = 16;
         let tmp = tempfile::tempdir().unwrap();

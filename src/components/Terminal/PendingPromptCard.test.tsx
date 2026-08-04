@@ -53,11 +53,11 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
 }
 
 function card(host: HTMLElement): HTMLElement | null {
-  return host.querySelector('[data-testid="pane-pending-prompt"]');
+  return host.querySelector('[data-testid="tab-pending-prompt"]');
 }
 
 function optionButtons(host: HTMLElement): HTMLButtonElement[] {
-  return Array.from(host.querySelectorAll('[data-testid="pane-pending-prompt-option"]'));
+  return Array.from(host.querySelectorAll('[data-testid="tab-pending-prompt-option"]'));
 }
 
 const MODEL_PROMPT: PendingPrompt = {
@@ -125,7 +125,7 @@ test("renders the question and one button per option", async () => {
     <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={() => {}} />,
   );
   assert(card(host), "card should render when a prompt is present");
-  const q = host.querySelector('[data-testid="pane-pending-prompt-question"]');
+  const q = host.querySelector('[data-testid="tab-pending-prompt-question"]');
   assert(q?.textContent === "Select a model", `question should render, got: ${q?.textContent}`);
   const opts = optionButtons(host);
   assert(opts.length === MODEL_PROMPT.options.length, `expected ${MODEL_PROMPT.options.length} option buttons, got ${opts.length}`);
@@ -138,7 +138,7 @@ test("card has no cancel/dismiss affordance", async () => {
   const { host, root } = await render(
     <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={() => {}} />,
   );
-  const cancel = host.querySelector('[data-testid="pane-pending-prompt-cancel"]');
+  const cancel = host.querySelector('[data-testid="tab-pending-prompt-cancel"]');
   assert(!cancel, "non-dismissable card must not render a cancel button");
   await act(async () => root.unmount());
 });
@@ -160,9 +160,9 @@ test("wizard prompt renders section progress and submit", async () => {
   const { host, root } = await render(
     <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={() => {}} />,
   );
-  const sections = host.querySelector('[data-testid="pane-pending-prompt-sections"]');
+  const sections = host.querySelector('[data-testid="tab-pending-prompt-sections"]');
   assert(sections?.textContent?.includes("Environment"), "wizard sections should render");
-  const submit = host.querySelector('[data-testid="pane-pending-prompt-submit"]') as HTMLButtonElement | null;
+  const submit = host.querySelector('[data-testid="tab-pending-prompt-submit"]') as HTMLButtonElement | null;
   assert(submit, "wizard submit should render");
   await act(async () => root.unmount());
 });
@@ -188,7 +188,7 @@ test("wizard multi-select confirm sends selected bitmask sentinel", async () => 
     optionButtons(host)[0].click();
     optionButtons(host)[2].click();
   });
-  const confirm = host.querySelector('[data-testid="pane-pending-prompt-confirm"]') as HTMLButtonElement | null;
+  const confirm = host.querySelector('[data-testid="tab-pending-prompt-confirm"]') as HTMLButtonElement | null;
   assert(confirm, "multi-select confirm should render");
   await act(async () => {
     confirm.click();
@@ -207,7 +207,7 @@ test("free-text option opens an inline editor instead of responding", async () =
     optionButtons(host)[2].click();
   });
   assert(calls.length === 0, `free-text click must not respond immediately, got ${calls.length}`);
-  const input = host.querySelector('[data-testid="pane-pending-prompt-freetext-input"]');
+  const input = host.querySelector('[data-testid="tab-pending-prompt-freetext-input"]');
   assert(input, "clicking the free-text option should reveal an inline input");
   await act(async () => root.unmount());
 });
@@ -233,13 +233,13 @@ test("typing free text and clicking Accept sends the raw text", async () => {
     optionButtons(host)[2].click();
   });
   const input = host.querySelector(
-    '[data-testid="pane-pending-prompt-freetext-input"]',
+    '[data-testid="tab-pending-prompt-freetext-input"]',
   ) as HTMLInputElement;
   await act(async () => {
     typeInto(input, "  rebase onto main  ");
   });
   const accept = host.querySelector(
-    '[data-testid="pane-pending-prompt-freetext-accept"]',
+    '[data-testid="tab-pending-prompt-freetext-accept"]',
   ) as HTMLButtonElement;
   assert(accept && !accept.disabled, "Accept should enable once text is entered");
   await act(async () => {
@@ -259,7 +259,7 @@ test("Enter in the free-text input submits the typed text", async () => {
     optionButtons(host)[2].click();
   });
   const input = host.querySelector(
-    '[data-testid="pane-pending-prompt-freetext-input"]',
+    '[data-testid="tab-pending-prompt-freetext-input"]',
   ) as HTMLInputElement;
   await act(async () => {
     typeInto(input, "use codex");
@@ -280,7 +280,7 @@ test("empty free text cannot be submitted", async () => {
     optionButtons(host)[2].click();
   });
   const accept = host.querySelector(
-    '[data-testid="pane-pending-prompt-freetext-accept"]',
+    '[data-testid="tab-pending-prompt-freetext-accept"]',
   ) as HTMLButtonElement;
   assert(accept.disabled, "Accept must be disabled with no text");
   await act(async () => {

@@ -4,7 +4,7 @@ export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
 
 export interface WatcherVerdictAction {
   kind: string;
-  pane?: string;
+  tab?: string;
   message: string;
 }
 
@@ -43,8 +43,8 @@ function parseActions(v: unknown): WatcherVerdictAction[] {
     const kind = typeof row.kind === "string" ? row.kind : "";
     const message = typeof row.message === "string" ? row.message : "";
     if (!kind || !message) continue;
-    const pane = typeof row.pane === "string" ? row.pane : undefined;
-    actions.push({ kind, pane, message });
+    const tab = typeof row.tab === "string" ? row.tab : undefined;
+    actions.push({ kind, tab, message });
   }
   return actions;
 }

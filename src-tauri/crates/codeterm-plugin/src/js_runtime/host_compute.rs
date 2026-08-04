@@ -73,12 +73,12 @@ pub(super) fn install_handles(
     });
 
     let sb = sandbox.clone();
-    bind!("workspacePanes", move |workspace_id: String| -> String {
+    bind!("workspaceTabs", move |workspace_id: String| -> String {
         if !sb.manage_workspaces_allowed() {
             return err("host.workspace: manage_workspaces permission required");
         }
         match sb.service() {
-            Some(svc) => svc.workspace_panes_json(&workspace_id),
+            Some(svc) => svc.workspace_tabs_json(&workspace_id),
             None => err("host service unavailable"),
         }
     });

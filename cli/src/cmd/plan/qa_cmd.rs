@@ -2,7 +2,7 @@ use crate::args::plan::PlanQaAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, maybe_inject_caller_pane, owner_from_env};
+use super::{call_plan_rpc, maybe_inject_caller_tab, owner_from_env};
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
@@ -25,7 +25,7 @@ pub(super) fn handle(
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.queue", params)?;
             if json_output || val.get("task_id").is_some() {
                 return Ok(Some(val));
@@ -49,7 +49,7 @@ pub(super) fn handle(
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.next", params)?;
             if json_output {
                 return Ok(Some(val));
@@ -72,19 +72,27 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.qa.pass", params).map(Some)
         }
         PlanQaAction::Fail {
             plan_id,
             task_id,
             note,
+            changed_executable_surfaces,
+            distinct_oracle,
         } => {
-            let mut params = json!({ "task_id": task_id, "note": note, "from": owner_from_env() });
+            let mut params = json!({
+                "task_id": task_id,
+                "note": note,
+                "changed_executable_surfaces": changed_executable_surfaces,
+                "distinct_oracle": distinct_oracle,
+                "from": owner_from_env()
+            });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.qa.fail", params).map(Some)
         }
         PlanQaAction::Override {
@@ -96,7 +104,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.override", params)?;
             if json_output {
                 return Ok(Some(val));
@@ -212,7 +220,7 @@ fn render_qa_claim(value: &Value) -> String {
             out.push_str(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER);
             out.push('\n');
         }
-        out.push_str("\nTest plan:\n");
+        out.push_str("\nQA plan:\n");
         out.push_str(test_plan);
         out.push('\n');
     }
@@ -222,6 +230,23 @@ fn render_qa_claim(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::SocketCallError;
+
+    #[derive(Default)]
+    struct FakeRpc {
+        calls: Vec<(String, Option<Value>)>,
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.into(), params));
+            Ok(json!({ "plan_id": "pl_1", "task_id": "task_1" }))
+        }
+    }
 
     #[test]
     fn claim_prepends_banner_for_vague_test_plan() {
@@ -234,6 +259,28 @@ mod tests {
         });
         let out = render_qa_claim(&value);
         assert!(out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
+    }
+
+    #[test]
+    fn fail_threads_strategy_reset_flags_to_rpc() {
+        let mut rpc = FakeRpc::default();
+        handle(
+            &mut rpc,
+            true,
+            PlanQaAction::Fail {
+                plan_id: Some("pl_1".into()),
+                task_id: "task_1".into(),
+                note: "new implementation and oracle".into(),
+                changed_executable_surfaces: true,
+                distinct_oracle: true,
+            },
+        )
+        .unwrap();
+        let (method, params) = &rpc.calls[0];
+        assert_eq!(method, "plan.qa.fail");
+        let params = params.as_ref().unwrap();
+        assert_eq!(params["changed_executable_surfaces"], true);
+        assert_eq!(params["distinct_oracle"], true);
     }
 
     #[test]
@@ -270,6 +317,6 @@ mod tests {
         });
         let out = render_qa_claim(&value);
         assert!(!out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
-        assert!(out.contains("Test plan:"));
+        assert!(out.contains("QA plan:"));
     }
 }

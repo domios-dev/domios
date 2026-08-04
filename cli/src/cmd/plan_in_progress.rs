@@ -118,8 +118,8 @@ fn render_in_progress_task(
 ) {
     let id = task_str(item, "id").unwrap_or("?");
     let status = task_str(item, "status").unwrap_or("?");
-    let assignee = task_str(item, "assigned_pane_id")
-        .or_else(|| lane_str(item, "pane_id"))
+    let assignee = task_str(item, "assigned_tab_id")
+        .or_else(|| lane_str(item, "tab_id"))
         .unwrap_or("-");
     let workspace = lane_str(item, "workspace_id").unwrap_or("-");
     let branch = lane_str(item, "branch").unwrap_or("-");
@@ -158,7 +158,7 @@ mod tests {
                         "id": "task_parent",
                         "name": "Parent",
                         "status": "in_progress",
-                        "assigned_pane_id": "pane1234",
+                        "assigned_tab_id": "tab1234",
                         "lane": {
                             "workspace_id": "ws1",
                             "branch": "lane/one",
@@ -181,7 +181,7 @@ mod tests {
 
         assert!(rendered.contains("pl_1\tPlan\n"));
         assert!(rendered
-            .contains("  task_parent\tin_progress\tpane1234\tws1\tlane/one\tpending\tParent\n"));
+            .contains("  task_parent\tin_progress\ttab1234\tws1\tlane/one\tpending\tParent\n"));
         assert!(rendered.contains("    task_child\tblocked\t-\t-\t-\t-\tChild\n"));
     }
 }

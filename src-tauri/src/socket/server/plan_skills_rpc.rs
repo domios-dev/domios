@@ -80,7 +80,7 @@ mod tests {
             .create_plan_for_team(
                 "Skills".into(),
                 project.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 "team-skills".into(),
                 vec![],
                 1,
@@ -152,7 +152,7 @@ mod tests {
             .create_plan_for_team(
                 "Skills".into(),
                 project.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 "team-skills-failures".into(),
                 vec![],
                 1,
@@ -206,7 +206,7 @@ mod tests {
             .create_plan_for_team(
                 "Write failure".into(),
                 project.path().display().to_string(),
-                OrchestratorRef::from_pane("orch-failure"),
+                OrchestratorRef::from_tab("orch-failure"),
                 "team-skills-write-failure".into(),
                 vec![],
                 2,

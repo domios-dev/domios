@@ -134,7 +134,7 @@ Three nested deterministic packers, all stable-id-keyed (no global reshuffle):
 1. **Plan-region** = one sectioned node + its banded task field + step interiors. Reports a
    bounded box (node frame + maxTaskCols·colW + measured task heights).
 2. **Orchestrator group** = soft labeled band wrapping its plan-regions; label = orchestrator
-   title (territory name), click → opens pane. Plans laid **left→right, wrap to sub-rows**
+   title (territory name), click → opens Tab. Plans laid **left→right, wrap to sub-rows**
    (each region width-bounded), ordered by plan id/creation.
 3. **Top-level region packer:** orchestrator groups + "Unowned/claimable" + "Inbox" stack
    **top-down** via the same non-overlap sweep, ordered by orchestrator id/creation.
@@ -147,7 +147,7 @@ No overlap because every region reports a bounded box; same data+modes → same 
 Inbox = reserved plan, no sections. Its node has a single synthetic "Inbox" output; tasks
 pack in one synthetic band via the same column-grid sweep. Renders as a task cluster under
 the taker's orchestrator group, or an "Unassigned" top-level region. Same TaskCard, same
-edges (to the synthetic output + pane-link chip).
+edges (to the synthetic output + tab-link chip).
 
 ---
 

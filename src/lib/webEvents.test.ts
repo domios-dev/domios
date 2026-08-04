@@ -21,7 +21,7 @@ assert(
   !RESYNC_EVENTS.includes("config-changed"),
 );
 assert(
-  "does NOT resync shell-command-changed (handler reads payload.pane_id unguarded)",
+  "does NOT resync shell-command-changed (handler reads payload.tab_id unguarded)",
   !RESYNC_EVENTS.includes("shell-command-changed"),
 );
 assert(

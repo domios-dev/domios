@@ -291,7 +291,7 @@ fn parser_runs_on_reader_without_disturbing_screen_state() {
 }
 
 #[test]
-fn tracker_isolates_panes_and_supplies_nonce() {
+fn tracker_isolates_tabs_and_supplies_nonce() {
     let mut t = ShellCapabilityTracker::new();
     t.feed("pty-a", Some("nonce-a".into()), b"\x1b]633;A\x07");
     t.feed(

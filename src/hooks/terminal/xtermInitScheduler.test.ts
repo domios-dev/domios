@@ -35,7 +35,7 @@ function reset() {
   assert(!tick(), "queue drained, no extra frames scheduled");
 })();
 
-// Priority jumps the queue: a visible pane inits before earlier hidden ones.
+// Priority jumps the queue: a visible tab inits before earlier hidden ones.
 (() => {
   reset();
   const order: string[] = [];
@@ -46,10 +46,10 @@ function reset() {
   assert(order[0] === "visible", "priority task runs first");
   tick();
   tick();
-  assert(order.join(",") === "visible,hidden-a,hidden-b", "hidden panes follow in order");
+  assert(order.join(",") === "visible,hidden-a,hidden-b", "hidden Tabs follow in order");
 })();
 
-// Cancel before run: an unmounted pane's init is skipped, others still run.
+// Cancel before run: an unmounted tab's init is skipped, others still run.
 (() => {
   reset();
   const order: number[] = [];

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
 import { servicesList } from "./meshApi";
 import type { Service } from "./types";
@@ -26,8 +26,7 @@ export interface PeerStatus {
   services_error?: string | null;
   services_fetched_at?: number | null;
   services_loaded?: boolean;
-  /** Verified peer web UI URL (present only when that peer is Ready). */
-  https_url?: string | null;
+  relay_protocol_version: number;
 }
 
 export interface MeshData {
@@ -46,7 +45,7 @@ const DEFAULT_DATA: MeshData = {
   error: null,
 };
 
-const CACHE_KEY = "mesh-tab-cache-v1";
+const CACHE_KEY = "mesh-tab-cache-v2";
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
 
 interface CachePayload {
@@ -91,10 +90,15 @@ export function useMeshData(refreshKey: number): MeshDataResult {
   });
 
   const inFlightRef = useRef(false);
+  const pendingRefreshRef = useRef(false);
+  const loadAllRef = useRef<(() => Promise<void>) | null>(null);
 
   const loadAll = useCallback(async () => {
     // Peer fetches can take several seconds (multi-address walk on a dying peer); don't stack a new cycle on top of a running one.
-    if (inFlightRef.current) return;
+    if (inFlightRef.current) {
+      pendingRefreshRef.current = true;
+      return;
+    }
     inFlightRef.current = true;
     setData((d) => ({ ...d, loading: true }));
     try {
@@ -103,7 +107,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         () => null,
       );
       const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers").catch(
-        () => ({ paired: [], discovered: [], incoming_requests: [] }) as MeshPeersResponse,
+        () => ({ paired: [], discovered: [], incoming_requests: [], local_instance_name: "" }),
       );
       const paired: PeerStatus[] = (meshPeers.paired ?? []).map(
         (p: PairedPeer) => ({
@@ -114,7 +118,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           online: p.online,
           access_level: p.access_level,
           last_seen: p.last_seen,
-          https_url: p.https_url ?? null,
+          relay_protocol_version: p.relay_protocol_version,
         }),
       );
 
@@ -131,6 +135,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           online: false,
           access_level: "pending",
           last_seen: null,
+          relay_protocol_version: 0,
           pending: true,
           vouched_by_names: d.vouched_by
             .map((id) => pairedNamesById.get(id))
@@ -183,13 +188,36 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       setData((d) => ({ ...d, loading: false, error: String(e) }));
     } finally {
       inFlightRef.current = false;
+      if (pendingRefreshRef.current) {
+        pendingRefreshRef.current = false;
+        void loadAllRef.current?.();
+      }
     }
   }, []);
+  loadAllRef.current = loadAll;
 
   useEffect(() => {
-    loadAll();
-    const handle = setInterval(() => { loadAll(); }, 5000);
-    return () => clearInterval(handle);
+    let active = true;
+    const unlisteners: Array<() => void> = [];
+    const refresh = () => {
+      if (active) void loadAll();
+    };
+    const register = (event: string) => listen(event, refresh)
+      .then((unlisten) => {
+        if (active) unlisteners.push(unlisten);
+        else unlisten();
+      })
+      .catch(() => undefined);
+    refresh();
+    void Promise.all([
+      register("mesh-state-changed"),
+      register("service-health-changed"),
+      register("service-pushed"),
+    ]).then(refresh);
+    return () => {
+      active = false;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
   }, [loadAll, refreshKey]);
 
   return { ...data, refresh: loadAll };

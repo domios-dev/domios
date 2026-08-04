@@ -47,22 +47,22 @@ fn read_path_or_stdin(path: &str) -> Result<String, String> {
 }
 
 pub(crate) fn owner_from_env() -> Value {
-    let pane = std::env::var("CODETERM_PANE_ID").ok();
+    let tab = std::env::var("CODETERM_TAB_ID").ok();
     json!({
-        "pane_id": pane,
+        "tab_id": tab,
         "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-        "title": std::env::var("CODETERM_PANE_TITLE").ok(),
+        "title": std::env::var("CODETERM_TAB_TITLE").ok(),
     })
 }
 
-pub(crate) fn caller_pane_id() -> Option<String> {
-    std::env::var("CODETERM_PANE_ID").ok()
+pub(crate) fn caller_tab_id() -> Option<String> {
+    std::env::var("CODETERM_TAB_ID").ok()
 }
 
-pub(crate) fn maybe_inject_caller_pane(params: &mut Value) {
-    if let Some(pane) = caller_pane_id() {
+pub(crate) fn maybe_inject_caller_tab(params: &mut Value) {
+    if let Some(tab) = caller_tab_id() {
         if let Some(obj) = params.as_object_mut() {
-            obj.insert("caller_pane_id".into(), json!(pane));
+            obj.insert("caller_tab_id".into(), json!(tab));
         }
     }
 }
@@ -71,8 +71,8 @@ pub(crate) fn inject_trusted_session(params: &mut Value) {
     let Some(obj) = params.as_object_mut() else {
         return;
     };
-    if let Ok(pane_id) = std::env::var("CODETERM_PANE_ID") {
-        obj.insert("caller_pane_id".into(), json!(pane_id));
+    if let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") {
+        obj.insert("caller_tab_id".into(), json!(tab_id));
     }
     if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
         obj.insert("session_id".into(), json!(session_id));
@@ -114,17 +114,17 @@ fn plan_transfer_params(
     plan_id: String,
     to: String,
     reason: Option<String>,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
 ) -> Result<Value, String> {
-    let caller_pane_id = caller_pane_id
-        .filter(|pane_id| !pane_id.trim().is_empty())
+    let caller_tab_id = caller_tab_id
+        .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
-            "plan transfer requires CODETERM_PANE_ID from the calling Team manager".to_string()
+            "plan transfer requires CODETERM_TAB_ID from the calling Team manager".to_string()
         })?;
     let mut params = json!({
         "plan_id": plan_id,
-        "to": { "pane_id": to },
-        "caller_pane_id": caller_pane_id,
+        "to": { "tab_id": to },
+        "caller_tab_id": caller_tab_id,
     });
     if let Some(reason) = reason {
         params["reason"] = json!(reason);
@@ -143,7 +143,7 @@ fn default_project_path(client: &dyn RpcClient) -> Option<String> {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lane_params(
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree_path: Option<String>,
@@ -154,8 +154,8 @@ pub(crate) fn lane_params(
     cleanup_hints: Vec<String>,
 ) -> Option<Value> {
     let mut lane = json!({});
-    if let Some(value) = pane_id {
-        lane["pane_id"] = json!(value);
+    if let Some(value) = tab_id {
+        lane["tab_id"] = json!(value);
     }
     if let Some(value) = workspace_id {
         lane["workspace_id"] = json!(value);
@@ -280,7 +280,7 @@ fn run_plan(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call(client, "plan.get", params)?;
             if json {
                 return Ok(Some(val));
@@ -417,7 +417,7 @@ fn run_plan(
                 json!({
                     "plan_id": plan_id,
                     "fix": fix,
-                    "caller_pane_id": std::env::var("CODETERM_PANE_ID").ok(),
+                    "caller_tab_id": std::env::var("CODETERM_TAB_ID").ok(),
                 }),
             )?;
             if json {
@@ -432,11 +432,11 @@ fn run_plan(
             project,
             kind,
         } => {
-            return crate::cmd::plan_doctor::run(json, plan_id, project, kind);
+            return crate::cmd::plan_doctor::run(client, json, plan_id, project, kind);
         }
 
         PlanAction::Prune { project, apply } => {
-            return crate::cmd::plan_prune::run(json, apply, project);
+            return crate::cmd::plan_prune::run(client, json, apply, project);
         }
 
         PlanAction::Adopt {
@@ -522,7 +522,7 @@ fn run_plan(
                     "constraints": constraint,
                     "postulates": postulate,
                 });
-                maybe_inject_caller_pane(&mut params);
+                maybe_inject_caller_tab(&mut params);
                 call(client, "plan.goal.set", params)
             }
         },
@@ -535,6 +535,7 @@ fn run_plan(
             query,
             project,
             kind,
+            scope,
             limit,
             active: _,
             archived,
@@ -557,6 +558,9 @@ fn run_plan(
             }
             if let Some(kind) = kind {
                 params["kind"] = json!(kind);
+            }
+            if let Some(scope) = scope {
+                params["scope"] = json!(scope);
             }
             let val = call(client, "plan.search", params)?;
             if json {
@@ -627,7 +631,7 @@ fn run_plan(
                     })?;
                     json!({ "kind": "waived", "note": n })
                 } else {
-                    json!({ "kind": "pane", "pane_id": p })
+                    json!({ "kind": "tab", "tab_id": p })
                 };
                 params["planner"] = planner_ref;
             }
@@ -635,7 +639,7 @@ fn run_plan(
         }
 
         PlanAction::Approve { plan_id } => {
-            crate::cmd::plan_doctor::assert_quality_ready(&plan_id)?;
+            crate::cmd::plan_doctor::assert_quality_ready(client, &plan_id)?;
             call(
                 client,
                 "plan.mode.set",
@@ -652,12 +656,12 @@ fn run_plan(
         PlanAction::PlanningState {
             plan_id,
             set,
-            pane,
+            tab,
             note,
         } => {
             let mut params = json!({ "plan_id": plan_id, "state": set });
-            if let Some(p) = pane {
-                params["by_pane"] = json!(p);
+            if let Some(p) = tab {
+                params["by_tab"] = json!(p);
             }
             if let Some(n) = note {
                 params["note"] = json!(n);
@@ -698,8 +702,8 @@ fn run_plan(
             to,
             reason,
         } => {
-            let caller_pane_id = (!client.is_remote()).then(caller_pane_id).flatten();
-            let params = plan_transfer_params(plan_id, to, reason, caller_pane_id.as_deref())?;
+            let caller_tab_id = (!client.is_remote()).then(caller_tab_id).flatten();
+            let params = plan_transfer_params(plan_id, to, reason, caller_tab_id.as_deref())?;
             call(client, "plan.transfer", params)
         }
 
@@ -748,7 +752,7 @@ fn run_plan(
                 return Err("retrospective body is required (--body or --body-file)".into());
             };
             let mut params = json!({ "plan_id": plan_id, "body": text });
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call(client, "plan.retrospective", params)?;
             if json {
                 return Ok(Some(val));
@@ -863,7 +867,7 @@ fn run_plan(
                     "add_kind": add_kind,
                 });
                 if let Some(f) = from {
-                    params["from"] = json!({ "pane_id": f });
+                    params["from"] = json!({ "tab_id": f });
                 }
                 call(client, "plan.milestone.add", params)
             }

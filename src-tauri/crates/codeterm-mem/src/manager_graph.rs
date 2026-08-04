@@ -9,11 +9,13 @@ use super::{graph, store, Entity, MemManager, Relation};
 
 impl MemManager {
     pub fn graph_create_entity(&self, e: &Entity) -> Result<(), String> {
+        self.guard_commit()?;
         let conn = self.conn.lock();
         graph::insert_entity(&conn, e)
     }
 
     pub fn graph_relate(&self, r: &Relation) -> Result<(), String> {
+        self.guard_commit()?;
         let conn = self.conn.lock();
         graph::upsert_relation(&conn, r)
     }

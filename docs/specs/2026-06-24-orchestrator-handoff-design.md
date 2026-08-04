@@ -4,7 +4,7 @@
 
 **Design proposal only.** A DIRECTED HANDOFF capability: an orchestrator composes a
 focused, goal-directed handoff aimed at its active plan, attaches it to the plan as
-provenance, renders it on the canvas, and reseeds a FRESH context in the same pane
+provenance, renders it on the canvas, and reseeds a FRESH context in the same Tab
 that resumes from the handoff. Far sharper than a generic `/compact` summary.
 
 Grounding (verified in code):
@@ -15,15 +15,15 @@ Grounding (verified in code):
   open-kind fallback (`plan/types.rs:207`). New node kinds need NO new persistence.
 - `Milestone { from, kind, text, ts, links, loop_id, iteration }` is task-interior; `kind`
   must be declared in `plan.milestone_kinds` (validated, `cli/cmd/plan.rs:93`).
-- `agent.report` RPC already accepts `pane_id, message, kind, plan_id, task_id, status,
+- `agent.report` RPC already accepts `tab_id, message, kind, plan_id, task_id, status,
   branch, sha, changed_files, test_cmd, test_result, skipped` (`cli/cmd/agent.rs:299`).
-- `agent compact` sends `/compact\n` to a pane via the send path (`cli/cmd/agent.rs:505`).
+- `agent compact` sends `/compact\n` to a Tab via the send path (`cli/cmd/agent.rs:505`).
 - §17 externalized bodies: large text lives in sibling `.md`, hydrated by the single-writer
   + watcher; `INDEX.md` regenerated on write.
 
 **Core decision: reuse, do not invent.** A handoff = a `CanvasElement` of kind `handoff`
 (structured fields in `content`, large body in a `.md` sidecar) + a `TransferRecord` in
-`owner_history` (context generation changed, same pane) + one declared `handoff` color
+`owner_history` (context generation changed, same Tab) + one declared `handoff` color
 lane. Zero new persistence path; renders for free; archive-cascades for free.
 
 ---
@@ -38,14 +38,14 @@ A handoff must let a zero-context agent resume the plan. Fields (structured part
 {
   "seq": 3,                       // handoff #N for this plan -> timeline ordering
   "mode": "new" | "compact",      // continuation mode used
-  "from": { "pane_id", "session_id", "title" },   // the context being retired
+  "from": { "tab_id", "session_id", "title" },   // the context being retired
   "ts": 0,
   "goal": "one-to-two lines: what we are building",
   "plan_id": "...", "plan_title": "...", "plan_handle": "...",
   "state": { "coverage_pct": 72, "done": 18, "total": 24, "focus_section": "sec_..", "phase": "v3 layout" },
   "in_flight": [                  // live agents + branch state at reset
     { "task_handle": "nav-pan-zoom", "status": "in_progress",
-      "assigned_pane_id": "..", "branch": "feat/canvas-nav", "sha": "abc1234", "dirty": true }
+      "assigned_tab_id": "..", "branch": "feat/canvas-nav", "sha": "abc1234", "dirty": true }
   ],
   "next_actions": ["...", "..."], // ordered resume queue (the sharp part)
   "foundational_rules": ["§22.1 zoom=camera, bounds fixed", "..."],  // non-negotiables for THIS plan
@@ -64,7 +64,7 @@ orchestrator): why we're here, what just happened, traps to avoid, nuance the st
 fields can't hold. `RichMarkdown`-rendered on the canvas (W3).
 
 **Generation = template + live plan state + orchestrator free-text.** A pure
-`compose_handoff(plan, from_pane, narrative)` in `service/plan/handoff.rs`:
+`compose_handoff(plan, from_tab, narrative)` in `service/plan/handoff.rs`:
 - AUTO from the in-memory plan index: `state` (coverage/done/total), `in_flight` (tasks
   not done/cancelled + their latest branch/sha pulled from `agent.report` milestone
   provenance), `open_decisions` (open `decision`-kind milestones), `branch_state` (git),
@@ -92,7 +92,7 @@ codeterm plan handoff create <plan_id> [--mode new|compact]
 codeterm plan handoff show  <plan_id> [<selector>|--seq <n>|--latest] [--json]
 codeterm plan handoff list  <plan_id> [--json]
 codeterm orchestrator handoff [--plan <id>] [--mode new|compact] [--reseed] [--from-file|--stdin]
-        # one-shot for the CALLING pane: compose + attach + render + (optionally) reseed self
+        # one-shot for the CALLING tab: compose + attach + render + (optionally) reseed self
 ```
 
 - `--auto` composes the live/computed fields from plan state; `--from-file`/`--stdin`
@@ -125,10 +125,10 @@ element + sidecar for the same plan fixture.
 
 1. **Compose + attach** the handoff (`reseed_state:"pending"`), write element + `.md`, emit
    `plan-changed` (marker appears on the board immediately, pulsing).
-2. **`/new` the same pane** — send `/new\n` to the orchestrator's OWN pane via the existing
-   send-to-pane path (the one `agent compact` uses). Fresh zero-context session, same tab.
-3. **Detect fresh session ready** — wait for the pane's new session id / prompt-ready signal
-   (reuse pane-status plumbing), flip `reseed_state:"sent"`.
+2. **`/new` the same Tab** — send `/new\n` to the orchestrator's OWN Tab via the existing
+   send-to-tab path (the one `agent compact` uses). Fresh zero-context session, same tab.
+3. **Detect fresh session ready** — wait for the Tab's new session id / prompt-ready signal
+   (reuse tab-status plumbing), flip `reseed_state:"sent"`.
 4. **Seed ONE message** via `codeterm send --tab <self>` — the generated `resume_prompt`,
    deliberately LEAN (does not inline the whole handoff):
    > You are the orchestrator resuming plan `<handle>` after a directed context reset
@@ -146,12 +146,12 @@ element + sidecar for the same plan fixture.
 **Idempotency / safety.**
 - `reseed_state` gates `/new`: only sent once per handoff (pending->sent). A re-fire is a
   no-op while sent/acked.
-- One in-flight reseed per pane (a lock) + a short cooldown -> no double-`/new`.
+- One in-flight reseed per Tab (a lock) + a short cooldown -> no double-`/new`.
 - NEVER auto-triggered by context-fill — always agent/operator-initiated, so no reseed loop.
-- If `/new` fails (pane busy), abort the send but KEEP the attached handoff (still valuable
+- If `/new` fails (Tab busy), abort the send but KEEP the attached handoff (still valuable
   provenance); operator resumes manually. The handoff is durable independent of the reseed.
 
-**Mode (a) compact-with-handoff** (`--mode compact`): send the composed handoff to the pane
+**Mode (a) compact-with-handoff** (`--mode compact`): send the composed handoff to the Tab
 as a message, THEN `/compact`, so the summarizer is biased toward the goal instead of a
 generic recap. Pro: preserves in-context working memory; no cold start. Con: `/compact` is
 still lossy and costs tokens to re-summarize, and the auto-summary competes with the
@@ -211,7 +211,7 @@ feature-build + separate testing only.)
    handoff doc to a fresh agent (no other context) and assert it can correctly answer goal /
    in-flight / next-action / branch. This proves the handoff captures enough to resume — add
    as `evals/orchestrator-handoff/`.
-3. **Reseed integration (dev daemon):** `orchestrator handoff --reseed` against a dev pane;
+3. **Reseed integration (dev daemon):** `orchestrator handoff --reseed` against a dev Tab;
    assert `/new` sent, NEW session id (fresh context), seed message sent, fresh agent's first
    action is `plan handoff show` (transcript/report assert), `reseed_state`->`acked`.
    Idempotency: fire twice -> exactly one `/new`.

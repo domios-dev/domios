@@ -40,7 +40,7 @@ Driver `appW` = on-screen width of the task cell in CSS px. Hysteresis ±10% at 
 | **L0 GLYPH** (far) | < 150 | < 0.54 | handle pill · primary-facet tint (left border) · status ring · steps = **constellation** (~6px kind-colored dots, live step pulses 8px §16.9-FAR) · subtasks = **VOLUME CUE only** (stacked-card depth shadow + `N` badge + done/total mini-bar — see §1b). Tags SUBSTITUTE for body (§19.4 Tile). NO body text, NO per-subtask render. The far board = a readable concept map of task chips that *show their scale*. |
 | **L1 THREAD** (closer) | 150–320 | 0.54–1.14 | + status label · model chip · 1-line digest · steps = **thread** (12px circles + kind glyph on a vertical spine, 1-line step TITLES readable, loops render as S-curve **coil** + iteration badge, §16.9-MID) · subtasks = **handle chips** (names + status dot, still compact — one line each, no bodies). Active step = pulsing ring; spine solid-before/dashed-after. **Still titles only — no bodies.** |
 | **L2 CARDS** (near) | 320–560 | 1.14–2.0 | steps = **mini step CARDS** (~160×72: kind strip + title + 2–3 body lines markdown + iter badge, §16.9-NEAR) stacked on spine · subtasks **EXPAND to mini-cards** in the super-cell · task **body fades in CLAMPED** (~5 lines + fade) + intent · model rationale collapsed. Internal scroll engages if overflow (node-only, §24.2). |
-| **L3 READING** (fallen in) | > 560 | > 2.0 | task body **unclamped** · full step cards (full milestone text/iteration) · ALL subtask bodies expanded · model rationale expanded · pane/agent link. Focus-assist fires (see §2). This is "all the way in." |
+| **L3 READING** (fallen in) | > 560 | > 2.0 | task body **unclamped** · full step cards (full milestone text/iteration) · ALL subtask bodies expanded · model rationale expanded · tab/agent link. Focus-assist fires (see §2). This is "all the way in." |
 
 §24.4's three named levels map: **far = L0**, **closer = L1**, **near = L2+L3** (L3 is the
 continuous "fill to full" tail of near, gated by dominance not just zoom).
@@ -76,7 +76,7 @@ spatially — zoom IS the level-of-detail; never flatten everything always-visib
 **Why a depth/stack cue (not just a number):** a bare `[7]` badge reads as flat metadata;
 the stacked-card silhouette reads as *physical volume* pre-attentively, so the overview board
 communicates "where the big work is" before you read a single number — and the fan-out on
-zoom is the same object deepening, reinforcing "I fell INTO this stack," not "a panel opened."
+zoom is the same object deepening, reinforcing "I fell INTO this stack," not "a tabl opened."
 
 **Reserve-at-deepest (§0.2) still holds:** the super-cell room for fanned subtask cards is
 pre-allocated, so the L0 stacked silhouette sits in space that *will* hold the fanned cards —

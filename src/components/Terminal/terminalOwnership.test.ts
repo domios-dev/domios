@@ -5,46 +5,46 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
     terminalVisible: true,
-    paneVisible: false,
+    tabVisible: false,
     ptyId: null,
   }),
   false,
-  "hidden restored desktop pane without pty must not spawn a shell",
+  "hidden restored desktop Tab without pty must not spawn a shell",
 );
 
 assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
     terminalVisible: true,
-    paneVisible: true,
+    tabVisible: true,
     ptyId: null,
   }),
   true,
-  "visible desktop pane may spawn its first shell",
+  "visible desktop Tab may spawn its first shell",
 );
 
 assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
     terminalVisible: true,
-    paneVisible: false,
+    tabVisible: false,
     ptyId: "pty-1",
   }),
   true,
-  "hidden pane with an existing pty may keep its reader alive",
+  "hidden Tab with an existing pty may keep its reader alive",
 );
 
 assert.equal(
-  terminalRenderEnabled({ terminalVisible: true, paneVisible: false }),
+  terminalRenderEnabled({ terminalVisible: true, tabVisible: false }),
   false,
-  "hidden pane must not render terminal output",
+  "hidden Tab must not render terminal output",
 );
 
 assert.equal(
   terminalOwnsLivePty({
     isWeb: true,
     terminalVisible: false,
-    paneVisible: true,
+    tabVisible: true,
     ptyId: null,
   }),
   false,
@@ -55,7 +55,7 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: true,
     terminalVisible: true,
-    paneVisible: true,
+    tabVisible: true,
     ptyId: null,
   }),
   true,

@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn captured_block_wide_picker_prefers_marker_column() {
+    let screen = screen_from_capture(include_str!("fixtures/block_wide_picker.b64"));
+
+    let option_rows = 30..=36;
+    let block_background = AttributedColor::Rgb(41, 41, 41);
+    assert_eq!(screen.cells[33][0].ch, "›");
+    assert!(option_rows
+        .clone()
+        .all(|row| screen.cells[row][0].bg == block_background));
+    assert!(option_rows
+        .clone()
+        .all(|row| screen.cells[row][239].bg == block_background));
+
+    let detected = detect_picker(&screen).expect("picker");
+
+    assert_eq!(detected.selected_index, 3);
+}
+
+#[test]
 fn detects_bg_selected_picker_with_footer() {
     let screen = screen_from_rows(&[
         ("Choose a model", false),
@@ -135,4 +154,92 @@ fn screen_from_rows(rows: &[(&str, bool)]) -> AttributedScreen {
         dominant_bg: AttributedColor::Default,
         dominant_fg: AttributedColor::Default,
     }
+}
+
+#[test]
+fn distinguishing_background_still_selects_one_row() {
+    let mut screen = screen_from_rows(&[
+        ("Choose an option", false),
+        ("  First", false),
+        ("  Second", false),
+        ("  Third", true),
+        ("  Fourth", false),
+        ("Enter to select", false),
+    ]);
+    screen.cursor_row = 0;
+
+    let detected = detect_picker(&screen).expect("picker");
+
+    assert_eq!(detected.selected_index, 2);
+}
+
+#[test]
+fn uniform_option_background_is_not_row_selection() {
+    let mut screen = screen_from_rows(&[
+        ("Choose an option", false),
+        ("  First", true),
+        ("  Second", true),
+        ("  Third", true),
+        ("Enter to select", false),
+    ]);
+    screen.cursor_row = 0;
+
+    let detected = detect_picker(&screen).expect("picker");
+
+    assert_eq!(detected.selected_index, 0);
+}
+
+#[test]
+fn title_search_panel_marker_wins_uniform_background() {
+    let mut screen = screen_from_rows(&[
+        ("Choose an option esc", false),
+        ("Search", false),
+        ("  First", true),
+        ("  Second", true),
+        ("› Third", true),
+        ("  Fourth", true),
+    ]);
+    screen.cursor_row = 0;
+
+    let detected = detect_picker(&screen).expect("picker");
+
+    assert_eq!(detected.selected_index, 2);
+}
+
+#[test]
+fn captured_title_search_panel_ignores_side_band_backgrounds() {
+    let screen = screen_from_cast(include_str!(
+        "../../../../../testbench/snapshots/opencode/connect-picker/raw.cast"
+    ));
+
+    let detected = detect_picker(&screen).expect("picker");
+
+    assert_eq!(detected.selected_index, 0);
+}
+
+fn screen_from_capture(encoded: &str) -> AttributedScreen {
+    use base64::Engine;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .expect("valid captured frame");
+    let mut parser = vt100::Parser::new(40, 240, 0);
+    parser.process(&bytes);
+    AttributedScreen::from_vt100(parser.screen())
+}
+
+fn screen_from_cast(cast: &str) -> AttributedScreen {
+    let mut lines = cast.lines();
+    let header: serde_json::Value = serde_json::from_str(lines.next().expect("cast header"))
+        .expect("valid cast header");
+    let rows = header["height"].as_u64().expect("cast height") as u16;
+    let cols = header["width"].as_u64().expect("cast width") as u16;
+    let mut parser = vt100::Parser::new(rows, cols, 0);
+    for line in lines {
+        let event: serde_json::Value = serde_json::from_str(line).expect("valid cast event");
+        if event[1] == "o" {
+            parser.process(event[2].as_str().expect("cast output").as_bytes());
+        }
+    }
+    AttributedScreen::from_vt100(parser.screen())
 }

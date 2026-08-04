@@ -15,6 +15,7 @@ import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
+import { LiquidToggle } from "../shared/LiquidToggle";
 
 import type {
   AppConfig,
@@ -550,20 +551,13 @@ function ToggleField({
           <div className="text-[10px] text-[var(--ct-muted-fg)] mt-0.5">{description}</div>
         )}
       </div>
-      <button
-        type="button"
+      <LiquidToggle
         data-testid="settings-schema-toggle"
-        onClick={() => onChange(!checked)}
-        className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-          checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-4" : ""
-          }`}
-        />
-      </button>
+        aria-label={label}
+        checked={checked}
+        onCheckedChange={onChange}
+        className="flex-shrink-0"
+      />
     </div>
   );
 }

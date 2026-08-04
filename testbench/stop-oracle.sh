@@ -11,7 +11,7 @@
 # the test is vacuous — nothing to interrupt). Question surfaces: after /stop the
 # visible question must disappear (state leaves Question) or honestly stay Question.
 #
-# Pure /api/*, macOS, no DOM. DISPOSABLE dev pane only.
+# Pure /api/*, macOS, no DOM. DISPOSABLE dev tab only.
 #   testbench/stop-oracle.sh --tab <id> [--mode stop|esc] [--prompt TEXT]
 set -uo pipefail
 TOKEN=$(/usr/bin/python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.codeterm-dev/config.toml').read()).group(1))")
@@ -23,7 +23,7 @@ sleepms(){ /usr/bin/python3 -c "import time;time.sleep($1/1000)"; }
 
 # Long prompt by default: the turn MUST still be generating when stop lands, else
 # the test is vacuous (nothing to interrupt). The pre-stop baseline enforces this.
-PANE=""; MODE="stop"; OC_BASE=""; OC_SESSION=""
+TAB=""; MODE="stop"; OC_BASE=""; OC_SESSION=""
 PROMPT="Write a very long, exhaustive 2000-word essay on the complete decade-by-decade history of computer operating systems and terminals."
 # --mode http-abort validates OpenCode's CONTROL-PLANE stop directly: POST
 # {oc-base}/session/{oc-session}/abort (opencode must be run via `opencode serve`
@@ -31,22 +31,22 @@ PROMPT="Write a very long, exhaustive 2000-word essay on the complete decade-by-
 # verdict logic is identical and outcome-based (raw output growth), so it proves
 # the abort regardless of whether it travels via /stop or HTTP.
 while [ "$#" -gt 0 ]; do case "$1" in
-  --tab) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;;
+  --tab) TAB="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;;
   --oc-base) OC_BASE="$2"; shift 2;; --oc-session) OC_SESSION="$2"; shift 2;;
   *) echo "unknown $1"; exit 2;; esac; done
-[ -n "$PANE" ] || { echo "need --tab"; exit 2; }
+[ -n "$TAB" ] || { echo "need --tab"; exit 2; }
 [ "$MODE" = http-abort ] && { [ -n "$OC_BASE" ] && [ -n "$OC_SESSION" ] || { echo "http-abort needs --oc-base URL --oc-session ID"; exit 2; }; }
 
-state(){ get /api/panes | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$PANE'),'?'))"; }
-shash(){ get "/api/panes/$PANE/output?strip_ansi=true&full=true" | /usr/bin/python3 -c "import sys,json,hashlib;print(hashlib.md5(json.load(sys.stdin).get('output','').encode()).hexdigest()[:12])"; }
+state(){ get /api/tabs | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$TAB'),'?'))"; }
+shash(){ get "/api/tabs/$TAB/output?strip_ansi=true&full=true" | /usr/bin/python3 -c "import sys,json,hashlib;print(hashlib.md5(json.load(sys.stdin).get('output','').encode()).hexdigest()[:12])"; }
 # Raw monotonic output buffer length — the STRONGEST 'still generating' signal: it
 # grows with real output and is NOT fooled by in-place repaint (which leaves length
 # unchanged but changes the screen hash). NOT a small ring buffer (observed >1.7MB).
-orawlen(){ get "/api/panes/$PANE/output?full=true" | /usr/bin/python3 -c "import sys,json;print(len(json.load(sys.stdin).get('output','')))"; }
+orawlen(){ get "/api/tabs/$TAB/output?full=true" | /usr/bin/python3 -c "import sys,json;print(len(json.load(sys.stdin).get('output','')))"; }
 # assistant transcript len — only some providers populate /chat assistant msgs, and
 # opencode commits the message only at turn END (lags streaming), so it is a WEAK
 # secondary signal, reported but not gating.
-alen(){ get "/api/panes/$PANE/chat" | /usr/bin/python3 -c "
+alen(){ get "/api/tabs/$TAB/chat" | /usr/bin/python3 -c "
 import sys,json
 try: m=json.load(sys.stdin).get('messages',[])
 except Exception: print(0); sys.exit()
@@ -54,8 +54,8 @@ a=[x for x in m if x.get('type')=='assistant']
 print(len(a[-1].get('content','')) if a else 0)"; }
 sig(){ echo "$(state)|$(shash)|raw$(orawlen)|a$(alen)"; }
 
-echo "== stop-oracle pane=$PANE mode=$MODE =="
-post /api/panes/$PANE/send "$(/usr/bin/python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1],"enter":True}))' "$PROMPT")" >/dev/null
+echo "== stop-oracle tab=$TAB mode=$MODE =="
+post /api/tabs/$TAB/send "$(/usr/bin/python3 -c 'import json,sys;print(json.dumps({"text":sys.argv[1],"enter":True}))' "$PROMPT")" >/dev/null
 w=0; for i in $(seq 1 60); do [ "$(state)" = working ] && { w=1; break; }; sleepms 150; done
 [ "$w" = 1 ] || { echo "FAIL: never Working"; exit 1; }
 
@@ -69,8 +69,8 @@ fi
 
 T0=$(nowms)
 case "$MODE" in
-  stop) STOP_RESP=$(post /api/panes/$PANE/stop '{}'); echo "  [/stop response: $STOP_RESP]";;
-  esc)  post /api/panes/$PANE/send '{"actions":[{"type":"key","key":"esc"}]}' >/dev/null;;
+  stop) STOP_RESP=$(post /api/tabs/$TAB/stop '{}'); echo "  [/stop response: $STOP_RESP]";;
+  esc)  post /api/tabs/$TAB/send '{"actions":[{"type":"key","key":"esc"}]}' >/dev/null;;
   http-abort) /usr/bin/curl -s -X POST "$OC_BASE/session/$OC_SESSION/abort" >/dev/null 2>&1;;
 esac
 echo "  [issued $MODE]  (structured_abort:true in /stop response = abort-preflight binary)"

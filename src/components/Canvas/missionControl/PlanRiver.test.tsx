@@ -43,7 +43,7 @@ async function render(ui: ReactElement) {
   };
 }
 
-const VERDI: MissionAgent = { id: "pane-v", name: "Verdi", provider: "claude", state: "reviewing" };
+const VERDI: MissionAgent = { id: "tab-v", name: "Verdi", provider: "claude", state: "reviewing" };
 
 function activeModel(overrides: Partial<FlowRiverModel> = {}): FlowRiverModel {
   return {
@@ -51,7 +51,7 @@ function activeModel(overrides: Partial<FlowRiverModel> = {}): FlowRiverModel {
     planTitle: "Plan views UX redesign",
     progressPct: 88,
     statusLabel: null,
-    crew: [VERDI, { id: "pane-p", name: "Puccini", provider: "codex", state: "working" }],
+    crew: [VERDI, { id: "tab-p", name: "Puccini", provider: "codex", state: "working" }],
     crewCount: 2,
     frontier: { count: 4, chips: [{ taskId: "f1", title: "Terminal longtasks", hot: false }] },
     milestone: {

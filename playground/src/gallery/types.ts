@@ -1,9 +1,9 @@
-import type { ComponentType } from "react";
+import { createElement, type ComponentType, type ReactNode } from "react";
 
 export type SpecimenState = {
   id: string;
   label: string;
-  props: Record<string, unknown>;
+  render: () => ReactNode;
 };
 
 export type Specimen = {
@@ -12,7 +12,22 @@ export type Specimen = {
   category: string;
   where: string;
   states: SpecimenState[];
-  Component: ComponentType<Record<string, unknown>>;
   motion?: "animated" | "static";
   notes?: string;
 };
+
+type SpecimenDefinition<Props extends object> = Omit<Specimen, "states"> & {
+  states: Array<Omit<SpecimenState, "render"> & { props: Props }>;
+  Component: ComponentType<Props>;
+};
+
+export function defineSpecimen<Props extends object>({ Component, states, ...specimen }: SpecimenDefinition<Props>): Specimen {
+  return {
+    ...specimen,
+    states: states.map(({ id, label, props }) => ({
+      id,
+      label,
+      render: () => createElement(Component, props),
+    })),
+  };
+}

@@ -2,14 +2,14 @@ use serde_json::{json, Value};
 
 use crate::client::RpcClient;
 
-use super::{call, maybe_inject_caller_pane};
+use super::{call, maybe_inject_caller_tab};
 
 fn plan_state_value(client: &mut dyn RpcClient, plan_id: Option<String>) -> Result<Value, String> {
     let mut params = json!({});
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
     }
-    maybe_inject_caller_pane(&mut params);
+    maybe_inject_caller_tab(&mut params);
     call(client, "plan.state", params)
 }
 

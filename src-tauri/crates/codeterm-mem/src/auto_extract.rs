@@ -157,7 +157,7 @@ pub fn find_pending_items(
 // Track injected `kind=skill` and `kind=lesson` items so we can bump evidence on matching output.
 // Only successful-shaped observations count; raw echoes and failed/error-looking outputs are ignored.
 
-/// Tracked context entry per scoped key (e.g. pane id, worker id).
+/// Tracked context entry per scoped key (e.g. tab id, worker id).
 #[derive(Clone, Debug)]
 pub struct InjectedItem {
     pub mem_id: String,
@@ -179,7 +179,7 @@ impl InjectedItem {
     }
 }
 
-/// In-memory ring of tracked injections keyed by scope (pane / worker).
+/// In-memory ring of tracked injections keyed by scope (tab / worker).
 /// One entry per scope holds the most-recent batch of skill/lesson ids.
 /// Cleared when an observation is consumed against it.
 pub struct EvolutionObserver {
@@ -313,7 +313,7 @@ mod tests {
         insert_skill(&conn, "skill_a", "follow these steps to refresh tokens");
         let obs = EvolutionObserver::new();
         obs.record_injection(
-            "pane1",
+            "tab1",
             vec![InjectedItem::new(
                 "skill_a".into(),
                 MemKind::Skill,
@@ -322,13 +322,13 @@ mod tests {
         );
         let bumped = obs.observe(
             &conn,
-            "pane1",
+            "tab1",
             "Done. Token refreshed and request returned 200 OK.",
         );
         assert_eq!(bumped, vec!["skill_a".to_string()]);
         assert_eq!(evidence_count(&conn, "skill_a"), 2);
         assert!(
-            obs.pending("pane1").is_empty(),
+            obs.pending("tab1").is_empty(),
             "scope cleared after observe"
         );
     }
@@ -339,14 +339,14 @@ mod tests {
         insert_skill(&conn, "skill_b", "follow these steps");
         let obs = EvolutionObserver::new();
         obs.record_injection(
-            "pane1",
+            "tab1",
             vec![InjectedItem::new(
                 "skill_b".into(),
                 MemKind::Skill,
                 "follow these steps",
             )],
         );
-        let bumped = obs.observe(&conn, "pane1", "Error: command failed with exit code 1");
+        let bumped = obs.observe(&conn, "tab1", "Error: command failed with exit code 1");
         assert!(bumped.is_empty());
         assert_eq!(
             evidence_count(&conn, "skill_b"),
@@ -362,14 +362,14 @@ mod tests {
         insert_skill(&conn, "skill_c", body);
         let obs = EvolutionObserver::new();
         obs.record_injection(
-            "pane1",
+            "tab1",
             vec![InjectedItem::new("skill_c".into(), MemKind::Skill, body)],
         );
         let echo = format!(
             "Working on it. Following the rule: {}. Should succeed shortly.",
             body
         );
-        let bumped = obs.observe(&conn, "pane1", &echo);
+        let bumped = obs.observe(&conn, "tab1", &echo);
         assert!(
             bumped.is_empty(),
             "echo of body must not count as independent evidence"
@@ -381,7 +381,7 @@ mod tests {
     fn observer_no_op_when_nothing_tracked() {
         let conn = open_test_conn();
         let obs = EvolutionObserver::new();
-        let bumped = obs.observe(&conn, "pane1", "ok");
+        let bumped = obs.observe(&conn, "tab1", "ok");
         assert!(bumped.is_empty());
     }
 
@@ -392,7 +392,7 @@ mod tests {
         insert_skill(&conn, "skill_y", "y body");
         let obs = EvolutionObserver::new();
         obs.record_injection(
-            "pane1",
+            "tab1",
             vec![InjectedItem::new(
                 "skill_x".into(),
                 MemKind::Skill,
@@ -400,14 +400,14 @@ mod tests {
             )],
         );
         obs.record_injection(
-            "pane1",
+            "tab1",
             vec![InjectedItem::new(
                 "skill_y".into(),
                 MemKind::Skill,
                 "y body",
             )],
         );
-        let bumped = obs.observe(&conn, "pane1", "ok");
+        let bumped = obs.observe(&conn, "tab1", "ok");
         assert_eq!(bumped, vec!["skill_y".to_string()]);
         assert_eq!(
             evidence_count(&conn, "skill_x"),
@@ -422,14 +422,14 @@ mod tests {
         let conn = open_test_conn();
         let obs = EvolutionObserver::new();
         obs.record_injection(
-            "pane1",
+            "tab1",
             vec![InjectedItem::new(
                 "ghost".into(),
                 MemKind::Skill,
                 "vanished",
             )],
         );
-        let bumped = obs.observe(&conn, "pane1", "ok");
+        let bumped = obs.observe(&conn, "tab1", "ok");
         assert!(bumped.is_empty(), "missing row → no bump reported");
     }
 

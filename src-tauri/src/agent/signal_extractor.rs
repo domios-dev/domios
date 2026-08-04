@@ -83,7 +83,7 @@ pub struct RegionSignal {
     pub content_text: String,
 }
 
-/// The input contract for `classify_pane_state` — a provider-neutral structured
+/// The input contract for `classify_tab_state` — a provider-neutral structured
 /// view of the PTY stream, produced per output step from a vt100 grid diff.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamSignals {
@@ -143,7 +143,7 @@ impl SignalExtractor {
         }
     }
 
-    /// Resize to real pane geometry. Reflows the grid and drops the prev-grid so
+    /// Resize to real tab geometry. Reflows the grid and drops the prev-grid so
     /// the expected repaint is not mistaken for a content delta, while the
     /// semantic clock is preserved (a resize is not progress).
     pub fn resize(&mut self, rows: u16, cols: u16) {

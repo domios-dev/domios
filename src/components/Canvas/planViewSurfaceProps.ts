@@ -1,4 +1,4 @@
-import type { ApiConfig, Pane, Team, Workspace } from "../../lib/types";
+import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
@@ -12,9 +12,9 @@ export interface PlanViewSurfaceProps {
   onRetry?: () => void;
   planId?: string;
   teamId?: string;
-  orchestratorPaneId?: string;
-  focusPaneId?: string | null;
-  panes?: Record<string, Pane>;
+  orchestratorTabId?: string;
+  focusTabId?: string | null;
+  tabs?: Record<string, Tab>;
   workspaces?: Workspace[];
   /** Current workspace; workspace mode scopes plans to those bound here. */
   workspaceId?: string;
@@ -22,6 +22,6 @@ export interface PlanViewSurfaceProps {
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
-  onOpenPane?: (paneId: string) => void;
+  onOpenTab?: (tabId: string) => void;
   api?: ApiConfig;
 }

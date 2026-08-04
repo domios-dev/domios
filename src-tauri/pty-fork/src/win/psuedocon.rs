@@ -144,7 +144,7 @@ impl PsuedoCon {
     }
 
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
-        let job = create_pane_job()?;
+        let job = create_tab_job()?;
         let mut si = conpty_startup_info();
 
         let mut attrs = ProcThreadAttributeList::with_capacity(1)?;
@@ -165,7 +165,7 @@ impl PsuedoCon {
                 ptr::null_mut(),
                 ptr::null_mut(),
                 0,
-                // Suspension closes the race where a provider descendant escapes its pane job.
+                // Suspension closes the race where a provider descendant escapes its tab job.
                 EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
                 cmd.environment_block().as_mut_slice().as_mut_ptr() as *mut _,
                 cwd.as_ref()
@@ -236,7 +236,7 @@ mod tests {
     }
 }
 
-fn create_pane_job() -> anyhow::Result<OwnedHandle> {
+fn create_tab_job() -> anyhow::Result<OwnedHandle> {
     let raw = unsafe { CreateJobObjectW(ptr::null_mut(), ptr::null()) };
     if raw.is_null() {
         bail!("CreateJobObjectW failed: {}", IoError::last_os_error());

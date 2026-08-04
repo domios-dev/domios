@@ -89,7 +89,7 @@ impl TokenCounts {
 pub struct KpiEventInput {
     pub plan_id: Option<String>,
     pub task_id: Option<String>,
-    pub pane_id: String,
+    pub tab_id: String,
     pub role: Option<String>,
     pub provider: String,
     pub model: Option<String>,
@@ -110,7 +110,7 @@ pub struct KpiEventRecord {
     pub schema_version: u32,
     pub plan_id: Option<String>,
     pub task_id: Option<String>,
-    pub pane_id: String,
+    pub tab_id: String,
     pub role: Option<String>,
     pub provider: String,
     pub model: Option<String>,
@@ -207,7 +207,7 @@ impl KpiLedger {
                 schema_version INTEGER NOT NULL,
                 plan_id        TEXT,
                 task_id        TEXT,
-                pane_id        TEXT NOT NULL,
+                tab_id        TEXT NOT NULL,
                 role           TEXT,
                 provider       TEXT NOT NULL,
                 model          TEXT,
@@ -281,7 +281,7 @@ impl KpiLedger {
         conn.execute(
             r#"
             INSERT OR IGNORE INTO kpi_events (
-                schema_version, plan_id, task_id, pane_id, role, provider, model,
+                schema_version, plan_id, task_id, tab_id, role, provider, model,
                 ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens,
                 dedup_key
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
@@ -290,7 +290,7 @@ impl KpiLedger {
                 CURRENT_KPI_SCHEMA_VERSION,
                 event.plan_id,
                 event.task_id,
-                event.pane_id,
+                event.tab_id,
                 event.role,
                 event.provider,
                 event.model,
@@ -386,7 +386,7 @@ impl KpiLedger {
         let conn = self.conn.lock();
         let sql = format!(
             r#"
-            SELECT id, schema_version, plan_id, task_id, pane_id, role, provider, model,
+            SELECT id, schema_version, plan_id, task_id, tab_id, role, provider, model,
                    ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens, dedup_key
             FROM kpi_events
             WHERE {}
@@ -423,7 +423,7 @@ impl KpiLedger {
             schema_version: r.get::<_, i64>(1)? as u32,
             plan_id: r.get(2)?,
             task_id: r.get(3)?,
-            pane_id: r.get(4)?,
+            tab_id: r.get(4)?,
             role: r.get(5)?,
             provider: r.get(6)?,
             model: r.get(7)?,

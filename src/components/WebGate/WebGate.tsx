@@ -3,13 +3,19 @@ import {
   apiHost,
   clearRelayTarget,
   currentToken,
+  GATEWAY_STATE_EVENT,
   IS_WEB,
+  localJson,
   relayTarget,
+  resolveRelayTarget,
   selfHost,
+  setRelayTarget,
   setTokenFor,
   webJson,
 } from "../../lib/webApi";
+import type { MeshPeersResponse } from "../../lib/types";
 import { PwaSetup } from "./PwaSetup";
+import { installWebHistoryGuard } from "./webHistoryGuard";
 
 type GateState = "checking" | "need-token" | "ready";
 
@@ -25,6 +31,17 @@ export function WebGate({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [gatewayUnavailable, setGatewayUnavailable] = useState(false);
+
+  useEffect(() => {
+    if (!IS_WEB) return;
+    const update = (event: Event) => {
+      const available = (event as CustomEvent<{ available: boolean }>).detail.available;
+      setGatewayUnavailable(!available);
+    };
+    window.addEventListener(GATEWAY_STATE_EVENT, update);
+    return () => window.removeEventListener(GATEWAY_STATE_EVENT, update);
+  }, []);
 
   const validate = useCallback(async () => {
     if (!currentToken()) {
@@ -49,15 +66,37 @@ export function WebGate({ children }: { children: ReactNode }) {
     const urlToken = (hash.get("token") ?? query.get("token"))?.trim();
     if (urlToken) {
       setTokenFor(apiHost(), urlToken);
-      query.delete("token");
-      const qs = query.toString();
-      window.history.replaceState(
-        null,
-        "",
-        window.location.pathname + (qs ? `?${qs}` : ""),
-      );
     }
-    void validate();
+    query.delete("token");
+    const qs = query.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (qs ? `?${qs}` : ""),
+    );
+    const removeHistoryGuard = installWebHistoryGuard();
+    const relayPeerId = hash.get("relay")?.trim();
+    let active = true;
+    const bootstrap = async () => {
+      if (relayPeerId === "self") {
+        clearRelayTarget();
+      } else if (relayPeerId) {
+        try {
+          const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
+          const peer = resolveRelayTarget(peers.paired, relayPeerId);
+          if (!peer) throw new Error("Relay peer is not paired");
+          if (active) setRelayTarget(peer.id, peer.name);
+        } catch {
+          if (active) clearRelayTarget();
+        }
+      }
+      if (active) await validate();
+    };
+    void bootstrap();
+    return () => {
+      active = false;
+      removeHistoryGuard();
+    };
   }, [validate]);
 
   const submit = useCallback(async () => {
@@ -80,6 +119,15 @@ export function WebGate({ children }: { children: ReactNode }) {
     return (
       <>
         {children}
+        {gatewayUnavailable && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-4 left-1/2 z-[1000] -translate-x-1/2 rounded-md border border-[var(--ct-yellow,#d29922)] bg-[var(--ct-titlebar-bg,#161b22)] px-4 py-2 text-xs text-[var(--ct-fg,#e6edf3)] shadow-lg"
+          >
+            Browser gateway unavailable — the current view is preserved, but live data and peer switching are paused.
+          </div>
+        )}
         {IS_WEB && <PwaSetup />}
       </>
     );

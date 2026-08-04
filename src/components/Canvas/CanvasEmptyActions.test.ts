@@ -5,9 +5,9 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-async function createWith(target?: { teamId?: string; managerPaneId?: string | null }, created: unknown = {
+async function createWith(target?: { teamId?: string; managerTabId?: string | null }, created: unknown = {
   plan: {
-    owner: { pane_id: "new-orchestrator" },
+    owner: { tab_id: "new-orchestrator" },
     team_id: "team-1",
   },
   team_id: "team-1",
@@ -28,15 +28,15 @@ async function createWith(target?: { teamId?: string; managerPaneId?: string | n
 
 async function run() {
   const team = await createWith(
-    { teamId: "team-1", managerPaneId: "manager-1" },
-    { plan: { owner: { pane_id: "manager-1" }, team_id: "team-1" }, team_id: "team-1" },
+    { teamId: "team-1", managerTabId: "manager-1" },
+    { plan: { owner: { tab_id: "manager-1" }, team_id: "team-1" }, team_id: "team-1" },
   );
   assert(team.spawns === 0, "team creation never spawns another orchestrator");
   assert(
     JSON.stringify(team.params) === JSON.stringify({
       title: "New plan",
       project_path: "/project",
-      owner: { pane_id: "manager-1", session_id: null, title: "Team Manager" },
+      owner: { tab_id: "manager-1", session_id: null, title: "Team Manager" },
     }),
     "team creation owns the plan with its manager target",
   );
@@ -51,9 +51,9 @@ async function run() {
 
   let mismatchError: unknown;
   try {
-    await createWith({ teamId: "team-1", managerPaneId: "manager-1" }, {
+    await createWith({ teamId: "team-1", managerTabId: "manager-1" }, {
       plan: {
-        owner: { pane_id: "manager-1" },
+        owner: { tab_id: "manager-1" },
         team_id: "unrelated-team",
       },
       team_id: "team-1",

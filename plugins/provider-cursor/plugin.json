@@ -15,8 +15,11 @@
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
     },
-    "taskDelivery": "pty_input",
-    "taskInputWarmupMs": 3000,
+    "taskDelivery": "inline_flag",
+    "providerReadiness": {
+      "kind": "structural_composer",
+      "timeoutSecs": 30
+    },
     "verifySubmit": { "kind": "tui_input_drained" },
     "sessionIdInjection": "none",
     "statusBarRows": 1,

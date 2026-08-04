@@ -1,11 +1,12 @@
 // Run: npx tsx src/components/Canvas/planView/PlanCompanionBubble.test.tsx
 
 import { act, type ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest, __setListenForTest } from "../../../lib/bridge";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import type { Plan, PlannerRef } from "../types";
 import { PlanCompanionBubble } from "./PlanCompanionBubble";
 
@@ -50,26 +51,26 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-function pane(overrides: Partial<Pane>): Pane {
-  return { id: "x", title: "Pane", agent_type: "claude", ...overrides } as Pane;
+function tab(overrides: Partial<Tab>): Tab {
+  return { id: "x", title: "Tab", agent_type: "claude", ...overrides } as Tab;
 }
 
 function plan(planner: PlannerRef | null): Plan {
   return { ...FIXTURE_PLAN, id: "plan-alpha", planner };
 }
 
-function renderChatStub({ paneId }: { paneId: string; chatBackend: boolean }) {
-  return <div data-testid="plan-companion-chat" data-pane-id={paneId} />;
+function renderChatStub({ tabId }: { tabId: string; chatBackend: boolean }) {
+  return <div data-testid="plan-companion-chat" data-tab-id={tabId} />;
 }
 
-const LIVE_PANES: Record<string, Pane> = {
-  "planner-1": pane({ id: "planner-1", title: "Planner", agent_state: { state: "working" } }),
-  "orch-1": pane({ id: "orch-1", title: "Orchestrator", agent_state: { state: "idle" } }),
+const LIVE_TABS: Record<string, Tab> = {
+  "planner-1": tab({ id: "planner-1", title: "Planner", agent_state: { state: "working" } }),
+  "orch-1": tab({ id: "orch-1", title: "Orchestrator", agent_state: { state: "idle" } }),
 };
 
-test("renders planner bubble when planner pane is live", async () => {
+test("renders planner bubble when planner Tab is live", async () => {
   const { host, root } = await render(
-    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+    <PlanCompanionBubble plans={[plan({ kind: "tab", tab_id: "planner-1" })]} tabs={LIVE_TABS} renderChat={renderChatStub} />,
   );
   const bubble = host.querySelector('[data-testid="plan-companion-bubble"]');
   assert(bubble, "bubble should render");
@@ -79,7 +80,7 @@ test("renders planner bubble when planner pane is live", async () => {
 
 test("falls back to orchestrator bubble when planner is dead", async () => {
   const { host, root } = await render(
-    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "gone" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+    <PlanCompanionBubble plans={[plan({ kind: "tab", tab_id: "gone" })]} tabs={LIVE_TABS} renderChat={renderChatStub} />,
   );
   const bubble = host.querySelector('[data-testid="plan-companion-bubble"]');
   assert(bubble?.getAttribute("data-companion-kind") === "orchestrator", "should fall back to orchestrator");
@@ -88,7 +89,7 @@ test("falls back to orchestrator bubble when planner is dead", async () => {
 
 test("hidden when nothing live resolves", async () => {
   const { host, root } = await render(
-    <PlanCompanionBubble plans={[plan(null)]} panes={{ "orch-1": pane({ id: "orch-1", agent_type: undefined }) }} renderChat={renderChatStub} />,
+    <PlanCompanionBubble plans={[plan(null)]} tabs={{ "orch-1": tab({ id: "orch-1", agent_type: undefined }) }} renderChat={renderChatStub} />,
   );
   assert(!host.querySelector('[data-testid="plan-companion-bubble"]'), "bubble should be hidden");
   await act(async () => root.unmount());
@@ -96,7 +97,7 @@ test("hidden when nothing live resolves", async () => {
 
 test("click opens popover, close button dismisses it", async () => {
   const { host, root } = await render(
-    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+    <PlanCompanionBubble plans={[plan({ kind: "tab", tab_id: "planner-1" })]} tabs={LIVE_TABS} renderChat={renderChatStub} />,
   );
   const bubble = host.querySelector('[data-testid="plan-companion-bubble"]') as HTMLButtonElement;
   await act(async () => bubble.click());
@@ -109,7 +110,7 @@ test("click opens popover, close button dismisses it", async () => {
 
 test("Escape closes an open popover", async () => {
   const { host, root } = await render(
-    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+    <PlanCompanionBubble plans={[plan({ kind: "tab", tab_id: "planner-1" })]} tabs={LIVE_TABS} renderChat={renderChatStub} />,
   );
   const bubble = host.querySelector('[data-testid="plan-companion-bubble"]') as HTMLButtonElement;
   await act(async () => bubble.click());
@@ -123,7 +124,7 @@ test("Escape closes an open popover", async () => {
 
 test("bubble face is a chat icon with an edge presence dot, name in tooltip", async () => {
   const { host, root } = await render(
-    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+    <PlanCompanionBubble plans={[plan({ kind: "tab", tab_id: "planner-1" })]} tabs={LIVE_TABS} renderChat={renderChatStub} />,
   );
   const bubble = host.querySelector('[data-testid="plan-companion-bubble"]') as HTMLButtonElement;
   assert(bubble, "bubble renders");
@@ -140,6 +141,18 @@ test("bubble face is a chat icon with an edge presence dot, name in tooltip", as
   // Name lives in the tooltip (title), not painted on the face.
   const title = bubble.getAttribute("title") ?? "";
   assert(title.includes("Planner"), `name should be in tooltip, got: ${title}`);
+  await act(async () => root.unmount());
+});
+
+test("working companion presence uses quiet micro activity dots", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "tab", tab_id: "planner-1" })]} tabs={LIVE_TABS} renderChat={renderChatStub} />,
+  );
+  const dots = host.querySelector('[data-testid="plan-companion-presence"].activity-dots');
+  assert(dots?.classList.contains("activity-dots--micro"), "working presence uses micro dots");
+  assert(dots?.classList.contains("activity-dots--muted"), "working presence uses the quiet tone");
+  const activityCss = readFileSync(new URL("../../../styles/agent-state.css", import.meta.url), "utf8");
+  assert(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.activity-dots i\s*\{[^}]*animation:\s*none !important;/s.test(activityCss), "activity dots retain a static reduced-motion cue");
   await act(async () => root.unmount());
 });
 

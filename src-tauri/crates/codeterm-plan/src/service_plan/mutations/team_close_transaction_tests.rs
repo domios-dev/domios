@@ -9,7 +9,7 @@ fn team_archive_transaction_restores_every_bound_plan() {
         .create_plan_for_team(
             "Active".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             "team_closed".into(),
             vec![],
             1,
@@ -19,7 +19,7 @@ fn team_archive_transaction_restores_every_bound_plan() {
         .create_plan_for_team(
             "Archived".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             "team_archived".into(),
             vec![],
             2,
@@ -48,7 +48,7 @@ fn archiving_a_large_team_plan_is_one_database_write() {
         .create_plan_for_team(
             "Large plan".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             "team_closed".into(),
             vec![],
             1,
@@ -57,8 +57,8 @@ fn archiving_a_large_team_plan_is_one_database_write() {
     store
         .set_planner_ref(
             &plan.id,
-            Some(PlannerRef::Pane {
-                pane_id: "planner".into(),
+            Some(PlannerRef::Tab {
+                tab_id: "planner".into(),
                 session_id: None,
                 title: None,
             }),
@@ -97,7 +97,7 @@ fn archiving_a_large_team_plan_is_one_database_write() {
             .last()
             .unwrap()
             .from
-            .pane_id
+            .tab_id
             .as_deref(),
         Some("orch")
     );

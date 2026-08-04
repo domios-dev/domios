@@ -1,6 +1,6 @@
 import { TaskStatus } from "./types";
 import type { Plan } from "./types";
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import { milestone, plan, task } from "./layout/fixtures";
 import {
   PERF_PLAN_SECTION_IDS,
@@ -16,8 +16,8 @@ const LONG_BRANCH = "lane/task-73ea1b9d-card-metadata";
 export const CARD_METADATA_TASK_IDS = {
   pending: "meta_pending",
   live: "meta_live",
-  noPane: "meta_no_pane",
-  paneGone: "meta_pane_gone",
+  noTab: "meta_no_tab",
+  tabGone: "meta_tab_gone",
   branchMissing: "meta_branch_miss",
   blocked: "meta_blocked",
   paused: "meta_paused",
@@ -26,14 +26,14 @@ export const CARD_METADATA_TASK_IDS = {
   longBranch: "meta_long_branch",
 } as const;
 
-export const CARD_METADATA_LOCAL_PANE_ID = "pane-verdi";
+export const CARD_METADATA_LOCAL_TAB_ID = "tab-verdi";
 
-export function buildCardMetadataFixturePanes(): Record<string, Pane> {
+export function buildCardMetadataFixtureTabs(): Record<string, Tab> {
   return {
-    [CARD_METADATA_LOCAL_PANE_ID]: {
-      id: CARD_METADATA_LOCAL_PANE_ID,
+    [CARD_METADATA_LOCAL_TAB_ID]: {
+      id: CARD_METADATA_LOCAL_TAB_ID,
       pty_id: null,
-      pane_type: "Terminal",
+      tab_type: "Terminal",
       title: "Verdi",
       cwd: null,
     },
@@ -43,7 +43,7 @@ export function buildCardMetadataFixturePanes(): Record<string, Pane> {
 export function buildCardMetadataFixturePlans(): Plan[] {
   const doneMilestone = {
     ...milestone("meta_done_ms", "status_update", null, []),
-    from: { pane_id: "pane-verdi", session_id: null, title: "Verdi" },
+    from: { tab_id: "tab-verdi", session_id: null, title: "Verdi" },
     text: "Shipped metadata album",
     ts: NOW - 60_000,
   };
@@ -75,7 +75,7 @@ export function buildCardMetadataFixturePlans(): Plan[] {
       name: "Live worker",
       status: TaskStatus.InProgress,
       model: "gpt-5.5",
-      assigned_pane_id: "pane-verdi",
+      assigned_tab_id: "tab-verdi",
       lane: { branch: "lane/card-metadata-live" },
       status_changed_at: NOW - 120_000,
     }),
@@ -83,30 +83,30 @@ export function buildCardMetadataFixturePlans(): Plan[] {
       name: "Long branch truncation",
       status: TaskStatus.InProgress,
       model: "claude:opus",
-      assigned_pane_id: "pane-verdi",
+      assigned_tab_id: "tab-verdi",
       lane: { branch: LONG_BRANCH },
       status_changed_at: NOW - 90_000,
     }),
-    task(CARD_METADATA_TASK_IDS.noPane, [SEC], {
-      name: "No pane recorded",
+    task(CARD_METADATA_TASK_IDS.noTab, [SEC], {
+      name: "No Tab recorded",
       status: TaskStatus.InProgress,
       model: "gpt-5.5",
-      assigned_pane_id: null,
-      lane: { branch: "lane/no-pane" },
+      assigned_tab_id: null,
+      lane: { branch: "lane/no-tab" },
       status_changed_at: NOW - 30_000,
     }),
-    task(CARD_METADATA_TASK_IDS.paneGone, [SEC], {
-      name: "Pane gone",
+    task(CARD_METADATA_TASK_IDS.tabGone, [SEC], {
+      name: "Tab gone",
       status: TaskStatus.InReview,
-      assigned_pane_id: "ghost-pane",
+      assigned_tab_id: "ghost-tab",
       peer: null,
-      lane: { branch: "lane/pane-gone" },
+      lane: { branch: "lane/tab-gone" },
       status_changed_at: NOW - 45_000,
     }),
     task(CARD_METADATA_TASK_IDS.branchMissing, [SEC], {
       name: "Branch missing",
       status: TaskStatus.InProgress,
-      assigned_pane_id: "pane-verdi",
+      assigned_tab_id: "tab-verdi",
       lane: {},
       status_changed_at: NOW - 20_000,
     }),
@@ -127,7 +127,7 @@ export function buildCardMetadataFixturePlans(): Plan[] {
     task(CARD_METADATA_TASK_IDS.done, [SEC], {
       name: "Done historical executor",
       status: TaskStatus.Done,
-      assigned_pane_id: "pane-verdi",
+      assigned_tab_id: "tab-verdi",
       taken_by_role: "frontend-dev",
       lane: { branch: "lane/merged-meta" },
       status_changed_at: NOW - 86_400_000,
@@ -136,14 +136,14 @@ export function buildCardMetadataFixturePlans(): Plan[] {
     task(CARD_METADATA_TASK_IDS.doneRustExecutor, [SEC], {
       name: "Done with rust executor fields",
       status: TaskStatus.Done,
-      assigned_pane_id: null,
+      assigned_tab_id: null,
       taken_by_role: "worker",
       lane: {},
       status_changed_at: NOW - 120_000,
       execution_attempts: [
         {
           id: "att-rust",
-          executor_pane_id: CARD_METADATA_LOCAL_PANE_ID,
+          executor_tab_id: CARD_METADATA_LOCAL_TAB_ID,
           executor_title: "Verdi",
           role: "worker",
           model: "gpt-5.5",

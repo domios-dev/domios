@@ -30,7 +30,7 @@ pub enum PlanError {
     HeartbeatRequiresExecution,
     TaskPauseRequiresReason,
     PauseRequiresReason,
-    InProgressRequiresPane,
+    InProgressRequiresTab,
     BlockedRequiresLabel,
     QaNoteRequired,
     QaSlotUnavailable,
@@ -114,7 +114,7 @@ impl fmt::Display for PlanError {
                 f,
                 "heartbeat is for active execution; approve the plan or store planning-only policy in spec/plan sections or mem"
             ),
-            PlanError::InProgressRequiresPane => write!(
+            PlanError::InProgressRequiresTab => write!(
                 f,
                 "in_progress requires an executor tab; set both in one command: codeterm plan task update <plan> <task> --status in_progress --tab <tab-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
             ),
@@ -202,8 +202,8 @@ impl PlanError {
             PlanError::HeartbeatRequiresExecution => {
                 serde_json::json!({ "type": "heartbeat_requires_execution" })
             }
-            PlanError::InProgressRequiresPane => {
-                serde_json::json!({ "type": "in_progress_requires_pane" })
+            PlanError::InProgressRequiresTab => {
+                serde_json::json!({ "type": "in_progress_requires_tab" })
             }
             PlanError::BlockedRequiresLabel => {
                 serde_json::json!({ "type": "blocked_requires_label" })
@@ -282,7 +282,7 @@ pub struct NewTask {
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
     pub depends_on: Vec<String>,
-    pub assigned_pane_id: Option<String>,
+    pub assigned_tab_id: Option<String>,
     pub lane: TaskLaneMetadata,
     pub group: Option<String>,
     pub priority: Option<crate::plan::TaskPriority>,
@@ -292,7 +292,7 @@ pub struct NewTask {
 
 #[derive(Default, Clone)]
 pub struct TaskLaneUpdate {
-    pub pane_id: Option<Option<String>>,
+    pub tab_id: Option<Option<String>>,
     pub workspace_id: Option<Option<String>>,
     pub workspace_name: Option<Option<String>>,
     pub worktree_path: Option<Option<String>>,
@@ -305,7 +305,7 @@ pub struct TaskLaneUpdate {
 
 impl TaskLaneUpdate {
     pub fn is_empty(&self) -> bool {
-        self.pane_id.is_none()
+        self.tab_id.is_none()
             && self.workspace_id.is_none()
             && self.workspace_name.is_none()
             && self.worktree_path.is_none()
@@ -325,7 +325,7 @@ pub struct IndexEntry {
     pub title: String,
     pub status: PlanStatus,
     pub updated_at: u64,
-    pub assigned_pane_ids: Vec<String>,
+    pub assigned_tab_ids: Vec<String>,
     pub task_count: usize,
     pub open_task_count: usize,
     pub section_count: usize,

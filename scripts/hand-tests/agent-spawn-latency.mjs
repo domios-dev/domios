@@ -86,8 +86,8 @@ async function eventStream() {
   return { waitFor, close: () => controller.abort() };
 }
 
-function bootEvent(event, paneId) {
-  return event?.event_type === "pane-boot-stage" && event.data?.pane_id === paneId;
+function bootEvent(event, tabId) {
+  return event?.event_type === "tab-boot-stage" && event.data?.tab_id === tabId;
 }
 
 const health = await request("/api/health");
@@ -121,13 +121,13 @@ for (const provider of ptyProviders) {
     const acceptedMs = performance.now() - started;
     const stages = [];
     while (true) {
-      const event = await stream.waitFor((candidate) => bootEvent(candidate, spawned.pane_id), 30_000);
+      const event = await stream.waitFor((candidate) => bootEvent(candidate, spawned.tab_id), 30_000);
       const stage = event.data.stage;
       stages.push({ stage, ms: performance.now() - started, reason: event.data.reason ?? null });
       if (stage === "spawn_failed") throw new Error(event.data.reason ?? "spawn failed");
       if (stage === "agent_ready") break;
     }
-    const output = await request(`/api/panes/${spawned.pane_id}/output?lines=80`);
+    const output = await request(`/api/tabs/${spawned.tab_id}/output?lines=80`);
     results.push({ provider: provider.id, acceptedMs, readyMs: performance.now() - started, stages, outputBytes: output?.output?.length ?? 0 });
   } catch (error) {
     results.push({ provider: provider.id, error: String(error instanceof Error ? error.message : error) });

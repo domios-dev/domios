@@ -2,38 +2,8 @@
 
 use super::{lifecycle, GENERAL_ALIAS};
 
-fn needs_restart_decision(
-    in_grace: bool,
-    has_pty: bool,
-    has_agent_type: bool,
-    screen: Option<&str>,
-) -> bool {
-    if in_grace {
-        return false;
-    }
-    if !has_pty && has_agent_type {
-        return true;
-    }
-    let Some(text) = screen else {
-        return false;
-    };
-    let agent_visible = text.contains("Claude Code")
-        || text.contains("? for shortcuts")
-        || text.contains("Cogitated for")
-        || text.contains("Brewed for");
-    if agent_visible {
-        return false;
-    }
-    let has_prompt = text
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())
-        .map(|l| {
-            let t = l.trim();
-            t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
-        })
-        .unwrap_or(false);
-    has_prompt
+fn needs_restart_decision(in_grace: bool, pty_is_live: bool, has_agent_type: bool) -> bool {
+    !in_grace && !pty_is_live && has_agent_type
 }
 
 pub fn start_watchdog(
@@ -67,27 +37,23 @@ pub fn start_watchdog(
                 continue;
             }
 
-            let needs_restart = {
+            let tab_liveness = {
                 let m = mux.write();
-                m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {
-                    let pane = m.get_pane(&pid)?;
-                    let in_grace = pane
+                m.resolve_tab_id(GENERAL_ALIAS).and_then(|pid| {
+                    let tab = m.get_tab(&pid)?;
+                    let in_grace = tab
                         .agent_set_at
                         .map(|t| t.elapsed().as_secs() < 30)
                         .unwrap_or(false);
-                    let screen = pane.pty_id.as_ref().and_then(|pty_id| {
-                        screen_state
-                            .try_lock()
-                            .and_then(|ss| ss.get_screen_text(pty_id))
-                    });
-                    Some(needs_restart_decision(
-                        in_grace,
-                        pane.pty_id.is_some(),
-                        pane.agent_type.is_some(),
-                        screen.as_deref(),
-                    ))
+                    Some((in_grace, tab.pty_id.clone(), tab.agent_type.is_some()))
                 })
             };
+            let needs_restart = tab_liveness.map(|(in_grace, pty_id, has_agent_type)| {
+                let pty_is_live = pty_id
+                    .as_deref()
+                    .is_some_and(|id| pty.lock().get_session(id).is_some());
+                needs_restart_decision(in_grace, pty_is_live, has_agent_type)
+            });
 
             match needs_restart {
                 Some(true) => {
@@ -104,10 +70,9 @@ pub fn start_watchdog(
                         consecutive_restarts,
                         general_config.max_restart_attempts
                     );
-                    // Clear stale agent_type so start_general_agent doesn't skip with "Already running"
-                    let pid = mux.write().resolve_pane_id(GENERAL_ALIAS);
+                    let pid = mux.write().resolve_tab_id(GENERAL_ALIAS);
                     if let Some(pid) = pid {
-                        svc.set_pane_agent_type(&pid, None);
+                        svc.clear_tab_agent_identity_for_lifecycle_exit(&pid);
                     }
                     std::thread::sleep(std::time::Duration::from_secs(
                         general_config.restart_delay_s as u64,
@@ -129,59 +94,22 @@ mod tests {
 
     #[test]
     fn grace_period_blocks_restart() {
-        assert!(!needs_restart_decision(true, false, true, None));
-        assert!(!needs_restart_decision(true, true, true, Some("PS C:\\>")));
+        assert!(!needs_restart_decision(true, false, true));
+        assert!(!needs_restart_decision(true, true, true));
     }
 
     #[test]
     fn cosmetic_agent_type_without_pty_triggers_restart() {
-        assert!(needs_restart_decision(false, false, true, None));
+        assert!(needs_restart_decision(false, false, true));
     }
 
     #[test]
     fn no_pty_no_agent_type_does_not_restart() {
-        assert!(!needs_restart_decision(false, false, false, None));
+        assert!(!needs_restart_decision(false, false, false));
     }
 
     #[test]
-    fn agent_visible_blocks_restart() {
-        let screen = "Welcome to Claude Code\nReady\n";
-        assert!(!needs_restart_decision(false, true, true, Some(screen)));
-    }
-
-    #[test]
-    fn agent_marker_shortcuts_blocks_restart() {
-        let screen = "Some agent UI\n? for shortcuts\n";
-        assert!(!needs_restart_decision(false, true, true, Some(screen)));
-    }
-
-    #[test]
-    fn bare_powershell_prompt_with_cosmetic_agent_type_triggers_restart() {
-        let screen =
-            "Windows PowerShell\nCopyright (C) Microsoft Corporation.\n\nPS C:\\Users\\foo>";
-        assert!(needs_restart_decision(false, true, true, Some(screen)));
-    }
-
-    #[test]
-    fn bash_prompt_with_no_agent_triggers_restart() {
-        let screen = "user@host:~$";
-        assert!(needs_restart_decision(false, true, true, Some(screen)));
-    }
-
-    #[test]
-    fn empty_screen_does_not_restart() {
-        assert!(!needs_restart_decision(false, true, true, Some("")));
-    }
-
-    #[test]
-    fn no_prompt_no_agent_does_not_restart() {
-        let screen = "loading...\nstill loading\n";
-        assert!(!needs_restart_decision(false, true, true, Some(screen)));
-    }
-
-    #[test]
-    fn last_line_only_drives_prompt_detection() {
-        let screen = "old prompt $\nclaude is running now\nno prompt suffix here";
-        assert!(!needs_restart_decision(false, true, true, Some(screen)));
+    fn live_pty_never_authorizes_screen_based_restart() {
+        assert!(!needs_restart_decision(false, true, true));
     }
 }

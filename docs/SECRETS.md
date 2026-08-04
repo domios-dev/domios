@@ -28,7 +28,7 @@ Settings → Secrets has a dropdown with three entries; switching is instant and
    - macOS: `brew install bitwarden-cli`
    - Linux / cross-platform: `npm i -g @bitwarden/cli`
    - Windows: `scoop install bitwarden-cli`
-   - If `bw` is not on `PATH`, the Settings page shows backend status `Unavailable` with the install hint and an **Install Bitwarden CLI** button that opens a new pane and runs the right command for your platform.
+   - If `bw` is not on `PATH`, the Settings page shows backend status `Unavailable` with the install hint and an **Install Bitwarden CLI** button that opens a new Tab and runs the right command for your platform.
 2. **Server URL** field (defaults to `https://vault.bitwarden.com`). Point at your Vaultwarden host (`https://vault.example.org`) before signing in. Changing the URL while logged in forces a re-login on the next unlock — `bw` refuses to switch servers with an active session.
 3. **Sign in** — two modes:
    - *Password*: email + master password (+ TOTP if enabled).
@@ -186,4 +186,4 @@ Honest summary.
 - **Mesh.** Secrets do not cross the mesh. The CLI rejects `--mesh PEER mem secret …` with exit code `7`; the dispatch layer refuses to relay `/api/secrets/*` over mesh transport. Each peer holds its own vault scoped to its own keychain.
 - **Same-UID adversary.** A process running as your UID can read your OS keychain — that is a same-UID trust boundary, not a CodeTerm one. Same as `git`, `ssh`, and every other CLI on your machine.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

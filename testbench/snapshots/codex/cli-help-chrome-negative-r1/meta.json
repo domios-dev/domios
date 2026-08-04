@@ -1,0 +1,7 @@
+{
+  "provider": "codex",
+  "situation": "cli-help-chrome-negative-r1",
+  "source": "reported live false pending prompt",
+  "until": "For more information, try '--help'.",
+  "expected": "no native pending prompt"
+}

@@ -19,7 +19,7 @@ Key findings:
 1. **CLI bridge commands** - `codeterm bridge send` for replying v_
 - **assistant:** Here's a summary of everything in memory about the **Telegram bridge**:
 
-**CLI interface** — `codeterm bridge send` is the primary command to reply via Telegram from any pane:
+**CLI interface** — `codeterm bridge send` is the primary command to reply via Telegram from any tab:
 - Normal: `--to USER_ID --service telegram "text"`
 - Append mode: `--append` concatenates onto the previous message (within 60s, useful for streaming long replies)
 - Media: `--type photo --file <path>`

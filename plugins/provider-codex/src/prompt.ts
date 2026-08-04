@@ -11,6 +11,11 @@ export interface MenuOption {
   line: number;
 }
 
+export interface ActiveTerminalChoice {
+  question: string;
+  options: MenuOption[];
+}
+
 interface ParsedOptionState {
   label: string;
   value: string;
@@ -61,6 +66,23 @@ export function parseMenuOptions(screen: string): MenuOption[] {
     options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
   }
   return options;
+}
+
+export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice | null {
+  const lines = normalizeLines(screen);
+  const options = activeMenuOptions(screen);
+  if (options.length < 2 || !options.some((option) => option.highlighted)) return null;
+
+  const lastOptionLine = options[options.length - 1].line;
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
+  return { question: questionForMenu(lines, options[0].line), options };
 }
 
 function parseCodexPromptShape(screen: string): PromptShape | null {
@@ -207,6 +229,15 @@ function groupOptions(
 
 function normalizeLines(text: string): string[] {
   return String(text || "").replace(/\r\n?/g, "\n").split("\n");
+}
+
+function lastMeaningfulLineIndex(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
+    return i;
+  }
+  return -1;
 }
 
 function prosePromptLines(text: string): string[] {

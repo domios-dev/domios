@@ -19,47 +19,47 @@ pytestmark = pytest.mark.llm
 CLAUDE_READY_MARKERS = ["shift+tab", "esc to interrupt", "hold Space", "ctrl+g"]
 
 
-def _wait_for_claude_ready(api: CodeTermAPI, pane_id: str, timeout: float = 60) -> str:
+def _wait_for_claude_ready(api: CodeTermAPI, tab_id: str, timeout: float = 60) -> str:
     """Wait until Claude Code is interactive (shows prompt markers on screen)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            screen = api.get_screen(pane_id)
+            screen = api.get_screen(tab_id)
             for marker in CLAUDE_READY_MARKERS:
                 if marker in screen:
                     return screen
         except Exception:
             pass
         time.sleep(2)
-    raise TimeoutError(f"Claude not ready in pane {pane_id} within {timeout}s")
+    raise TimeoutError(f"Claude not ready in tab {tab_id} within {timeout}s")
 
 
 def _spawn_claude(api: CodeTermAPI, **kwargs) -> str:
-    """Spawn Claude via API, wait for PTY, return pane_id."""
+    """Spawn Claude via API, wait for PTY, return tab_id."""
     defaults = {
         "agent": "claude",
         "title": unique_name("claude-test"),
     }
     defaults.update(kwargs)
     result = api.post("/api/agents/spawn", json=defaults)
-    pane_id = result["pane_id"]
+    tab_id = result["tab_id"]
 
     # Wait for PTY to be linked
-    assert api.wait_for_pty(pane_id, timeout=20), f"PTY not linked for {pane_id}"
-    return pane_id
+    assert api.wait_for_pty(tab_id, timeout=20), f"PTY not linked for {tab_id}"
+    return tab_id
 
 
 @pytest.fixture()
 def claude_ws(api: CodeTermAPI):
-    """Create a workspace with an Orchestrator pane, yield (ws_id, orch_pane_id), cleanup."""
+    """Create a workspace with an Orchestrator tab, yield (ws_id, orch_tab_id), cleanup."""
     ws = api.create_workspace(unique_name("e2e-ws"))
     ws_id = ws["id"]
     tab = api.create_tab(ws_id)
-    orch_pane = tab["pane_id"]
+    orch_tab = tab["tab_id"]
     # Set as Orchestrator so we can spawn children under it
-    api.post(f"/api/panes/{orch_pane}/role", json={"role": "Orchestrator"})
-    api.wait_for_pty(orch_pane, timeout=15)
-    yield ws_id, orch_pane
+    api.post(f"/api/tabs/{orch_tab}/role", json={"role": "Orchestrator"})
+    api.wait_for_pty(orch_tab, timeout=15)
+    yield ws_id, orch_tab
     # Cleanup: close workspace but never the last one (would kill the app)
     try:
         workspaces = api.list_workspaces()
@@ -72,15 +72,15 @@ def claude_ws(api: CodeTermAPI):
 def test_spawn_claude_basic(api: CodeTermAPI, claude_ws):
     """Spawn Claude with no task — verify it starts and shows interactive prompt."""
     ws_id, _ = claude_ws
-    pane_id = _spawn_claude(api, workspace_id=ws_id)
+    tab_id = _spawn_claude(api, workspace_id=ws_id)
 
     try:
-        screen = _wait_for_claude_ready(api, pane_id, timeout=90)
+        screen = _wait_for_claude_ready(api, tab_id, timeout=90)
         # Claude should show its interactive UI
         assert any(m in screen for m in CLAUDE_READY_MARKERS), \
             f"Claude not showing interactive markers. Screen: {screen[-200:]}"
     finally:
-        api.close_pane(pane_id)
+        api.close_tab(tab_id)
 
 
 def test_spawn_claude_with_task(api: CodeTermAPI, claude_ws):
@@ -89,7 +89,7 @@ def test_spawn_claude_with_task(api: CodeTermAPI, claude_ws):
     task_marker = unique_name("TASK")
     task = f'echo "{task_marker}" and then just say exactly: DONE_{task_marker}'
 
-    pane_id = _spawn_claude(api, workspace_id=ws_id, task=task)
+    tab_id = _spawn_claude(api, workspace_id=ws_id, task=task)
 
     try:
         # Wait for Claude to process the task — look for our marker in screen/output
@@ -97,7 +97,7 @@ def test_spawn_claude_with_task(api: CodeTermAPI, claude_ws):
         found = False
         while time.monotonic() < deadline:
             try:
-                screen = api.get_screen(pane_id)
+                screen = api.get_screen(tab_id)
                 if task_marker in screen:
                     found = True
                     break
@@ -107,34 +107,34 @@ def test_spawn_claude_with_task(api: CodeTermAPI, claude_ws):
 
         assert found, f"Task marker '{task_marker}' not found in Claude output within 90s"
     finally:
-        api.close_pane(pane_id)
+        api.close_tab(tab_id)
 
 
 def test_spawn_claude_as_worker(api: CodeTermAPI, claude_ws):
     """Spawn Claude as Worker under an Orchestrator — verify role and hierarchy."""
-    _, orch_pane = claude_ws
-    pane_id = _spawn_claude(
+    _, orch_tab = claude_ws
+    tab_id = _spawn_claude(
         api,
         role="Worker",
-        parent_pane_id=orch_pane,
+        parent_tab_id=orch_tab,
         task="Say exactly: WORKER_READY",
     )
 
     try:
         # Verify role + parent linkage (hierarchy is derived from
-        # parent_pane_id; the /children endpoint was removed).
+        # parent_tab_id; the /children endpoint was removed).
         time.sleep(2)
-        status = api.get(f"/api/panes/{pane_id}/status")
+        status = api.get(f"/api/tabs/{tab_id}/status")
         assert status.get("role") == "Worker"
-        assert status.get("parent_pane_id") == orch_pane
+        assert status.get("parent_tab_id") == orch_tab
     finally:
-        api.close_pane(pane_id)
+        api.close_tab(tab_id)
 
 
 def test_spawn_claude_with_cwd(api: CodeTermAPI, claude_ws):
     """Spawn Claude with custom cwd — verify it starts in the right directory."""
     ws_id, _ = claude_ws
-    pane_id = _spawn_claude(api, workspace_id=ws_id, cwd="/tmp", task="Run: pwd")
+    tab_id = _spawn_claude(api, workspace_id=ws_id, cwd="/tmp", task="Run: pwd")
 
     try:
         # Wait for Claude and look for /tmp in output
@@ -142,7 +142,7 @@ def test_spawn_claude_with_cwd(api: CodeTermAPI, claude_ws):
         found = False
         while time.monotonic() < deadline:
             try:
-                screen = api.get_screen(pane_id)
+                screen = api.get_screen(tab_id)
                 if "/tmp" in screen or "/private/tmp" in screen:
                     found = True
                     break
@@ -152,51 +152,51 @@ def test_spawn_claude_with_cwd(api: CodeTermAPI, claude_ws):
 
         assert found, "Claude did not show /tmp in output"
     finally:
-        api.close_pane(pane_id)
+        api.close_tab(tab_id)
 
 
 def test_spawn_multiple_claude_agents(api: CodeTermAPI, claude_ws):
     """Spawn 3 Claude workers in parallel — all should start independently."""
-    _, orch_pane = claude_ws
-    pane_ids = []
+    _, orch_tab = claude_ws
+    tab_ids = []
 
     for i in range(3):
         pid = _spawn_claude(
             api,
             title=f"Worker-{i}",
             role="Worker",
-            parent_pane_id=orch_pane,
+            parent_tab_id=orch_tab,
             task=f"Say exactly: MULTI_WORKER_{i}_OK",
         )
-        pane_ids.append(pid)
+        tab_ids.append(pid)
 
     try:
         time.sleep(5)
-        panes = api.list_panes()
-        for pid in pane_ids:
-            pane = next((p for p in panes if p["id"] == pid), None)
-            assert pane is not None, f"Pane {pid} not found"
-            assert pane.get("pty_id"), f"Pane {pid} has no PTY"
-            # hierarchy is derived from parent_pane_id (the /children endpoint
+        tabs = api.list_tabs()
+        for pid in tab_ids:
+            tab = next((p for p in tabs if p["id"] == pid), None)
+            assert tab is not None, f"Tab {pid} not found"
+            assert tab.get("pty_id"), f"Tab {pid} has no PTY"
+            # hierarchy is derived from parent_tab_id (the /children endpoint
             # was removed).
-            assert pane.get("parent_pane_id") == orch_pane, \
+            assert tab.get("parent_tab_id") == orch_tab, \
                 f"Worker {pid} not linked to orchestrator"
     finally:
-        for pid in pane_ids:
+        for pid in tab_ids:
             try:
-                api.close_pane(pid)
+                api.close_tab(pid)
             except Exception:
                 pass
 
 
 def test_spawn_claude_report_to_parent(api: CodeTermAPI, claude_ws):
     """Spawn Claude worker with task that includes reporting — verify report arrives."""
-    _, orch_pane = claude_ws
+    _, orch_tab = claude_ws
     report_marker = unique_name("RPT")
-    pane_id = _spawn_claude(
+    tab_id = _spawn_claude(
         api,
         role="Worker",
-        parent_pane_id=orch_pane,
+        parent_tab_id=orch_tab,
         task=f'Run this command: codeterm agent report "{report_marker}"',
     )
 
@@ -205,11 +205,11 @@ def test_spawn_claude_report_to_parent(api: CodeTermAPI, claude_ws):
         found = False
         while time.monotonic() < deadline:
             try:
-                output = api.get_output(orch_pane, strip_ansi_flag=True)
+                output = api.get_output(orch_tab, strip_ansi_flag=True)
                 if report_marker in output.get("output", ""):
                     found = True
                     break
-                reports = api.get(f"/api/panes/{orch_pane}/reports")
+                reports = api.get(f"/api/tabs/{orch_tab}/reports")
                 for r in reports:
                     if report_marker in r.get("message", ""):
                         found = True
@@ -222,7 +222,7 @@ def test_spawn_claude_report_to_parent(api: CodeTermAPI, claude_ws):
 
         assert found, f"Report with marker '{report_marker}' not received by parent within 90s"
     finally:
-        api.close_pane(pane_id)
+        api.close_tab(tab_id)
 
 
 def test_close_orchestrator_cascades(api: CodeTermAPI):
@@ -231,25 +231,25 @@ def test_close_orchestrator_cascades(api: CodeTermAPI):
     ws = api.create_workspace(unique_name("e2e-ws"))
     ws_id = ws["id"]
     tab = api.create_tab(ws_id)
-    orch_id = tab["pane_id"]
-    api.post(f"/api/panes/{orch_id}/role", json={"role": "Orchestrator"})
+    orch_id = tab["tab_id"]
+    api.post(f"/api/tabs/{orch_id}/role", json={"role": "Orchestrator"})
     api.wait_for_pty(orch_id, timeout=15)
 
     # Spawn workers
-    w1 = _spawn_claude(api, role="Worker", parent_pane_id=orch_id, task="Wait")
-    w2 = _spawn_claude(api, role="Worker", parent_pane_id=orch_id, task="Wait")
+    w1 = _spawn_claude(api, role="Worker", parent_tab_id=orch_id, task="Wait")
+    w2 = _spawn_claude(api, role="Worker", parent_tab_id=orch_id, task="Wait")
 
     time.sleep(2)
 
     # Close orchestrator — should cascade
-    api.close_pane(orch_id)
+    api.close_tab(orch_id)
     time.sleep(2)
 
     # Workers should be gone
-    panes = api.list_panes()
-    pane_ids = [p["id"] for p in panes]
-    assert w1 not in pane_ids, "Worker 1 should be killed by cascade"
-    assert w2 not in pane_ids, "Worker 2 should be killed by cascade"
+    tabs = api.list_tabs()
+    tab_ids = [p["id"] for p in tabs]
+    assert w1 not in tab_ids, "Worker 1 should be killed by cascade"
+    assert w2 not in tab_ids, "Worker 2 should be killed by cascade"
 
     # Cleanup workspace
     try:

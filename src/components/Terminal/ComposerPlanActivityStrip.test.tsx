@@ -4,7 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
-import type { PaneComposerActivity } from "../Canvas/paneComposerActivity";
+import type { TabComposerActivity } from "../Canvas/tabComposerActivity";
 import type { PlanAttachment } from "../Canvas/types";
 
 let passed = 0;
@@ -37,14 +37,14 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-const ORCH: PaneComposerActivity = {
+const ORCH: TabComposerActivity = {
   kind: "orchestrating",
   planId: "pl_hidden",
   planTitle: "Canvas v2 — the full build (dogfood)",
   extraPlans: 1,
 };
 
-const WORK: Extract<PaneComposerActivity, { kind: "working" }> = {
+const WORK: Extract<TabComposerActivity, { kind: "working" }> = {
   kind: "working",
   planId: "pl_hidden",
   planTitle: "Canvas v2 — the full build (dogfood)",
@@ -53,7 +53,7 @@ const WORK: Extract<PaneComposerActivity, { kind: "working" }> = {
   taskStatus: "in_progress",
 };
 
-const PLAN: PaneComposerActivity = {
+const PLAN: TabComposerActivity = {
   kind: "planning",
   planId: "pl_hidden",
   planTitle: "Canvas v2 — the full build (dogfood)",

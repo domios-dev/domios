@@ -8,33 +8,33 @@ from helpers import CodeTermAPI, inject_screen_text, unique_name
 class TestHookEndpoints:
     """Test hook API endpoints (called by agent hooks like Claude Code)."""
 
-    def test_hook_permission(self, api_only, api_pane):
+    def test_hook_permission(self, api_only, api_tab):
         """POST /hook/permission should not crash."""
-        result = api_only.post(f"/api/panes/{api_pane}/hook/permission")
+        result = api_only.post(f"/api/tabs/{api_tab}/hook/permission")
         assert result.get("ok") is True
 
-    def test_hook_stop(self, api_only, api_pane):
+    def test_hook_stop(self, api_only, api_tab):
         """POST /hook/stop should not crash."""
-        result = api_only.post(f"/api/panes/{api_pane}/hook/stop")
+        result = api_only.post(f"/api/tabs/{api_tab}/hook/stop")
         assert result.get("ok") is True
 
-    def test_respond_clears_prompt(self, api_only, api_pane):
+    def test_respond_clears_prompt(self, api_only, api_tab):
         """Responding should clear pending_prompt."""
-        api_only.post(f"/api/panes/{api_pane}/hook/permission")
+        api_only.post(f"/api/tabs/{api_tab}/hook/permission")
         time.sleep(0.5)
-        api_only.post(f"/api/panes/{api_pane}/prompt/respond", json={"value": "1"})
+        api_only.post(f"/api/tabs/{api_tab}/prompt/respond", json={"value": "1"})
         time.sleep(0.5)
-        pane = next(p for p in api_only.list_panes() if p["id"] == api_pane)
-        assert pane.get("pending_prompt") is None
+        tab = next(p for p in api_only.list_tabs() if p["id"] == api_tab)
+        assert tab.get("pending_prompt") is None
 
-    def test_no_prompt_initially(self, api_only, api_pane):
-        """Fresh pane should have no pending_prompt."""
-        pane = next(p for p in api_only.list_panes() if p["id"] == api_pane)
-        assert pane.get("pending_prompt") is None
+    def test_no_prompt_initially(self, api_only, api_tab):
+        """Fresh tab should have no pending_prompt."""
+        tab = next(p for p in api_only.list_tabs() if p["id"] == api_tab)
+        assert tab.get("pending_prompt") is None
 
-    def test_hook_parses_prompt_from_buffer(self, api, fresh_pane):
+    def test_hook_parses_prompt_from_buffer(self, api, fresh_tab):
         """Hook should parse options when buffer has a real prompt."""
-        inject_screen_text(api, fresh_pane, (
+        inject_screen_text(api, fresh_tab, (
             "\nDo you want to proceed?\n"
             "  > 1. Yes\n"
             "    2. Yes, allow reading during this session\n"
@@ -42,11 +42,11 @@ class TestHookEndpoints:
             "\nEsc to cancel \u00b7 Tab to amend\n"
         ))
         time.sleep(2)
-        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        api.post(f"/api/tabs/{fresh_tab}/hook/permission")
         time.sleep(1)
 
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
-        prompt = pane.get("pending_prompt")
+        tab = next(p for p in api.list_tabs() if p["id"] == fresh_tab)
+        prompt = tab.get("pending_prompt")
         assert prompt is not None, "pending_prompt should be set after hook with prompt in buffer"
         assert len(prompt.get("options", [])) >= 2, f"Should have 2+ options, got {prompt}"
 
@@ -54,10 +54,10 @@ class TestHookEndpoints:
 class TestPromptParsingAccuracy:
     """Test that prompt parser doesn't pick up numbered lists from Claude's answers."""
 
-    def test_numbered_answer_then_prompt(self, api, fresh_pane):
+    def test_numbered_answer_then_prompt(self, api, fresh_tab):
         """Claude answer with numbered list, then real prompt — only Yes/No parsed."""
         # Simulate Claude's answer with numbered list THEN a real prompt
-        inject_screen_text(api, fresh_pane, (
+        inject_screen_text(api, fresh_tab, (
             "Here is my analysis:\n"
             "1. First bug found in parser\n"
             "2. Second issue with encoding\n"
@@ -74,11 +74,11 @@ class TestPromptParsingAccuracy:
         time.sleep(2)
 
         # Hook triggers prompt parsing from ring buffer
-        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        api.post(f"/api/tabs/{fresh_tab}/hook/permission")
         time.sleep(1)
 
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
-        prompt = pane.get("pending_prompt")
+        tab = next(p for p in api.list_tabs() if p["id"] == fresh_tab)
+        prompt = tab.get("pending_prompt")
         assert prompt is not None, "Should detect prompt"
         assert prompt["question"] == "Do you want to proceed?"
 
@@ -90,9 +90,9 @@ class TestPromptParsingAccuracy:
             f"Should NOT have answer items in options: {labels}"
         assert len(prompt["options"]) <= 3, f"Should have max 3 options, got {len(prompt['options'])}"
 
-    def test_only_numbered_answer_no_prompt(self, api, fresh_pane):
+    def test_only_numbered_answer_no_prompt(self, api, fresh_tab):
         """Claude answer with numbered list but NO prompt — no pending_prompt set."""
-        inject_screen_text(api, fresh_pane, (
+        inject_screen_text(api, fresh_tab, (
             "Here is what I found:\n"
             "1. First thing\n"
             "2. Second thing\n"
@@ -102,11 +102,11 @@ class TestPromptParsingAccuracy:
         time.sleep(2)
 
         # Hook without real prompt in buffer — should not set prompt
-        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        api.post(f"/api/tabs/{fresh_tab}/hook/permission")
         time.sleep(1)
 
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
-        prompt = pane.get("pending_prompt")
+        tab = next(p for p in api.list_tabs() if p["id"] == fresh_tab)
+        prompt = tab.get("pending_prompt")
         # Without explicit body and without real prompt in buffer,
         # parser should not find anything
         if prompt:
@@ -115,17 +115,17 @@ class TestPromptParsingAccuracy:
             assert not any("thing" in l.lower() for l in labels), \
                 f"Should NOT parse answer as prompt: {labels}"
 
-    def test_explicit_body_overrides_buffer(self, api_only, api_pane):
+    def test_explicit_body_overrides_buffer(self, api_only, api_tab):
         """Explicit body in hook/permission sets prompt directly, ignoring buffer."""
         # Send explicit prompt via body — should set prompt regardless of buffer content
-        api_only.post(f"/api/panes/{api_pane}/hook/permission", json={
+        api_only.post(f"/api/tabs/{api_tab}/hook/permission", json={
             "question": "Allow Bash?",
             "options": [{"label": "Yes", "value": "1"}, {"label": "No", "value": "3"}]
         })
         time.sleep(2)
 
-        pane = next(p for p in api_only.list_panes() if p["id"] == api_pane)
-        prompt = pane.get("pending_prompt")
+        tab = next(p for p in api_only.list_tabs() if p["id"] == api_tab)
+        prompt = tab.get("pending_prompt")
         assert prompt is not None, "explicit body should set pending_prompt"
         assert prompt["question"] == "Allow Bash?"
         assert len(prompt["options"]) == 2
@@ -135,10 +135,10 @@ class TestPromptParsingAccuracy:
 class TestFullPromptApprovalFlow:
     """End-to-end prompt approval pipeline tests."""
 
-    def test_full_prompt_approval_flow(self, api, fresh_pane):
+    def test_full_prompt_approval_flow(self, api, fresh_tab):
         """Full flow: inject prompt -> hook -> pending_prompt -> respond -> PTY receives."""
         # 1. Write a realistic prompt to terminal (simulates Claude TUI)
-        inject_screen_text(api, fresh_pane, (
+        inject_screen_text(api, fresh_tab, (
             "\nDo you want to proceed?\n"
             "  > 1. Yes\n"
             "    2. Yes, allow reading during this session\n"
@@ -148,49 +148,49 @@ class TestFullPromptApprovalFlow:
         time.sleep(2)
 
         # 2. Simulate Claude hook call (POST /hook/permission)
-        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        api.post(f"/api/tabs/{fresh_tab}/hook/permission")
         time.sleep(1)
 
         # 3. Verify pending_prompt is set with parsed options
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
-        prompt = pane.get("pending_prompt")
+        tab = next(p for p in api.list_tabs() if p["id"] == fresh_tab)
+        prompt = tab.get("pending_prompt")
         assert prompt is not None, "pending_prompt should be set after hook"
         assert len(prompt.get("options", [])) >= 2, f"Should have 2+ options, got {prompt}"
         assert prompt["question"] == "Do you want to proceed?"
 
         # 4. Respond (simulates clicking "Yes" in chat UI)
-        before = api.get_output(fresh_pane, strip_ansi_flag=True)
+        before = api.get_output(fresh_tab, strip_ansi_flag=True)
         offset_before = before.get("offset", 0)
-        api.post(f"/api/panes/{fresh_pane}/prompt/respond", json={"value": "1"})
+        api.post(f"/api/tabs/{fresh_tab}/prompt/respond", json={"value": "1"})
         time.sleep(1)
 
         # 5. Verify prompt is cleared
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
-        assert pane.get("pending_prompt") is None, "Prompt should be cleared after respond"
+        tab = next(p for p in api.list_tabs() if p["id"] == fresh_tab)
+        assert tab.get("pending_prompt") is None, "Prompt should be cleared after respond"
 
         # 6. Verify respond caused new terminal activity after the captured offset.
         deadline = time.monotonic() + 6
         output_text = ""
         while time.monotonic() < deadline:
-            output = api.get_output(fresh_pane, offset=offset_before, strip_ansi_flag=True)
+            output = api.get_output(fresh_tab, offset=offset_before, strip_ansi_flag=True)
             output_text = output.get("output", "")
             if output_text.strip():
                 break
             time.sleep(0.3)
         assert output_text.strip(), "respond produced no new PTY output after captured offset"
 
-    def test_two_pane_independent_approval(self, api):
-        """Two panes with independent prompts -- approve one, other unaffected."""
-        # Create workspace with 2 panes
+    def test_two_tab_independent_approval(self, api):
+        """Two tabs with independent prompts -- approve one, other unaffected."""
+        # Create workspace with 2 tabs
         ws = api.create_workspace(unique_name("e2e-ws"))
         ws_id = ws["id"]
         tab1 = api.create_tab(ws_id, eager=True)
         tab2 = api.create_tab(ws_id, eager=True)
-        p1, p2 = tab1["pane_id"], tab2["pane_id"]
+        p1, p2 = tab1["tab_id"], tab2["tab_id"]
         api.wait_for_pty(p1, timeout=15)
         api.wait_for_pty(p2, timeout=15)
 
-        # Wait for shell prompt in both panes
+        # Wait for shell prompt in both tabs
         for pid in [p1, p2]:
             try:
                 api.wait_for_output(pid, pattern=r"[\$#%>]", timeout=10)
@@ -215,31 +215,31 @@ class TestFullPromptApprovalFlow:
                     time.sleep(2)
 
             # Hook both and verify prompts appear (with retry for timing)
-            for pid, name in [(p1, "Pane 1"), (p2, "Pane 2")]:
-                api.post(f"/api/panes/{pid}/hook/permission")
+            for pid, name in [(p1, "Tab 1"), (p2, "Tab 2")]:
+                api.post(f"/api/tabs/{pid}/hook/permission")
                 time.sleep(1)
-                pane = next(p for p in api.list_panes() if p["id"] == pid)
-                assert pane.get("pending_prompt") is not None, \
+                tab = next(p for p in api.list_tabs() if p["id"] == pid)
+                assert tab.get("pending_prompt") is not None, \
                     f"{name} should have pending_prompt"
 
-            # Approve pane 1
-            api.post(f"/api/panes/{p1}/prompt/respond", json={"value": "1"})
+            # Approve tab 1
+            api.post(f"/api/tabs/{p1}/prompt/respond", json={"value": "1"})
             time.sleep(0.5)
 
-            # Pane 1 cleared, pane 2 still has prompt
-            panes = api.list_panes()
-            pane1 = next(p for p in panes if p["id"] == p1)
-            pane2 = next(p for p in panes if p["id"] == p2)
-            assert pane1.get("pending_prompt") is None, "Pane 1 prompt should be cleared"
-            assert pane2.get("pending_prompt") is not None, "Pane 2 prompt should still be set"
+            # Tab 1 cleared, tab 2 still has prompt
+            tabs = api.list_tabs()
+            tab1 = next(p for p in tabs if p["id"] == p1)
+            tab2 = next(p for p in tabs if p["id"] == p2)
+            assert tab1.get("pending_prompt") is None, "Tab 1 prompt should be cleared"
+            assert tab2.get("pending_prompt") is not None, "Tab 2 prompt should still be set"
 
-            # Now approve pane 2
-            api.post(f"/api/panes/{p2}/prompt/respond", json={"value": "2"})
+            # Now approve tab 2
+            api.post(f"/api/tabs/{p2}/prompt/respond", json={"value": "2"})
             time.sleep(0.5)
 
-            panes = api.list_panes()
-            pane2 = next(p for p in panes if p["id"] == p2)
-            assert pane2.get("pending_prompt") is None, "Pane 2 prompt should be cleared"
+            tabs = api.list_tabs()
+            tab2 = next(p for p in tabs if p["id"] == p2)
+            assert tab2.get("pending_prompt") is None, "Tab 2 prompt should be cleared"
         finally:
             try:
                 if len(api.list_workspaces()) > 1:

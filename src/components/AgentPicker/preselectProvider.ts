@@ -1,6 +1,12 @@
 import type { ProviderDescriptor } from "../../lib/types";
 import { PREFERRED_GENERAL_PROVIDER_ID } from "./constants";
 
+export function generalAgentProviders(
+  providers: ProviderDescriptor[],
+): ProviderDescriptor[] {
+  return providers.filter((provider) => provider.transport === "pty");
+}
+
 export function providerRequiresCli(provider: ProviderDescriptor): boolean {
   return Boolean(provider.cli_binary);
 }

@@ -2,7 +2,7 @@ use tauri::AppHandle;
 
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
-    // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
+    // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalTab mount (~1s on Win11 with Defender).
     static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *CACHED.get_or_init(|| {
         #[cfg(target_os = "windows")]
@@ -49,8 +49,10 @@ pub fn get_network_info(
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let port = state.lock().api.port;
-    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port)
-        .or_else(|| mesh.lock().local_https_url.clone());
+    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port).or_else(|| {
+        let mesh = mesh.lock();
+        crate::mesh::web_ui_endpoints::preferred_https_url(mesh.local_web_ui.as_ref())
+    });
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
@@ -72,7 +74,9 @@ pub fn get_serve_status(
     let port = state.lock().api.port;
     let mut status = crate::mesh::probe_serve_status(port);
     if status.https_url.is_none() {
-        if let Some(cached) = mesh.lock().local_https_url.clone() {
+        if let Some(cached) = crate::mesh::web_ui_endpoints::preferred_https_url(
+            mesh.lock().local_web_ui.as_ref(),
+        ) {
             status.https_url = Some(cached);
             status.active = true;
         }
@@ -84,21 +88,25 @@ pub fn get_serve_status(
 /// have shown the exact commands and required a second confirming click before
 /// invoking this. Idempotent + defends against clobbering a sibling CodeTerm.
 #[tauri::command]
-pub fn enable_web_access(
+pub async fn enable_web_access(
     state: tauri::State<'_, crate::config::ConfigState>,
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    app: AppHandle,
     https_port: Option<u16>,
-) -> crate::mesh::ServeResult {
+) -> Result<crate::mesh::ServeResult, String> {
     let port = state.lock().api.port;
-    crate::mesh::enable_web_serve(port, https_port)
+    crate::service::web_access::enable(app, mesh.inner().clone(), port, https_port).await
 }
 
 /// Tear down the Serve HTTPS listener that proxies to this daemon.
 #[tauri::command]
-pub fn disable_web_access(
+pub async fn disable_web_access(
     state: tauri::State<'_, crate::config::ConfigState>,
-) -> crate::mesh::ServeResult {
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    app: AppHandle,
+) -> Result<crate::mesh::ServeResult, String> {
     let port = state.lock().api.port;
-    crate::mesh::disable_web_serve(port)
+    crate::service::web_access::disable(app, mesh.inner().clone(), port).await
 }
 
 /// Cleanly restart the CodeTerm process. Used by the Settings UI after the user
@@ -196,16 +204,16 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
 pub fn suggest_install_pwsh(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<String, String> {
-    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
-    let handle = svc.spawn_pane(SpawnPaneSpec {
+    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    let handle = svc.spawn_tab(SpawnTabSpec {
         title: Some("Install pwsh 7".to_string()),
-        visibility: PaneVisibility::Visible,
-        command: PaneCommand::Shell,
+        visibility: TabVisibility::Visible,
+        command: TabCommand::Shell,
         ..Default::default()
     })?;
-    let pane_id = handle.pane_id.clone();
+    let tab_id = handle.tab_id.clone();
     let svc_arc = svc.inner().clone();
-    let pane_id_bg = pane_id.clone();
+    let tab_id_bg = tab_id.clone();
     std::thread::spawn(move || {
         let cmd_text = "winget install Microsoft.PowerShell";
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -213,14 +221,14 @@ pub fn suggest_install_pwsh(
             if std::time::Instant::now() > deadline {
                 log::warn!(
                     "[suggest_install_pwsh] gave up waiting for PTY on {}",
-                    pane_id_bg
+                    tab_id_bg
                 );
                 return;
             }
             let pty_id = svc_arc
                 .mux
                 .write()
-                .get_pane(&pane_id_bg)
+                .get_tab(&tab_id_bg)
                 .and_then(|p| p.pty_id.clone());
             if let Some(pid) = pty_id {
                 let _ = crate::service::pty_io::poll_shell_prompt(
@@ -232,16 +240,16 @@ pub fn suggest_install_pwsh(
             }
             std::thread::sleep(std::time::Duration::from_millis(150));
         }
-        if let Err(e) = svc_arc.send_text(&pane_id_bg, cmd_text, true) {
+        if let Err(e) = svc_arc.send_text(&tab_id_bg, cmd_text) {
             log::warn!("[suggest_install_pwsh] send_text failed: {}", e);
         }
     });
-    Ok(pane_id)
+    Ok(tab_id)
 }
 
 /// Frontend reports WebGL renderer health here. Goes into the daemon
 /// log so rendering health is observable without opening the WebView
-/// devtools. Called from useXterm.ts on every TerminalPane mount.
+/// devtools. Called from useXterm.ts on every TerminalTab mount.
 ///
 /// state: "loaded" — WebGL addon attached successfully
 ///        "context_lost" — GPU context dropped (xterm will fall back)

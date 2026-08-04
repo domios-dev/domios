@@ -22,21 +22,23 @@ use std::sync::{Arc, Barrier};
 
 fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, String, String) {
     let (mut mux, orch) = MultiplexerState::new();
-    let worker = mux.create_pane();
-    mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("attach worker to orchestrator");
-    mux.rename_pane(&worker, worker_title)
-        .expect("rename worker pane");
+    mux.rename_tab(&worker, worker_title)
+        .expect("rename worker Tab");
     (mux, orch, worker)
 }
 
 fn build_orchestrator_with_manager(manager_title: &str) -> (MultiplexerState, String, String) {
     let (mut mux, orch) = MultiplexerState::new();
-    let manager = mux.create_pane();
-    mux.set_pane_role(&manager, AgentRole::Manager, Some(&orch))
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let manager = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&manager, AgentRole::Manager, Some(&orch))
         .expect("attach manager to orchestrator");
-    mux.rename_pane(&manager, manager_title)
-        .expect("rename manager pane");
+    mux.rename_tab(&manager, manager_title)
+        .expect("rename manager Tab");
     (mux, orch, manager)
 }
 
@@ -62,7 +64,7 @@ fn worker_report_is_listed_by_orchestrator() {
         1,
         "orchestrator must see the worker's report after submit"
     );
-    assert_eq!(listed[0].from_pane_id, worker);
+    assert_eq!(listed[0].from_tab_id, worker);
     assert_eq!(listed[0].from_title, "Worker-1");
     assert_eq!(listed[0].message, "task done");
 }
@@ -87,13 +89,13 @@ fn worker_report_keys_match_storage_and_query() {
 #[test]
 fn ledger_includes_live_child_before_first_report() {
     let (mut mux, orch, worker) = build_orchestrator_with_worker("ledger-smoke");
-    mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("gpt-5.5".into());
+    mux.get_tab_mut(&worker).unwrap().agent_session_model = Some("gpt-5.5".into());
 
     let rows = ledger_with_live_children(&mux, &orch, vec![], 123);
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].orchestrator_pane_id, orch);
-    assert_eq!(rows[0].worker_pane_id, worker);
+    assert_eq!(rows[0].orchestrator_tab_id, orch);
+    assert_eq!(rows[0].worker_tab_id, worker);
     assert_eq!(rows[0].title, "ledger-smoke");
     assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
     assert_eq!(rows[0].status, None);
@@ -104,10 +106,10 @@ fn ledger_includes_live_child_before_first_report() {
 #[test]
 fn ledger_refreshes_existing_live_child_without_losing_report_details() {
     let (mut mux, orch, worker) = build_orchestrator_with_worker("fresh-title");
-    mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("sonnet".into());
+    mux.get_tab_mut(&worker).unwrap().agent_session_model = Some("sonnet".into());
     let rows = vec![LedgerRow {
-        orchestrator_pane_id: orch.clone(),
-        worker_pane_id: worker.clone(),
+        orchestrator_tab_id: orch.clone(),
+        worker_tab_id: worker.clone(),
         title: "stale-title".into(),
         plan_id: Some("pl_1".into()),
         task_id: Some("task_1".into()),
@@ -142,17 +144,16 @@ fn no_plan_routing_keeps_parent_priority() {
 }
 
 #[test]
-fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
+fn report_title_uses_user_pinned_tab_identity_not_provider_default() {
     let (mut mux, orch) = MultiplexerState::new();
     let ws = mux
-        .find_workspace_for_pane(&orch)
+        .find_workspace_for_tab(&orch)
         .expect("orchestrator lives in a workspace");
-    let (_tab_id, worker) = mux.create_tab(&ws).expect("create worker tab");
-    mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
+    let worker = mux.create_tab(&ws).expect("create worker tab");
+    mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("attach worker");
-    mux.rename_pane(&worker, "Euler")
-        .expect("set pane identity");
-    mux.rename_pane_at_level(
+    mux.rename_tab(&worker, "Euler").expect("set Tab identity");
+    mux.rename_tab_at_level(
         &worker,
         "claude",
         crate::multiplexer::types::TitleLevel::Agent,
@@ -169,7 +170,7 @@ fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
 
 // ── resolve_plan_ctx tests ──────────────────────────────────────────────────
 
-fn make_store_with_assigned_task(pane_id: &str) -> (PlanStore, String, String) {
+fn make_store_with_assigned_task(tab_id: &str) -> (PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let project = dir.path().join("project");
@@ -177,7 +178,7 @@ fn make_store_with_assigned_task(pane_id: &str) -> (PlanStore, String, String) {
     let mut plan = Plan::new(
         "Test".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -194,18 +195,18 @@ fn make_store_with_assigned_task(pane_id: &str) -> (PlanStore, String, String) {
         )
         .unwrap();
     store
-        .assign_task(&plan.id, &task_id, pane_id, None, 3)
+        .assign_task(&plan.id, &task_id, tab_id, None, 3)
         .unwrap();
     (store, plan.id, task_id)
 }
 
 #[test]
 fn resolve_plan_ctx_uses_provided_valid_plan() {
-    let (store, plan_id, task_id) = make_store_with_assigned_task("pane-x");
+    let (store, plan_id, task_id) = make_store_with_assigned_task("tab-x");
     let mut notices = Vec::new();
     let (p, t) = resolve_plan_ctx(
         &store,
-        "pane-x",
+        "tab-x",
         Some(&plan_id),
         Some(&task_id),
         &mut notices,
@@ -218,9 +219,9 @@ fn resolve_plan_ctx_uses_provided_valid_plan() {
 
 #[test]
 fn resolve_plan_ctx_stale_plan_falls_through_to_binding() {
-    let (store, _plan_id, task_id) = make_store_with_assigned_task("pane-y");
+    let (store, _plan_id, task_id) = make_store_with_assigned_task("tab-y");
     let mut notices = Vec::new();
-    let (p, t) = resolve_plan_ctx(&store, "pane-y", Some("pl_stale"), None, &mut notices).unwrap();
+    let (p, t) = resolve_plan_ctx(&store, "tab-y", Some("pl_stale"), None, &mut notices).unwrap();
     assert!(p.is_some(), "should auto-resolve to bound plan");
     assert!(t.is_some(), "should auto-resolve to bound task");
     assert!(
@@ -233,19 +234,19 @@ fn resolve_plan_ctx_stale_plan_falls_through_to_binding() {
 
 #[test]
 fn resolve_plan_ctx_no_plan_hint_uses_binding() {
-    let (store, _plan_id, task_id) = make_store_with_assigned_task("pane-z");
+    let (store, _plan_id, task_id) = make_store_with_assigned_task("tab-z");
     let mut notices = Vec::new();
-    let (p, t) = resolve_plan_ctx(&store, "pane-z", None, None, &mut notices).unwrap();
+    let (p, t) = resolve_plan_ctx(&store, "tab-z", None, None, &mut notices).unwrap();
     assert!(p.is_some());
     assert_eq!(t.as_deref(), Some(task_id.as_str()));
     assert!(notices.is_empty(), "no notice when silently auto-resolving");
 }
 
 #[test]
-fn resolve_plan_ctx_unassigned_pane_returns_none() {
-    let (store, _plan_id, _task_id) = make_store_with_assigned_task("pane-a");
+fn resolve_plan_ctx_unassigned_tab_returns_none() {
+    let (store, _plan_id, _task_id) = make_store_with_assigned_task("tab-a");
     let mut notices = Vec::new();
-    let (p, t) = resolve_plan_ctx(&store, "pane-not-assigned", None, None, &mut notices).unwrap();
+    let (p, t) = resolve_plan_ctx(&store, "tab-not-assigned", None, None, &mut notices).unwrap();
     assert!(p.is_none());
     assert!(t.is_none());
     assert!(notices.is_empty());
@@ -260,7 +261,7 @@ fn resolve_plan_ctx_ambiguous_assignment_errors_with_list() {
     let mut plan = Plan::new(
         "Multi".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let t1 = store
@@ -290,14 +291,14 @@ fn resolve_plan_ctx_ambiguous_assignment_errors_with_list() {
         )
         .unwrap();
     store
-        .assign_task(&plan.id, &t1, "pane-multi", None, 3)
+        .assign_task(&plan.id, &t1, "tab-multi", None, 3)
         .unwrap();
     store
-        .assign_task(&plan.id, &t2, "pane-multi", None, 3)
+        .assign_task(&plan.id, &t2, "tab-multi", None, 3)
         .unwrap();
 
     let mut notices = Vec::new();
-    let err = resolve_plan_ctx(&store, "pane-multi", None, None, &mut notices).unwrap_err();
+    let err = resolve_plan_ctx(&store, "tab-multi", None, None, &mut notices).unwrap_err();
     assert!(
         err.contains("ambiguous"),
         "error must say 'ambiguous': {err}"
@@ -330,7 +331,7 @@ fn planner_rehydrate_preserves_all_36_tasks_and_strides() {
     let mut plan = Plan::new(
         "Windows recovery".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     for index in 0..36 {
@@ -355,7 +356,7 @@ fn planner_rehydrate_preserves_all_36_tasks_and_strides() {
     });
     let task_stride = Milestone {
         id: "task-stride".into(),
-        from: OrchestratorRef::from_pane("worker"),
+        from: OrchestratorRef::from_tab("worker"),
         kind: "status_update".into(),
         text: "task evidence".into(),
         ts: 10,
@@ -368,7 +369,7 @@ fn planner_rehydrate_preserves_all_36_tasks_and_strides() {
     hydrated.tasks[0].milestones.push(task_stride);
     hydrated.strides.push(Milestone {
         id: "plan-stride".into(),
-        from: OrchestratorRef::from_pane("owner"),
+        from: OrchestratorRef::from_tab("owner"),
         kind: "decision".into(),
         text: "plan evidence".into(),
         ts: 11,
@@ -422,7 +423,7 @@ fn planner_request_envelope_preserves_shell_metacharacters_as_chat_data() {
         request_id: "req-shell".into(),
         payload: payload.into(),
         payload_blob: None,
-        caller_pane_id: Some("caller".into()),
+        caller_tab_id: Some("caller".into()),
         caller_session_id: Some("caller-session".into()),
         state: PlannerRequestState::Accepted,
         created_at: 1,
@@ -431,7 +432,7 @@ fn planner_request_envelope_preserves_shell_metacharacters_as_chat_data() {
         delivery_attempts: 1,
         completed_at: None,
         failed_at: None,
-        delivered_to_pane_id: Some("planner".into()),
+        delivered_to_tab_id: Some("planner".into()),
         delivered_to_session_id: Some("planner-session".into()),
         delivered_with_binding_nonce: Some("planner-nonce".into()),
     };
@@ -468,44 +469,47 @@ fn report_status_policy_rejects_worker_done() {
 #[test]
 fn cron_report_target_is_used_when_no_parent() {
     let (mut mux, orch) = MultiplexerState::new();
-    let cron_pane = mux.create_pane();
-    // Cron-spawned panes carry an explicit report_target_pane_id but no role.
-    if let Some(pane) = mux.get_pane_mut(&cron_pane) {
-        pane.report_target_pane_id = Some(orch.clone());
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let cron_tab = mux.create_tab(&workspace_id).unwrap();
+    // Cron-spawned tabs carry an explicit report_target_tab_id but no role.
+    if let Some(tab) = mux.get_tab_mut(&cron_tab) {
+        tab.report_target_tab_id = Some(orch.clone());
     }
-    mux.rename_pane(&cron_pane, "cron-task").unwrap();
+    mux.rename_tab(&cron_tab, "cron-task").unwrap();
 
-    let (from_title, target) = resolve_report_target(&mux, &cron_pane).unwrap();
+    let (from_title, target) = resolve_report_target(&mux, &cron_tab).unwrap();
     assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
     assert_eq!(from_title, "cron-task");
 }
 
 #[test]
-fn parent_pane_id_takes_priority_over_other_targets() {
+fn parent_tab_id_takes_priority_over_other_targets() {
     let (mut mux, orch, worker) = build_orchestrator_with_worker("Worker-Pri");
-    let other = mux.create_pane();
-    let spawner = mux.create_pane();
-    if let Some(pane) = mux.get_pane_mut(&worker) {
-        pane.report_target_pane_id = Some(other.clone());
-        pane.spawned_by_pane_id = Some(spawner.clone());
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let other = mux.create_tab(&workspace_id).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
+    if let Some(tab) = mux.get_tab_mut(&worker) {
+        tab.report_target_tab_id = Some(other.clone());
+        tab.spawned_by_tab_id = Some(spawner.clone());
     }
 
     let (_, target) = resolve_report_target(&mux, &worker).unwrap();
     assert_eq!(
         target,
         Some(ReportTarget::Local(orch.clone())),
-        "explicit parent_pane_id wins over report_target and spawned_by"
+        "explicit parent_tab_id wins over report_target and spawned_by"
     );
 }
 
 #[test]
 fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
     let (mut mux, orch) = MultiplexerState::new();
-    // Simulate the spawning agent — it lives in its own pane elsewhere.
-    let spawner = mux.create_pane();
+    // Simulate the spawning agent — it lives in its own tab elsewhere.
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
     // Top-level orchestrator has no parent and no report_target, but `agent spawn` recorded who asked for it.
-    if let Some(pane) = mux.get_pane_mut(&orch) {
-        pane.spawned_by_pane_id = Some(spawner.clone());
+    if let Some(tab) = mux.get_tab_mut(&orch) {
+        tab.spawned_by_tab_id = Some(spawner.clone());
     }
 
     let (_, target) = resolve_report_target(&mux, &orch).unwrap();
@@ -532,10 +536,10 @@ fn never_routes_back_to_self_when_all_targets_unset() {
 fn never_routes_back_to_self_even_when_targets_point_at_self() {
     // Defensive: if any field accidentally points at the reporter itself, that field is skipped — reports should never bounce.
     let (mut mux, orch) = MultiplexerState::new();
-    if let Some(pane) = mux.get_pane_mut(&orch) {
-        pane.parent_pane_id = Some(orch.clone());
-        pane.report_target_pane_id = Some(orch.clone());
-        pane.spawned_by_pane_id = Some(orch.clone());
+    if let Some(tab) = mux.get_tab_mut(&orch) {
+        tab.parent_tab_id = Some(orch.clone());
+        tab.report_target_tab_id = Some(orch.clone());
+        tab.spawned_by_tab_id = Some(orch.clone());
     }
     let (_, target) = resolve_report_target(&mux, &orch).unwrap();
     assert!(
@@ -548,25 +552,26 @@ fn never_routes_back_to_self_even_when_targets_point_at_self() {
 #[test]
 fn spawned_by_used_only_when_parent_and_report_target_missing() {
     let (mut mux, orch) = MultiplexerState::new();
-    let spawner = mux.create_pane();
-    let report_target = mux.create_pane();
-    if let Some(pane) = mux.get_pane_mut(&orch) {
-        pane.report_target_pane_id = Some(report_target.clone());
-        pane.spawned_by_pane_id = Some(spawner.clone());
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
+    let report_target = mux.create_tab(&workspace_id).unwrap();
+    if let Some(tab) = mux.get_tab_mut(&orch) {
+        tab.report_target_tab_id = Some(report_target.clone());
+        tab.spawned_by_tab_id = Some(spawner.clone());
     }
     let (_, target) = resolve_report_target(&mux, &orch).unwrap();
     assert_eq!(
         target,
         Some(ReportTarget::Local(report_target.clone())),
-        "report_target_pane_id wins over spawned_by_pane_id"
+        "report_target_tab_id wins over spawned_by_tab_id"
     );
 }
 
 #[test]
-fn unknown_pane_id_is_rejected() {
+fn unknown_tab_id_is_rejected() {
     let (mux, _orch) = MultiplexerState::new();
     let err = resolve_report_target(&mux, "nonexistent").unwrap_err();
-    assert!(err.contains("Pane not found"), "got: {}", err);
+    assert!(err.contains("Tab not found"), "got: {}", err);
 }
 
 // ── Worker-death watchdog ──
@@ -613,26 +618,28 @@ fn dead_worker_that_already_reported_gets_no_synthetic() {
 }
 
 #[test]
-fn dead_non_hierarchy_pane_gets_no_synthetic() {
-    // Plain pane: no parent/report_target/spawner → no routing target → no synthetic report.
-    let (mut mux, _orch) = MultiplexerState::new();
-    let plain = mux.create_pane();
+fn dead_non_hierarchy_tab_gets_no_synthetic() {
+    // Plain tab: no parent/report_target/spawner → no routing target → no synthetic report.
+    let (mut mux, orch) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let plain = mux.create_tab(&workspace_id).unwrap();
     let store = ReportStore::new(100);
 
     assert!(
         worker_death_report(&mux, &store, &plain).is_none(),
-        "a non-hierarchy pane must NOT get a synthetic dead-report"
+        "a non-hierarchy Tab must NOT get a synthetic dead-report"
     );
 }
 
 #[test]
 fn dead_worker_routes_via_spawned_by_when_no_parent() {
-    // A top-level pane spawned by another agent still routes its death to whoever spawned it.
-    let (mut mux, _orch) = MultiplexerState::new();
-    let spawner = mux.create_pane();
-    let worker = mux.create_pane();
-    if let Some(pane) = mux.get_pane_mut(&worker) {
-        pane.spawned_by_pane_id = Some(spawner.clone());
+    // A top-level tab spawned by another agent still routes its death to whoever spawned it.
+    let (mut mux, orch) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    if let Some(tab) = mux.get_tab_mut(&worker) {
+        tab.spawned_by_tab_id = Some(spawner.clone());
     }
     let store = ReportStore::new(100);
 
@@ -693,15 +700,16 @@ fn report_format_message_with_special_chars() {
 // ── Remote (mesh) report target ──
 
 #[test]
-fn mesh_target_resolves_when_peer_and_pane_set() {
-    // both fields; it must resolve to a Mesh target, never a local pane.
-    let (mut mux, _orch) = MultiplexerState::new();
-    let worker = mux.create_pane();
-    if let Some(pane) = mux.get_pane_mut(&worker) {
-        pane.report_target_mesh_peer = Some("Mac-Air".into());
-        pane.report_target_pane_id = Some("main".into());
+fn mesh_target_resolves_when_peer_and_tab_set() {
+    // both fields; it must resolve to a Mesh target, never a local tab.
+    let (mut mux, orch) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    if let Some(tab) = mux.get_tab_mut(&worker) {
+        tab.report_target_mesh_peer = Some("Mac-Air".into());
+        tab.report_target_tab_id = Some("main".into());
     }
-    mux.rename_pane(&worker, "Remote-Worker").unwrap();
+    mux.rename_tab(&worker, "Remote-Worker").unwrap();
 
     let (from_title, target) = resolve_report_target(&mux, &worker).unwrap();
     assert_eq!(from_title, "Remote-Worker");
@@ -709,39 +717,39 @@ fn mesh_target_resolves_when_peer_and_pane_set() {
         target,
         Some(ReportTarget::Mesh {
             peer: "Mac-Air".into(),
-            pane: "main".into()
+            tab: "main".into()
         })
     );
 }
 
 #[test]
 fn mesh_target_wins_over_local_parent() {
-    // so the report crosses the mesh instead of landing in a stale local pane.
+    // so the report crosses the mesh instead of landing in a stale local tab.
     let (mux, _orch, worker) = build_orchestrator_with_worker("Remote-Pri");
     let mut mux = mux;
-    if let Some(pane) = mux.get_pane_mut(&worker) {
-        pane.report_target_mesh_peer = Some("eight".into());
-        pane.report_target_pane_id = Some("orch-42".into());
+    if let Some(tab) = mux.get_tab_mut(&worker) {
+        tab.report_target_mesh_peer = Some("eight".into());
+        tab.report_target_tab_id = Some("orch-42".into());
     }
     let (_, target) = resolve_report_target(&mux, &worker).unwrap();
     assert_eq!(
         target,
         Some(ReportTarget::Mesh {
             peer: "eight".into(),
-            pane: "orch-42".into()
+            tab: "orch-42".into()
         }),
-        "remote target must win over a local parent_pane_id"
+        "remote target must win over a local parent_tab_id"
     );
 }
 
 #[test]
-fn mesh_peer_without_target_pane_falls_back_to_local() {
+fn mesh_peer_without_target_tab_falls_back_to_local() {
     // half-addressed remote target; fall through to the local chain.
     let (mux, orch, worker) = build_orchestrator_with_worker("Half-Remote");
     let mut mux = mux;
-    if let Some(pane) = mux.get_pane_mut(&worker) {
-        pane.report_target_mesh_peer = Some("eight".into());
-        pane.report_target_pane_id = None;
+    if let Some(tab) = mux.get_tab_mut(&worker) {
+        tab.report_target_mesh_peer = Some("eight".into());
+        tab.report_target_tab_id = None;
     }
     let (_, target) = resolve_report_target(&mux, &worker).unwrap();
     assert_eq!(target, Some(ReportTarget::Local(orch)));
@@ -753,7 +761,7 @@ fn storage_keys_distinguish_local_and_mesh() {
     assert_eq!(
         ReportTarget::Mesh {
             peer: "Mac-Air".into(),
-            pane: "main".into()
+            tab: "main".into()
         }
         .storage_key(),
         "mesh:Mac-Air/main"
@@ -769,7 +777,7 @@ fn resolve_plan_ctx_foreign_plan_with_no_binding_returns_none_with_notice() {
     let mut notices = Vec::new();
     let (p, t) = resolve_plan_ctx(
         &store,
-        "pane-remote",
+        "tab-remote",
         Some("pl_foreign"),
         Some("task_yyy"),
         &mut notices,
@@ -792,7 +800,7 @@ fn mesh_peer_extracted_from_default_target_before_or_consumes_it() {
     // homing — this is the detection step that decides whether to relay.
     let default_target: Option<ReportTarget> = Some(ReportTarget::Mesh {
         peer: "eight".into(),
-        pane: "orch-99".into(),
+        tab: "orch-99".into(),
     });
     let default_mesh_peer = match &default_target {
         Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
@@ -853,7 +861,7 @@ fn not_foreign_when_explicit_found_locally() {
 
 #[test]
 fn not_foreign_when_no_explicit_plan() {
-    // No --plan flag provided — pane-binding auto-resolution, always local.
+    // No --plan flag provided — tab-binding auto-resolution, always local.
     assert!(
         !is_explicit_plan_foreign(None, Some("pl_auto")),
         "no explicit plan means no homing needed"
@@ -876,10 +884,10 @@ fn not_foreign_for_empty_explicit_plan() {
 #[test]
 fn resolve_plan_ctx_explicit_plan_overridden_by_binding_triggers_foreign() {
     // the explicit plan isn't found. is_explicit_plan_foreign must detect this.
-    let (store, _local_plan, _local_task) = make_store_with_assigned_task("pane-q");
+    let (store, _local_plan, _local_task) = make_store_with_assigned_task("tab-q");
     let mut notices = Vec::new();
     let (eff, _) =
-        resolve_plan_ctx(&store, "pane-q", Some("pl_foreign_x"), None, &mut notices).unwrap();
+        resolve_plan_ctx(&store, "tab-q", Some("pl_foreign_x"), None, &mut notices).unwrap();
     // is_explicit_plan_foreign must report true since "pl_foreign_x" != eff.
     assert!(
         is_explicit_plan_foreign(Some("pl_foreign_x"), eff.as_deref()),
@@ -905,24 +913,24 @@ impl FirstPlanHarness {
 fn teamless_orchestrator(mux: &MuxState) -> (String, String) {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let (_tab_id, owner_pane_id) = mux.create_tab(&workspace_id).unwrap();
-    mux.set_pane_role(&owner_pane_id, AgentRole::Orchestrator, None)
+    let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&owner_tab_id, AgentRole::Orchestrator, None)
         .unwrap();
-    (workspace_id, owner_pane_id)
+    (workspace_id, owner_tab_id)
 }
 
 #[test]
 fn first_plan_mints_team_enrolls_manager_and_binds() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let (_workspace_id, owner_pane_id) = teamless_orchestrator(&harness.mux);
+    let (_workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
 
     let outcome = create_first_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "First effort".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         None,
         1,
@@ -937,7 +945,7 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
     );
     let mux = harness.mux.read();
     assert_eq!(mux.team_count(), 1);
-    let owner = mux.get_pane(&owner_pane_id).unwrap();
+    let owner = mux.get_tab(&owner_tab_id).unwrap();
     assert_eq!(owner.role, Some(AgentRole::Orchestrator));
     assert_eq!(owner.team_id.as_deref(), Some(outcome.team_id.as_str()));
 }
@@ -946,12 +954,12 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
 fn concurrent_first_plan_and_first_child_converge() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let (workspace_id, owner_pane_id) = teamless_orchestrator(&harness.mux);
-    let child_pane_id = harness.mux.write().create_tab(&workspace_id).unwrap().1;
+    let (workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
+    let child_tab_id = harness.mux.write().create_tab(&workspace_id).unwrap();
     let barrier = Arc::new(Barrier::new(3));
     let plan_mux = harness.mux.clone();
     let plan_store = harness.plan_store.clone();
-    let plan_owner = owner_pane_id.clone();
+    let plan_owner = owner_tab_id.clone();
     let plan_root = dir.path().display().to_string();
     let plan_barrier = barrier.clone();
     let plan_thread = std::thread::spawn(move || {
@@ -961,21 +969,21 @@ fn concurrent_first_plan_and_first_child_converge() {
             &plan_store,
             "Concurrent effort".into(),
             plan_root,
-            OrchestratorRef::from_pane(&plan_owner),
+            OrchestratorRef::from_tab(&plan_owner),
             vec![],
             None,
             1,
         )
     });
     let child_mux = harness.mux.clone();
-    let child_owner = owner_pane_id.clone();
-    let child_pane = child_pane_id.clone();
+    let child_owner = owner_tab_id.clone();
+    let child_tab = child_tab_id.clone();
     let child_barrier = barrier.clone();
     let child_thread = std::thread::spawn(move || {
         child_barrier.wait();
         child_mux
             .write()
-            .set_pane_role(&child_pane, AgentRole::Worker, Some(&child_owner))
+            .set_tab_role(&child_tab, AgentRole::Worker, Some(&child_owner))
     });
     barrier.wait();
     let outcome = plan_thread.join().unwrap().unwrap();
@@ -985,11 +993,11 @@ fn concurrent_first_plan_and_first_child_converge() {
     assert_eq!(mux.team_count(), 1);
     assert_eq!(harness.plan_store.list_index().len(), 1);
     assert_eq!(
-        mux.get_pane(&owner_pane_id).unwrap().team_id.as_deref(),
+        mux.get_tab(&owner_tab_id).unwrap().team_id.as_deref(),
         Some(outcome.team_id.as_str())
     );
     assert_eq!(
-        mux.get_pane(&child_pane_id).unwrap().team_id.as_deref(),
+        mux.get_tab(&child_tab_id).unwrap().team_id.as_deref(),
         Some(outcome.team_id.as_str())
     );
     assert_eq!(
@@ -1002,7 +1010,7 @@ fn concurrent_first_plan_and_first_child_converge() {
 fn first_plan_failure_is_atomic() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let (_workspace_id, owner_pane_id) = teamless_orchestrator(&harness.mux);
+    let (_workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
     let invalid_project = dir.path().join("not-a-directory");
     std::fs::write(&invalid_project, "file").unwrap();
 
@@ -1011,7 +1019,7 @@ fn first_plan_failure_is_atomic() {
         &harness.plan_store,
         "Failure".into(),
         invalid_project.display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         None,
         1,
@@ -1022,5 +1030,5 @@ fn first_plan_failure_is_atomic() {
     assert!(harness.plan_store.list_index().is_empty());
     let mux = harness.mux.read();
     assert_eq!(mux.team_count(), 0);
-    assert!(mux.get_pane(&owner_pane_id).unwrap().team_id.is_none());
+    assert!(mux.get_tab(&owner_tab_id).unwrap().team_id.is_none());
 }

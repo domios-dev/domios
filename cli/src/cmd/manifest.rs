@@ -294,12 +294,12 @@ mod tests {
         for path in [PROMPT_PATH, SKILL_PATH] {
             let text = std::fs::read_to_string(path).expect("read agent instruction source");
             assert!(
-                !text.contains("codeterm pane "),
-                "{path} teaches the removed `codeterm pane` namespace"
+                !text.contains("codeterm tab "),
+                "{path} teaches the removed legacy command namespace"
             );
             assert!(
-                !text.contains(" --pane "),
-                "{path} teaches the removed `--pane` flag"
+                !text.contains(" --tab "),
+                "{path} teaches the removed `--tab` flag"
             );
         }
     }
@@ -351,6 +351,195 @@ mod tests {
         assert!(
             bad.is_empty(),
             "prompt references unknown CLI commands:\n{}",
+            bad.join("\n")
+        );
+    }
+
+    // A *prescription* is a line a shipped surface offers as a runnable command.
+    // Prose that merely names a command mid-sentence is commentary, not a recipe.
+    fn prescription<'a>(line: &'a str, head: &str) -> Option<&'a str> {
+        let mut s = line.trim().trim_start_matches(['-', '*', '>', ' ']).trim();
+        s = s.trim_start_matches('`').trim();
+        if let Some(rest) = s.strip_prefix("$ ") {
+            s = rest.trim();
+        }
+        s.strip_prefix(head)?
+            .strip_prefix(' ')
+            .map(str::trim_start)
+    }
+
+    fn find_sub<'a>(cmd: &'a Command, name: &str) -> Option<&'a Command> {
+        cmd.get_subcommands()
+            .find(|c| c.get_name() == name || c.get_all_aliases().any(|a| a == name))
+    }
+
+    fn is_subcommand_token(tok: &str) -> bool {
+        tok.starts_with(|c: char| c.is_ascii_lowercase())
+            && tok
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '|')
+    }
+
+    // Globals are declared once on the root and inherited, so an option is known
+    // if the leaf owns it or any ancestor declares it global.
+    fn known_flags(chain: &[&Command]) -> std::collections::HashSet<String> {
+        let mut flags: std::collections::HashSet<String> =
+            ["--help".to_string(), "--version".to_string()].into();
+        let leaf = chain.len() - 1;
+        for (depth, cmd) in chain.iter().enumerate() {
+            for arg in cmd.get_arguments() {
+                if depth != leaf && !arg.is_global_set() {
+                    continue;
+                }
+                if let Some(long) = arg.get_long() {
+                    flags.insert(format!("--{long}"));
+                }
+                for alias in arg.get_all_aliases().unwrap_or_default() {
+                    flags.insert(format!("--{alias}"));
+                }
+            }
+        }
+        flags
+    }
+
+    fn check_prescription(
+        root: &Command,
+        base: &[String],
+        rest: &str,
+        origin: &str,
+        bad: &mut Vec<String>,
+    ) {
+        let mut chain: Vec<&Command> = vec![root];
+        for seg in base {
+            let Some(next) = find_sub(chain[chain.len() - 1], seg) else {
+                return;
+            };
+            chain.push(next);
+        }
+        let mut walked: Vec<String> = base.to_vec();
+        let render = |walked: &[String]| {
+            if walked.is_empty() {
+                "codeterm".to_string()
+            } else {
+                format!("codeterm {}", walked.join(" "))
+            }
+        };
+
+        let mut toks = rest.split_whitespace().peekable();
+        while let Some(tok) = toks.peek().copied() {
+            let cur = chain[chain.len() - 1];
+            if cur.get_subcommands().next().is_none() || !is_subcommand_token(tok) {
+                break;
+            }
+            let mut next = None;
+            for alt in tok.split('|').filter(|a| !a.is_empty()) {
+                match find_sub(cur, alt) {
+                    Some(c) => next = Some(c),
+                    None => {
+                        bad.push(format!(
+                            "{origin}: `{alt}` is not a subcommand of `{}`",
+                            render(&walked)
+                        ));
+                        return;
+                    }
+                }
+            }
+            let Some(next) = next else { break };
+            walked.push(tok.to_string());
+            chain.push(next);
+            toks.next();
+        }
+
+        let flags = known_flags(&chain);
+        for tok in toks {
+            if tok.starts_with('#') {
+                break;
+            }
+            let Some(flag) = tok.strip_prefix("--") else {
+                continue;
+            };
+            let flag = flag
+                .split('=')
+                .next()
+                .unwrap_or_default()
+                .trim_end_matches([',', '.', ';', ':', ')', ']', '`', '"', '\'']);
+            if flag.is_empty()
+                || !flag
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            {
+                continue;
+            }
+            if !flags.contains(&format!("--{flag}")) {
+                bad.push(format!(
+                    "{origin}: `--{flag}` is not an option of `{}`",
+                    render(&walked)
+                ));
+            }
+        }
+    }
+
+    fn check_help_text(root: &Command, cmd: &Command, path: &[String], bad: &mut Vec<String>) {
+        let mut texts: Vec<String> = Vec::new();
+        for text in [cmd.get_about(), cmd.get_long_about()].into_iter().flatten() {
+            texts.push(text.to_string());
+        }
+        for arg in cmd.get_arguments() {
+            for text in [arg.get_help(), arg.get_long_help()].into_iter().flatten() {
+                texts.push(text.to_string());
+            }
+        }
+        let origin = format!("help `{}`", {
+            let mut p = vec!["codeterm".to_string()];
+            p.extend(path.iter().cloned());
+            p.join(" ")
+        });
+        for text in &texts {
+            for line in text.lines() {
+                if let Some(rest) = prescription(line, "codeterm") {
+                    check_prescription(root, &[], rest, &origin, bad);
+                }
+                // Help for `agent spawn` writes its examples as `spawn ...`.
+                if let Some(own) = path.last() {
+                    if let Some(rest) = prescription(line, own) {
+                        check_prescription(root, path, rest, &origin, bad);
+                    }
+                }
+            }
+        }
+        for sub in cmd
+            .get_subcommands()
+            .filter(|c| c.get_name() != "help" && !c.is_hide_set())
+        {
+            let mut child = path.to_vec();
+            child.push(sub.get_name().to_string());
+            check_help_text(root, sub, &child, bad);
+        }
+    }
+
+    // The consistency oracle for everything the CLI ships as instruction: an
+    // agent follows a prescribed command literally, so one that cannot run is a
+    // failed tool call, not a typo.
+    #[test]
+    fn shipped_prescriptions_are_runnable() {
+        let root = Cli::command();
+        let mut bad: Vec<String> = Vec::new();
+
+        for (name, body) in crate::cmd::docs::DOCS {
+            for (idx, line) in body.lines().enumerate() {
+                let Some(rest) = prescription(line, "codeterm") else {
+                    continue;
+                };
+                let origin = format!("docs {name}:{}", idx + 1);
+                check_prescription(&root, &[], rest, &origin, &mut bad);
+            }
+        }
+
+        check_help_text(&root, &root, &[], &mut bad);
+
+        assert!(
+            bad.is_empty(),
+            "shipped text prescribes actions the CLI cannot perform:\n{}",
             bad.join("\n")
         );
     }

@@ -6,17 +6,17 @@
 //!   -=-codeterm:tab label=<Name> tab=<id>[ model=<m>][ mesh=<peer>]-=-body
 //!   -=-codeterm:report from=<Name> tab=<id> ...-=-body
 //!
-//! This wraps the unified `message_markers` frame so pane/report prefixes and
+//! This wraps the unified `message_markers` frame so tab/report prefixes and
 //! bridge attachment markers share one wire family.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MessageKind {
-    /// A direct message from one pane (or peer) to another.
+    /// A direct message from one tab (or peer) to another.
     #[default]
     Message,
     /// A hierarchy / cron report bubbling up to a parent or inbox.
     Report,
-    /// A fired delayed reminder injected back into a pane.
+    /// A fired delayed reminder injected back into a tab.
     Reminder,
     Mesh,
     Telegram,
@@ -26,7 +26,7 @@ pub enum MessageKind {
 pub struct MessageEnvelope {
     pub kind: MessageKind,
     pub from_label: String,
-    pub from_pane: String,
+    pub from_tab: String,
     pub from_model: Option<String>,
     pub from_mesh: Option<String>,
     pub peer: Option<String>,
@@ -71,11 +71,11 @@ impl MessageKind {
 impl MessageEnvelope {
     /// CodeTerm's own sender identity — single source so no path hardcodes it.
     pub const CODETERM: &'static str = "CodeTerm";
-    pub const CODETERM_PANE: &'static str = "system";
+    pub const CODETERM_TAB: &'static str = "system";
 
     /// A message FROM CodeTerm (renders "from CodeTerm") — role onboarding, etc.
     pub fn from_codeterm() -> Self {
-        Self::pane(Self::CODETERM, Self::CODETERM_PANE)
+        Self::tab(Self::CODETERM, Self::CODETERM_TAB)
     }
 
     /// A reminder FROM CodeTerm tagged with a context (nudges, prefs, qa, ...).
@@ -83,29 +83,29 @@ impl MessageEnvelope {
         Self::reminder(Self::CODETERM, context)
     }
 
-    pub fn pane(from_label: impl Into<String>, from_pane: impl Into<String>) -> Self {
+    pub fn tab(from_label: impl Into<String>, from_tab: impl Into<String>) -> Self {
         Self {
             kind: MessageKind::Message,
             from_label: from_label.into(),
-            from_pane: from_pane.into(),
+            from_tab: from_tab.into(),
             ..Default::default()
         }
     }
 
-    pub fn report(from_label: impl Into<String>, from_pane: impl Into<String>) -> Self {
+    pub fn report(from_label: impl Into<String>, from_tab: impl Into<String>) -> Self {
         Self {
             kind: MessageKind::Report,
             from_label: from_label.into(),
-            from_pane: from_pane.into(),
+            from_tab: from_tab.into(),
             ..Default::default()
         }
     }
 
-    pub fn reminder(from_label: impl Into<String>, from_pane: impl Into<String>) -> Self {
+    pub fn reminder(from_label: impl Into<String>, from_tab: impl Into<String>) -> Self {
         Self {
             kind: MessageKind::Reminder,
             from_label: from_label.into(),
-            from_pane: from_pane.into(),
+            from_tab: from_tab.into(),
             ..Default::default()
         }
     }
@@ -160,22 +160,22 @@ impl From<MessageEnvelope> for Messenger {
 }
 
 impl Messenger {
-    pub fn message(from_name: impl Into<String>, from_pane: impl Into<String>) -> Self {
-        MessageEnvelope::pane(from_name, from_pane).into()
+    pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
+        MessageEnvelope::tab(from_name, from_tab).into()
     }
 
     /// Launch-task prefix marking input as coming FROM CodeTerm — prepended to a
     /// fresh spawn's bg_task (role onboarding), the single source for that marker.
     pub fn codeterm_prefix() -> String {
-        Self::message(MessageEnvelope::CODETERM, MessageEnvelope::CODETERM_PANE).build()
+        Self::message(MessageEnvelope::CODETERM, MessageEnvelope::CODETERM_TAB).build()
     }
 
-    pub fn report(from_name: impl Into<String>, from_pane: impl Into<String>) -> Self {
-        MessageEnvelope::report(from_name, from_pane).into()
+    pub fn report(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
+        MessageEnvelope::report(from_name, from_tab).into()
     }
 
-    pub fn reminder(from_name: impl Into<String>, from_pane: impl Into<String>) -> Self {
-        MessageEnvelope::reminder(from_name, from_pane).into()
+    pub fn reminder(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
+        MessageEnvelope::reminder(from_name, from_tab).into()
     }
 
     pub fn set_at(mut self, ms: u64) -> Self {
@@ -217,45 +217,35 @@ impl Messenger {
 
     pub fn deliver(
         svc: &super::ServiceContext,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
         let kind = envelope.kind;
-        let result = Self::deliver_inner(svc, to_pane, envelope, body);
+        let result = Self::deliver_inner(svc, to_tab, envelope, body);
         if result.is_ok() {
-            svc.record_kpi_delivery(to_pane, kind, body.len());
+            svc.record_kpi_delivery(to_tab, kind, body.len());
         }
         result
     }
 
     fn deliver_inner(
         svc: &super::ServiceContext,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        // A real inbound message/report landing here means the reader no longer
-        // needs a reminder — clear its reminder-nudge streak (skip system reminders).
-        if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
-            let resolved = svc
-                .mux
-                .write()
-                .resolve_pane_id(to_pane)
-                .unwrap_or_else(|| to_pane.to_string());
-            svc.plan_turn_counter.reset_polls(&resolved);
-        }
-        if svc.pane_chat_backing(to_pane).is_some() {
-            svc.chatbackend_reopen_if_restored(to_pane)?;
+        if svc.tab_chat_backing(to_tab).is_some() {
+            svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
-                .pane_chat_backing(to_pane)
-                .ok_or_else(|| "chatBackend pane lost its backing".to_string())?;
+                .tab_chat_backing(to_tab)
+                .ok_or_else(|| "chatBackend Tab lost its backing".to_string())?;
             return dispatch_delivery(
                 DeliveryTransport::ChatBackend,
                 || {
                     Self::deliver_chatbackend(
                         svc,
-                        to_pane,
+                        to_tab,
                         &plugin_id,
                         &session_id,
                         envelope.clone(),
@@ -269,23 +259,23 @@ impl Messenger {
         let (resolved_target, should_prefix, pty_agent_target) = {
             let mux = svc.mux.write();
             let resolved_target = mux
-                .resolve_pane_id(to_pane)
-                .unwrap_or_else(|| to_pane.to_string());
-            let pane = mux.get_pane(&resolved_target);
+                .resolve_tab_id(to_tab)
+                .unwrap_or_else(|| to_tab.to_string());
+            let tab = mux.get_tab(&resolved_target);
             let target_is_agent =
-                pane.is_some_and(|pane| pane.agent_type.is_some() || pane.agent_booting);
+                tab.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
             (
                 resolved_target.clone(),
                 should_prefix_pty(
                     envelope.kind,
                     target_is_agent,
-                    &envelope.from_pane,
+                    &envelope.from_tab,
                     &resolved_target,
                 ),
                 target_is_agent
                     && matches!(
-                        pane.map(|p| &p.backing),
-                        Some(crate::multiplexer::types::PaneBacking::Pty)
+                        tab.map(|p| &p.backing),
+                        Some(crate::multiplexer::types::TabBacking::Pty)
                     ),
             )
         };
@@ -303,7 +293,7 @@ impl Messenger {
                     if pty_agent_target {
                         svc.send_to_agent_when_ready_detached(&resolved_target, text);
                     } else {
-                        svc.send_text_detached(&resolved_target, text, true);
+                        svc.send_text_detached(&resolved_target, text);
                     }
                     Ok::<(), String>(())
                 })?;
@@ -314,7 +304,7 @@ impl Messenger {
 
     pub fn deliver_planner_session(
         svc: &super::ServiceContext,
-        to_pane: &str,
+        to_tab: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
         envelope: MessageEnvelope,
@@ -324,40 +314,40 @@ impl Messenger {
         let is_chatbackend = {
             let mux = svc.mux.read();
             let resolved = mux
-                .resolve_pane_id(to_pane)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+                .resolve_tab_id(to_tab)
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
             matches!(
-                mux.get_pane(&resolved).map(|pane| &pane.backing),
-                Some(crate::multiplexer::types::PaneBacking::ChatBackend { .. })
+                mux.get_tab(&resolved).map(|tab| &tab.backing),
+                Some(crate::multiplexer::types::TabBacking::ChatBackend { .. })
             )
         };
         if is_chatbackend {
-            svc.chatbackend_reopen_if_restored(to_pane)?;
+            svc.chatbackend_reopen_if_restored(to_tab)?;
         }
         let backing = {
             let mux = svc.mux.read();
             let resolved = mux
-                .resolve_pane_id(to_pane)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
-            let pane = mux
-                .get_pane(&resolved)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
-            if pane.agent_session_id.as_deref() != Some(expected_session_id)
-                || pane.session_binding_nonce.as_deref() != Some(expected_binding_nonce)
-                || pane.reported_session_binding_nonce.as_deref() != Some(expected_binding_nonce)
+                .resolve_tab_id(to_tab)
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
+            let tab = mux
+                .get_tab(&resolved)
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
+            if tab.agent_session_id.as_deref() != Some(expected_session_id)
+                || tab.session_binding_nonce.as_deref() != Some(expected_binding_nonce)
+                || tab.reported_session_binding_nonce.as_deref() != Some(expected_binding_nonce)
             {
                 return Err("agent_unavailable: planner session is stale".into());
             }
-            pane.backing.clone()
+            tab.backing.clone()
         };
-        if matches!(backing, crate::multiplexer::types::PaneBacking::Pty) {
+        if matches!(backing, crate::multiplexer::types::TabBacking::Pty) {
             let text = Self::from(envelope).wrap(body);
             crate::service::pty_io::submit_transaction::submit_entry(
                 crate::service::pty_io::submit_transaction::PtySubmitEntry::Planner,
                 &text,
                 |text| {
                     svc.send_to_authenticated_agent_session(
-                        to_pane,
+                        to_tab,
                         expected_session_id,
                         expected_binding_nonce,
                         text,
@@ -367,7 +357,7 @@ impl Messenger {
             return Ok(Delivery::Pty { text });
         }
         let (plugin_id, session_id) = svc
-            .pane_chat_backing(to_pane)
+            .tab_chat_backing(to_tab)
             .ok_or_else(|| "agent_unavailable: planner has no chat delivery target".to_string())?;
         if session_id != expected_session_id {
             return Err(format!(
@@ -376,7 +366,7 @@ impl Messenger {
         }
         let delivery = Self::deliver_chatbackend_with_id(
             svc,
-            to_pane,
+            to_tab,
             &plugin_id,
             &session_id,
             envelope,
@@ -385,16 +375,14 @@ impl Messenger {
         )?;
         let observed = {
             let mux = svc.mux.read();
-            let resolved = mux.resolve_pane_id(to_pane);
-            resolved
-                .and_then(|pane_id| mux.get_pane(&pane_id))
-                .map(|pane| {
-                    (
-                        pane.agent_session_id.clone(),
-                        pane.reported_session_binding_nonce.clone(),
-                        pane.backing.clone(),
-                    )
-                })
+            let resolved = mux.resolve_tab_id(to_tab);
+            resolved.and_then(|tab_id| mux.get_tab(&tab_id)).map(|tab| {
+                (
+                    tab.agent_session_id.clone(),
+                    tab.reported_session_binding_nonce.clone(),
+                    tab.backing.clone(),
+                )
+            })
         };
         let still_bound = observed.as_ref().is_some_and(|(session, nonce, backing)| {
             planner_chatbackend_binding_matches(
@@ -421,7 +409,7 @@ impl Messenger {
 
     fn deliver_chatbackend(
         svc: &super::ServiceContext,
-        to_pane: &str,
+        to_tab: &str,
         plugin_id: &str,
         session_id: &str,
         envelope: MessageEnvelope,
@@ -429,13 +417,13 @@ impl Messenger {
     ) -> Result<Delivery, String> {
         let message_id = format!("inbound-{}", uuid::Uuid::new_v4().simple());
         Self::deliver_chatbackend_with_id(
-            svc, to_pane, plugin_id, session_id, envelope, body, message_id,
+            svc, to_tab, plugin_id, session_id, envelope, body, message_id,
         )
     }
 
     fn deliver_chatbackend_with_id(
         svc: &super::ServiceContext,
-        to_pane: &str,
+        to_tab: &str,
         plugin_id: &str,
         session_id: &str,
         envelope: MessageEnvelope,
@@ -444,7 +432,7 @@ impl Messenger {
     ) -> Result<Delivery, String> {
         let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
 
-        let inserted = crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
+        let inserted = crate::service::tab_chat::chatbackend_history::ChatBackendHistory::shared(
             plugin_id, session_id,
         )
         .lock()
@@ -453,17 +441,17 @@ impl Messenger {
             let (source_session_id, session_binding_nonce) = svc
                 .mux
                 .read()
-                .get_pane(to_pane)
-                .map(|pane| {
+                .get_tab(to_tab)
+                .map(|tab| {
                     (
-                        pane.agent_session_id.clone(),
-                        pane.session_binding_nonce.clone(),
+                        tab.agent_session_id.clone(),
+                        tab.session_binding_nonce.clone(),
                     )
                 })
                 .unwrap_or((None, None));
-            crate::service::pane_chat::structured_sink::emit_chat_msgs(
+            crate::service::tab_chat::structured_sink::emit_chat_msgs(
                 &svc.app_handle,
-                to_pane,
+                to_tab,
                 std::slice::from_ref(&msg),
                 None,
                 source_session_id.as_deref(),
@@ -476,7 +464,7 @@ impl Messenger {
             svc.chatbackend_send(plugin_id, session_id, input)
         }) {
             if inserted {
-                crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
+                crate::service::tab_chat::chatbackend_history::ChatBackendHistory::shared(
                     plugin_id, session_id,
                 )
                 .lock()
@@ -492,7 +480,7 @@ impl Messenger {
         if self.envelope.kind == MessageKind::Reminder {
             return self.build_reminder();
         }
-        let pane = short_id(&self.envelope.from_pane);
+        let tab = short_id(&self.envelope.from_tab);
         let base = clean_name(&self.envelope.from_label);
         // Peer-qualify the label for cross-mesh deliveries; skip `@peer` when no distinct source label exists.
         let label = match &self.envelope.peer {
@@ -510,7 +498,7 @@ impl Messenger {
         let name_key = if report { "from" } else { "label" };
         crate::message_markers::Marker::new(self.envelope.kind.marker_kind())
             .attr(name_key, &label)
-            .attr("tab", pane)
+            .attr("tab", tab)
             .attr_opt("model", self.envelope.from_model.as_deref().map(str::trim))
             .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
             .build()
@@ -518,12 +506,12 @@ impl Messenger {
 
     fn build_reminder(&self) -> String {
         let label = clean_name(&self.envelope.from_label);
-        let pane = short_id(&self.envelope.from_pane);
+        let tab = short_id(&self.envelope.from_tab);
         let set_at = self.envelope.set_at.map(|v| v.to_string());
         let fire_at = self.envelope.fire_at.map(|v| v.to_string());
         crate::message_markers::Marker::new("reminder")
             .attr_opt("from", Some(label.as_str()).filter(|s| !s.is_empty()))
-            .attr_opt("tab", Some(pane).filter(|s| !s.is_empty()))
+            .attr_opt("tab", Some(tab).filter(|s| !s.is_empty()))
             .attr_opt("model", self.envelope.from_model.as_deref().map(str::trim))
             .attr_opt("set_at", set_at.as_deref())
             .attr_opt("fire_at", fire_at.as_deref())
@@ -541,14 +529,14 @@ impl Messenger {
 
     fn reply_hint(&self) -> Option<String> {
         if self.envelope.kind != MessageKind::Message
-            || self.envelope.from_pane.is_empty()
-            || self.envelope.from_pane == MessageEnvelope::CODETERM_PANE
+            || self.envelope.from_tab.is_empty()
+            || self.envelope.from_tab == MessageEnvelope::CODETERM_TAB
         {
             return None;
         }
         Some(
             crate::message_markers::Marker::new("reply")
-                .attr("tab", short_id(&self.envelope.from_pane))
+                .attr("tab", short_id(&self.envelope.from_tab))
                 .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
                 .build(),
         )
@@ -596,7 +584,7 @@ fn dispatch_delivery<T, E>(
 fn planner_chatbackend_binding_matches(
     observed_session_id: Option<&str>,
     observed_binding_nonce: Option<&str>,
-    observed_backing: Option<&crate::multiplexer::types::PaneBacking>,
+    observed_backing: Option<&crate::multiplexer::types::TabBacking>,
     expected_session_id: &str,
     expected_binding_nonce: &str,
     expected_plugin_id: &str,
@@ -605,7 +593,7 @@ fn planner_chatbackend_binding_matches(
         && observed_binding_nonce == Some(expected_binding_nonce)
         && matches!(
             observed_backing,
-            Some(crate::multiplexer::types::PaneBacking::ChatBackend {
+            Some(crate::multiplexer::types::TabBacking::ChatBackend {
                 plugin_id,
                 session_id,
             }) if plugin_id == expected_plugin_id && session_id == expected_session_id
@@ -627,7 +615,7 @@ fn build_chatbackend_inbound(
         content: body.to_string(),
         timestamp: Some(chrono::Utc::now().to_rfc3339()),
         from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
-        from_pane: Some(short_id(&envelope.from_pane).to_string()).filter(|s| !s.is_empty()),
+        from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),
         from_model: envelope.from_model.clone(),
         from_mesh: envelope.from_mesh.clone().or(envelope.peer.clone()),
         inbound_kind: Some(envelope.kind.inbound_kind().to_string()),
@@ -643,7 +631,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
         .attr_opt("from_label", Some(label.as_str()).filter(|s| !s.is_empty()))
         .attr_opt(
             "from_tab",
-            Some(short_id(&envelope.from_pane)).filter(|s| !s.is_empty()),
+            Some(short_id(&envelope.from_tab)).filter(|s| !s.is_empty()),
         )
         .attr_opt("from_model", envelope.from_model.as_deref().map(str::trim))
         .attr_opt(
@@ -664,7 +652,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
 fn should_prefix_pty(
     kind: MessageKind,
     target_is_agent: bool,
-    from_pane: &str,
+    from_tab: &str,
     resolved_target: &str,
 ) -> bool {
     if !target_is_agent {
@@ -673,7 +661,7 @@ fn should_prefix_pty(
     if kind == MessageKind::Reminder {
         return true;
     }
-    !from_pane.is_empty() && from_pane != resolved_target
+    !from_tab.is_empty() && from_tab != resolved_target
 }
 
 /// The canonical source-prefix decision for every agent-to-agent delivery path.
@@ -681,16 +669,16 @@ fn should_prefix_pty(
 /// delivery crossed the mesh and the label is peer-qualified (`label@peer`).
 pub fn delivery_prefix(
     target_is_agent: bool,
-    source_pane: &str,
-    target_pane: &str,
+    source_tab: &str,
+    target_tab: &str,
     label: &str,
     model: Option<&str>,
     peer: Option<&str>,
 ) -> Option<String> {
-    if !target_is_agent || source_pane.is_empty() || source_pane == target_pane {
+    if !target_is_agent || source_tab.is_empty() || source_tab == target_tab {
         return None;
     }
-    let mut pfx = Messenger::message(label, source_pane).model(model.map(str::to_string));
+    let mut pfx = Messenger::message(label, source_tab).model(model.map(str::to_string));
     if let Some(p) = peer.filter(|p| !p.trim().is_empty()) {
         pfx = pfx.peer(Some(p.to_string())).mesh(Some(p.to_string()));
     }
@@ -799,7 +787,7 @@ mod tests {
 
     #[test]
     fn inbound_model_context_uses_canonical_marker() {
-        let envelope = MessageEnvelope::pane("Chat Backend", "abc12345-ffff")
+        let envelope = MessageEnvelope::tab("Chat Backend", "abc12345-ffff")
             .model(Some("qwen".into()))
             .mesh(Some("mesh-a".into()));
         let marked = inbound_model_context(&envelope, "hello");
@@ -1007,7 +995,7 @@ mod tests {
     #[test]
     fn chatbackend_inbound_stores_clean_body_model_gets_marker() {
         // Stored row must be the clean body (no inline marker); the marker goes only to the model-facing string.
-        let envelope = MessageEnvelope::pane("Gauss", "abc12345-ffff")
+        let envelope = MessageEnvelope::tab("Gauss", "abc12345-ffff")
             .model(Some("qwen".into()))
             .mesh(Some("Mac-Air".into()));
         let (msg, marked) = build_chatbackend_inbound(&envelope, "ship it", "inbound-x".into());
@@ -1019,7 +1007,7 @@ mod tests {
         );
         assert_eq!(msg.kind, "user");
         assert_eq!(msg.from_label.as_deref(), Some("Gauss"));
-        assert_eq!(msg.from_pane.as_deref(), Some("abc12345"));
+        assert_eq!(msg.from_tab.as_deref(), Some("abc12345"));
         assert_eq!(msg.from_model.as_deref(), Some("qwen"));
         assert_eq!(msg.from_mesh.as_deref(), Some("Mac-Air"));
         assert_eq!(msg.inbound_kind.as_deref(), Some("tab"));
@@ -1069,7 +1057,7 @@ mod tests {
 
     #[test]
     fn chatbackend_rotation_after_preflight_is_not_accepted_as_delivered() {
-        let opened = crate::multiplexer::types::PaneBacking::ChatBackend {
+        let opened = crate::multiplexer::types::TabBacking::ChatBackend {
             plugin_id: "provider".into(),
             session_id: "opened-session".into(),
         };
@@ -1082,7 +1070,7 @@ mod tests {
             "provider",
         ));
 
-        let rotated = crate::multiplexer::types::PaneBacking::ChatBackend {
+        let rotated = crate::multiplexer::types::TabBacking::ChatBackend {
             plugin_id: "provider".into(),
             session_id: "rotated-session".into(),
         };
@@ -1098,7 +1086,7 @@ mod tests {
 
     #[test]
     fn inbound_context_has_sender_with_canonical_marker() {
-        let envelope = MessageEnvelope::pane("Edison", "e8a0ac20-1111")
+        let envelope = MessageEnvelope::tab("Edison", "e8a0ac20-1111")
             .model(Some("opus".into()))
             .mesh(Some("BLACKSTAR".into()));
         let ctx = inbound_model_context(&envelope, "hello");

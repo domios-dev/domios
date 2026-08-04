@@ -20,17 +20,17 @@ function clean(value?: string | null): string | null {
   return text && !EMPTY_LABELS.has(text.toLowerCase()) ? text : null;
 }
 
-function workspaceByPane(workspaces: readonly Workspace[]): Map<string, WorkspaceCandidate> {
-  const byPane = new Map<string, WorkspaceCandidate>();
+function workspaceByTab(workspaces: readonly Workspace[]): Map<string, WorkspaceCandidate> {
+  const byTab = new Map<string, WorkspaceCandidate>();
   for (const workspace of workspaces) {
     const id = clean(workspace.id);
     const label = clean(workspace.name) ?? id;
     if (!label) continue;
-    for (const tab of workspace.tabs) {
-      byPane.set(tab.pane_id, { id, label });
+    for (const tabId of workspace.tabs) {
+      byTab.set(tabId, { id, label });
     }
   }
-  return byPane;
+  return byTab;
 }
 
 function candidateKey(candidate: WorkspaceCandidate): string {
@@ -43,18 +43,18 @@ function laneWorkspace(lane?: TaskLaneMetadata): WorkspaceCandidate | null {
   return label ? { id, label } : null;
 }
 
-function taskWorkspace(task: Task, byPane: Map<string, WorkspaceCandidate>): WorkspaceCandidate | null {
+function taskWorkspace(task: Task, byTab: Map<string, WorkspaceCandidate>): WorkspaceCandidate | null {
   const lane = laneWorkspace(task.lane);
   if (lane) return lane;
-  const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
-  return paneId ? byPane.get(paneId) ?? null : null;
+  const tabId = clean(task.assigned_tab_id) ?? clean(task.lane?.tab_id);
+  return tabId ? byTab.get(tabId) ?? null : null;
 }
 
 function ownerWorkspaceFromLane(plan: Plan): WorkspaceCandidate | null {
-  const ownerPaneId = clean(plan.owner.pane_id);
-  if (!ownerPaneId) return null;
+  const ownerTabId = clean(plan.owner.tab_id);
+  if (!ownerTabId) return null;
   for (const task of plan.tasks) {
-    if (clean(task.lane?.pane_id) !== ownerPaneId) continue;
+    if (clean(task.lane?.tab_id) !== ownerTabId) continue;
     const lane = laneWorkspace(task.lane);
     if (lane) return lane;
   }
@@ -62,13 +62,13 @@ function ownerWorkspaceFromLane(plan: Plan): WorkspaceCandidate | null {
 }
 
 export function derivePlanWorkspaceScope(plan: Plan, workspaces: readonly Workspace[] = []): PlanWorkspaceScope {
-  const byPane = workspaceByPane(workspaces);
-  const ownerPaneId = clean(plan.owner.pane_id);
-  const ownerWorkspace = ownerPaneId ? byPane.get(ownerPaneId) ?? ownerWorkspaceFromLane(plan) : null;
+  const byTab = workspaceByTab(workspaces);
+  const ownerTabId = clean(plan.owner.tab_id);
+  const ownerWorkspace = ownerTabId ? byTab.get(ownerTabId) ?? ownerWorkspaceFromLane(plan) : null;
   const participants = new Map<string, WorkspaceCandidate>();
   if (ownerWorkspace) participants.set(candidateKey(ownerWorkspace), ownerWorkspace);
   for (const task of plan.tasks) {
-    const workspace = taskWorkspace(task, byPane);
+    const workspace = taskWorkspace(task, byTab);
     if (workspace) participants.set(candidateKey(workspace), workspace);
   }
   return {

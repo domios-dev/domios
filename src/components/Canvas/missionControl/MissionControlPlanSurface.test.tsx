@@ -70,7 +70,7 @@ const GROUPS: TaskGroup[] = [
 // FIXTURE_PLAN owner is orch-1 → bind it to the current workspace for scoping.
 const WS_ID = "ws-test";
 const WORKSPACES: Workspace[] = [
-  { id: WS_ID, name: "Test", tabs: [{ id: "tab-orch", pane_id: "orch-1" }], active_tab_id: null, cwd: null },
+  { id: WS_ID, name: "Test", tabs: ["orch-1"], active_tab_id: null, cwd: null },
 ];
 
 function mkTask(id: string, status: TaskStatus, group: string): Task {

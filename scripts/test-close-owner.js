@@ -10,18 +10,18 @@ function bodyOfConst(name) {
   return source.slice(start, end < 0 ? source.length : end);
 }
 
-for (const name of ["closePane", "closeWorkspace"]) {
+for (const name of ["closeTab", "closeWorkspace"]) {
   const body = bodyOfConst(name);
   if (body.includes('"kill_pty"') || body.includes("'kill_pty'")) {
     throw new Error(`${name} must not preflight kill_pty before backend close`);
   }
 }
 
-const closePane = bodyOfConst("closePane");
+const closeTab = bodyOfConst("closeTab");
 const closeWorkspace = bodyOfConst("closeWorkspace");
 
-if ((closePane.match(/mux_close_pane/g) || []).length !== 1) {
-  throw new Error("closePane must have exactly one backend pane close owner");
+if ((closeTab.match(/mux_close_tab/g) || []).length !== 1) {
+  throw new Error("closeTab must have exactly one backend tab close owner");
 }
 
 if ((closeWorkspace.match(/mux_close_workspace/g) || []).length !== 1) {

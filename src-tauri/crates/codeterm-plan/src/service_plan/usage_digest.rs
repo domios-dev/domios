@@ -31,7 +31,7 @@ pub fn usage_digest_lines(
         );
         if row.high_pressure(HIGH_PCT_THRESHOLD) {
             high_count += 1;
-        } else if row.primary_pct().is_some() {
+        } else if row.pressure_pct().is_some() {
             lower_usage_count += 1;
         }
         lines.push(line);
@@ -47,16 +47,21 @@ pub struct UsageDigestRow {
 
 impl UsageDigestRow {
     pub fn high_pressure(&self, threshold: f32) -> bool {
-        self.primary_pct().is_some_and(|pct| pct >= threshold)
+        self.pressure_pct().is_some_and(|pct| pct >= threshold)
     }
 
-    fn primary_pct(&self) -> Option<f32> {
-        self.row.as_ref().and_then(primary_pct)
+    fn pressure_pct(&self) -> Option<f32> {
+        self.row.as_ref().and_then(pressure_pct)
     }
 }
 
-fn primary_pct(row: &UsageSnapshotRow) -> Option<f32> {
-    row.weekly_pct.or(row.session_pct)
+fn pressure_pct(row: &UsageSnapshotRow) -> Option<f32> {
+    match (row.session_pct, row.weekly_pct) {
+        (Some(session), Some(weekly)) => Some(session.max(weekly)),
+        (Some(session), None) => Some(session),
+        (None, Some(weekly)) => Some(weekly),
+        (None, None) => None,
+    }
 }
 
 fn render_usage_line(
@@ -75,22 +80,28 @@ fn render_usage_line(
     } else {
         String::new()
     };
-    if let Some(pct) = primary_pct(snapshot) {
-        let window = if snapshot.weekly_pct.is_some() {
-            "weekly"
+    let mut windows = Vec::new();
+    if let Some(pct) = snapshot.session_pct {
+        windows.push(render_limit_window(
+            pct,
+            "session",
+            snapshot.session_resets_at,
+        ));
+    }
+    if let Some(pct) = snapshot.weekly_pct {
+        windows.push(render_limit_window(
+            pct,
+            "weekly",
+            snapshot.weekly_resets_at,
+        ));
+    }
+    if !windows.is_empty() {
+        let flag = if pressure_pct(snapshot).is_some_and(|pct| pct >= threshold) {
+            " — REDUCE"
         } else {
-            "session"
+            ""
         };
-        let reset = snapshot
-            .weekly_resets_at
-            .or(snapshot.session_resets_at)
-            .map(|ts| format_reset_local(ts))
-            .unwrap_or_default();
-        let flag = if pct >= threshold { " — REDUCE" } else { "" };
-        return format!(
-            "{}: {:.0}% {window}{reset}{flag}{stale_tag}",
-            row.label, pct
-        );
+        return format!("{}: {}{flag}{stale_tag}", row.label, windows.join(", "));
     }
     if let (Some(spent), Some(limit)) = (snapshot.spend_cents, snapshot.spend_limit_cents) {
         let pct = if limit > 0.0 {
@@ -111,6 +122,11 @@ fn render_usage_line(
         );
     }
     format!("{}: unavailable{stale_tag}", row.label)
+}
+
+fn render_limit_window(pct: f32, window: &str, resets_at: Option<i64>) -> String {
+    let reset = resets_at.map(format_reset_local).unwrap_or_default();
+    format!("{pct:.0}% {window}{reset}")
 }
 
 fn format_reset_local(ts_ms: i64) -> String {
@@ -169,6 +185,57 @@ mod tests {
             raw_excerpt: None,
             debug_json: None,
         }
+    }
+
+    fn local_timestamp(hour: u32, minute: u32) -> i64 {
+        use chrono::TimeZone;
+        chrono::Local
+            .with_ymd_and_hms(2027, 1, 15, hour, minute, 0)
+            .single()
+            .expect("test local timestamp")
+            .timestamp_millis()
+    }
+
+    #[test]
+    fn renders_session_and_weekly_windows_when_both_are_available() {
+        let cfg = UsageConfig::default();
+        let now = 1_800_000_000_000_i64;
+        let mut snapshot = row("claude", 21.0, now);
+        snapshot.session_pct = Some(37.0);
+        snapshot.session_resets_at = Some(local_timestamp(7, 8));
+        snapshot.weekly_resets_at = Some(local_timestamp(9, 10));
+        let rows = vec![UsageDigestRow {
+            label: "Claude Code".into(),
+            row: Some(snapshot),
+        }];
+
+        let (lines, guidance) = usage_digest_lines(&cfg, now, &rows);
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            lines[0],
+            "Claude Code: 37% session (resets 07:08), 21% weekly (resets 09:10)"
+        );
+        assert!(guidance.is_none());
+    }
+
+    #[test]
+    fn missing_session_data_keeps_the_existing_weekly_only_wording() {
+        let cfg = UsageConfig::default();
+        let now = 1_800_000_000_000_i64;
+        let mut snapshot = row("codex", 7.0, now);
+        snapshot.session_resets_at = Some(local_timestamp(7, 8));
+        snapshot.weekly_resets_at = Some(local_timestamp(9, 10));
+        let rows = vec![UsageDigestRow {
+            label: "Codex".into(),
+            row: Some(snapshot),
+        }];
+
+        let (lines, guidance) = usage_digest_lines(&cfg, now, &rows);
+
+        assert_eq!(lines[0], "Codex: 7% weekly (resets 09:10)");
+        assert!(!lines[0].contains("session"));
+        assert!(guidance.is_none());
     }
 
     #[test]

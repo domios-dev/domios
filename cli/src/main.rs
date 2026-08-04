@@ -3,15 +3,16 @@ mod cmd;
 mod mesh_cli;
 mod stdout;
 
+use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
 use cmd::print::{handle_result, print_human, print_object};
 
 use clap::Parser;
-use client::{discover_socket, SocketClient};
+use client::{discover_socket, discover_socket_resolution, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
-pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    cmd::local_io::resolve_pane(client, id)
+pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
+    cmd::local_io::resolve_tab(client, id)
 }
 
 /// Determine the CodeTerm data directory.
@@ -19,7 +20,7 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 /// Detection priority:
 ///   1. CODETERM_SOCKET_PATH containing "codeterm-dev" (set by dev PTYs)
 ///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
-///      outside a dev pane, e.g. tests)
+///      outside a dev tab, e.g. tests)
 ///   3. Default: prod
 ///
 /// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
@@ -67,85 +68,18 @@ fn instance_suffix() -> String {
 /// absolute so a typo cannot silently route plugin operations into a relative
 /// workspace path.
 pub fn data_root() -> std::path::PathBuf {
-    if let Ok(root) = std::env::var("CODETERM_DATA_DIR") {
-        if !root.trim().is_empty() {
-            let path = std::path::PathBuf::from(root);
-            if path.is_absolute() {
-                return path;
-            }
-        }
-    }
-    dirs::home_dir().unwrap_or_default().join(data_dir_name())
+    resolved_data_root().value
 }
 
 /// Read API config (host, port, token).
 /// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
 /// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
 pub fn read_api_config() -> (String, Option<String>) {
-    let config_dir = data_root();
-    let config_path = config_dir.join("config.toml");
-
-    let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
-
-    if let Ok(content) = std::fs::read_to_string(&config_path) {
-        if let Ok(val) = content.parse::<toml::Table>() {
-            if let Some(api) = val.get("api").and_then(|v| v.as_table()) {
-                let raw_host = api
-                    .get("host")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("127.0.0.1");
-                host = if raw_host == "0.0.0.0" {
-                    "127.0.0.1".to_string()
-                } else {
-                    raw_host.to_string()
-                };
-                port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
-            }
-        }
-    }
-
-    if let Ok(env_port) = std::env::var("CODETERM_API_PORT") {
-        if let Ok(p) = env_port.parse::<i64>() {
-            port = p;
-        }
-    }
-
-    let config_token = || {
-        std::fs::read_to_string(&config_path)
-            .ok()
-            .and_then(|content| content.parse::<toml::Table>().ok())
-            .and_then(|val| {
-                val.get("api")?
-                    .as_table()?
-                    .get("token")?
-                    .as_str()
-                    .map(String::from)
-            })
-    };
-
-    let signed_token = read_mesh_signed_token();
-
-    let env_token = std::env::var("CODETERM_API_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty());
-
-    let targets_dev = std::env::var("CODETERM_INSTANCE")
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false)
-        || std::env::var("CODETERM_SOCKET_PATH")
-            .map(|sp| sp.contains("codeterm-dev"))
-            .unwrap_or(false)
-        || std::env::var("CODETERM_API_PORT")
-            .map(|p| !p.trim().is_empty() && p.trim() != "7685")
-            .unwrap_or(false);
-
-    let token = if targets_dev {
-        config_token().or(signed_token).or(env_token)
-    } else {
-        env_token.or(signed_token).or_else(config_token)
-    };
-
-    (format!("http://{}:{}", host, port), token)
+    let resolved = resolve_api_config();
+    (
+        format!("http://{}:{}", resolved.host, resolved.port),
+        resolved.token,
+    )
 }
 
 /// Produce a fresh Ed25519 signed token from this machine's mesh identity.
@@ -173,9 +107,9 @@ pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, r
             headers.insert(reqwest::header::AUTHORIZATION, val);
         }
     }
-    if let Ok(pane) = std::env::var("CODETERM_PANE_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&pane) {
-            headers.insert("X-CodeTerm-Pane-Id", v);
+    if let Ok(tab) = std::env::var("CODETERM_TAB_ID") {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&tab) {
+            headers.insert("X-CodeTerm-Tab-Id", v);
         }
     }
     if let Ok(worker) = std::env::var("CODETERM_WORKER_ID") {
@@ -201,7 +135,7 @@ pub use args::mem::{
     MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
     ThemeAction, WebAction, WorkspaceAction,
 };
 pub use args::plan::PlanAction;
@@ -215,17 +149,18 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
-/// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
+/// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > focused tab from server.
 ///
-/// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
-/// This ensures commands like `pane split` always target the caller's pane,
-/// not whatever pane the user happens to have focused.
+/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
+/// This ensures commands like `tab split` always target the caller's tab,
+/// not whatever tab the user happens to have focused.
 fn main() {
     stdout::run(main_impl);
 }
 
 fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
+    hydrate_tab_task_binding_env(&args);
     let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
             println!(
@@ -323,7 +258,13 @@ fn main_impl() {
                     .send()
                 {
                     Ok(resp) if resp.status().is_success() => {
-                        Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
+                        let applied: serde_json::Value = resp.json().unwrap_or_default();
+                        let mut out =
+                            serde_json::json!({"ok": true, "key": key, "value": json_value});
+                        if let Some(bind) = applied.get("api_bind") {
+                            out["api_bind"] = bind.clone();
+                        }
+                        Ok(out)
                     }
                     Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
                     Err(e) => Err(e.to_string()),
@@ -334,14 +275,27 @@ fn main_impl() {
             Ok(value) => {
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                } else if let Some(v) = value.get("value") {
-                    match v {
-                        serde_json::Value::String(s) => println!("{}", s),
-                        serde_json::Value::Null => println!("null"),
-                        other => println!("{}", other),
-                    }
                 } else {
-                    print_human(&value);
+                    if let Some(v) = value.get("value") {
+                        match v {
+                            serde_json::Value::String(s) => println!("{}", s),
+                            serde_json::Value::Null => println!("null"),
+                            other => println!("{}", other),
+                        }
+                    } else {
+                        print_human(&value);
+                    }
+                    // stdout stays the bare value for scripting; the divergence goes to stderr.
+                    if let Some(bind) = value.get("api_bind") {
+                        let live = bind.get("live").and_then(|v| v.as_str()).unwrap_or("?");
+                        let configured =
+                            bind.get("configured").and_then(|v| v.as_str()).unwrap_or("?");
+                        eprintln!(
+                            "warning: NOT applied to the running listener — it is still bound to {live}, \
+                             config stores {configured}. Restart CodeTerm to apply, and verify with \
+                             `lsof -nP -iTCP:<port> -sTCP:LISTEN`."
+                        );
+                    }
                 }
             }
             Err(e) => {
@@ -418,15 +372,15 @@ fn main_impl() {
         return;
     }
 
-    let socket_path = match discover_socket() {
-        Ok(p) => p,
+    let resolved_socket = match discover_socket_resolution() {
+        Ok(resolved) => resolved,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
     };
 
-    let mut client = match SocketClient::connect(&socket_path) {
+    let mut client = match SocketClient::connect(&resolved_socket.path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -435,7 +389,7 @@ fn main_impl() {
     };
 
     let result = match cli.command {
-        Commands::Identify => client.call("system.identify", None),
+        Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
         Commands::Capabilities => client.call("system.capabilities", None),
 
@@ -468,7 +422,7 @@ fn main_impl() {
         }
 
         Commands::Tab { action } => {
-            cmd::pane::handle_pane(&mut client, cli.json, action);
+            cmd::tab::handle_tab(&mut client, cli.json, action);
             return;
         }
 
@@ -483,7 +437,7 @@ fn main_impl() {
         }
 
         Commands::SendText {
-            pane,
+            tab,
             text,
             from_file,
             stdin,
@@ -494,7 +448,7 @@ fn main_impl() {
             cmd::local_io::handle_send_text(
                 &mut client,
                 cli.json,
-                pane,
+                tab,
                 text,
                 from_file,
                 stdin,
@@ -816,6 +770,59 @@ fn main_impl() {
     };
 
     handle_result(cli.json, result);
+}
+
+fn hydrate_tab_task_binding_env(args: &[String]) {
+    if args
+        .iter()
+        .any(|arg| arg == "--mesh" || arg.starts_with("--mesh="))
+        || !args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "agent" | "report" | "orchestrator" | "plan"))
+    {
+        return;
+    }
+    let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") else {
+        return;
+    };
+    if tab_id.trim().is_empty()
+        || (nonempty_env("CODETERM_PLAN_ID").is_some()
+            && nonempty_env("CODETERM_TASK_ID").is_some())
+    {
+        return;
+    }
+    let Ok(socket_path) = discover_socket() else {
+        return;
+    };
+    let Ok(mut client) = SocketClient::connect(&socket_path) else {
+        return;
+    };
+    let Ok(response) = client.call(
+        "plan.binding.resolve",
+        Some(serde_json::json!({"tab_id": tab_id})),
+    ) else {
+        return;
+    };
+    let Some(binding) = response.get("binding").and_then(|value| value.as_object()) else {
+        return;
+    };
+    if nonempty_env("CODETERM_PLAN_ID").is_none() {
+        if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
+            std::env::set_var("CODETERM_PLAN_ID", plan_id);
+        }
+    }
+    if nonempty_env("CODETERM_TASK_ID").is_none() {
+        if let Some(task_id) = binding.get("task_id").and_then(|value| value.as_str()) {
+            std::env::set_var("CODETERM_TASK_ID", task_id);
+        }
+    }
+}
+
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn normalize_agent_spawn_label_args(args: Vec<String>) -> Vec<String> {

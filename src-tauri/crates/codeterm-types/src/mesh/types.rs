@@ -1,6 +1,7 @@
 //! Mesh networking types — peer discovery, pairing, and communication.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
@@ -149,6 +150,22 @@ pub fn should_proactive_sync(
 
 // ── Live address announce ───────────────────────────────────────────
 
+pub const RELAY_PROTOCOL_VERSION: u16 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "transport", rename_all = "snake_case")]
+pub enum WebUiEndpoint {
+    TailscaleHttps { host: String, port: u16 },
+    TailscaleHttp { ip: IpAddr, port: u16 },
+    LanHttp { ip: IpAddr, port: u16 },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WebUiAnnouncement {
+    pub protocol_version: u16,
+    pub endpoints: Vec<WebUiEndpoint>,
+}
+
 /// Sent by a peer to tell us its current addresses changed (network swap,
 /// new Tailscale lease, etc.). Receiver replaces the cached list for the
 /// sender's instance_id wholesale — stale entries must die.
@@ -160,11 +177,10 @@ pub struct PeerAnnounce {
     pub api_port: u16,
     #[serde(default = "default_true")]
     pub online: bool,
-    /// `https://<host>.<tailnet>.ts.net` when the sender fronts its API with
-    /// tailscale serve — lets https-origin browsers target it without
-    /// mixed-content blocking.
     #[serde(default)]
-    pub https_url: Option<String>,
+    pub web_ui: Option<WebUiAnnouncement>,
+    #[serde(default)]
+    pub relay_protocol_version: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,9 +226,10 @@ pub struct PairedPeer {
     #[serde(default)]
     pub access_level: AccessLevel,
     pub version: Option<String>,
-    /// Peer's tailscale-serve HTTPS front, learned from its announces.
     #[serde(default)]
-    pub https_url: Option<String>,
+    pub web_ui: Option<WebUiAnnouncement>,
+    #[serde(default)]
+    pub relay_protocol_version: u16,
     /// Runtime-only miss counter; not persisted to disk or sent over API.
     #[serde(skip)]
     pub consecutive_misses: u8,
@@ -241,8 +258,8 @@ impl Default for AccessLevel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
-    ReadPanes,
-    WritePanes,
+    ReadTabs,
+    WriteTabs,
     SpawnAgents,
     ManageWorkspaces,
     ReadOutput,
@@ -350,7 +367,7 @@ pub struct RelayCommand {
     /// API method: GET, POST, PUT, DELETE, PATCH.
     #[serde(default = "default_method")]
     pub method: String,
-    /// API path (e.g. "/api/panes", "/api/agents/spawn").
+    /// API path (e.g. "/api/tabs", "/api/agents/spawn").
     pub path: String,
     /// Request body (for POST/PUT/PATCH).
     #[serde(default)]
@@ -424,6 +441,7 @@ pub struct MeshPeersResponse {
     pub paired: Vec<PairedPeer>,
     pub discovered: Vec<DiscoveredPeer>,
     pub incoming_requests: Vec<PairingRequest>,
+    pub local_instance_name: String,
     #[serde(default)]
     pub local_last_active_ms: Option<u64>,
     #[serde(default)]

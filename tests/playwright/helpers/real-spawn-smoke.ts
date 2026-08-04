@@ -1,7 +1,7 @@
 // Real-launch contract: add every command/template type to this matrix and a
 // @live smoke that calls `assertRealTemplateSpawn` against a real provider.
-// @live pane UI assertions must activate the owning workspace+tab first; pane
-// focus alone is intra-tab state and does not mount a hidden tab's pane.
+// @live tab UI assertions must activate the owning workspace+tab first; tab
+// focus alone is intra-tab state and does not mount a hidden tab's tab.
 // Without credentials, run only that title against an already-owned non-stub
 // instance with `--timeout=30000 --global-timeout=600000 --trace=on`.
 import { expect, type Locator, type Page } from "@playwright/test";
@@ -15,12 +15,12 @@ export const REAL_SPAWN_TEMPLATE_TYPES = [
 export type RealSpawnTemplateType = (typeof REAL_SPAWN_TEMPLATE_TYPES)[number];
 
 export type RealSpawnSurface = {
-  paneId: string;
+  tabId: string;
   provider: string;
   label: string;
 };
 
-type PaneStatus = {
+type TabStatus = {
   agent_session_id?: string | null;
   agent_type?: string | null;
   status?: string | null;
@@ -32,7 +32,7 @@ type MuxState = {
     active_tab_id?: string | null;
     tabs?: Array<{
       id: string;
-      pane_id: string;
+      tab_id: string;
     }>;
   }>;
 };
@@ -42,27 +42,27 @@ export type MaterializedRealSpawn = RealSpawnSurface & {
 };
 
 const STARTUP_STATE_TIMEOUT_MS = 30_000;
-const PANE_MOUNT_TIMEOUT_MS = 5_000;
+const TAB_MOUNT_TIMEOUT_MS = 5_000;
 
-function paneText(api: ApiClient, paneId: string): Promise<string> {
+function tabText(api: ApiClient, tabId: string): Promise<string> {
   return api
-    .get<{ text?: string } | string>(`/panes/${paneId}/text`)
+    .get<{ text?: string } | string>(`/tabs/${tabId}/text`)
     .then((text) =>
       typeof text === "string" ? text : (text.text ?? JSON.stringify(text)),
     )
     .catch(() => "");
 }
 
-async function paneTabRef(
+async function tabTabRef(
   api: ApiClient,
-  paneId: string,
+  tabId: string,
 ): Promise<{ workspaceId: string; tabId: string }> {
   const mux = await api.get<MuxState>("/mux/state");
   for (const workspace of mux.workspaces ?? []) {
-    const tab = workspace.tabs?.find((candidate) => candidate.pane_id === paneId);
+    const tab = workspace.tabs?.find((candidate) => candidate.tab_id === tabId);
     if (tab) return { workspaceId: workspace.id, tabId: tab.id };
   }
-  throw new Error(`pane ${paneId} has no owning workspace tab in mux state`);
+  throw new Error(`tab ${tabId} has no owning workspace tab in mux state`);
 }
 
 function isBareShellPrompt(text: string): boolean {
@@ -76,15 +76,15 @@ async function assertProviderProcess(
   api: ApiClient,
   surface: RealSpawnSurface,
 ): Promise<MaterializedRealSpawn> {
-  const pane = (await api.panes()).find(
-    (candidate) => candidate.id === surface.paneId,
+  const tab = (await api.tabs()).find(
+    (candidate) => candidate.id === surface.tabId,
   );
-  expect(pane?.pty_id, `${surface.label} owns a live PTY`).toBeTruthy();
-  expect(pane?.agent_type, `${surface.label} uses the requested provider`).toBe(
+  expect(tab?.pty_id, `${surface.label} owns a live PTY`).toBeTruthy();
+  expect(tab?.agent_type, `${surface.label} uses the requested provider`).toBe(
     surface.provider,
   );
 
-  const status = await api.get<PaneStatus>(`/panes/${surface.paneId}/status`);
+  const status = await api.get<TabStatus>(`/tabs/${surface.tabId}/status`);
   expect(status.status, `${surface.label} provider process stays live`).not.toBe(
     "Dead",
   );
@@ -100,11 +100,11 @@ export async function activateRealSpawnChat(
   page: Page,
   surface: RealSpawnSurface,
 ): Promise<Locator> {
-  const tabRef = await paneTabRef(api, surface.paneId);
-  await api.post(`/panes/${surface.paneId}/chat-view`, { enabled: true });
+  const tabRef = await tabTabRef(api, surface.tabId);
+  await api.post(`/tabs/${surface.tabId}/chat-view`, { enabled: true });
   await api.focusWorkspace(tabRef.workspaceId);
   await api.post(`/workspaces/${tabRef.workspaceId}/tabs/${tabRef.tabId}/focus`);
-  await api.focusPane(surface.paneId);
+  await api.focusTab(surface.tabId);
 
   const tab = page
     .locator(`[data-testid="tab-item"][data-tab-id="${tabRef.tabId}"]`)
@@ -114,19 +114,19 @@ export async function activateRealSpawnChat(
     tab,
     `${surface.label} owning tab is selectable`,
   ).toBeVisible({
-    timeout: PANE_MOUNT_TIMEOUT_MS,
+    timeout: TAB_MOUNT_TIMEOUT_MS,
   });
   await tab.click();
 
   const chat = page.locator(
-    `[data-testid="pane-session-chat"][data-pane-id="${surface.paneId}"]`,
+    `[data-testid="tab-session-chat"][data-tab-id="${surface.tabId}"]`,
   );
   const messages = chat.getByRole("article", { name: "assistant message" });
   await expect(
     chat,
-    `${surface.label} pane-session-chat mounts after owning tab activation`,
+    `${surface.label} tab-session-chat mounts after owning tab activation`,
   ).toBeVisible({
-    timeout: PANE_MOUNT_TIMEOUT_MS,
+    timeout: TAB_MOUNT_TIMEOUT_MS,
   });
   await expect(
     messages.first(),
@@ -142,13 +142,13 @@ export async function expectRealSpawnIdle(
   page: Page,
   surface: RealSpawnSurface,
 ): Promise<void> {
-  const tabRef = await paneTabRef(api, surface.paneId);
+  const tabRef = await tabTabRef(api, surface.tabId);
   const tab = page.locator(
     `[data-testid="tab-item"][data-tab-id="${tabRef.tabId}"]`,
   );
   const status = tab.getByRole("status");
-  const initial = await api.get<PaneStatus>(
-    `/panes/${surface.paneId}/status`,
+  const initial = await api.get<TabStatus>(
+    `/tabs/${surface.tabId}/status`,
   );
   const mustObserveBusy = initial.status !== "Idle";
 
@@ -173,7 +173,7 @@ export async function expectRealSpawnIdle(
     });
   }, mustObserveBusy);
 
-  const snapshot = await api.get<PaneStatus>(`/panes/${surface.paneId}/status`);
+  const snapshot = await api.get<TabStatus>(`/tabs/${surface.tabId}/status`);
   expect(snapshot.status, `${surface.label} is Idle after the UI transition`).toBe(
     "Idle",
   );
@@ -195,7 +195,7 @@ export async function expectFreshAssistantReply(
   });
   const baseline = await assistantMessages.count();
 
-  await api.post(`/panes/${surface.paneId}/send`, {
+  await api.post(`/tabs/${surface.tabId}/send`, {
     text: request,
     enter: true,
   });
@@ -214,7 +214,7 @@ async function assertNotBareShell(
   api: ApiClient,
   surface: MaterializedRealSpawn,
 ): Promise<void> {
-  const text = await paneText(api, surface.paneId);
+  const text = await tabText(api, surface.tabId);
   expect(
     text,
     `${surface.label} must not use the replay transport`,
@@ -234,11 +234,11 @@ export async function assertRealTemplateSpawn(
 ): Promise<MaterializedRealSpawn[]> {
   expect(
     surfaces,
-    `${template} must return at least one pane id`,
+    `${template} must return at least one tab id`,
   ).not.toHaveLength(0);
   expect(
-    new Set(surfaces.map((surface) => surface.paneId)).size,
-    `${template} returned duplicate pane ids`,
+    new Set(surfaces.map((surface) => surface.tabId)).size,
+    `${template} returned duplicate tab ids`,
   ).toBe(surfaces.length);
 
   const materialized: MaterializedRealSpawn[] = [];

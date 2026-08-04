@@ -40,7 +40,7 @@ codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspa
 → Spawn as **Worker** under yourself (you must be the Orchestrator).
 
 ```bash
-codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID \
+codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_TAB_ID \
   --task "Run `codeterm mem get <role_skill_id>` first. Then: TASK: list .rs files in src-tauri/src/service/. Do not spawn. Run: codeterm agent report 'found N files: ...'"
 ```
 

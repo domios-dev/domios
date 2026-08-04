@@ -24,7 +24,7 @@ for (const [name, value] of Object.entries({
 const workspace = (id: string, name: string, tabs = 0): Workspace => ({
   id,
   name,
-  tabs: Array.from({ length: tabs }, (_, index) => ({ id: `tab-${index}`, pane_id: `pane-${index}`, title: `Tab ${index}` } as never)),
+  tabs: Array.from({ length: tabs }, (_, index) => ({ id: `tab-${index}`, tab_id: `tab-${index}`, title: `Tab ${index}` } as never)),
   active_tab_id: null,
   cwd: null,
 });
@@ -87,7 +87,17 @@ async function run() {
   );
   const workingIndicator = host.querySelector('[role="status"][aria-label="team_smoke has working tabs"]');
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
-  assert.equal(workingIndicator.children.length, 3, "working workspace uses a three-dot activity indicator");
+  const workingDots = workingIndicator.querySelector('.activity-dots');
+  assert(workingDots?.classList.contains("activity-dots--micro"), "working workspace uses micro activity dots");
+  assert(
+    workingDots?.classList.contains("activity-dots--on-accent"),
+    "working workspace uses the filled-surface contrast tone",
+  );
+  assert.equal(
+    workingIndicator.querySelector('[aria-hidden="true"]')?.children.length,
+    1,
+    "working workspace uses the compact single-dot activity indicator",
+  );
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
   await act(async () => (host.querySelector('[aria-label="Select workspace team_smoke"]') as HTMLButtonElement).click());

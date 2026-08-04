@@ -142,6 +142,12 @@ impl AgentProvider for DiscoverModelsNativeStub {
         crate::provider::TaskDelivery::PtyInput
     }
 
+    fn provider_readiness_strategy(&self) -> crate::provider::ProviderReadinessStrategy {
+        crate::provider::ProviderReadinessStrategy::StructuralComposer {
+            timeout: std::time::Duration::from_secs(17),
+        }
+    }
+
     fn detect_from_title(&self, _: &str) -> bool {
         false
     }
@@ -258,9 +264,40 @@ async fn discover_models_native_js_parity() {
     assert_eq!(js.discover_models().await, native.discover_models().await);
 }
 
-fn classify_pane_state_snapshot() -> crate::pane_state::PaneStateSnapshot {
-    crate::pane_state::PaneStateSnapshot {
-        pane_id: "pane-1".into(),
+#[test]
+fn provider_readiness_native_js_parity() {
+    use std::sync::Arc;
+
+    let native = DiscoverModelsNativeStub;
+    let manifest_json = r#"{
+        "id": "provider-readiness-fixture",
+        "version": "0.1.0",
+        "displayName": "Provider readiness fixture",
+        "spawn": {
+            "readinessStrategy": {"kind": "poll_shell_prompt", "timeoutSecs": 30},
+            "taskDelivery": "pty_input",
+            "providerReadiness": {"kind": "structural_composer", "timeoutSecs": 17},
+            "verifySubmit": {"kind": "none"}
+        }
+    }"#;
+    let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(
+        "provider-readiness-fixture",
+        "module.exports.default = {};".into(),
+        Some(manifest_json.into()),
+    )
+    .unwrap();
+    let js = JsProvider::new(manifest, Arc::new(vm));
+
+    assert_eq!(
+        js.provider_readiness_strategy(),
+        native.provider_readiness_strategy()
+    );
+}
+
+fn classify_tab_state_snapshot() -> crate::tab_state::TabStateSnapshot {
+    crate::tab_state::TabStateSnapshot {
+        tab_id: "tab-1".into(),
         agent_type: "classify-fixture".into(),
         session_id: None,
         cwd: None,
@@ -268,13 +305,13 @@ fn classify_pane_state_snapshot() -> crate::pane_state::PaneStateSnapshot {
     }
 }
 
-fn classify_pane_state_fixture() -> crate::pane_state::PaneStateClassification {
-    use crate::pane_state::*;
-    PaneStateClassification {
-        state: PaneState::UpdatePrompt,
+fn classify_tab_state_fixture() -> crate::tab_state::TabStateClassification {
+    use crate::tab_state::*;
+    TabStateClassification {
+        state: TabState::UpdatePrompt,
         confidence: 1.0,
         data: None,
-        action: Some(PaneStateAction {
+        action: Some(TabStateAction {
             keys: Some(vec!["down".into(), "enter".into()]),
             delayed_resume: None,
             surface: None,
@@ -323,22 +360,22 @@ impl AgentProvider for ClassifyNativeStub {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
-    fn classify_pane_state(
+    fn classify_tab_state(
         &self,
-        _: &crate::pane_state::PaneStateSnapshot,
-    ) -> Option<crate::pane_state::PaneStateClassification> {
-        Some(classify_pane_state_fixture())
+        _: &crate::tab_state::TabStateSnapshot,
+    ) -> Option<crate::tab_state::TabStateClassification> {
+        Some(classify_tab_state_fixture())
     }
 }
 
 #[test]
-fn classify_pane_state_native_js_parity() {
+fn classify_tab_state_native_js_parity() {
     let native = ClassifyNativeStub;
     let js = load_inline_js(
         "classify-fixture",
         r#"
             module.exports.default = {
-                classifyPaneState(snapshot) {
+                classifyTabState(snapshot) {
                     return {
                         state: 'update_prompt',
                         confidence: 1.0,
@@ -348,28 +385,28 @@ fn classify_pane_state_native_js_parity() {
             };
         "#,
     );
-    let snap = classify_pane_state_snapshot();
+    let snap = classify_tab_state_snapshot();
     assert_eq!(
-        native.classify_pane_state(&snap),
-        Some(classify_pane_state_fixture())
+        native.classify_tab_state(&snap),
+        Some(classify_tab_state_fixture())
     );
     assert_eq!(
-        js.classify_pane_state(&snap),
-        native.classify_pane_state(&snap)
+        js.classify_tab_state(&snap),
+        native.classify_tab_state(&snap)
     );
 }
 
 #[test]
-fn classify_pane_state_unimplemented_matches_native_default_none() {
+fn classify_tab_state_unimplemented_matches_native_default_none() {
     // returns the SAME default (None) as the native trait default.
-    let native_default = DiscoverModelsNativeStub; // does not override classify_pane_state
+    let native_default = DiscoverModelsNativeStub; // does not override classify_tab_state
     let js = load_inline_js(
         "classify-none-fixture",
         r#"module.exports.default = { detectFromTitle() { return false; } };"#,
     );
-    let snap = classify_pane_state_snapshot();
-    assert_eq!(native_default.classify_pane_state(&snap), None);
-    assert_eq!(js.classify_pane_state(&snap), None);
+    let snap = classify_tab_state_snapshot();
+    assert_eq!(native_default.classify_tab_state(&snap), None);
+    assert_eq!(js.classify_tab_state(&snap), None);
 }
 
 #[test]
@@ -419,6 +456,7 @@ Prose after."#;
 
 // Claude parity.
 
+mod classifier;
 mod claude;
 
 // Loader behaviour.
@@ -502,6 +540,10 @@ fn launch_adapter_matrix_uses_each_installed_descriptor() {
             "{} launch command",
             descriptor.id
         );
+        let task_delivered_by_pty = matches!(
+            provider.task_delivery(),
+            crate::provider::TaskDelivery::PtyInput
+        );
         match provider.task_delivery() {
             crate::provider::TaskDelivery::InlineFlag => {}
             crate::provider::TaskDelivery::PtyInput => {
@@ -513,13 +555,14 @@ fn launch_adapter_matrix_uses_each_installed_descriptor() {
             }
         }
         match provider.system_prompt_delivery() {
-            crate::provider::SystemPromptDelivery::External => {
+            crate::provider::SystemPromptDelivery::External if task_delivered_by_pty => {
                 assert!(
                     !command.contains(task),
                     "{} external delivery must reserve confirmed fallback",
                     descriptor.id
                 );
             }
+            crate::provider::SystemPromptDelivery::External => {}
             crate::provider::SystemPromptDelivery::CliFlag(mechanism) => {
                 let marker = mechanism
                     .split_whitespace()
@@ -687,6 +730,62 @@ fn reasoning_effort_capability_is_declared_and_gated() {
         claude.validate_reasoning_effort(Some("high")).is_err(),
         "no-capability provider must reject an explicit effort, not silently ignore it"
     );
+}
+
+#[test]
+fn model_catalog_override_applies_reasoning_efforts() {
+    use std::sync::Arc;
+
+    let id = "model-catalog-effort-override-fixture";
+    let manifest_json = format!(
+        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
+                "models":[{{"id":"fixture-model","displayName":"Fixture Model"}}],
+                "reasoningEfforts":[
+                    {{"id":"low","displayName":"Low"}},
+                    {{"id":"medium","displayName":"Medium"}},
+                    {{"id":"high","displayName":"High"}}
+                ],
+                "defaultReasoningEffort":"medium",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
+    );
+    let manifest: super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(
+        id,
+        "module.exports.default = {};".to_string(),
+        Some(manifest_json),
+    )
+    .expect("fixture vm");
+    let override_path = crate::model_catalog::models_dir().join(format!("{id}.toml"));
+    std::fs::write(
+        &override_path,
+        r#"[[models]]
+id = "fixture-model"
+display_name = "Fixture Model"
+
+[[efforts]]
+id = "xhigh"
+display_name = "Extra high"
+description = "Maximum reasoning depth."
+"#,
+    )
+    .unwrap();
+
+    let provider = JsProvider::new(manifest, Arc::new(vm));
+    let _ = provider.available_models();
+    let efforts: Vec<String> = provider
+        .reasoning_efforts()
+        .into_iter()
+        .map(|effort| effort.id)
+        .collect();
+    let validation = provider.validate_reasoning_effort(Some("xhigh"));
+
+    let _ = std::fs::remove_file(&override_path);
+    assert!(
+        efforts.iter().any(|effort| effort == "xhigh"),
+        "model-catalog override discarded [[efforts]]; resolved efforts: {efforts:?}"
+    );
+    assert!(validation.is_ok());
 }
 
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)

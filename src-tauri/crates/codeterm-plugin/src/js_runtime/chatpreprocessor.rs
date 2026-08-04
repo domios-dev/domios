@@ -63,7 +63,7 @@ mod tests {
 
     fn ctx() -> PreprocessCtx {
         PreprocessCtx {
-            pane_id: "p1".into(),
+            tab_id: "p1".into(),
             ..Default::default()
         }
     }
@@ -75,7 +75,7 @@ mod tests {
         let vm = vm_with(
             r#"module.exports.default = {
                 match: "text",
-                chatPreprocess(ctx) { return { text: ctx.text + " [" + ctx.paneId + "]" }; }
+                chatPreprocess(ctx) { return { text: ctx.text + " [" + ctx.tabId + "]" }; }
             }"#,
         );
         let p = JsChatPreprocessor::new(vm, "pre");
@@ -87,13 +87,13 @@ mod tests {
         let vm = vm_with(
             r#"module.exports.default = {
                 chatPreprocess(ctx) {
-                    return { text: [ctx.provider, ctx.cwd, ctx.turnIndex, ctx.paneId, ctx.text].join("|") };
+                    return { text: [ctx.provider, ctx.cwd, ctx.turnIndex, ctx.tabId, ctx.text].join("|") };
                 }
             }"#,
         );
         let p = JsChatPreprocessor::new(vm, "pre");
         let ctx = PreprocessCtx {
-            pane_id: "p1".into(),
+            tab_id: "p1".into(),
             cwd: Some("/work/repo".into()),
             provider: Some("claude".into()),
             turn_index: 7,

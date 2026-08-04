@@ -10,10 +10,45 @@ impl ServiceContext {
         wake: &CronWake,
         params: CronCreateParams,
     ) -> Result<CronJob, String> {
+        self.validate_cron_ownership(&params)?;
         let job = cron.lock().create(params)?;
         wake.notify_all();
         self.emit_cron_changed();
         Ok(job)
+    }
+
+    fn validate_cron_ownership(&self, params: &CronCreateParams) -> Result<(), String> {
+        let mux = self.mux.read();
+        if let Some(target_tab_id) = params.report_target_tab_id.as_deref() {
+            mux.get_tab(target_tab_id)
+                .ok_or_else(|| format!("Cron report target Tab {target_tab_id} not found"))?;
+        }
+        match (params.team_id.as_deref(), params.creator_tab_id.as_deref()) {
+            (None, _) => Ok(()),
+            (Some(team_id), Some(creator_tab_id)) => {
+                let creator = mux
+                    .get_tab(creator_tab_id)
+                    .ok_or_else(|| format!("Cron creator Tab {creator_tab_id} not found"))?;
+                if creator.team_id.as_deref() != Some(team_id) {
+                    return Err(format!(
+                        "Cron creator Tab {creator_tab_id} does not belong to Team {team_id}"
+                    ));
+                }
+                let team = mux
+                    .get_team(team_id)
+                    .ok_or_else(|| format!("Team {team_id} not found"))?;
+                if team.workspace_id != params.workspace_id {
+                    return Err(format!(
+                        "Team {team_id} belongs to workspace {}, not {}",
+                        team.workspace_id, params.workspace_id
+                    ));
+                }
+                Ok(())
+            }
+            (Some(team_id), None) => Err(format!(
+                "Team cron {team_id} requires creator_tab_id from a live Team member"
+            )),
+        }
     }
 
     pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
@@ -46,17 +81,17 @@ impl ServiceContext {
 
     pub fn cron_delete(&self, cron: &CronState, wake: &CronWake, id: &str) -> Result<(), String> {
         let mut store = cron.lock();
-        let owned_panes: Vec<String> = store.pane_owners_for_job(id);
-        let history_panes: Vec<String> = store
+        let owned_tabs: Vec<String> = store.tab_owners_for_job(id);
+        let history_tabs: Vec<String> = store
             .get_history(id)
             .iter()
-            .filter_map(|r| r.pane_id.clone())
+            .filter_map(|r| r.tab_id.clone())
             .collect();
-        let all_panes: std::collections::HashSet<String> =
-            owned_panes.into_iter().chain(history_panes).collect();
-        for pane_id in &all_panes {
-            store.unregister_pane(pane_id);
-            let _ = self.close_pane(pane_id);
+        let all_tabs: std::collections::HashSet<String> =
+            owned_tabs.into_iter().chain(history_tabs).collect();
+        for tab_id in &all_tabs {
+            store.unregister_tab(tab_id);
+            let _ = self.close_tab(tab_id);
         }
 
         let logs_dir = store.logs_dir().join(id);
@@ -76,9 +111,9 @@ impl ServiceContext {
                 if store.get(id).is_none() {
                     return Err(format!("Cron job not found: {}", id));
                 }
-                let panes = store.pane_owners_for_job(id);
-                for pane_id in &panes {
-                    store.unregister_pane(pane_id);
+                let tabs = store.tab_owners_for_job(id);
+                for tab_id in &tabs {
+                    store.unregister_tab(tab_id);
                 }
                 if let Some(history) = store.get_history_mut(id) {
                     let now_ms = std::time::SystemTime::now()
@@ -101,12 +136,12 @@ impl ServiceContext {
                     }
                 }
                 let _ = store.save();
-                panes
+                tabs
             };
 
         let count = to_close.len();
-        for pane_id in &to_close {
-            let _ = self.close_pane(pane_id);
+        for tab_id in &to_close {
+            let _ = self.close_tab(tab_id);
         }
         self.emit_cron_changed();
         Ok(count)
@@ -126,7 +161,7 @@ impl ServiceContext {
     }
 
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
-        use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+        use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 
         let (
             agent,
@@ -136,7 +171,9 @@ impl ServiceContext {
             role,
             skill,
             workspace_id,
-            creator_pane_id,
+            team_id,
+            creator_tab_id,
+            report_target_tab_id,
             job_name,
             job_timeout,
         ) = {
@@ -155,7 +192,9 @@ impl ServiceContext {
                 job.role.clone(),
                 job.skill.clone(),
                 job.workspace_id.clone(),
-                job.creator_pane_id.clone(),
+                job.team_id.clone(),
+                job.creator_tab_id.clone(),
+                job.report_target_tab_id.clone(),
                 job.name.clone(),
                 job.timeout_seconds,
             )
@@ -172,7 +211,6 @@ impl ServiceContext {
             started_at: now,
             finished_at: None,
             status: CronRunStatus::Running,
-            pane_id: None,
             tab_id: None,
             session_id: None,
             cwd: None,
@@ -182,7 +220,7 @@ impl ServiceContext {
         let task_text = crate::cron::task_text::build_cron_task_text(
             &task,
             skill_block.as_deref(),
-            creator_pane_id.as_deref(),
+            report_target_tab_id.as_deref(),
             &run_id,
         );
 
@@ -197,38 +235,41 @@ impl ServiceContext {
             (!resolved.is_empty()).then_some(resolved)
         });
 
-        let spec = SpawnPaneSpec {
+        let spec = SpawnTabSpec {
             workspace_id: if workspace_id.is_empty() {
                 None
             } else {
                 Some(workspace_id)
             },
-            parent_pane_id: None,
+            parent_tab_id: None,
+            team_id,
+            creator_tab_id,
             cwd,
             title: Some(format!("cron:{}", job_name)),
             description: None,
-            visibility: PaneVisibility::Hidden,
+            visibility: TabVisibility::Hidden,
+            audience: Default::default(),
             eager: false,
-            command: PaneCommand::Agent(AgentSpawnSpec {
+            command: TabCommand::Agent(AgentSpawnSpec {
                 provider: agent,
                 planned_model: None,
                 model,
                 task: Some(task_text),
                 role,
                 auto_approve: true,
-                report_target_pane_id: creator_pane_id,
+                report_target_tab_id,
                 spawned_by: Some(format!("cron:{}", id)),
                 ..Default::default()
             }),
         };
 
-        match self.spawn_pane(spec) {
+        match self.spawn_tab(spec) {
             Ok(handle) => {
-                run_info.pane_id = Some(handle.pane_id.clone());
                 run_info.tab_id = Some(handle.tab_id.clone());
-                cron.lock().register_pane(&handle.pane_id, id, &run_id);
+                run_info.tab_id = Some(handle.tab_id.clone());
+                cron.lock().register_tab(&handle.tab_id, id, &run_id);
                 // Register with the auto-complete watcher (cron flavor).
-                if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.pane_id).cloned() {
+                if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned() {
                     let global_timeout = crate::config::memory_config().worker_timeout_seconds;
                     let timeout = job_timeout.unwrap_or(global_timeout);
                     if job_timeout.is_some() {
@@ -242,7 +283,7 @@ impl ServiceContext {
                     self.run_watcher.register(
                         self.clone(),
                         pty_id,
-                        handle.pane_id.clone(),
+                        handle.tab_id.clone(),
                         crate::agent::run_watcher::AgentRunKind::Cron {
                             job_id: id.to_string(),
                             run_id: run_id.clone(),
@@ -275,16 +316,16 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let mut store = cron.lock();
         let owner = store
-            .get_pane_owner_by_run(run_id)
+            .get_tab_owner_by_run(run_id)
             .map(|(j, p)| (j.to_string(), p.to_string()));
-        if let Some((job_id, pane_id)) = owner {
+        if let Some((job_id, tab_id)) = owner {
             let (pty_id, session_id, run_cwd) = {
                 let mux = self.mux.write();
-                let pane = mux.get_pane(&pane_id);
+                let tab = mux.get_tab(&tab_id);
                 (
-                    pane.and_then(|p| p.pty_id.clone()),
-                    pane.and_then(|p| p.agent_session_id.clone()),
-                    pane.and_then(|p| p.cwd.clone()),
+                    tab.and_then(|p| p.pty_id.clone()),
+                    tab.and_then(|p| p.agent_session_id.clone()),
+                    tab.and_then(|p| p.cwd.clone()),
                 )
             };
             if let Some(ref sid) = session_id {
@@ -309,7 +350,7 @@ impl ServiceContext {
 
             let _ = store.update_run_status(&job_id, run_id, CronRunStatus::Success);
             let is_oneshot = store.get(&job_id).map(|j| j.oneshot).unwrap_or(false);
-            store.unregister_pane(&pane_id);
+            store.unregister_tab(&tab_id);
             log::info!(
                 "Cron run completed: job={}, run={}, oneshot={}, summary_len={}",
                 job_id,
@@ -319,24 +360,24 @@ impl ServiceContext {
             );
             drop(store);
 
-            // Tell the run-watcher this pane is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
+            // Tell the run-watcher this tab is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
             if let Some(ref pid) = pty_id {
                 self.run_watcher.mark_completed_externally(pid);
             }
 
             // The `codeterm cron complete` CLI client that drove this request is a
-            // child of the pane we're about to kill. Killing it before the caller
+            // child of the tab we're about to kill. Killing it before the caller
             // writes the JSON-RPC response would break the pipe mid-write, which
             // interprocess escalates to std::process::abort(). Defer the teardown
             // so the response reaches the live client and it disconnects first.
             let svc = self.clone();
             let cron = cron.clone();
             let wake = wake.clone();
-            let pane_id = pane_id.clone();
+            let tab_id = tab_id.clone();
             let job_id = job_id.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(250));
-                let _ = svc.close_pane(&pane_id);
+                let _ = svc.close_tab(&tab_id);
                 if is_oneshot {
                     log::info!("Oneshot cron auto-deleting: job={}", job_id);
                     if let Err(e) = svc.cron_delete(&cron, &wake, &job_id) {
@@ -348,7 +389,7 @@ impl ServiceContext {
             Ok(())
         } else if let Some((job_id, run)) = store.find_run_by_id(run_id) {
             // The watchdog (idle / hard timeout) already finalized this run and
-            // unregistered its pane before this explicit completion arrived —
+            // unregistered its tab before this explicit completion arrived —
             // a durable race, not a caller error. The terminal status already
             // recorded stands (first terminal wins); log it so the race stays
             // observable instead of surfacing as an opaque "not found".

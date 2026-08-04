@@ -74,7 +74,7 @@ export const PERF_PLAN_SECTIONS: Section[] = [
     "Liveness & presence",
     [
       "## Approach",
-      "Presence is **live only**: a pane bound to a task surfaces as an agent token on",
+      "Presence is **live only**: a Tab bound to a task surfaces as an agent token on",
       "the work, never a stale avatar. The plan node's swarm panel aggregates task status",
       "into a single proportional bar whose in-progress segment pulses.",
       "",

@@ -7,7 +7,18 @@ const LEVEL_COLOR: Record<ActivityLevel, string> = { info: "var(--ct-fg)", warn:
 interface Props { active: boolean; }
 export function ActivityTab({ active }: Props) {
   const events = useActivityLog(active);
-  if (events.length === 0) return <div className="p-4 text-[var(--ct-muted-fg)] text-xs">No activity yet.</div>;
+  if (events.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <div>
+          <div className="text-[15px] font-medium text-[var(--ct-fg)]">No activity yet</div>
+          <div className="mt-1 text-[11px] text-[var(--ct-muted-fg)]">
+            Mesh events will appear here.
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="overflow-auto h-full">
       {events.map((ev, i) => (

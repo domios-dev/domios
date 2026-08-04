@@ -209,9 +209,9 @@ export class MeshStub {
                         protected: true,
                       },
                     ],
-                    panes: {},
+                    tabs: {},
                     active_workspace_id: "stub-ws",
-                    focused_pane_id: null,
+                    focused_tab_id: null,
                   },
                   error: null,
                 });
@@ -286,7 +286,7 @@ export class MeshStub {
             tab_count: 0,
             cwd: null,
             protected: true,
-            pane_ids: [],
+            tab_ids: [],
           },
         ]);
         break;
@@ -302,9 +302,9 @@ export class MeshStub {
               protected: true,
             },
           ],
-          panes: {},
+          tabs: {},
           active_workspace_id: "stub-ws",
-          focused_pane_id: null,
+          focused_tab_id: null,
         });
         break;
       case "/api/config":

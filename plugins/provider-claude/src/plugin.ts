@@ -1,7 +1,13 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
-import { usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
+import {
+  fetchClaudeUsage,
+  parseFetchedClaudeUsage,
+  usageBlockIsComplete,
+  usageNormalize,
+  usageParseBlock,
+} from "./usage";
 import {
   ClaudeEntry,
   claudeSessionFilePath,
@@ -11,11 +17,11 @@ import {
   isValidClaudeSessionMessage,
   validateEntry,
 } from "./session";
-import { discoverAnthropicModels, manifestModels } from "./models";
+import { discoverAnthropicModels } from "./models";
 import {
-  classifyClaudePaneState,
-  PaneStateSnapshot,
-  PaneStateClassification,
+  classifyClaudeTabState,
+  TabStateSnapshot,
+  TabStateClassification,
 } from "./classify";
 import {
   buildClaudePromptResponse,
@@ -57,7 +63,8 @@ const FILE_TASK_PROMPT =
   "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string {
+function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string | undefined {
+  if (prompt === "no_starter") return undefined;
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (prompt === "team_bootstrap") {
     if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
@@ -128,7 +135,7 @@ function isBrailleSpinner(ch: string): boolean {
 
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
   },
   detectFromTitle(title: string): boolean {
@@ -281,8 +288,11 @@ const plugin: PluginModule = {
       const visiblePath = writeTaskTempFile(p.task);
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      parts.push("--");
-      parts.push(host.shell.quoteFor(starterPrompt(p.starterPrompt, p.starterPromptText), host.platform()));
+      const prompt = starterPrompt(p.starterPrompt, p.starterPromptText);
+      if (prompt) {
+        parts.push("--");
+        parts.push(host.shell.quoteFor(prompt, host.platform()));
+      }
     }
     return parts.join(" ");
   },
@@ -326,15 +336,18 @@ const plugin: PluginModule = {
     return null;
   },
 
-  // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
+  // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
+  // the registered manifest seed and must never be persisted as a live snapshot.
   discoverModels() {
-    return discoverAnthropicModels() || manifestModels();
+    return discoverAnthropicModels();
   },
 
   // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
   parseUsage(rawText: string, nowMs: number): unknown {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
+    const fetched = parseFetchedClaudeUsage(raw, nowMs);
+    if (fetched !== undefined) return fetched;
     const text = usageNormalize(raw);
 
     const session = usageParseBlock(text, "Current session", false, nowMs);
@@ -352,6 +365,10 @@ const plugin: PluginModule = {
       weekly_resets_at_ms: weekly.resetsMs,
       raw_text: raw,
     };
+  },
+
+  fetchUsage(): unknown {
+    return fetchClaudeUsage(host);
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
@@ -571,7 +588,7 @@ const plugin: PluginModule = {
   },
 
   // Manage Claude settings hooks for Notification, Stop, PreCompact, SessionStart.
-  // Hooks use `_source: "codeterm-hook-v2"` and manifest paths for stable lifecycle.
+  // Hooks use a versioned source marker and runtime callback identity.
 
   checkIntegration(): unknown {
     const m = manifest();
@@ -599,7 +616,15 @@ const plugin: PluginModule = {
         const hooks = entry && entry.hooks;
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
-          if (hooks[j] && hooks[j]._source === CODETERM_HOOK_MARKER) return true;
+          const hook = hooks[j];
+          if (hook && hook._source === CODETERM_HOOK_MARKER
+              && typeof hook.command === "string"
+              && hook.command.indexOf("CODETERM_TAB_ID") !== -1
+              && hook.command.indexOf("CODETERM_API_URL") !== -1
+              && hook.command.indexOf("CODETERM_API_TOKEN") !== -1
+              && hook.command.indexOf("CODETERM_API_PORT") === -1
+              && hook.command.indexOf("CODETERM_PANE_ID") === -1
+              && hook.command.indexOf("/api/panes/") === -1) return true;
         }
       }
       return false;
@@ -614,7 +639,13 @@ const plugin: PluginModule = {
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
           if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string"
-              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1) return true;
+              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
+              && h.command.indexOf("CODETERM_TAB_ID") !== -1
+              && h.command.indexOf("CODETERM_API_URL") !== -1
+              && h.command.indexOf("CODETERM_API_TOKEN") !== -1
+              && h.command.indexOf("CODETERM_API_PORT") === -1
+              && h.command.indexOf("CODETERM_PANE_ID") === -1
+              && h.command.indexOf("/api/panes/") === -1) return true;
         }
       }
       return false;
@@ -633,7 +664,7 @@ const plugin: PluginModule = {
     };
   },
 
-  installIntegration(apiPort: number): unknown {
+  installIntegration(_apiPort: number): unknown {
     const m = manifest();
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
@@ -642,26 +673,23 @@ const plugin: PluginModule = {
     const json = (host.fileExists(path) ? (host.fs.readJson<ClaudeSettings>(path) || {}) : {}) as ClaudeSettings;
     if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
 
-    const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
-    const port = apiPort | 0;
-    const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
+    const finish = " || true; fi";
 
-    const notifyCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/permission "
-      + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
-    const stopCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/stop "
-      + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
-    const precompactCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/mem/flush -H 'Content-Type: application/json' " + authH
-      + ' -d \'{"pane":"\'"$CODETERM_PANE_ID"\'","title":"pre-compact"}\' > '
-      + nullDev + " 2>&1 || true";
-    const sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
-      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @- > "
-      + nullDev + " 2>&1 || true";
+    const notifyCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
+      + '/api/tabs/$CODETERM_TAB_ID/hook/permission" '
+      + "-H 'Content-Type: application/json' " + authH + " -d '{}'" + finish;
+    const stopCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
+      + '/api/tabs/$CODETERM_TAB_ID/hook/stop" '
+      + "-H 'Content-Type: application/json' " + authH + " -d '{}'" + finish;
+    const precompactCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" '
+      + "-H 'Content-Type: application/json' " + authH
+      + ' -d \'{"tab":"\'"$CODETERM_TAB_ID"\'","title":"pre-compact"}\'' + finish;
+    const sessionStartCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
+      + '/api/tabs/$CODETERM_TAB_ID/hook/session_start" '
+      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @-" + finish;
 
     function newEntry(matcher: string, cmd: string, timeout: number): HookEntry {
       return {
@@ -720,10 +748,10 @@ const plugin: PluginModule = {
     return { ok: false, error: "writeJson failed for " + path };
   },
 
-  // AS3/AS4 pane-state classification lives in ./classify; the facade delegates.
+  // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
-  classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
-    return classifyClaudePaneState(snapshot);
+  classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
+    return classifyClaudeTabState(snapshot);
   },
 };
 
@@ -809,7 +837,7 @@ interface HookCmd { type?: string; command?: string; timeout?: number; _source?:
 interface HookEntry { matcher?: string; hooks?: HookCmd[] }
 interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
 
-const CODETERM_HOOK_MARKER = "codeterm-hook-v2";
+const CODETERM_HOOK_MARKER = "codeterm-hook-v3";
 
 function isCodetermHook(entry: HookEntry): boolean {
   const hooks = entry && entry.hooks;
@@ -825,7 +853,7 @@ function isCodetermHook(entry: HookEntry): boolean {
     if (typeof cmd === "string") {
       const isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
       const isPath = cmd.indexOf("/api/notifications") !== -1
-        || cmd.indexOf("/api/panes/") !== -1
+        || cmd.indexOf("/api/tabs/") !== -1
         || cmd.indexOf("/hook/permission") !== -1
         || cmd.indexOf("/hook/stop") !== -1
         || cmd.indexOf("/hook/session_start") !== -1

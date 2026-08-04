@@ -5,7 +5,7 @@ Measures the dev-only path from an HTTP send to two observable events:
 - provider status changing to `Working`;
 - a new assistant transcript delta containing a computed answer absent from the prompt.
 
-The bench opens each pane's Chat UI tailer before sending and consumes the daemon SSE
+The bench opens each tab's Chat UI tailer before sending and consumes the daemon SSE
 stream. It uses bounded event waits, not sleeps or transcript polling.
 
 ```bash

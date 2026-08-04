@@ -93,7 +93,7 @@ fn payload_may_contain_double_brackets() {
 fn parse_none_on_plain_text() {
     assert!(parse("just a normal message").is_none());
     assert!(parse("[voice] not our format").is_none());
-    assert!(parse("[[ct:pane label=Main pane=abc12345]]hello").is_none());
+    assert!(parse("[[ct:tab label=Main tab=abc12345]]hello").is_none());
     assert!(parse("-=-codeterm:-=-payload").is_none());
 }
 

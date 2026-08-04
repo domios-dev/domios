@@ -18,12 +18,24 @@ function assert(condition: unknown, message: string): asserts condition {
 async function run() {
   const {
     clearRelayTarget,
+    GATEWAY_STATE_EVENT,
     invalidateWebRequestContext,
+    resolveRelayTarget,
     setRelayTarget,
     setTokenFor,
     webFetch,
     webUpload,
   } = await import("./webApi");
+  const gatewayStates: boolean[] = [];
+  window.addEventListener(GATEWAY_STATE_EVENT, (event) => {
+    gatewayStates.push((event as CustomEvent<{ available: boolean }>).detail.available);
+  });
+  const authoritative = resolveRelayTarget(
+    [{ instance_id: "peer-1", instance_name: "Authoritative name" }],
+    "peer-1",
+  );
+  assert(authoritative?.name === "Authoritative name", "relay bootstrap resolves the authenticated peer name");
+  assert(resolveRelayTarget([], "peer-1") === null, "unknown relay bootstrap peers are rejected");
   const upload = new Blob(["image-bytes"], { type: "image/png" });
   let uploadUrl = "";
   let uploadInit: RequestInit | undefined;
@@ -55,27 +67,34 @@ async function run() {
     });
   };
 
-  const stalePaneRequest = webFetch("/api/panes/blackstar-pane/chat-raw/start", { method: "POST" });
+  const staleTabRequest = webFetch("/api/tabs/blackstar-tab/chat-raw/start", { method: "POST" });
   invalidateWebRequestContext();
-  assert((requestSignal as AbortSignal | null)?.aborted, "peer switch aborts the old pane request");
+  assert((requestSignal as AbortSignal | null)?.aborted, "peer switch aborts the old Tab request");
   try {
-    await stalePaneRequest;
-    assert(false, "aborted old-pane request must reject");
+    await staleTabRequest;
+    assert(false, "aborted old-tab request must reject");
   } catch (error) {
     assert(error instanceof DOMException && error.name === "AbortError", "old request rejects as AbortError");
   }
+  globalThis.fetch = async () => {
+    throw new TypeError("connection refused");
+  };
+  try {
+    await webFetch("/api/health");
+  } catch {}
+  assert(gatewayStates[gatewayStates.length - 1] === false, "a failed gateway request publishes unavailable state");
 
   const { loadCachedStateSync, saveStateSnapshot } = await import("./stateCache");
   const state = (id: string) => ({
     workspaces: [{ id, name: id, tabs: [], active_tab_id: null, cwd: null }],
-    panes: {},
+    tabs: {},
     active_workspace_id: id,
-    focused_pane_id: null,
+    focused_tab_id: null,
   });
   clearRelayTarget();
   saveStateSnapshot(state("blackstar"));
   setRelayTarget("mac-air-id", "Mac-Air");
-  assert(loadCachedStateSync() === null, "self-host pane cache is invisible under Mac-Air");
+  assert(loadCachedStateSync() === null, "self-host Tab cache is invisible under Mac-Air");
   saveStateSnapshot(state("mac-air"));
   clearRelayTarget();
   assert(loadCachedStateSync()?.active_workspace_id === "blackstar", "self cache survives peer round-trip");

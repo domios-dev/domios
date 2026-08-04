@@ -232,8 +232,8 @@ export function PluginDetailPanel({
             data-testid="extensions-open-chat"
             data-plugin-id={entry.id}
             onClick={() => {
-              void invoke("open_chat_backend_pane", { pluginId: entry.id }).catch((e) =>
-                console.error("open_chat_backend_pane failed:", e),
+              void invoke("open_chat_backend_tab", { pluginId: entry.id }).catch((e) =>
+                console.error("open_chat_backend_tab failed:", e),
               );
             }}
             style={primaryBtnStyle("install", false)}

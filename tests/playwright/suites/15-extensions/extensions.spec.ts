@@ -147,7 +147,7 @@ async function openExtensions(ui: ManagedUiSession): Promise<void> {
 }
 
 async function addChannel(page: Page, url: string): Promise<void> {
-  // AddChannelInline only mounts in the Channels filter's detail pane (ExtensionsView.tsx).
+  // AddChannelInline only mounts in the Channels filter's detail tab (ExtensionsView.tsx).
   await page.locator('[data-testid="extensions-filter"][data-extension-filter="channels"]').click();
   await page.locator('[data-testid="extensions-channel-add-open"]').click();
   await page.locator('[data-testid="extensions-channel-url-input"]').fill(url);

@@ -82,12 +82,11 @@ function FrozenFrame({ specimen, state, time }: { specimen: Specimen; state: Spe
     controls.pauseAt(time);
   }, [controls, time]);
 
-  const Component = specimen.Component;
   return (
     <figure className="gallery-frame">
       <div className="gallery-frame-stage" ref={frame}>
         <FitBox pad={20}>
-          <Component {...state.props} />
+          {state.render()}
         </FitBox>
       </div>
       <figcaption>{Math.round(time)} ms</figcaption>

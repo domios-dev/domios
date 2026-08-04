@@ -11,7 +11,8 @@ interface NotificationBellProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
-  onNavigate: (paneId: string) => void;
+  onClearAll: () => void;
+  onNavigate: (tabId: string, workspaceId: string | null) => void;
 }
 
 export function NotificationBell({
@@ -19,6 +20,7 @@ export function NotificationBell({
   onMarkRead,
   onMarkAllRead,
   onDelete,
+  onClearAll,
   onNavigate,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
@@ -26,6 +28,11 @@ export function NotificationBell({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const unread = notifications.reduce((count, notification) => count + (notification.read ? 0 : 1), 0);
+  const newestUnread = notifications.reduce<Notification | null>((newest, notification) => {
+    if (notification.read) return newest;
+    return !newest || notification.timestamp >= newest.timestamp ? notification : newest;
+  }, null);
+  const newestUnreadId = newestUnread?.id ?? null;
 
   const updatePosition = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -73,8 +80,15 @@ export function NotificationBell({
         onClick={toggle}
         className={`${UI_TRAY_BTN} relative ${open ? "text-[var(--ct-accent)]" : ""}`}
       >
-        <Bell size={14} />
-        <span className="absolute -right-1 -top-0.5">
+        <Bell
+          key={`bell-${newestUnreadId ?? "idle"}`}
+          size={14}
+          className={newestUnreadId ? "ct-notification-bell-ring" : undefined}
+        />
+        <span
+          key={`badge-${newestUnreadId ?? "idle"}`}
+          className={`absolute -right-1 -top-0.5 ${newestUnreadId ? "ct-notification-badge-pop" : ""}`}
+        >
           <NotificationBadge count={unread} />
         </span>
       </button>
@@ -89,8 +103,9 @@ export function NotificationBell({
             onMarkRead={onMarkRead}
             onMarkAllRead={onMarkAllRead}
             onDelete={onDelete}
-            onJumpToPane={(paneId) => {
-              onNavigate(paneId);
+            onClearAll={onClearAll}
+            onJumpToTab={(tabId, workspaceId) => {
+              onNavigate(tabId, workspaceId);
               setOpen(false);
             }}
             onClose={() => setOpen(false)}

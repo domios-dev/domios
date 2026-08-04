@@ -50,7 +50,7 @@ fn create_from_linked_worktree_persists_workspace_root_and_routes_sidecars() {
         .create_plan(
             "Canonical route".into(),
             linked.display().to_string(),
-            OrchestratorRef::from_pane("owner"),
+            OrchestratorRef::from_tab("owner"),
             vec![],
             1,
         )
@@ -100,7 +100,7 @@ fn stale_canonical_project_path_falls_back_to_loaded_project_root() {
     let mut plan = crate::plan::Plan::new(
         "Stale home".into(),
         deleted.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     plan.canonical_project_path = deleted.display().to_string();
     paths::normalize_plan_paths(&mut plan, &project);
@@ -118,7 +118,7 @@ fn scan_project_from_workspace_cwd_preserves_owner_and_planner_binding() {
             "Restart bound".into(),
             linked.display().to_string(),
             OrchestratorRef {
-                pane_id: Some("orch-pane".into()),
+                tab_id: Some("orch-tab".into()),
                 session_id: Some("orch-session".into()),
                 title: Some("orch".into()),
             },
@@ -129,8 +129,8 @@ fn scan_project_from_workspace_cwd_preserves_owner_and_planner_binding() {
     store
         .set_planner_ref(
             &plan.id,
-            Some(crate::plan::PlannerRef::Pane {
-                pane_id: "planner-pane".into(),
+            Some(crate::plan::PlannerRef::Tab {
+                tab_id: "planner-tab".into(),
                 session_id: Some("planner-session".into()),
                 title: Some("planner".into()),
             }),
@@ -148,14 +148,14 @@ fn scan_project_from_workspace_cwd_preserves_owner_and_planner_binding() {
         loaded.canonical_project_path,
         loaded_root.display().to_string()
     );
-    assert_eq!(loaded.owner.pane_id.as_deref(), Some("orch-pane"));
+    assert_eq!(loaded.owner.tab_id.as_deref(), Some("orch-tab"));
     assert_eq!(loaded.owner.session_id.as_deref(), Some("orch-session"));
     assert!(matches!(
         loaded.planner,
-        Some(crate::plan::PlannerRef::Pane {
-            ref pane_id,
+        Some(crate::plan::PlannerRef::Tab {
+            ref tab_id,
             session_id: Some(ref session_id),
             ..
-        }) if pane_id == "planner-pane" && session_id == "planner-session"
+        }) if tab_id == "planner-tab" && session_id == "planner-session"
     ));
 }

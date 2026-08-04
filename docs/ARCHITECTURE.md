@@ -34,12 +34,12 @@ src-tauri/src/
 ├── clipboard_files.rs      — Native OS clipboard file-reference reader (Win CF_HDROP, macOS NSPasteboardTypeFileURL, Linux stub)
 │
 ├── dispatch/               — UNIFIED COMMAND DISPATCH (Phase B foundation, not yet wired to adapters)
-│   └── mod.rs              — Command enum: Health, PaneList, SendText, GetOutput, GetScreen
+│   └── mod.rs              — Command enum: Health, TabList, SendText, GetOutput, GetScreen
 │
 ├── service/                — UNIFIED BUSINESS LOGIC (all ops go through here)
 │   ├── mod.rs              — ServiceContext (god object, needs facade split)
 │   ├── workspace.rs        — Create/rename/close workspaces
-│   ├── pane.rs             — Pane CRUD, focus, rename
+│   ├── tab.rs             — Tab CRUD, focus, rename
 │   ├── pty_io.rs           — send_text, batch operations
 │   ├── pty_lifecycle.rs    — Spawn/resize/kill PTY, backend reader
 │   ├── hierarchy.rs        — Agent roles, reports, status
@@ -49,9 +49,9 @@ src-tauri/src/
 │   ├── notification.rs     — OS toast notifications
 │   └── output.rs           — Output processing pipeline
 │
-├── multiplexer/            — WORKSPACE/PANE STATE MACHINE
+├── multiplexer/            — WORKSPACE/TAB STATE MACHINE
 │   ├── state.rs            — Central state (65KB — needs split)
-│   ├── types.rs            — Workspace, Tab, Pane (one pane per tab)
+│   ├── types.rs            — Workspace, Tab, Tab (one tab per tab)
 │   └── commands.rs         — Thin Tauri wrappers
 │
 ├── pty/                    — PTY LIFECYCLE
@@ -104,11 +104,11 @@ src-tauri/src/
 src/                        — FRONTEND (React)
 ├── App.tsx                 — Root, theme application
 ├── components/
-│   ├── Terminal/           — TerminalPane (44KB), TabContent (per-tab wrapper)
+│   ├── Terminal/           — TerminalTab (44KB), TabContent (per-tab wrapper)
 │   ├── ChatView/           — Agent interaction UI, message parser
-│   ├── Settings/           — SettingsPanel, MeshSection
-│   ├── Sidebar/            — Workspace/tab/pane navigation
-│   ├── CronPanel/          — Cron job management UI
+│   ├── Settings/           — SettingsTabl, MeshSection
+│   ├── Sidebar/            — Workspace/tab/tab navigation
+│   ├── CronTabl/          — Cron job management UI
 │   ├── Onboarding/         — First-run setup
 │   └── shared/             — DropdownMenu, common components
 ├── store/
@@ -174,5 +174,5 @@ All parking_lot Mutexes acquired in this order (see CLAUDE.md):
 1. `mux` (MultiplexerState)
 2. `output_buf` (OutputBuffer)
 3. `screen_state` (ScreenState)
-4. `agent_tracker` (PaneStatusTracker)
+4. `agent_tracker` (TabStatusTracker)
 5. `pty` (PtyManager)

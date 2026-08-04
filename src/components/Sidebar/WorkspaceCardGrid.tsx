@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Plus } from "lucide-react";
-import type { PaneStatus, Workspace } from "../../lib/types";
+import { ActivityDots } from "../shared/ActivityDots";
+import type { TabStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
   defaultWorkspaceInitials,
@@ -13,7 +14,7 @@ import {
 interface WorkspaceCardGridProps {
   workspaces: Workspace[];
   selectedWorkspaceId: string | null;
-  statuses: Record<string, PaneStatus | null>;
+  statuses: Record<string, TabStatus | null>;
   sortIds: string[];
   onSelect: (workspaceId: string) => void;
   onCreate: () => void;
@@ -158,7 +159,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   )}
                   {status === "Working" && !selected && (
                     <span className="sidebar-workspace-card-working" role="status" aria-label={`${workspace.name} has working tabs`}>
-                      <span /><span /><span />
+                      <ActivityDots size="micro" tone="on-accent" />
                     </span>
                   )}
                 </div>

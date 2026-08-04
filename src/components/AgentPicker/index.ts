@@ -2,9 +2,9 @@ export { AgentProviderPicker } from "./AgentProviderPicker";
 export { FirstRunGeneralPicker } from "./FirstRunGeneralPicker";
 export { ProviderCard, ProviderInstallPanel } from "./ProviderCard";
 export {
-  FIRST_RUN_GA_PANE_MARKER,
+  FIRST_RUN_GA_TAB_MARKER,
   PREFERRED_GENERAL_PROVIDER_ID,
-  isFirstRunGeneralPane,
+  isFirstRunGeneralTab,
 } from "./constants";
 export {
   hasAnyInstalledProvider,

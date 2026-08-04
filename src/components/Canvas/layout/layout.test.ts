@@ -22,7 +22,7 @@ function canvas() {
 }
 
 function owner(id: string): OrchestratorRef {
-  return { pane_id: id, session_id: id, title: id };
+  return { tab_id: id, session_id: id, title: id };
 }
 
 function section(id: string, subs: Section[] = []): Section {
@@ -45,7 +45,7 @@ function task(id: string, sectionIds: string[], milestones: Milestone[] = [], pa
     section_ids: sectionIds,
     body: "",
     intent: null,
-    assigned_pane_id: null,
+    assigned_tab_id: null,
     peer: null,
     parent_task_id: parentTaskId,
     canvas: canvas(),

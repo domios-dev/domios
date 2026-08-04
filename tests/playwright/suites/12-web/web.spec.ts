@@ -98,13 +98,13 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(item).toBeVisible({ timeout: 15_000 });
     await expect(item).toHaveAttribute("data-peer-online", "true");
 
-    const oldPaneId = await page.locator("[data-pane-id]").first().getAttribute("data-pane-id");
-    expect(oldPaneId, "self host should expose an active pane before switching").toBeTruthy();
+    const oldTabId = await page.locator("[data-tab-id]").first().getAttribute("data-tab-id");
+    expect(oldTabId, "self host should expose an active tab before switching").toBeTruthy();
 
     const before = stub.requests.length;
     await item.click();
     await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
-    await expect(page.locator(`[data-pane-id="${oldPaneId}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-tab-id="${oldTabId}"]`)).toHaveCount(0);
 
     await expect(
       page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
@@ -125,8 +125,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
     );
     expect(
-      stub.requests.slice(before).filter((request) => request.includes(`/api/panes/${oldPaneId}/`)),
-      "new peer received a request for the old peer pane",
+      stub.requests.slice(before).filter((request) => request.includes(`/api/tabs/${oldTabId}/`)),
+      "new peer received a request for the old peer tab",
     ).toEqual([]);
 
     // Switch back to self: real workspaces return, no stub data leaks.
@@ -193,7 +193,7 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
     return (await control.isVisible().catch(() => false)) ? control.boundingBox() : null;
   };
   const reconnectBox = await optionalBox('[data-testid="chat-reconnect"]');
-  const modeBox = await optionalBox('[data-testid="pane-mode-switch"]');
+  const modeBox = await optionalBox('[data-testid="tab-mode-switch"]');
   const overlaps = (
     a: { x: number; y: number; width: number; height: number },
     b: { x: number; y: number; width: number; height: number },
@@ -210,7 +210,7 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   await page.context().close();
 });
 
-test("@golden mobile sidebar stays open for workspace cards and closes for tabs", async ({ api, webBrowser, paneCleanup }) => {
+test("@golden mobile sidebar stays open for workspace cards and closes for tabs", async ({ api, webBrowser, tabCleanup }) => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const firstName = `pw-mobile-workspace-a-${suffix}`;
   const secondName = `pw-mobile-workspace-b-${suffix}`;
@@ -220,7 +220,7 @@ test("@golden mobile sidebar stays open for workspace cards and closes for tabs"
   const first = workspaces.find((workspace) => workspace.name === firstName);
   const second = workspaces.find((workspace) => workspace.name === secondName);
   if (!first || !second) throw new Error("mobile sidebar test workspaces were not created");
-  const pane = await paneCleanup.createPane<{ tab_id: string }>({
+  const tab = await tabCleanup.createTab<{ tab_id: string }>({
     workspace_id: second.id,
     title: `pw-mobile-tab-${suffix}`,
   });
@@ -243,7 +243,7 @@ test("@golden mobile sidebar stays open for workspace cards and closes for tabs"
     await expect(drawer, "workspace selection keeps the mobile drawer open").toBeVisible();
     const region = drawer.getByRole("region", { name: `${secondName} workspace contents` });
     await expect(region, "workspace selection reveals its tabs in the open drawer").toBeVisible();
-    await region.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
+    await region.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).click();
 
     await expect(page.locator(".ct-sidebar-drawer.is-open"), "tab selection dismisses the mobile drawer").toHaveCount(0);
     await expect(burger, "tab selection restores the mobile drawer trigger").toBeVisible();
@@ -254,7 +254,7 @@ test("@golden mobile sidebar stays open for workspace cards and closes for tabs"
   }
 });
 
-test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async ({ api, webBrowser, paneCleanup, spawnAgent, pollMarkerInDom }) => {
+test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async ({ api, webBrowser, tabCleanup, spawnAgent, pollMarkerInDom }) => {
   test.setTimeout(300_000);
   test.skip(
     !(await isStubTransportActive(api)),
@@ -269,29 +269,29 @@ test("@golden fully live on mobile: General Agent responds, read from the render
   const expected = `ack ${marker}`;
   // Drive the spawn through the API (deterministic), observe in the DOM.
   const workspace = await createStubWorkspace(api);
-  const inbox = await paneCleanup.createPane({ title: "pw-web-inbox", workspace_id: workspace.id });
-  let agentPaneId: string | undefined;
+  const inbox = await tabCleanup.createTab({ title: "pw-web-inbox", workspace_id: workspace.id });
+  let agentTabId: string | undefined;
   try {
-    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
     const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
       title: "pw-web-agent",
-      parent_pane_id: inbox.id,
-      report_target_pane_id: inbox.id,
+      parent_tab_id: inbox.id,
+      report_target_tab_id: inbox.id,
       skip_permissions: true,
       activate: true,
       cwd: tempSpawnCwd("pw-web-agent-"),
       task: `STUB_ECHO ${marker}`,
     });
-    agentPaneId = spawned.pane_id;
+    agentTabId = spawned.tab_id;
 
     // render as a chat bubble instead of xterm a11y text — accept either.
     await pollMarkerInDom(expected, { page, includeChatMessages: true });
-    await expect(page.locator(`[data-testid="pane-session-chat"][data-pane-id="${agentPaneId!}"]`)).toContainText(expected);
+    await expect(page.locator(`[data-testid="tab-session-chat"][data-tab-id="${agentTabId!}"]`)).toContainText(expected);
   } finally {
-    if (agentPaneId) paneCleanup.track(agentPaneId);
+    if (agentTabId) tabCleanup.track(agentTabId);
     await page.context().close();
   }
 });
@@ -369,14 +369,14 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
 
 // ── close-sync: actions propagate between web and desktop UIs ────────
 
-test("@golden close sync: web close updates the desktop window, desktop close updates web", async ({ api, ui, webBrowser, paneCleanup }) => {
+test("@golden close sync: web close updates the desktop window, desktop close updates web", async ({ api, ui, webBrowser, tabCleanup }) => {
   test.setTimeout(180_000);
 
-  const a = await paneCleanup.createPane<{
+  const a = await tabCleanup.createTab<{
     id: string;
     tab_id: string;
   }>({ title: "pw-close-from-web" });
-  const b = await paneCleanup.createPane<{
+  const b = await tabCleanup.createTab<{
     id: string;
     tab_id: string;
   }>({ title: "pw-close-from-desktop" });
@@ -414,8 +414,8 @@ test("@golden close sync: web close updates the desktop window, desktop close up
     // …and the WEB mirror follows via SSE.
     await expect(webTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
   } finally {
-    await api.closePane(a.id).catch(() => {});
-    await api.closePane(b.id).catch(() => {});
+    await api.closeTab(a.id).catch(() => {});
+    await api.closeTab(b.id).catch(() => {});
     await page.context().close();
   }
 });
@@ -432,28 +432,28 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
     skip_permissions: true,
     activate: true,
   });
-  const paneId = spawned.pane_id;
+  const tabId = spawned.tab_id;
   const page = await newWebPage(webBrowser);
   try {
     // until then chat-raw/start 409s.
     await pollUntil(async () => {
       try {
-        await api.post(`/panes/${paneId}/chat-raw/start`);
-        await api.post(`/panes/${paneId}/chat-raw/stop`);
+        await api.post(`/tabs/${tabId}/chat-raw/start`);
+        await api.post(`/tabs/${tabId}/chat-raw/stop`);
         return true;
       } catch {
         return undefined;
       }
-    }, 120_000, 3_000, "spawned pane chat becomes ready");
-    await api.post(`/panes/${paneId}/chat-view`, { enabled: true });
+    }, 120_000, 3_000, "spawned tab chat becomes ready");
+    await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
 
     await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 30_000 });
 
-    // Scope everything to the spawned pane's subtree — other panes (e.g.
+    // Scope everything to the spawned tab's subtree — other tabs (e.g.
     // the user's GA) may have chat-view mounted too.
-    const pane = page.locator(`[data-pane-id="${paneId}"]`);
-    const composer = pane.locator('[data-testid="chat-composer"]');
+    const tab = page.locator(`[data-tab-id="${tabId}"]`);
+    const composer = tab.locator('[data-testid="chat-composer"]');
     await composer.waitFor({ timeout: 30_000 });
 
     // bubble that must stream back over SSE.
@@ -462,17 +462,17 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
       `Reply with a single line containing exactly ${marker} and nothing else.`,
     );
     // covered by desktop usage daily; the button only exists here).
-    await pane.locator('[data-testid="composer-send-button"]').click();
+    await tab.locator('[data-testid="composer-send-button"]').click();
 
     // The optimistic user bubble proves the send handler actually fired.
     await expect(
-      pane.locator('[data-testid="chat-message"]').filter({ hasText: marker }).first(),
+      tab.locator('[data-testid="chat-message"]').filter({ hasText: marker }).first(),
     ).toBeVisible({ timeout: 15_000 });
 
-    const reply = pane
+    const reply = tab
       .locator('[data-testid="chat-message"][data-message-role="assistant"]')
       .filter({ hasText: marker });
-    const sendError = pane.locator('[data-testid="chat-composer-error"]');
+    const sendError = tab.locator('[data-testid="chat-composer-error"]');
     await expect(reply.or(sendError).first()).toBeVisible({ timeout: 240_000 });
     if (await sendError.isVisible()) {
       throw new Error(`composer send failed: ${await sendError.textContent()}`);
@@ -483,24 +483,24 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
     await page.reload({ waitUntil: "domcontentloaded" });
     await composer.waitFor({ timeout: 30_000 });
     await expect(
-      pane
+      tab
         .locator('[data-testid="chat-message"][data-message-role="assistant"]')
         .filter({ hasText: marker }),
     ).toBeVisible({ timeout: 30_000 });
 
     // shows up as a chip with the SERVER-side filename.
-    await pane
+    await tab
       .locator('[data-testid="composer-attach-input"]')
       .setInputFiles({
         name: "pw-attach.txt",
         mimeType: "text/plain",
         buffer: Buffer.from("attach-pipeline-proof"),
       });
-    const chip = pane.locator('[data-testid="attachment-chip"]');
+    const chip = tab.locator('[data-testid="attachment-chip"]');
     await expect(chip).toBeVisible({ timeout: 15_000 });
     await expect(chip).toContainText("pw-attach.txt");
   } finally {
-    await api.closePane(paneId).catch(() => {});
+    await api.closeTab(tabId).catch(() => {});
     await page.context().close();
   }
 });

@@ -17,7 +17,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const key = "pane:session";
+const key = "tab:session";
 
 assert(!shouldRestoreChatViewport(true, false, 0, key, ""), "empty activation waits for messages");
 assert(!shouldRestoreChatViewport(true, true, 1, key, ""), "loading activation waits for the session");
@@ -110,7 +110,7 @@ assert(
 
 // --- persisted scroll state survives a remount ---
 
-const persistKey = "pane-1:session-1";
+const persistKey = "tab-1:session-1";
 clearPersistedChatScrollState(persistKey);
 assert(getPersistedChatScrollState(persistKey) === null, "an unset key has no persisted state");
 setPersistedChatScrollState(persistKey, { mode: "detached", anchor: capturedAnchor });
@@ -124,18 +124,18 @@ assert(getPersistedChatScrollState(persistKey) === null, "clearing removes the p
 
 assert(
   chatActivationRestoreTarget(null).mode === "bottom",
-  "a fresh pane with no persisted state restores to the bottom",
+  "a fresh Tab with no persisted state restores to the bottom",
 );
 assert(
   chatActivationRestoreTarget({ mode: "pinned", anchor: null }).mode === "bottom",
-  "a pinned pane restores to the bottom on remount",
+  "a pinned Tab restores to the bottom on remount",
 );
 assert(
   chatActivationRestoreTarget({ mode: "detached", anchor: null }).mode === "bottom",
-  "a detached pane that never captured an anchor falls back to the bottom",
+  "a detached Tab that never captured an anchor falls back to the bottom",
 );
 const restoreTarget = chatActivationRestoreTarget({ mode: "detached", anchor: capturedAnchor });
-assert(restoreTarget.mode === "anchor", "a detached pane with a captured anchor restores by anchor");
+assert(restoreTarget.mode === "anchor", "a detached Tab with a captured anchor restores by anchor");
 assert(
   restoreTarget.mode === "anchor" && restoreTarget.anchor.elementId === "b",
   "the restore target carries the persisted anchor",

@@ -5,9 +5,9 @@
  * Browser files can't be referenced by path — storeBlob uploads them to
  * the daemon (POST /api/upload) in web mode or writes a temp file via the
  * Tauri command in desktop mode; either way the attached path is readable
- * by the agent CLI. Voice notes ride the same pipe; if the receiving pane
+ * by the agent CLI. Voice notes ride the same pipe; if the receiving tab
  * has no transcriber it will say so — the capability is the composer's
- * job, transcription is the pane's.
+ * job, transcription is the tab's.
  *
  * Voice capture: hold the mic to record, slide left to cancel, slide up
  * to lock hands-free, then stop into a listen-before-send preview.

@@ -31,7 +31,7 @@ function jobFile(dir, jobId) {
 
 function createJob(opts) {
   const record = {
-    schema: 1,
+    schema: 2,
     job_id: opts.job_id,
     job: opts.job,
     command: opts.command,
@@ -48,6 +48,7 @@ function createJob(opts) {
     started_at: null,
     ended_at: null,
     exit_code: null,
+    command_exit_code: null,
     outcome: null,
     log_path: opts.log_path,
   };
@@ -62,6 +63,7 @@ function updateJob(opts) {
   if (opts.started_at) record.started_at = opts.started_at;
   if (opts.ended_at) record.ended_at = opts.ended_at;
   if (opts.exit_code !== undefined) record.exit_code = Number(opts.exit_code);
+  if (opts.command_exit_code !== undefined) record.command_exit_code = Number(opts.command_exit_code);
   if (opts.outcome) record.outcome = opts.outcome;
   atomicWrite(file, record);
 }

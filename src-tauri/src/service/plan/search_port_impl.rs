@@ -36,11 +36,12 @@ impl PlanSearchPort for MemSearchPort {
     ) -> Result<Vec<PlanIndexHit>, String> {
         let sq = search::SearchQuery {
             query: q.query.clone(),
+            kind: q.kind.clone(),
             scope: q.scope.clone(),
             limit: q.limit,
             ..Default::default()
         };
-        search::run(conn, &sq, blobs_dir).map(|hits| {
+        search::hybrid_rrf(conn, &sq, blobs_dir).map(|hits| {
             hits.into_iter()
                 .map(|h| PlanIndexHit {
                     score: h.score,
@@ -54,5 +55,227 @@ impl PlanSearchPort for MemSearchPort {
                 })
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mem::{MemKind, MemScope, NewMemItem};
+
+    fn insert_search_item(
+        conn: &Connection,
+        blobs: &Path,
+        kind: MemKind,
+        scope: MemScope,
+        title: String,
+    ) {
+        store::insert(
+            conn,
+            &NewMemItem {
+                kind,
+                scope,
+                title,
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "shared backend filtering proof".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            blobs,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn plan_search_includes_semantic_only_hits() {
+        let port = MemSearchPort;
+        port.ensure_embedding_registered();
+        let conn = Connection::open_in_memory().unwrap();
+        port.init_embedding_ext(&conn);
+        port.init_schema(&conn).unwrap();
+        let blobs = tempfile::tempdir().unwrap();
+        let body = "Vehicle repair mechanics diagnose engines, brakes, tires, and transmissions.";
+        let id = store::insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "Workshop diagnostics".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: body.into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            blobs.path(),
+        )
+        .unwrap();
+        port.embed(&conn, &id, body).unwrap();
+        let query = PlanIndexQuery {
+            query: "automobile maintenance".into(),
+            kind: None,
+            scope: None,
+            limit: Some(5),
+        };
+
+        assert!(search::run(
+            &conn,
+            &search::SearchQuery {
+                query: query.query.clone(),
+                limit: query.limit,
+                ..Default::default()
+            },
+            blobs.path(),
+        )
+        .unwrap()
+        .is_empty());
+        assert!(port
+            .run_search(&conn, &query, blobs.path())
+            .unwrap()
+            .iter()
+            .any(|hit| hit.id == id));
+    }
+
+    #[test]
+    fn canonical_issue_queries_return_owning_hit_id() {
+        let port = MemSearchPort;
+        let conn = Connection::open_in_memory().unwrap();
+        port.init_schema(&conn).unwrap();
+        let blobs = tempfile::tempdir().unwrap();
+        let add = |title: &str, body: &str| {
+            store::insert(
+                &conn,
+                &NewMemItem {
+                    kind: MemKind::Task,
+                    scope: MemScope::Global,
+                    title: title.into(),
+                    summary: None,
+                    area: None,
+                    tags: vec![],
+                    body: body.into(),
+                    source: None,
+                    importance: 3.0,
+                    source_path: None,
+                    pinned: false,
+                },
+                blobs.path(),
+            )
+            .unwrap()
+        };
+        let owning_id = add(
+            "Owning task",
+            "https://github.com/rollacode/codeterm-releases/issues/18 Dirty-worktree report gate blames a lane for another lane files",
+        );
+        for title in ["rollacode notes", "issues catalog"] {
+            add(title, "Unrelated prose");
+        }
+
+        for query in [
+            "codeterm-releases/issues/18",
+            "rollacode/codeterm-releases#18",
+            "https://github.com/rollacode/codeterm-releases/issues/18",
+            "Dirty-worktree report gate blames a lane for another lane files",
+        ] {
+            let hits = port
+                .run_search(
+                    &conn,
+                    &PlanIndexQuery {
+                        query: query.into(),
+                        kind: None,
+                        scope: None,
+                        limit: Some(1),
+                    },
+                    blobs.path(),
+                )
+                .unwrap();
+            assert_eq!(hits[0].id, owning_id, "query: {query}");
+        }
+    }
+
+    #[test]
+    fn plan_search_kind_filter() {
+        let port = MemSearchPort;
+        let conn = Connection::open_in_memory().unwrap();
+        port.init_schema(&conn).unwrap();
+        let blobs = tempfile::tempdir().unwrap();
+
+        for index in 0..15 {
+            insert_search_item(
+                &conn,
+                blobs.path(),
+                MemKind::Task,
+                MemScope::Global,
+                format!("Searchable task {index}"),
+            );
+        }
+        for index in 0..15 {
+            insert_search_item(
+                &conn,
+                blobs.path(),
+                MemKind::SpecSection,
+                MemScope::Global,
+                format!("Searchable spec section {index}"),
+            );
+        }
+        insert_search_item(
+            &conn,
+            blobs.path(),
+            MemKind::Task,
+            MemScope::Workspace("ws_1".into()),
+            "Workspace task".into(),
+        );
+
+        let unfiltered = port
+            .run_search(
+                &conn,
+                &PlanIndexQuery {
+                    query: "shared backend filtering proof".into(),
+                    kind: None,
+                    scope: None,
+                    limit: Some(40),
+                },
+                blobs.path(),
+            )
+            .unwrap();
+        assert!(unfiltered.iter().any(|hit| hit.kind == "task"));
+        assert!(unfiltered.iter().any(|hit| hit.kind == "spec_section"));
+
+        let hits = port
+            .run_search(
+                &conn,
+                &PlanIndexQuery {
+                    query: "shared backend filtering proof".into(),
+                    kind: Some("task".into()),
+                    scope: None,
+                    limit: Some(10),
+                },
+                blobs.path(),
+            )
+            .unwrap();
+
+        assert_eq!(hits.len(), 10);
+        assert!(hits.iter().all(|hit| hit.kind == "task"));
+
+        let scoped = port
+            .run_search(
+                &conn,
+                &PlanIndexQuery {
+                    query: "shared backend filtering proof".into(),
+                    kind: None,
+                    scope: Some("workspace:ws_1".into()),
+                    limit: Some(10),
+                },
+                blobs.path(),
+            )
+            .unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].scope, "workspace:ws_1");
     }
 }

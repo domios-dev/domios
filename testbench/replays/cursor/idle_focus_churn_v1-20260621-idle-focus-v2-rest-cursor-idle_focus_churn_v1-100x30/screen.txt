@@ -7,7 +7,7 @@ Create a TODO/checklist if your UI supports it, then answer with exactly three s
   • No standard idle signal — terminals rarely expose a reliable “user is idle” event; you
     often infer it from keystrokes, focus, or timers instead.
   • Focus vs. activity diverge — the shell can look idle while the user is reading, thinking,
-    or working in another pane or app.
+    or working in another tab or app.
   • PTY and subprocess noise — background jobs, prompts, and streaming output can keep the
     session “active” even when the user isn’t typing.
   Write idle-notes.md with one sentence, then write one short paragraph in chat explaining         

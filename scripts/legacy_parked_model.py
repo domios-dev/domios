@@ -105,14 +105,14 @@ def clear_lane_assignment(lines: list[str]) -> None:
     if start is None:
         return
     end = block_end(lines, start)
-    pane_index = next(
-        (index for index in range(start + 1, end) if re.match(r"^  pane_id:", lines[index])),
+    tab_index = next(
+        (index for index in range(start + 1, end) if re.match(r"^  tab_id:", lines[index])),
         None,
     )
-    if pane_index is None:
+    if tab_index is None:
         return
-    newline = "\r\n" if lines[pane_index].endswith("\r\n") else "\n"
-    lines[pane_index] = f"  pane_id: null{newline}"
+    newline = "\r\n" if lines[tab_index].endswith("\r\n") else "\n"
+    lines[tab_index] = f"  tab_id: null{newline}"
 
 
 def close_active_attempts(lines: list[str], timestamp_ms: int) -> None:
@@ -150,7 +150,7 @@ def milestone_lines(
     milestone = {
         "id": audit_id,
         "from": {
-            "pane_id": "legacy-state-audit",
+            "tab_id": "legacy-state-audit",
             "session_id": None,
             "title": "Legacy state audit",
         },
@@ -207,7 +207,7 @@ def matching_audit_stride(item: object, pause_reason: str) -> bool:
         and bool(item["id"].strip())
         and source
         == {
-            "pane_id": "legacy-state-audit",
+            "tab_id": "legacy-state-audit",
             "session_id": None,
             "title": "Legacy state audit",
         }
@@ -311,7 +311,7 @@ def prepare_conversion(
         lines[-1] += "\n"
     replace_top_level(lines, "status", "paused")
     set_pause_reason(lines, pause_reason)
-    replace_top_level(lines, "assigned_pane_id", "null")
+    replace_top_level(lines, "assigned_tab_id", "null")
     clear_lane_assignment(lines)
     close_active_attempts(lines, timestamp_ms)
     append_audit_milestone(lines, audit_id, pause_reason, reason, timestamp_ms)
@@ -319,9 +319,9 @@ def prepare_conversion(
     parsed = load_yaml(converted)
     if parsed.get("status") != "paused" or parsed.get("pause_reason") != pause_reason:
         raise ValueError("conversion validation failed")
-    if parsed.get("assigned_pane_id") is not None:
+    if parsed.get("assigned_tab_id") is not None:
         raise ValueError("active assignment was not cleared")
-    if parsed.get("lane", {}).get("pane_id") is not None:
+    if parsed.get("lane", {}).get("tab_id") is not None:
         raise ValueError("active lane assignment was not cleared")
     if any(attempt.get("closed_at") is None for attempt in parsed.get("execution_attempts", [])):
         raise ValueError("active execution attempt was not closed")

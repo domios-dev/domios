@@ -18,20 +18,20 @@ pub trait AttachmentStorePort: Send + Sync {
     fn telegram_allowed_users(&self) -> Vec<String>;
 }
 
-pub trait BridgePanePort: Send + Sync {
-    fn resolve_general_pane(&self) -> Result<String, String>;
-    fn pane_agent_type(&self, pane_id: &str) -> Option<String>;
+pub trait BridgeTabPort: Send + Sync {
+    fn resolve_general_tab(&self) -> Result<String, String>;
+    fn tab_agent_type(&self, tab_id: &str) -> Option<String>;
     fn transcribe_registry(&self) -> Arc<TranscribeRegistry>;
     fn bridge_outbound(&self) -> OutboundSender;
     fn voice_transcribe_config(&self) -> VoiceTranscribeConfig;
     fn text_hooks_config(&self) -> TextHooksConfig;
     fn deliver_inbound(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         prefixed: &str,
         agent_type: Option<&str>,
     ) -> Result<(), String>;
-    fn queue_inbound(&self, pane_id: &str, prefixed: String);
+    fn queue_inbound(&self, tab_id: &str, prefixed: String);
     fn telegram_token(&self) -> Option<String>;
     fn telegram_token_path(&self) -> PathBuf;
 }

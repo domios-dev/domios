@@ -1,11 +1,11 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import type { Task, TaskStatus } from "../types";
 import { CHIP_FIELD_LABELS, pickHighestLaneWarning, type LaneWarningId } from "./laneWatchdogLabels";
 import { middleTruncateSlug } from "./textTruncate";
 
 export type WorkingOnTone = "info" | "amber" | "red" | "grey";
 
-export type WorkingOnChipKind = "model" | "pane" | "peer" | "branch" | "age" | "warn";
+export type WorkingOnChipKind = "model" | "tab" | "peer" | "branch" | "age" | "warn";
 
 export interface WorkingOnChip {
   kind: WorkingOnChipKind;
@@ -20,7 +20,7 @@ export interface WorkingOnRowModel {
 
 const WORKING_STATUSES = new Set<TaskStatus>(["in_progress", "in_review"]);
 const LOCAL_PEERS = new Set(["", "local", "localhost", "self"]);
-const CHIP_ORDER: WorkingOnChipKind[] = ["model", "pane", "peer", "branch", "age", "warn"];
+const CHIP_ORDER: WorkingOnChipKind[] = ["model", "tab", "peer", "branch", "age", "warn"];
 
 const EMPTY_LABELS = new Set(["", "unknown"]);
 
@@ -73,7 +73,7 @@ function sortChips(chips: WorkingOnChip[]): WorkingOnChip[] {
 // Done/paused/pending cards surface branch metadata when present, not duplicate warn chips.
 export function deriveWorkingOnRow(
   task: Task,
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   now: number = Date.now(),
 ): WorkingOnRowModel | null {
   if (!WORKING_STATUSES.has(task.status)) return null;
@@ -85,18 +85,18 @@ export function deriveWorkingOnRow(
   if (model) chips.push(chip("model", "info", model));
 
   const peer = remotePeer(task);
-  const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
-  if (paneId) {
-    const pane = panes[paneId];
-    if (pane) {
-      chips.push(chip("pane", "info", clean(pane.title) ?? shortId(paneId)));
+  const tabId = clean(task.assigned_tab_id) ?? clean(task.lane?.tab_id);
+  if (tabId) {
+    const tab = tabs[tabId];
+    if (tab) {
+      chips.push(chip("tab", "info", clean(tab.title) ?? shortId(tabId)));
     } else if (peer) {
-      chips.push(chip("pane", "grey", shortId(paneId)));
+      chips.push(chip("tab", "grey", shortId(tabId)));
     } else {
-      warnings.push("pane_gone");
+      warnings.push("tab_gone");
     }
   } else {
-    warnings.push("no_pane_recorded");
+    warnings.push("no_tab_recorded");
   }
 
   if (peer) chips.push(chip("peer", "grey", peer));

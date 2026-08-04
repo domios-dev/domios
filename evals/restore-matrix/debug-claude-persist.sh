@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Controlled single-pane probe: measure how long claude takes to persist a
+# Controlled single-tab probe: measure how long claude takes to persist a
 # marker turn to its on-disk JSONL vs. render it on screen. Throwaway debug aid.
 set -u
 set -o pipefail
@@ -18,14 +18,14 @@ echo "== create workspace $WS_NAME"
 WS_ID=$(dc workspace create "$WS_NAME" --cwd "C:/temp/$WS_NAME" --json | python -c "import json,sys;print(json.load(sys.stdin)['id'])")
 echo "ws=$WS_ID"
 
-echo "== spawn claude pane (haiku)"
-PANE=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-1 --model haiku --json | python -c "import json,sys;print(json.load(sys.stdin)['pane_id'])")
-echo "pane=$PANE"
+echo "== spawn claude tab (haiku)"
+TAB=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-1 --model haiku --json | python -c "import json,sys;print(json.load(sys.stdin)['tab_id'])")
+echo "tab=$TAB"
 
 echo "== send marker prompt"
 curl -s --max-time 60 -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" \
   --data "$(python -c "import json,sys;print(json.dumps({'text':'Reply with exactly '+sys.argv[1]+' and nothing else.','enter':True}))" "$MARKER")" \
-  "http://127.0.0.1:7686/api/panes/$PANE/send" > /dev/null
+  "http://127.0.0.1:7686/api/tabs/$TAB/send" > /dev/null
 echo "sent at t=0"
 
 PROJECTS="$HOME/.claude/projects"
@@ -35,7 +35,7 @@ jsonl_hit=""
 for i in $(seq 1 24); do
   t=$((SECONDS - START))
   if [ -z "$screen_hit" ]; then
-    out=$(dc tab get-text --tab "$PANE" 2>/dev/null || true)
+    out=$(dc tab get-text --tab "$TAB" 2>/dev/null || true)
     case "$out" in *"$MARKER"*) screen_hit="$t"; echo "[t=${t}s] SCREEN has marker";; esac
   fi
   if [ -z "$jsonl_hit" ]; then

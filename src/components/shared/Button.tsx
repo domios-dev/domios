@@ -1,5 +1,6 @@
 
 import React from "react";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { BusyState } from "./BusyState";
 
 export type ButtonVariant = "primary" | "ghost" | "accent" | "danger" | "icon";
@@ -38,9 +39,10 @@ export function Button({
   "data-testid": testId,
   ...rest
 }: ButtonProps) {
+  const touchMode = useTouchOptimizedUi();
   const variantCls = VARIANT_CLASS[variant];
   const sizeCls = SIZE_CLASS[size];
-  const cls = [variantCls, sizeCls, className].filter(Boolean).join(" ");
+  const cls = [variantCls, "ct-liquid-interactive", sizeCls, className].filter(Boolean).join(" ");
 
   return (
     <button
@@ -49,6 +51,7 @@ export function Button({
       className={cls}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      data-touch-mode={touchMode ? "true" : undefined}
       data-testid={testId}
     >
       {loading ? (

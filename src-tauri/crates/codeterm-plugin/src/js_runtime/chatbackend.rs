@@ -130,8 +130,8 @@ fn chatbackend_host_exec_env(
     ctx: &serde_json::Value,
 ) -> HashMap<String, String> {
     let mut env = HashMap::new();
-    if let Some(pane_id) = ctx.get("paneId").and_then(|v| v.as_str()) {
-        env.insert("CODETERM_PANE_ID".to_string(), pane_id.to_string());
+    if let Some(tab_id) = ctx.get("tabId").and_then(|v| v.as_str()) {
+        env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
     }
     if let Some(workspace_id) = ctx.get("workspaceId").and_then(|v| v.as_str()) {
         env.insert(
@@ -362,22 +362,22 @@ mod tests {
     }
 
     #[test]
-    fn open_session_forwards_ctx_pane_id() {
-        // A plugin keying its session on paneId must receive the full `{ paneId, config }` envelope, not bare config.
+    fn open_session_forwards_ctx_tab_id() {
+        // A plugin keying its session on tabId must receive the full `{ tabId, config }` envelope, not bare config.
         let vm = vm_with(
             r#"module.exports.default = {
-                openSession(ctx) { return { sessionId: ctx.paneId }; }
+                openSession(ctx) { return { sessionId: ctx.tabId }; }
             }"#,
         );
         let b = JsChatBackend::new(vm, "local-shell");
         let sid = b
-            .open_session(json!({ "paneId": "pane-7", "config": {} }))
+            .open_session(json!({ "tabId": "tab-7", "config": {} }))
             .unwrap();
-        assert_eq!(sid, "pane-7");
+        assert_eq!(sid, "tab-7");
     }
 
     #[test]
-    fn chatbackend_host_exec_env_includes_pane_identity() {
+    fn chatbackend_host_exec_env_includes_tab_identity() {
         let vm = Arc::new(
             PluginVm::from_source(
                 "test-chatbackend-env",
@@ -388,15 +388,15 @@ mod tests {
         let env = chatbackend_host_exec_env(
             &vm,
             &json!({
-                "paneId": "chat-pane",
+                "tabId": "chat-tab",
                 "workspaceId": "ws-1",
                 "config": {}
             }),
         );
 
         assert_eq!(
-            env.get("CODETERM_PANE_ID").map(String::as_str),
-            Some("chat-pane")
+            env.get("CODETERM_TAB_ID").map(String::as_str),
+            Some("chat-tab")
         );
         assert_eq!(
             env.get("CODETERM_WORKSPACE_ID").map(String::as_str),
@@ -406,15 +406,15 @@ mod tests {
     }
 
     #[test]
-    fn send_message_host_exec_sees_chatbackend_pane_identity() {
+    fn send_message_host_exec_sees_chatbackend_tab_identity() {
         let vm = vm_with(
             r#"let last = "";
                module.exports.default = {
                  openSession(ctx) { return { sessionId: "s1" }; },
                  sendMessage(sid, text) {
                    const opts = host.platform() === "windows"
-                     ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_PANE_ID)"] }
-                     : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_PANE_ID\""] };
+                     ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_TAB_ID)"] }
+                     : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_TAB_ID\""] };
                    const out = JSON.parse(host.exec(JSON.stringify(opts)));
                    last = out.stdout || "";
                  },
@@ -423,13 +423,13 @@ mod tests {
         );
         let b = JsChatBackend::new(vm, "local-shell");
         let sid = b
-            .open_session(json!({ "paneId": "chat-pane", "config": {} }))
+            .open_session(json!({ "tabId": "chat-tab", "config": {} }))
             .unwrap();
         b.send_message(&sid, "reply").unwrap();
 
         let msgs = b.poll(&sid, None).unwrap().messages;
 
-        assert_eq!(msgs[0].content, "chat-pane");
+        assert_eq!(msgs[0].content, "chat-tab");
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
                 openSession(ctx) {
                     return {
                         sessionId: [
-                            ctx.paneId,
+                            ctx.tabId,
                             ctx.systemPrompt,
                             ctx.preset,
                             ctx.model
@@ -451,14 +451,14 @@ mod tests {
         let b = JsChatBackend::new(vm, "local-shell");
         let sid = b
             .open_session(json!({
-                "paneId": "pane-7",
+                "tabId": "tab-7",
                 "config": {},
                 "systemPrompt": "You are CodeTerm.",
                 "preset": "codeterm",
                 "model": "qwen"
             }))
             .unwrap();
-        assert_eq!(sid, "pane-7|You are CodeTerm.|codeterm|qwen");
+        assert_eq!(sid, "tab-7|You are CodeTerm.|codeterm|qwen");
     }
 
     #[test]
@@ -618,7 +618,7 @@ mod tests {
             "tick": 3,
             "nowMs": 123456,
             "state": { "round": 2 },
-            "observations": { "panes": ["orch", "worker"] }
+            "observations": { "tabs": ["orch", "worker"] }
         });
 
         b.watcher_tick("watch-1", input.clone()).unwrap();

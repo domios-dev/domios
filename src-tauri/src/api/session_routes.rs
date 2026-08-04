@@ -36,7 +36,7 @@ pub(crate) struct SearchSessionsQuery {
 
 /// Cross-provider session search: walks every registered `AgentProvider`,
 /// collects past sessions from disk, and returns matches ranked by recency.
-/// Each hit carries its `provider` so callers can route a "resume in new pane"
+/// Each hit carries its `provider` so callers can route a "resume in new Tab"
 /// action to the correct launcher.
 pub async fn search_sessions_api(
     AxumState(state): AxumState<AppState>,
@@ -135,19 +135,15 @@ pub async fn resume_session_api(
     // both spawn.
     {
         let mux = state.svc.mux.write();
-        let existing_pane = mux.pane_ids_with_session(&session_id).into_iter().next();
-        if let Some(pane_id) = existing_pane {
+        let existing_tab = mux.tab_ids_with_session(&session_id).into_iter().next();
+        if let Some(tab_id) = existing_tab {
             let snap = mux.snapshot();
-            let (ws_id, tab_id) = snap
+            let ws_id = snap
                 .workspaces
                 .iter()
-                .find_map(|w| {
-                    let tab = w.tabs.iter().find(|t| t.pane_id == pane_id)?;
-                    Some((w.id.clone(), tab.id.clone()))
-                })
+                .find_map(|w| w.tabs.contains(&tab_id).then(|| w.id.clone()))
                 .unwrap_or_default();
             return Ok(Json(serde_json::json!({
-                "pane_id": pane_id,
                 "tab_id": tab_id,
                 "workspace_id": ws_id,
                 "provider": meta.provider,
@@ -217,21 +213,22 @@ pub async fn resume_session_api(
         description: None,
         role: None,
         role_profile: None,
-        parent_pane_id: None,
+        parent_tab_id: None,
         plan_id: None,
         can_spawn: None,
         task: None,
-        starter_prompt: Default::default(),
+        starter_prompt: crate::service::starter_prompt_for_role(None),
         task_id: None,
+        task_launch_authority: None,
         plan_task: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
         existing_tab_id: None,
         skip_orchestrator_onboarding: None,
-        report_target_pane_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: Some(true),
-        spawned_by_pane_id: None,
+        spawned_by_tab_id: None,
         model: body.model.clone(),
         planned_model: None,
         reasoning_effort: None,
@@ -243,6 +240,7 @@ pub async fn resume_session_api(
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
     };
@@ -253,11 +251,10 @@ pub async fn resume_session_api(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     state
         .svc
-        .set_and_lock_pane_agent_type(&spawned.pane_id, meta.provider.clone());
+        .set_and_lock_tab_agent_type(&spawned.tab_id, meta.provider.clone());
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({
-        "pane_id": spawned.pane_id,
         "tab_id": spawned.tab_id,
         "workspace_id": ws_id,
         "provider": meta.provider,

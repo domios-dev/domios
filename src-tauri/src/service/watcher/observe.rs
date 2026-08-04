@@ -7,9 +7,9 @@ use serde_json::{json, Value};
 
 use crate::agent::chat_types::ChatMsg;
 use crate::agent::reports::AgentReport;
-use crate::agent::status::PaneStatus;
+use crate::agent::status::TabStatus;
 use crate::multiplexer::state::MultiplexerSnapshot;
-use crate::multiplexer::types::{AgentRole, Pane};
+use crate::multiplexer::types::{AgentRole, Tab};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservationConfig {
@@ -42,7 +42,7 @@ pub fn observation_config_from_json(v: &Value) -> ObservationConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchGroup {
     pub orchestrator_id: String,
-    pub pane_ids: Vec<String>,
+    pub tab_ids: Vec<String>,
 }
 
 /// External reads performed after the mux snapshot is dropped.
@@ -53,8 +53,8 @@ pub struct ObservationSources<'a> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct PaneObservation {
-    pane_id: String,
+struct TabObservation {
+    tab_id: String,
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<String>,
@@ -67,26 +67,26 @@ struct PaneObservation {
     chat_tail: Option<Vec<Value>>,
 }
 
-pub fn is_manager_watcher(pane: &Pane) -> bool {
-    pane.role == Some(AgentRole::Manager)
-        && pane
+pub fn is_manager_watcher(tab: &Tab) -> bool {
+    tab.role == Some(AgentRole::Manager)
+        && tab
             .role_profile
             .as_deref()
             .is_some_and(|p| p.eq_ignore_ascii_case("watcher"))
 }
 
-pub fn resolve_orchestrator_id(snapshot: &MultiplexerSnapshot, pane_id: &str) -> Option<String> {
-    let mut current = pane_id.to_string();
+pub fn resolve_orchestrator_id(snapshot: &MultiplexerSnapshot, tab_id: &str) -> Option<String> {
+    let mut current = tab_id.to_string();
     let mut seen = HashSet::new();
     loop {
         if !seen.insert(current.clone()) {
             return None;
         }
-        let pane = snapshot.panes.get(&current)?;
-        if pane.role == Some(AgentRole::Orchestrator) {
+        let tab = snapshot.tabs.get(&current)?;
+        if tab.role == Some(AgentRole::Orchestrator) {
             return Some(current);
         }
-        current = pane.parent_pane_id.clone()?;
+        current = tab.parent_tab_id.clone()?;
     }
 }
 
@@ -95,8 +95,8 @@ fn descendant_ids(snapshot: &MultiplexerSnapshot, root: &str) -> HashSet<String>
     group.insert(root.to_string());
     let mut queue = vec![root.to_string()];
     while let Some(id) = queue.pop() {
-        for (pid, pane) in &snapshot.panes {
-            if pane.parent_pane_id.as_deref() == Some(id.as_str()) && group.insert(pid.clone()) {
+        for (pid, tab) in &snapshot.tabs {
+            if tab.parent_tab_id.as_deref() == Some(id.as_str()) && group.insert(pid.clone()) {
                 queue.push(pid.clone());
             }
         }
@@ -106,40 +106,40 @@ fn descendant_ids(snapshot: &MultiplexerSnapshot, root: &str) -> HashSet<String>
 
 pub fn collect_watch_group(
     snapshot: &MultiplexerSnapshot,
-    watcher_pane_id: &str,
+    watcher_tab_id: &str,
 ) -> Result<WatchGroup, String> {
     snapshot
-        .panes
-        .get(watcher_pane_id)
-        .ok_or_else(|| format!("pane not found: {watcher_pane_id}"))?;
-    let orchestrator_id = resolve_orchestrator_id(snapshot, watcher_pane_id)
+        .tabs
+        .get(watcher_tab_id)
+        .ok_or_else(|| format!("Tab not found: {watcher_tab_id}"))?;
+    let orchestrator_id = resolve_orchestrator_id(snapshot, watcher_tab_id)
         .ok_or_else(|| "could not resolve orchestrator from parent chain".to_string())?;
-    let mut pane_ids: Vec<String> = descendant_ids(snapshot, &orchestrator_id)
+    let mut tab_ids: Vec<String> = descendant_ids(snapshot, &orchestrator_id)
         .into_iter()
-        .filter(|pid| pid != watcher_pane_id)
+        .filter(|pid| pid != watcher_tab_id)
         .filter(|pid| {
             snapshot
-                .panes
+                .tabs
                 .get(pid)
                 .is_none_or(|p| !is_manager_watcher(p))
         })
         .collect();
-    pane_ids.sort();
+    tab_ids.sort();
     Ok(WatchGroup {
         orchestrator_id,
-        pane_ids,
+        tab_ids,
     })
 }
 
-fn pane_status_label(snapshot: &MultiplexerSnapshot, pane_id: &str) -> String {
+fn tab_status_label(snapshot: &MultiplexerSnapshot, tab_id: &str) -> String {
     snapshot
-        .pane_statuses
-        .get(pane_id)
+        .tab_statuses
+        .get(tab_id)
         .map(|s| match s {
-            PaneStatus::Working => "Working",
-            PaneStatus::Waiting => "Waiting",
-            PaneStatus::Idle => "Idle",
-            PaneStatus::Dead => "Dead",
+            TabStatus::Working => "Working",
+            TabStatus::Waiting => "Waiting",
+            TabStatus::Idle => "Idle",
+            TabStatus::Dead => "Dead",
         })
         .unwrap_or("Unknown")
         .to_string()
@@ -172,7 +172,7 @@ fn reports_to_json(reports: &[AgentReport]) -> Vec<Value> {
         .map(|r| {
             json!({
                 "id": r.id,
-                "from_pane_id": r.from_pane_id,
+                "from_tab_id": r.from_tab_id,
                 "from_title": r.from_title,
                 "message": r.message,
                 "timestamp": r.timestamp,
@@ -184,11 +184,11 @@ fn reports_to_json(reports: &[AgentReport]) -> Vec<Value> {
 
 pub fn build_observation(
     snapshot: &MultiplexerSnapshot,
-    watcher_pane_id: &str,
+    watcher_tab_id: &str,
     config: &ObservationConfig,
     sources: &ObservationSources<'_>,
 ) -> Value {
-    let group = match collect_watch_group(snapshot, watcher_pane_id) {
+    let group = match collect_watch_group(snapshot, watcher_tab_id) {
         Ok(g) => g,
         Err(e) => {
             return json!({ "error": e });
@@ -200,33 +200,33 @@ pub fn build_observation(
     });
 
     if config.orchestration {
-        let panes: Vec<PaneObservation> = group
-            .pane_ids
+        let tabs: Vec<TabObservation> = group
+            .tab_ids
             .iter()
-            .filter_map(|pid| snapshot.panes.get(pid))
-            .map(|pane| {
+            .filter_map(|pid| snapshot.tabs.get(pid))
+            .map(|tab| {
                 let chat_tail = if config.chat_tail > 0 {
-                    let msgs = (sources.chat_tail)(&pane.id, config.chat_tail);
+                    let msgs = (sources.chat_tail)(&tab.id, config.chat_tail);
                     Some(chat_msgs_to_json(&msgs))
                 } else {
                     None
                 };
-                PaneObservation {
-                    pane_id: pane.id.clone(),
-                    title: pane.title.clone(),
-                    role: role_label(pane.role),
-                    role_profile: pane.role_profile.clone(),
-                    status: pane_status_label(snapshot, &pane.id),
+                TabObservation {
+                    tab_id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    role: role_label(tab.role),
+                    role_profile: tab.role_profile.clone(),
+                    status: tab_status_label(snapshot, &tab.id),
                     last_activity_ms: sources
                         .last_activity_ms
-                        .get(&pane.id)
+                        .get(&tab.id)
                         .copied()
                         .filter(|ms| *ms > 0),
                     chat_tail,
                 }
             })
             .collect();
-        out["panes"] = serde_json::to_value(panes).unwrap_or(Value::Array(vec![]));
+        out["tabs"] = serde_json::to_value(tabs).unwrap_or(Value::Array(vec![]));
     }
 
     if config.reports {

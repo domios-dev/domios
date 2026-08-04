@@ -173,6 +173,67 @@ fn resize_keeps_cursor_geometry_in_sync_with_the_pty() {
 }
 
 #[test]
+fn primary_screen_hidden_inverse_composer_frame_exposes_structural_caret() {
+    const CAPTURED_FRAME: &str = concat!(
+        "\x1b[2J",
+        "\x1b[11;3HCursor Agent",
+        "\x1b[18;2H\x1b[48;2;21;21;21m",
+        "\x1b[2m→ \x1b[22;7mP\x1b[2;27mlan, search, build anything\x1b[22m",
+        "\x1b[21;3HAuto",
+        "\x1b[22;3HD:\\Developer\\codeterm · release-1.7.8",
+        "\x1b[?25l\x1b[23;1H",
+    );
+    let mut ss = ScreenState::new();
+    ss.resize("cursor", 120, 40);
+    ss.process("cursor", CAPTURED_FRAME.as_bytes());
+
+    let input = ss.composer_input_state("cursor").unwrap();
+    assert!(!input.alternate_screen);
+    assert!(!input.cursor_visible);
+    assert_eq!(input.cursor_row, 22);
+    assert_eq!(input.rows, 40);
+    assert_eq!(input.cols, 120);
+    assert_eq!(input.inverse_caret_row, Some(17));
+    assert_eq!(input.nonblank_inverse_cells, 1);
+    assert_eq!(input.sole_nonblank_inverse_row, Some(17));
+    assert_eq!(input.last_nonblank_row, Some(21));
+}
+
+#[test]
+fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
+    let mut selection = ScreenState::new();
+    selection.resize("selection", 120, 23);
+    selection.process(
+        "selection",
+        b"\x1b[?1049h\x1b[18;2H\x1b[7mAB\x1b[27m\x1b[?25l",
+    );
+    let selection = selection.composer_input_state("selection").unwrap();
+    assert_eq!(selection.inverse_caret_row, None);
+    assert_eq!(selection.nonblank_inverse_cells, 2);
+    assert_eq!(selection.sole_nonblank_inverse_row, None);
+
+    let mut visible_cursor = ScreenState::new();
+    visible_cursor.resize("visible", 120, 23);
+    visible_cursor.process("visible", b"\x1b[?1049h\x1b[18;2H\x1b[7mP\x1b[27m\x1b[?25h");
+    let visible_cursor = visible_cursor.composer_input_state("visible").unwrap();
+    assert_eq!(visible_cursor.inverse_caret_row, None);
+    assert_eq!(visible_cursor.nonblank_inverse_cells, 1);
+    assert_eq!(visible_cursor.sole_nonblank_inverse_row, Some(17));
+}
+
+#[test]
+fn frame_without_inverse_cells_has_no_structural_caret() {
+    let mut state = ScreenState::new();
+    state.resize("plain", 120, 40);
+    state.process("plain", b"\x1b[2J\x1b[18;2HPlan, search, build anything\x1b[?25l");
+
+    let input = state.composer_input_state("plain").unwrap();
+    assert_eq!(input.nonblank_inverse_cells, 0);
+    assert_eq!(input.sole_nonblank_inverse_row, None);
+    assert_eq!(input.inverse_caret_row, None);
+}
+
+#[test]
 fn test_remove_cleans_up() {
     let mut ss = ScreenState::new();
     ss.process("pty1", b"data");
@@ -537,4 +598,16 @@ fn old_generation_cannot_remove_replacement_screen() {
     assert!(state.get_screen_text("pty1").is_some());
     assert!(state.remove_if_generation("pty1", 2));
     assert!(state.get_screen_text("pty1").is_none());
+}
+
+#[test]
+fn bracketed_paste_mode_tracks_the_live_terminal_mode() {
+    let mut state = ScreenState::new();
+    assert_eq!(state.bracketed_paste_mode("pty1"), None);
+
+    state.process("pty1", b"\x1b[?2004h");
+    assert_eq!(state.bracketed_paste_mode("pty1"), Some(true));
+
+    state.process("pty1", b"\x1b[?2004l");
+    assert_eq!(state.bracketed_paste_mode("pty1"), Some(false));
 }

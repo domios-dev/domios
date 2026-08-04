@@ -3,7 +3,7 @@
 
 export type BusyLabelKey =
   | "generic"
-  | "paneBoot"
+  | "tabBoot"
   | "chatPending"
   | "planLoad"
   | "planReconnect"
@@ -17,7 +17,7 @@ type BusyLabelMap = Record<BusyLabelKey, string>;
 
 const en: BusyLabelMap = {
   generic: "Working",
-  paneBoot: "Starting session",
+  tabBoot: "Starting session",
   chatPending: "Thinking",
   planLoad: "Loading plan",
   planReconnect: "Reconnecting",

@@ -49,10 +49,10 @@ test("renders strip rows with stable test ids", async () => {
   const plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "t1", status: TaskStatus.InProgress, assigned_pane_id: "p1", updated_at: 100 },
+      { ...FIXTURE_TASK, id: "t1", status: TaskStatus.InProgress, assigned_tab_id: "p1", updated_at: 100 },
     ],
   };
-  const snapshot = selectActiveWork([plan], { p1: { id: "p1", pty_id: null, pane_type: "Terminal", title: "Worker", cwd: null } as never }, 200);
+  const snapshot = selectActiveWork([plan], { p1: { id: "p1", pty_id: null, tab_type: "Terminal", title: "Worker", cwd: null } as never }, 200);
   let opened = "";
   const { host, unmount } = await render(
     <ActiveWorkStrip entries={snapshot.entries} onOpenTask={(e) => { opened = e.task.id; }} />,

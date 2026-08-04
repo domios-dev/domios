@@ -11,16 +11,15 @@ use std::time::Instant;
 use super::ServiceContext;
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
-use crate::agent::status::PaneStatus;
+use crate::agent::status::TabStatus;
 
-/// Per-pane notification cooldown: (pane_id, event_kind) → last fire time.
+/// Per-tab notification cooldown: (tab_id, event_kind) → last fire time.
 /// Prevents notification spam from TUI redraws (same event every chunk).
 static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-/// Per-pane throttle for post-launch session-id detection (cursor and any other
-/// hookless, non-injecting provider). Detection is on-disk fs work; once per
-/// second per pane is plenty during the brief window before the id is found.
+/// Per-tab throttle for hookless, file-backed session-id detection.
+/// Structured sessions require authoritative provider binding.
 static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
@@ -52,43 +51,49 @@ impl ServiceContext {
     }
 
     fn force_agent_idle_for_pty(&self, pty_id: &str) {
-        let pane_id = self.mux.read().pane_id_for_pty(pty_id);
-        if let Some(pane_id) = pane_id {
-            self.force_agent_idle_for_pane(&pane_id);
+        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
+        if let Some(tab_id) = tab_id {
+            self.force_agent_idle_for_tab(&tab_id);
         }
     }
 
-    fn force_agent_idle_for_pane(&self, pane_id: &str) {
-        use crate::agent::offline_state_classifier::{AgentLiveState, PaneVerdict, TimelineState};
+    fn force_agent_idle_for_tab(&self, tab_id: &str) {
+        use crate::agent::offline_state_classifier::{AgentLiveState, TabVerdict, TimelineState};
 
-        let idle_state: AgentLiveState = PaneVerdict {
+        let idle_state: AgentLiveState = TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         }
         .into();
-        let changed = {
+        let (changed, cleared) = {
             let mut mux = self.mux.write();
-            match mux.get_pane_mut(pane_id) {
-                Some(pane) if pane.agent_type.is_some() => {
-                    let changed = pane.agent_state.as_ref() != Some(&idle_state)
-                        || pane.pending_prompt.is_some();
-                    pane.agent_state = Some(idle_state);
-                    pane.pending_prompt = None;
-                    changed
+            match mux.get_tab_mut(tab_id) {
+                Some(tab) if tab.agent_type.is_some() => {
+                    let changed = tab.agent_state.as_ref() != Some(&idle_state)
+                        || tab.pending_prompt.is_some();
+                    tab.agent_state = Some(idle_state);
+                    let cleared = tab.pending_prompt.take().and_then(|old| {
+                        Some((tab.agent_session_id.clone()?, old.question))
+                    });
+                    (changed, cleared)
                 }
-                _ => false,
+                _ => (false, None),
             }
         };
+        if let Some((session_id, question)) = cleared {
+            self.resolve_agent_input_request_notification(tab_id, &session_id, &question);
+        }
         if changed {
             self.emit_state_changed();
-            self.schedule_planner_replay(&pane_id);
+            self.schedule_planner_replay(&tab_id);
+            self.release_deferred_agent_ready(tab_id);
             self.heal_recovery_state_if_ready();
         }
     }
 
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
-    pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
+    pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
         // Dev capture tap — single relaxed atomic load when idle, no lock held here.
         crate::pty::capture::CaptureRegistry::global().tap_output(pty_id, data);
 
@@ -103,53 +108,30 @@ impl ServiceContext {
             );
         }
 
-        // Single read lock captures all pane data needed for this chunk.
-        // Concurrent PTY handlers for different panes can read in parallel.
+        // Single read lock captures all tab data needed for this chunk.
+        // Concurrent PTY handlers for different tabs can read in parallel.
         let (
-            pane_id,
+            tab_id,
             agent_type,
-            in_grace_cached,
-            locked_cached,
             has_active_prompt,
             is_auto_approve,
             shell_nonce,
-            pane_cwd,
+            tab_cwd,
             agent_session_id,
-            is_planner,
-            observed_boot_stage,
         ) = {
             let mux = self.mux.read();
-            let pid = mux.pane_id_for_pty(pty_id);
-            let pane = pid.as_ref().and_then(|id| mux.get_pane(id));
-            let at = pane.and_then(|p| p.agent_type.clone());
-            let grace = pane
-                .and_then(|p| p.agent_set_at)
-                .map(|t| t.elapsed().as_secs() < 30)
-                .unwrap_or(false);
-            let locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
-            let active_prompt = pane.and_then(|p| p.pending_prompt.as_ref()).is_some();
-            let auto_approve = pane.map(|p| p.auto_approve).unwrap_or(false);
-            let nonce = pane.and_then(|p| p.shell_integration_nonce.clone());
-            let cwd = pane.and_then(|p| p.cwd.clone());
-            let sid = pane.and_then(|p| p.agent_session_id.clone());
-            let planner = pane.is_some_and(|p| p.role_profile.as_deref() == Some("planner"));
-            let boot_stage = pane.and_then(|p| p.boot_stage);
-            (
-                pid,
-                at,
-                grace,
-                locked,
-                active_prompt,
-                auto_approve,
-                nonce,
-                cwd,
-                sid,
-                planner,
-                boot_stage,
-            )
+            let pid = mux.tab_id_for_pty(pty_id);
+            let tab = pid.as_ref().and_then(|id| mux.get_tab(id));
+            let at = tab.and_then(|p| p.agent_type.clone());
+            let active_prompt = tab.and_then(|p| p.pending_prompt.as_ref()).is_some();
+            let auto_approve = tab.map(|p| p.auto_approve).unwrap_or(false);
+            let nonce = tab.and_then(|p| p.shell_integration_nonce.clone());
+            let cwd = tab.and_then(|p| p.cwd.clone());
+            let sid = tab.and_then(|p| p.agent_session_id.clone());
+            (pid, at, active_prompt, auto_approve, nonce, cwd, sid)
         };
 
-        self.process_shell_markers(pty_id, pane_id.as_deref(), shell_nonce, data);
+        self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
 
         let exclude_rows = agent_type
             .as_deref()
@@ -167,7 +149,7 @@ impl ServiceContext {
             (prev, changed)
         };
         if screen_changed {
-            if let Some(ref pid) = pane_id {
+            if let Some(ref pid) = tab_id {
                 self.usage_activity.mark(pid);
             }
         }
@@ -181,103 +163,40 @@ impl ServiceContext {
             );
             // A settled turn is the event that means the provider log grew; the pass
             // itself runs on the ledger thread, never here.
-            if let Some(ref pid) = pane_id {
+            if let Some(ref pid) = tab_id {
                 self.request_kpi_usage_ingest(pid);
             }
         }
-        let previous_reconciled_status = pane_id
+        let previous_reconciled_status = tab_id
             .as_deref()
-            .map(|pid| self.reconciled_pane_status_for_id(pid, prev_status))
+            .map(|pid| self.reconciled_tab_status_for_id(pid, prev_status))
             .unwrap_or(prev_status);
 
-        // agent_type is intentional: explicit spawn paths set it directly.
-        // Output parsing no longer infers identity except the narrow shell-prompt exit path.
-        let agent_type = if agent_type.is_none() {
-            None
-        } else if let Some(ref pid) = pane_id {
-            if should_check_agent_exit(is_planner, screen_changed) {
-                // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
-                // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
-                if in_grace_cached || (locked_cached && !is_planner) {
-                    agent_type
-                } else if !super::boot_stage::allows_shell_prompt_exit(observed_boot_stage) {
-                    if let Some(pane) = self.mux.write().get_pane_mut(pid) {
-                        pane.exit_suspected_at = None;
-                    }
-                    self.rearm_authenticated_agent_input(pid);
-                    agent_type
-                } else {
-                    let screen = self
-                        .screen_state
-                        .lock()
-                        .get_screen_text(pty_id)
-                        .unwrap_or_default();
-                    let suspected_exit = !screen.is_empty()
-                        && self.agent_registry.detect_from_output(&screen).is_none()
-                        && screen_ends_in_shell_prompt(&screen);
-                    if suspected_exit {
-                        self.invalidate_guarded_agent_input(pid);
-                        let confirmed = {
-                            let mut mux = self.mux.write();
-                            match mux.get_pane_mut(pid) {
-                                Some(pane) => {
-                                    let (clear, next) = if is_planner {
-                                        (true, None)
-                                    } else {
-                                        exit_debounce(
-                                            pane.exit_suspected_at,
-                                            std::time::Instant::now(),
-                                            std::time::Duration::from_secs(2),
-                                        )
-                                    };
-                                    pane.exit_suspected_at = next;
-                                    clear
-                                }
-                                None => false,
-                            }
-                        };
-                        if confirmed {
-                            log::info!(
-                                "[output] agent exited in pane {} (shell prompt persisted)",
-                                pid
-                            );
-                            self.set_pane_agent_type(pid, None);
-                            self.prompt_detector.lock().clear(pid);
-                            crate::service::structured_prompt::clear_pane(pid);
-                            {
-                                let mut mux = self.mux.write();
-                                if let Some(pane) = mux.get_pane_mut(pid) {
-                                    pane.pending_prompt = None;
-                                }
-                            }
-                            self.emit_state_changed();
-                            None
-                        } else {
-                            agent_type
-                        }
-                    } else {
-                        // Agent markers present (or no shell prompt) — still alive; clear suspicion.
-                        if let Some(pane) = self.mux.write().get_pane_mut(pid) {
-                            pane.exit_suspected_at = None;
-                        }
-                        self.rearm_authenticated_agent_input(pid);
-                        agent_type
-                    }
-                }
-            } else {
-                agent_type
+        if agent_type.is_some() && screen_changed {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            let has_agent_markers = self.agent_registry.detect_from_output(&screen).is_some();
+            if matches!(
+                decide_agent_output_lifecycle(&screen, has_agent_markers),
+                AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
+            ) {
+                log::debug!(
+                    "[output] shell-looking marker-less frame in Tab {}; lifecycle unchanged",
+                    tab_id.as_deref().unwrap_or("unknown"),
+                );
             }
-        } else {
-            agent_type
-        };
+        }
 
-        if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
+        if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
-                // auto_approve panes (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
+                // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let check_screen = has_markers || has_active_prompt || is_auto_approve;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
@@ -292,13 +211,20 @@ impl ServiceContext {
                     self.structured_pending_prompt(
                         pid,
                         at,
-                        pane_cwd.as_deref(),
+                        tab_cwd.as_deref(),
                         agent_session_id.as_deref(),
                     )
                 } else {
                     None
                 };
-                let parsed = structured;
+                // Structured handles (SSE/API) win; the native attributed-grid detector
+                // is the PTY fallback. Tier order + chrome/prose negatives: native_prompt tests.
+                let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+                    crate::agent::native_prompt::resolve_pending_prompt(
+                        structured,
+                        native_prompt_input.as_ref(),
+                    )
+                });
                 let prompt_signal = parsed.is_some();
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
@@ -335,9 +261,9 @@ impl ServiceContext {
             self.run_watcher.complete_via_semantic_idle(self, pty_id);
         }
 
-        let current_reconciled_status = pane_id
+        let current_reconciled_status = tab_id
             .as_deref()
-            .map(|pid| self.reconciled_pane_status_for_id(pid, current_status))
+            .map(|pid| self.reconciled_tab_status_for_id(pid, current_status))
             .unwrap_or(current_status);
         (previous_reconciled_status, current_reconciled_status)
     }
@@ -350,14 +276,14 @@ impl ServiceContext {
     ///   event into the structured-prompt store — an in-memory read, cheap, no
     ///   throttle.
     /// - PULL (claude): read the session JSONL tail for the live AskUserQuestion.
-    ///   Bounded + throttled per pane so the file read stays off the per-chunk
+    ///   Bounded + throttled per tab so the file read stays off the per-chunk
     ///   hot path.
     ///
     /// Returns `None` when the provider has no structured handle or no prompt is
     /// active; the caller then falls back to the native PTY detector.
     fn structured_pending_prompt(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         agent_type: &str,
         _cwd: Option<&str>,
         _session_id: Option<&str>,
@@ -369,47 +295,47 @@ impl ServiceContext {
         {
             return None;
         }
-        crate::service::structured_prompt::pending_for_pane(pane_id)
+        crate::service::structured_prompt::pending_for_tab(tab_id)
     }
 
-    /// Recompute and store the pane's live 3-state classification, then emit if
+    /// Recompute and store the tab's live 3-state classification, then emit if
     /// it changed. Output-driven (here) and timer-driven (the live-state poller)
-    /// both call this. Reuses the per-pane `ScreenState` parser (no second vt100)
+    /// both call this. Reuses the per-tab `ScreenState` parser (no second vt100)
     /// and the already-surfaced `pending_prompt` for the picker question, so the
     /// live path never re-parses the picker. Locks in CLAUDE.md order, each
     /// scoped and dropped before the next; nothing held across the emit.
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
         use crate::agent::offline_state_classifier::{
-            classify_state, extract_completion_summary, extract_status_line, AgentLiveState,
-            ClassifyInput, PaneVerdict, TimelineState,
+            classify_state, extract_completion_summary, extract_question_message,
+            extract_status_line, AgentLiveState, ClassifyInput, TabVerdict, TimelineState,
         };
         use crate::agent::signal_extractor::Motion;
 
-        // mux (1): the pane's identity + agent gate + picker question + previous.
-        let (pane_id, prompt_question, previous) = {
+        // mux (1): the tab's identity + agent gate + picker question + previous.
+        let (tab_id, prompt_question, previous) = {
             let mux = self.mux.read();
-            let Some(pane_id) = mux.pane_id_for_pty(pty_id) else {
+            let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
                 return;
             };
-            let Some(pane) = mux.get_pane(&pane_id) else {
+            let Some(tab) = mux.get_tab(&tab_id) else {
                 return;
             };
-            if pane.agent_type.is_none() {
+            if tab.agent_type.is_none() {
                 return;
             }
-            let prompt_question = pane.pending_prompt.as_ref().map(|p| p.question.clone());
-            let previous = pane
+            let prompt_question = tab.pending_prompt.as_ref().map(|p| p.question.clone());
+            let previous = tab
                 .agent_state
                 .clone()
-                .map(PaneVerdict::from)
-                .unwrap_or(PaneVerdict {
+                .map(TabVerdict::from)
+                .unwrap_or(TabVerdict {
                     state: TimelineState::Idle,
                     subtype: None,
                 });
-            (pane_id, prompt_question, previous)
+            (tab_id, prompt_question, previous)
         };
         if Self::is_agent_stop_suppressed(pty_id) {
-            self.force_agent_idle_for_pane(&pane_id);
+            self.force_agent_idle_for_tab(&tab_id);
             return;
         }
 
@@ -473,15 +399,19 @@ impl ServiceContext {
                     new_state.last_turn_summary = Some(summary.line);
                 }
             }
-            TimelineState::Question => {}
+            TimelineState::Question => {
+                new_state.question = prompt_question
+                    .clone()
+                    .or_else(|| extract_question_message(&lines, new_state.subtype));
+            }
         }
 
         // mux (1): store if changed.
         let changed = {
             let mut mux = self.mux.write();
-            match mux.get_pane_mut(&pane_id) {
-                Some(pane) if pane.agent_state.as_ref() != Some(&new_state) => {
-                    pane.agent_state = Some(new_state);
+            match mux.get_tab_mut(&tab_id) {
+                Some(tab) if tab.agent_state.as_ref() != Some(&new_state) => {
+                    tab.agent_state = Some(new_state);
                     true
                 }
                 _ => false,
@@ -489,20 +419,24 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed();
-            self.schedule_planner_replay(&pane_id);
+            self.maybe_publish_input_request(&tab_id);
+            self.schedule_planner_replay(&tab_id);
             if became_idle {
-                self.complete_worker_turn_without_report(&pane_id, "idle-transition");
+                self.complete_worker_turn_without_report(
+                    &tab_id,
+                    crate::service::hierarchy::WorkerTurnSignal::IdleTransition,
+                );
             }
         }
     }
 
-    /// Feed a raw chunk into the pane's shell-integration accumulators and emit
+    /// Feed a raw chunk into the tab's shell-integration accumulators and emit
     /// command-lifecycle changes on the unified frontend event path (same
-    /// `emit_everywhere` channel `pane-status-changed` uses). OSC4 renders these.
+    /// `emit_everywhere` channel `tab-status-changed` uses). OSC4 renders these.
     fn process_shell_markers(
         &self,
         pty_id: &str,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         nonce: Option<String>,
         data: &[u8],
     ) {
@@ -511,41 +445,29 @@ impl ServiceContext {
             return;
         }
         // nothing to surface to a chat view yet.
-        let Some(pane_id) = pane_id else {
+        let Some(tab_id) = tab_id else {
             return;
         };
         for event in &events {
             crate::api::events::emit_everywhere(
                 &self.app_handle,
                 "shell-command-changed",
-                serde_json::json!({ "pane_id": pane_id, "event": event }),
+                serde_json::json!({ "tab_id": tab_id, "event": event }),
             );
         }
     }
 
-    /// Post-launch session-id detection for providers that report their session
-    /// neither by hook nor by launch injection (cursor). claude/codex hook their
-    /// id in; injecting providers get a pre-generated id at spawn. A pure-detect
-    /// provider's id only exists once the agent writes its on-disk session, so we
-    /// poll the provider's `detect_session_id` here (where the agent is already
-    /// detected from output) until it resolves, then pin it — otherwise
-    /// `chat_start` stays "pending" forever and the chat view renders empty even
-    /// though the TUI works.
-    ///
-    /// Once bound, ownership stays pinned to this pane. Session replacement must
-    /// arrive through an explicit provider event, never a cwd-wide disk heuristic.
-    fn maybe_detect_agent_session(&self, pane_id: &str, agent_type: &str) {
+    /// Post-launch detection is limited to hookless, file-backed providers.
+    /// Structured sessions require authoritative per-launch provider binding.
+    fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
         let (cwd, set_at_elapsed, current_session) = {
             let mux = self.mux.read();
-            let Some(pane) = mux.get_pane(pane_id) else {
+            let Some(tab) = mux.get_tab(tab_id) else {
                 return;
             };
-            let cwd = pane.cwd.clone().unwrap_or_default();
-            let elapsed = pane
-                .agent_set_at
-                .map(|t| t.elapsed().as_secs())
-                .unwrap_or(0);
-            let sid = pane.agent_session_id.clone();
+            let cwd = tab.cwd.clone().unwrap_or_default();
+            let elapsed = tab.agent_set_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+            let sid = tab.agent_session_id.clone();
             (cwd, elapsed, sid)
         };
         if !should_detect_unbound_session(current_session.as_deref()) {
@@ -561,25 +483,25 @@ impl ServiceContext {
                     p.session_id_injection(),
                     crate::agent::provider::SessionIdInjection::None
                 );
-                inj && (!p.has_hooks() || p.uses_structured_chat())
+                should_heuristically_detect_session(inj, p.has_hooks(), p.uses_structured_chat())
             })
             .unwrap_or(false);
         if !needs {
             return;
         }
-        // Throttle: at most once per second per pane.
+        // Throttle: at most once per second per tab.
         {
             let mut cd = SESSION_DETECT_COOLDOWN.lock().unwrap();
             let now = Instant::now();
-            if let Some(last) = cd.get(pane_id) {
+            if let Some(last) = cd.get(tab_id) {
                 if now.duration_since(*last) < std::time::Duration::from_secs(1) {
                     return;
                 }
             }
-            cd.insert(pane_id.to_string(), now);
+            cd.insert(tab_id.to_string(), now);
         }
 
-        let exclude = self.mux.read().other_session_ids(pane_id);
+        let exclude = self.mux.read().other_session_ids(tab_id);
         let max_age = std::time::Duration::from_secs(set_at_elapsed + 30);
         let found = self
             .agent_registry
@@ -589,12 +511,12 @@ impl ServiceContext {
             .flatten();
         if let Some(sid) = found {
             log::info!(
-                "[output] post-launch detected {} session {} for pane {}",
+                "[output] post-launch detected {} session {} for Tab {}",
                 agent_type,
                 sid,
-                pane_id
+                tab_id
             );
-            self.set_agent_session_id(pane_id, Some(sid));
+            self.set_agent_session_id(tab_id, Some(sid));
             self.emit_state_changed();
         }
     }
@@ -603,31 +525,43 @@ impl ServiceContext {
         self.apply_prompt_decision_with_screen(decision, None);
     }
 
-    /// Set (or clear) a pane's pending prompt from a PUSH structured handle
+    /// Set (or clear) a tab's pending prompt from a PUSH structured handle
     /// (opencode SSE). No-op when unchanged. Bypasses the auto-approve PTY
     /// send-back in `apply_prompt_decision` — structured prompts are answered
     /// over HTTP, never by typing into the PTY.
     pub(crate) fn push_structured_prompt(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         prompt: Option<crate::multiplexer::types::PendingPrompt>,
     ) {
-        {
+        let replaced = {
             let mut mux = self.mux.write();
-            let Some(pane) = mux.get_pane_mut(pane_id) else {
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
             };
-            if pane.pending_prompt == prompt {
+            if tab.pending_prompt == prompt {
                 return;
             }
-            pane.pending_prompt = prompt.clone();
+            let replaced = tab
+                .pending_prompt
+                .as_ref()
+                .map(|old| (tab.agent_session_id.clone(), old.question.clone()));
+            tab.pending_prompt = prompt.clone();
+            replaced
+        };
+        if let Some((Some(session_id), old_question)) = replaced {
+            self.resolve_agent_input_request_notification(tab_id, &session_id, &old_question);
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "prompt-state-changed",
-            serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),
+            serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
         );
         self.emit_state_changed();
+        if prompt.is_some() {
+            self.maybe_publish_input_request(tab_id);
+        }
+        self.release_deferred_agent_ready(tab_id);
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(
@@ -637,20 +571,20 @@ impl ServiceContext {
     ) {
         match decision {
             PromptDecision::None => {}
-            PromptDecision::NewPrompt { pane_id, prompt }
-            | PromptDecision::PromptUpdated { pane_id, prompt } => {
-                let (auto_approve, agent_type, pty_id, is_general_pane) = {
+            PromptDecision::NewPrompt { tab_id, prompt }
+            | PromptDecision::PromptUpdated { tab_id, prompt } => {
+                let (auto_approve, agent_type, pty_id, is_general_tab) = {
                     let mux = self.mux.read();
-                    let is_general_pane = mux
-                        .resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
+                    let is_general_tab = mux
+                        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
                         .as_deref()
-                        == Some(pane_id.as_str());
-                    let pane = mux.get_pane(pane_id);
+                        == Some(tab_id.as_str());
+                    let tab = mux.get_tab(tab_id);
                     (
-                        pane.map(|p| p.auto_approve).unwrap_or(false),
-                        pane.and_then(|p| p.agent_type.clone()),
-                        pane.and_then(|p| p.pty_id.clone()),
-                        is_general_pane,
+                        tab.map(|p| p.auto_approve).unwrap_or(false),
+                        tab.and_then(|p| p.agent_type.clone()),
+                        tab.and_then(|p| p.pty_id.clone()),
+                        is_general_tab,
                     )
                 };
 
@@ -668,9 +602,9 @@ impl ServiceContext {
                     if let Some(response) = directory_trust {
                         let exact_provenance = {
                             let mux = self.mux.read();
-                            mux.get_pane(pane_id).is_some_and(|pane| {
-                                pane.provisioned_cwd.as_deref().is_some_and(|provisioned| {
-                                    pane.cwd.as_deref().is_some_and(|cwd| {
+                            mux.get_tab(tab_id).is_some_and(|tab| {
+                                tab.provisioned_cwd.as_deref().is_some_and(|provisioned| {
+                                    tab.cwd.as_deref().is_some_and(|cwd| {
                                         crate::service::ServiceContext::paths_equal(
                                             cwd,
                                             provisioned,
@@ -680,22 +614,22 @@ impl ServiceContext {
                             })
                         };
                         if exact_provenance {
-                            self.prompt_detector.lock().mark_responded(pane_id);
+                            self.prompt_detector.lock().mark_responded(tab_id);
                             if let Some(pty_id) = pty_id {
                                 write_prompt_steps(self.pty.clone(), pty_id, response.steps);
                             }
                         }
                         return;
                     }
-                    if is_general_pane {
+                    if is_general_tab {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
                             screen_text.unwrap_or(""),
                         ) {
                             log::info!(
-                                "[general-agent/auto-ack] Auto-acknowledging {} for pane {}",
+                                "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
                                 ack.kind.label(),
-                                pane_id
+                                tab_id
                             );
                             self.create_notification(
                                 "General Agent auto-acknowledged a blocker".to_string(),
@@ -706,7 +640,7 @@ impl ServiceContext {
                                 )),
                                 Some("warning"),
                             );
-                            self.prompt_detector.lock().mark_responded(pane_id);
+                            self.prompt_detector.lock().mark_responded(tab_id);
                             if let Some(pty_id) = pty_id {
                                 let steps = agent_type
                                     .as_deref()
@@ -726,11 +660,11 @@ impl ServiceContext {
 
                     if let Some(response) = legacy_auto_approve_response(prompt) {
                         log::info!(
-                            "[auto-approve] Auto-approving {} prompt for pane {}",
+                            "[auto-approve] Auto-approving {} prompt for Tab {}",
                             response.kind,
-                            pane_id
+                            tab_id
                         );
-                        self.prompt_detector.lock().mark_responded(pane_id);
+                        self.prompt_detector.lock().mark_responded(tab_id);
                         if let Some(pty_id) = pty_id {
                             write_prompt_steps(self.pty.clone(), pty_id, vec![response.bytes]);
                         }
@@ -738,52 +672,62 @@ impl ServiceContext {
                     }
 
                     log::debug!(
-                        "[auto-approve] Skipping non-approvable prompt for pane {}",
-                        pane_id
+                        "[auto-approve] Skipping non-approvable prompt for Tab {}",
+                        tab_id
                     );
                 }
                 {
                     let mut mux = self.mux.write();
-                    if let Some(pane) = mux.get_pane_mut(pane_id) {
-                        pane.pending_prompt = Some(prompt.clone());
+                    if let Some(tab) = mux.get_tab_mut(tab_id) {
+                        tab.pending_prompt = Some(prompt.clone());
                     }
                 }
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
-                        "pane_id": pane_id,
+                        "tab_id": tab_id,
                         "prompt": prompt,
                     }),
                 );
                 self.emit_state_changed();
-                let title = self.mux.read().get_pane(pane_id).map(|p| p.title.clone());
+                self.maybe_publish_input_request(tab_id);
+                let title = self.mux.read().get_tab(tab_id).map(|p| p.title.clone());
                 if let Some(title) = title {
                     self.notify_event(
                         "agent.permission_request",
                         serde_json::json!({
-                            "pane_id": pane_id,
+                            "tab_id": tab_id,
                             "title": format!("{} needs approval", title),
                             "body": "Agent is waiting for your permission",
                         }),
                     );
                 }
             }
-            PromptDecision::PromptCleared { pane_id } => {
+            PromptDecision::PromptCleared { tab_id } => {
                 let mut mux = self.mux.write();
-                if let Some(pane) = mux.get_pane_mut(pane_id) {
-                    pane.pending_prompt = None;
-                }
+                let cleared = mux.get_tab_mut(tab_id).and_then(|tab| {
+                    let old = tab.pending_prompt.take()?;
+                    Some((tab.agent_session_id.clone(), old.question))
+                });
                 drop(mux);
+                if let Some((Some(session_id), old_question)) = cleared {
+                    self.resolve_agent_input_request_notification(
+                        tab_id,
+                        &session_id,
+                        &old_question,
+                    );
+                }
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
-                        "pane_id": pane_id,
+                        "tab_id": tab_id,
                         "prompt": null,
                     }),
                 );
                 self.emit_state_changed();
+                self.release_deferred_agent_ready(tab_id);
             }
         }
     }
@@ -791,12 +735,12 @@ impl ServiceContext {
     fn handle_agent_event(
         &self,
         _pty_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         _agent_type: &str,
         event: &AgentEvent,
-        prev_status: PaneStatus,
+        prev_status: TabStatus,
     ) {
-        let cooldown_key = format!("{}:{:?}", pane_id, event);
+        let cooldown_key = format!("{}:{:?}", tab_id, event);
         let mut map = EVENT_COOLDOWN.lock().unwrap();
         let now = Instant::now();
         if let Some(last) = map.get(&cooldown_key) {
@@ -810,13 +754,13 @@ impl ServiceContext {
         match event {
             AgentEvent::PermissionRequest => {}
             AgentEvent::TaskComplete => {
-                if prev_status == PaneStatus::Working {
-                    let title = self.mux.read().get_pane(pane_id).map(|p| p.title.clone());
+                if prev_status == TabStatus::Working {
+                    let title = self.mux.read().get_tab(tab_id).map(|p| p.title.clone());
                     if let Some(title) = title {
                         self.notify_event(
                             "agent.task_complete",
                             serde_json::json!({
-                                "pane_id": pane_id,
+                                "tab_id": tab_id,
                                 "title": format!("{} finished", title),
                                 "body": "Task complete",
                             }),
@@ -830,6 +774,14 @@ impl ServiceContext {
 
 fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
     current_session.is_none()
+}
+
+fn should_heuristically_detect_session(
+    has_no_injection: bool,
+    has_hooks: bool,
+    uses_structured_chat: bool,
+) -> bool {
+    has_no_injection && !has_hooks && !uses_structured_chat
 }
 
 struct LegacyAutoApproveResponse {
@@ -899,35 +851,30 @@ fn screen_ends_in_shell_prompt(screen: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn should_check_agent_exit(is_planner: bool, screen_changed: bool) -> bool {
-    is_planner || screen_changed
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentOutputLifecycleDecision {
+    PreserveIdentity,
+    PreserveIdentityAndLogShellLikeFrame,
 }
 
-/// Debounce decision for output-based agent-exit detection. A still-running TUI
-/// can flash ONE marker-less, shell-prompt-looking frame (a WebView reload /
-/// resize redraw); requiring the suspicion to persist past `debounce` stops that
-/// single frame from clearing a live agent. Returns `(should_clear, next_state)`:
-/// the caller writes `next_state` back to the pane's `exit_suspected_at`.
-fn exit_debounce(
-    suspected_at: Option<std::time::Instant>,
-    now: std::time::Instant,
-    debounce: std::time::Duration,
-) -> (bool, Option<std::time::Instant>) {
-    match suspected_at {
-        Some(since) if now.duration_since(since) >= debounce => (true, None),
-        Some(_) => (false, suspected_at),
-        None => (false, Some(now)),
+fn decide_agent_output_lifecycle(
+    screen: &str,
+    has_agent_markers: bool,
+) -> AgentOutputLifecycleDecision {
+    if !screen.is_empty() && !has_agent_markers && screen_ends_in_shell_prompt(screen) {
+        AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
+    } else {
+        AgentOutputLifecycleDecision::PreserveIdentity
     }
 }
 
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{
-        exit_debounce, screen_ends_in_shell_prompt, should_check_agent_exit,
-        should_detect_unbound_session,
+        decide_agent_output_lifecycle, screen_ends_in_shell_prompt,
+        should_detect_unbound_session, should_heuristically_detect_session,
+        AgentOutputLifecycleDecision,
     };
-    use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
-    use std::time::{Duration, Instant};
 
     #[test]
     fn shell_prompt_recognized_only_on_bare_prompt_lines() {
@@ -943,78 +890,31 @@ mod exit_detection_tests {
     }
 
     #[test]
-    fn first_suspicion_arms_timer_but_does_not_clear() {
-        let now = Instant::now();
-        let (clear, next) = exit_debounce(None, now, Duration::from_secs(2));
-        assert!(!clear, "one transient frame must never clear the agent");
-        assert_eq!(next, Some(now), "timer armed for the debounce window");
-    }
-
-    #[test]
-    fn suspicion_within_window_holds_without_clearing() {
-        let t0 = Instant::now();
-        let later = t0 + Duration::from_millis(1500);
-        let (clear, next) = exit_debounce(Some(t0), later, Duration::from_secs(2));
-        assert!(!clear, "still inside the 2s window — keep the agent");
-        assert_eq!(next, Some(t0), "timer unchanged");
-    }
-
-    #[test]
-    fn persisted_suspicion_past_window_clears() {
-        let t0 = Instant::now();
-        let later = t0 + Duration::from_millis(2100);
-        let (clear, next) = exit_debounce(Some(t0), later, Duration::from_secs(2));
-        assert!(
-            clear,
-            "shell prompt persisted past debounce — real exit, clear"
+    fn shell_prompt_without_markers_is_diagnostic_only() {
+        assert_eq!(
+            decide_agent_output_lifecycle("PS D:\\Developer\\codeterm>", false),
+            AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
         );
-        assert_eq!(next, None, "suspicion reset after clearing");
+        assert_eq!(
+            decide_agent_output_lifecycle("PS D:\\Developer\\codeterm>", true),
+            AgentOutputLifecycleDecision::PreserveIdentity
+        );
     }
 
     #[test]
     fn session_detection_never_replaces_a_bound_session() {
         assert!(should_detect_unbound_session(None));
-        assert!(!should_detect_unbound_session(Some(
-            "session-owned-by-pane"
-        )));
+        assert!(!should_detect_unbound_session(Some("session-owned-by-tab")));
     }
 
     #[test]
-    fn reconnect_prompt_during_launch_keeps_identity() {
-        for stage in [
-            BootStage::PtyStarting,
-            BootStage::PtySpawned,
-            BootStage::ReaderReady,
-            BootStage::ShellReady,
-            BootStage::AgentLaunching,
-            BootStage::LaunchWritten,
-            BootStage::ProviderReady,
-        ] {
-            assert!(
-                !allows_shell_prompt_exit(Some(stage)),
-                "prompt observed during {stage:?} must not clear identity"
-            );
-        }
-    }
-
-    #[test]
-    fn prompt_observation_uses_captured_stage_when_agent_ready_is_imminent() {
-        let observed_stage = BootStage::AgentLaunching;
-        let current_stage = BootStage::AgentReady;
-
-        assert_eq!(current_stage, BootStage::AgentReady);
-        assert!(!allows_shell_prompt_exit(Some(observed_stage)));
-    }
-
-    #[test]
-    fn post_agent_ready_shell_prompt_still_clears() {
-        assert!(allows_shell_prompt_exit(Some(BootStage::AgentReady)));
-    }
-
-    #[test]
-    fn changed_agent_screen_checks_exit_without_global_sampling() {
-        assert!(should_check_agent_exit(false, true));
-        assert!(should_check_agent_exit(true, false));
-        assert!(!should_check_agent_exit(false, false));
+    fn structured_sessions_require_authoritative_provider_binding() {
+        assert!(!should_heuristically_detect_session(true, true, true));
+        assert!(!should_heuristically_detect_session(true, false, true));
+        assert!(should_heuristically_detect_session(true, false, false));
     }
 }
+
+#[cfg(test)]
+#[path = "output/agent_lifecycle_tests.rs"]
+mod agent_lifecycle_tests;

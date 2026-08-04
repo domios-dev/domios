@@ -163,7 +163,7 @@ fn watcher_spec() -> WatcherSpec {
 }
 
 #[test]
-fn watcher_due_pane_fires_exactly_one_tick_per_interval() {
+fn watcher_due_tab_fires_exactly_one_tick_per_interval() {
     let mut spec = watcher_spec();
     let mut watcher_tick_calls = 0;
 
@@ -175,7 +175,7 @@ fn watcher_due_pane_fires_exactly_one_tick_per_interval() {
     watcher_tick_calls += 1;
     spec.tick = tick;
     spec.tick_inflight_since_ms = Some(31_000);
-    let input = tick_input_json(tick, 31_000, spec.state.clone(), json!({ "panes": [] }));
+    let input = tick_input_json(tick, 31_000, spec.state.clone(), json!({ "tabs": [] }));
     assert_eq!(input["tick"], 5);
     assert_eq!(input["nowMs"], 31_000);
     assert_eq!(input["state"], json!({ "phase": "start" }));
@@ -209,7 +209,7 @@ fn watcher_verdict_apply_path_clears_inflight_updates_state_and_yields_actions()
         messages: vec![ChatMsg {
             id: "v1".into(),
             kind: "watcher_verdict".into(),
-            content: r#"{"status":"stalled","summary":"needs help","state":{"phase":"stalled"},"actions":[{"kind":"nudge","pane":"worker-1","message":"status?"}]}"#.into(),
+            content: r#"{"status":"stalled","summary":"needs help","state":{"phase":"stalled"},"actions":[{"kind":"nudge","tab":"worker-1","message":"status?"}]}"#.into(),
             ..Default::default()
         }],
         cursor: Some("c1".into()),
@@ -246,8 +246,8 @@ fn watcher_verdict_apply_path_clears_inflight_updates_state_and_yields_actions()
         &actions,
         42_000,
         &mut cooldowns,
-        |pane, message| {
-            nudges.push((pane.to_string(), message.to_string()));
+        |tab, message| {
+            nudges.push((tab.to_string(), message.to_string()));
             Ok(())
         },
         |message| notifications.push(message.to_string()),
@@ -313,12 +313,12 @@ fn late_verdict_after_watchdog_clear_is_dropped() {
 fn replayed_verdict_id_executes_actions_once() {
     let mut seen = HashMap::new();
     let mut action_count = 0;
-    let pane_id = "watcher-1";
+    let tab_id = "watcher-1";
     let verdict_id = "verdict-1";
     let raw = r#"{"status":"attention","summary":"notify","actions":[{"kind":"notify","message":"heads up"}]}"#;
 
     for _ in 0..2 {
-        if !accept_watcher_verdict_id(&mut seen, pane_id, verdict_id) {
+        if !accept_watcher_verdict_id(&mut seen, tab_id, verdict_id) {
             continue;
         }
         let verdict = parse_verdict(raw);
@@ -337,7 +337,7 @@ fn replayed_verdict_id_executes_actions_once() {
 }
 
 #[test]
-fn restored_pane_with_ancient_last_tick_fires_one_tick_not_burst() {
+fn restored_tab_with_ancient_last_tick_fires_one_tick_not_burst() {
     let mut restored = watcher_spec();
     restored.last_tick_ms = Some(1_000);
     restored.tick_inflight_since_ms = None;
@@ -360,7 +360,7 @@ fn restored_pane_with_ancient_last_tick_fires_one_tick_not_burst() {
 fn guardrail_group_includes_the_orchestrator() {
     let group = super::guardrail_group(crate::service::watcher::WatchGroup {
         orchestrator_id: "orch-1".into(),
-        pane_ids: vec!["worker-1".into(), "planner-1".into()],
+        tab_ids: vec!["worker-1".into(), "planner-1".into()],
     });
     assert!(
         group.contains("orch-1"),

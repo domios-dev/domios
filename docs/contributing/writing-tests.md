@@ -34,7 +34,7 @@ line can satisfy a naive substring assert. Example:
 `tests/e2e/test_pty_io.py` builds `echo 'LEFT''RIGHT'`; on Windows use
 `Write-Output ('LEFT' + 'RIGHT')` via `tests/e2e/helpers.py::shell_cmd`.
 
-Rule: never paste bash quoting into PowerShell. WHY: Windows dev panes run
+Rule: never paste bash quoting into PowerShell. WHY: Windows dev Tabs run
 PowerShell; use `shell_cmd(unix, win)` for cross-platform command strings.
 Example: `tests/e2e/test_inject_verify.py`.
 
@@ -53,7 +53,7 @@ screen match is not proof. Example: `tests/e2e/test_pty_io.py` enter=false cases
 poll absence, then send raw Enter and require presence.
 
 Rule: missing preconditions must fail the test. WHY: silent pass hides broken
-setup. Example: hierarchy tests now fail when the expected worker pane is absent
+setup. Example: hierarchy tests now fail when the expected worker Tab is absent
 instead of skipping aggregation checks.
 
 Rule: prefer exact equality for contracts. WHY: presence-only asserts accept
@@ -66,9 +66,9 @@ WHY: happy paths do not prove gates. Example:
 
 ## Harness rules
 
-Rule: headless e2e panes should be eager. WHY: lazy panes have no PTY until a UI
-mounts them. Example: `tests/e2e/conftest.py::fresh_pane` and
-`tests/e2e/test_eager_pane.py`.
+Rule: headless e2e Tabs should be eager. WHY: lazy Tabs have no PTY until a UI
+mounts them. Example: `tests/e2e/conftest.py::fresh_tab` and
+`tests/e2e/test_eager_tab.py`.
 
 Rule: do not trust inherited env. WHY: tests must target dev 7686, not prod
 7685 or a user shell. Example: `tests/e2e/conftest.py` force-sets the dev API
@@ -77,8 +77,8 @@ environment.
 Rule: sweep before and after daemon e2e. WHY: leaked workspaces make later tests
 order-dependent. Example: `tests/e2e/conftest.py::_cleanup_e2e_workspaces`.
 
-Rule: teardown in `try/finally`. WHY: failures must not leak workspaces, panes,
-or external stubs. Example: `tests/e2e/test_eager_pane.py`.
+Rule: teardown in `try/finally`. WHY: failures must not leak workspaces, Tabs,
+or external stubs. Example: `tests/e2e/test_eager_tab.py`.
 
 Rule: keep shared inputs under `tests/fixtures/` unless a package has a local
 fixture convention. WHY: review can see what is data versus test logic. Example:
@@ -132,7 +132,7 @@ Example: `plugins/provider-claude/tests/plugin.test.ts` and
 ### API e2e with pytest
 
 1. Use `tests/e2e/helpers.py::CodeTermAPI`.
-2. Create panes/tabs with `eager=True` for headless PTY tests.
+2. Create tabs with `eager=True` for headless PTY tests.
 3. Use `shell_cmd(unix, win)` for commands that enter a shell.
 4. Use split markers plus length/hash proofs for payload transport.
 5. Wrap created workspaces/resources in `try/finally`.
@@ -141,7 +141,7 @@ Example: `plugins/provider-claude/tests/plugin.test.ts` and
 7. Prove fail-first with a sabotage marker, fake length, or rejection input.
 
 WHY: API e2e should prove daemon-visible behavior without relying on UI focus.
-Example: `tests/e2e/test_inject_verify.py` and `tests/e2e/test_eager_pane.py`.
+Example: `tests/e2e/test_inject_verify.py` and `tests/e2e/test_eager_tab.py`.
 
 ### Playwright smoke
 
@@ -180,4 +180,4 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
   failure.
 - LLM/golden markers are explicit. WHY: reviewers can control token spend.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

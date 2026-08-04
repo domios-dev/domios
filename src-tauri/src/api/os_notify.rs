@@ -15,7 +15,14 @@ pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, b
 
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
+#[cfg_attr(test, allow(unreachable_code))]
 pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+    #[cfg(test)]
+    {
+        let _ = (app, title, body);
+        return;
+    }
+
     {
         use tauri_plugin_notification::NotificationExt;
         let mut notif = app.notification().builder().title(title);

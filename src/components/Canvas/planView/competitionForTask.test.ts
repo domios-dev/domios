@@ -40,15 +40,15 @@ test("live-competition tooltip lists open attempts", () => {
     competition: { enabled: true, attempts: 3 },
     execution_attempts: [
       {
-        pane_id: "pane-a",
-        pane_title: "Worker A",
+        tab_id: "tab-a",
+        tab_title: "Worker A",
         model: "gpt-5",
         competition_group_id: "grp-1",
         competition_lane: 1,
       },
       {
-        pane_id: "pane-b",
-        pane_title: "Worker B",
+        tab_id: "tab-b",
+        tab_title: "Worker B",
         model: "claude",
         competition_group_id: "grp-1",
         competition_lane: 2,
@@ -58,7 +58,7 @@ test("live-competition tooltip lists open attempts", () => {
   };
   assert(liveCompetitionAttemptCount(task) === 1, "one live attempt");
   const result = competitionForTask(task, {
-    "pane-a": { id: "pane-a", pty_id: null, pane_type: "Terminal", title: "Worker A", cwd: null } as never,
+    "tab-a": { id: "tab-a", pty_id: null, tab_type: "Terminal", title: "Worker A", cwd: null } as never,
   });
   assert(result?.liveCount === 1, "live count on result");
   assert(result?.tooltip.includes("live: Worker A"), "live attempt label");

@@ -308,7 +308,7 @@ export function ExtensionsView({
           <div
             className={`${narrowDetailOpen ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-y-auto pb-6 md:border-l md:pl-5`}
             style={{ borderColor: "var(--ct-border-subtle, rgba(255,255,255,0.06))" }}
-            data-testid="extensions-detail-pane"
+            data-testid="extensions-detail-tab"
           >
             <button
               type="button"

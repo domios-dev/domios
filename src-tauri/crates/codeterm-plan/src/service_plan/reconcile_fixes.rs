@@ -1,7 +1,7 @@
 use crate::plan::ids::mint_id;
 use crate::plan::reconcile::{
-    DriftItem, DriftKind, LaneDemotion, NEEDS_REASSIGN_LABEL, PANE_GONE_LABEL, STALE_REVIEW_LABEL,
-    STALE_UNSTAFFED_LABEL,
+    DriftItem, DriftKind, LaneDemotion, NEEDS_REASSIGN_LABEL, STALE_REVIEW_LABEL,
+    STALE_UNSTAFFED_LABEL, TAB_GONE_LABEL,
 };
 use crate::plan::{AgentRef, Milestone, TaskStatus};
 
@@ -34,15 +34,15 @@ impl PlanStore {
                 }
                 let task = &mut plan.tasks[task_index];
                 match item.kind {
-                    DriftKind::InProgressPaneGone => {
-                        let assigned = task.assigned_pane_id.clone();
+                    DriftKind::InProgressTabGone => {
+                        let assigned = task.assigned_tab_id.clone();
                         task_attempts::mark_task_assignment_closed(
                             task,
                             assigned.as_deref(),
                             now_ms,
                         );
-                        task.assigned_pane_id = None;
-                        task.lane.pane_id = None;
+                        task.assigned_tab_id = None;
+                        task.lane.tab_id = None;
                         task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
                         task.updated_at = now_ms;
                         changed.push(fix_result(
@@ -72,15 +72,15 @@ impl PlanStore {
                             "set_stale_unstaffed_label",
                         ));
                     }
-                    DriftKind::BoundToClosedPane => {
-                        let assigned = task.assigned_pane_id.clone();
+                    DriftKind::BoundToClosedTab => {
+                        let assigned = task.assigned_tab_id.clone();
                         task_attempts::mark_task_assignment_closed(
                             task,
                             assigned.as_deref(),
                             now_ms,
                         );
-                        task.assigned_pane_id = None;
-                        task.lane.pane_id = None;
+                        task.assigned_tab_id = None;
+                        task.lane.tab_id = None;
                         task.updated_at = now_ms;
                         changed.push(fix_result(
                             plan_id,
@@ -96,7 +96,7 @@ impl PlanStore {
         })
     }
 
-    /// Apply watchdog demotions: an in_progress lane whose pane is gone past the
+    /// Apply watchdog demotions: an in_progress lane whose tab is gone past the
     /// grace window is unassigned, marked needs-reassign, and given ONE stride.
     /// Idempotent — a lane already off in_progress is skipped, so re-running the
     /// tick never duplicates the stride or silently drifts the status to pending.
@@ -120,15 +120,15 @@ impl PlanStore {
                 if task.status != TaskStatus::InProgress {
                     continue;
                 }
-                let assigned = task.assigned_pane_id.clone();
+                let assigned = task.assigned_tab_id.clone();
                 task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-                task.assigned_pane_id = None;
-                task.lane.pane_id = None;
+                task.assigned_tab_id = None;
+                task.lane.tab_id = None;
                 task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
                 task.updated_at = now_ms;
                 task.milestones.push(Milestone {
                     id: mid,
-                    from: AgentRef::from_pane("watchdog"),
+                    from: AgentRef::from_tab("watchdog"),
                     kind: "decision".into(),
                     text: demotion.reason.clone(),
                     ts: now_ms,
@@ -141,7 +141,7 @@ impl PlanStore {
                 changed.push(fix_result_action(
                     plan_id,
                     &task.id,
-                    DriftKind::InProgressPaneGone,
+                    DriftKind::InProgressTabGone,
                     "cleared_assignment_set_needs_reassign",
                 ));
             }
@@ -149,23 +149,52 @@ impl PlanStore {
         })
     }
 
-    pub fn flag_pane_gone(
+    pub fn flag_tab_gone(
         &self,
         plan_id: &str,
         task_id: &str,
+        tab_id: &str,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
             let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
                 return Ok(false);
             };
-            let assigned = task.assigned_pane_id.clone();
-            task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            task.assigned_pane_id = None;
-            task.lane.pane_id = None;
-            task.status_label = Some(PANE_GONE_LABEL.into());
-            task.updated_at = now_ms;
-            Ok(true)
+            let closed = task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) > 0;
+            if task.assigned_tab_id.as_deref() == Some(tab_id) {
+                task.assigned_tab_id = None;
+                task.lane.tab_id = None;
+                task.status_label = Some(TAB_GONE_LABEL.into());
+                task.updated_at = now_ms;
+                return Ok(true);
+            }
+            Ok(closed)
+        })
+    }
+
+    pub fn close_gone_task_attempts(
+        &self,
+        plan_id: &str,
+        gone: &[(String, String)],
+        now_ms: u64,
+    ) -> Result<Vec<ReconcileFixResult>, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let mut changed = Vec::new();
+            for (task_id, tab_id) in gone {
+                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == *task_id) else {
+                    continue;
+                };
+                if task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) == 0 {
+                    continue;
+                }
+                changed.push(fix_result_action(
+                    plan_id,
+                    task_id,
+                    DriftKind::BoundToClosedTab,
+                    "closed_dead_attempt",
+                ));
+            }
+            Ok(changed)
         })
     }
 }

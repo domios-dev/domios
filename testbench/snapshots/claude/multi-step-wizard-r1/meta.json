@@ -2,7 +2,7 @@
   "provider": "claude",
   "situation": "multi-step-wizard-r1",
   "capturedAtMs": 1781992386229,
-  "paneId": "3a383a5b",
+  "tabId": "3a383a5b",
   "source": "dev-7686",
   "until": "(A\\)|B\\)|C\\)|❯|›).*(Enter|select|esc|↑|↓)",
   "prompt": "Give me a multi-stage A/B/C in-TUI questionnaire across several sections, then wait for my picks.",

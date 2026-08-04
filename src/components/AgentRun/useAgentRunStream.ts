@@ -15,7 +15,7 @@ import type {
 
 interface UseAgentRunStreamOpts {
   api: ApiConfig;
-  paneId: string | null | undefined;
+  tabId: string | null | undefined;
   enabled?: boolean;
 }
 
@@ -32,7 +32,7 @@ export interface UseAgentRunStreamResult {
 // `from=0` replays existing PTY history, then switches to live stream.
 export function useAgentRunStream({
   api,
-  paneId,
+  tabId,
   enabled = true,
 }: UseAgentRunStreamOpts): UseAgentRunStreamResult {
   const [events, setEvents] = useState<ClaudeStreamEvent[]>([]);
@@ -45,7 +45,7 @@ export function useAgentRunStream({
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!enabled || !paneId) return;
+    if (!enabled || !tabId) return;
 
     const parser = new ClaudeStreamParser();
     parserRef.current = parser;
@@ -87,7 +87,7 @@ export function useAgentRunStream({
       scheduleFlush();
     };
 
-    const url = `${daemonHttpBase(api)}/api/panes/${encodeURIComponent(paneId)}/output/stream?from=0`;
+    const url = `${daemonHttpBase(api)}/api/tabs/${encodeURIComponent(tabId)}/output/stream?from=0`;
     const token = daemonAuthToken(api);
     const headers: HeadersInit = token
       ? { Authorization: `Bearer ${token}` }
@@ -97,7 +97,7 @@ export function useAgentRunStream({
     // If daemon restarts, live streaming stops but on-disk logs remain.
     // Fetch once and parse historical log content.
       try {
-        const histUrl = `${daemonHttpBase(api)}/api/agent-runs/${encodeURIComponent(paneId)}/log`;
+        const histUrl = `${daemonHttpBase(api)}/api/agent-runs/${encodeURIComponent(tabId)}/log`;
         const r = await fetch(histUrl, { headers, signal: ctrl.signal });
         if (cancelled) return;
         if (!r.ok) {
@@ -180,7 +180,7 @@ export function useAgentRunStream({
       abortRef.current = null;
       parserRef.current = null;
     };
-  }, [api.host, api.port, api.token, paneId, enabled, reloadKey]);
+  }, [api.host, api.port, api.token, tabId, enabled, reloadKey]);
 
   const invocations = useMemo(
     () => selectEffectiveToolInvocations(reconcileToolInvocations(events)),

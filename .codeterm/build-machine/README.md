@@ -126,7 +126,7 @@ public release is intentionally deleted, cut the fix as a new patch version thro
 develop → master PR path and trigger it with a new `release-X.Y.Z` tag.
 
 Closeout rule: once artifacts publish, remove merged lane worktrees under `../codeterm-worktrees/`,
-delete merged `lane/*` branches, close finished worker panes, stop lane-specific dev daemons, and
+delete merged `lane/*` branches, close finished worker tabs, stop lane-specific dev daemons, and
 run `cargo sweep --time 2` on build machines/checkouts that accumulated Rust/Tauri artifacts. Old
 worktrees and `target/` layers are release debt, not something to leave for the next run.
 

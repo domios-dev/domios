@@ -2,10 +2,10 @@ import { ChevronDown, Map } from "lucide-react";
 import { useId, useState } from "react";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import type { PlanAttachment, TaskStatus } from "../Canvas/types";
-import type { PaneComposerActivity } from "../Canvas/paneComposerActivity";
+import type { TabComposerActivity } from "../Canvas/tabComposerActivity";
 
 export interface ComposerPlanActivityStripProps {
-  activity: PaneComposerActivity;
+  activity: TabComposerActivity;
   onOpen?: () => void;
   taskStatus?: TaskStatus | null;
   stale?: boolean;
@@ -14,7 +14,7 @@ export interface ComposerPlanActivityStripProps {
   detailText?: string;
 }
 
-function activityLabel(activity: PaneComposerActivity): { prefix: string; primary: string; secondary?: string } {
+function activityLabel(activity: TabComposerActivity): { prefix: string; primary: string; secondary?: string } {
   if (activity.kind === "orchestrating") {
     return { prefix: "Orchestrating:", primary: activity.planTitle };
   }

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::provider::{ModelInfo, SettingField};
+use crate::provider::SettingField;
 
 use super::PluginManifest;
 
@@ -61,11 +61,12 @@ pub fn manifest_settings_sections(m: &PluginManifest) -> Vec<SettingField> {
             flag,
         ));
     }
-    if !m.models.is_empty() {
+    let models = crate::model_catalog::resolve_models(&m.id);
+    if !models.is_empty() {
         out.push(crate::provider::model_select_section(
             &format!("Default model for new {} sessions.", m.display_name),
-            m.models.iter().map(ModelInfo::from).collect(),
-            m.default_model.as_deref(),
+            models,
+            crate::model_catalog::resolve_default(&m.id).as_deref(),
         ));
     }
     out

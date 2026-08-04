@@ -17,7 +17,7 @@ Read via `codeterm tab chat`; judged by the model on the 5-dimension rubric.
 | mem.save | opencode | FAIL | FAIL | — | — | FAIL | said "Noted." — never ran `codeterm mem save` |
 
 ## Bugs found
-- [x] **read path broken for claude** — `pane_chat_snapshot` called `session_jsonl_path`
+- [x] **read path broken for claude** — `tab_chat_snapshot` called `session_jsonl_path`
   (trait default None; claude overrides `session_file_path`). Fixed.
 - [x] **macOS `/var`→`/private/var` cwd symlink** broke claude JSONL path + opencode
   session detection. Fixed: JsProvider canonicalizes cwd before dash-encoding;

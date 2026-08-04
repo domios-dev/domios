@@ -57,7 +57,7 @@ export function RemoteWorkerRow({
         >
           <div>
             runs on <strong className="text-[var(--ct-fg)]">{worker.peer}</strong> ·
-            pane {worker.remote_pane.slice(0, 8)}
+            tab {worker.remote_tab.slice(0, 8)}
           </div>
           {worker.model && <div>model {worker.model}</div>}
           <div>

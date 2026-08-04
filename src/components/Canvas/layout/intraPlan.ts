@@ -11,7 +11,7 @@ import { UNSECTIONED } from "./taskCloud";
 import type { IntraPlanLayout, LaidOutEdge, LaidOutNode, SectionZone } from "./types";
 
 export function ownerKeyOf(owner: OrchestratorRef): string {
-  return owner.session_id ?? owner.pane_id ?? owner.title ?? "__unowned__";
+  return owner.session_id ?? owner.tab_id ?? owner.title ?? "__unowned__";
 }
 
 function sectionLabel(sectionId: string, titles: ReadonlyMap<string, string>): string | null {

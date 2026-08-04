@@ -2,12 +2,12 @@
 //!
 //! Hooks into the PTY write path. When a user types `claude ...<Enter>` or
 //! `codex ...<Enter>` (or any registered provider's `binary_name()`) directly
-//! in a shell pane, the line buffer captures bytes between newlines and on
+//! in a shell tab, the line buffer captures bytes between newlines and on
 //! Enter resolves the first token to a provider id. Treated as explicit user
 //! intent — locks `agent_type` so output-based detection can't override it.
 //!
-//! Locked panes are skipped entirely. Already-typed lines aren't re-processed
-//! after a pane locks; we just drop the buffer.
+//! Locked tabs are skipped entirely. Already-typed lines aren't re-processed
+//! after a tab locks; we just drop the buffer.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -38,15 +38,15 @@ impl InputParser {
         }
     }
 
-    /// Process raw bytes about to be written to the PTY behind `pane_id`. Returns
+    /// Process raw bytes about to be written to the PTY behind `tab_id`. Returns
     /// the provider id when a launch command was just recognised (Enter pressed,
     /// first token matched a registered `binary_name()`); `None` otherwise.
-    pub fn process(&self, pane_id: &str, bytes: &[u8]) -> Option<String> {
-        if pane_id.is_empty() || bytes.is_empty() {
+    pub fn process(&self, tab_id: &str, bytes: &[u8]) -> Option<String> {
+        if tab_id.is_empty() || bytes.is_empty() {
             return None;
         }
         let mut buffers = self.buffers.lock();
-        let state = buffers.entry(pane_id.to_string()).or_default();
+        let state = buffers.entry(tab_id.to_string()).or_default();
         let mut matched: Option<String> = None;
         for &b in bytes {
             match b {
@@ -76,8 +76,8 @@ impl InputParser {
         matched
     }
 
-    pub fn clear(&self, pane_id: &str) {
-        self.buffers.lock().remove(pane_id);
+    pub fn clear(&self, tab_id: &str) {
+        self.buffers.lock().remove(tab_id);
     }
 
     fn resolve_line(&self, line: &str) -> Option<String> {
@@ -171,7 +171,7 @@ mod tests {
     fn matches_simple_command_with_flags() {
         let p = InputParser::new(registry());
         assert_eq!(
-            p.process("pane1", b"codex --foo\r").as_deref(),
+            p.process("tab1", b"codex --foo\r").as_deref(),
             Some("codex")
         );
     }
@@ -180,7 +180,7 @@ mod tests {
     fn matches_relative_path_prefix() {
         let p = InputParser::new(registry());
         assert_eq!(
-            p.process("pane1", b"./codex resume xyz\r").as_deref(),
+            p.process("tab1", b"./codex resume xyz\r").as_deref(),
             Some("codex")
         );
     }
@@ -189,7 +189,7 @@ mod tests {
     fn matches_absolute_path_prefix() {
         let p = InputParser::new(registry());
         assert_eq!(
-            p.process("pane1", b"/usr/local/bin/claude\n").as_deref(),
+            p.process("tab1", b"/usr/local/bin/claude\n").as_deref(),
             Some("claude"),
         );
     }
@@ -197,21 +197,21 @@ mod tests {
     #[test]
     fn does_not_match_arg_position() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"echo codex\r").is_none());
+        assert!(p.process("tab1", b"echo codex\r").is_none());
     }
 
     #[test]
     fn does_not_match_unknown_binary() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"ls -la\r").is_none());
+        assert!(p.process("tab1", b"ls -la\r").is_none());
     }
 
     #[test]
     fn handles_multi_byte_writes() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"cod").is_none());
-        assert!(p.process("pane1", b"ex --bar").is_none());
-        assert_eq!(p.process("pane1", b"\r").as_deref(), Some("codex"));
+        assert!(p.process("tab1", b"cod").is_none());
+        assert!(p.process("tab1", b"ex --bar").is_none());
+        assert_eq!(p.process("tab1", b"\r").as_deref(), Some("codex"));
     }
 
     #[test]
@@ -223,22 +223,22 @@ mod tests {
         bytes.push(0x7f);
         bytes.push(0x7f);
         bytes.extend_from_slice(b"ex\r");
-        assert_eq!(p.process("pane1", &bytes).as_deref(), Some("codex"));
+        assert_eq!(p.process("tab1", &bytes).as_deref(), Some("codex"));
     }
 
     #[test]
     fn ctrl_c_clears_buffer() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"codex").is_none());
-        assert!(p.process("pane1", &[0x03]).is_none());
-        assert!(p.process("pane1", b"ls\r").is_none());
+        assert!(p.process("tab1", b"codex").is_none());
+        assert!(p.process("tab1", &[0x03]).is_none());
+        assert!(p.process("tab1", b"ls\r").is_none());
     }
 
     #[test]
     fn newline_alone_does_not_match() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"\r").is_none());
-        assert!(p.process("pane1", b"\n").is_none());
+        assert!(p.process("tab1", b"\r").is_none());
+        assert!(p.process("tab1", b"\n").is_none());
     }
 
     #[test]
@@ -250,23 +250,23 @@ mod tests {
         huge.extend(std::iter::repeat(b'a').take(MAX_BUFFERED_LINE));
         huge.push(b'\r');
         assert!(
-            p.process("pane1", &huge).is_none(),
+            p.process("tab1", &huge).is_none(),
             "poisoned line must not match"
         );
         // After the \r resets, fresh codex<Enter> resolves cleanly.
-        assert_eq!(p.process("pane1", b"codex\r").as_deref(), Some("codex"));
+        assert_eq!(p.process("tab1", b"codex\r").as_deref(), Some("codex"));
     }
 
     #[test]
-    fn per_pane_isolation() {
+    fn per_tab_isolation() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"cod").is_none());
-        assert!(p.process("pane2", b"codex\r").is_some());
-        assert_eq!(p.process("pane1", b"ex\r").as_deref(), Some("codex"));
+        assert!(p.process("tab1", b"cod").is_none());
+        assert!(p.process("tab2", b"codex\r").is_some());
+        assert_eq!(p.process("tab1", b"ex\r").as_deref(), Some("codex"));
     }
 
     #[test]
-    fn empty_pane_id_no_op() {
+    fn empty_tab_id_no_op() {
         let p = InputParser::new(registry());
         assert!(p.process("", b"codex\r").is_none());
     }
@@ -274,8 +274,8 @@ mod tests {
     #[test]
     fn clear_drops_buffer() {
         let p = InputParser::new(registry());
-        assert!(p.process("pane1", b"cod").is_none());
-        p.clear("pane1");
-        assert!(p.process("pane1", b"ex\r").is_none());
+        assert!(p.process("tab1", b"cod").is_none());
+        p.clear("tab1");
+        assert!(p.process("tab1", b"ex\r").is_none());
     }
 }

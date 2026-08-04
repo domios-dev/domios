@@ -35,11 +35,11 @@ fn actor(params: Option<&Value>) -> AgentRef {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .or_else(|| {
             params
-                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str())
-                .map(AgentRef::from_pane)
+                .map(AgentRef::from_tab)
         })
-        .unwrap_or_else(|| AgentRef::from_pane("unknown"))
+        .unwrap_or_else(|| AgentRef::from_tab("unknown"))
 }
 
 fn note(params: Option<&Value>) -> &str {
@@ -49,8 +49,15 @@ fn note(params: Option<&Value>) -> &str {
         .unwrap_or("")
 }
 
-fn maybe_nudge_implementer(svc: &ServiceState, pane_id: Option<&str>, task_id: &str, note: &str) {
-    let Some(pane_id) = pane_id.filter(|pane| !pane.trim().is_empty()) else {
+fn bool_field(params: Option<&Value>, key: &str) -> bool {
+    params
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn maybe_nudge_implementer(svc: &ServiceState, tab_id: Option<&str>, task_id: &str, note: &str) {
+    let Some(tab_id) = tab_id.filter(|tab| !tab.trim().is_empty()) else {
         return;
     };
     let text = format!(
@@ -58,7 +65,7 @@ fn maybe_nudge_implementer(svc: &ServiceState, pane_id: Option<&str>, task_id: &
     );
     let envelope = MessageEnvelope::codeterm_reminder("qa");
     let _ = svc.gateway_deliver(
-        pane_id,
+        tab_id,
         envelope,
         &text,
         crate::service::message_gateway::DeliveryClass::SystemNotice,
@@ -118,7 +125,7 @@ pub(super) fn dispatch(
                 return Ok(json!({ "plan_id": plan_id, "next": queue.queued.first() }));
             }
             let tester = p
-                .and_then(|x| x.get("tester_pane_id").or_else(|| x.get("caller_pane_id")))
+                .and_then(|x| x.get("tester_tab_id").or_else(|| x.get("caller_tab_id")))
                 .and_then(|v| v.as_str());
             let result = store
                 .claim_next_qa(&plan_id, note(p), actor(p), tester, now)
@@ -171,9 +178,17 @@ pub(super) fn dispatch(
         "plan.qa.fail" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
             let result = store
-                .fail_qa(&plan_id, &task_id, note(p), actor(p), now)
+                .fail_qa(
+                    &plan_id,
+                    &task_id,
+                    note(p),
+                    bool_field(p, "changed_executable_surfaces"),
+                    bool_field(p, "distinct_oracle"),
+                    actor(p),
+                    now,
+                )
                 .map_err(plan_rpc_err)?;
-            maybe_nudge_implementer(svc, result.nudged_pane_id.as_deref(), &task_id, note(p));
+            maybe_nudge_implementer(svc, result.nudged_tab_id.as_deref(), &task_id, note(p));
             emit_plan_changed(app, &plan_id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

@@ -17,7 +17,9 @@ export function qaChipText(plan: Plan, task: Task): string | null {
   if (task.status !== "in_review" || task.review_stage !== "qa") return null;
   if (task.qa_state === "running") return "In QA · running";
   const position = qaQueuePosition(plan, task);
-  return position ? `In QA · queued #${position}` : "In QA · queued";
+  const base = position ? `In QA · queued #${position}` : "In QA · queued";
+  const reason = task.status_label?.trim();
+  return reason ? `${base} — ${reason}` : base;
 }
 
 export function taskStatusText(_plan: Plan, task: Task): string {

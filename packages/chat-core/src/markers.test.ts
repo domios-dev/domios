@@ -1,12 +1,12 @@
 import {
   MARKER_OPEN,
-  isPaneMarkerPlaceholderLabel,
+  isTabMarkerPlaceholderLabel,
   markContextRequest,
   markPluginConfig,
   markSystemPrompt,
   markWatcherVerdict,
   parseMarker,
-  shortPaneRef,
+  shortTabRef,
 } from "./markers";
 
 let passed = 0,
@@ -41,10 +41,10 @@ const bracketedPaste = parseMarker(
 eq(bracketedPaste?.kind, "tab", "parseMarker unwraps bracketed paste start");
 eq(bracketedPaste?.payload, "hello", "parseMarker strips bracketed paste end from payload");
 
-eq(isPaneMarkerPlaceholderLabel("CURRENT PANE"), true, "CURRENT PANE is a pane label placeholder");
-eq(isPaneMarkerPlaceholderLabel(""), true, "blank pane label is a placeholder");
-eq(isPaneMarkerPlaceholderLabel("Puccini"), false, "real pane label is not a placeholder");
-eq(shortPaneRef("915fae8effffffff"), "915fae8e", "shortPaneRef keeps display-safe pane id");
+eq(isTabMarkerPlaceholderLabel("CURRENT Tab"), true, "CURRENT Tab is a tab label placeholder");
+eq(isTabMarkerPlaceholderLabel(""), true, "blank tab label is a placeholder");
+eq(isTabMarkerPlaceholderLabel("Puccini"), false, "real tab label is not a placeholder");
+eq(shortTabRef("915fae8effffffff"), "915fae8e", "shortTabRef keeps display-safe Tab id");
 
 // `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).
 eq(

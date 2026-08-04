@@ -6,6 +6,7 @@ use axum::{
 };
 
 use super::routes::AppState;
+use super::access_policy::check_access;
 use crate::mesh::types::AccessLevel;
 
 #[derive(Clone, Debug)]
@@ -17,6 +18,7 @@ pub enum CallerIdentity {
     Peer {
         instance_id: String,
         access_level: AccessLevel,
+        relay_protocol_version: u16,
     },
 }
 
@@ -24,13 +26,13 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
     if method != "POST" {
         return false;
     }
-    let Some(rest) = path.strip_prefix("/api/panes/") else {
+    let Some(rest) = path.strip_prefix("/api/tabs/") else {
         return false;
     };
-    let Some(pane_id) = rest.strip_suffix("/send") else {
+    let Some(tab_id) = rest.strip_suffix("/send") else {
         return false;
     };
-    !pane_id.is_empty() && !pane_id.contains('/')
+    !tab_id.is_empty() && !tab_id.contains('/')
 }
 
 const PUBLIC_PATHS: &[&str] = &[
@@ -42,6 +44,11 @@ const PUBLIC_PATHS: &[&str] = &[
     "/api/mesh/pair/confirm",
     "/api/mesh/pair/reject",
 ];
+
+fn peer_protocol_allowed(version: u16, path: &str) -> bool {
+    version == crate::mesh::types::RELAY_PROTOCOL_VERSION
+        || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
+}
 
 /// Paths whose handler does its OWN authentication (a mesh-signed token, not the
 /// bearer API token) and must therefore skip the bearer-token middleware. This
@@ -120,82 +127,17 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
                 .get(&sender_id)
                 .map(|p| p.access_level.clone())
                 .unwrap_or(AccessLevel::ReadOnly);
+            let relay_protocol_version = paired_peers
+                .get(&sender_id)
+                .map(|peer| peer.relay_protocol_version)
+                .unwrap_or(0);
             Ok(CallerIdentity::Peer {
                 instance_id: sender_id,
                 access_level,
+                relay_protocol_version,
             })
         }
         Err(_) => Err(()),
-    }
-}
-
-fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
-    match access {
-        AccessLevel::Full => true,
-        AccessLevel::ReadOnly => *method == Method::GET,
-        AccessLevel::AgentIsolated => {
-            if *method == Method::GET {
-                return true;
-            }
-            let write_allowed = [
-                "/send",
-                "/exec",
-                "/report",
-                "/reports",
-                "/respond",
-                "/clear",
-                "/describe",
-                "/can-spawn",
-                "/agent-type",
-            ];
-            if path.starts_with("/api/panes/") && write_allowed.iter().any(|s| path.ends_with(s)) {
-                return true;
-            }
-            path == "/api/agents/spawn" || path == "/api/batch" || path == "/api/notifications"
-        }
-        AccessLevel::Custom(perms) => {
-            use crate::mesh::types::Permission;
-            if perms.contains(&Permission::Admin) {
-                return true;
-            }
-            if *method == Method::GET {
-                let can_read = perms.contains(&Permission::ReadPanes)
-                    || perms.contains(&Permission::ReadOutput);
-                if can_read {
-                    return true;
-                }
-            }
-            if path.starts_with("/api/panes/") {
-                if path.ends_with("/send") && perms.contains(&Permission::SendInput) {
-                    return true;
-                }
-                if (path.ends_with("/output") || path.ends_with("/text"))
-                    && perms.contains(&Permission::ReadOutput)
-                {
-                    return true;
-                }
-                if perms.contains(&Permission::WritePanes) {
-                    return true;
-                }
-            }
-            if path.starts_with("/api/agents/") && perms.contains(&Permission::SpawnAgents) {
-                return true;
-            }
-            if path.starts_with("/api/workspaces") && perms.contains(&Permission::ManageWorkspaces)
-            {
-                return true;
-            }
-            if (path == "/api/fs/list-dir" || path == "/api/fs/mkdir")
-                && (perms.contains(&Permission::ManageWorkspaces)
-                    || perms.contains(&Permission::SpawnAgents))
-            {
-                return true;
-            }
-            if path.starts_with("/api/crons") && perms.contains(&Permission::ManageCrons) {
-                return true;
-            }
-            false
-        }
     }
 }
 
@@ -250,12 +192,12 @@ pub async fn auth_middleware(
                 next.run(req).await
             } else {
                 log::warn!(
-                    "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/panes/<id>/send only",
+                    "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/tabs/<id>/send only",
                     service_id, method, path
                 );
                 (
                     StatusCode::FORBIDDEN,
-                    "Service push tokens are scoped to POST /api/panes/<id>/send",
+                    "Service push tokens are scoped to POST /api/tabs/<id>/send",
                 )
                     .into_response()
             }
@@ -263,6 +205,7 @@ pub async fn auth_middleware(
         Ok(CallerIdentity::Peer {
             ref instance_id,
             ref access_level,
+            relay_protocol_version,
         }) => {
             if !state.config.lock().mesh.enabled {
                 log::warn!(
@@ -274,6 +217,20 @@ pub async fn auth_middleware(
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Mesh networking is disabled",
+                )
+                    .into_response();
+            }
+            if !peer_protocol_allowed(relay_protocol_version, &path) {
+                log::warn!(
+                    "[auth] Rejecting peer {} with relay protocol {} on {} {}",
+                    instance_id,
+                    relay_protocol_version,
+                    method,
+                    path
+                );
+                return (
+                    StatusCode::UPGRADE_REQUIRED,
+                    "Incompatible Mesh relay protocol; update CodeTerm",
                 )
                     .into_response();
             }
@@ -357,6 +314,18 @@ mod tests {
     }
 
     #[test]
+    fn old_peer_protocol_can_only_bootstrap_compatibility_state() {
+        assert!(peer_protocol_allowed(0, "/api/mesh/announce"));
+        assert!(peer_protocol_allowed(0, "/api/mesh/sync"));
+        assert!(!peer_protocol_allowed(0, "/api/events/stream"));
+        assert!(!peer_protocol_allowed(0, "/api/config"));
+        assert!(peer_protocol_allowed(
+            crate::mesh::types::RELAY_PROTOCOL_VERSION,
+            "/api/events/stream"
+        ));
+    }
+
+    #[test]
     fn full_access_allows_everything() {
         assert!(check_access(
             &AccessLevel::Full,
@@ -366,7 +335,7 @@ mod tests {
         assert!(check_access(
             &AccessLevel::Full,
             &Method::POST,
-            "/api/panes/abc/send"
+            "/api/tabs/abc/send"
         ));
         assert!(check_access(
             &AccessLevel::Full,
@@ -380,7 +349,7 @@ mod tests {
         assert!(check_access(
             &AccessLevel::ReadOnly,
             &Method::GET,
-            "/api/panes"
+            "/api/tabs"
         ));
         assert!(check_access(
             &AccessLevel::ReadOnly,
@@ -390,7 +359,7 @@ mod tests {
         assert!(!check_access(
             &AccessLevel::ReadOnly,
             &Method::POST,
-            "/api/panes/abc/send"
+            "/api/tabs/abc/send"
         ));
         assert!(!check_access(
             &AccessLevel::ReadOnly,
@@ -402,12 +371,12 @@ mod tests {
     #[test]
     fn agent_isolated_allows_agent_ops() {
         let level = AccessLevel::AgentIsolated;
-        assert!(check_access(&level, &Method::GET, "/api/panes"));
+        assert!(check_access(&level, &Method::GET, "/api/tabs"));
         assert!(check_access(&level, &Method::GET, "/api/config"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/send"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/exec"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/exec"));
         assert!(check_access(&level, &Method::POST, "/api/agents/spawn"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/report"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/report"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
         assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
         assert!(!check_access(
@@ -421,9 +390,9 @@ mod tests {
     fn custom_permissions() {
         use crate::mesh::types::Permission;
 
-        let level = AccessLevel::Custom(vec![Permission::ReadPanes, Permission::SendInput]);
-        assert!(check_access(&level, &Method::GET, "/api/panes"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/send"));
+        let level = AccessLevel::Custom(vec![Permission::ReadTabs, Permission::SendInput]);
+        assert!(check_access(&level, &Method::GET, "/api/tabs"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
         assert!(!check_access(&level, &Method::POST, "/api/agents/spawn"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
 
@@ -452,16 +421,16 @@ mod tests {
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
-        assert!(!is_custom_auth(&Method::POST, "/api/panes/abc/send"));
+        assert!(!is_custom_auth(&Method::POST, "/api/tabs/abc/send"));
     }
 
     #[test]
     fn service_push_allowed_on_send() {
-        assert!(is_service_push_allowed("POST", "/api/panes/abc123/send"));
-        assert!(is_service_push_allowed("POST", "/api/panes/general/send"));
+        assert!(is_service_push_allowed("POST", "/api/tabs/abc123/send"));
+        assert!(is_service_push_allowed("POST", "/api/tabs/general/send"));
         assert!(is_service_push_allowed(
             "POST",
-            "/api/panes/pane-with-dashes_and_underscores/send"
+            "/api/tabs/tab-with-dashes_and_underscores/send"
         ));
     }
 
@@ -477,21 +446,18 @@ mod tests {
 
     #[test]
     fn service_push_rejected_on_get() {
-        assert!(!is_service_push_allowed("GET", "/api/panes/abc123/send"));
-        assert!(!is_service_push_allowed("DELETE", "/api/panes/abc123/send"));
-        assert!(!is_service_push_allowed("PUT", "/api/panes/abc123/send"));
+        assert!(!is_service_push_allowed("GET", "/api/tabs/abc123/send"));
+        assert!(!is_service_push_allowed("DELETE", "/api/tabs/abc123/send"));
+        assert!(!is_service_push_allowed("PUT", "/api/tabs/abc123/send"));
     }
 
     #[test]
-    fn service_push_rejected_on_pane_root() {
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc123"));
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc123/exec"));
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc123/clear"));
-        assert!(!is_service_push_allowed("POST", "/api/panes//send"));
-        assert!(!is_service_push_allowed(
-            "POST",
-            "/api/panes/abc/extra/send"
-        ));
-        assert!(!is_service_push_allowed("POST", "/api/panes"));
+    fn service_push_rejected_on_tab_root() {
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/exec"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/clear"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs//send"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc/extra/send"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs"));
     }
 }

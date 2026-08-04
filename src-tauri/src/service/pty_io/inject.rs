@@ -1,6 +1,5 @@
-//! Verified injection path: send_shell_spawn, send_text_verified,
-//! send_shell_spawn_verified.
-use super::{await_shell_prompt, build_spawn_dispatch};
+//! Verified shell-spawn and guarded agent-input injection.
+use super::build_spawn_dispatch;
 use crate::service::ServiceContext;
 
 impl ServiceContext {
@@ -42,36 +41,6 @@ impl ServiceContext {
         self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
 
-    /// Submit text through one ordered PTY write, with screen state retained for
-    /// diagnostics rather than as a gate for the Enter key.
-    pub fn send_text_verified(
-        &self,
-        pty_id: &str,
-        text: &str,
-        enter: bool,
-        submit_strategy: crate::agent::provider::VerifySubmitStrategy,
-        opts: crate::service::inject_verify::VerifyOpts,
-    ) -> Result<
-        crate::service::inject_verify::InjectionResult,
-        crate::service::inject_verify::InjectionError,
-    > {
-        use crate::service::inject_verify::InjectionError;
-        let started = std::time::Instant::now();
-        // Notify, never block — an unsafe-prompt detection must not lock the user out of sending.
-        super::super::inject_safety::notify_if_unsafe_prompt(&self.screen_state, pty_id);
-
-        if opts.require_prompt_first {
-            let ready = await_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);
-            if !ready {
-                return Err(InjectionError::PromptNeverReady {
-                    waited: started.elapsed(),
-                });
-            }
-        }
-
-        super::submit_transaction::submit_text(self, pty_id, text, enter, submit_strategy, opts)
-    }
-
     pub(crate) fn send_text_verified_guarded(
         &self,
         pty_id: &str,
@@ -96,12 +65,12 @@ impl ServiceContext {
         )
     }
 
-    /// Inject a command into a plain shell pane via script-exec, bypassing
+    /// Inject a command into a plain shell tab via script-exec, bypassing
     /// bracketed-paste. Ensures the PTY exists and awaits the PTY link before
     /// writing; delegates to `send_shell_spawn` which calls `await_shell_ready`.
-    pub fn send_shell_cmd(&self, pane_id: &str, cmd: &str) -> Result<(), String> {
-        self.ensure_pane_pty_for_send(pane_id)?;
-        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+    pub fn send_shell_cmd(&self, tab_id: &str, cmd: &str) -> Result<(), String> {
+        self.ensure_tab_pty_for_send(tab_id)?;
+        let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
         self.send_shell_spawn(&pty_id, cmd)
     }
 
@@ -167,7 +136,7 @@ impl ServiceContext {
                     wait_for_submit_shell(&self.screen_state, pty_id, hash_before, timeout, 8)
                         .map(|_| ())
                 }
-                VerifySubmitStrategy::TuiInputDrained => {
+                VerifySubmitStrategy::TuiInputDrained { .. } => {
                     if self.await_agent_tui_frame_on_screen(pty_id, agent_id, opts.submit_timeout) {
                         Ok(())
                     } else {
@@ -206,6 +175,7 @@ impl ServiceContext {
             echo_observed: false,
             submit_observed,
             submit_anomaly: false,
+            submit_key_writes: usize::from(cfg!(windows)),
             elapsed: started.elapsed(),
         })
     }

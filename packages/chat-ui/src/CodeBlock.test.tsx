@@ -81,9 +81,12 @@ test("CodeBlock renders highlighted code structure and copy button", async () =>
   const block = host.querySelector<HTMLElement>('[data-testid="chat-code-block"]');
   assert(block?.classList.contains("min-w-0"), "code block should not expand a flex parent");
   assert(block?.classList.contains("max-w-full"), "code block should stay within the chat width");
+  const toolbar = host.querySelector<HTMLElement>('[data-testid="chat-code-toolbar"]');
+  assert(toolbar?.classList.contains("select-none"), "copying rendered code should exclude toolbar chrome");
   const scrollHost = host.querySelector<HTMLElement>(`.${SYNTAX_HIGHLIGHT_ROOT_CLASS}.overflow-x-auto.overflow-y-auto`);
   assert(scrollHost?.style.maxHeight === "500px", "code block should cap height at 500px");
   assert(scrollHost?.classList.contains("w-full"), "code lines should scroll inside a width-constrained host");
+  assert(scrollHost?.classList.contains("select-text"), "code source remains selectable");
   const highlightedCode = scrollHost?.querySelector<HTMLElement>("code");
   assert(highlightedCode?.style.whiteSpace === "pre", "code should preserve original line width");
   assert(highlightedCode?.style.wordBreak === "normal", "code should not break long lines");
@@ -129,6 +132,144 @@ test("RichMarkdown renders markdown code blocks and mocked Mermaid output", asyn
   assert(mermaidCalls.some((source) => source.includes("flowchart TD")), "mermaid renderer should receive graph source");
 
   await act(async () => root.unmount());
+});
+
+test("RichMarkdown preserves line structure in unlabelled fenced blocks", async () => {
+  const markdown = [
+    "```",
+    "building.......... ███████████████████░  97%",
+    "finding bug....... ████░░░░░░░░░░░░░░░░  19%",
+    "your motivation... ██░░░░░░░░░░░░░░░░░░   8%",
+    "```",
+  ].join("\n");
+
+  const { host, root } = await render(<RichMarkdown text={markdown} />);
+  const code = host.querySelector<HTMLElement>('[data-testid="chat-plain-code-block"]');
+
+  assert(code, "unlabelled fence renders as a compact block instead of inline code");
+  assert(!host.querySelector('[data-testid="chat-code-block"]'), "plain text does not get heavy code chrome");
+  assert(code?.textContent?.trimEnd().split("\n").length === 3, "all fenced lines remain separate");
+  assert(code?.classList.contains("whitespace-pre"), "ASCII spacing and line breaks are preserved");
+
+  await act(async () => root.unmount());
+});
+
+test("fullscreen Mermaid fits its viewport and exposes accessible view controls", async () => {
+  let viewportWidth = 1000;
+  let viewportHeight = 600;
+  let resize: ResizeObserverCallback | null = null;
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+  const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
+  const originalReleasePointerCapture = HTMLElement.prototype.releasePointerCapture;
+  HTMLElement.prototype.setPointerCapture = () => undefined;
+  HTMLElement.prototype.hasPointerCapture = () => true;
+  HTMLElement.prototype.releasePointerCapture = () => undefined;
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    if (this.dataset.testid === "mermaid-fullscreen-viewport") {
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: viewportWidth,
+        bottom: viewportHeight,
+        width: viewportWidth,
+        height: viewportHeight,
+        toJSON: () => ({}),
+      } as DOMRect;
+    }
+    return originalRect.call(this);
+  };
+  class TestResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      resize = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", { value: TestResizeObserver, configurable: true });
+  (window as unknown as {
+    mermaid: {
+      initialize: () => void;
+      render: () => { svg: string };
+    };
+  }).mermaid = {
+    initialize: () => {},
+    render: () => ({ svg: '<svg viewBox="0 0 400 200"><text>fit diagram</text></svg>' }),
+  };
+
+  const { host, root } = await render(
+    <CodeBlock text={"flowchart LR\n  Fit --> Resize"} language="mermaid" />,
+  );
+  await flushEffects();
+  const fullscreen = Array.from(host.querySelectorAll("button"))
+    .find((button) => button.textContent?.includes("Fullscreen"));
+  assert(fullscreen, "Mermaid block exposes fullscreen");
+  await act(async () => fullscreen.click());
+
+  const dialog = host.querySelector('[role="dialog"]');
+  const viewport = host.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-viewport"]');
+  const canvas = host.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-canvas"]');
+  const fit = host.querySelector<HTMLButtonElement>('[aria-label="Fit Mermaid diagram to viewport"]');
+  const reset = host.querySelector<HTMLButtonElement>('[aria-label="Reset Mermaid diagram to 100%"]');
+  assert(dialog?.getAttribute("aria-label") === "Fullscreen Mermaid diagram", "fullscreen has dialog semantics");
+  assert(viewport?.classList.contains("h-full"), "Mermaid viewport fills the available height");
+  assert(canvas?.style.width === "400px" && canvas.style.height === "200px", "canvas uses SVG viewBox dimensions");
+  assert(canvas?.style.transform.includes("scale(2.42)"), "diagram fits and centers on open");
+  assert(fit?.getAttribute("aria-pressed") === "true", "Fit exposes its active state");
+  assert(reset, "Reset has an accessible name");
+
+  await act(async () => reset.click());
+  assert(canvas.style.transform.includes("scale(1)"), "Reset returns to natural 100% size");
+  assert(reset.getAttribute("aria-pressed") === "true", "Reset exposes its active state");
+  await act(async () => fit.click());
+
+  viewportWidth = 500;
+  viewportHeight = 300;
+  await act(async () => resize?.([], {} as ResizeObserver));
+  assert(canvas.style.transform.includes("scale(1.17)"), "fitted diagram responds to viewport resize");
+
+  await act(async () => {
+    viewport.dispatchEvent(new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 250,
+      clientY: 150,
+      deltaY: -100,
+    }));
+  });
+  assert(fit.getAttribute("aria-pressed") === "false", "wheel zoom enters a custom view");
+  assert(!canvas.style.transform.includes("scale(1.17)"), "wheel zoom changes the fitted scale");
+
+  const pointer = (type: string, pointerId: number, clientX: number, clientY: number) => {
+    const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
+    Object.defineProperty(event, "pointerId", { value: pointerId });
+    Object.defineProperty(event, "pointerType", { value: "mouse" });
+    return event;
+  };
+  await act(async () => fit.click());
+  await act(async () => {
+    viewport.dispatchEvent(pointer("pointerdown", 1, 100, 100));
+    viewport.dispatchEvent(pointer("pointermove", 1, 140, 130));
+  });
+  assert(canvas.style.transform.includes("translate(40px, 30px)"), "mouse drag pans the diagram");
+  await act(async () => viewport.dispatchEvent(pointer("pointerup", 1, 140, 130)));
+
+  await act(async () => fit.click());
+  await act(async () => {
+    viewport.dispatchEvent(pointer("pointerdown", 1, 100, 100));
+    viewport.dispatchEvent(pointer("pointerdown", 2, 200, 100));
+    viewport.dispatchEvent(pointer("pointermove", 2, 250, 100));
+  });
+  assert(!canvas.style.transform.includes("scale(1.17)"), "two-pointer pinch changes diagram scale");
+
+  await act(async () => root.unmount());
+  HTMLElement.prototype.getBoundingClientRect = originalRect;
+  HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+  HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
+  HTMLElement.prototype.releasePointerCapture = originalReleasePointerCapture;
 });
 
 const started = performance.now();

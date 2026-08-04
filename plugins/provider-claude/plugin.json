@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.7.5",
+  "version": "1.7.8",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -45,13 +45,13 @@
   "models": [
     {
       "id": "opus",
-      "displayName": "Claude Opus 4.8 (1M context)",
-      "description": "Most capable for complex work."
+      "displayName": "Claude Opus 5 (1M context)",
+      "description": "Best for everyday, complex tasks."
     },
     {
       "id": "sonnet",
-      "displayName": "Claude Sonnet 4.6",
-      "description": "Best for everyday tasks. Default for most work."
+      "displayName": "Claude Sonnet 5",
+      "description": "Efficient for routine tasks."
     },
     {
       "id": "haiku",
@@ -61,8 +61,7 @@
     {
       "id": "fable",
       "displayName": "Claude Fable 5",
-      "description": "Newest model — enabled once available for your account.",
-      "available": false
+      "description": "Most capable for your hardest and longest-running tasks."
     }
   ],
   "defaultModel": "sonnet",
@@ -84,5 +83,12 @@
       "--model",
       "{model}"
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "api.anthropic.com"
+      ]
+    }
   }
 }

@@ -3,14 +3,14 @@ const activeTerminals = new WeakSet<object>();
 let nextClaimId = 0;
 
 export interface TerminalHistoryClaim {
-  paneId: string;
+  tabId: string;
   id: number;
   terminal: object;
 }
 
-export function claimInitialTerminalHistory(paneId: string, terminal: object): TerminalHistoryClaim | null {
+export function claimInitialTerminalHistory(tabId: string, terminal: object): TerminalHistoryClaim | null {
   if (hydratedTerminals.has(terminal) || activeTerminals.has(terminal)) return null;
-  const claim = { paneId, id: ++nextClaimId, terminal };
+  const claim = { tabId, id: ++nextClaimId, terminal };
   activeTerminals.add(terminal);
   return claim;
 }

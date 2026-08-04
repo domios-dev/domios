@@ -24,7 +24,7 @@ pub(crate) struct RegisterWebhookBody {
     events: Vec<String>,
     #[serde(default)]
     headers: std::collections::HashMap<String, String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     #[serde(default)]
     once: bool,
     payload_extra: Option<serde_json::Value>,
@@ -42,7 +42,7 @@ pub async fn register_webhook(
         url: body.url,
         events: body.events,
         headers: body.headers,
-        pane_id: body.pane_id,
+        tab_id: body.tab_id,
         once: body.once,
         payload_extra: body.payload_extra,
     };

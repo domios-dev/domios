@@ -41,6 +41,7 @@ impl CronStore {
             name: params.name,
             description: params.description,
             workspace_id: params.workspace_id,
+            team_id: params.team_id,
             schedule: params.schedule,
             enabled: params.enabled.unwrap_or(true),
             agent: params
@@ -51,7 +52,8 @@ impl CronStore {
             cwd: params.cwd,
             role: params.role,
             skill: params.skill,
-            creator_pane_id: params.creator_pane_id,
+            creator_tab_id: params.creator_tab_id,
+            report_target_tab_id: params.report_target_tab_id,
             oneshot,
             max_history: params.max_history.unwrap_or(default_max_history()),
             created_at: now_ms,
@@ -82,6 +84,14 @@ impl CronStore {
             .jobs
             .iter()
             .filter(|j| j.workspace_id == workspace_id)
+            .collect()
+    }
+
+    pub fn list_for_team(&self, team_id: &str) -> Vec<&CronJob> {
+        self.file
+            .jobs
+            .iter()
+            .filter(|job| job.team_id.as_deref() == Some(team_id))
             .collect()
     }
 
@@ -367,7 +377,7 @@ impl CronStore {
 
     /// Locate a run by id across all jobs' history, without knowing its job_id
     /// up front — used to distinguish "no such run" from "run already
-    /// finalized" when its pane ownership has already been unregistered.
+    /// finalized" when its tab ownership has already been unregistered.
     pub fn find_run_by_id(&self, run_id: &str) -> Option<(&str, &CronRunInfo)> {
         self.file.history.iter().find_map(|(job_id, runs)| {
             runs.iter()

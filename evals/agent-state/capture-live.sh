@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # RT3 — live real-agent capture driver. Spawns a REAL provider agent in a
 # scratch dev workspace, arms the RT1 .cast capture tap, fires a per-state
-# trigger, polls /api/panes/<id>/status until the turn returns to idle (or a
+# trigger, polls /api/tabs/<id>/status until the turn returns to idle (or a
 # timeout), stops capture (which writes a sibling screen.txt), emits a starter
-# expected.json for hand-labeling, and closes the pane.
+# expected.json for hand-labeling, and closes the tab.
 #
 # DEV-LOCKED: sources evals/_lib/lib.sh -> every codeterm call goes through the
 # `dc` wrapper (port 7686 only). NEVER touches prod (7685).
@@ -99,8 +99,8 @@ OUT_DIR="$ROOT/tests/fixtures/agent-state/$PROVIDER/$STATE"
 CAST="$OUT_DIR/recording.cast"
 mkdir -p "$WS_CWD" "$OUT_DIR"
 
-pane_status() {
-  dev_get "/api/panes/$1/status" \
+tab_status() {
+  dev_get "/api/tabs/$1/status" \
     | $PY -c "import json,sys;print(json.load(sys.stdin).get('status',''))" 2>/dev/null
 }
 
@@ -119,14 +119,14 @@ fi
 
 echo "[rt3] provider=$PROVIDER state=$STATE ws=$WS out=$CAST"
 
-PANE=$(dc agent spawn "$PROVIDER" --workspace "$WS" --cwd "$WS_CWD" --title "rt3-$STATE" 2>&1 \
-       | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1)
-[ -n "$PANE" ] || { echo "ERROR: agent spawn failed" >&2; exit 1; }
-echo "[rt3] pane=$PANE — waiting for agent to come up"
+TAB=$(dc agent spawn "$PROVIDER" --workspace "$WS" --cwd "$WS_CWD" --title "rt3-$STATE" 2>&1 \
+       | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
+[ -n "$TAB" ] || { echo "ERROR: agent spawn failed" >&2; exit 1; }
+echo "[rt3] tab=$TAB — waiting for agent to come up"
 
 # Wait for a live status, then let the TUI fully paint before arming.
 for _ in $(seq 1 30); do
-  st="$(pane_status "$PANE")"
+  st="$(tab_status "$TAB")"
   [ -n "$st" ] && [ "$st" != "Dead" ] && break
   sleep 1
 done
@@ -137,21 +137,21 @@ echo "[rt3] arming capture"
 # header was written (start creates the file immediately) before proceeding.
 rm -f "$CAST"
 for _ in 1 2 3 4 5; do
-  dc tab capture start --tab "$PANE" --out "$CAST" >/dev/null 2>&1
+  dc tab capture start --tab "$TAB" --out "$CAST" >/dev/null 2>&1
   [ -f "$CAST" ] && break
   sleep 2
 done
-[ -f "$CAST" ] || { echo "ERROR: capture never armed (no $CAST)" >&2; dc tab close "$PANE" >/dev/null 2>&1; exit 1; }
+[ -f "$CAST" ] || { echo "ERROR: capture never armed (no $CAST)" >&2; dc tab close "$TAB" >/dev/null 2>&1; exit 1; }
 
 echo "[rt3] firing trigger: $TRIGGER"
-dc send --tab "$PANE" "$TRIGGER" --actions enter >/dev/null 2>&1
+dc send --tab "$TAB" "$TRIGGER" --actions enter >/dev/null 2>&1
 
-# Poll the turn lifecycle: wait until Working is seen, then until the pane
+# Poll the turn lifecycle: wait until Working is seen, then until the tab
 # settles back to a non-Working state for a few consecutive polls (turn done).
 SECONDS=0
 saw_working=0; idle_streak=0
 while [ "$SECONDS" -lt "$TIMEOUT" ]; do
-  st="$(pane_status "$PANE")"
+  st="$(tab_status "$TAB")"
   [ "$st" = "Working" ] && saw_working=1
   if [ "$saw_working" = 1 ] && { [ "$st" = "Idle" ] || [ "$st" = "Waiting" ] || [ "$st" = "Dead" ]; }; then
     idle_streak=$((idle_streak + 1))
@@ -164,7 +164,7 @@ done
 echo "[rt3] settled after ${SECONDS}s (saw_working=$saw_working last=$st)"
 
 echo "[rt3] stopping capture"
-  dc tab capture stop --tab "$PANE" >/dev/null 2>&1
+  dc tab capture stop --tab "$TAB" >/dev/null 2>&1
 
 # Starter expected.json — hand-label `final_state` after replaying. Real
 # captures are NON-GATING (gating:false): they MEASURE the baseline, they don't
@@ -192,8 +192,8 @@ else
   echo "[rt3] expected.json already exists — leaving hand-labeled version intact"
 fi
 
-echo "[rt3] closing pane $PANE"
-dc tab close "$PANE" >/dev/null 2>&1
+echo "[rt3] closing tab $TAB"
+dc tab close "$TAB" >/dev/null 2>&1
 
 echo "[rt3] done: $CAST"
 ls -la "$OUT_DIR"

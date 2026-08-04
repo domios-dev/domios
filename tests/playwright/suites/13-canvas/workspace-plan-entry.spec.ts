@@ -18,7 +18,7 @@ interface CreatePlanResponse {
   plan_id: string;
 }
 
-test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", async ({ api, webBrowser, paneCleanup }) => {
+test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", async ({ api, webBrowser, tabCleanup }) => {
   test.setTimeout(120_000);
   const projectPath = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-workspace-plan-entry-")));
   const wsName = "workspace plan entry gate";
@@ -29,7 +29,7 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
   const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Workspace Plan Entry Synthetic Plan",
     project_path: projectPath,
-    owner: { pane_id: "plan-entry-orchestrator", session_id: null, title: "Plan Entry Orchestrator" },
+    owner: { tab_id: "plan-entry-orchestrator", session_id: null, title: "Plan Entry Orchestrator" },
     kinds: "progress:#38bdf8",
   });
   const section = await api.post<{ section_id: string }>(`/plans/${created.plan_id}/sections`, {
@@ -98,9 +98,9 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
     await expect(entry).toHaveAttribute("aria-current", "page");
     await expect(page.getByTitle("Close plan canvas")).toHaveCount(0);
 
-    const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({ workspace_id: workspace.id });
-    if (pane.tab_id) {
-      await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
+    const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({ workspace_id: workspace.id });
+    if (tab.tab_id) {
+      await page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).click();
     }
     await expect(page.locator('[data-testid="plan-view-shell"]').first()).toBeHidden({ timeout: 30_000 });
     await expect(entry).toHaveAttribute("data-active", "false");

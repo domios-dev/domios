@@ -90,7 +90,7 @@ fn test_pty_spawn_with_env_vars() {
     let mut manager = PtyManager::new();
     let mut env_vars = HashMap::new();
     env_vars.insert("CODETERM_TEST".to_string(), "1".to_string());
-    env_vars.insert("CODETERM_PANE_ID".to_string(), "test-pane".to_string());
+    env_vars.insert("CODETERM_TAB_ID".to_string(), "test-tab".to_string());
 
     #[cfg(target_os = "windows")]
     let cmd = Some("cmd.exe".to_string());

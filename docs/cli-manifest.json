@@ -28,6 +28,38 @@
       "args": [],
       "subcommands": [
         {
+          "name": "ack",
+          "about": "Acknowledge receipt and ownership of the assigned task",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": "Plan id (default: $CODETERM_PLAN_ID)",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task id (default: $CODETERM_TASK_ID)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "allow-spawn",
           "about": "Toggle whether a tab can spawn children",
           "aliases": [],
@@ -61,7 +93,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -125,7 +157,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -260,7 +292,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             },
             {
@@ -324,7 +356,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -348,7 +380,7 @@
         },
         {
           "name": "spawn",
-          "about": "Spawn a new agent; roleless unless --role is provided",
+          "about": "Spawn a new agent; roleless unless --role is provided.",
           "aliases": [],
           "args": [
             {
@@ -429,6 +461,14 @@
               "value_name": "MODEL",
               "default": null,
               "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available",
+              "aliases": []
+            },
+            {
+              "name": "non-user-facing",
+              "positional": false,
+              "value_name": "NON_USER_FACING",
+              "default": null,
+              "help": "Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications",
               "aliases": []
             },
             {
@@ -1026,7 +1066,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
+              "help": "Tab ID to receive reports. Omit to keep runs private to the cron",
               "aliases": []
             },
             {
@@ -1035,6 +1075,14 @@
               "value_name": "TASK",
               "default": null,
               "help": "Task prompt for the agent",
+              "aliases": []
+            },
+            {
+              "name": "team",
+              "positional": false,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Attach this job to a Team. The calling Tab must belong to it",
               "aliases": []
             },
             {
@@ -1316,7 +1364,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             },
             {
@@ -1414,7 +1462,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -1456,7 +1504,7 @@
     },
     {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
+      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
       "aliases": [],
       "args": [
         {
@@ -1819,7 +1867,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab id (default: $CODETERM_PANE_ID)",
+              "help": "Tab id (default: $CODETERM_TAB_ID)",
               "aliases": []
             },
             {
@@ -4750,7 +4798,7 @@
                 {
                   "name": "answered-by-tab",
                   "positional": false,
-                  "value_name": "ANSWERED_BY_PANE",
+                  "value_name": "ANSWERED_BY_TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -4782,7 +4830,7 @@
                 {
                   "name": "asked-by-tab",
                   "positional": false,
-                  "value_name": "ASKED_BY_PANE",
+                  "value_name": "ASKED_BY_TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6406,6 +6454,22 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "changed-executable-surfaces",
+                  "positional": false,
+                  "value_name": "CHANGED_EXECUTABLE_SURFACES",
+                  "default": null,
+                  "help": "This attempt changed executable implementation surfaces",
+                  "aliases": []
+                },
+                {
+                  "name": "distinct-oracle",
+                  "positional": false,
+                  "value_name": "DISTINCT_ORACLE",
+                  "default": null,
+                  "help": "This attempt used a materially distinct verification oracle",
+                  "aliases": []
+                },
+                {
                   "name": "note",
                   "positional": false,
                   "value_name": "NOTE",
@@ -7052,7 +7116,7 @@
               "positional": false,
               "value_name": "KIND",
               "default": null,
-              "help": null,
+              "help": "Restrict to plan, plan_section, spec, spec_section, task, or stride",
               "aliases": []
             },
             {
@@ -7077,6 +7141,14 @@
               "value_name": "QUERY",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": null,
+              "help": "Restrict to an indexed scope such as global or workspace:<id>",
               "aliases": []
             }
           ],
@@ -7622,6 +7694,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "external-ref",
+                  "positional": false,
+                  "value_name": "URL_OR_REPO#NUMBER",
+                  "default": null,
+                  "help": "GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number",
+                  "aliases": []
+                },
+                {
                   "name": "force",
                   "positional": false,
                   "value_name": "FORCE",
@@ -7726,6 +7806,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "qa-plan",
+                  "positional": false,
+                  "value_name": "QA_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "qa-plan-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "role-guidance",
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
@@ -7778,7 +7874,7 @@
                   "positional": false,
                   "value_name": "WHY",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -7786,7 +7882,7 @@
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -8101,6 +8197,14 @@
               "about": "List a plan's tasks, optionally filtered by status",
               "aliases": [],
               "args": [
+                {
+                  "name": "all",
+                  "positional": false,
+                  "value_name": "ALL",
+                  "default": null,
+                  "help": "Include paused, done, and cancelled tasks",
+                  "aliases": []
+                },
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -8454,6 +8558,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "external-ref",
+                  "positional": false,
+                  "value_name": "URL_OR_REPO#NUMBER",
+                  "default": null,
+                  "help": "GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number",
+                  "aliases": []
+                },
+                {
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
@@ -8537,6 +8649,22 @@
                   "name": "priority",
                   "positional": false,
                   "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "qa-plan",
+                  "positional": false,
+                  "value_name": "QA_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "qa-plan-file",
+                  "positional": false,
+                  "value_name": "PATH",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8626,7 +8754,7 @@
                   "positional": false,
                   "value_name": "WHY",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -8634,7 +8762,7 @@
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
-                  "help": null,
+                  "help": "Routing rationale; stored as model_rationale in task JSON.",
                   "aliases": []
                 },
                 {
@@ -9219,7 +9347,7 @@
           "positional": false,
           "value_name": "TAB",
           "default": null,
-          "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+          "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
           "aliases": []
         },
         {
@@ -9267,7 +9395,7 @@
           "positional": false,
           "value_name": "ACTIONS",
           "default": null,
-          "help": "Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
+          "help": "Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
           "aliases": []
         },
         {
@@ -9309,7 +9437,7 @@
           "positional": false,
           "value_name": "TAB",
           "default": null,
-          "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+          "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
           "aliases": []
         },
         {
@@ -10231,7 +10359,7 @@
                   "positional": false,
                   "value_name": "TAB",
                   "default": null,
-                  "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+                  "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
                   "aliases": []
                 }
               ],
@@ -10247,7 +10375,7 @@
                   "positional": false,
                   "value_name": "TAB",
                   "default": null,
-                  "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+                  "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
                   "aliases": []
                 }
               ],
@@ -10273,7 +10401,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -10501,6 +10629,14 @@
               "aliases": []
             },
             {
+              "name": "team",
+              "positional": false,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "value_name": "TITLE",
@@ -10672,6 +10808,22 @@
               "name": "name",
               "positional": false,
               "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "qa-plan",
+              "positional": false,
+              "value_name": "QA_PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "qa-plan-file",
+              "positional": false,
+              "value_name": "PATH",
               "default": null,
               "help": null,
               "aliases": []
@@ -11095,7 +11247,7 @@
               "positional": false,
               "value_name": "ID",
               "default": null,
-              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`",
+              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`",
               "aliases": []
             },
             {
@@ -11112,6 +11264,14 @@
               "value_name": "MANIFEST_URL",
               "default": null,
               "help": "Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it",
+              "aliases": []
+            },
+            {
+              "name": "no-continue",
+              "positional": false,
+              "value_name": "NO_CONTINUE",
+              "default": null,
+              "help": "Disable the default continuation sent back to the calling tab",
               "aliases": []
             }
           ],
@@ -11175,7 +11335,7 @@
         },
         {
           "name": "refresh",
-          "about": "Trigger a fresh probe (runs the agent hidden, parses /status)",
+          "about": "Re-read usage from the provider's own quota-free source (never spends quota)",
           "aliases": [],
           "args": [
             {

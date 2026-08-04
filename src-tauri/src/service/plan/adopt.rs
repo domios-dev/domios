@@ -210,11 +210,11 @@ fn adoption_warnings(
             target_project.display()
         ));
     }
-    if plan.owner.pane_id.is_some() || plan.owner.session_id.is_some() {
+    if plan.owner.tab_id.is_some() || plan.owner.session_id.is_some() {
         warnings.push("source owner binding will be replaced by the caller".into());
     }
-    if matches!(plan.planner, Some(PlannerRef::Pane { .. })) {
-        warnings.push("source planner pane binding will be cleared".into());
+    if matches!(plan.planner, Some(PlannerRef::Tab { .. })) {
+        warnings.push("source planner Tab binding will be cleared".into());
     }
     if task_count != plan.tasks.len() {
         warnings.push(format!(
@@ -226,15 +226,15 @@ fn adoption_warnings(
         .tasks
         .iter()
         .filter(|task| {
-            task.assigned_pane_id.is_some()
-                || task.lane.pane_id.is_some()
+            task.assigned_tab_id.is_some()
+                || task.lane.tab_id.is_some()
                 || task.lane.workspace_id.is_some()
                 || task.lane.worktree_path.is_some()
         })
         .count();
     if stale_tasks > 0 {
         warnings.push(format!(
-            "{stale_tasks} task pane/lane bindings will be cleared as stale"
+            "{stale_tasks} task Tab/lane bindings will be cleared as stale"
         ));
     }
     if plan.heartbeat.current_focus.is_some() || !plan.heartbeat.active_lanes.is_empty() {
@@ -259,10 +259,10 @@ fn normalize_adopted_plan(plan: &mut Plan, target_project: &Path, owner: Orchest
     plan.heartbeat.current_focus = None;
     plan.heartbeat.active_lanes.clear();
     for task in &mut plan.tasks {
-        task.assigned_pane_id = None;
+        task.assigned_tab_id = None;
         task.taken_by_role = None;
         task.peer = None;
-        task.lane.pane_id = None;
+        task.lane.tab_id = None;
         task.lane.workspace_id = None;
         task.lane.workspace_name = None;
         task.lane.worktree_path = None;

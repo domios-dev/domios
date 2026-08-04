@@ -8,7 +8,7 @@ export {
 } from "./PlanSwitcher";
 export {
   selectActiveWork,
-  activeWorkForPane,
+  activeWorkForTab,
   activeWorkForPlan,
   enrichSwitcherOptions,
   type ActiveWorkEntry,

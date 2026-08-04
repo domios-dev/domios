@@ -1,24 +1,24 @@
-// Pending commands and cwd overrides for newly created panes.
+// Pending commands and cwd overrides for newly created tabs.
 
 const pendingCmds = new Map<string, string>();
 const pendingCwds = new Map<string, string>();
 
-export function setPendingCommand(paneId: string, command: string): void {
-  pendingCmds.set(paneId, command);
+export function setPendingCommand(tabId: string, command: string): void {
+  pendingCmds.set(tabId, command);
 }
 
-export function consumePendingCommand(paneId: string): string | undefined {
-  const cmd = pendingCmds.get(paneId);
-  if (cmd) pendingCmds.delete(paneId);
+export function consumePendingCommand(tabId: string): string | undefined {
+  const cmd = pendingCmds.get(tabId);
+  if (cmd) pendingCmds.delete(tabId);
   return cmd;
 }
 
-export function setPendingCwd(paneId: string, cwd: string): void {
-  pendingCwds.set(paneId, cwd);
+export function setPendingCwd(tabId: string, cwd: string): void {
+  pendingCwds.set(tabId, cwd);
 }
 
-export function consumePendingCwd(paneId: string): string | undefined {
-  const cwd = pendingCwds.get(paneId);
-  if (cwd) pendingCwds.delete(paneId);
+export function consumePendingCwd(tabId: string): string | undefined {
+  const cwd = pendingCwds.get(tabId);
+  if (cwd) pendingCwds.delete(tabId);
   return cwd;
 }

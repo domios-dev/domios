@@ -1,5 +1,6 @@
 
 import React from "react";
+import { ActivityDots, type ActivityDotsSize } from "./ActivityDots";
 import { type BusyLabelKey, busyLabel } from "./busyStateLabels";
 
 type BusyPhase = "work" | "thinking" | "streaming";
@@ -9,6 +10,7 @@ export interface BusyStateProps {
   label?: string;
   phase?: BusyPhase;
   inline?: boolean;
+  dotSize?: ActivityDotsSize;
   hideLabel?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -21,6 +23,7 @@ export function BusyState({
   label,
   phase = "thinking",
   inline = false,
+  dotSize = inline ? "small" : "medium",
   hideLabel = false,
   className,
   style,
@@ -40,11 +43,11 @@ export function BusyState({
       aria-label={text}
       style={style}
     >
-      <span className="ct-phase-dots" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </span>
+      <ActivityDots
+        size={dotSize}
+        tone={phase === "thinking" ? "thinking" : "accent"}
+        rhythm={phase}
+      />
       {!hideLabel && text ? <span className="ct-agent-msg">{text}</span> : null}
     </span>
   );

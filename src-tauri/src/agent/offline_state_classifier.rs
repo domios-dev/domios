@@ -5,11 +5,13 @@ use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHi
 
 mod status;
 
+use status::completion_summary_immediately_precedes_status_repaint;
+
 pub use status::{
     extract_completion_summary, extract_status_line, has_active_turn_footer, StatusLine,
 };
 
-pub use codeterm_types::pty::{AgentLiveState, PaneVerdict, QuestionSubtype, TimelineState};
+pub use codeterm_types::pty::{AgentLiveState, QuestionSubtype, TabVerdict, TimelineState};
 
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
@@ -56,7 +58,7 @@ pub struct CastTimelineInput {
 ///   replayed grid;
 /// - the live PTY path passes the already-surfaced pending prompt's question so
 ///   it never re-parses the picker, and derives `screen_lines`/`tail` from the
-///   existing per-pane `ScreenState` parser (no second vt100).
+///   existing per-tab `ScreenState` parser (no second vt100).
 pub struct ClassifyInput<'a> {
     /// Pre-detected picker question, if a picker is on screen.
     pub picker_question: Option<&'a str>,
@@ -141,10 +143,10 @@ fn multi_space_gaps(s: &str) -> usize {
 ///
 /// Order: picker question → structural working → parked terminal-menu question
 /// → text question → idle (quiet, settled, composer ready) → hold previous.
-pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdict {
+pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict {
     // 1. Structured picker (API/SSE) -> question. The only card source; reliable.
     if let Some(question) = input.picker_question {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Question,
             subtype: Some(classify_question_subtype(input.tail, question)),
         };
@@ -154,11 +156,14 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
     let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
     let live_status_widget = extract_status_line(input.screen_lines).is_some();
     let active_footer = active_turn_footer(input.screen_lines);
+    let completed_status_repaint =
+        completion_summary_immediately_precedes_status_repaint(input.screen_lines);
     // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
     // a long think repaints only the excluded status band, so semantic-idle keeps growing.
     let live_turn = (live_status_widget || active_footer)
         && input.byte_idle_ms < WORKING_GRACE_MS
-        && extract_completion_summary(input.screen_lines).is_none();
+        && extract_completion_summary(input.screen_lines).is_none()
+        && !completed_status_repaint;
     let stale_working_status_at_prompt =
         ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS && !live_turn;
 
@@ -168,7 +173,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
             || active_footer
             || matches!(input.motion, Motion::Streaming | Motion::Animating))
     {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Working,
             subtype: None,
         };
@@ -176,7 +181,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // menu parsing and prompt glyphs can false-fire on a single repaint frame.
     if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Working,
             subtype: None,
         };
@@ -184,7 +189,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     if mode_switch_idle_footer(input.screen_lines) && ready_prompt_glyph_present(input.screen_lines)
     {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         };
@@ -192,7 +197,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     if let Some(subtype) = classify_terminal_menu_question(input.screen_lines, input.cursor_hidden)
     {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Question,
             subtype: Some(subtype),
         };
@@ -200,7 +205,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     //    strict phrasings. Nothing generic is inferred from raw console text.
     if let Some(subtype) = classify_text_question(input.screen_lines) {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Question,
             subtype: Some(subtype),
         };
@@ -208,7 +213,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // A horizontal/vertical options block at the bottom (e.g. `❯ Yes  No  Always`)
     if ready_prompt_visible {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         };
@@ -216,7 +221,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
     if input.composer_ready && !options_block {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         };
@@ -226,7 +231,7 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         && input.byte_idle_ms >= STUCK_WORKING_IDLE_MS
         && input.semantic_idle_ms >= STUCK_WORKING_IDLE_MS
     {
-        return PaneVerdict {
+        return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         };
@@ -251,7 +256,7 @@ pub struct BoundarySignals {
 pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
     let mut samples = Vec::new();
-    let mut previous = PaneVerdict {
+    let mut previous = TabVerdict {
         state: TimelineState::Idle,
         subtype: None,
     };
@@ -317,7 +322,7 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
     let verdict = classify_signals(
         &extractor,
         &signals,
-        PaneVerdict {
+        TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         },
@@ -341,8 +346,8 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
 pub fn classify_signals(
     extractor: &SignalExtractor,
     signals: &StreamSignals,
-    previous: PaneVerdict,
-) -> PaneVerdict {
+    previous: TabVerdict,
+) -> TabVerdict {
     let attributed = extractor.attributed_screen();
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
         || active_turn_footer(&signals.screen.lines);
@@ -574,6 +579,50 @@ fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
     }
 }
 
+pub fn extract_question_message(
+    screen_lines: &[String],
+    subtype: Option<QuestionSubtype>,
+) -> Option<String> {
+    let phrases: &[&str] = match subtype {
+        Some(QuestionSubtype::RateLimit) => &[
+            "rate limit reached",
+            "usage limit reached",
+            "reached your usage limit",
+            "too many requests",
+            "429 too many requests",
+        ],
+        Some(QuestionSubtype::Auth) => &[
+            "please log in",
+            "please sign in",
+            "you are not logged in",
+            "not signed in",
+            "authentication required",
+            "log in to continue",
+            "sign in to continue",
+        ],
+        _ => return None,
+    };
+    let index = screen_lines.iter().rposition(|line| {
+        let lower = line.to_lowercase();
+        phrases.iter().any(|phrase| lower.contains(phrase))
+    })?;
+    let mut start = index;
+    while start > 0 && !screen_lines[start - 1].trim().is_empty() {
+        start -= 1;
+    }
+    let mut end = index + 1;
+    while end < screen_lines.len() && !screen_lines[end].trim().is_empty() {
+        end += 1;
+    }
+    let message = screen_lines[start..end]
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!message.is_empty()).then_some(message)
+}
+
 fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
@@ -703,7 +752,7 @@ pub(super) fn parse_elapsed_ms(row: &str) -> Option<u64> {
     }
 }
 
-fn collapse_samples(samples: Vec<(u64, PaneVerdict)>, end_ms: u64) -> Vec<ClassifiedSegment> {
+fn collapse_samples(samples: Vec<(u64, TabVerdict)>, end_ms: u64) -> Vec<ClassifiedSegment> {
     let Some((first_ms, first)) = samples.first().copied() else {
         return Vec::new();
     };

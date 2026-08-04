@@ -6,7 +6,7 @@
 //!
 //! Sub-modules group operations by domain:
 //! - `workspace` — workspace & tab CRUD
-//! - `pane` — pane lifecycle, split, rename, focus, browser
+//! - `tab` — tab lifecycle, split, rename, focus, browser
 //! - `pty_io` — send text, batch send, PTY helpers
 //! - `hierarchy` — agent roles, reports, status queries
 //! - `orchestrator` — agent spawn, batch commands
@@ -14,8 +14,10 @@
 
 pub mod activity;
 pub mod agent_restart;
+mod agent_transition;
 pub mod boot_stage;
 mod boot_wait;
+pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
 pub mod cron;
@@ -23,7 +25,6 @@ pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
 mod hierarchy;
-mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
 mod kpi_hooks;
@@ -34,15 +35,11 @@ pub mod messenger;
 pub mod notification;
 mod orchestration_pair;
 mod orchestrator;
+pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
-pub(crate) mod pane;
-pub mod pane_budget;
-pub mod pane_chat;
-pub mod pane_transport;
-pub mod pane_transport_chat;
 pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;
@@ -68,6 +65,11 @@ mod status_reconciliation;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
+pub(crate) mod tab;
+pub mod tab_budget;
+pub mod tab_chat;
+pub mod tab_transport;
+pub mod tab_transport_chat;
 mod team;
 #[cfg(test)]
 pub(crate) use team::close_team_with_state_change;
@@ -76,10 +78,14 @@ pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
 #[cfg(test)]
+pub(crate) mod test_fixture;
+#[cfg(test)]
 mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
+pub mod web_access;
+pub(crate) mod worker_ack;
 mod worker_identity;
 mod worker_lane;
 #[cfg(test)]
@@ -104,22 +110,29 @@ use crate::{
 };
 
 // Re-export public types used by callers.
+pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub(crate) use hierarchy::FirstPlanTeamError;
-pub use hierarchy::PaneStatusInfo;
+pub use hierarchy::TabStatusInfo;
+pub(crate) use hierarchy::WorkerTurnSignal;
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(test)]
-pub(crate) use orchestrator::{arm_provider_session_for_test, LaunchGeneration};
-pub(crate) use orchestrator::{record_provider_session, ProviderSessionBinding};
+pub(crate) use orchestrator::{
+    arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
+};
+pub(crate) use orchestrator::{
+    record_provider_session, ProviderSessionBinding, TaskLaunchAuthority,
+};
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
 };
-pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
-pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use spawn_params::starter_prompt_for_role;
+pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
+pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
@@ -156,12 +169,12 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
-    // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
+    // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
-    /// inbound mesh reports. Drives the "remote pane" ghost nodes in the UI.
+    /// inbound mesh reports. Drives the "remote Tab" ghost nodes in the UI.
     pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
@@ -173,10 +186,10 @@ pub struct ServiceContext {
     >,
     /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
-    /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
+    /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
-    /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
-    pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
+    /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
+    pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,
     /// Active secret-store backend. Built-ins via factory; plugin backends
     /// (e.g. Bitwarden) come from `secret_registry`.
@@ -190,17 +203,17 @@ pub struct ServiceContext {
     /// plugins render their popover from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,
     /// Registry of status-bubble providers (plugins with `statusBubble`). The
-    /// pane-footer bubble row polls these per pane context.
+    /// tab-footer bubble row polls these per tab context.
     pub bubble_registry: crate::bubble::BubbleRegistryHandle,
     /// Registry of view providers (plugins with `view`). The iframe bridge
     /// (`ct.invoke`) routes here, gated by the plugin's permissions.
     pub view_registry: crate::view_host::ViewRegistryHandle,
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
-    /// panes route their I/O here via the `PaneTransport` seam.
+    /// tabs route their I/O here via the `TabTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
-    /// Per-pane locks serializing the chatBackend restore→reopen transition so a
-    /// concurrent send/deliver can't double-open one pane's plugin session.
-    pub chatbackend_reopen_guards: Arc<pane_transport_chat::PaneReopenGuards>,
+    /// Per-tab locks serializing the chatBackend restore→reopen transition so a
+    /// concurrent send/deliver can't double-open one tab's plugin session.
+    pub chatbackend_reopen_guards: Arc<tab_transport_chat::TabReopenGuards>,
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,
@@ -224,10 +237,10 @@ pub struct ServiceContext {
     /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
     pub pasteboard: crate::pasteboard::PasteboardState,
     /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
-    /// opencode ...<Enter>` lines to a locked `agent_type` on the pane.
+    /// opencode ...<Enter>` lines to a locked `agent_type` on the tab.
     pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
-    pub usage_activity: crate::usage::PaneActivity,
+    pub usage_activity: crate::usage::TabActivity,
     pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
     /// Global plan store with project-scoped queries. Sole writer.
@@ -249,6 +262,7 @@ pub struct ServiceContext {
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
+    pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
@@ -287,7 +301,7 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
 impl ServiceContext {
     pub(crate) fn create_pending_delivery(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         channel: crate::multiplexer::types::PendingDeliveryChannel,
         payload: &str,
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
@@ -296,19 +310,19 @@ impl ServiceContext {
         let previous_digest = self
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.pending_delivery.as_ref())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
             .map(|record| record.content_digest.clone());
         self.pending_delivery_payloads
             .replace(previous_digest.as_deref(), &digest, payload)?;
         let mut mux = self.mux.write();
-        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+        let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
                 digest: digest.clone(),
-                message: format!("pane {pane_id} vanished while creating pending delivery"),
+                message: format!("tab {tab_id} vanished while creating pending delivery"),
             }
         })?;
-        pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+        tab.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
             digest.clone(),
             channel,
         ));
@@ -326,17 +340,17 @@ impl ServiceContext {
 
     pub(crate) fn resolve_pending_delivery(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Result<Option<String>, pending_delivery_payloads::PayloadStoreError> {
-        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        use crate::multiplexer::types::PendingDeliveryChannel;
         let pending = self
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.pending_delivery.clone());
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.clone());
         match pending {
             Some(record)
-                if record.state() == PendingDeliveryState::Pending
+                if record.state().needs_delivery()
                     && record.channel == PendingDeliveryChannel::InteractiveInput =>
             {
                 self.pending_delivery_payloads
@@ -347,46 +361,132 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn confirm_pending_delivery(
+    pub(crate) fn reconcile_pending_delivery(
         &self,
-        pane_id: &str,
-    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
-        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
-        let digest = self
+        tab_id: &str,
+        evidence: Result<bool, delivery_error::DeliveryError>,
+    ) -> Result<(), delivery_error::DeliveryError> {
+        use crate::multiplexer::types::PendingDeliveryChannel;
+        let has_pending_delivery = self
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.pending_delivery.as_ref())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
             .filter(|record| record.channel == PendingDeliveryChannel::InteractiveInput)
-            .map(|record| record.content_digest.clone());
-        let Some(digest) = digest else { return Ok(()) };
+            .is_some();
+        if !has_pending_delivery {
+            return evidence.and_then(|observed| {
+                if observed {
+                    Ok(())
+                } else {
+                    Err(delivery_error::DeliveryError::SubmitUnconfirmed {
+                        tab: tab_id.to_string(),
+                        detail: "delivery acknowledgement not observed".into(),
+                    })
+                }
+            });
+        }
         let mut mux = self.mux.write();
-        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
-            pending_delivery_payloads::PayloadStoreError::Io {
-                digest: digest.clone(),
-                message: "pane vanished while confirming pending delivery".into(),
+        let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
+            delivery_error::DeliveryError::SubmitUnconfirmed {
+                tab: tab_id.to_string(),
+                detail: "tab vanished while reconciling pending delivery".into(),
             }
         })?;
-        if let Some(record) = pane.pending_delivery.as_mut() {
-            if record.state() == PendingDeliveryState::Pending {
-                record.confirm().map_err(|error| {
-                    pending_delivery_payloads::PayloadStoreError::Io {
-                        digest: record.content_digest.clone(),
-                        message: format!("{error:?}"),
-                    }
-                })?;
-            }
-        }
+        let reconciliation = tab.pending_delivery.as_mut().map_or(Ok(()), |record| {
+            crate::service::launch_delivery::reconcile_pending_delivery(tab_id, record, evidence)
+        });
         drop(mux);
         crate::service::session_persist::persist_session_after_mutation(
             self,
             crate::service::session_persist::SessionPersistUrgency::Prompt,
         )
-        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
-            digest: digest.clone(),
-            message,
+        .map_err(|message| delivery_error::DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: format!("pending delivery persistence failed: {message}"),
         })?;
-        self.pending_delivery_payloads.delete(&digest)?;
+        reconciliation?;
+        self.cleanup_confirmed_pending_delivery(tab_id)
+            .map_err(|error| delivery_error::DeliveryError::SubmitUnconfirmed {
+                tab: tab_id.to_string(),
+                detail: format!("confirmed payload cleanup failed: {error}"),
+            })?;
+        Ok(())
+    }
+
+    pub(crate) fn confirm_pending_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        self.cleanup_pending_delivery(tab_id, true, "confirmed")
+    }
+
+    pub(crate) fn cleanup_confirmed_pending_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        self.cleanup_pending_delivery(tab_id, true, "confirmed")
+    }
+
+    fn discard_pending_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        self.cleanup_pending_delivery(tab_id, false, "explicit_discard")
+    }
+
+    fn cleanup_pending_delivery(
+        &self,
+        tab_id: &str,
+        accepted_only: bool,
+        decision: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        let record = {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
+                return Ok(());
+            };
+            if accepted_only
+                && !tab
+                    .pending_delivery
+                    .as_ref()
+                    .is_some_and(|record| record.state().is_accepted())
+            {
+                return Ok(());
+            }
+            tab.pending_delivery.take()
+        };
+        let Some(record) = record else { return Ok(()) };
+        let digest = record.content_digest.clone();
+        let mut retired = Some(record);
+        if let Err(message) = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        ) {
+            if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                tab.pending_delivery = retired.take();
+            }
+            return Err(pending_delivery_payloads::PayloadStoreError::Io { digest, message });
+        }
+        if let Err(error) = self
+            .pending_delivery_payloads
+            .free_terminal_pair(&mut retired, decision)
+        {
+            if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                tab.pending_delivery = retired.take();
+            }
+            let rollback = crate::service::session_persist::persist_session_after_mutation(
+                self,
+                crate::service::session_persist::SessionPersistUrgency::Prompt,
+            );
+            return Err(pending_delivery_payloads::PayloadStoreError::Io {
+                digest,
+                message: match rollback {
+                    Ok(()) => error.to_string(),
+                    Err(message) => format!("{error}; record rollback failed: {message}"),
+                },
+            });
+        }
         Ok(())
     }
     // ── Event helpers (used by all sub-modules) ─────────────────────
@@ -394,13 +494,13 @@ impl ServiceContext {
     /// Notify the UI that an orchestrator's remote (cross-mesh) workers changed.
     /// One payload shape for every mutation site (spawn registration, UI relay
     /// hook, inbound report) so the sidebar refreshes consistently.
-    pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
+    pub(crate) fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "remote-workers-changed",
             serde_json::json!({
-                "orchestrator_pane_id": orchestrator_pane,
+                "orchestrator_tab_id": orchestrator_tab,
                 "workers": self.remote_workers.snapshot(),
             }),
         );
@@ -485,8 +585,8 @@ impl ServiceContext {
     /// that landed during the window are captured by reading last.
     ///
     /// Uses `snapshot_with_status` (not the plain `snapshot`) — this is the
-    /// ONLY path that keeps a browser tab's `paneStatuses` fresh between page
-    /// loads. Without it, `pane_statuses` here is always empty and the
+    /// ONLY path that keeps a browser tab's `tabStatuses` fresh between page
+    /// loads. Without it, `tab_statuses` here is always empty and the
     /// reducer's merge (`incoming ?? keep-stale`) leaves a synthetic `Waiting`
     /// (set by `/prompt/clear`'s pending_prompt-derived override) stuck
     /// forever once the underlying PTY stops transitioning Idle/Working.
@@ -502,34 +602,34 @@ impl ServiceContext {
         status_reconciliation::snapshot_with_reconciled_status(mux, agent_tracker, agent_registry)
     }
 
-    pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
+    pub(crate) fn emit_tab_title_pinned(&self, tab_id: &str, title: &str) {
         self.events
-            .publish(crate::api::events::SystemEvent::PaneTitlePinned {
-                pane_id: pane_id.to_string(),
+            .publish(crate::api::events::SystemEvent::TabTitlePinned {
+                tab_id: tab_id.to_string(),
                 title: title.to_string(),
             });
         let handle = self.app_handle.clone();
-        let payload = serde_json::json!({"pane_id": pane_id, "title": title});
+        let payload = serde_json::json!({"tab_id": tab_id, "title": title});
         std::thread::spawn(move || {
-            let _ = handle.emit("pane-title-pinned", payload);
+            let _ = handle.emit("tab-title-pinned", payload);
         });
     }
 
     /// Emit a focus-change event to the frontend. Delayed 75 ms so it always
     /// arrives AFTER the coalesced 50 ms `mux-state-changed` window — this way
     /// the frontend's structural state is up to date before it tries to apply
-    /// focus to (potentially newly created) panes. Frontend listener also has a
+    /// focus to (potentially newly created) tabs. Frontend listener also has a
     /// short retry as defense-in-depth.
-    pub(crate) fn emit_pane_focus_changed(&self, pane_id: &str) {
+    pub(crate) fn emit_tab_focus_changed(&self, tab_id: &str) {
         self.events
-            .publish(crate::api::events::SystemEvent::PaneFocused {
-                pane_id: pane_id.to_string(),
+            .publish(crate::api::events::SystemEvent::TabFocused {
+                tab_id: tab_id.to_string(),
             });
         let handle = self.app_handle.clone();
-        let payload = serde_json::json!({"pane_id": pane_id});
+        let payload = serde_json::json!({"tab_id": tab_id});
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(75));
-            let _ = handle.emit("pane-focused", payload);
+            let _ = handle.emit("tab-focused", payload);
         });
     }
 
@@ -621,9 +721,10 @@ pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadc
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportResult {
     pub report_id: String,
-    pub orchestrator_pane_id: String,
+    pub orchestrator_tab_id: String,
     /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
     pub notices: Vec<String>,
+    pub persisted_task: Option<(String, String)>,
 }
 
 /// Helper: extract optional string from JSON value.
@@ -631,7 +732,7 @@ pub(crate) fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
     v.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// Replace "$ref" strings in params with actual pane_ids from previous results.
+/// Replace "$ref" strings in params with actual tab_ids from previous results.
 pub(crate) fn resolve_refs(
     params: &serde_json::Value,
     refs: &std::collections::HashMap<String, String>,

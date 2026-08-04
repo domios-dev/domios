@@ -14,7 +14,7 @@ src-tauri/prompts/
   worker_suffix.md               Appended to Worker task bodies
   orchestrator_suffix.md         Appended to Orchestrator task bodies
   cron_complete_suffix.md        Appended to every cron task
-  cron_report_hint.md            Appended to cron tasks when creator_pane_id is set
+  cron_report_hint.md            Appended to cron tasks when creator_tab_id is set
   worker_task_preamble.md        Wrapper for headless mem worker tasks
   mem_extraction.md              Prompt for auto-extraction (haiku graph worker)
   mem_rerank.md                  Prompt for search-result reranking

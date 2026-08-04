@@ -101,7 +101,7 @@ export function PlanListRowView({
   const isDoneTask = isTask && row.status === "done";
   const isPausedTask = isTask && row.status === TaskStatus.Paused;
   const dotColor = row.status ? TASK_STATUS_COLORS[row.status] ?? "var(--ct-muted-fg)" : "var(--ct-muted-fg)";
-  const executor = row.paneLabel ?? row.historicalExecutorSummary ?? "";
+  const executor = row.tabLabel ?? row.historicalExecutorSummary ?? "";
   const age = formatRelativeAge(row.activityTs, now ?? 0);
   const titleIndent = Math.max(0, row.depth - 2) * TASK_INDENT_STEP;
   const chipTitle = onOpenBelonging
@@ -182,8 +182,8 @@ export function PlanListRowView({
         </span>
       ) : (
         <span
-          data-testid={row.paneLabel ? "plan-list-active-executor" : "plan-list-historical-executor"}
-          className={`plan-list-exec${row.paneLabel ? " plan-list-exec-active" : ""}`}
+          data-testid={row.tabLabel ? "plan-list-active-executor" : "plan-list-historical-executor"}
+          className={`plan-list-exec${row.tabLabel ? " plan-list-exec-active" : ""}`}
         >
           {executor}
         </span>

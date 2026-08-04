@@ -1,7 +1,8 @@
 use codeterm_types::team::Team;
+use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, PaneBacking};
+use crate::multiplexer::types::{AgentRole, TabBacking};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -16,7 +17,7 @@ pub(crate) struct AddTeamMemberParams {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct AddTeamMemberResult {
-    pub pane_id: String,
+    pub tab_id: String,
     pub team: Team,
 }
 
@@ -28,8 +29,7 @@ pub(crate) enum TeamPlanError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TeamMutationCaller {
-    TrustedDirectUser,
-    AgentPane(String),
+    AgentTab(String),
 }
 
 impl ServiceContext {
@@ -50,7 +50,7 @@ impl ServiceContext {
     pub(crate) async fn add_team_member(
         &self,
         team_id: &str,
-        caller_pane_id: &str,
+        caller_tab_id: &str,
         params: AddTeamMemberParams,
     ) -> Result<AddTeamMemberResult, String> {
         let prepared = {
@@ -58,7 +58,7 @@ impl ServiceContext {
             prepare_team_member_spawn_with_provider_validation(
                 &mux,
                 team_id,
-                caller_pane_id,
+                caller_tab_id,
                 params,
                 |spawn_params| {
                     self.classify_spawn_target_for_params(
@@ -70,7 +70,7 @@ impl ServiceContext {
             )?
         };
         let mut spawn_params = prepared.spawn_params;
-        self.attach_manager_bootstrap(team_id, caller_pane_id, &mut spawn_params)?;
+        self.attach_manager_bootstrap(team_id, caller_tab_id, &mut spawn_params)?;
         let lane_label = format!("team-{team_id}");
         let service = self.clone();
         let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
@@ -82,8 +82,8 @@ impl ServiceContext {
         let spawn = self
             .spawn_agent_with_state_change(spawn_params, None, false)
             .await;
-        let pane_id = match spawn {
-            Ok(spawn) => spawn.pane_id,
+        let tab_id = match spawn {
+            Ok(spawn) => spawn.tab_id,
             Err(error) => {
                 if let Some(lane) = lane.take() {
                     let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
@@ -97,8 +97,8 @@ impl ServiceContext {
                 &mut mux,
                 &self.events,
                 team_id,
-                caller_pane_id,
-                &pane_id,
+                caller_tab_id,
+                &tab_id,
                 &prepared.expected_role,
                 &prepared.expected_profile,
             )
@@ -119,7 +119,7 @@ impl ServiceContext {
     fn attach_manager_bootstrap(
         &self,
         team_id: &str,
-        caller_pane_id: &str,
+        caller_tab_id: &str,
         params: &mut crate::service::SpawnAgentParams,
     ) -> Result<(), String> {
         let role = match (params.role.as_deref(), params.role_profile.as_deref()) {
@@ -150,12 +150,12 @@ impl ServiceContext {
             .unwrap_or_else(|| "no bound plan yet".into());
         let coordination = (role == "Planner").then(|| {
             let mux = self.mux.read();
-            let caller_label = mux.display_label_for_pane(caller_pane_id);
+            let caller_label = mux.display_label_for_tab(caller_tab_id);
             let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
             let orchestrator = crate::service::spawn_factory::Counterpart::new(
                 "Orchestrator",
                 caller_label,
-                caller_pane_id,
+                caller_tab_id,
             );
             crate::service::spawn_factory::introduction_body(&planner, &orchestrator)
         });
@@ -174,11 +174,11 @@ impl ServiceContext {
         &self,
         team_id: &str,
         name: String,
-        caller_pane_id: Option<&str>,
+        caller_tab_id: Option<&str>,
     ) -> Result<Team, String> {
         let mut mux = self.mux.write();
         let team =
-            rename_team_with_state_change(&mut mux, &self.events, team_id, name, caller_pane_id)?;
+            rename_team_with_state_change(&mut mux, &self.events, team_id, name, caller_tab_id)?;
         drop(mux);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
@@ -187,7 +187,7 @@ impl ServiceContext {
     pub(crate) fn close_team(
         &self,
         team_id: &str,
-        caller_pane_id: Option<&str>,
+        caller_tab_id: Option<&str>,
     ) -> Result<Team, String> {
         let (team, cleanup, changed_plan_ids) = {
             let mut mux = self.mux.write();
@@ -196,28 +196,49 @@ impl ServiceContext {
                 &self.events,
                 &self.plan_store,
                 team_id,
-                caller_pane_id,
+                caller_tab_id,
                 now_ms(),
             )?
         };
         for plan_id in changed_plan_ids {
             self.emit_plan_changed(&plan_id);
         }
-        for pane_id in &cleanup.member_pane_ids {
-            self.chat_registry.shutdown_pane(pane_id);
+        for tab_id in &cleanup.member_tab_ids {
+            self.chat_registry.shutdown_tab(tab_id);
         }
         for (plugin_id, session_id) in &cleanup.chat_backings {
             let _ = self.chatbackend_close(plugin_id, session_id);
         }
-        for pane_id in &cleanup.member_pane_ids {
-            self.flag_bound_tasks_for_gone_pane(pane_id, 0);
-            self.prompt_detector.lock().remove_pane(pane_id);
-            crate::service::structured_prompt::clear_pane(pane_id);
-            self.remote_workers.forget_orchestrator(pane_id);
+        for tab_id in &cleanup.member_tab_ids {
+            self.flag_bound_tasks_for_gone_tab(tab_id, 0);
+            self.prompt_detector.lock().remove_tab(tab_id);
+            crate::service::structured_prompt::clear_tab(tab_id);
+            self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        self.delete_team_crons(team_id);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
+    }
+
+    fn delete_team_crons(&self, team_id: &str) {
+        let Some(cron) = self.app_handle.try_state::<crate::CronState>() else {
+            return;
+        };
+        let Some(wake) = self.app_handle.try_state::<crate::CronWake>() else {
+            return;
+        };
+        let job_ids: Vec<String> = cron
+            .lock()
+            .list_for_team(team_id)
+            .into_iter()
+            .map(|job| job.id.clone())
+            .collect();
+        for job_id in job_ids {
+            if let Err(error) = self.cron_delete(cron.inner(), wake.inner(), &job_id) {
+                log::error!("Failed to delete Team cron {job_id}: {error}");
+            }
+        }
     }
 
     pub(crate) fn adopt_plan_for_team(
@@ -277,23 +298,21 @@ impl ServiceContext {
         plan_id: &str,
         to: crate::plan::OrchestratorRef,
         reason: &str,
-        caller_pane_id: String,
+        caller_tab_id: String,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, TeamPlanError> {
         let mut mux = self.mux.write();
-        let (plan, relinked) = transfer_team_plan_core(
+        let plan = transfer_team_plan_core(
             &mut mux,
             &self.plan_store,
             plan_id,
             to,
             reason,
-            TeamMutationCaller::AgentPane(caller_pane_id),
+            TeamMutationCaller::AgentTab(caller_tab_id),
             now_ms,
         )?;
         drop(mux);
-        if relinked > 0 {
-            self.emit_state_changed();
-        }
+        self.emit_state_changed();
         self.emit_plan_changed(plan_id);
         Ok(plan)
     }
@@ -364,22 +383,24 @@ fn adopt_plan_for_team_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, TeamPlanError> {
-    authorize_team_mutation(mux, team_id, caller).map_err(TeamPlanError::Team)?;
-    let owner_pane_id = live_team_orchestrator(mux, team_id)?;
-    let plan = plan_store
-        .adopt_plan_for_team(
-            plan_id,
-            team_id,
-            crate::plan::OrchestratorRef::from_pane(&owner_pane_id),
-            now_ms,
-        )
-        .map_err(TeamPlanError::Plan)?;
-    crate::service::plan::relink_to_owner(
-        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &plan,
-        &owner_pane_id,
-    );
-    Ok(plan)
+    authorize_team_mutation(mux, team_id, caller).map_err(|error| {
+        TeamPlanError::Team(format!(
+            "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
+Safe recovery: old-team member transfers ownership, then new owner adopts."
+        ))
+    })?;
+    let owner_tab_id = live_team_orchestrator(mux, team_id)?;
+    crate::service::agent_transition::transition_plan_to_orchestrator_core(
+        mux,
+        plan_store,
+        plan_id,
+        crate::plan::OrchestratorRef::from_tab(&owner_tab_id),
+        team_id,
+        &format!("adopted by Team {team_id}"),
+        true,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)
 }
 
 fn transfer_team_plan_core(
@@ -390,7 +411,7 @@ fn transfer_team_plan_core(
     reason: &str,
     caller: TeamMutationCaller,
     now_ms: u64,
-) -> Result<(crate::plan::Plan, usize), TeamPlanError> {
+) -> Result<crate::plan::Plan, TeamPlanError> {
     let source_plan = plan_store
         .get(plan_id)
         .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
@@ -403,70 +424,95 @@ fn transfer_team_plan_core(
                 plan_id: plan_id.into(),
             })
         })?;
-    authorize_team_mutation(mux, source_team_id, caller).map_err(TeamPlanError::Team)?;
-
-    let pane_id = to
-        .pane_id
+    let tab_id = to
+        .tab_id
         .as_deref()
-        .filter(|pane_id| !pane_id.trim().is_empty())
+        .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
-            TeamPlanError::Team("plan transfer requires a destination Orchestrator pane".into())
+            TeamPlanError::Team("plan transfer requires a destination Orchestrator tab".into())
         })?
         .to_string();
-    let pane = mux
-        .get_pane(&pane_id)
-        .ok_or_else(|| TeamPlanError::Team(format!("Destination pane {pane_id} not found")))?;
-    if pane.role != Some(AgentRole::Orchestrator) {
+    let tab = mux
+        .get_tab(&tab_id)
+        .ok_or_else(|| TeamPlanError::Team(format!("Destination tab {tab_id} not found")))?;
+    if tab.role != Some(AgentRole::Orchestrator) {
         return Err(TeamPlanError::Team(format!(
-            "Destination pane {pane_id} is not an Orchestrator"
+            "Destination tab {tab_id} is not an Orchestrator"
         )));
     }
-    let destination_team_id = pane
+    let destination_team_id = tab
         .team_id
         .as_deref()
         .filter(|team_id| mux.get_team(team_id).is_some())
         .ok_or_else(|| {
             TeamPlanError::Team(format!(
-                "Destination Orchestrator {pane_id} does not belong to a live Team"
+                "Destination Orchestrator {tab_id} does not belong to a live Team"
             ))
         })?
         .to_string();
-    let plan = plan_store
-        .transfer_plan_to_team(plan_id, &destination_team_id, to, reason, now_ms)
-        .map_err(TeamPlanError::Plan)?;
-    let relinked = crate::service::plan::relink_to_owner(
-        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &plan,
-        &pane_id,
-    );
-    Ok((plan, relinked))
+    authorize_plan_transfer(mux, source_team_id, &destination_team_id, &tab_id, caller)
+        .map_err(TeamPlanError::Team)?;
+    crate::service::agent_transition::transition_plan_to_orchestrator_core(
+        mux,
+        plan_store,
+        plan_id,
+        to,
+        &destination_team_id,
+        reason,
+        false,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)
+}
+
+fn authorize_plan_transfer(
+    mux: &MultiplexerState,
+    source_team_id: &str,
+    destination_team_id: &str,
+    destination_owner_tab_id: &str,
+    caller: TeamMutationCaller,
+) -> Result<(), String> {
+    if authorize_team_mutation(mux, source_team_id, caller.clone()).is_ok() {
+        return Ok(());
+    }
+    match caller {
+        TeamMutationCaller::AgentTab(tab_id) if tab_id == destination_owner_tab_id => {
+            authorize_team_manager(mux, destination_team_id, Some(&tab_id))
+        }
+        TeamMutationCaller::AgentTab(tab_id) => Err(format!(
+            "Caller tab {tab_id} lacks plan rebind authority: a source Team {source_team_id} \
+manager or destination Orchestrator {destination_owner_tab_id} in Team \
+{destination_team_id} must authorize the transfer. Safe recovery: old-team member \
+transfers ownership, then new owner adopts."
+        )),
+    }
 }
 
 fn live_team_orchestrator(mux: &MultiplexerState, team_id: &str) -> Result<String, TeamPlanError> {
     let mut orchestrators: Vec<_> = mux
         .snapshot()
-        .panes
+        .tabs
         .values()
-        .filter(|pane| {
-            pane.team_id.as_deref() == Some(team_id) && pane.role == Some(AgentRole::Orchestrator)
+        .filter(|tab| {
+            tab.team_id.as_deref() == Some(team_id) && tab.role == Some(AgentRole::Orchestrator)
         })
-        .map(|pane| pane.id.clone())
+        .map(|tab| tab.id.clone())
         .collect();
     orchestrators.sort();
     match orchestrators.as_slice() {
-        [pane_id] => Ok(pane_id.clone()),
+        [tab_id] => Ok(tab_id.clone()),
         [] => Err(TeamPlanError::Team(format!(
             "Team {team_id} has no live Orchestrator"
         ))),
         _ => Err(TeamPlanError::Team(format!(
-            "Team {team_id} has multiple live Orchestrators; transfer to a specific pane instead"
+            "Team {team_id} has multiple live Orchestrators; transfer to a specific tab instead"
         ))),
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct CloseTeamCleanup {
-    member_pane_ids: Vec<String>,
+    member_tab_ids: Vec<String>,
     chat_backings: Vec<(String, String)>,
     pty_ids: Vec<String>,
 }
@@ -481,11 +527,16 @@ struct PreparedTeamMemberSpawn {
 fn prepare_team_member_spawn(
     mux: &MultiplexerState,
     team_id: &str,
-    caller_pane_id: &str,
+    caller_tab_id: &str,
     params: AddTeamMemberParams,
 ) -> Result<PreparedTeamMemberSpawn, String> {
-    authorize_team_manager(mux, team_id, Some(caller_pane_id))?;
+    authorize_team_manager(mux, team_id, Some(caller_tab_id))?;
     let (role, role_profile) = team_member_role(&params.role)?;
+    let task = params.task.filter(|task| !task.trim().is_empty());
+    let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
+        Some(role.as_str()),
+        task.as_deref(),
+    );
     Ok(PreparedTeamMemberSpawn {
         expected_role: role.clone(),
         expected_profile: role_profile.clone(),
@@ -494,10 +545,11 @@ fn prepare_team_member_spawn(
             title: params.title,
             role: Some(role),
             role_profile,
-            parent_pane_id: Some(caller_pane_id.into()),
-            task: params.task,
+            parent_tab_id: Some(caller_tab_id.into()),
+            task,
+            starter_prompt,
             model: params.model,
-            spawned_by_pane_id: Some(caller_pane_id.into()),
+            spawned_by_tab_id: Some(caller_tab_id.into()),
             ..Default::default()
         },
     })
@@ -506,14 +558,14 @@ fn prepare_team_member_spawn(
 fn prepare_team_member_spawn_with_provider_validation<F>(
     mux: &MultiplexerState,
     team_id: &str,
-    caller_pane_id: &str,
+    caller_tab_id: &str,
     params: AddTeamMemberParams,
     validate_provider: F,
 ) -> Result<PreparedTeamMemberSpawn, String>
 where
     F: FnOnce(&crate::service::SpawnAgentParams) -> Result<(), String>,
 {
-    let prepared = prepare_team_member_spawn(mux, team_id, caller_pane_id, params)?;
+    let prepared = prepare_team_member_spawn(mux, team_id, caller_tab_id, params)?;
     validate_provider(&prepared.spawn_params)?;
     Ok(prepared)
 }
@@ -522,21 +574,21 @@ pub(crate) fn commit_team_member_spawn(
     mux: &mut MultiplexerState,
     events: &crate::api::events::EventBroadcaster,
     team_id: &str,
-    caller_pane_id: &str,
-    pane_id: &str,
+    caller_tab_id: &str,
+    tab_id: &str,
     expected_role: &str,
     expected_profile: &Option<String>,
 ) -> Result<AddTeamMemberResult, String> {
-    let pane = mux
-        .get_pane(pane_id)
-        .ok_or_else(|| format!("Pane {pane_id} not found after member spawn"))?;
-    let invalid_hierarchy = pane.parent_pane_id.as_deref() != Some(caller_pane_id)
-        || pane.team_id.as_deref() != Some(team_id)
-        || pane.role != AgentRole::from_str_compat(expected_role)
-        || pane.role_profile != *expected_profile
-        || mux.find_workspace_for_pane(pane_id) != mux.find_workspace_for_pane(caller_pane_id);
+    let tab = mux
+        .get_tab(tab_id)
+        .ok_or_else(|| format!("Tab {tab_id} not found after member spawn"))?;
+    let invalid_hierarchy = tab.parent_tab_id.as_deref() != Some(caller_tab_id)
+        || tab.team_id.as_deref() != Some(team_id)
+        || tab.role != AgentRole::from_str_compat(expected_role)
+        || tab.role_profile != *expected_profile
+        || mux.find_workspace_for_tab(tab_id) != mux.find_workspace_for_tab(caller_tab_id);
     if invalid_hierarchy {
-        mux.close_pane(pane_id)?;
+        mux.close_tab(tab_id)?;
         return Err("Team member spawn did not preserve the manager hierarchy".into());
     }
     let team = mux
@@ -545,7 +597,7 @@ pub(crate) fn commit_team_member_spawn(
         .ok_or_else(|| format!("Team {team_id} not found after member spawn"))?;
     crate::service::publish_mux_state_changed(events);
     Ok(AddTeamMemberResult {
-        pane_id: pane_id.into(),
+        tab_id: tab_id.into(),
         team,
     })
 }
@@ -565,9 +617,9 @@ pub(crate) fn rename_team_core(
     mux: &mut MultiplexerState,
     team_id: &str,
     name: String,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
 ) -> Result<Team, String> {
-    authorize_team_manager(mux, team_id, caller_pane_id)?;
+    authorize_team_manager(mux, team_id, caller_tab_id)?;
     mux.rename_team(team_id, name)
 }
 
@@ -576,9 +628,9 @@ pub(crate) fn rename_team_with_state_change(
     events: &crate::api::events::EventBroadcaster,
     team_id: &str,
     name: String,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
 ) -> Result<Team, String> {
-    let team = rename_team_core(mux, team_id, name, caller_pane_id)?;
+    let team = rename_team_core(mux, team_id, name, caller_tab_id)?;
     crate::service::publish_mux_state_changed(events);
     Ok(team)
 }
@@ -588,7 +640,7 @@ pub(crate) fn close_team_with_state_change(
     events: &crate::api::events::EventBroadcaster,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
     now_ms: u64,
 ) -> Result<(Team, CloseTeamCleanup, Vec<String>), String> {
     close_team_with_state_change_using(
@@ -596,9 +648,9 @@ pub(crate) fn close_team_with_state_change(
         events,
         plan_store,
         team_id,
-        caller_pane_id,
+        caller_tab_id,
         now_ms,
-        |mux, pane_id| mux.close_pane_for_team_close(pane_id),
+        |mux, tab_id| mux.close_tab_for_team_close(tab_id),
     )
 }
 
@@ -607,38 +659,38 @@ fn close_team_with_state_change_using<F>(
     events: &crate::api::events::EventBroadcaster,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
     now_ms: u64,
     mut close_member: F,
 ) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
 where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
-    authorize_team_manager(mux, team_id, caller_pane_id)?;
-    let member_pane_ids: Vec<String> = mux
+    authorize_team_manager(mux, team_id, caller_tab_id)?;
+    let member_tab_ids: Vec<String> = mux
         .snapshot()
-        .panes
+        .tabs
         .values()
-        .filter(|pane| pane.team_id.as_deref() == Some(team_id))
-        .map(|pane| pane.id.clone())
+        .filter(|tab| tab.team_id.as_deref() == Some(team_id))
+        .map(|tab| tab.id.clone())
         .collect();
-    let chat_backings = member_pane_ids
+    let chat_backings = member_tab_ids
         .iter()
-        .filter_map(|pane_id| match mux.get_pane(pane_id)?.backing.clone() {
-            PaneBacking::ChatBackend {
+        .filter_map(|tab_id| match mux.get_tab(tab_id)?.backing.clone() {
+            TabBacking::ChatBackend {
                 plugin_id,
                 session_id,
             } => Some((plugin_id, session_id)),
-            PaneBacking::Pty => None,
+            TabBacking::Pty => None,
         })
         .collect();
     let mut pty_ids = Vec::new();
     let mut closed_roots = Vec::new();
     let mut mux_transaction = mux.begin_team_close_transaction();
-    for pane_id in &member_pane_ids {
-        if mux_transaction.state_mut().get_pane(pane_id).is_some() {
-            pty_ids.extend(close_member(mux_transaction.state_mut(), pane_id)?);
-            closed_roots.push(pane_id.clone());
+    for tab_id in &member_tab_ids {
+        if mux_transaction.state_mut().get_tab(tab_id).is_some() {
+            pty_ids.extend(close_member(mux_transaction.state_mut(), tab_id)?);
+            closed_roots.push(tab_id.clone());
         }
     }
     let team = mux_transaction
@@ -654,7 +706,7 @@ where
     Ok((
         team,
         CloseTeamCleanup {
-            member_pane_ids,
+            member_tab_ids,
             chat_backings,
             pty_ids,
         },
@@ -681,20 +733,20 @@ fn now_ms() -> u64 {
 fn authorize_team_manager(
     mux: &MultiplexerState,
     team_id: &str,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
 ) -> Result<(), String> {
     if mux.get_team(team_id).is_none() {
         return Err(format!("Team {team_id} not found"));
     }
-    let Some(caller_pane_id) = caller_pane_id else {
+    let Some(caller_tab_id) = caller_tab_id else {
         return Ok(());
     };
     let caller = mux
-        .get_pane(caller_pane_id)
-        .ok_or_else(|| format!("Caller pane {caller_pane_id} not found"))?;
+        .get_tab(caller_tab_id)
+        .ok_or_else(|| format!("Caller tab {caller_tab_id} not found"))?;
     if caller.team_id.as_deref() != Some(team_id) {
         return Err(format!(
-            "Caller pane {caller_pane_id} is not a member of Team {team_id}"
+            "Caller tab {caller_tab_id} is not a member of Team {team_id}"
         ));
     }
     let manager = caller.role == Some(AgentRole::Orchestrator)
@@ -702,7 +754,7 @@ fn authorize_team_manager(
             && caller.role_profile.as_deref() == Some("planner"));
     if !manager {
         return Err(format!(
-            "Caller pane {caller_pane_id} is not authorized to manage Team {team_id}"
+            "Caller tab {caller_tab_id} is not authorized to manage Team {team_id}"
         ));
     }
     Ok(())
@@ -713,12 +765,8 @@ fn authorize_team_mutation(
     team_id: &str,
     caller: TeamMutationCaller,
 ) -> Result<(), String> {
-    match caller {
-        TeamMutationCaller::TrustedDirectUser => authorize_team_manager(mux, team_id, None),
-        TeamMutationCaller::AgentPane(pane_id) => {
-            authorize_team_manager(mux, team_id, Some(&pane_id))
-        }
-    }
+    let TeamMutationCaller::AgentTab(tab_id) = caller;
+    authorize_team_manager(mux, team_id, Some(&tab_id))
 }
 
 #[cfg(test)]

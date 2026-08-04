@@ -12,7 +12,7 @@ portable across mac, linux, and Windows-bash.
 | `cli-agent/` | real-daemon LLM benchmark: drives claude/codex/opencode in the dev console through every CLI command; model-judged (see its `SKILL.md`). Replaces the old headless `-p` general-agent / mem-protocol prompt evals. | `bash cli-agent/run-suite.sh` + model judge |
 | `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run --bin mem-bench` |
 | `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
-| `session-restore/` | kill+restart preserves workspaces / panes / agent_type / titles | `bash session-restore/run.sh` |
+| `session-restore/` | kill+restart preserves workspaces / tabs / agent_type / titles | `bash session-restore/run.sh` |
 
 ### mem-recall baseline protocol
 
@@ -30,7 +30,7 @@ mem-recall behavior, and keep both diff and intent explicit in the PR.
 ### session-restore baseline protocol
 
 `evals/session-restore/` keeps a committed `baseline.json` for the six `WS-*`
-restore scenarios. Dynamic pane ids and agent session ids are excluded.
+restore scenarios. Dynamic tab ids and agent session ids are excluded.
 
 - Normal update: `bash evals/session-restore/run.sh` → inspect
   `target-check/evals/session-restore-latest-summary.json` and update
@@ -39,7 +39,7 @@ restore scenarios. Dynamic pane ids and agent session ids are excluded.
 - Regression check: `bash evals/session-restore/run.sh --check` runs the full
   dev kill/restart drill and compares the latest summary against the baseline.
 - Tolerance policy in `evals/session-restore/run.sh --help`: `WS-*` scenario
-  metadata is exact; the protected `General` workspace tab/pane counts may vary
+  metadata is exact; the protected `General` workspace tab/tab counts may vary
   by ±1 around restart.
 
 ## Live dashboard
@@ -66,11 +66,11 @@ sockets) inside individual benches that then drift across platforms.
 - `dev_kill_hard` — `kill -9` (Unix) or `taskkill /F` (Win) → simulates Windows reboot / OOM
 - `dev_wait_ready` — polls `/api/health` until dev is up
 - `dev_start_bg` — starts `./build.sh dev` in the background
-- `snapshot <label>` — saves `ws.json` + `panes.json` + `last.json` to `target-check/evals/<label>/`
-- `diff_snapshots <pre> <post>` — PASS/FAIL table over workspace + pane metadata
+- `snapshot <label>` — saves `ws.json` + `tabs.json` + `last.json` to `target-check/evals/<label>/`
+- `diff_snapshots <pre> <post>` — PASS/FAIL table over workspace + tab metadata
 - `cleanup_test_workspaces [prefix]` — closes leftover `WS-*` workspaces from prior runs
 - `assert_atomic_save_clean` — guards against corrupt `last.json` or leftover `.tmp`
-- `new_workspace`, `new_shell_pane`, `new_claude_pane` — one-line scenario builders
+- `new_workspace`, `new_shell_tab`, `new_claude_tab` — one-line scenario builders
 
 OS detection is via `$OSTYPE` (works in git bash on Windows). All
 commands are POSIX-portable; Windows-only branches are isolated to
@@ -87,7 +87,7 @@ dev_alive || { echo "start dev first"; exit 1; }
 
 # 1. set up the scenario
 WS=$(new_workspace WS-myfeature C:/temp/myfeature)
-P=$(new_claude_pane $WS C:/temp/myfeature my-pane "initial task")
+P=$(new_claude_tab $WS C:/temp/myfeature my-tab "initial task")
 
 # 2. snap, kill, restart
 sleep 35

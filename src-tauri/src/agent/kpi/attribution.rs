@@ -4,12 +4,12 @@
 use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, TokenCounts};
 use crate::service::messenger::MessageKind;
 
-/// Identity of the pane an event is charged to, resolved once per event at the choke point.
+/// Identity of the tab an event is charged to, resolved once per event at the choke point.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KpiAttribution {
     pub plan_id: Option<String>,
     pub task_id: Option<String>,
-    pub pane_id: String,
+    pub tab_id: String,
     pub role: Option<&'static str>,
     pub provider: String,
     pub model: Option<String>,
@@ -26,9 +26,9 @@ fn role_label(role: crate::multiplexer::types::AgentRole) -> &'static str {
 }
 
 impl KpiAttribution {
-    pub fn for_pane(pane_id: impl Into<String>) -> Self {
+    pub fn for_tab(tab_id: impl Into<String>) -> Self {
         Self {
-            pane_id: pane_id.into(),
+            tab_id: tab_id.into(),
             ..Default::default()
         }
     }
@@ -64,7 +64,7 @@ impl KpiAttribution {
         KpiEventInput {
             plan_id: self.plan_id,
             task_id: self.task_id,
-            pane_id: self.pane_id,
+            tab_id: self.tab_id,
             role: self.role.map(str::to_string),
             provider: self.provider,
             model: self.model,

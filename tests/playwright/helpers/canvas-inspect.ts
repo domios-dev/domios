@@ -303,29 +303,29 @@ export async function assertReadbackNodesOnScreen(page: Page, minPx = 8): Promis
     .toBeGreaterThan(0);
 }
 
-export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<void> {
-  const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
+export async function openTabPlanCanvas(page: Page, tabId?: string): Promise<void> {
+  const scope = tabId ? page.locator(`[data-tab-id="${tabId}"]`) : page;
   const taskStrip = scope.locator('[data-testid="worker-task-strip"]').first();
   await taskStrip.click({ force: true });
-  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="tab-plan-overlay"]')).toHaveCount(0);
   await waitForVisiblePlanCanvas(page);
   await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await waitForCanvasSettled(page);
 }
 
-export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise<void> {
+export async function closeTabPlanCanvas(page: Page, _tabId?: string): Promise<void> {
   const btn = page.locator('[data-testid="canvas-toolbar-button"]');
   if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) === "true") {
     await btn.click({ force: true }).catch(() => {});
   }
   await waitForCanvasSettled(page, 1_000);
-  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="tab-plan-overlay"]')).toHaveCount(0);
 }
 
 // Inline workspace canvas (mode=workspace) mounts when the active workspace has no tab.
 export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string): Promise<void> {
   await openSidebarIfNeeded(page);
-  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="tab-plan-overlay"]')).toHaveCount(0);
   const visible = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
   if (!(await visible.isVisible().catch(() => false))) {
     if (workspaceId) await expandWorkspaceSidebar(page, workspaceId);
@@ -526,7 +526,7 @@ export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<N
 export async function fitToView(page: Page): Promise<void> {
   const strip = page.locator('[data-testid="worker-task-strip"]').first();
   if ((await strip.count()) === 0) return;
-  await closePanePlanCanvas(page);
+  await closeTabPlanCanvas(page);
   await strip.click({ force: true });
   await waitForVisiblePlanCanvas(page, 15_000);
   await waitForCanvasSettled(page);

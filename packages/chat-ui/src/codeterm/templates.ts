@@ -26,8 +26,8 @@ export interface ActionDescriptor {
   fields?: Array<{ label: string; value: string }>;
 }
 
-/** Resolve a pane id/short-id to a human tab name. Returns undefined when unknown. */
-export type PaneNameResolver = (paneRef: string) => string | undefined;
+/** Resolve a tab id/short-id to a human tab name. Returns undefined when unknown. */
+export type TabNameResolver = (tabRef: string) => string | undefined;
 
 export type NavigationTarget =
   | { kind: "tab"; id: string }
@@ -61,12 +61,12 @@ function firstRef(re: RegExp, inv: CodetermInvocation, result?: string): string 
 /** Describe the stable navigation target represented by a recognized invocation. */
 export function navigationTarget(inv: CodetermInvocation, result?: string): NavigationTarget | null {
   if (isSend(inv)) {
-    const candidate = inv.flags.tab ?? inv.flags.pane;
+    const candidate = inv.flags.tab ?? inv.flags.tab;
     const ref = typeof candidate === "string" ? candidate : undefined;
     return ref ? { kind: "tab", id: ref } : null;
   }
   if (inv.path[0] === "tab") {
-    const candidate = inv.flags.tab ?? inv.flags.pane ?? inv.positionals[0];
+    const candidate = inv.flags.tab ?? inv.flags.tab ?? inv.positionals[0];
     return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
   }
   const planId = firstRef(PLAN_RE, inv, result);
@@ -169,13 +169,13 @@ function resultCount(result: string | undefined, noun: string, lineFallback = fa
   return undefined;
 }
 
-function targetTab(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
-  const ref = flagText(inv, "tab", "pane") ?? inv.positionals[0];
+function targetTab(inv: CodetermInvocation, resolve?: TabNameResolver): string {
+  const ref = flagText(inv, "tab", "tab") ?? inv.positionals[0];
   return ref ? resolve?.(ref) ?? `tab ${ref}` : "current tab";
 }
 
-function tabCloseObject(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
-  const ref = flagText(inv, "tab", "pane") ?? inv.positionals[0];
+function tabCloseObject(inv: CodetermInvocation, resolve?: TabNameResolver): string {
+  const ref = flagText(inv, "tab", "tab") ?? inv.positionals[0];
   if (!ref) return "current tab";
   const resolved = resolve?.(ref);
   if (!resolved) return `tab ${ref}`;
@@ -205,7 +205,7 @@ function reportFields(inv: CodetermInvocation): Array<{ label: string; value: st
 }
 
 /** Build the compact lead/object/chips payload used by the action card header. */
-export function describeAction(inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver): ActionDescriptor {
+export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver): ActionDescriptor {
   const path = inv.path.join(" ");
   if (isHelp(inv)) {
     return { lead: "help", object: path, chips: [] };
@@ -351,14 +351,14 @@ export function planLink(inv: CodetermInvocation, result?: string): PlanLink | u
   return taskId ? { planId, taskId } : { planId };
 }
 
-function pane(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
-  const p = inv.flags.tab ?? inv.flags.pane;
-  if (typeof p !== "string") return "current pane";
+function tab(inv: CodetermInvocation, resolve?: TabNameResolver): string {
+  const p = inv.flags.tab ?? inv.flags.tab;
+  if (typeof p !== "string") return "current Tab";
   return resolve?.(p) ?? p;
 }
 
-function sentTitle(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
-  const p = inv.flags.tab ?? inv.flags.pane;
+function sentTitle(inv: CodetermInvocation, resolve?: TabNameResolver): string {
+  const p = inv.flags.tab ?? inv.flags.tab;
   if (typeof p !== "string") return "Sent to current tab";
   const name = resolve?.(p);
   return name ? `Sent to ${name}` : `Sent to tab ${p}`;
@@ -384,21 +384,29 @@ export interface SentMessage {
 export function parseSend(
   inv: CodetermInvocation,
   result?: string,
-  resolve?: PaneNameResolver,
+  resolve?: TabNameResolver,
 ): SentMessage {
-  const p = inv.flags.tab ?? inv.flags.pane;
+  const p = inv.flags.tab ?? inv.flags.tab;
   let recipient: string;
   if (typeof p !== "string") recipient = "current tab";
   else recipient = resolve?.(p) ?? `tab ${p}`;
   const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const resolved = resolvedSendText(result);
+  const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   return {
     recipient,
     mesh,
-    body: resolved ?? decodeCliMessageText(inv.positionals[0] ?? ""),
+    body: resolved || typed || sendBodyDescriptor(inv),
     bodySource: resolved == null ? "typed" : "resolved",
     status: deliveredStatus(result),
   };
+}
+
+function sendBodyDescriptor(inv: CodetermInvocation): string {
+  const fromFile = inv.flags["from-file"];
+  if (typeof fromFile === "string") return `Message sent from file: ${fromFile}`;
+  if (inv.flags.stdin === true) return "Message sent from standard input.";
+  return "Message content unavailable.";
 }
 
 function resolvedSendText(result?: string): string | undefined {
@@ -421,7 +429,7 @@ export function isHelp(inv: CodetermInvocation): boolean {
   return inv.flags.help === true || inv.flags.h === true;
 }
 
-type TemplateFn = (inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver) => RenderedCard;
+type TemplateFn = (inv: CodetermInvocation, result?: string, resolve?: TabNameResolver) => RenderedCard;
 
 const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
   const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
@@ -488,7 +496,7 @@ const TEMPLATES: Record<string, TemplateFn> = {
   "tab focus": (inv, _result, resolve) => {
     const ref = inv.positionals[0] ?? (typeof inv.flags.tab === "string" ? inv.flags.tab : undefined);
     const name = ref ? resolve?.(ref) : undefined;
-    return { icon: "→", title: `Focused ${name ?? `tab ${ref ?? pane(inv, resolve)}`}` };
+    return { icon: "→", title: `Focused ${name ?? `tab ${ref ?? tab(inv, resolve)}`}` };
   },
   "cron create": (inv) => ({ icon: "⏰", title: `Scheduled ${inv.positionals[0] ?? "job"}` }),
   "keepawake start": () => ({ icon: "☕", title: "Keep-awake started" }),
@@ -498,7 +506,7 @@ const TEMPLATES: Record<string, TemplateFn> = {
 export function renderTemplate(
   inv: CodetermInvocation,
   result?: string,
-  resolve?: PaneNameResolver,
+  resolve?: TabNameResolver,
 ): RenderedCard {
   const two = inv.path.slice(0, 2).join(" ");
   const one = inv.path[0];

@@ -1,5 +1,5 @@
 export interface SwarmNode {
-  id: string;          // pane_id
+  id: string;          // tab_id
   title: string;
   role: 'Orchestrator' | 'Worker' | null;
   status: 'Working' | 'Waiting' | 'Idle' | 'Dead';
@@ -15,8 +15,8 @@ export interface SwarmNode {
 }
 
 export interface SwarmEdge {
-  from: string;        // parent pane_id
-  to: string;          // child pane_id
+  from: string;        // parent tab_id
+  to: string;          // child tab_id
   particles: ReportParticle[];
 }
 

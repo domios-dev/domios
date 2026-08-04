@@ -31,7 +31,7 @@ pub struct MemCronCreateParams {
     pub model: Option<String>,
     pub cwd: Option<String>,
     pub role: Option<String>,
-    pub creator_pane_id: Option<String>,
+    pub creator_tab_id: Option<String>,
     pub enabled: Option<bool>,
     pub max_history: Option<usize>,
     pub oneshot: Option<bool>,

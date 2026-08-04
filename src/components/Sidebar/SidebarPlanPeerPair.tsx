@@ -1,31 +1,30 @@
 import { invoke } from "../../lib/bridge";
-import type { Pane, PaneStatus, Tab } from "../../lib/types";
+import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
-import type { PaneTabActivity } from "../Canvas/paneTabActivity";
+import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX } from "./sortable";
 import { TabItem } from "./TabItem";
-import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 
 export interface PlannerPeerTabContext {
   plannerTab: Tab | null;
-  /** Planner pane id to keep out of the Workers subtree — it renders under
+  /** Planner tab id to keep out of the Workers subtree — it renders under
    *  Managers instead. Undefined when no planner is bound. */
   peerExclude: Set<string> | undefined;
 }
 
 export function resolvePlannerPeerTabContext(
-  orchestratorPane: Pane,
+  orchestratorTab: Tab,
   childTabs: Tab[],
   plans: Plan[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
 ): PlannerPeerTabContext {
-  const peerPair = resolvePlanPeerPair(orchestratorPane.id, plans, panes);
-  const plannerPeerId = peerPair?.plannerPaneId ?? null;
+  const peerPair = resolvePlanPeerPair(orchestratorTab.id, plans, tabs);
+  const plannerPeerId = peerPair?.plannerTabId ?? null;
   const plannerTab =
-    plannerPeerId != null ? childTabs.find((t) => t.pane_id === plannerPeerId) ?? null : null;
+    plannerPeerId != null ? childTabs.find((tab) => tab.id === plannerPeerId) ?? null : null;
   const peerExclude =
     plannerTab && plannerPeerId ? new Set<string>([plannerPeerId]) : undefined;
   return { plannerTab, peerExclude };
@@ -34,9 +33,7 @@ export function resolvePlannerPeerTabContext(
 export interface SidebarTabItemRowProps {
   tab: Tab;
   index: number;
-  pane: Pane | null;
-  paneIds: string[];
-  activity: PaneTabActivity | null;
+  activity: TabTabActivity | null;
   activeWork?: ActiveWorkSnapshot | null;
   reportCount?: number;
   isClosing: boolean;
@@ -45,9 +42,8 @@ export interface SidebarTabItemRowProps {
   activeTabId: string | null;
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
-  panes: Record<string, Pane>;
-  paneStatuses: Record<string, PaneStatus>;
-  orchestrators: Pane[];
+  tabStatuses: Record<string, TabStatus>;
+  orchestrators: Tab[];
   touchMode: boolean;
   uiFontScale?: number;
   groupCollapsible?: boolean;
@@ -62,8 +58,6 @@ export interface SidebarTabItemRowProps {
 function SidebarTabItemRow({
   tab,
   index,
-  pane,
-  paneIds,
   activity,
   activeWork = null,
   reportCount = 0,
@@ -73,8 +67,7 @@ function SidebarTabItemRow({
   activeTabId,
   isActiveVisual,
   workspaceCanvasActive,
-  panes,
-  paneStatuses,
+  tabStatuses,
   orchestrators,
   touchMode,
   uiFontScale,
@@ -99,12 +92,10 @@ function SidebarTabItemRow({
       onClick={() => onActivateTab(tab.id)}
       onClose={() => onCloseTab(tab.id)}
       canClose={true}
-      paneCount={paneIds.length}
       workspaceId={workspaceId}
-      hasAgent={paneIds.some((pid) => !!panes[pid]?.agent_type)}
-      status={aggregateTabStatus(paneIds, paneStatuses)}
+      hasAgent={Boolean(tab.agent_type)}
+      status={tabStatuses[tab.id] ?? null}
       onRename={(title) => onRenameTab(tab.id, title)}
-      pane={pane}
       orchestrators={orchestrators}
       isAppearing={isAppearing}
       isClosing={isClosing}
@@ -133,16 +124,15 @@ export function SidebarSingleTabRow({
   groupKey,
   items,
   pinnedIds,
-  pane,
   ...rowProps
 }: SidebarSingleTabRowProps) {
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}
-      disabled={pane?.protected}
+      disabled={rowProps.tab.protected}
       data={{ group, groupKey, items, pinnedIds }}
     >
-      <SidebarTabItemRow pane={pane} {...rowProps} />
+      <SidebarTabItemRow {...rowProps} />
     </SortableRow>
   );
 }

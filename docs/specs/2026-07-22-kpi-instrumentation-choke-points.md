@@ -12,9 +12,9 @@ One row per coordination event, matching the spec's attribution contract:
 | field | type | source |
 |---|---|---|
 | `plan_id` | `Option<String>` | resolved plan/effort context at the choke point |
-| `task_id` | `Option<String>` | `CODETERM_TASK_ID`, already exported per-pane at spawn/bind time (`src-tauri/src/service/pty_io/lifecycle.rs:195`) |
-| `tab` / `pane_id` | `String` | the pane the event is attributed to |
-| `role` | `Option<AgentRole>` | orchestrator / planner / worker / general, from `pane.role` |
+| `task_id` | `Option<String>` | `CODETERM_TASK_ID`, already exported per-tab at spawn/bind time (`src-tauri/src/service/pty_io/lifecycle.rs:195`) |
+| `tab` / `tab_id` | `String` | the Tab the event is attributed to |
+| `role` | `Option<AgentRole>` | orchestrator / planner / worker / general, from `tab.role` |
 | `provider` | `String` | `claude` / `codex` / `opencode` / other |
 | `model` | `Option<String>` | resolved model at event time |
 | `timestamp` | `u64` (unix secs) | event time |
@@ -42,7 +42,7 @@ correct single choke point — every reminder/report/plain-send path funnels thr
 ### hierarchy::submit_report (reports, bounce/accept)
 
 `src-tauri/src/service/hierarchy.rs:406` — `Hierarchy::submit_report`. Full attribution
-(plan_id, task_id, pane, role, model) is resolved by `hierarchy.rs:447` (role) and
+(plan_id, task_id, Tab, role, model) is resolved by `hierarchy.rs:447` (role) and
 `hierarchy.rs:448` (model). The delivery itself happens at `hierarchy.rs:606`
 (`self.gateway_deliver(...)`), but the durable single-writer persistence point is one layer
 down: `ReportStore::add_detailed_with_model_identity` at `src-tauri/src/agent/reports.rs:213`,
@@ -61,7 +61,7 @@ accept rate" KPI.
 Two layers exist; pick the outer one for attribution completeness:
 
 - **Low-level single writer** (spec-visible bytes but no resolved role/model yet):
-  `src-tauri/src/service/spawn.rs:192` — `spawn_pane_with_ready_and_state_change`, which
+  `src-tauri/src/service/spawn.rs:192` — `spawn_tab_with_ready_and_state_change`, which
   every spawn path (sync and async, agent/shell/chatBackend) funnels through before
   dispatching to `spawn_visible_agent_impl` / `spawn_hidden_agent_impl` / etc.
 - **Attribution-complete success returns** (role + model + agent + task binding all
@@ -74,19 +74,17 @@ Two layers exist; pick the outer one for attribution completeness:
 
 Recommendation: instrument at the three `Ok(SpawnResult ..)` sites (role/model/brief-bytes
 all in scope there), not the shared low-level fn — resolving that would require threading
-role+model back down through `SpawnPaneSpec`, which the existing code doesn't do.
+role+model back down through `SpawnTabSpec`, which the existing code doesn't do.
 
 ### Nudge / heartbeat scheduler
 
-`src-tauri/src/service/hierarchy/plan_reminder_nudge.rs:440` —
-`deliver_automated_plan_reminder`. Every nudge variant (idle poke `:229`, timed plan
-reminder `:419`, complete-wrapup `:349`) funnels through this one function before calling
-`Messenger::deliver` at `:442`. `text.len()` gives bytes; the caller already knows which
-`NudgeKind` fired. Heartbeat re-injection specifically is
-`crate::service::orchestrator_digests::prepend_orchestrator_heartbeat`, called from
-`plan_reminder_nudge.rs:223` (idle poke path) and `:408` (owner-targeted reminder path) —
-count/size these calls separately from plain nudges for the "heartbeat re-injection count
-and bytes" KPI line.
+`src-tauri/src/service/hierarchy/plan_reminder_nudge.rs` —
+`deliver_automated_plan_reminder`. Scheduler-owned periodic plan reminders and
+complete-wrapup reminders funnel through this function before calling `Messenger::deliver`.
+`text.len()` gives bytes; the caller already knows which `NudgeKind` fired. Heartbeat
+re-injection specifically is `crate::service::orchestrator_digests::prepend_orchestrator_heartbeat`
+on the owner-targeted scheduler path — count/size these calls separately from plain nudges
+for the "heartbeat re-injection count and bytes" KPI line.
 
 ### Provider usage ingestion — see §3 (separate seam per provider, not a single choke point)
 
@@ -267,7 +265,7 @@ is the live daemon counters at the choke points in §2.
   concept (OpenCode) yet — phase 3 needs to either find one or explicitly scope
   "compactions" as Claude-only in v1 of the catalog.
 - **Spawn instrumentation layer**: recommended the three `Ok(SpawnResult ..)` sites over
-  the shared low-level `spawn_pane_with_ready_and_state_change` (§2) — phase 3 implementer
+  the shared low-level `spawn_tab_with_ready_and_state_change` (§2) — phase 3 implementer
   should confirm no other success path exists (e.g. resumed-session spawns) that bypasses
   all three.
 - **Ledger location**: reuse `orchestration.db` (new table, same file) vs. a dedicated
@@ -289,4 +287,4 @@ codeterm kpi events --plan pl_dwojf1 --json
 Phase 5's own gate is the automated within-10% comparison script described in
 `task_cmu92w`'s test plan — not re-specified here since it belongs to that task.
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->

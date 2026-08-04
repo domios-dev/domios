@@ -6,6 +6,39 @@ use serde::{Deserialize, Serialize};
 const GITHUB_API: &str = "https://api.github.com/repos/rollacode/codeterm-releases/releases/latest";
 pub(super) const GITHUB_REPO: &str = "rollacode/codeterm-releases";
 
+fn latest_release_request(client: &reqwest::Client) -> reqwest::RequestBuilder {
+    client
+        .get(GITHUB_API)
+        .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
+        .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
+        .header(reqwest::header::PRAGMA, "no-cache")
+}
+
+pub async fn latest_release_tag() -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("CodeTerm-Updater")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let release = latest_release_request(&client)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch release: {}", e))?;
+    if !release.status().is_success() {
+        return Err(format!(
+            "Failed to fetch release: HTTP {}",
+            release.status()
+        ));
+    }
+    let release: serde_json::Value = release
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    release["tag_name"]
+        .as_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "No tag_name in GitHub response".to_string())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateInfo {
     pub current_version: String,
@@ -30,11 +63,17 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
         .map_err(|e| e.to_string())?;
 
     // Anonymous fetch — public mirror is anon-readable, no Authorization header.
-    let resp: serde_json::Value = client
-        .get(GITHUB_API)
+    let response = latest_release_request(&client)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch release: {}", e))?
+        .map_err(|e| format!("Failed to fetch release: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to fetch release: HTTP {}",
+            response.status()
+        ));
+    }
+    let resp: serde_json::Value = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
@@ -111,4 +150,25 @@ fn resolve_download_url(method: &InstallMethod, release: &serde_json::Value) -> 
                 .unwrap_or(false)
         })
         .and_then(|a| a["browser_download_url"].as_str().map(|s| s.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latest_release_request_bypasses_mutable_github_cache() {
+        let request = latest_release_request(&reqwest::Client::new())
+            .build()
+            .unwrap();
+        assert_eq!(
+            request.headers()[reqwest::header::CACHE_CONTROL],
+            "no-cache, no-store"
+        );
+        assert_eq!(request.headers()[reqwest::header::PRAGMA], "no-cache");
+        assert!(request
+            .url()
+            .query_pairs()
+            .any(|(key, value)| key == "codeterm_cache_bust" && !value.is_empty()));
+    }
 }

@@ -25,6 +25,43 @@
         "Keeps any deferred critical verification recorded as open risk rather than claiming completion",
         "Reserves full release verification for the release boundary"
       ]
+    },
+    {
+      "id": 3,
+      "name": "task-test-and-qa-plans-stay-independent",
+      "prompt": "Create an implementation task whose Worker runs `cargo test worker_oracle` while independent QA runs `cargo test qa_oracle`. Dispatch it, then show the commands you would use after the Worker reports in_review to claim QA and close only after the independent oracle passes.",
+      "expected_output": "Stores distinct Worker and QA plans, dispatches the Worker without manually sending the QA oracle, and closes only through the QA pipeline.",
+      "expectations": [
+        "Uses `codeterm plan task add` with `--test-plan \"cargo test worker_oracle\"`",
+        "Uses the same task-add command with `--qa-plan \"cargo test qa_oracle\"`",
+        "Dispatches the task with `codeterm plan task dispatch` and does NOT separately send the qa_plan text to the Worker",
+        "Enqueues and claims independent QA with `codeterm plan qa queue --task` and `codeterm plan qa next --claim`",
+        "Uses `codeterm plan qa pass` only after the independent QA command"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "worker-start-requires-ack",
+      "prompt": "I dispatched a task. CodeTerm pushed dispatch_ready, but the Worker has not acknowledged yet. Explain what state you record and what you do if no acknowledgement arrives within the bounded deadline.",
+      "expected_output": "Keeps the task out of in_progress until worker_ack and handles worker_ack_timeout with one inspection rather than polling or duplicate dispatch.",
+      "expectations": [
+        "Treats `dispatch_ready` as runtime binding only and does not mark the task started yet",
+        "States that only pushed `worker_ack` moves the task to in_progress",
+        "States that `worker_ack_timeout` requires one inspection of the existing tab",
+        "Does NOT poll, blindly resend, or duplicate-dispatch"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "tab-cleanup-prefers-compact-discovery",
+      "prompt": "Clean up every extra tab in my current workspace without closing your own tab. Explain the CodeTerm commands you will use and how you will identify your own tab.",
+      "expected_output": "Uses compact tab discovery with the self marker, inspects only an ambiguous selected tab, and avoids dumping the whole workspace as JSON.",
+      "expectations": [
+        "Uses `codeterm tab list` without `--json` for discovery before closing tabs",
+        "Uses the `(self)` marker from the compact list to preserve the calling tab",
+        "Uses `codeterm tab inspect <id>` only if a selected tab needs more detail",
+        "Does NOT use whole-list `tab list --json` for ordinary cleanup"
+      ]
     }
   ]
 }

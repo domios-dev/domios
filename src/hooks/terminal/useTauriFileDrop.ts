@@ -54,7 +54,7 @@ export function useTauriFileDrop({
         setIsDragOver(false);
         return;
       }
-      // per-container check, every pane would highlight at once when one file is dragged into the window.
+      // per-container check, every tab would highlight at once when one file is dragged into the window.
       if (payload.type === "enter" || payload.type === "over") {
         setIsDragOver(isDropInside(payload.position, el));
       }

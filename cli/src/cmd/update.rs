@@ -2,6 +2,26 @@ use std::time::{Duration, Instant};
 
 use crate::{build_http, read_api_config, UpdateAction};
 
+const DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT: &str =
+    "Check that the new version is installed, then continue the interrupted work.";
+
+fn resolve_local_install_continuation(
+    disabled: bool,
+    prompt: Option<String>,
+    tab: Option<String>,
+    environment_tab: Option<String>,
+) -> (Option<String>, Option<String>) {
+    if disabled {
+        return (None, None);
+    }
+    let tab = tab.or(environment_tab);
+    let prompt = prompt.or_else(|| {
+        tab.as_ref()
+            .map(|_| DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT.to_string())
+    });
+    (prompt, tab)
+}
+
 fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
     let status_url = format!("{}/api/update/status", base_url);
     let started = Instant::now();
@@ -66,6 +86,36 @@ fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{resolve_local_install_continuation, DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT};
+
+    #[test]
+    fn local_install_defaults_to_resuming_the_calling_tab() {
+        let (prompt, tab) =
+            resolve_local_install_continuation(false, None, None, Some("tab-1".to_string()));
+
+        assert_eq!(tab.as_deref(), Some("tab-1"));
+        assert_eq!(
+            prompt.as_deref(),
+            Some(DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT)
+        );
+    }
+
+    #[test]
+    fn local_install_continuation_can_be_disabled_explicitly() {
+        let (prompt, tab) = resolve_local_install_continuation(
+            true,
+            None,
+            Some("tab-1".to_string()),
+            Some("tab-2".to_string()),
+        );
+
+        assert!(prompt.is_none());
+        assert!(tab.is_none());
+    }
+}
+
 pub fn handle_update(
     json: bool,
     action: Option<UpdateAction>,
@@ -88,6 +138,7 @@ pub fn handle_update(
             from_file,
             continue_prompt,
             continue_tab,
+            no_continue,
             after_update: action_after_update,
         } => UpdateAction::Install {
             auto,
@@ -95,6 +146,7 @@ pub fn handle_update(
             from_file,
             continue_prompt,
             continue_tab,
+            no_continue,
             after_update: action_after_update.or(after_update),
         },
         other => other,
@@ -153,14 +205,22 @@ pub fn handle_update(
             from_file,
             continue_prompt,
             continue_tab,
+            no_continue,
             after_update,
         } => {
             if let Some(path) = from_file {
-                let tab = continue_tab.or_else(|| std::env::var("CODETERM_PANE_ID").ok());
+                let (continue_prompt, tab) = resolve_local_install_continuation(
+                    no_continue,
+                    continue_prompt,
+                    continue_tab,
+                    std::env::var("CODETERM_TAB_ID").ok(),
+                );
                 // Persist current tab ids so the continuation target survives restart.
                 let save_url = format!("{}/api/session/save", base_url);
                 if let Err(e) = http.post(&save_url).send() {
-                    eprintln!("[install --from-file] WARN: session save failed ({e}) — pane id may rotate");
+                    eprintln!(
+                        "[install --from-file] WARN: session save failed ({e}) — Tab id may rotate"
+                    );
                 }
                 crate::cmd::install::run_install_from_file(
                     &path,

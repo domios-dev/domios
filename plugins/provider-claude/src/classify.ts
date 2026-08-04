@@ -1,14 +1,14 @@
 import { usageParseTodayClock } from "./usage";
 
-export interface PaneStateSnapshot {
-  paneId: string;
+export interface TabStateSnapshot {
+  tabId: string;
   agentType: string;
   sessionId?: string | null;
   cwd?: string | null;
   screenText: string;
 }
 
-type PaneState =
+type TabState =
   | "working"
   | "waiting_on_auth"
   | "update_prompt"
@@ -17,17 +17,17 @@ type PaneState =
   | "idle_stuck"
   | "unknown";
 
-interface PaneStateAction {
+interface TabStateAction {
   keys?: string[];
   delayedResume?: { at: string; text: string; thenKeys?: string[] };
   surface?: { kind: string; payload: unknown };
 }
 
-export interface PaneStateClassification {
-  state: PaneState;
+export interface TabStateClassification {
+  state: TabState;
   confidence: number;
   data?: { resetAt?: string; questions?: string[] };
-  action?: PaneStateAction;
+  action?: TabStateAction;
 }
 
 // Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
@@ -36,13 +36,18 @@ const CLASSIFY_THRESHOLD = 0.8;
 // Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
 const RESUME_BUFFER_MS = 60 * 1000;
 
-export function classifyClaudePaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
+export function classifyClaudeTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
   // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
   const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
   if (!screen.trim()) return null;
 
-  // Auth first — sacred, takes precedence over any menu beneath it.
-  const authConfidence = scoreAuthPrompt(screen);
+  // Busy veto: a streaming tab is never parked, so a mid-turn menu isn't read as a prompt.
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+
+  const activeChoice = activeTerminalChoiceBlock(screen);
+  const authConfidence = activeChoice
+    ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n"))
+    : 0;
   if (authConfidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "waiting_on_auth",
@@ -51,13 +56,10 @@ export function classifyClaudePaneState(snapshot: PaneStateSnapshot): PaneStateC
     };
   }
 
-  // Busy veto: a streaming pane is never parked, so a mid-turn menu isn't read as a prompt.
-  if (looksBusy(screen)) return { state: "working", confidence: 0 };
-
   // Rate-limit menu → confirm-wait + schedule resume.
   const rl = scoreRateLimit(screen, host.unixNowMs());
   if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
-    const action: PaneStateAction = { keys: rl.waitKeys };
+    const action: TabStateAction = { keys: rl.waitKeys };
     const data: { resetAt?: string } = {};
     if (rl.resetAtMs !== null) {
       data.resetAt = new Date(rl.resetAtMs).toISOString();
@@ -202,25 +204,39 @@ interface ClarifyingPromptBlock {
   options: ClaudeMenuOption[];
 }
 
-function activeClarifyingPromptBlock(screen: string): ClarifyingPromptBlock | null {
+interface ActiveTerminalChoiceBlock {
+  footerIdx: number;
+  options: ClaudeMenuOption[];
+}
+
+function activeTerminalChoiceBlock(screen: string): ActiveTerminalChoiceBlock | null {
   const lines = String(screen || "").split("\n");
   for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
-    if (!isClarifyingConfirmFooter(lines[footerIdx])) continue;
-
-    const lastContentIdx = lastMeaningfulLineIndex(lines);
-    if (lastContentIdx > footerIdx) {
-      return null;
-    }
+    if (!isActiveChoiceFooter(lines[footerIdx])) continue;
+    if (lastMeaningfulLineIndex(lines) > footerIdx) return null;
 
     const options = contiguousOptionsAbove(lines, footerIdx);
-    if (options.length < 2) continue;
-
-    const questions = questionsAbove(lines, footerIdx);
-    if (questions.length === 0) continue;
-
-    return { questions, options };
+    if (options.length >= 2 && options.some((option) => option.highlighted)) {
+      return { footerIdx, options };
+    }
   }
   return null;
+}
+
+function activeClarifyingPromptBlock(screen: string): ClarifyingPromptBlock | null {
+  const lines = String(screen || "").split("\n");
+  const choice = activeTerminalChoiceBlock(screen);
+  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
+  const questions = questionsAbove(lines, choice.footerIdx);
+  if (questions.length === 0) {
+    const prompt = promptAboveOptions(lines, choice.footerIdx);
+    if (prompt) questions.push(prompt);
+  }
+  return questions.length > 0 ? { questions, options: choice.options } : null;
+}
+
+function isActiveChoiceFooter(line: string): boolean {
+  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
 }
 
 function isClarifyingConfirmFooter(line: string): boolean {
@@ -260,6 +276,15 @@ function contiguousOptionsAbove(lines: string[], footerIdx: number): ClaudeMenuO
   return options.reverse();
 }
 
+function promptAboveOptions(lines: string[], footerIdx: number): string | null {
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || CLAUDE_MENU_OPTION_RE.test(lines[i]) || isDividerLine(line)) continue;
+    return line;
+  }
+  return null;
+}
+
 // Lines ending in a question mark above the active option block — the surfaced payload.
 function questionsAbove(lines: string[], footerIdx: number): string[] {
   const out: string[] = [];
@@ -272,7 +297,7 @@ function questionsAbove(lines: string[], footerIdx: number): string[] {
   return out.reverse();
 }
 
-// Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
+// Auth prose is scored only inside the structurally active choice labels.
 function scoreAuthPrompt(screen: string): number {
   const s = String(screen || "");
   let score = 0;

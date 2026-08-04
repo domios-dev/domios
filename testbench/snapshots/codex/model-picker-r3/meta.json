@@ -1,0 +1,9 @@
+{
+  "provider": "codex",
+  "situation": "model-picker-r3",
+  "source": "dev-7686",
+  "capture": "GET /api/tabs/{id}/text?formatted=true at live /model picker",
+  "until": "Select Model and Effort | esc to go back",
+  "prompt": "/model",
+  "providerCliVersion": "codex-cli 0.146.0"
+}

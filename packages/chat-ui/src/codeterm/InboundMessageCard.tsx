@@ -9,7 +9,7 @@ interface Props {
   message: ChatMessage;
   sender: string;
   model?: string;
-  channel?: "pane" | "mesh";
+  channel?: "tab" | "mesh";
   expanded: boolean;
   onToggle: () => void;
   onFocusTab?: () => void;
@@ -18,7 +18,7 @@ interface Props {
   fontScale?: number;
 }
 
-export function InboundMessageCard({ message, sender, model, channel = "pane", expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale }: Props) {
+export function InboundMessageCard({ message, sender, model, channel = "tab", expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   const isMesh = channel === "mesh";
   const summary = [isMesh ? "mesh" : "tab", model].filter(Boolean).join(" · ");
   return (

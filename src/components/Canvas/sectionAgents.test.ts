@@ -15,7 +15,7 @@ const agent = (id: string): PresenceAgent => ({ id, label: id, role: null, color
 function task(id: string, sections: string[]): Task {
   return {
     id, name: id, type: "implement", model: null, model_rationale: null, status: "pending",
-    status_label: null, section_ids: sections, body: "", intent: null, assigned_pane_id: null,
+    status_label: null, section_ids: sections, body: "", intent: null, assigned_tab_id: null,
     peer: null, parent_task_id: null, canvas: { x: null, y: null, collapsed: false }, milestones: [], created_at: 0,
   };
 }

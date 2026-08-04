@@ -39,7 +39,7 @@ const claudeMessages: NormalizedChatMessage[] = [
     provider: "claude",
     type: "system",
     systemSubtype: "skill_context",
-    content: "Skill context: use the codeterm workflow for pane reports.",
+    content: "Skill context: use the codeterm workflow for Tab reports.",
   },
   {
     id: "claude-assistant-1",

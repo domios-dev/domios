@@ -51,8 +51,8 @@ header p{color:var(--muted);margin:0 0 18px;font-size:13px;max-width:70ch}
 .legend b{display:inline-flex;align-items:center;gap:5px;font-weight:500}
 .legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
 .scenario{margin:26px 0 8px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
-.panel{display:none}
-.panel.on{display:block}
+.tabl{display:none}
+.tabl.on{display:block}
 .svg-defs{position:absolute;width:0;height:0}
 .ic{width:15px;height:15px;flex:0 0 auto;stroke-width:1.7;fill:none}
 .spin{animation:sp 1s linear infinite;transform-origin:center}
@@ -267,10 +267,10 @@ button.row{all:unset;display:block;width:100%;cursor:pointer;box-sizing:border-b
 
 <div class="legend" id="legend"></div>
 
-<div class="panel dirA on" id="panelA"></div>
-<div class="panel dirB" id="panelB"></div>
-<div class="panel dirC" id="panelC"></div>
-<div class="panel dirD" id="panelD"></div>
+<div class="tabl dirA on" id="tablA"></div>
+<div class="tabl dirB" id="tablB"></div>
+<div class="tabl dirC" id="tablC"></div>
+<div class="tabl dirD" id="tablD"></div>
 
 <div class="foot">
   Design preview only — no production UI changed. Source events: <code>~/.codex/sessions/…019f4c73…jsonl</code> (command / codeterm / apply_patch / search / spawn / web) and the Claude planning session (Bash / plan). Colors &amp; tokens mirror the live CodeTerm dark theme.
@@ -338,7 +338,7 @@ const EVENTS = [
  { g:'edit', kind:'edit', status:'success',
    summary:'src/store/multiplexer/index.tsx',
    files:[{path:'src/store/multiplexer/index.tsx',add:1,del:1,hunks:[
-     {del:['      const { panes, workspaces } = stateRef.current;'],
+     {del:['      const { tabs, workspaces } = stateRef.current;'],
       add:['      const { workspaces } = stateRef.current;']}]}],
    result:'Success. Updated the following files:\nM src/store/multiplexer/index.tsx' },
  { g:'edit', kind:'edit', status:'success', multi:true,
@@ -558,7 +558,7 @@ const CATALOG=[
   kv:[['name','SDK canonical tool fields + Rust mapper passthrough'],
       ['routing','<span class="mono">gpt-5.6-luna</span> — anchors the wire contract every lane reads'],
       ['sections','wave1-emit · contract'],
-      ['test','capped cargo <span class="mono">pane_chat</span> mapper test + plugin-sdk typecheck']],
+      ['test','capped cargo <span class="mono">tab_chat</span> mapper test + plugin-sdk typecheck']],
   bul:['capabilities.ts documents toolKind/toolSummary/toolDetail/toolEdits','mapper reads canonical fields, no name classification','summarize_tool_input JSON never reaches a card summary'],
   nav:'open task_gh4wkh in pl_yqvf4o'},
  {k:'plan',card:'task-edit',note:'update fields in place → shows the changed field',
@@ -571,9 +571,9 @@ const CATALOG=[
   lead:'task deps',obj:'integration ← 5 lanes',chips:['task_vrqudx'],status:'success',
   kv:[['waits on','codex · claude+opencode · cursor · native-claude · chat-ui']],nav:'open task_vrqudx'},
  {k:'stride',card:'stride-decision',note:'ledgered decision on a task — the review trail',
-  cmd:'codeterm plan record pl_yqvf4o --task task_vrqudx --step decision:"BLOCKER PaneSessionChat missing item= …"',
+  cmd:'codeterm plan record pl_yqvf4o --task task_vrqudx --step decision:"BLOCKER TabSessionChat missing item= …"',
   lead:'decision',obj:'on task_vrqudx',status:'success',
-  preview:'BLOCKER at 1a4b8fa9d — PaneSessionChat.tsx:525/542 does not forward the TimelineItem item prop → completed tool cards spin forever + lose results on the primary tab chat. Route: extend scope, bounce to c9c4dc41.',
+  preview:'BLOCKER at 1a4b8fa9d — TabSessionChat.tsx:525/542 does not forward the TimelineItem item prop → completed tool cards spin forever + lose results on the primary tab chat. Route: extend scope, bounce to c9c4dc41.',
   nav:'open task_vrqudx · strides'},
  {k:'stride',card:'retrospective',note:'end-of-effort judgment — keep / discard / supersede',
   cmd:'codeterm plan retrospective pl_yqvf4o --body "Ownership-overlap defect …"',
@@ -602,7 +602,7 @@ const CATALOG=[
  {k:'report',card:'agent-report',note:'worker → orchestrator: status, changes, tests, sha',
   cmd:'codeterm agent report --status in_review --sha 979a8683e "…"',
   lead:'report',obj:'task_vrqudx · in_review',chips:['979a8683e'],status:'success',
-  kv:[['status','in_review'],['changes','PaneSessionChat forwards item={item} to MessageBubble'],['tests','Biome + diff + light pre-push green']],nav:'open the task'},
+  kv:[['status','in_review'],['changes','TabSessionChat forwards item={item} to MessageBubble'],['tests','Biome + diff + light pre-push green']],nav:'open the task'},
  {k:'report',card:'reports-list',note:'queued reports for a tab → each with status',
   cmd:'codeterm agent reports --tab e3fa0754 --json --limit 50',
   lead:'reports',obj:'tab Hugo',chips:['3'],status:'success',
@@ -616,7 +616,7 @@ const CATALOG=[
  {k:'send',card:'send-message',note:'you → another tab · resolves the target name · focuses it',
   cmd:'codeterm send --tab e3fa0754 "CORRECTION VERIFIED — blocker resolved in 979a8683e …"',
   lead:'send',obj:'→ Hugo',chips:['e3fa0754'],status:'success',
-  preview:'CORRECTION VERIFIED — blocker resolved. PaneSessionChat.tsx now forwards item={item}; tool rows dispatch the canonical event. All six focus areas pass at code level.',
+  preview:'CORRECTION VERIFIED — blocker resolved. TabSessionChat.tsx now forwards item={item}; tool rows dispatch the canonical event. All six focus areas pass at code level.',
   nav:'focus tab Hugo'},
  {k:'inbound',card:'inbound-message',note:'RECEIVED from another tab — from-label, model avatar, kind badge · focuses source',
   cmd:'‹inbound› [tab Hugo · gpt-5.6-terra] The user rejects the flat cards …',
@@ -626,7 +626,7 @@ const CATALOG=[
  {k:'inbound',card:'inbound-report',note:'RECEIVED report bubbled up — task, status, sha, model',
   cmd:'‹report› [from Nora · task_vrqudx] status: In Review · sha 979a8683e',
   lead:'report · Nora',obj:'task_vrqudx',chips:['report','in_review'],status:'success',
-  kv:[['sha','<span class="mono">979a8683e</span>'],['changes','PaneSessionChat item pass-through fix']],nav:'focus Nora / open task'},
+  kv:[['sha','<span class="mono">979a8683e</span>'],['changes','TabSessionChat item pass-through fix']],nav:'focus Nora / open task'},
  {k:'mesh',card:'mesh-send',note:'message a remote peer over the tailnet mesh',
   cmd:'codeterm send --mesh blackstar "run the release build for release-1.7.2"',
   lead:'mesh →',obj:'blackstar',chips:['peer'],status:'success',
@@ -763,15 +763,15 @@ function renderD(){
  }).join('');
  return `<div class="dtoolbar"><button onclick="allD(true)">expand all</button><button onclick="allD(false)">collapse all</button><button onclick="allCmd(true)">❯ show commands</button><button onclick="allCmd(false)">hide commands</button></div>`+fams;
 }
-function allD(open){document.querySelectorAll('#panelD .card').forEach(c=>c.classList.toggle('open',open));}
+function allD(open){document.querySelectorAll('#tablD .card').forEach(c=>c.classList.toggle('open',open));}
 function togCmd(el){el.closest('.entry').classList.toggle('cmd-open');}
-function allCmd(open){document.querySelectorAll('#panelD .entry').forEach(e=>{if(e.querySelector('.cmdline'))e.classList.toggle('cmd-open',open);});}
+function allCmd(open){document.querySelectorAll('#tablD .entry').forEach(e=>{if(e.querySelector('.cmdline'))e.classList.toggle('cmd-open',open);});}
 
 function tog(btn){ btn.parentElement.classList.toggle('open'); }
-document.getElementById('panelA').innerHTML=renderA();
-document.getElementById('panelB').innerHTML=renderB();
-document.getElementById('panelC').innerHTML=renderC();
-document.getElementById('panelD').innerHTML=renderD();
+document.getElementById('tablA').innerHTML=renderA();
+document.getElementById('tablB').innerHTML=renderB();
+document.getElementById('tablC').innerHTML=renderC();
+document.getElementById('tablD').innerHTML=renderD();
 
 document.getElementById('legend').innerHTML=Object.entries(K).map(([n,k])=>
   `<b><i style="background:${k.c}"></i>${n}</b>`).join('')+
@@ -780,7 +780,7 @@ document.getElementById('legend').innerHTML=Object.entries(K).map(([n,k])=>
 document.querySelectorAll('#tabs .tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.remove('on'));
   t.classList.add('on');
-  ['A','B','C','D'].forEach(d=>document.getElementById('panel'+d).classList.toggle('on',d===t.dataset.dir));
+  ['A','B','C','D'].forEach(d=>document.getElementById('tabl'+d).classList.toggle('on',d===t.dataset.dir));
   window.scrollTo({top:0,behavior:'smooth'});
 });
 </script>

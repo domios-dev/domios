@@ -242,8 +242,8 @@ impl PlanStore {
         }
         let mut record = None;
         self.with_plan(plan_id, now_ms, |p| {
-            if let Some(owner) = p.owner.pane_id.as_deref() {
-                let authorized = actor.pane_id.as_deref() == Some(owner);
+            if let Some(owner) = p.owner.tab_id.as_deref() {
+                let authorized = actor.tab_id.as_deref() == Some(owner);
                 if !authorized {
                     return Err(PlanError::OverrideNotAuthorized);
                 }
@@ -283,7 +283,7 @@ mod tests {
         let mut plan = Plan::new(
             "Gate plan".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         plan.task_groups = vec![
             TaskGroup {
@@ -359,7 +359,7 @@ mod tests {
                 &pid,
                 "phase-1",
                 "full suite green",
-                AgentRef::from_pane("qa"),
+                AgentRef::from_tab("qa"),
                 30,
             )
             .unwrap();
@@ -376,7 +376,7 @@ mod tests {
         set_status(&store, &pid, &ids[0], TaskStatus::Done, 10);
         set_status(&store, &pid, &ids[1], TaskStatus::Done, 20);
         store
-            .record_group_regression(&pid, "phase-1", "green", AgentRef::from_pane("qa"), 30)
+            .record_group_regression(&pid, "phase-1", "green", AgentRef::from_tab("qa"), 30)
             .unwrap();
         assert!(pending_regression_gates(&store.get(&pid).unwrap()).is_empty());
 
@@ -409,11 +409,11 @@ mod tests {
     fn record_rejects_unknown_group_and_empty_note() {
         let (_d, store, pid, _ids) = store_with_two_groups();
         assert!(matches!(
-            store.record_group_regression(&pid, "phase-1", "  ", AgentRef::from_pane("qa"), 5),
+            store.record_group_regression(&pid, "phase-1", "  ", AgentRef::from_tab("qa"), 5),
             Err(PlanError::QaNoteRequired)
         ));
         assert!(matches!(
-            store.record_group_regression(&pid, "nope", "green", AgentRef::from_pane("qa"), 5),
+            store.record_group_regression(&pid, "nope", "green", AgentRef::from_tab("qa"), 5),
             Err(PlanError::GroupNotFound)
         ));
     }
@@ -430,7 +430,7 @@ mod tests {
             "section_ids": [],
             "body": "",
             "intent": null,
-            "assigned_pane_id": null,
+            "assigned_tab_id": null,
             "peer": null,
             "tags": tags,
         }))
@@ -499,7 +499,7 @@ mod tests {
                 &pid,
                 vec![],
                 "warm QA unavailable; shipping hotfix under owner sign-off",
-                AgentRef::from_pane("orch"),
+                AgentRef::from_tab("orch"),
                 30,
             )
             .unwrap();
@@ -528,7 +528,7 @@ mod tests {
         let (_d, store, pid, ids) = store_with_two_groups();
         close_phase_1(&store, &pid, &ids);
         assert!(matches!(
-            store.record_regression_override(&pid, vec![], "  ", AgentRef::from_pane("orch"), 30),
+            store.record_regression_override(&pid, vec![], "  ", AgentRef::from_tab("orch"), 30),
             Err(PlanError::OverrideReasonRequired)
         ));
         assert!(matches!(
@@ -536,7 +536,7 @@ mod tests {
                 &pid,
                 vec![],
                 "sneaky bypass",
-                AgentRef::from_pane("worker"),
+                AgentRef::from_tab("worker"),
                 30
             ),
             Err(PlanError::OverrideNotAuthorized)
@@ -558,7 +558,7 @@ mod tests {
                 &pid,
                 vec![],
                 "owner waiver",
-                AgentRef::from_pane("orch"),
+                AgentRef::from_tab("orch"),
                 30,
             )
             .unwrap();
@@ -582,7 +582,7 @@ mod tests {
         assert_eq!(blocking_regression_gates(&plan).len(), 2);
 
         store
-            .record_group_regression(&pid, "phase-1", "green", AgentRef::from_pane("qa"), 30)
+            .record_group_regression(&pid, "phase-1", "green", AgentRef::from_tab("qa"), 30)
             .unwrap();
         let plan = store.get(&pid).unwrap();
         let blocking = blocking_regression_gates(&plan);

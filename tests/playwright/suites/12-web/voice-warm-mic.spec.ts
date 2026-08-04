@@ -40,7 +40,7 @@ async function holdVoice(page: Page): Promise<void> {
   await page.mouse.up();
 }
 
-test("@golden mic stream is warm: two recordings → getUserMedia called exactly once", async ({ api, webBrowser, paneCleanup, spawnAgent, mediaMocks }) => {
+test("@golden mic stream is warm: two recordings → getUserMedia called exactly once", async ({ api, webBrowser, tabCleanup, spawnAgent, mediaMocks }) => {
   test.setTimeout(180_000);
   const ctx = await webBrowser.newContext({ viewport: { width: 375, height: 812 } });
   const page = await ctx.newPage();
@@ -48,27 +48,27 @@ test("@golden mic stream is warm: two recordings → getUserMedia called exactly
   await mediaMocks.mockUpload(page);
   await mediaMocks.mockTranscription(page, { line: "warm mic transcript" });
 
-  // Close stale panes so exactly one chat composer mounts.
-  await paneCleanup.closeUnprotectedPanes();
+  // Close stale tabs so exactly one chat composer mounts.
+  await tabCleanup.closeUnprotectedTabs();
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first().waitFor({ timeout: 20_000 });
 
-  const inbox = await paneCleanup.createPane({ title: "pw-warmmic-inbox" });
-  let agentPaneId: string | undefined;
+  const inbox = await tabCleanup.createTab({ title: "pw-warmmic-inbox" });
+  let agentTabId: string | undefined;
   try {
-    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    await api.post(`/tabs/${inbox.id}/role`, { role: "Orchestrator" });
     const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
       title: "pw-warmmic-agent",
-      parent_pane_id: inbox.id,
-      report_target_pane_id: inbox.id,
+      parent_tab_id: inbox.id,
+      report_target_tab_id: inbox.id,
       skip_permissions: true,
       activate: true,
       task: "Wait silently.",
     });
-    agentPaneId = spawned.pane_id;
+    agentTabId = spawned.tab_id;
     await page.locator('[data-testid="composer-voice-button"]').filter({ visible: true }).first().waitFor({ timeout: 60_000 });
 
     // First recording — acquires the stream (getUserMedia #1).
@@ -85,7 +85,7 @@ test("@golden mic stream is warm: two recordings → getUserMedia called exactly
     ).toHaveCount(2, { timeout: 8_000 });
     expect(await page.evaluate(() => (window as unknown as { __gumCalls: number }).__gumCalls)).toBe(1);
   } finally {
-    if (agentPaneId) paneCleanup.track(agentPaneId);
+    if (agentTabId) tabCleanup.track(agentTabId);
     await ctx.close();
   }
 });

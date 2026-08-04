@@ -59,31 +59,31 @@ pub fn promote(mem: &MemManager, id: &str) -> Result<bool, String> {
     mem.promote_learning(id).map(|_| true)
 }
 
-/// Grab a pane's PTY scrollback and store as kind=conversation mem_item.
-/// Called from PreCompact hook or pane lifecycle exit.
-pub fn flush_pane(
+/// Grab a tab's PTY scrollback and store as kind=conversation mem_item.
+/// Called from PreCompact hook or tab lifecycle exit.
+pub fn flush_tab(
     mem: &MemManager,
-    pane_id: &str,
+    tab_id: &str,
     title_hint: &str,
     body: String,
 ) -> Result<String, String> {
     if body.trim().is_empty() {
         return Err("empty body — nothing to flush".into());
     }
-    let title = format!("flush:{} {}", pane_id, title_hint);
+    let title = format!("flush:{} {}", tab_id, title_hint);
     mem.save(NewMemItem {
         kind: MemKind::Conversation,
         scope: MemScope::Global,
         title,
-        summary: Some(format!("PTY scrollback flush from {}", pane_id)),
+        summary: Some(format!("PTY scrollback flush from {}", tab_id)),
         area: None,
         tags: vec![
             "flush".into(),
             "conversation".into(),
-            format!("pane:{}", pane_id),
+            format!("tab:{}", tab_id),
         ],
         body,
-        source: Some(format!("pane:{}", pane_id)),
+        source: Some(format!("tab:{}", tab_id)),
         importance: 2.5,
         source_path: None,
         pinned: false,
@@ -136,9 +136,9 @@ mod tests {
     }
 
     #[test]
-    fn flush_pane_creates_conversation() {
+    fn flush_tab_creates_conversation() {
         let mem = MemManager::open_in_memory().unwrap();
-        let id = flush_pane(&mem, "p123", "deploy run", "lots of output here".into()).unwrap();
+        let id = flush_tab(&mem, "p123", "deploy run", "lots of output here".into()).unwrap();
         let item = mem.get(&id).unwrap().unwrap();
         assert_eq!(item.kind, "conversation");
         assert!(item.source.unwrap().contains("p123"));
@@ -147,6 +147,6 @@ mod tests {
     #[test]
     fn flush_rejects_empty() {
         let mem = MemManager::open_in_memory().unwrap();
-        assert!(flush_pane(&mem, "p", "", "".into()).is_err());
+        assert!(flush_tab(&mem, "p", "", "".into()).is_err());
     }
 }
