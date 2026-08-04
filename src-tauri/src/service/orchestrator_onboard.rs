@@ -273,6 +273,7 @@ mod tests {
         assert!(msg.contains("--parent tab-abc --role Planner --plan PLAN_ID"));
         assert!(!msg.contains("{planner_spawn_cmd}"));
         assert!(!msg.contains("{orchestrator_suffix}"));
+        assert!(!msg.contains("{planning_compaction_contract}"));
     }
 
     #[test]

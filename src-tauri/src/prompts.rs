@@ -30,6 +30,10 @@ pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
+/// Task-decomposition contract shared by both planning surfaces. One source so
+/// the Planner that cuts the graph and the Orchestrator that judges it agree.
+pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning_compaction.md");
+
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
 
@@ -159,17 +163,25 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 }
 
 pub fn orchestrator_suffix() -> String {
-    ORCHESTRATOR_SUFFIX.to_string()
+    ORCHESTRATOR_SUFFIX.replace(
+        "{planning_compaction_contract}",
+        PLANNING_COMPACTION_CONTRACT.trim(),
+    )
 }
 
 pub fn orchestrator_onboarding(planner_spawn_cmd: &str) -> String {
     ORCHESTRATOR_ONBOARDING
         .replace("{planner_spawn_cmd}", planner_spawn_cmd)
-        .replace("{orchestrator_suffix}", ORCHESTRATOR_SUFFIX)
+        .replace("{orchestrator_suffix}", &orchestrator_suffix())
 }
 
 pub fn planner_suffix() -> String {
-    PLANNER_SUFFIX.replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
+    PLANNER_SUFFIX
+        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
+        .replace(
+            "{planning_compaction_contract}",
+            PLANNING_COMPACTION_CONTRACT.trim(),
+        )
 }
 
 #[cfg(test)]
@@ -375,6 +387,23 @@ mod tests {
     // asserted phrases inside RICH_RENDERING_GUIDANCE, so they passed regardless of
     // whether either recipient received it.
 
+    /// One source, every surface that cuts or judges a task graph. The fragment
+    /// is an opaque token here; its wording belongs to the .md file.
+    #[test]
+    fn planning_compaction_contract_reaches_both_planning_surfaces() {
+        let contract = PLANNING_COMPACTION_CONTRACT.trim();
+        assert!(!contract.is_empty());
+
+        for rendered in [
+            orchestrator_suffix(),
+            planner_suffix(),
+            orchestrator_onboarding("codeterm agent spawn claude --role Planner"),
+        ] {
+            assert!(rendered.contains(contract), "planning contract not delivered");
+            assert!(!rendered.contains("{planning_compaction_contract}"));
+        }
+    }
+
     #[test]
     fn planner_suffix_is_bounded_and_fully_rendered() {
         let rendered = planner_suffix();
@@ -463,6 +492,7 @@ mod tests {
             "testing_discipline.md",
             "qa_pipeline_discipline.md",
             "planner_suffix.md",
+            "planning_compaction.md",
             "bounce_unwinding_contract.md",
             "orchestrator_suffix.md",
             "orchestrator_onboarding.md",
