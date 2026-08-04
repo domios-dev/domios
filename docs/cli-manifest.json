@@ -10814,6 +10814,38 @@
           "subcommands": []
         },
         {
+          "name": "restart",
+          "about": "Replace a plain shell's process in the same tab, preserving tab identity and metadata",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cmd",
+              "positional": false,
+              "value_name": "CMD",
+              "default": null,
+              "help": "Command to execute after the replacement shell is ready",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory for the replacement shell",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": "Tab ID to restart (default: current tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "search",
           "about": "Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
           "aliases": [],
