@@ -6,6 +6,7 @@ use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 mod capture;
 pub(crate) mod remote_target;
+mod team_utility;
 use capture::handle_tab_capture;
 use remote_target::{
     classify_remote_tab_id, parse_remote_tab_id, remote_inspect_target, remote_tab_chat_path,
@@ -113,7 +114,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             if let Some(t) = title {
                 body["title"] = serde_json::Value::String(t);
             }
-            if let Some(team_id) = team {
+            if let Some(team_id) = team.as_deref() {
                 let creator_tab_id = std::env::var("CODETERM_TAB_ID")
                     .ok()
                     .filter(|value| !value.trim().is_empty())
@@ -121,7 +122,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                         eprintln!("Error: --team requires CODETERM_TAB_ID from a live Team member");
                         std::process::exit(1);
                     });
-                body["team_id"] = serde_json::Value::String(team_id);
+                body["team_id"] = serde_json::Value::String(team_id.to_string());
                 body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
             }
             if eager {
@@ -183,7 +184,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
                 (other, _) => other,
             };
-            handle_result(json, final_result);
+            team_utility::handle_create_result(json, team.as_deref(), final_result);
         }
         TabAction::Current { last } => {
             // The tab this command RUNS IN is the env var — the focused tab
