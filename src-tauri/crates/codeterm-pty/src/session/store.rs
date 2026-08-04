@@ -17,10 +17,6 @@ pub struct SessionSnapshot {
     /// Registered teams. Legacy snapshots lack this and default to empty.
     #[serde(default)]
     pub teams: Vec<Team>,
-    /// Journal coverage this snapshot was written under. `None` means it
-    /// predates coverage, so checkpoint enforcement does not apply to it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lifecycle_coverage: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -671,7 +667,6 @@ mod tests {
             timestamp: 0,
             active_workspace_id: None,
             teams: vec![],
-            lifecycle_coverage: None,
             workspaces: (0..workspaces)
                 .map(|i| WorkspaceSnapshot {
                     id: format!("ws_{}", i),

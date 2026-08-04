@@ -148,17 +148,6 @@ pub struct LifecycleCheckpoint {
     pub sealed_at: String,
 }
 
-/// Declares that the journal covers every session snapshot stamped with this
-/// id. Enforcement applies to those snapshots and to no others.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CoverageRecord {
-    pub seq: JournalSeq,
-    pub coverage_id: String,
-    /// Diagnostic UTC stamp. Never evidence.
-    #[serde(default)]
-    pub opened_at: String,
-}
-
 /// A journal line. Compaction replaces transitions with the checkpoints they
 /// proved, reaching the same checkpoints on replay.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,7 +155,6 @@ pub struct CoverageRecord {
 pub enum JournalRecord {
     Transition { entry: LifecycleEntry },
     Checkpoint { checkpoint: LifecycleCheckpoint },
-    Coverage { coverage: CoverageRecord },
 }
 
 impl JournalRecord {
@@ -174,16 +162,13 @@ impl JournalRecord {
         match self {
             Self::Transition { entry } => entry.seq,
             Self::Checkpoint { checkpoint } => checkpoint.committed_through,
-            Self::Coverage { coverage } => coverage.seq,
         }
     }
 
-    /// `None` for records that belong to the journal itself, not to a tab.
-    pub fn tab_id(&self) -> Option<&str> {
+    pub fn tab_id(&self) -> &str {
         match self {
-            Self::Transition { entry } => Some(&entry.key.tab_id),
-            Self::Checkpoint { checkpoint } => Some(&checkpoint.key.tab_id),
-            Self::Coverage { .. } => None,
+            Self::Transition { entry } => &entry.key.tab_id,
+            Self::Checkpoint { checkpoint } => &checkpoint.key.tab_id,
         }
     }
 }

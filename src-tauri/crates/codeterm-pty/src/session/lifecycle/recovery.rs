@@ -8,6 +8,7 @@ pub struct SnapshotAuthorityClaim {
     pub epoch: Option<LifecycleEpoch>,
     pub operation_id: Option<String>,
     pub provider: Option<String>,
+    pub chat_backend: bool,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
     pub role: Option<String>,
@@ -22,14 +23,10 @@ impl SnapshotAuthorityClaim {
     /// True when the snapshot asserts anything a restarted tab could act on.
     pub fn claims_authority(&self) -> bool {
         self.provider.is_some()
+            || self.chat_backend
             || self.session_id.is_some()
             || self.binding_nonce.is_some()
-            || self.role.is_some()
-            || self.role_profile.is_some()
-            || self.team_id.is_some()
-            || self.parent_tab_id.is_some()
-            || self.can_spawn
-            || self.depth > 0
+            || self.claims_role_authority()
     }
 
     /// Authority that only means something inside an orchestration hierarchy.
@@ -41,23 +38,41 @@ impl SnapshotAuthorityClaim {
             || self.can_spawn
             || self.depth > 0
     }
+
+    /// A tab enters journal coverage by carrying its own lifecycle lineage.
+    /// Neither field means this tab's lifecycle predates the journal.
+    pub fn lineage(&self) -> Lineage<'_> {
+        match (self.epoch, self.operation_id.as_deref()) {
+            (None, None) => Lineage::PreJournal,
+            (Some(epoch), Some(operation_id)) => Lineage::Covered {
+                epoch,
+                operation_id,
+            },
+            _ => Lineage::Partial,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lineage<'a> {
+    PreJournal,
+    Partial,
+    Covered {
+        epoch: LifecycleEpoch,
+        operation_id: &'a str,
+    },
 }
 
 /// Why a claim was refused. Each variant names the missing proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveryRefusal {
-    /// The tab never reached a sealed operation. The db79d2da shape.
+    /// Covered, but no sealed operation the journal still carries matches. A
+    /// deleted or rebuilt journal reaches the tab this way.
     NoCommittedCheckpoint,
-    /// The snapshot predates the journal contract and carries no lineage.
-    UnprovenLineage,
-    /// Role or Team authority with no provider session behind it.
+    /// One lineage field without the other. Half a lineage proves nothing.
+    PartialLineage,
+    /// Role or Team authority with nothing behind it.
     UnbackedRoleAuthority,
-    /// The snapshot was covered, but the journal that proved it is gone or
-    /// replaced. The proof is lost, so the authority goes with it.
-    CoverageLost {
-        snapshot: String,
-        active: Option<String>,
-    },
     EpochMismatch {
         snapshot: LifecycleEpoch,
         checkpoint: LifecycleEpoch,
@@ -80,19 +95,12 @@ impl RecoveryRefusal {
     pub fn reason(&self) -> String {
         match self {
             Self::NoCommittedCheckpoint => {
-                "no committed lifecycle checkpoint for this tab".to_string()
+                "no committed lifecycle checkpoint for this tab operation".to_string()
             }
-            Self::UnprovenLineage => {
-                "snapshot carries no lifecycle epoch/operation lineage".to_string()
-            }
+            Self::PartialLineage => "snapshot carries only half a lifecycle lineage".to_string(),
             Self::UnbackedRoleAuthority => {
-                "role authority claimed without a committed provider identity and session"
-                    .to_string()
+                "role authority claimed without a provider identity".to_string()
             }
-            Self::CoverageLost { snapshot, active } => format!(
-                "journal no longer carries coverage {snapshot} (now {}); authority proof lost",
-                active.as_deref().unwrap_or("unavailable")
-            ),
             Self::EpochMismatch {
                 snapshot,
                 checkpoint,
@@ -115,6 +123,9 @@ impl RecoveryRefusal {
 pub enum RecoveryVerdict {
     /// Nothing to prove — the tab claims no authority.
     NoAuthorityClaimed,
+    /// No lineage, so the journal does not judge this tab. It keeps whatever
+    /// the pre-journal contract already allowed.
+    PreJournal,
     /// Every claimed field is backed by the exact committed checkpoint.
     Restored(Box<CommittedAuthority>),
     /// Authority stripped; the tab comes back as a plain shell.
@@ -127,8 +138,8 @@ impl RecoveryVerdict {
     }
 }
 
-/// The whole recovery rule: same tab, same epoch, same operation, and every
-/// claimed field equal to what that operation committed.
+/// The whole recovery rule, applied per tab. A tab enters coverage only once
+/// its own lifecycle operation is journaled.
 pub fn authorize(
     claim: &SnapshotAuthorityClaim,
     checkpoint: Option<&LifecycleCheckpoint>,
@@ -137,6 +148,14 @@ pub fn authorize(
     if !claim.claims_authority() {
         return RecoveryVerdict::NoAuthorityClaimed;
     }
+    let (epoch, operation_id) = match claim.lineage() {
+        Lineage::PreJournal => return pre_journal_verdict(claim),
+        Lineage::Partial => return RecoveryVerdict::Stripped(RecoveryRefusal::PartialLineage),
+        Lineage::Covered {
+            epoch,
+            operation_id,
+        } => (epoch, operation_id),
+    };
     if claim.claims_role_authority() && (claim.provider.is_none() || claim.session_id.is_none()) {
         return RecoveryVerdict::Stripped(RecoveryRefusal::UnbackedRoleAuthority);
     }
@@ -151,9 +170,6 @@ pub fn authorize(
     if checkpoint.key.tab_id != claim.tab_id {
         return RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint);
     }
-    let (Some(epoch), Some(operation_id)) = (claim.epoch, claim.operation_id.as_deref()) else {
-        return RecoveryVerdict::Stripped(RecoveryRefusal::UnprovenLineage);
-    };
     if epoch != checkpoint.key.epoch {
         return RecoveryVerdict::Stripped(RecoveryRefusal::EpochMismatch {
             snapshot: epoch,
@@ -170,6 +186,15 @@ pub fn authorize(
         return RecoveryVerdict::Stripped(RecoveryRefusal::FieldMismatch { field });
     }
     RecoveryVerdict::Restored(Box::new(checkpoint.authority.clone()))
+}
+
+/// A tab whose lifecycle predates the journal keeps only what the prior
+/// contract allowed: role authority still requires a provider identity.
+fn pre_journal_verdict(claim: &SnapshotAuthorityClaim) -> RecoveryVerdict {
+    if claim.claims_role_authority() && claim.provider.is_none() && !claim.chat_backend {
+        return RecoveryVerdict::Stripped(RecoveryRefusal::UnbackedRoleAuthority);
+    }
+    RecoveryVerdict::PreJournal
 }
 
 /// A snapshot may hold less than the checkpoint, never more or different.
@@ -195,7 +220,10 @@ fn disagreeing_field(
     if !matches_or_absent(claim.role.as_deref(), authority.role.as_deref()) {
         return Some("role");
     }
-    if !matches_or_absent(claim.role_profile.as_deref(), authority.role_profile.as_deref()) {
+    if !matches_or_absent(
+        claim.role_profile.as_deref(),
+        authority.role_profile.as_deref(),
+    ) {
         return Some("role_profile");
     }
     if !matches_or_absent(claim.team_id.as_deref(), authority.team_id.as_deref()) {

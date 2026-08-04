@@ -29,8 +29,7 @@ prove.
 
 ## Format
 
-One JSON object per line, in journal order. Three record kinds — a committed
-transition, a compacted checkpoint, and the coverage declaration below:
+One JSON object per line, in journal order. Two record kinds:
 
 ```jsonc
 // a committed transition
@@ -91,38 +90,29 @@ Each transition is written by the code that commits the mutation, in the same
 operation that performs it. Nothing observes tab state afterwards and infers a
 transition from it.
 
-## Coverage
+## Coverage is per tab
 
-Enforcement is scoped by an explicit coverage record the journal owns:
+A tab enters journal coverage when its own lifecycle operation is journaled —
+never on a global flag, a first/second restart boundary, or anything about other
+tabs. Coverage is read off the tab's own persisted lineage
+(`agent_identity.lifecycle_epoch` and `agent_identity.lifecycle_operation_id`):
 
-```jsonc
-{"record":"coverage","coverage":{"seq":1,"coverage_id":"a41e…","opened_at":"2026-08-04T11:19:02Z"}}
-```
+| That tab's lineage | State | Effect |
+|--------------------|-------|--------|
+| both fields absent | pre-journal | The journal never saw this tab's lifecycle, so it does not judge it. Only the pre-journal contract applies: role authority still requires a provider identity, and a title is still not evidence. A legitimate provider/session-backed legacy tab restores unchanged. |
+| both fields present | covered | Enforced exactly against a sealed checkpoint in the current journal. |
+| one field only | partial | Half a lineage proves nothing. The tab's authority is stripped. |
 
-The journal opens exactly one coverage id the first time a daemon starts with
-this feature. From then on every session snapshot it writes carries that id in
-its top-level `lifecycle_coverage` field.
+A covered tab is stripped whenever its proof is missing, mismatched, or
+unreadable: no sealed checkpoint for that tab (which is also what a deleted,
+rebuilt, or unavailable journal looks like), a different epoch or operation id, a
+field the checkpoint disagrees with, or a refused journal tail.
 
-A snapshot falls into exactly one of three states:
-
-| `lifecycle_coverage` | State | Effect |
-|----------------------|-------|--------|
-| absent | pre-coverage | Written before coverage existed. The gate examines nothing and strips nothing; the pre-journal contract still applies, so a role still needs a persisted provider identity and a title is still not evidence. |
-| equals the journal's id | covered | Enforced exactly. |
-| present but different, or the journal has no usable coverage | **coverage lost** | The snapshot *was* covered and its proof is gone. Every authority claim fails closed with `journal no longer carries coverage <id>`. |
-
-The third row is the security edge: deleting or replacing the journal must never
-buy an exemption. Only a snapshot that never claimed coverage may skip
-enforcement.
-
-This makes activation explicit rather than a rollout side effect. The install
-that adds the journal restores its existing session untouched and logs
-`snapshot predates journal coverage`; the next restart is fully enforced,
-because by then every snapshot on disk was written under coverage.
-
-Coverage survives compaction. Coverage is not a compatibility inference and
-never looks at a tab: it is a property of the journal and the snapshot
-generation it wrote.
+So existing tabs are never swept up. An untouched legacy agent tab keeps its
+provider, session, role, and Team until its own next launch journals an
+operation; from that launch on it is covered and enforced exactly. The db79d2da
+shape is stripped either way — a role with no provider identity behind it fails
+the pre-journal contract too.
 
 ## The recovery rule
 
@@ -136,14 +126,13 @@ An operation becomes a **checkpoint** only when all of this holds:
 Provider identity plus a nonce-proven session are the floor. A role or Team
 binding without them is residue, never authority.
 
-A snapshot's authority survives a restart only when:
+A **covered** tab's authority survives a restart only when:
 
-- the snapshot is covered (see above), and
 - the tab claims authority at all (otherwise there is nothing to prove), and
+- the tab is covered, carrying both lineage fields, and
 - the journal replayed cleanly to its end, and
 - a checkpoint exists for that exact `tab_id`, and
-- the snapshot carries a lifecycle epoch **and** operation id, and
-- both equal the checkpoint's, and
+- both lineage fields equal the checkpoint's, and
 - every field the snapshot claims equals what the operation committed.
 
 A snapshot may hold *less* than the checkpoint (a field cleared before
@@ -154,23 +143,22 @@ Otherwise the restore strips `agent_type`, `agent_session_id`, binding nonces,
 stage, agent state, and chatBackend binding, and logs the refusal:
 
 ```
-[tab-lifecycle] tab db79d2da restored without authority: no committed lifecycle checkpoint for this tab
+[tab-lifecycle] tab db79d2da restored without authority: role authority claimed without a provider identity
 ```
 
-Refusal reasons are `no committed lifecycle checkpoint`, `no lifecycle
-epoch/operation lineage`, `role authority claimed without a committed provider
-identity and session`, `journal no longer carries coverage <id>`, `epoch
-mismatch`, `operation mismatch`, a named field disagreement, or `journal tail
-refused`.
+Refusal reasons are `no committed lifecycle checkpoint for this tab operation`,
+`snapshot carries only half a lifecycle lineage`, `role authority claimed
+without a provider identity`, `epoch mismatch`, `operation mismatch`, a named
+field disagreement, or `journal tail refused`.
 
 A role, Team, parent, `can_spawn`, or `depth` claim is refused outright unless
-the same snapshot also claims the provider and session behind it. A role-bearing
-plain shell is never restorable, however it came to be persisted.
+the tab also has a provider identity behind it — and for a covered tab, a
+session as well. A role-bearing plain shell is never restorable, however it came
+to be persisted.
 
 **Never used as evidence:** a zero or null field, the tab title, the cwd, any
-timestamp, temporal proximity, the newest provider session, or a session
-belonging to another tab. A snapshot that predates the journal has no lineage
-and is therefore unproven — that is the correct outcome, not a gap.
+timestamp, temporal proximity, the newest provider session, a session belonging
+to another tab, or another tab's journaled operation.
 
 ## Retention and compaction
 
@@ -231,4 +219,4 @@ to render.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
