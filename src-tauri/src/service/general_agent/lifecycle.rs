@@ -52,7 +52,12 @@ fn compose_startup_message(
     _system_prompt: String,
     bootstrap: Option<String>,
 ) -> Option<String> {
-    bootstrap
+    bootstrap.map(|body| {
+        crate::service::messenger::Messenger::from(
+            crate::service::messenger::MessageEnvelope::codeterm_reminder("general-bootstrap"),
+        )
+        .wrap(&body)
+    })
 }
 
 /// Start the General Agent — called from start_servers on a background thread.

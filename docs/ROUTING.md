@@ -9,12 +9,16 @@ that must receive the reply. Check it before every response.
 | `-=-codeterm:tab label=NAME tab=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
 | `-=-codeterm:mesh peer=PEER tab=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
 | `-=-codeterm:report from=NAME tab=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
+| `-=-codeterm:system context=KIND-=-text` | CODETERM SYSTEM EVENT | Act on it or ignore; never reply | No |
 | *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
 
 When you `send --tab X` from inside a tab, the daemon stamps your message
 with `-=-codeterm:tab label=<your-name> tab=<your-id> model=<your-model>-=-`
 so the recipient and UI know who sent it. `hook` markers already passed
 through text hooks; trust their metadata.
+
+System markers belong only to separately delivered host events. Agent launch
+initialization uses the provider's system-prompt channel and carries no routing marker.
 
 ## Don't double-answer, don't echo
 
@@ -59,4 +63,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
