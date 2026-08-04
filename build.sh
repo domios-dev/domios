@@ -1241,6 +1241,16 @@ ensure_deps() {
   fi
 }
 
+prepare_release_bundle_inputs() {
+  pnpm build
+  node scripts/touch-cli-main.js
+  cargo build --release --manifest-path cli/Cargo.toml
+  node scripts/bundle-cli.js
+  node scripts/prepare-embed-stub.js
+  cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+  node scripts/bundle-embed.js
+}
+
 case "$CMD" in
   help)
     cat <<'EOF'
@@ -1413,6 +1423,7 @@ EOF
     prepare_release_target
     ensure_deps
     ct_configure_sccache
+    prepare_release_bundle_inputs
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
@@ -1421,7 +1432,7 @@ EOF
       "$RELEASE_PROVENANCE"
     # Release gate: /web is served from the exe-adjacent dist/ bundle that
     # tauri.conf bundle.resources maps in (../dist -> dist). If Tauri's
-    # beforeBuildCommand produced no dist/index.html, /web ships broken.
+    # The release input step produced no dist/index.html, so /web would ship broken.
     if [ ! -f dist/index.html ]; then
       echo "❌ RELEASE GATE: dist/index.html missing after build — /web would 404. Run 'pnpm build'." >&2
       exit 1
@@ -1451,6 +1462,7 @@ EOF
     prepare_local_install_target
     ensure_deps
     ct_configure_sccache
+    prepare_release_bundle_inputs
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
