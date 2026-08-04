@@ -8,14 +8,6 @@ use crate::service::ServiceState;
 
 use super::{get_string_param, opt_string_param, JsonRpcError};
 
-fn require_send_target(raw_tab_id: &str, resolved: Option<String>) -> Result<String, JsonRpcError> {
-    resolved.ok_or_else(|| JsonRpcError {
-        code: -32602,
-        message: format!("Tab not found: {raw_tab_id}"),
-        data: None,
-    })
-}
-
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -208,7 +200,8 @@ pub(super) fn dispatch(
             // Resolve target via alias-aware lookup so short ids (`--tab ce9bce56`) and labels work.
             let resolved_target = {
                 let m = mux.write();
-                require_send_target(&raw_tab_id, m.resolve_tab_id(&raw_tab_id))?
+                m.resolve_tab_id(&raw_tab_id)
+                    .unwrap_or_else(|| raw_tab_id.clone())
             };
             let source_tab = params
                 .as_ref()
@@ -361,21 +354,5 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::require_send_target;
-
-    #[test]
-    fn send_target_must_resolve_to_a_real_tab() {
-        let error = require_send_target("system", None).unwrap_err();
-        assert_eq!(error.code, -32602);
-        assert_eq!(error.message, "Tab not found: system");
-        assert_eq!(
-            require_send_target("short", Some("full-id".into())).unwrap(),
-            "full-id"
-        );
     }
 }

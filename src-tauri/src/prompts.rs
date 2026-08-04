@@ -268,19 +268,6 @@ mod tests {
     }
 
     #[test]
-    fn system_events_are_non_replyable_on_every_agent_surface() {
-        for surface in [
-            CODETERM_RULE,
-            CODETERM_CLI,
-            AGENT_CODETERM_PRIMER,
-            GENERAL_AGENT_TEMPLATE,
-        ] {
-            assert!(surface.contains("codeterm:system"));
-            assert!(!surface.contains("tab=system"));
-        }
-    }
-
-    #[test]
     fn agent_pad_rule_has_exactly_one_source() {
         // The fragment is an opaque token here. Asserting its wording would make
         // rewriting the rule fail a test that has nothing to say about wording.
@@ -412,10 +399,7 @@ mod tests {
             planner_suffix(),
             orchestrator_onboarding("codeterm agent spawn claude --role Planner"),
         ] {
-            assert!(
-                rendered.contains(contract),
-                "planning contract not delivered"
-            );
+            assert!(rendered.contains(contract), "planning contract not delivered");
             assert!(!rendered.contains("{planning_compaction_contract}"));
         }
     }

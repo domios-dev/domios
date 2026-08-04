@@ -16,8 +16,6 @@ pub enum MessageKind {
     Message,
     /// A hierarchy / cron report bubbling up to a parent or inbox.
     Report,
-    /// A host-owned event with no reply address.
-    System,
     /// A fired delayed reminder injected back into a tab.
     Reminder,
     Mesh,
@@ -35,7 +33,6 @@ pub struct MessageEnvelope {
     pub set_at: Option<u64>,
     pub fire_at: Option<u64>,
     pub id: Option<String>,
-    pub context: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -54,7 +51,6 @@ impl MessageKind {
         match self {
             Self::Message => "tab",
             Self::Report => "report",
-            Self::System => "system",
             Self::Reminder => "reminder",
             Self::Mesh => "mesh",
             Self::Telegram => "telegram",
@@ -65,7 +61,6 @@ impl MessageKind {
         match self {
             Self::Message => "tab",
             Self::Report => "report",
-            Self::System => "system",
             Self::Reminder => "reminder",
             Self::Mesh => "mesh",
             Self::Telegram => "telegram",
@@ -76,24 +71,16 @@ impl MessageKind {
 impl MessageEnvelope {
     /// CodeTerm's own sender identity — single source so no path hardcodes it.
     pub const CODETERM: &'static str = "CodeTerm";
+    pub const CODETERM_TAB: &'static str = "system";
 
-    /// A host event from CodeTerm with no reply address.
+    /// A message FROM CodeTerm (renders "from CodeTerm") — role onboarding, etc.
     pub fn from_codeterm() -> Self {
-        Self::system(None)
+        Self::tab(Self::CODETERM, Self::CODETERM_TAB)
     }
 
-    /// A host event from CodeTerm tagged with its internal context.
+    /// A reminder FROM CodeTerm tagged with a context (nudges, prefs, qa, ...).
     pub fn codeterm_reminder(context: impl Into<String>) -> Self {
-        Self::system(Some(context.into()))
-    }
-
-    fn system(context: Option<String>) -> Self {
-        Self {
-            kind: MessageKind::System,
-            from_label: Self::CODETERM.to_string(),
-            context: context.filter(|value| !value.trim().is_empty()),
-            ..Default::default()
-        }
+        Self::reminder(Self::CODETERM, context)
     }
 
     pub fn tab(from_label: impl Into<String>, from_tab: impl Into<String>) -> Self {
@@ -180,7 +167,7 @@ impl Messenger {
     /// Launch-task prefix marking input as coming FROM CodeTerm — prepended to a
     /// fresh spawn's bg_task (role onboarding), the single source for that marker.
     pub fn codeterm_prefix() -> String {
-        Self::from(MessageEnvelope::from_codeterm()).build()
+        Self::message(MessageEnvelope::CODETERM, MessageEnvelope::CODETERM_TAB).build()
     }
 
     pub fn report(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
@@ -490,11 +477,6 @@ impl Messenger {
 
     /// Render just the `[...]` prefix token (no trailing space/body).
     pub fn build(&self) -> String {
-        if self.envelope.kind == MessageKind::System {
-            return crate::message_markers::Marker::new("system")
-                .attr_opt("context", self.envelope.context.as_deref().map(str::trim))
-                .build();
-        }
         if self.envelope.kind == MessageKind::Reminder {
             return self.build_reminder();
         }
@@ -546,7 +528,10 @@ impl Messenger {
     }
 
     fn reply_hint(&self) -> Option<String> {
-        if self.envelope.kind != MessageKind::Message || self.envelope.from_tab.is_empty() {
+        if self.envelope.kind != MessageKind::Message
+            || self.envelope.from_tab.is_empty()
+            || self.envelope.from_tab == MessageEnvelope::CODETERM_TAB
+        {
             return None;
         }
         let mut command = format!(
@@ -573,7 +558,6 @@ fn pty_submit_entry(
     match kind {
         MessageKind::Report => crate::service::pty_io::submit_transaction::PtySubmitEntry::Report,
         MessageKind::Message
-        | MessageKind::System
         | MessageKind::Reminder
         | MessageKind::Mesh
         | MessageKind::Telegram => {
@@ -659,7 +643,6 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
             Some(short_id(&envelope.from_tab)).filter(|s| !s.is_empty()),
         )
         .attr_opt("from_model", envelope.from_model.as_deref().map(str::trim))
-        .attr_opt("context", envelope.context.as_deref().map(str::trim))
         .attr_opt(
             "from_mesh",
             envelope
@@ -672,8 +655,9 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
         .build()
 }
 
-/// Reminders and host events always mark agent input; other kinds keep the
-/// self-send and empty-source guards. Shell input is never prefixed.
+/// Whether the PTY recipient gets a `-=-codeterm:…-=-` source prefix. Shells never
+/// do; a reminder always does for an agent (system event, must be distinguishable
+/// from typed input) even self-addressed; every other kind keeps the self-send/empty-source guard.
 fn should_prefix_pty(
     kind: MessageKind,
     target_is_agent: bool,
@@ -683,7 +667,7 @@ fn should_prefix_pty(
     if !target_is_agent {
         return false;
     }
-    if matches!(kind, MessageKind::Reminder | MessageKind::System) {
+    if kind == MessageKind::Reminder {
         return true;
     }
     !from_tab.is_empty() && from_tab != resolved_target
@@ -722,10 +706,6 @@ mod tests {
         );
         assert_eq!(
             pty_submit_entry(MessageKind::Reminder),
-            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
-        );
-        assert_eq!(
-            pty_submit_entry(MessageKind::System),
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
         );
         assert_eq!(
@@ -805,20 +785,10 @@ mod tests {
     }
 
     #[test]
-    fn codeterm_system_events_have_no_tab_or_reply_address() {
-        let plain = Messenger::from(MessageEnvelope::from_codeterm()).wrap("hello");
-        assert_eq!(plain, "-=-codeterm:system-=-hello");
-        assert!(!plain.contains("tab="));
-        assert!(!plain.contains("[to reply"));
-
-        let contextual = Messenger::from(MessageEnvelope::codeterm_reminder("plan")).wrap("check");
-        assert_eq!(contextual, "-=-codeterm:system context=plan-=-check");
-        assert!(!contextual.contains("tab="));
-        assert!(!contextual.contains("[to reply"));
-    }
-
-    #[test]
-    fn reports_do_not_request_a_reply() {
+    fn codeterm_and_reports_do_not_request_a_reply() {
+        assert!(!Messenger::from(MessageEnvelope::from_codeterm())
+            .wrap("hello")
+            .contains("[to reply"));
         assert!(!Messenger::report("Worker", "abc12345")
             .wrap("done")
             .contains("[to reply"));
@@ -996,17 +966,6 @@ mod tests {
     }
 
     #[test]
-    fn should_prefix_system_always_marks_agent_recipient() {
-        assert!(should_prefix_pty(MessageKind::System, true, "", "e8a0ac20"));
-        assert!(!should_prefix_pty(
-            MessageKind::System,
-            false,
-            "",
-            "e8a0ac20"
-        ));
-    }
-
-    #[test]
     fn should_prefix_reminder_skips_shell_recipient() {
         // Shells run injected bytes verbatim — no marker, even for a reminder.
         assert!(!should_prefix_pty(
@@ -1081,11 +1040,6 @@ mod tests {
         .unwrap();
         assert_eq!(provider_input.len(), 1);
         assert!(provider_input[0].contains(payload));
-        let parsed = crate::message_markers::parse(&provider_input[0]).unwrap();
-        assert_eq!(parsed.kind, "inbound");
-        assert_eq!(parsed.attr("kind"), Some("system"));
-        assert_eq!(parsed.attr("context"), Some("planner-request"));
-        assert_eq!(parsed.attr("from_tab"), None);
     }
 
     #[test]
