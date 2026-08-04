@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use super::record::{
-    JournalRecord, JournalSeq, LifecycleCheckpoint, LifecycleEntry, LifecycleEpoch, LifecycleKey,
-    LifecycleTransition,
+    CoverageRecord, JournalRecord, JournalSeq, LifecycleCheckpoint, LifecycleEntry, LifecycleEpoch,
+    LifecycleKey, LifecycleTransition,
 };
 
 pub const JOURNAL_FILE_NAME: &str = "tab-lifecycle.jsonl";
@@ -127,6 +127,39 @@ impl TabLifecycleJournal {
         read_journal(&self.path)
     }
 
+    /// Coverage id this journal enforces against, opening one on first use.
+    /// A snapshot stamped with a different id (or none) predates coverage.
+    pub fn ensure_coverage(&self) -> Result<String, String> {
+        let mut cursor = self
+            .cursor
+            .lock()
+            .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
+        let load = read_journal(&self.path);
+        if let Some(coverage_id) = coverage_id(&load) {
+            return Ok(coverage_id.to_string());
+        }
+        if let TailStatus::Refused { line, reason } = &load.tail {
+            return Err(format!(
+                "cannot open coverage past an unreadable journal (line {line}: {reason})"
+            ));
+        }
+        let seq = cursor.last_seq.saturating_add(1);
+        let coverage_id = uuid::Uuid::new_v4().to_string();
+        append_line(
+            &self.path,
+            &JournalRecord::Coverage {
+                coverage: CoverageRecord {
+                    seq,
+                    coverage_id: coverage_id.clone(),
+                    opened_at: super::stamp::now_utc(),
+                },
+            },
+        )?;
+        cursor.last_seq = seq;
+        cursor.records += 1;
+        Ok(coverage_id)
+    }
+
     /// Rewrite the file as one checkpoint per tab that has one, followed by the
     /// transitions that came after the newest checkpoint. Replaying the result
     /// reaches the same checkpoints as replaying the full history.
@@ -214,14 +247,26 @@ fn read_journal(path: &Path) -> JournalLoad {
     }
 }
 
+/// Coverage id the journal currently enforces against, if it has opened one.
+pub fn coverage_id(load: &JournalLoad) -> Option<&str> {
+    load.records
+        .iter()
+        .rev()
+        .find_map(|record| match record {
+            JournalRecord::Coverage { coverage } => Some(coverage.coverage_id.as_str()),
+            _ => None,
+        })
+}
+
 /// Next epoch for a tab, derived from its own journal history only.
 pub fn next_epoch_for(load: &JournalLoad, tab_id: &str) -> LifecycleEpoch {
     load.records
         .iter()
-        .filter(|record| record.tab_id() == tab_id)
-        .map(|record| match record {
-            JournalRecord::Transition { entry } => entry.key.epoch,
-            JournalRecord::Checkpoint { checkpoint } => checkpoint.key.epoch,
+        .filter(|record| record.tab_id() == Some(tab_id))
+        .filter_map(|record| match record {
+            JournalRecord::Transition { entry } => Some(entry.key.epoch),
+            JournalRecord::Checkpoint { checkpoint } => Some(checkpoint.key.epoch),
+            JournalRecord::Coverage { .. } => None,
         })
         .max()
         .map(LifecycleEpoch::next)

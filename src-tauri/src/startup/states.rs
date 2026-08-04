@@ -39,10 +39,12 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
-/// Reduce the snapshot to the authority the lifecycle journal proves. A tab
-/// whose claim has no exact committed checkpoint comes back as a plain shell;
-/// the journal and the snapshot file both keep the forensic record.
-fn quarantine_unproven_authority(snapshot: &mut crate::session::store::SessionSnapshot) {
+/// Reduce a covered snapshot to the authority the lifecycle journal proves.
+/// A snapshot written before coverage opened is left alone.
+fn quarantine_unproven_authority(
+    snapshot: &mut crate::session::store::SessionSnapshot,
+    coverage_id: &str,
+) {
     use crate::session::lifecycle::{
         gate_session_snapshot, RecoveryVerdict, TabLifecycleJournal,
     };
@@ -53,7 +55,15 @@ fn quarantine_unproven_authority(snapshot: &mut crate::session::store::SessionSn
             "[tab-lifecycle] journal unreadable from line {line} ({reason}); every authority claim fails closed"
         );
     }
-    for outcome in gate_session_snapshot(snapshot, &load) {
+    let gated = gate_session_snapshot(snapshot, &load, coverage_id);
+    if !gated.covered {
+        log::info!(
+            "[tab-lifecycle] snapshot predates journal coverage {coverage_id}; \
+             authority restored unchanged and enforced from the next restart"
+        );
+        return;
+    }
+    for outcome in gated.tabs {
         match outcome.verdict {
             RecoveryVerdict::Stripped(refusal) => log::warn!(
                 "[tab-lifecycle] tab {} restored without authority: {}",
@@ -196,12 +206,20 @@ pub(crate) fn init_states() -> AppStates {
     }));
 
     let ga_enabled = config_state.lock().general_agent.enabled;
+    let lifecycle_coverage = crate::session::lifecycle::TabLifecycleJournal::shared()
+        .ensure_coverage()
+        .map_err(|error| {
+            log::error!("[tab-lifecycle] coverage unavailable ({error}); restore is not enforced")
+        })
+        .ok();
     let mut bound_at_shutdown = Vec::new();
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
-                quarantine_unproven_authority(&mut snapshot);
+                if let Some(coverage_id) = lifecycle_coverage.as_deref() {
+                    quarantine_unproven_authority(&mut snapshot, coverage_id);
+                }
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
@@ -240,6 +258,7 @@ pub(crate) fn init_states() -> AppStates {
     let general_config = config_state.lock().general_agent.clone();
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
+    mux_state_inner.set_lifecycle_coverage(lifecycle_coverage);
 
     // Attach the durable closed-tab history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).

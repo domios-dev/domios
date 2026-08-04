@@ -7,10 +7,25 @@ use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 
-fn new_journal() -> (TabLifecycleJournal, TempDir) {
+/// A journal whose coverage is already open, as it is on every restart after
+/// the one that activated it.
+fn new_journal() -> (TabLifecycleJournal, String, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
-    (journal, dir)
+    let coverage = journal.ensure_coverage().unwrap();
+    (journal, coverage, dir)
+}
+
+/// Stamp the snapshot as written under active coverage, then gate it.
+fn gate(
+    journal: &TabLifecycleJournal,
+    coverage: &str,
+    snapshot: &mut SessionSnapshot,
+) -> Vec<TabRecoveryOutcome> {
+    snapshot.lifecycle_coverage = Some(coverage.to_string());
+    let gated = gate_session_snapshot(snapshot, &journal.load(), coverage);
+    assert!(gated.covered, "fixture must run under active coverage");
+    gated.tabs
 }
 
 fn key(tab_id: &str, epoch: u64, operation: &str) -> LifecycleKey {
@@ -176,6 +191,7 @@ fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
         timestamp: 0,
         active_workspace_id: Some("ws".into()),
         teams: vec![],
+        lifecycle_coverage: None,
         workspaces: vec![WorkspaceSnapshot {
             id: "ws".into(),
             name: "Main".into(),
@@ -223,8 +239,87 @@ fn verdict_for(outcomes: &[TabRecoveryOutcome], tab_id: &str) -> RecoveryVerdict
 }
 
 #[test]
+fn first_install_leaves_a_legacy_snapshot_untouched() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    let mut snapshot = snapshot(vec![
+        partial_launch_leaf("db79d2da"),
+        committed_leaf("tab-live", 1, "op-live", "session-live"),
+    ]);
+
+    let coverage = journal.ensure_coverage().unwrap();
+    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), &coverage);
+
+    assert!(!gated.covered, "coverage cannot reach an earlier snapshot");
+    assert!(gated.tabs.is_empty());
+    let SplitNodeSnapshot::Leaf { role, can_spawn, .. } = authority_of(&snapshot, "db79d2da") else {
+        panic!("expected leaf");
+    };
+    assert_eq!(role.as_deref(), Some("Manager"), "nothing is stripped yet");
+    assert!(can_spawn);
+    let SplitNodeSnapshot::Leaf { agent_type, .. } = authority_of(&snapshot, "tab-live") else {
+        panic!("expected leaf");
+    };
+    assert_eq!(agent_type.as_deref(), Some("claude"));
+}
+
+#[test]
+fn the_restart_after_activation_enforces_checkpoints() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    let coverage = journal.ensure_coverage().unwrap();
+    commit_full_launch(&journal, &key("tab-live", 1, "op-live"), "session-live");
+
+    // The session that ran under coverage stamps every snapshot it writes.
+    let mut snapshot = snapshot(vec![
+        partial_launch_leaf("db79d2da"),
+        committed_leaf("tab-live", 1, "op-live", "session-live"),
+    ]);
+    snapshot.lifecycle_coverage = Some(coverage.clone());
+    let gated = gate_session_snapshot(&mut snapshot, &journal.load(), &coverage);
+
+    assert!(gated.covered);
+    assert_eq!(
+        verdict_for(&gated.tabs, "db79d2da"),
+        RecoveryVerdict::Stripped(RecoveryRefusal::UnbackedRoleAuthority)
+    );
+    assert!(matches!(
+        verdict_for(&gated.tabs, "tab-live"),
+        RecoveryVerdict::Restored(_)
+    ));
+}
+
+#[test]
+fn coverage_opens_once_and_survives_compaction() {
+    let (journal, coverage, _dir) = new_journal();
+    assert_eq!(journal.ensure_coverage().unwrap(), coverage);
+    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
+    journal.compact().unwrap();
+
+    assert_eq!(coverage_id(&journal.load()), Some(coverage.as_str()));
+    assert_eq!(journal.ensure_coverage().unwrap(), coverage);
+}
+
+#[test]
+fn a_rebuilt_journal_mints_new_coverage_and_stops_enforcing() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    let old_coverage = first.ensure_coverage().unwrap();
+    fs::remove_file(dir.path().join(JOURNAL_FILE_NAME)).unwrap();
+
+    let rebuilt = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    let new_coverage = rebuilt.ensure_coverage().unwrap();
+    assert_ne!(new_coverage, old_coverage);
+
+    let mut snapshot = snapshot(vec![partial_launch_leaf("db79d2da")]);
+    snapshot.lifecycle_coverage = Some(old_coverage);
+    let gated = gate_session_snapshot(&mut snapshot, &rebuilt.load(), &new_coverage);
+    assert!(!gated.covered, "a lost journal cannot judge an old snapshot");
+}
+
+#[test]
 fn partial_launch_residue_fails_closed() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     let key = key("db79d2da", 1, "op-partial");
     journal
         .append(
@@ -234,7 +329,7 @@ fn partial_launch_residue_fails_closed() {
         .unwrap();
 
     let mut snapshot = snapshot(vec![partial_launch_leaf("db79d2da")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
 
     assert_eq!(
         verdict_for(&outcomes, "db79d2da"),
@@ -262,9 +357,9 @@ fn partial_launch_residue_fails_closed() {
 
 #[test]
 fn a_full_claim_with_no_checkpoint_is_refused() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
@@ -273,12 +368,12 @@ fn a_full_claim_with_no_checkpoint_is_refused() {
 
 #[test]
 fn atomic_commit_restores_every_authority_field() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     let key = key("tab-a", 1, "op-a");
     commit_full_launch(&journal, &key, "session-a");
 
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
 
     let RecoveryVerdict::Restored(authority) = verdict_for(&outcomes, "tab-a") else {
         panic!("exact checkpoint must restore");
@@ -298,7 +393,7 @@ fn atomic_commit_restores_every_authority_field() {
 
 #[test]
 fn unsealed_launch_never_becomes_a_checkpoint() {
-    let (journal, _dir) = new_journal();
+    let (journal, _coverage, _dir) = new_journal();
     let key = key("tab-a", 1, "op-a");
     journal
         .append(
@@ -323,7 +418,7 @@ fn unsealed_launch_never_becomes_a_checkpoint() {
 
 #[test]
 fn rollback_withdraws_the_checkpoint() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     let key = key("tab-a", 1, "op-a");
     commit_full_launch(&journal, &key, "session-a");
     assert_eq!(checkpoints(&journal.load()).len(), 1);
@@ -339,7 +434,7 @@ fn rollback_withdraws_the_checkpoint() {
 
     assert!(checkpoints(&journal.load()).is_empty());
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
@@ -348,7 +443,7 @@ fn rollback_withdraws_the_checkpoint() {
 
 #[test]
 fn restart_restores_only_the_snapshot_of_its_own_epoch() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     journal
         .append(
@@ -361,13 +456,13 @@ fn restart_restores_only_the_snapshot_of_its_own_epoch() {
     let load = journal.load();
     let mut current = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
     assert!(matches!(
-        verdict_for(&gate_session_snapshot(&mut current, &load), "tab-a"),
+        verdict_for(&gate(&journal, &coverage, &mut current), "tab-a"),
         RecoveryVerdict::Restored(_)
     ));
 
     let mut stale = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
     assert_eq!(
-        verdict_for(&gate_session_snapshot(&mut stale, &load), "tab-a"),
+        verdict_for(&gate(&journal, &coverage, &mut stale), "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::EpochMismatch {
             snapshot: LifecycleEpoch(1),
             checkpoint: LifecycleEpoch(2),
@@ -377,11 +472,11 @@ fn restart_restores_only_the_snapshot_of_its_own_epoch() {
 
 #[test]
 fn same_epoch_different_operation_is_refused() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
 
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-foreign", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::OperationMismatch {
@@ -393,11 +488,11 @@ fn same_epoch_different_operation_is_refused() {
 
 #[test]
 fn snapshot_claiming_a_different_session_is_refused() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
 
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-other")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::FieldMismatch {
@@ -408,11 +503,11 @@ fn snapshot_claiming_a_different_session_is_refused() {
 
 #[test]
 fn a_newer_tabs_checkpoint_never_authorizes_another_tab() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-other", 1, "op-other"), "session-other");
 
     let mut snapshot = snapshot(vec![committed_leaf("db79d2da", 1, "op-other", "session-other")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "db79d2da"),
         RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
@@ -421,7 +516,7 @@ fn a_newer_tabs_checkpoint_never_authorizes_another_tab() {
 
 #[test]
 fn legacy_snapshot_without_lineage_is_unproven() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
 
     let mut node = committed_leaf("tab-a", 1, "op-a", "session-a");
@@ -429,7 +524,7 @@ fn legacy_snapshot_without_lineage_is_unproven() {
         *agent_identity = Some(identity(None, None));
     }
     let mut snapshot = snapshot(vec![node]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::UnprovenLineage)
@@ -438,7 +533,7 @@ fn legacy_snapshot_without_lineage_is_unproven() {
 
 #[test]
 fn truncated_tail_refuses_every_claim() {
-    let (journal, dir) = new_journal();
+    let (journal, coverage, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     let path = dir.path().join(JOURNAL_FILE_NAME);
     let mut body = fs::read_to_string(&path).unwrap();
@@ -448,7 +543,8 @@ fn truncated_tail_refuses_every_claim() {
     let load = journal.load();
     assert!(!load.tail.is_intact());
     let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &load);
+    snapshot.lifecycle_coverage = Some(coverage.clone());
+    let outcomes = gate_session_snapshot(&mut snapshot, &load, &coverage).tabs;
     assert!(matches!(
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::JournalTailRefused { .. })
@@ -457,7 +553,7 @@ fn truncated_tail_refuses_every_claim() {
 
 #[test]
 fn non_monotonic_sequence_refuses_the_rest_of_the_file() {
-    let (journal, dir) = new_journal();
+    let (journal, _coverage, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     let path = dir.path().join(JOURNAL_FILE_NAME);
     let first = fs::read_to_string(&path)
@@ -475,7 +571,7 @@ fn non_monotonic_sequence_refuses_the_rest_of_the_file() {
 
 #[test]
 fn compaction_preserves_checkpoints_and_bounds_the_file() {
-    let (journal, dir) = new_journal();
+    let (journal, _coverage, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     commit_full_launch(&journal, &key("tab-b", 1, "op-b"), "session-b");
     journal
@@ -494,7 +590,7 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
         after_load
             .records
             .iter()
-            .all(|record| record.tab_id() != "tab-b"),
+            .all(|record| record.tab_id() != Some("tab-b")),
         "a closed tab leaves no residue behind"
     );
     let path = dir.path().join(JOURNAL_FILE_NAME);
@@ -503,7 +599,7 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
 
 #[test]
 fn repeated_compaction_replaces_in_place_and_leaves_no_temp() {
-    let (journal, dir) = new_journal();
+    let (journal, _coverage, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     journal.compact().unwrap();
     commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
@@ -529,7 +625,7 @@ fn repeated_compaction_replaces_in_place_and_leaves_no_temp() {
 
 #[test]
 fn compaction_is_equivalent_for_recovery() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
     journal
@@ -540,10 +636,10 @@ fn compaction_is_equivalent_for_recovery() {
         .unwrap();
 
     let mut before = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
-    let before_verdict = verdict_for(&gate_session_snapshot(&mut before, &journal.load()), "tab-a");
+    let before_verdict = verdict_for(&gate(&journal, &coverage, &mut before), "tab-a");
     journal.compact().unwrap();
     let mut after = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
-    let after_verdict = verdict_for(&gate_session_snapshot(&mut after, &journal.load()), "tab-a");
+    let after_verdict = verdict_for(&gate(&journal, &coverage, &mut after), "tab-a");
 
     assert!(matches!(before_verdict, RecoveryVerdict::Restored(_)));
     assert_eq!(before_verdict, after_verdict);
@@ -551,7 +647,7 @@ fn compaction_is_equivalent_for_recovery() {
 
 #[test]
 fn appends_continue_the_sequence_after_compaction() {
-    let (journal, _dir) = new_journal();
+    let (journal, _coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     let highest = journal.load().last_seq();
     journal.compact().unwrap();
@@ -569,7 +665,7 @@ fn appends_continue_the_sequence_after_compaction() {
 
 #[test]
 fn next_epoch_follows_the_tabs_own_history() {
-    let (journal, _dir) = new_journal();
+    let (journal, _coverage, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     commit_full_launch(&journal, &key("tab-b", 7, "op-b"), "session-b");
 
@@ -581,9 +677,9 @@ fn next_epoch_follows_the_tabs_own_history() {
 
 #[test]
 fn a_tab_claiming_nothing_needs_no_proof() {
-    let (journal, _dir) = new_journal();
+    let (journal, coverage, _dir) = new_journal();
     let mut snapshot = snapshot(vec![leaf("plain-shell")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let outcomes = gate(&journal, &coverage, &mut snapshot);
     assert_eq!(
         verdict_for(&outcomes, "plain-shell"),
         RecoveryVerdict::NoAuthorityClaimed
