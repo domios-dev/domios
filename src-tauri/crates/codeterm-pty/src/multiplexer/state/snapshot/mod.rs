@@ -315,6 +315,9 @@ impl MultiplexerState {
             // Residue from a partial launch would restore as a role-bearing
             // shell; a title is not evidence, so no provider is ever guessed.
             .filter(|_| agent_type.is_some() || chatbackend_plugin_id.is_some());
+            // A tab that never claimed a role is not residue; only a claim that
+            // failed the identity proof rolls its recorded placement back.
+            let unproven_role_claim = role.is_some() && restored_role.is_none();
             let parsed_role = restored_role.as_ref().map(|restored| restored.role);
             let restored_role_profile = restored_role
                 .as_ref()
@@ -397,7 +400,12 @@ impl MultiplexerState {
                     shell_integration_nonce: None,
                     role: parsed_role,
                     role_profile: restored_role_profile,
-                    team_id: parsed_role.and(team_id.clone()),
+                    // Membership is not authority: a roleless Team utility tab
+                    // keeps it so Team close still owns its cleanup.
+                    team_id: match unproven_role_claim {
+                        true => None,
+                        false => team_id.clone(),
+                    },
                     watcher: watcher.clone(),
                     parent_tab_id: parsed_role.and(parent_tab_id.clone()),
                     pending_paired_planner_tab_id: None,
