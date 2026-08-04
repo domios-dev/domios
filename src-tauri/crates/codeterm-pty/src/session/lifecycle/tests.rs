@@ -502,6 +502,32 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
 }
 
 #[test]
+fn repeated_compaction_replaces_in_place_and_leaves_no_temp() {
+    let (journal, dir) = new_journal();
+    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
+    journal.compact().unwrap();
+    commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
+    journal.compact().unwrap();
+
+    let residue: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .filter(|name| name.ends_with(".tmp"))
+        .collect();
+    assert!(residue.is_empty(), "temp files left behind: {residue:?}");
+
+    let after_compaction = journal.load();
+    assert!(after_compaction.tail.is_intact());
+    assert_eq!(checkpoints(&after_compaction).len(), 1);
+    let seq = journal
+        .append(key("tab-a", 3, "op-c"), LifecycleTransition::EpochOpened)
+        .unwrap();
+    assert!(seq > after_compaction.last_seq());
+    assert!(journal.load().tail.is_intact());
+}
+
+#[test]
 fn compaction_is_equivalent_for_recovery() {
     let (journal, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");

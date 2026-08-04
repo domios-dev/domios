@@ -167,9 +167,8 @@ fn write_all_records(path: &Path, records: &[JournalRecord]) -> Result<(), Strin
         body.push_str(&serde_json::to_string(record).map_err(|error| error.to_string())?);
         body.push('\n');
     }
-    let tmp = path.with_extension("jsonl.tmp");
-    fs::write(&tmp, body.as_bytes()).map_err(|error| format!("write {}: {error}", tmp.display()))?;
-    fs::rename(&tmp, path).map_err(|error| format!("rename → {}: {error}", path.display()))
+    codeterm_util::atomic_write::write_atomic(path, body.as_bytes())
+        .map_err(|error| format!("replace {}: {error}", path.display()))
 }
 
 /// Parse the file strictly. A malformed or out-of-order line refuses itself and
