@@ -35,7 +35,7 @@ fn build_orchestrator_with_manager(manager_title: &str) -> (MultiplexerState, St
     let (mut mux, orch) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
     let manager = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&manager, AgentRole::Manager, Some(&orch))
+    mux.set_tab_role_kind(&manager, AgentRole::Manager, Some("planner"), Some(&orch))
         .expect("attach manager to orchestrator");
     mux.rename_tab(&manager, manager_title)
         .expect("rename manager Tab");
