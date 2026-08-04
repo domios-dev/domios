@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// The two structural agent roles. Everything finer-grained — Orchestrator,
-/// General Agent, Planner, Watcher, Worker subtypes — is a role kind carried in
-/// `role_profile` and resolved through `role_kind` descriptors.
+/// The two structural agent roles. Every finer-grained kind lives in
+/// `role_profile` and resolves through `role_kind` descriptors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AgentRole {
     Manager,
@@ -43,12 +42,8 @@ impl AgentRole {
     }
 }
 
-/// Literal legacy migration for a persisted `(role, role_profile)` pair.
-///
-/// The legacy `Orchestrator`/`Conductor` rows carried no profile, so anchoring
-/// authority has to be re-materialized as the `orchestrator` kind. A legacy
-/// `Manager` row with no profile has no resolvable kind — it restores roleless
-/// rather than inheriting an anchor it never had.
+/// Literal legacy migration for a persisted `(role, role_profile)` pair. Legacy
+/// `Orchestrator`/`Conductor` rows carried no profile; a kindless `Manager` has no anchor to inherit.
 pub fn restore_role(role: Option<&str>, role_profile: Option<&str>) -> Option<RestoredRole> {
     let profile = role_profile
         .map(str::trim)

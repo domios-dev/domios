@@ -1066,9 +1066,7 @@ fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
     assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
 }
 
-/// A tab whose launch never completed persists a role with no provider
-/// identity. Restoring it as an Orchestrator produces a role-bearing
-/// PowerShell shell that claims Team authority it can never exercise.
+/// A launch that never completed persists a role with no provider identity.
 fn partial_launch_residue_leaf(role: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         tab_id: "db79d2da".into(),

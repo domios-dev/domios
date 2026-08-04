@@ -390,9 +390,8 @@ impl ServiceContext {
             result
         };
 
-        // Identity before authority: a tab must never carry a role while
-        // lacking the provider identity that lets it launch, or a restart
-        // restores a role-bearing shell.
+        // Identity before authority: a role without a launchable provider
+        // restores as a role-bearing shell.
         self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
         // `can_spawn` is only forced when the caller explicitly passed
         // --can-spawn (Some), preserving the kind's default.

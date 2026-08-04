@@ -659,10 +659,8 @@ impl PlanStore {
         })
     }
 
-    /// Refresh the live session identity of the plan's CURRENT owner after its
-    /// tab restarted. Ownership does not move, so this records no
-    /// `owner_history` entry — a restart is not a handover. No-ops (returning
-    /// `false`) unless `tab_id` is already the owner.
+    /// Refresh the current owner's live session after its tab restarted.
+    /// A restart is not a handover, so no `owner_history` entry is recorded.
     pub fn refresh_owner_session(
         &self,
         plan_id: &str,

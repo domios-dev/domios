@@ -11,9 +11,8 @@ pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 
-/// A coordinator must not self-terminate: a Team-anchoring role kind, an owner
-/// of a plan, or a bound Planner of a plan. Planner identity comes from the
-/// plan graph, not from the structural role.
+/// A coordinator must not self-terminate. Planner identity comes from the plan
+/// graph, not from the structural role.
 pub(crate) fn is_coordinator(
     role: Option<AgentRole>,
     role_profile: Option<&str>,

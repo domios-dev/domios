@@ -57,9 +57,8 @@ impl MultiplexerState {
         }
     }
 
-    /// Set a tab's orchestration role. Placement is decided by the role kind's
-    /// capability descriptor, never by an enum arm: an anchoring kind takes no
-    /// parent and spawns, every other kind is placed under a spawning parent.
+    /// Placement follows the kind's capability descriptor, never an enum arm:
+    /// an anchoring kind takes no parent, every other kind needs a spawner.
     pub fn set_tab_role(
         &mut self,
         tab_id: &str,

@@ -17,21 +17,24 @@ fn role_assignment_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
-    match (role, role_profile) {
-        (Some("Manager"), Some("planner")) => {
-            task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
-        }
-        (Some("Manager"), _) => task.map(str::to_string),
-        (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
-        (Some("Orchestrator"), _) => {
-            let suffix = crate::prompts::orchestrator_suffix();
-            Some(match task {
-                Some(task) => format!("{task}\n\n{suffix}"),
-                None => suffix,
-            })
-        }
-        _ => task.map(str::to_string),
+    let role = role.and_then(crate::multiplexer::types::AgentRole::from_str_compat);
+    let kind = codeterm_types::agent::role_kind::kind_id(role, role_profile);
+    // An anchor states its charter even with no assignment; every other kind
+    // only decorates work it was actually given.
+    if kind == Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR) {
+        let suffix = crate::prompts::orchestrator_suffix();
+        return Some(match task {
+            Some(task) => format!("{task}\n\n{suffix}"),
+            None => suffix,
+        });
     }
+    if kind == Some(codeterm_types::agent::role_kind::builtins::PLANNER) {
+        return task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()));
+    }
+    if role == Some(crate::multiplexer::types::AgentRole::Worker) {
+        return task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix()));
+    }
+    task.map(str::to_string)
 }
 
 pub(crate) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {

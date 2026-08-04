@@ -1,13 +1,6 @@
-//! Re-establish a restarted tab's authoritative identity before it continues.
-//!
-//! A restart replaces the PTY, not the tab. Everything the plan layer points at
-//! — owner ref, planner ref, open execution attempts — still names this tab, and
-//! those refs carry the session id the tab held before the restart. Until they
-//! agree again, a continuation would run against a stale caller binding.
-//!
-//! Every lookup here is keyed on the tab's OWN record. There is no global or
-//! "latest session" fallback: an unexpected session id fails the restore rather
-//! than being adopted.
+//! Re-establish a restarted tab's plan/task caller binding before it continues.
+//! Every lookup is keyed on the tab's own record — never a global or latest
+//! session.
 
 use crate::plan::PlannerRef;
 
@@ -33,12 +26,8 @@ impl RestoredCallerBinding {
 }
 
 impl ServiceContext {
-    /// Restore the exact plan/task caller binding for one restarted tab.
-    ///
-    /// `expected_session_id` is the session captured before the restart. When
-    /// the restart resumed that session, the live tab must still hold it; a
-    /// different id means the tab was rebound to a foreign session and the
-    /// restore fails instead of silently re-pointing plan refs at it.
+    /// A resumed tab must still hold `expected_session_id`; a different id means
+    /// a foreign session, which fails the restore rather than being adopted.
     pub(crate) fn restore_caller_binding(
         &self,
         tab_id: &str,

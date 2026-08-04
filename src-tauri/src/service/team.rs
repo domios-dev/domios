@@ -142,11 +142,12 @@ impl ServiceContext {
         caller_tab_id: &str,
         params: &mut crate::service::SpawnAgentParams,
     ) -> Result<(), String> {
-        let (role, role_kind) = match (params.role.as_deref(), params.role_profile.as_deref()) {
-            (Some("Orchestrator"), _) => ("Orchestrator", ORCHESTRATOR),
-            (Some("Manager"), Some(PLANNER)) => ("Planner", PLANNER),
+        let role_kind = match params.role_kind() {
+            Some(kind @ (ORCHESTRATOR | PLANNER)) => kind.to_string(),
             _ => return Ok(()),
         };
+        let role = role_kind::kind_label(Some(AgentRole::Manager), Some(&role_kind))
+            .unwrap_or("Manager");
         let (team_name, project) = {
             let mux = self.mux.read();
             let team = mux
@@ -168,7 +169,7 @@ impl ServiceContext {
             .find(|plan| plan.team_id.as_deref() == Some(team_id))
             .map(|plan| plan.id)
             .unwrap_or_else(|| "no bound plan yet".into());
-        let coordination = (role == "Planner").then(|| {
+        let coordination = (role_kind == PLANNER).then(|| {
             let mux = self.mux.read();
             let caller_label = mux.display_label_for_tab(caller_tab_id);
             let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
@@ -181,7 +182,7 @@ impl ServiceContext {
         });
         params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
             role: role.into(),
-            role_kind: role_kind.into(),
+            role_kind,
             team_id: team_id.into(),
             team_name,
             plan_id,
@@ -512,9 +513,8 @@ transfers ownership, then new owner adopts."
     }
 }
 
-/// Walk a caller up to the anchor it already sits under. Resolution is local to
-/// the caller's own placement, so a Team with several anchors is unambiguous
-/// without a global "there must be exactly one" scan.
+/// Resolution is local to the caller's own placement, so several anchors stay
+/// unambiguous without a global "there must be exactly one" scan.
 fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
     let mut seen = std::collections::HashSet::new();
     let mut current = caller_tab_id.to_string();
@@ -528,9 +528,8 @@ fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> O
     None
 }
 
-/// The anchor that will own an adopted plan. An agent caller resolves through
-/// its own chain; a human caller keeps the plan's existing owner when that owner
-/// still anchors this Team, and is otherwise asked to name one.
+/// An agent caller resolves through its own chain; a human caller keeps the
+/// plan's existing owner, and is otherwise asked to name one.
 fn team_plan_owner(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
@@ -598,7 +597,11 @@ fn prepare_team_member_spawn(
     let workspace_id = mux
         .find_workspace_for_tab(caller_tab_id)
         .ok_or_else(|| format!("Caller tab {caller_tab_id} has no workspace"))?;
-    let parent_tab_id = (role != "Orchestrator").then(|| caller_tab_id.into());
+    let anchors = role_kind::anchors_team(
+        AgentRole::from_str_compat(&role),
+        role_profile.as_deref(),
+    );
+    let parent_tab_id = (!anchors).then(|| caller_tab_id.into());
     let task = params.task.filter(|task| !task.trim().is_empty());
     let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
         Some(role.as_str()),
@@ -684,8 +687,8 @@ pub(crate) fn commit_team_member_spawn(
 fn team_member_role(requested: &str) -> Result<(String, Option<String>), String> {
     match requested.trim().to_ascii_lowercase().as_str() {
         "worker" => Ok(("Worker".into(), None)),
-        "planner" => Ok(("Manager".into(), Some("planner".into()))),
-        "orchestrator" => Ok(("Orchestrator".into(), None)),
+        "planner" => Ok(("Manager".into(), Some(PLANNER.into()))),
+        "orchestrator" => Ok(("Manager".into(), Some(ORCHESTRATOR.into()))),
         other => Err(format!(
             "Team member role must be worker, planner, or orchestrator, got '{other}'"
         )),

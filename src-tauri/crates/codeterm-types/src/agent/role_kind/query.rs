@@ -2,12 +2,8 @@ use crate::agent::AgentRole;
 
 use super::{builtins, RoleKindCapability, RoleKindDescriptor};
 
-/// Resolves a `(role, role_profile)` pair to a kind id.
-///
-/// A `Manager` with no profile is malformed, not a default: it resolves to
-/// `None` rather than silently inheriting anchoring authority. A `Worker`
-/// profile names a Worker subtype and can only ever narrow within leaf
-/// capability — an anchoring id there resolves back to the plain Worker kind.
+/// Resolves a `(role, role_profile)` pair to a kind id. A profileless `Manager`
+/// is malformed, and a `Worker` subtype can only narrow within leaf capability.
 pub fn kind_id<'a>(role: Option<AgentRole>, role_profile: Option<&'a str>) -> Option<&'a str> {
     let profile = role_profile.map(str::trim).filter(|kind| !kind.is_empty());
     match role? {

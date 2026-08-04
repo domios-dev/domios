@@ -1,9 +1,8 @@
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 
-/// The one role kind that carries machine-coordination authority. It is an
-/// anchoring manager kind, so a General Agent that spawns anchors its own Team
-/// exactly like an Orchestrator does.
+/// The one kind carrying machine-coordination authority. It anchors a Team
+/// exactly like `orchestrator` does.
 pub const GENERAL_AGENT_KIND: &str = codeterm_types::agent::role_kind::builtins::GENERAL_AGENT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,10 +45,8 @@ pub fn apply_general_agent_kind(tab: &mut Tab) {
     tab.depth = 1;
 }
 
-/// The General Agent kind is machine-scoped and lives only on the protected
-/// General workspace's tab. A restored snapshot that carries it anywhere else
-/// (hand-edited state, a copied workspace) loses it rather than minting a second
-/// machine coordinator. Returns the tabs that were demoted.
+/// The kind is machine-scoped: carrying it outside the General workspace would
+/// mint a second machine coordinator, so strays are demoted and returned.
 pub fn confine_general_agent_kind(mux: &mut MultiplexerState) -> Vec<String> {
     let sanctioned = mux.resolve_tab_id(super::GENERAL_ALIAS);
     let general_workspace = sanctioned

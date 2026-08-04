@@ -195,9 +195,8 @@ impl ServiceContext {
         self.settle_restored_binding(ready, &snap)
     }
 
-    /// Re-bind the tab's plan/task callers to its own authoritative session
-    /// BEFORE the restart is reported ready. A tab that cannot regain its exact
-    /// binding must not be handed back as continuable.
+    /// Rebind callers before readiness is reported: a tab that cannot regain
+    /// its exact binding must not be handed back as continuable.
     fn settle_restored_binding(
         &self,
         mut outcome: RestartOutcome,
