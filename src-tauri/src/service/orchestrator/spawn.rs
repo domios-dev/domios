@@ -1,3 +1,5 @@
+use codeterm_types::agent::role_kind::builtins;
+
 use super::launch::{
     agent_system_prompt, build_agent_command, launch_agent_in_background, role_onboarding_task,
     skip_local_worker_role, spawn_launch_task,

@@ -497,9 +497,10 @@ fn authorize_plan_transfer(
     destination_owner_tab_id: &str,
     caller: TeamMutationCaller,
 ) -> Result<(), String> {
-    if authorize_team_mutation(mux, source_team_id, &caller).is_ok() {
-        return Ok(());
-    }
+    let source_denial = match authorize_team_mutation(mux, source_team_id, &caller) {
+        Ok(()) => return Ok(()),
+        Err(denial) => denial,
+    };
     match caller {
         TeamMutationCaller::AgentTab(tab_id) if tab_id == destination_owner_tab_id => {
             authorize_team_manager(mux, destination_team_id, &TeamMutationCaller::AgentTab(tab_id))
@@ -510,6 +511,9 @@ manager or destination Orchestrator {destination_owner_tab_id} in Team \
 {destination_team_id} must authorize the transfer. Safe recovery: old-team member \
 transfers ownership, then new owner adopts."
         )),
+        // A human has no destination-owner identity to fall back on, so the
+        // source refusal (missing or remote-owned Team) stands verbatim.
+        TeamMutationCaller::Human => Err(source_denial),
     }
 }
 

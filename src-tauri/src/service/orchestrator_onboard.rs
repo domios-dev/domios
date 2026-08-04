@@ -2,8 +2,7 @@
 
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
-use crate::multiplexer::types::{AgentRole, Tab};
-use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
+use crate::multiplexer::types::Tab;
 use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
@@ -200,7 +199,8 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multiplexer::types::{TabBacking, TabType, TitleLevel};
+    use crate::multiplexer::types::{AgentRole, TabBacking, TabType, TitleLevel};
+    use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
     fn mk_tab(id: &str) -> Tab {
         Tab {
