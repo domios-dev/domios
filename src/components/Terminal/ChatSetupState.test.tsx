@@ -64,7 +64,7 @@ async function main() {
   });
 
   await test("role identity takes precedence over provider during launch", () => {
-    const orchestrator = { ...tab("agent_launching"), role: "Orchestrator" } as Tab;
+    const orchestrator = { ...tab("agent_launching"), role: "Manager", role_profile: "orchestrator" } as Tab;
     const planner = { ...tab("agent_launching"), role: "Manager", role_profile: "planner" } as Tab;
     assert(chatSetupSubject(orchestrator, "Codex") === "Orchestrator", "orchestrator label");
     assert(chatSetupSubject(planner, "Claude Code") === "Planner", "planner label");

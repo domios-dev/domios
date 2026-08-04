@@ -1,4 +1,5 @@
 import type { Tab } from "../../lib/types";
+import { ORCHESTRATOR_KIND, roleKind } from "../../lib/roleKind";
 
 /** The two sibling sections inside an orchestration group. Managers are the
  *  Orchestrator's delegated leadership (Planner, Watcher);
@@ -52,8 +53,8 @@ export interface SectionPartition<T> {
   workers: T[];
 }
 
-function managerRank(role: string | null | undefined): number {
-  return role === "Orchestrator" ? 0 : 1;
+function managerRank(tab: Pick<Tab, "role" | "role_profile">): number {
+  return roleKind(tab) === ORCHESTRATOR_KIND ? 0 : 1;
 }
 
 export function sortTeamManagers<T extends { tab: Pick<Tab, "role" | "role_profile"> }>(

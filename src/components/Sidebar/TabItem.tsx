@@ -6,6 +6,7 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Tab, TabStatus } from "../../lib/types";
+import { anchorsTeam, isPlanner, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
@@ -171,13 +172,13 @@ function TabItemInner({
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
-  const isGeneralAgent = tab.machine_agent_identity === "general_agent";
+  const isGeneralAgent = isGeneralAgentTab(tab);
   const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
   const roleShield = isGeneralAgent ? "General Agent" : roleShieldLabel(tab);
   const managedBy = managedByLabel(tab);
   const localSubtitle = tab.remote_peer_id ? null : roleShield;
   const isSubTab =
-    tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
+    !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const tabRef = useRef<HTMLDivElement>(null);
@@ -213,7 +214,7 @@ function TabItemInner({
     if (
       tab
       && activity?.kind === "worker"
-      && !(tab.role === "Manager" && tab.role_profile === "planner")
+      && !isPlanner(tab)
     ) {
       items.push({
         label: "Make Planner",
@@ -504,7 +505,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     backingPluginId(pp) === backingPluginId(np) &&
     backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
-    pp.machine_agent_identity === np.machine_agent_identity &&
+    pp.role_profile === np.role_profile &&
     pp.role === np.role &&
     pp.role_profile === np.role_profile &&
     JSON.stringify(pp.remote_channels) === JSON.stringify(np.remote_channels) &&

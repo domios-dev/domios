@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Tab, TabStatus } from "../../lib/types";
+import { anchorsTeam } from "../../lib/roleKind";
 
 export interface HierarchyNodeData {
   tab: Tab;
@@ -11,7 +12,7 @@ export function buildHierarchyTree(
   tabs: Record<string, Tab>,
   statuses: Record<string, TabStatus>,
 ): HierarchyNodeData[] {
-  const orchestrators = Object.values(tabs).filter((p) => p.role === "Orchestrator");
+  const orchestrators = Object.values(tabs).filter((p) => anchorsTeam(p));
   function buildNode(tab: Tab): HierarchyNodeData {
     const children = Object.values(tabs)
       .filter((p) => p.parent_tab_id === tab.id)

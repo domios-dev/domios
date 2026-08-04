@@ -8,6 +8,7 @@ import type {
   Team,
   Workspace,
 } from "../../lib/types";
+import { anchorsTeam } from "../../lib/roleKind";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
@@ -83,7 +84,7 @@ interface TeamTabMember {
 
 function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
   return member.tab.can_spawn === true
-    && (member.tab.role === "Orchestrator" || member.tab.role === "Manager");
+    && member.tab.role === "Manager";
 }
 
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
@@ -314,11 +315,11 @@ export function SidebarWorkspaceTabs({
 
     const members = membersByTeam.get(teamId) ?? [];
     const managers = sortTeamManagers(
-      members.filter((member) => member.tab.role === "Orchestrator" || member.tab.role === "Manager"),
+      members.filter((member) => member.tab.role === "Manager"),
     );
     const terminals = members.filter((member) => member.tab.role == null);
     const workers = members.filter((member) =>
-      member.tab.role !== "Orchestrator"
+      !anchorsTeam(member.tab)
       && member.tab.role !== "Manager"
       && member.tab.role != null,
     );
