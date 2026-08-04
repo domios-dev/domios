@@ -451,11 +451,14 @@ mod tests {
         );
         let prompt = params.task.unwrap();
         assert!(prompt.starts_with("You are Ada. Keep the change bounded."));
-        let body = prompt.find("Implement the task-owned behavior.").unwrap();
-        let supplemental = prompt.find("## Orchestrator instruction").unwrap();
         let ack = prompt.find("codeterm agent ack").unwrap();
-        assert!(body < supplemental);
-        assert!(supplemental < ack);
+        let body = prompt.find("Implement the task-owned behavior.").unwrap();
+        let criteria = prompt.find("The focused oracle passes.").unwrap();
+        let supplemental = prompt.find("## Orchestrator instruction").unwrap();
+        assert!(ack < body);
+        assert!(body < criteria && criteria < supplemental);
+        assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
+        assert!(!prompt.contains("codeterm agent report"));
     }
 
     #[test]
@@ -602,8 +605,20 @@ mod tests {
 
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
+        let attempt = task
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == binding.attempt_id)
+            .unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
-        assert_eq!(task.status_label, None);
+        assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
+        assert_eq!(attempt.acknowledged_at, Some(11));
+        assert_eq!(attempt.executor_tab_id, "tab-worker");
+        assert_eq!(attempt.session_id.as_deref(), Some("session-worker"));
+        assert_eq!(
+            attempt.session_binding_nonce.as_deref(),
+            Some("nonce-worker")
+        );
     }
 
     // Proven via the WIP-gate path — the failure reliably triggerable here

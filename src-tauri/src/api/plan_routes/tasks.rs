@@ -361,6 +361,11 @@ fn task_update_core(
     tid: &str,
     body: Value,
 ) -> PlanRouteResult {
+    crate::plan::task_update_fields::validate_task_update_fields(
+        &body,
+        crate::plan::task_update_fields::TaskUpdateSeam::Rest,
+    )
+    .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
     let author = service
         .authorize_draft_structure_mutation(
             id,
@@ -369,11 +374,6 @@ fn task_update_core(
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     crate::service::ensure_planner_task_fields_are_structural(&author, &body)
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    crate::plan::task_update_fields::validate_task_update_fields(
-        &body,
-        crate::plan::task_update_fields::TaskUpdateSeam::Rest,
-    )
-    .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
     let section_ids = if body.get("sections").is_some() {
         let requested_sections = body
             .get("sections")

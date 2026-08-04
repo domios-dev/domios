@@ -469,6 +469,7 @@ impl ServiceContext {
             ClaimedResponse::Decline(entry, reason) => {
                 self.resolve_provider_update_notification(prompt_id);
                 self.emit_provider_update(&entry.view);
+                self.write_provider_update_keys(&entry, &entry.decline_writes)?;
                 log::info!(
                     "[provider-update] prompt consumed decision=decline prompt={} tab={} provider={} reason={:?}",
                     prompt_id,

@@ -8,13 +8,36 @@
     use serde_json::json;
     use std::sync::Arc;
 
-    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
-        let (mux, _) = MultiplexerState::new();
+    /// The exact live owner identity the update seam authorizes against:
+    /// tab id, bound session and the nonce the tab itself reported back.
+    fn owner_headers(tab_id: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Tab-Id", tab_id.parse().unwrap());
+        headers.insert("X-CodeTerm-Session-Id", "owner-session".parse().unwrap());
+        headers.insert("X-CodeTerm-Binding-Nonce", "owner-nonce".parse().unwrap());
+        headers
+    }
+
+    fn update_fixture() -> (ServiceFixture, String, String, String, String, String) {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let owner = mux.create_tab(&workspace).unwrap();
+        mux.set_orchestrator_role(&owner).unwrap();
+        {
+            let tab = mux.get_tab_mut(&owner).unwrap();
+            tab.agent_session_id = Some("owner-session".into());
+            tab.session_binding_nonce = Some("owner-nonce".into());
+            tab.reported_session_binding_nonce = Some("owner-nonce".into());
+        }
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(
             "Update validation".into(),
             fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
+            OrchestratorRef {
+                tab_id: Some(owner.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
         );
         fixture.service.plan_store.save(&mut plan, 1).unwrap();
         let parent_task_id = fixture
@@ -62,6 +85,7 @@
             task_id,
             parent_task_id,
             dependency_task_id,
+            owner,
         )
     }
 
@@ -74,13 +98,14 @@
     #[test]
     fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
         for key in ["nonsense_field", "external_ref", "externalRefs"] {
-            let (fixture, plan_id, task_id, _, _) = update_fixture();
+            let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
             let service = Arc::new(fixture.service.clone());
             let before = full_task_record(&fixture, &plan_id, &task_id);
             let mut body = json!({});
             body[key] = json!("ignored");
 
-            let result = task_update_core(&service, &HeaderMap::new(), &plan_id, &task_id, body);
+            let result =
+                task_update_core(&service, &owner_headers(&owner), &plan_id, &task_id, body);
             let after = full_task_record(&fixture, &plan_id, &task_id);
             assert!(
                 result.is_err(),
@@ -102,8 +127,10 @@
 
     #[test]
     fn rest_every_supported_update_key_reaches_the_real_handler() {
-        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
+        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id, owner) =
+            update_fixture();
         let service = Arc::new(fixture.service.clone());
+        let headers = owner_headers(&owner);
         let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
         assert_eq!(
             payloads.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
@@ -111,7 +138,7 @@
         );
 
         for (key, body) in payloads {
-            let result = task_update_core(&service, &HeaderMap::new(), &plan_id, &task_id, body);
+            let result = task_update_core(&service, &headers, &plan_id, &task_id, body);
             let failure = result
                 .as_ref()
                 .err()
@@ -127,12 +154,12 @@
 
     #[test]
     fn rest_update_external_refs_round_trips_non_null() {
-        let (fixture, plan_id, task_id, _, _) = update_fixture();
+        let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
         let service = Arc::new(fixture.service.clone());
 
         task_update_core(
             &service,
-            &HeaderMap::new(),
+            &owner_headers(&owner),
             &plan_id,
             &task_id,
             json!({ "external_refs": ["rollacode/codeterm-releases#17"] }),

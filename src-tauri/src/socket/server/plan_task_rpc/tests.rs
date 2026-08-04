@@ -10,13 +10,36 @@
     use serde_json::json;
     use std::sync::Arc;
 
-    fn update_fixture() -> (ServiceFixture, String, String, String, String) {
-        let (mux, _) = MultiplexerState::new();
+    /// The exact live owner identity the update seam authorizes against:
+    /// tab id, bound session and the nonce the tab itself reported back.
+    fn owner_params(owner: &str) -> serde_json::Map<String, serde_json::Value> {
+        let mut params = serde_json::Map::new();
+        params.insert("caller_tab_id".into(), json!(owner));
+        params.insert("session_id".into(), json!("owner-session"));
+        params.insert("session_binding_nonce".into(), json!("owner-nonce"));
+        params
+    }
+
+    fn update_fixture() -> (ServiceFixture, String, String, String, String, String) {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let owner = mux.create_tab(&workspace).unwrap();
+        mux.set_orchestrator_role(&owner).unwrap();
+        {
+            let tab = mux.get_tab_mut(&owner).unwrap();
+            tab.agent_session_id = Some("owner-session".into());
+            tab.session_binding_nonce = Some("owner-nonce".into());
+            tab.reported_session_binding_nonce = Some("owner-nonce".into());
+        }
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(
             "Update validation".into(),
             fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
+            OrchestratorRef {
+                tab_id: Some(owner.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
         );
         fixture.service.plan_store.save(&mut plan, 1).unwrap();
         let parent_task_id = fixture
@@ -64,6 +87,7 @@
             task_id,
             parent_task_id,
             dependency_task_id,
+            owner,
         )
     }
 
@@ -76,13 +100,12 @@
     #[test]
     fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
         for key in ["nonsense_field", "external_ref", "externalRefs"] {
-            let (fixture, plan_id, task_id, _, _) = update_fixture();
+            let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
             let service = Arc::new(fixture.service.clone());
             let before = full_task_record(&fixture, &plan_id, &task_id);
-            let mut params = json!({
-                "plan_id": plan_id.clone(),
-                "task_id": task_id.clone()
-            });
+            let mut params = serde_json::Value::Object(owner_params(&owner));
+            params["plan_id"] = json!(plan_id.clone());
+            params["task_id"] = json!(task_id.clone());
             params[key] = json!("ignored");
             let params = Some(params);
 
@@ -114,7 +137,8 @@
 
     #[test]
     fn socket_every_supported_update_key_reaches_the_real_handler() {
-        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id) = update_fixture();
+        let (fixture, plan_id, task_id, parent_task_id, dependency_task_id, owner) =
+            update_fixture();
         let service = Arc::new(fixture.service.clone());
         let payloads = valid_task_update_payloads(&parent_task_id, &dependency_task_id);
         assert_eq!(
@@ -125,6 +149,9 @@
         for (index, (key, mut params)) in payloads.into_iter().enumerate() {
             params["plan_id"] = json!(plan_id.clone());
             params["task_id"] = json!(task_id.clone());
+            for (name, value) in owner_params(&owner) {
+                params[name] = value;
+            }
             let result = dispatch(
                 "plan.task.update",
                 &Some(params),
@@ -146,13 +173,13 @@
 
     #[test]
     fn socket_update_external_refs_round_trips_non_null() {
-        let (fixture, plan_id, task_id, _, _) = update_fixture();
+        let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
         let service = Arc::new(fixture.service.clone());
-        let params = Some(json!({
-            "plan_id": plan_id.clone(),
-            "task_id": task_id.clone(),
-            "external_refs": ["rollacode/codeterm-releases#17"]
-        }));
+        let mut params = serde_json::Value::Object(owner_params(&owner));
+        params["plan_id"] = json!(plan_id.clone());
+        params["task_id"] = json!(task_id.clone());
+        params["external_refs"] = json!(["rollacode/codeterm-releases#17"]);
+        let params = Some(params);
 
         dispatch(
             "plan.task.update",
@@ -222,7 +249,7 @@
     }
     #[test]
     fn adopted_task_mutation_rejects_missing_stale_and_rebound_authority() {
-        let (fixture, plan_id, task_id, _, _) = update_fixture();
+        let (fixture, plan_id, task_id, _, _, _) = update_fixture();
         let workspace = fixture
             .service
             .mux
