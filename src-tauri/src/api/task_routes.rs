@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use crate::api::routes::AppState;
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 use crate::plan::{OrchestratorRef, TaskStatus};
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{NewTask, PlanError};
@@ -87,9 +88,9 @@ fn tab_role(state: &AppState, tab_id: &str) -> Option<&'static str> {
         .mux
         .read()
         .get_tab(tab_id)
-        .and_then(|tab| tab.role)
-        .map(|role| match role {
-            AgentRole::Orchestrator => "orchestrator",
+        .and_then(|tab| tab.role.map(|role| (role, tab.role_profile.clone())))
+        .map(|(role, profile)| match role {
+            AgentRole::Manager if profile.as_deref() == Some(ORCHESTRATOR) => "orchestrator",
             AgentRole::Manager => "manager",
             AgentRole::Worker => "worker",
         })

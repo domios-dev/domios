@@ -202,7 +202,7 @@ mod tests {
         let (mut mux, _) = MultiplexerState::new();
         let workspace = mux.list_workspaces()[0].id.clone();
         let owner = mux.create_tab(&workspace).unwrap();
-        mux.set_tab_role(&owner, AgentRole::Orchestrator, None)
+        mux.set_orchestrator_role(&owner)
             .unwrap();
         let planner = mux.create_tab(&workspace).unwrap();
         let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;

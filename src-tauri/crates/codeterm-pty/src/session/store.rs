@@ -751,7 +751,7 @@ mod tests {
         let (store, _dir) = fresh_store();
         let (mut state, parent) = MultiplexerState::new();
         state
-            .set_tab_role(&parent, AgentRole::Orchestrator, None)
+            .set_orchestrator_role(&parent)
             .unwrap();
         let parent_tab = state.get_tab_mut(&parent).unwrap();
         parent_tab.agent_type = Some("claude".into());

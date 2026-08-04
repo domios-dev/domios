@@ -224,18 +224,7 @@ pub(crate) fn init_states() -> AppStates {
         .into_values()
         .filter(|tab| tab.agent_type.is_some() || tab.role.is_some() || tab.is_chat_backend())
         .map(|tab| {
-            let role = match tab.role {
-                Some(crate::multiplexer::types::AgentRole::Worker) => {
-                    service::agent_pad::AgentPadRole::Worker
-                }
-                Some(crate::multiplexer::types::AgentRole::Orchestrator) => {
-                    service::agent_pad::AgentPadRole::Orchestrator
-                }
-                Some(crate::multiplexer::types::AgentRole::Manager) => {
-                    service::agent_pad::AgentPadRole::Planner
-                }
-                None => service::agent_pad::AgentPadRole::General,
-            };
+            let role = service::agent_pad::pad_role_for_tab(&tab);
             (tab.id, role)
         })
         .collect::<Vec<_>>();

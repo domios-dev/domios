@@ -50,6 +50,9 @@ pub struct RestartOutcome {
     pub restart_accepted: bool,
     pub old_pty_torn_down: bool,
     pub agent_ready: bool,
+    /// The tab's plan/task caller binding was re-established against its own
+    /// authoritative session. Always settled before `agent_ready` is returned.
+    pub binding_restored: bool,
     pub old_pty_id: Option<String>,
     pub new_pty_id: Option<String>,
 }
@@ -66,6 +69,7 @@ impl RestartOutcome {
             restart_accepted: true,
             old_pty_torn_down: false,
             agent_ready: false,
+            binding_restored: false,
             old_pty_id: (!snap.pty_id.is_empty()).then(|| snap.pty_id.clone()),
             new_pty_id: None,
         }
@@ -183,11 +187,46 @@ impl ServiceContext {
             None,
         );
 
-        self.finish_observed_restart(
+        let ready = self.finish_observed_restart(
             outcome,
             &snap.pty_id,
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
-        )
+        )?;
+        self.settle_restored_binding(ready, &snap)
+    }
+
+    /// Rebind callers before readiness is reported: a tab that cannot regain
+    /// its exact binding must not be handed back as continuable.
+    fn settle_restored_binding(
+        &self,
+        mut outcome: RestartOutcome,
+        snap: &TabRestartSnapshot,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        // Only a resumed session has an id the tab must still be holding; a
+        // fresh launch legitimately comes back on a new one.
+        let expected = (outcome.session_action() == "resume")
+            .then(|| snap.session_id.as_deref())
+            .flatten();
+        match self.restore_caller_binding(&snap.tab_id, expected) {
+            Ok(restored) => {
+                outcome.binding_restored = true;
+                if !restored.is_empty() {
+                    log::info!(
+                        "[agent_restart] tab={} rebound owner={:?} planner={:?} tasks={}",
+                        snap.tab_id,
+                        restored.owned_plan_ids,
+                        restored.planner_plan_ids,
+                        restored.task_bindings.len(),
+                    );
+                }
+                Ok(outcome)
+            }
+            Err(reason) => Err(RestartAttemptError::Failed {
+                outcome,
+                reason,
+                timed_out: false,
+            }),
+        }
     }
 
     fn restart_general_agent_if_target(

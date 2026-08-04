@@ -226,7 +226,7 @@ impl ServiceContext {
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
-        if params.role.as_deref() == Some("Orchestrator")
+        if params.spawns_anchor()
             && params.workspace_id.is_none()
             && params.parent_tab_id.is_none()
         {
@@ -441,6 +441,7 @@ impl ServiceContext {
                 role_str,
                 params.role_profile.as_deref(),
                 params.parent_tab_id.as_deref(),
+                params.plan_id.as_deref(),
                 params.can_spawn,
                 emit_state_change,
             ) {
@@ -548,12 +549,12 @@ impl ServiceContext {
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
         // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
-        let is_planner = params.role_profile.as_deref() == Some("planner");
+        let is_planner = params.role_kind() == Some(builtins::PLANNER);
         // A pair-spawned Orchestrator carries its onboarding in the launch task and
         // skips the separate deliver — attribute that onboarding to CodeTerm too, so
         // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
-        let is_orch_onboarding = params.role.as_deref() == Some("Orchestrator")
-            && params.skip_orchestrator_onboarding == Some(true);
+        let is_orch_onboarding =
+            params.spawns_anchor() && params.skip_orchestrator_onboarding == Some(true);
         let codeterm_pfx = crate::service::messenger::Messenger::codeterm_prefix();
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {
@@ -697,23 +698,38 @@ impl ServiceContext {
         role_str: &str,
         role_profile: Option<&str>,
         parent_tab_id: Option<&str>,
+        plan_id: Option<&str>,
         can_spawn: Option<bool>,
         emit_state_change: bool,
     ) -> Result<(), String> {
+        let (role, profile) = Self::parse_role_kind(role_str, role_profile)?;
+        // A Planner names its plan, not a parent: the plan record owns the
+        // anchor, and placement + planner binding commit as one transaction.
+        if profile.as_deref() == Some(builtins::PLANNER) && parent_tab_id.is_none() {
+            let plan_id = plan_id
+                .map(str::trim)
+                .filter(|plan_id| !plan_id.is_empty())
+                .ok_or("Planner requires --plan <id> (or an explicit --parent)")?;
+            self.place_planner_on_plan(tab_id, plan_id, false)?;
+            return Ok(());
+        }
         if emit_state_change {
-            self.set_tab_role_with_profile(tab_id, role_str, role_profile, parent_tab_id, can_spawn)?;
+            self.set_tab_role_with_profile(
+                tab_id,
+                role_str,
+                role_profile,
+                parent_tab_id,
+                can_spawn,
+            )?;
         } else {
-            let role = Self::parse_role(role_str)?;
             let mut mux = self.mux.write();
-            mux.set_tab_role(tab_id, role, parent_tab_id)?;
+            mux.set_tab_role_kind(tab_id, role, profile.as_deref(), parent_tab_id)?;
             if let Some(can_spawn) = can_spawn {
                 mux.set_can_spawn(tab_id, can_spawn)?;
             }
         }
-        if role_str == "Worker" || role_str == "Manager" {
-            if let Some(parent) = parent_tab_id {
-                self.expect_spawn_parent_link(tab_id, parent)?;
-            }
+        if let Some(parent) = parent_tab_id {
+            self.expect_spawn_parent_link(tab_id, parent)?;
         }
         Ok(())
     }
@@ -764,12 +780,21 @@ impl ServiceContext {
     }
 
     fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, tab_id: &str) {
-        if role_profile != Some("planner") {
+        if role_profile != Some(builtins::PLANNER) {
             return;
         }
         let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) else {
             return;
         };
+        // The atomic Planner placement already bound this tab; re-writing the
+        // ref here would replace a committed binding outside its transaction.
+        let already_bound = matches!(
+            self.plan_store.get(plan_id).and_then(|plan| plan.planner),
+            Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
+        );
+        if already_bound {
+            return;
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)

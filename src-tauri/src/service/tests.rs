@@ -7,7 +7,7 @@ use crate::multiplexer::types::AgentRole;
 fn test_parse_role() {
     assert!(matches!(
         ServiceContext::parse_role("Conductor"),
-        Ok(AgentRole::Orchestrator)
+        Ok(AgentRole::Manager)
     ));
     assert!(matches!(
         ServiceContext::parse_role("Worker"),

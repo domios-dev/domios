@@ -133,16 +133,20 @@ fn restorable_identity(
     parent_is_live_orchestrator: impl Fn(&str) -> bool,
 ) -> Option<ResumableIdentity> {
     let identity = identity?;
-    match identity.role.as_str() {
-        "Orchestrator" if identity.parent_tab_id.is_none() => Some(identity),
-        "Worker" | "Manager" => {
-            let parent_is_live = identity
-                .parent_tab_id
-                .as_deref()
-                .is_some_and(parent_is_live_orchestrator);
-            parent_is_live.then_some(identity)
-        }
-        _ => None,
+    let restored = codeterm_types::agent::restore_role(
+        Some(identity.role.as_str()),
+        identity.role_profile.as_deref(),
+    )?;
+    // An anchor stands alone; every other kind needs its parent still live.
+    if codeterm_types::agent::role_kind::anchors_team(
+        Some(restored.role),
+        restored.role_profile.as_deref(),
+    ) {
+        return identity.parent_tab_id.is_none().then_some(identity);
+    }
+    match identity.parent_tab_id.as_deref() {
+        Some(parent) => parent_is_live_orchestrator(parent).then_some(identity),
+        None => None,
     }
 }
 
@@ -205,7 +209,7 @@ pub async fn resume_session_api(
     let identity =
         restorable_identity(persisted_identity, |parent| {
             state.svc.mux.read().get_tab(parent).is_some_and(|tab| {
-                tab.role == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+                tab.anchors_team()
             })
         });
 

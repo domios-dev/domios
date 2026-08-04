@@ -9,6 +9,7 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig } from "../../lib/types";
+import { anchorsTeam } from "../../lib/roleKind";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
@@ -543,7 +544,7 @@ export function Sidebar({
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
                 const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
-                const generalOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
+                const generalOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
                 return (
                   <section
                     data-testid="general-section"
@@ -689,7 +690,7 @@ export function Sidebar({
                     const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
                     const selected = ws.id === selectedWorkspaceId;
                     const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
+                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
                     return (
                       <div
                         key={ws.id}

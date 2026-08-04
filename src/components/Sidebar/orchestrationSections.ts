@@ -1,4 +1,5 @@
 import type { Tab } from "../../lib/types";
+import { ORCHESTRATOR_KIND, roleKind } from "../../lib/roleKind";
 
 /** The two sibling sections inside an orchestration group. Managers are the
  *  Orchestrator's delegated leadership (Planner, Watcher);
@@ -29,12 +30,8 @@ export function roleBadgeLabel(
   tab: Pick<Tab, "role" | "role_profile"> | null | undefined,
 ): string | null {
   if (!tab) return null;
-  if (tab.role === "Orchestrator") return "ORCHESTRATOR";
-  if (tab.role === "Manager") {
-    const profile = (tab.role_profile ?? "").trim();
-    return profile ? profile.toUpperCase() : null;
-  }
-  return null;
+  const kind = roleKind(tab);
+  return tab.role === "Manager" && kind ? kind.toUpperCase() : null;
 }
 
 /** Role shield on tab line 2 — leadership only: ORCHESTRATOR / PLANNER / WATCHER. */
@@ -42,12 +39,8 @@ export function roleShieldLabel(
   tab: Pick<Tab, "role" | "role_profile"> | null | undefined,
 ): string | null {
   if (!tab?.role) return null;
-  if (tab.role === "Orchestrator") return "ORCHESTRATOR";
-  if (tab.role === "Manager") {
-    const profile = (tab.role_profile ?? "").trim();
-    return profile ? profile.toUpperCase() : null;
-  }
-  return null;
+  const kind = roleKind(tab);
+  return tab.role === "Manager" && kind ? kind.toUpperCase() : null;
 }
 
 /** testid suffix for a role badge — role-badge-orchestrator, role-badge-planner. */
@@ -60,14 +53,14 @@ export interface SectionPartition<T> {
   workers: T[];
 }
 
-function managerRank(role: string | null | undefined): number {
-  return role === "Orchestrator" ? 0 : 1;
+function managerRank(tab: Pick<Tab, "role" | "role_profile">): number {
+  return roleKind(tab) === ORCHESTRATOR_KIND ? 0 : 1;
 }
 
 export function sortTeamManagers<T extends { tab: Pick<Tab, "role" | "role_profile"> }>(
   members: readonly T[],
 ): T[] {
-  return [...members].sort((a, b) => managerRank(a.tab.role) - managerRank(b.tab.role));
+  return [...members].sort((a, b) => managerRank(a.tab) - managerRank(b.tab));
 }
 
 /** Split a group's child nodes into Managers/Workers, preserving incoming

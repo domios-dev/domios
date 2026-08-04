@@ -225,6 +225,26 @@ impl SpawnAgentParams {
         crate::service::role_profile::normalize_spawn_params(self)
     }
 
+    /// Role kind these params resolve to. Valid only after
+    /// `normalize_role_profile` has folded the wire sugar.
+    pub(crate) fn role_kind(&self) -> Option<&str> {
+        codeterm_types::agent::role_kind::kind_id(
+            self.role
+                .as_deref()
+                .and_then(crate::multiplexer::types::AgentRole::from_str_compat),
+            self.role_profile.as_deref(),
+        )
+    }
+
+    pub(crate) fn spawns_anchor(&self) -> bool {
+        codeterm_types::agent::role_kind::anchors_team(
+            self.role
+                .as_deref()
+                .and_then(crate::multiplexer::types::AgentRole::from_str_compat),
+            self.role_profile.as_deref(),
+        )
+    }
+
     pub(crate) fn task_launch_env(&self) -> std::collections::HashMap<String, String> {
         self.task_launch_authority
             .as_ref()

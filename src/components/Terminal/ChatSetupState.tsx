@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { DeferredLoader } from "../shared/DeferredLoader";
 import type { BootStage, Tab } from "../../lib/types";
+import { roleKindLabel } from "../../lib/roleKind";
 import type { TabBootOverlayView } from "./bootOverlay";
 
 const STAGE_PROGRESS: Record<BootStage, number> = {
@@ -20,11 +21,7 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
 };
 
 export function chatSetupSubject(tab: Tab | null | undefined, providerName: string): string {
-  if (tab?.role === "Orchestrator") return "Orchestrator";
-  if (tab?.role === "Worker") return "Worker";
-  if (tab?.role === "Manager" && tab.role_profile === "planner") return "Planner";
-  if (tab?.role === "Manager") return "Manager";
-  return providerName;
+  return roleKindLabel(tab) ?? providerName;
 }
 
 export function chatSetupStageLabel(stage: BootStage | null | undefined, subject: string): string {

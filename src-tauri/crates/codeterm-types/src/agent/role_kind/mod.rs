@@ -11,8 +11,8 @@ mod tests;
 pub use builtins::all as builtin_kinds;
 pub use builtins::capability_for as capability_for_kind;
 pub use builtins::lookup as builtin_kind;
-pub use query::{anchors_team, can_spawn, requires_parent};
-pub use query::{kind_capability, kind_descriptor, kind_id};
+pub use query::{anchors_team, can_spawn, has_team_authority, requires_parent};
+pub use query::{kind_capability, kind_descriptor, kind_id, kind_label};
 
 /// Structural authority of a role kind. Fields are private and `LEAF` is the
 /// only public value, so capability cannot be named or forged off-crate.
@@ -21,6 +21,7 @@ pub struct RoleKindCapability {
     anchors_team: bool,
     requires_parent: bool,
     can_spawn: bool,
+    team_authority: bool,
 }
 
 impl RoleKindCapability {
@@ -28,12 +29,23 @@ impl RoleKindCapability {
         anchors_team: false,
         requires_parent: true,
         can_spawn: false,
+        team_authority: false,
     };
 
     const ANCHORING: Self = Self {
         anchors_team: true,
         requires_parent: false,
         can_spawn: true,
+        team_authority: true,
+    };
+
+    /// A manager that lives under an anchor: no Team of its own, but it may
+    /// rename, adopt into, and close the Team it belongs to.
+    const MANAGING_LEAF: Self = Self {
+        anchors_team: false,
+        requires_parent: true,
+        can_spawn: false,
+        team_authority: true,
     };
 
     pub const fn anchors_team(self) -> bool {
@@ -46,6 +58,10 @@ impl RoleKindCapability {
 
     pub const fn can_spawn(self) -> bool {
         self.can_spawn
+    }
+
+    pub const fn has_team_authority(self) -> bool {
+        self.team_authority
     }
 }
 
@@ -85,6 +101,10 @@ impl RoleKindDescriptor {
 
     const fn anchoring(id: &'static str, label: &'static str) -> Self {
         Self::new(id, label, RoleKindCapability::ANCHORING)
+    }
+
+    const fn managing_leaf(id: &'static str, label: &'static str) -> Self {
+        Self::new(id, label, RoleKindCapability::MANAGING_LEAF)
     }
 
     const fn leaf(id: &'static str, label: &'static str) -> Self {
@@ -132,5 +152,9 @@ impl RoleKindDescriptor {
 
     pub fn can_spawn(&self) -> bool {
         self.capability.can_spawn()
+    }
+
+    pub fn has_team_authority(&self) -> bool {
+        self.capability.has_team_authority()
     }
 }

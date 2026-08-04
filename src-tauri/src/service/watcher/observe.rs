@@ -69,10 +69,7 @@ struct TabObservation {
 
 pub fn is_manager_watcher(tab: &Tab) -> bool {
     tab.role == Some(AgentRole::Manager)
-        && tab
-            .role_profile
-            .as_deref()
-            .is_some_and(|p| p.eq_ignore_ascii_case("watcher"))
+        && tab.role_kind_id() == Some(codeterm_types::agent::role_kind::builtins::WATCHER)
 }
 
 pub fn resolve_orchestrator_id(snapshot: &MultiplexerSnapshot, tab_id: &str) -> Option<String> {
@@ -83,7 +80,7 @@ pub fn resolve_orchestrator_id(snapshot: &MultiplexerSnapshot, tab_id: &str) -> 
             return None;
         }
         let tab = snapshot.tabs.get(&current)?;
-        if tab.role == Some(AgentRole::Orchestrator) {
+        if tab.anchors_team() {
             return Some(current);
         }
         current = tab.parent_tab_id.clone()?;
@@ -145,13 +142,8 @@ fn tab_status_label(snapshot: &MultiplexerSnapshot, tab_id: &str) -> String {
         .to_string()
 }
 
-fn role_label(role: Option<AgentRole>) -> Option<String> {
-    role.map(|r| match r {
-        AgentRole::Orchestrator => "Orchestrator",
-        AgentRole::Manager => "Manager",
-        AgentRole::Worker => "Worker",
-    })
-    .map(str::to_string)
+fn role_label(role: Option<AgentRole>, role_profile: Option<&str>) -> Option<String> {
+    codeterm_types::agent::role_kind::kind_label(role, role_profile).map(str::to_string)
 }
 
 fn chat_msgs_to_json(msgs: &[ChatMsg]) -> Vec<Value> {
@@ -214,7 +206,7 @@ pub fn build_observation(
                 TabObservation {
                     tab_id: tab.id.clone(),
                     title: tab.title.clone(),
-                    role: role_label(tab.role),
+                    role: role_label(tab.role, tab.role_profile.as_deref()),
                     role_profile: tab.role_profile.clone(),
                     status: tab_status_label(snapshot, &tab.id),
                     last_activity_ms: sources
