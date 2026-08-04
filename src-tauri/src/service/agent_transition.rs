@@ -200,8 +200,14 @@ impl ServiceContext {
         let tab_id = request.tab_id.clone();
         let mut mux = self.mux.write();
         let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
+        let parent_tab_id = mux
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.parent_tab_id.clone());
         drop(mux);
         self.record_role_transition(&tab_id);
+        if let Some(parent_tab_id) = parent_tab_id {
+            self.record_role_transition(&parent_tab_id);
+        }
         self.emit_state_changed();
         for plan_id in &changed_plan_ids {
             self.emit_plan_changed(plan_id);
