@@ -73,7 +73,12 @@ fn test_spawn_agent_params_from_json() {
     let params = SpawnAgentParams::from_json(&json).unwrap();
     assert_eq!(params.agent.as_deref(), Some("claude"));
     assert_eq!(params.agent_name.as_deref(), Some("architect"));
-    assert_eq!(params.role.as_deref(), Some("Orchestrator"));
+    // Wire sugar resolves once: stored authority is the structural role plus kind.
+    assert_eq!(params.role.as_deref(), Some("Manager"));
+    assert_eq!(
+        params.role_profile.as_deref(),
+        Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR)
+    );
     assert_eq!(params.can_spawn, Some(true));
     assert_eq!(params.task.as_deref(), Some("do something"));
     assert_eq!(params.args.as_ref().unwrap().len(), 1);
