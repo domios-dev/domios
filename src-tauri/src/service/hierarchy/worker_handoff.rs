@@ -77,9 +77,8 @@ fn fallback_report_message(source: &str) -> String {
     )
 }
 
-/// The daemon's own record of this exact tab's live binding. Absent or
-/// mismatched evidence stays absent so persistence fails closed instead of
-/// inventing an authority the Worker never proved.
+/// Absent or mismatched binding evidence stays absent, so persistence fails
+/// closed instead of inventing an authority the Worker never proved.
 fn observed_handoff_authority(svc: &ServiceContext, tab_id: &str) -> ReportDetails {
     let session_binding_nonce = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         let reported = tab.reported_session_binding_nonce.clone()?;
