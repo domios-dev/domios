@@ -182,10 +182,9 @@ jq -r '.workspaces[].tabs[].split_tree
 
 Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
 
-In-process, `TabAudit::read` returns the same view as pure data (transitions,
-checkpoints, the one committed checkpoint, tail refusal) so a future
-`codeterm tab audit <id>` surface can render it without recovery depending on
-any presentation layer.
+There is deliberately no CLI or in-process reader wrapping these reads. The file
+is the interface; recovery reads it for itself and exposes nothing for a caller
+to render.
 
 ## Not in scope yet
 
@@ -196,4 +195,4 @@ any presentation layer.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

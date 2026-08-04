@@ -580,29 +580,6 @@ fn next_epoch_follows_the_tabs_own_history() {
 }
 
 #[test]
-fn audit_view_reads_without_deciding_recovery() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
-
-    let audit = TabAudit::read(&journal.load(), "tab-a");
-    assert_eq!(audit.tab_id, "tab-a");
-    assert_eq!(audit.transitions.len(), 6);
-    assert_eq!(
-        audit.transitions.first().map(|entry| entry.transition.label()),
-        Some("epoch_opened")
-    );
-    assert!(audit.tail_refusal.is_none());
-    assert_eq!(
-        audit.committed.map(|checkpoint| checkpoint.key.operation_id),
-        Some("op-a".into())
-    );
-    assert!(
-        audit.transitions.iter().all(|entry| !entry.recorded_at.is_empty()),
-        "diagnostic stamps are recorded for audit reading"
-    );
-}
-
-#[test]
 fn a_tab_claiming_nothing_needs_no_proof() {
     let (journal, _dir) = new_journal();
     let mut snapshot = snapshot(vec![leaf("plain-shell")]);

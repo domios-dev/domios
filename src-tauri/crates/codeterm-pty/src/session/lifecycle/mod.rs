@@ -3,7 +3,6 @@
 //! a complete committed checkpoint whose lineage is exactly the snapshot's.
 //! Contract and file format: `docs/TAB-LIFECYCLE.md`.
 
-mod audit;
 mod gate;
 mod journal;
 mod recovery;
@@ -14,7 +13,6 @@ mod stamp;
 #[cfg(test)]
 mod tests;
 
-pub use audit::TabAudit;
 pub use gate::{gate_session_snapshot, TabRecoveryOutcome};
 pub use journal::{
     checkpoints, next_epoch_for, JournalLoad, TabLifecycleJournal, TailStatus, COMPACT_AT_RECORDS,
