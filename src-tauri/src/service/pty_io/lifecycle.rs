@@ -602,9 +602,7 @@ mod restored_snapshot_launch_tests {
     ) -> (MuxState, String, String, String, Option<String>) {
         let (mut state, parent_id) = MultiplexerState::new();
         let workspace_id = state.find_workspace_for_tab(&parent_id).unwrap();
-        state
-            .set_orchestrator_role(&parent_id)
-            .unwrap();
+        state.set_orchestrator_role(&parent_id).unwrap();
         let team_id = state
             .resolve_or_mint_team_for_parent(&parent_id)
             .unwrap()
@@ -639,14 +637,10 @@ mod restored_snapshot_launch_tests {
     #[test]
     fn restored_materialization_preserves_worker_identity_without_assignment_replay() {
         let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(
-            crate::plugin::agent_claude::ClaudeProvider::new(),
-        ));
+        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         let permission_bypass_authorization =
             crate::service::permission_policy::authorize_permission_bypass(
-                &registry,
-                "claude",
-                true,
+                &registry, "claude", true,
             );
         for historical_task in [Some("historical assigned task"), None] {
             let (mux, tab_id, parent_id, team_id, historical_task) =
