@@ -11,7 +11,7 @@ import {
   setRelayTarget,
   setTokenFor,
   usableRelayTarget,
-  webJson,
+  WebApiError,
 } from "../../lib/webApi";
 import type { MeshPeersResponse } from "../../lib/types";
 import { PwaSetup } from "./PwaSetup";
@@ -49,11 +49,17 @@ export function WebGate({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await webJson("GET", "/api/workspaces");
+      // The token authenticates the browser to its OWN daemon, so probe it there.
+      // A relayed probe fails for peer reasons and would blame the token for them.
+      await localJson("GET", "/api/workspaces");
       setState("ready");
-    } catch {
+    } catch (error) {
       setState("need-token");
-      setError("Stored token was rejected — paste a fresh one.");
+      setError(
+        error instanceof WebApiError && (error.status === 401 || error.status === 403)
+          ? "Stored token was rejected — paste a fresh one."
+          : "Cannot reach the CodeTerm daemon on this host.",
+      );
     }
   }, []);
 
@@ -116,10 +122,14 @@ export function WebGate({ children }: { children: ReactNode }) {
     setError(null);
     setTokenFor(apiHost(), token);
     try {
-      await webJson("GET", "/api/workspaces");
+      await localJson("GET", "/api/workspaces");
       setState("ready");
     } catch (e) {
-      setError(`Token rejected by ${apiHost()}: ${String(e).slice(0, 120)}`);
+      setError(
+        e instanceof WebApiError && (e.status === 401 || e.status === 403)
+          ? `Token rejected by ${apiHost()}`
+          : `${apiHost()} did not answer: ${String(e).slice(0, 120)}`,
+      );
     } finally {
       setBusy(false);
     }
