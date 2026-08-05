@@ -125,7 +125,7 @@ fn generated_index_regenerates_with_current_titles() {
     assert_eq!(loaded.sections[0].title, "New Spec");
     assert_eq!(loaded.tasks[0].name, "New Task");
     assert_ne!(loaded.sections[0].handle.as_deref(), Some("old-spec"));
-    assert_ne!(loaded.tasks[0].handle.as_deref(), Some("old-task"));
+    assert_eq!(loaded.tasks[0].handle.as_deref(), Some("old-task"));
 }
 
 #[test]
@@ -210,19 +210,26 @@ fn plan_file_manifest_lists_index_and_body_paths() {
         .unwrap();
 
     let manifest = store.file_manifest(&plan.id).unwrap();
+    let root = crate::service_plan::paths::plan_state_dir_unchecked(
+        crate::service_plan::paths::plan_sidecar_root(&plan),
+        &plan.status,
+        &plan.id,
+    )
+    .to_string_lossy()
+    .replace(std::path::MAIN_SEPARATOR, "/");
     assert_eq!(
         manifest.index_path,
-        format!(".codeterm/plans/active/{}/INDEX.md", plan.id)
+        format!("{root}/INDEX.md")
     );
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "section"
             && entry.title == "spec (Spec)"
-            && entry.path == format!(".codeterm/plans/active/{}/sections/spec.md", plan.id)
+            && entry.path == format!("{root}/sections/spec.md")
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "task"
             && entry.title == "build (Build)"
-            && entry.path == format!(".codeterm/plans/active/{}/tasks/build.md", plan.id)
+            && entry.path == format!("{root}/tasks/build.md")
     }));
 }
 

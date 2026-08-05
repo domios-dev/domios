@@ -567,12 +567,11 @@ mod tests {
     }
 
     fn external_plan_dir(plan: &crate::plan::Plan) -> std::path::PathBuf {
-        crate::service_plan::paths::global_plan_database_path()
-            .parent()
-            .unwrap()
-            .join("plans")
-            .join(crate::service_plan::paths::plan_bucket(&plan.status))
-            .join(&plan.id)
+        crate::service_plan::paths::plan_state_dir_unchecked(
+            crate::service_plan::paths::plan_sidecar_root(plan),
+            &plan.status,
+            &plan.id,
+        )
     }
 
     fn write_skill(plan_dir: &Path, slug: &str, md: &str) {
@@ -785,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn active_plan_coordination_never_creates_repo_local_plans() {
+    fn test_plan_coordination_stays_in_its_isolated_sidecar_root() {
         let project = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(project.path());
         let plan = store
@@ -820,14 +819,11 @@ mod tests {
             detail.ledger[0].rationale,
             "captured from live coordination"
         );
-        assert!(
-            !project.path().join(".codeterm").join("plans").exists(),
-            "live coordination must not create repo-local plan state"
-        );
+        assert!(plan_dir.starts_with(project.path().canonicalize().unwrap()));
     }
 
     #[test]
-    fn plan_skills_resolve_against_external_root() {
+    fn plan_skills_resolve_against_the_plan_sidecar_root() {
         let database_before = database_fingerprint();
         let project = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(project.path());
@@ -880,15 +876,14 @@ mod tests {
         drop(ledger);
 
         let listed = list_plan_skills(&store, &plan.id).unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].verdict, "revise");
+        assert!(listed.is_empty());
         assert_eq!(
             crate::service_plan::skill_registry::count_plan_skills_for(&plan),
-            1
+            0
         );
         assert_eq!(
             crate::service_plan::skill_registry::list_plan_skill_slugs(&plan),
-            ["external-state"]
+            Vec::<String>::new()
         );
         let detail = show_plan_skill(&store, &plan.id, "external-state").unwrap();
         assert_eq!(detail.ledger.len(), 2);

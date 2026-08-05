@@ -2,21 +2,12 @@ use super::*;
 
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
-// A unique, probed loopback port per test outside the ephemeral range, so
-// parallel lifecycle tests never race the bind(:0)->drop->rebind window on the
-// same port. Per-process base separates concurrent test binaries; each atomic
-// candidate is probed and skipped if an external process already holds it.
 fn reserved_test_addr() -> SocketAddr {
     use std::sync::atomic::{AtomicU16, Ordering};
     static SEQ: AtomicU16 = AtomicU16::new(0);
     let base: u16 = 20000 + (std::process::id() % 8000) as u16;
-    loop {
-        let candidate = base.wrapping_add(SEQ.fetch_add(1, Ordering::Relaxed));
-        let addr = SocketAddr::from(([127, 0, 0, 1], candidate));
-        if std::net::TcpListener::bind(addr).is_ok() {
-            return addr;
-        }
-    }
+    let port = base.wrapping_add(SEQ.fetch_add(1, Ordering::Relaxed));
+    SocketAddr::from(([127, 0, 0, 1], port))
 }
 
 async fn wait_for_status<F>(

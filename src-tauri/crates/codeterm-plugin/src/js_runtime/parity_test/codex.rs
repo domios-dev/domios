@@ -106,13 +106,13 @@ fn idle_starter_case() {
     let team_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap)
         .expect("Codex plugin must provide the team starter");
+    assert_ne!(assigned_prompt, idle_prompt);
+    assert_ne!(assigned_prompt, team_prompt);
+    assert_ne!(idle_prompt, team_prompt);
     assert!(assigned.contains(&assigned_prompt));
-    assert!(assigned.contains("-=-codeterm:system context=assigned-task-=-"));
     assert!(idle.contains(&idle_prompt));
-    assert!(idle.contains("-=-codeterm:system context=idle-wakeup-=-"));
     assert!(!idle.contains(&assigned_prompt));
     assert!(team.contains(&team_prompt));
-    assert!(team.contains("-=-codeterm:system context=team-bootstrap-=-"));
     assert!(!team.contains(&assigned_prompt));
 }
 

@@ -354,12 +354,17 @@ pub(crate) fn install_integration_at(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(backup_path(path), original).map_err(|e| e.to_string())?;
-    std::fs::write(
-        backup_state_path(path),
-        if existed { "present" } else { "absent" },
-    )
-    .map_err(|e| e.to_string())?;
+    let backup = backup_path(path);
+    let backup_state = backup_state_path(path);
+    match (backup.exists(), backup_state.exists()) {
+        (false, false) => {
+            std::fs::write(&backup, original).map_err(|e| e.to_string())?;
+            std::fs::write(&backup_state, if existed { "present" } else { "absent" })
+                .map_err(|e| e.to_string())?;
+        }
+        (true, true) => {}
+        _ => return Err("integration backup state is incomplete".into()),
+    }
     write_json_atomic(path, &json)?;
     log::info!("[agent-claude] hooks installed at {:?}", path);
     Ok(())

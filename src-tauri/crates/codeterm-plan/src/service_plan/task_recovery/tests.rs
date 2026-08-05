@@ -206,7 +206,7 @@ fn recovery_refuses_while_the_owner_tab_is_still_live() {
     let error = store
         .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Pending), |_| true, 10)
         .unwrap_err();
-    assert!(matches!(error, PlanError::Io(_)));
+    assert!(matches!(error, PlanError::Io(_)), "{error:?}");
     let after = task_of(&store, &plan_id, &task_id);
     assert_eq!(after.interruption.owner_tab_id.as_deref(), Some(GONE_TAB));
 }

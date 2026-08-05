@@ -149,6 +149,13 @@ wait_for_dev_exit() {
 }
 
 CMD="${1:-dev}"
+run_workspace_lib_tests() {
+  local package
+  for package in codeterm codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin; do
+    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
+  done
+}
+
 case "$CMD" in
   gateway-*|help) ;;
   *) setup_env ;;
@@ -1388,7 +1395,7 @@ EOF
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ct_configure_sccache
-    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    run_workspace_lib_tests
     ;;
   test-one)
     test_scope="${2:?test-one requires app, plan, pty, types, mem, mesh, plugin, or cli}"
@@ -1411,7 +1418,7 @@ EOF
     prepare_bundle_stubs
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
-    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    run_workspace_lib_tests
     bash scripts/check-file-sizes.sh --fail
     ;;
   worktree-check)

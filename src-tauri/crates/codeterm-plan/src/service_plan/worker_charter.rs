@@ -254,12 +254,22 @@ mod tests {
 
     #[test]
     fn charter_appends_worker_line_when_plan_has_skills() {
-        let (dir, store, _task_id) = store_with_assigned_task();
-        let skill_dir = dir
-            .path()
-            .join(".codeterm/plans/active/pl_charter/skills/seed-fixtures");
+        let (_dir, store, _task_id) = store_with_assigned_task();
+        let plan = store.get("pl_charter").unwrap();
+        let skill_dir = crate::service_plan::paths::plan_state_dir_unchecked(
+            crate::service_plan::paths::plan_sidecar_root(&plan),
+            &plan.status,
+            &plan.id,
+        )
+        .join("skills/seed-fixtures");
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(skill_dir.join("SKILL.md"), "# Seed fixtures").unwrap();
+        std::fs::write(
+            skill_dir.parent().unwrap().join("ledger.jsonl"),
+            r#"{"seq":1,"slug":"seed-fixtures","verdict":"keep","rationale":"fixture"}
+"#,
+        )
+        .unwrap();
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
 

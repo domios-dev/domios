@@ -122,6 +122,11 @@ impl PlanStore {
             });
             Ok(())
         });
+        let write = match write {
+            Ok(()) => Ok(()),
+            Err(error @ PlanError::WritePending { .. }) => Err(error),
+            Err(error) => return Err(error),
+        };
         let retirement = retirement.ok_or_else(|| {
             Self::task_readback_error("task_owner_retire", "retirement was not applied")
         })?;

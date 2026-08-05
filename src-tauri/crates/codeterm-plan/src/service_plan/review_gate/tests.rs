@@ -46,7 +46,7 @@ fn set_status(
         None,
         None,
         Some(status),
-        None,
+        Some(None),
         None,
         None,
         None,
@@ -83,6 +83,46 @@ fn dispatch(
         attempt.report = Some(Default::default());
         Ok(())
     })
+}
+
+fn deliver_bounce(
+    store: &PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    result: &ReviewTransitionResult,
+    now: u64,
+) {
+    let continuation = result.continuation.as_ref().unwrap();
+    let claimed = store
+        .claim_review_continuation_delivery(
+            plan_id,
+            task_id,
+            &continuation.attempt_id,
+            continuation.epoch,
+            now,
+        )
+        .unwrap();
+    let task = store.show_task(task_id).unwrap().task;
+    assert!(
+        claimed,
+        "status={:?} label={:?} continuation={:?}",
+        task.status,
+        task.status_label,
+        task.execution_attempts
+            .iter()
+            .map(|attempt| (&attempt.id, &attempt.continuation))
+            .collect::<Vec<_>>()
+    );
+    assert!(store
+        .finish_review_continuation(
+            plan_id,
+            task_id,
+            &continuation.attempt_id,
+            continuation.epoch,
+            true,
+            now + 1,
+        )
+        .unwrap());
 }
 
 #[test]
@@ -709,7 +749,7 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
 
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
-    store
+    let first = store
         .bounce_review(
             &plan_id,
             &task_id,
@@ -720,8 +760,9 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
             5,
         )
         .unwrap();
-    set_status(&store, &plan_id, &task_id, "in_review", 6).unwrap();
-    store
+    deliver_bounce(&store, &plan_id, &task_id, &first, 6);
+    set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap();
+    let second = store
         .bounce_review(
             &plan_id,
             &task_id,
@@ -729,12 +770,13 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
             false,
             false,
             AgentRef::from_tab("rev"),
-            7,
+            9,
         )
         .unwrap();
+    deliver_bounce(&store, &plan_id, &task_id, &second, 10);
 
     // Third round: default max is 2, so this must be rejected without an override.
-    let err = set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap_err();
+    let err = set_status(&store, &plan_id, &task_id, "in_review", 12).unwrap_err();
     assert!(matches!(
         err,
         PlanError::ReviewRoundExceeded {
@@ -743,7 +785,7 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
         }
     ));
 
-    let err = store.record_review_override(&plan_id, &task_id, "", "reason", "repro", 9);
+    let err = store.record_review_override(&plan_id, &task_id, "", "reason", "repro", 13);
     assert!(matches!(err, Err(PlanError::ReviewOverrideIncomplete)));
 
     store
@@ -753,10 +795,10 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
             "andrey",
             "P0 hotfix",
             "steps to repro",
-            9,
+            14,
         )
         .unwrap();
-    set_status(&store, &plan_id, &task_id, "in_review", 10).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 15).unwrap();
 
     let plan = store.get(&plan_id).unwrap();
     let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
@@ -823,7 +865,7 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
     let task_id = add_ready_task(&store, &plan_id, "authorized-correction", 2);
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
-    store
+    let bounce = store
         .bounce_review(
             &plan_id,
             &task_id,
@@ -834,9 +876,10 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
             5,
         )
         .unwrap();
+    deliver_bounce(&store, &plan_id, &task_id, &bounce, 6);
 
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .with_plan(&plan_id, 8, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -857,25 +900,19 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
             "andrey",
             "authorized correction",
             "reproduced stale oracle",
-            7,
+            9,
         )
         .unwrap();
 
     let before = store.show_task(&task_id).unwrap().task;
     let stored = before.review_oracle.as_ref().unwrap();
     let current = oracle_signature(&before);
-    println!(
-        "stored review_oracle length={} current oracle_signature length={} equal={}",
-        stored.len(),
-        current.len(),
-        stored == &current
-    );
     assert_ne!(stored, &current);
     let reports_before = before.execution_attempts.clone();
     let milestones_before = before.milestones.clone();
     let audit_before = before.review_audit.clone();
 
-    set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 10).unwrap();
 
     let after = store.show_task(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::InReview);
@@ -894,7 +931,7 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
     let task_id = add_ready_task(&store, &plan_id, "residual-risk", 2);
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
-    store
+    let first = store
         .bounce_review(
             &plan_id,
             &task_id,
@@ -905,8 +942,9 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
             5,
         )
         .unwrap();
-    set_status(&store, &plan_id, &task_id, "in_review", 6).unwrap();
-    store
+    deliver_bounce(&store, &plan_id, &task_id, &first, 6);
+    set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap();
+    let second = store
         .bounce_review(
             &plan_id,
             &task_id,
@@ -914,13 +952,14 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
             false,
             false,
             AgentRef::from_tab("rev"),
-            7,
+            9,
         )
         .unwrap();
+    deliver_bounce(&store, &plan_id, &task_id, &second, 10);
     store
-        .record_review_override(&plan_id, &task_id, "andrey", "P0", "repro", 8)
+        .record_review_override(&plan_id, &task_id, "andrey", "P0", "repro", 12)
         .unwrap();
-    set_status(&store, &plan_id, &task_id, "in_review", 9).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 13).unwrap();
 
     let result = store
         .accept_review(
@@ -931,7 +970,7 @@ fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
             false,
             Some("edge case Z untested"),
             AgentRef::from_tab("rev"),
-            10,
+            14,
         )
         .unwrap();
     assert!(result.follow_up_task_id.is_some());

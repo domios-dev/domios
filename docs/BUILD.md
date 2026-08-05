@@ -194,7 +194,7 @@ an agent turn never blocks silently behind a long-lived dev process. Add
 
 Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|mesh|plugin|cli> <filter>`
 hides manifest/package details for focused capped tests; `verify` runs the
-standard check, unit-test, and source-size integration gate.
+standard check, full Rust workspace library suite, and source-size integration gate.
 
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command also regenerates
@@ -225,10 +225,11 @@ production app during startup, in-app update, or `install-local`.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | CI semantic-search tests fail by executing a zero-byte `codeterm-embed` stub | The compile-time Tauri resource placeholder survived into a test that exercises the real embedding process. | Build the debug `codeterm-embed` sidecar after preparing resource stubs and before Rust library tests; never skip the semantic oracle. |
 | macOS Rust tests panic because a mock Tauri `EventLoop` was created off the main thread | A `ServiceFixture` test ran in libtest's worker thread even though the shared desktop fixture is Windows-owned. | Mark that fixture-backed test ignored off Windows and keep its platform-neutral logic covered by tests that do not construct a desktop runtime. |
-| macOS REST restart tests fail to rebind with `Address already in use` after graceful shutdown | Darwin retains the prior listener address across the immediate generation handoff unless the replacement socket opts into restart reuse. | Enable `SO_REUSEPORT` only for replacement generations; keep initial binds exclusive so another CodeTerm process cannot share the port. |
+| macOS REST restart tests fail to rebind with `Address already in use` after graceful shutdown | Darwin retains the prior listener address across the immediate generation handoff unless CodeTerm sockets opt into shared-port rebinding. | Keep `SO_REUSEPORT` enabled on every macOS CodeTerm REST bind; process exclusivity is enforced by the application instance guard, while non-reuse external occupiers still block the port. |
+| CI fails standalone crate tests that passed local `verify` | The local gate ran only the app package, so Cargo compiled dependency libraries without running their own unit tests. | Use the current `verify`, which runs every `src-tauri` workspace library package under its own cap; repair focused crate tests before retrying the broad gate. |
 
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 71 -->
+<!-- revision: 72 -->
