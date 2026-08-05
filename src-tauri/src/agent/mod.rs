@@ -15,6 +15,7 @@ pub mod offline_state_classifier;
 pub mod plugin_registrar;
 pub mod prompt;
 pub mod provider;
+pub mod recovered_seat_auth;
 pub mod registry;
 pub mod reports;
 pub mod run_watcher;
