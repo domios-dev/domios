@@ -1,6 +1,7 @@
 use crate::args::agent::ReportArgs;
 use crate::client::SocketClient;
 use crate::cmd::hints::maybe_orchestration_reminder;
+use crate::cmd::plan::caller_context::CallerContext;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::{handle_result, print_object};
 use crate::cmd::report_guard::ReportRefusal;
@@ -673,7 +674,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                                 "task_id": tid,
                                 "kind": "qa",
                                 "text": milestone_text,
-                                "from": crate::cmd::plan::owner_from_env(),
+                                "from": CallerContext::from_env().owner(),
                             });
                             let _ = crate::cmd::plan::call_plan_rpc(
                                 client,

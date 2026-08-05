@@ -2,13 +2,15 @@ use crate::args::plan::PlanDecisionAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, maybe_inject_caller_tab};
+use super::call_plan_rpc;
+use super::caller_context::CallerContext;
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanDecisionAction,
 ) -> Result<Option<Value>, String> {
+    let ctx = CallerContext::from_env();
     match action {
         PlanDecisionAction::Ask {
             plan_id,
@@ -26,7 +28,7 @@ pub(super) fn handle(
             if let Some(tab) = asked_by_tab {
                 params["asked_by_tab_id"] = json!(tab);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             let gate = call_plan_rpc(client, "plan.decision.ask", params)?;
             if json_output {
                 return Ok(Some(gate));
@@ -49,7 +51,7 @@ pub(super) fn handle(
             if let Some(tab) = answered_by_tab {
                 params["answered_by_tab_id"] = json!(tab);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             let gate = call_plan_rpc(client, "plan.decision.answer", params)?;
             if json_output {
                 return Ok(Some(gate));
@@ -66,7 +68,7 @@ pub(super) fn handle(
                 "plan_id": plan_id,
                 "request_id": request_id,
             });
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             let request = call_plan_rpc(client, "plan.decision.ack_request", params)?;
             if json_output {
                 return Ok(Some(request));
