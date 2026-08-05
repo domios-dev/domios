@@ -4,7 +4,7 @@ use crate::{
         send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
         team::split_provider_model,
     },
-    MemAction, MemGraphAction, ServiceAction, TeamAction,
+    AgentAction, MemAction, MemGraphAction, ServiceAction,
 };
 use serde_json::json;
 
@@ -12,16 +12,12 @@ use super::unsupported;
 
 /// `team pair` is the sole Team action with a REST form. The body is the one
 /// `orchestration new` posted; the socket-only `spawned_by_tab_id` stays local.
-pub(super) fn team_to_api(action: &TeamAction) -> (String, String, Option<String>) {
-    let TeamAction::Pair {
-        orchestrator,
-        planner,
-        workspace,
-        title,
-    } = action
-    else {
-        return unsupported("team management is local-only — run it on the target machine");
-    };
+pub(super) fn team_pair_to_api(
+    orchestrator: &str,
+    planner: &str,
+    workspace: &Option<String>,
+    title: &Option<String>,
+) -> (String, String, Option<String>) {
     let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
     let (planner_agent, planner_model) = split_provider_model(planner);
     let mut body = json!({
@@ -692,5 +688,167 @@ pub(crate) fn service_to_api(action: &ServiceAction) -> (String, String, Option<
                 )
             }
         }
+    }
+}
+
+/// `agent spawn` carries the widest body in the mesh map; it stays here as
+/// per-command REST construction, not a transport decision.
+pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<String>) {
+    match action {
+        crate::AgentAction::Spawn {
+            agent,
+            title,
+            description,
+            task,
+            task_file,
+            role,
+            parent,
+            plan,
+            report_to,
+            workspace,
+            can_spawn,
+            cwd,
+            args,
+            model,
+            reasoning_effort,
+            system_prompt,
+            preset,
+            charter,
+            charter_file,
+            interval,
+            nudge_cooldown,
+            max_actions,
+            bound_task,
+            plan_task,
+            execution_intent,
+            provider_reserve_pct,
+            non_user_facing,
+        } => {
+            let task = match crate::cmd::agent::resolve_spawn_task(
+                task.clone(),
+                task_file.clone(),
+                cwd.as_deref(),
+                &mut std::io::stdin(),
+            ) {
+                Ok(t) => t,
+                Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
+            };
+            let charter = match crate::cmd::agent::resolve_spawn_charter(
+                charter.clone(),
+                charter_file.clone(),
+                &mut std::io::stdin(),
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    return unsupported(&format!("agent spawn charter input error: {}", e))
+                }
+            };
+            let agent_name = agent.as_str();
+            let title = crate::cmd::agent::join_cli_words(title.clone());
+            let mut body = serde_json::json!({
+                "agent": agent_name,
+                "title": title,
+                "task": task,
+            });
+            if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
+                match crate::cmd::agent::normalize_tab_description(&d) {
+                    Ok(Some(d)) => body["description"] = serde_json::json!(d),
+                    Ok(None) => body["description"] = serde_json::json!(""),
+                    Err(e) => return unsupported(&e),
+                }
+            }
+            if let Some(r) = role {
+                body["role"] = serde_json::json!(r.as_str());
+                if let Some(profile) = r.role_profile() {
+                    body["role_profile"] = serde_json::json!(profile);
+                }
+            }
+            if let Some(p) = parent {
+                body["parent_tab_id"] = serde_json::json!(p);
+            }
+            if let Some(pl) = plan {
+                body["plan_id"] = serde_json::json!(pl);
+            }
+            let report_to = report_to.clone().or_else(|| {
+                std::env::var("CODETERM_TAB_ID")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+            if let Some(rt) = report_to {
+                body["report_to"] = serde_json::json!(rt);
+            }
+            if let Some(w) = workspace {
+                body["workspace_id"] = serde_json::json!(w);
+            }
+            if *can_spawn {
+                body["can_spawn"] = serde_json::json!(true);
+            }
+            if let Some(c) = cwd {
+                body["cwd"] = serde_json::json!(c);
+            }
+            if let Some(a) = args {
+                if !a.is_empty() {
+                    body["args"] = serde_json::json!(a);
+                }
+            }
+            if let Some(m) = model {
+                body["model"] = serde_json::json!(m);
+            }
+            if let Some(effort) = reasoning_effort {
+                body["reasoning_effort"] = serde_json::json!(effort);
+            }
+            if let Some(system_prompt) = system_prompt {
+                body["system_prompt"] = serde_json::json!(system_prompt);
+            }
+            if let Some(preset) = preset {
+                body["preset"] = serde_json::json!(preset);
+            }
+            if let Some(charter) = charter {
+                body["charter"] = serde_json::json!(charter);
+            }
+            if let Some(interval) = interval {
+                let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval")
+                {
+                    Ok(v) => v,
+                    Err(e) => return unsupported(&e),
+                };
+                body["tick_interval_secs"] = serde_json::json!(secs);
+            }
+            if let Some(nudge_cooldown) = nudge_cooldown {
+                let secs = match crate::cmd::agent::parse_duration_secs(
+                    nudge_cooldown,
+                    "--nudge-cooldown",
+                ) {
+                    Ok(v) => v,
+                    Err(e) => return unsupported(&e),
+                };
+                body["nudge_cooldown_secs"] = serde_json::json!(secs);
+            }
+            if let Some(max_actions) = max_actions {
+                body["max_actions_per_tick"] = serde_json::json!(max_actions);
+            }
+            if let Some(tid) = bound_task {
+                body["task_id"] = serde_json::json!(tid);
+            }
+            if let Some(pt) = plan_task {
+                body["plan_task"] = serde_json::json!(pt);
+            }
+            if let Some(intent) = execution_intent {
+                body["execution_intent"] = serde_json::json!(intent);
+                body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
+            }
+            if *non_user_facing {
+                body["audience"] = serde_json::json!("automation");
+            }
+            (
+                "POST".into(),
+                "/api/agents/spawn".into(),
+                Some(body.to_string()),
+            )
+        }
+        crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
+            ("GET".into(), "/api/agents/providers".into(), None)
+        }
+        _ => ("GET".into(), "/api/tabs".into(), None),
     }
 }
