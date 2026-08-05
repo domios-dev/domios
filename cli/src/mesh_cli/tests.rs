@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{BridgeAction, Commands, UpdateAction};
+use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -25,6 +25,47 @@ fn peer_api_url_skips_loopback_addresses() {
     assert_eq!(
         super::relay::peer_api_url(&peer).as_deref(),
         Some("http://100.64.10.1:7685")
+    );
+}
+
+#[test]
+fn tailscale_hint_fires_only_for_tailscale_addresses() {
+    let hint = |url: &str| super::relay::tailscale_unreachable_hint(url);
+    assert!(
+        hint("http://100.64.10.2:7685").is_some(),
+        "CGNAT 100.64/10"
+    );
+    assert!(
+        hint("https://blackstar.example-tailnet.ts.net").is_some(),
+        "ts.net host"
+    );
+    assert!(
+        hint("http://100.64.10.1:7685").is_some(),
+        "CGNAT with port"
+    );
+    assert!(
+        hint("http://192.168.1.5:7685").is_none(),
+        "LAN IP is not Tailscale"
+    );
+    assert!(
+        hint("http://100.200.1.1:7685").is_none(),
+        "100.200 is outside 100.64/10"
+    );
+    assert!(hint("http://10.0.0.1:7685").is_none(), "private range");
+    assert!(
+        hint("http://100.64.10.2:7685")
+            .unwrap()
+            .contains("tailscale ping"),
+        "hint names the remediation"
+    );
+    assert!(
+        hint("Network error: error sending request for url (http://100.64.10.2:7685/api/mesh/relay)")
+            .is_some(),
+        "detects a Tailscale address inside a daemon error body"
+    );
+    assert!(
+        hint("HTTP 500: internal server error, no address in this body").is_none(),
+        "plain 5xx text without a Tailscale address stays silent"
     );
 }
 
@@ -61,8 +102,9 @@ fn peer_api_url_brackets_ipv6_host() {
 fn paste_put_over_mesh_maps_to_remote_pasteboard_create() {
     let cmd = Commands::Paste {
         action: crate::PasteAction::Put {
-            body: "payload".into(),
+            body: Some("payload".into()),
             from_file: None,
+            from_pad: None,
             from_stdin: false,
             ttl: Some("5m".into()),
             content_type: Some("text/plain".into()),
@@ -105,6 +147,7 @@ fn bridge_send_over_mesh_decodes_quoted_newline() {
     let (method, path, body) = cli_command_to_api(&Commands::Bridge {
         action: BridgeAction::Send {
             text: Some("first\\nsecond".into()),
+            from_pad: None,
             raw_text: false,
             service: "telegram".into(),
             to: 42,
@@ -230,6 +273,33 @@ fn update_install_local_only_options_are_rejected_over_mesh() {
     assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
     assert!(reason.contains("local-only"), "reason: {reason}");
     assert!(b.is_none());
+}
+
+/// Persona reads the serving daemon's compiled prompts and its own overlay
+/// directory, so a mesh call must refuse rather than answer from local state.
+#[test]
+fn persona_inspection_is_refused_over_mesh_for_every_subcommand() {
+    use crate::args::persona::PersonaAction;
+
+    for action in [
+        PersonaAction::List,
+        PersonaAction::Reload,
+        PersonaAction::Show {
+            role: "Worker".into(),
+            kind: Some("rust-backend-dev".into()),
+            guidance: None,
+            occasion: None,
+        },
+    ] {
+        let (m, reason, b) = cli_command_to_api(&Commands::Persona { action });
+        assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+        assert!(reason.contains("socket-only"), "reason: {reason}");
+        assert!(
+            reason.contains("overlay directory"),
+            "the refusal must say whose catalog would be wrong: {reason}"
+        );
+        assert!(b.is_none(), "a refused command carries no body");
+    }
 }
 
 #[test]
@@ -526,6 +596,7 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     let inspect = Commands::Tab {
         action: TabAction::Inspect {
             tabs: vec!["tab_1".into(), "tab_2".into()],
+            tab: vec![],
         },
     };
     let (method, path, body) = cli_command_to_api(&inspect);
@@ -540,6 +611,17 @@ fn remote_worker_forget_body_matches_registry_delete_contract() {
     assert_eq!(body["peer"], "ROG");
     assert_eq!(body["remote_tab"], "tab_1");
     assert!(body.get("orchestrator_tab").is_none());
+}
+
+#[test]
+fn canonical_tab_close_preserves_remote_worker_cleanup_route() {
+    let mut action = TabAction::Close {
+        id: None,
+        tab: Some("tab_remote".into()),
+    };
+    crate::args::misc::normalize_required_tab_selector(&mut action).unwrap();
+    let command = Commands::Tab { action };
+    assert_eq!(super::remote_close_tab_id(&command), Some("tab_remote"));
 }
 
 #[test]
@@ -649,6 +731,7 @@ fn send_text_is_fire_and_forget_on_mesh() {
         text: Some("ping".into()),
         tab: Some("abc123".into()),
         from_file: None,
+        from_pad: None,
         stdin: false,
         actions: None,
         delay: None,
@@ -671,6 +754,7 @@ fn send_delay_maps_to_delayed_messages() {
         text: Some("later".into()),
         tab: Some("abc123".into()),
         from_file: None,
+        from_pad: None,
         stdin: false,
         actions: None,
         delay: Some("1m".into()),
@@ -695,6 +779,7 @@ fn send_text_stdin_mesh_body_preserves_exact_text() {
         &None,
         &Some("abc123".into()),
         &None,
+        &None,
         true,
         &None,
         &mut stdin,
@@ -713,6 +798,7 @@ fn send_actions_allows_empty_payload_on_mesh() {
     let (m, p, b) = super::api_map::send_text_to_api(
         &None,
         &Some("abc123".into()),
+        &None,
         &None,
         true,
         &actions,

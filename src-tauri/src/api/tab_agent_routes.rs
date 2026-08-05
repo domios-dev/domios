@@ -19,6 +19,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route("/api/tabs/{id}/stop", post(tab_routes::stop_tab))
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))
+        .route(
+            "/api/tabs/{id}/restart",
+            post(tab_routes::restart_shell_tab),
+        )
         .route("/api/tabs/{id}/rename", post(tab_routes::rename_tab))
         .route("/api/tabs/{id}/describe", post(tab_routes::describe_tab))
         .route("/api/tabs/{id}/output", get(tab_routes::get_tab_output))

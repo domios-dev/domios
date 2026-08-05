@@ -10,7 +10,11 @@ pub(crate) struct RoleIdentityContext<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ManagerBootstrapInputs {
+    /// Display label for the manager kind (e.g. "Orchestrator", "Planner").
     pub role: String,
+    /// Role kind id — the preset key. Guidance is resolved from this, never
+    /// from the display label.
+    pub role_kind: String,
     pub team_id: String,
     pub team_name: String,
     pub plan_id: String,
@@ -20,11 +24,12 @@ pub(crate) struct ManagerBootstrapInputs {
 
 impl ManagerBootstrapInputs {
     pub(crate) fn compose(&self) -> String {
-        let role_guidance = if self.role == "Orchestrator" {
-            crate::prompts::orchestrator_suffix()
-        } else {
-            crate::prompts::planner_suffix()
-        };
+        let role_guidance = crate::service::persona::guidance_for(
+            crate::service::persona::Occasion::ManagerBootstrap,
+            Some(crate::multiplexer::types::AgentRole::Manager),
+            Some(&self.role_kind),
+            None,
+        );
         let identity = compose_role_identity(RoleIdentityContext {
             role: &self.role,
             team_id: &self.team_id,
@@ -61,6 +66,31 @@ mod tests {
 
     fn golden(text: &str) -> String {
         text.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn manager_bootstrap_embeds_the_matching_canonical_manual() {
+        for (role, role_kind, manual) in [
+            (
+                "Orchestrator",
+                "orchestrator",
+                crate::prompts::ORCHESTRATION_DOC,
+            ),
+            ("Planner", "planner", crate::prompts::PLANNER_DOC),
+        ] {
+            let rendered = ManagerBootstrapInputs {
+                role: role.into(),
+                role_kind: role_kind.into(),
+                team_id: "team-1".into(),
+                team_name: "Team".into(),
+                plan_id: "plan-1".into(),
+                project: "CodeTerm".into(),
+                coordination: None,
+            }
+            .compose();
+
+            assert_eq!(rendered.matches(manual.trim()).count(), 1);
+        }
     }
 
     #[test]
@@ -115,6 +145,7 @@ mod tests {
     fn pair_bootstrap_never_fabricates_team_or_plan_ids() {
         let text = ManagerBootstrapInputs {
             role: "Planner".into(),
+            role_kind: "planner".into(),
             team_id: "not yet established".into(),
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),
@@ -133,6 +164,7 @@ mod tests {
         let coordination = "Your Planner counterpart is Euler (tab planner-1).";
         let mut inputs = ManagerBootstrapInputs {
             role: "Orchestrator".into(),
+            role_kind: "orchestrator".into(),
             team_id: "not yet established".into(),
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),

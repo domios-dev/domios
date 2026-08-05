@@ -1,11 +1,23 @@
 use crate::args::agent::ReportArgs;
 use crate::client::SocketClient;
 use crate::cmd::hints::maybe_orchestration_reminder;
+use crate::cmd::plan::caller_context::CallerContext;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::{handle_result, print_object};
 use crate::cmd::report_guard::ReportRefusal;
-use crate::{build_http, read_api_config, resolve_tab, AgentAction};
+use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
+
+fn absolute_spawn_base(
+    spawn_cwd: Option<&str>,
+    caller_cwd: &std::path::Path,
+) -> std::path::PathBuf {
+    match spawn_cwd.map(std::path::Path::new) {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        Some(path) => caller_cwd.join(path),
+        None => caller_cwd.to_path_buf(),
+    }
+}
 
 /// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
 /// reads the file verbatim (or stdin when the value is `-`), so the body never
@@ -13,6 +25,19 @@ use std::io::Read;
 pub fn resolve_spawn_task<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
+    spawn_cwd: Option<&str>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    let caller_cwd = std::env::current_dir()
+        .map_err(|error| format!("failed to resolve caller cwd for --task-file: {error}"))?;
+    resolve_spawn_task_from(task, task_file, spawn_cwd, &caller_cwd, stdin)
+}
+
+fn resolve_spawn_task_from<R: Read>(
+    task: Option<String>,
+    task_file: Option<String>,
+    spawn_cwd: Option<&str>,
+    caller_cwd: &std::path::Path,
     stdin: &mut R,
 ) -> Result<Option<String>, String> {
     match (task, task_file) {
@@ -26,9 +51,20 @@ pub fn resolve_spawn_task<R: Read>(
                     .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
                 Ok(Some(buf))
             } else {
-                std::fs::read_to_string(&path)
-                    .map(Some)
-                    .map_err(|e| format!("failed to read --task-file {}: {}", path, e))
+                let requested = std::path::Path::new(&path);
+                let base = absolute_spawn_base(spawn_cwd, caller_cwd);
+                let resolved = if requested.is_absolute() {
+                    requested.to_path_buf()
+                } else {
+                    base.join(requested)
+                };
+                std::fs::read_to_string(&resolved).map(Some).map_err(|e| {
+                    format!(
+                        "failed to read --task-file {path} (resolved from {} as {}): {e}",
+                        base.display(),
+                        resolved.display()
+                    )
+                })
             }
         }
         (None, None) => Ok(None),
@@ -306,16 +342,19 @@ fn format_reasoning_efforts(target: &serde_json::Value) -> String {
 }
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
-    let (base, token) = read_api_config();
-    let http = match build_http(&token) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
+    let (base, _) = read_api_config();
+    let local_http = match build_local_api() {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("Error: failed to connect to local API: {error}");
             std::process::exit(1);
         }
     };
     match action {
-        AgentAction::Providers => match http.get(format!("{}/api/agents/providers", base)).send() {
+        AgentAction::Providers => match local_http
+            .get(format!("{}/api/agents/providers", base))
+            .send()
+        {
             Ok(resp) => {
                 let status = resp.status();
                 let val: serde_json::Value = resp.json().unwrap_or_default();
@@ -362,7 +401,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
         },
         AgentAction::Models { provider } => {
-            match http.get(format!("{}/api/agents/providers", base)).send() {
+            match local_http
+                .get(format!("{}/api/agents/providers", base))
+                .send()
+            {
                 Ok(resp) => {
                     let val: serde_json::Value = resp.json().unwrap_or_default();
                     let Some(arr) = val.as_array() else {
@@ -406,12 +448,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::SetOrchestrator { tab } => {
             let tab_id = resolve_tab(client, tab);
-            match http
+            match local_http
                 .post(format!("{}/api/tabs/{}/role", base, tab_id))
                 .json(&serde_json::json!({"role": "Orchestrator"}))
                 .send()
             {
-                Ok(resp) => print_agent_mutation_response(resp),
+                Ok(resp) => print_local_agent_mutation_response(resp),
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -420,18 +462,21 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Link { parent, tab } => {
             let tab_id = resolve_tab(client, tab);
-            let parent_resp = http
+            let parent_resp = local_http
                 .get(format!("{}/api/tabs/{}/status", base, parent))
                 .send();
             let role = match parent_resp {
                 Ok(resp) => {
                     let val: serde_json::Value = resp.json().unwrap_or_default();
-                    match val.get("role").and_then(|v| v.as_str()) {
-                        Some("Orchestrator") | Some("Conductor") => "Worker",
-                        _ => {
-                            eprintln!("Parent must be an Orchestrator");
-                            std::process::exit(1);
-                        }
+                    let anchors = val
+                        .get("role_profile")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|kind| kind == "orchestrator" || kind == "general_agent");
+                    if anchors {
+                        "Worker"
+                    } else {
+                        eprintln!("Parent must be an Orchestrator");
+                        std::process::exit(1);
                     }
                 }
                 Err(e) => {
@@ -439,12 +484,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     std::process::exit(1);
                 }
             };
-            match http
+            match local_http
                 .post(format!("{}/api/tabs/{}/role", base, tab_id))
                 .json(&serde_json::json!({"role": role, "parent_tab_id": parent}))
                 .send()
             {
-                Ok(resp) => print_agent_mutation_response(resp),
+                Ok(resp) => print_local_agent_mutation_response(resp),
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -453,11 +498,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Unlink { tab } => {
             let tab_id = resolve_tab(client, tab);
-            match http
+            match local_http
                 .delete(format!("{}/api/tabs/{}/role", base, tab_id))
                 .send()
             {
-                Ok(resp) => print_agent_mutation_response(resp),
+                Ok(resp) => print_local_agent_mutation_response(resp),
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -466,7 +511,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::AllowSpawn { tab, enable } => {
             let tab_id = resolve_tab(client, tab);
-            match http
+            match local_http
                 .post(format!("{}/api/tabs/{}/can-spawn", base, tab_id))
                 .json(&serde_json::json!({"can_spawn": enable}))
                 .send()
@@ -486,6 +531,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             text,
             kind,
             doc,
+            from_pad,
             tab,
             plan,
             task,
@@ -517,7 +563,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
             let tab_id = resolve_tab(client, tab);
-            let mut message = text.or(message).unwrap_or_default();
+            let mut message = if let Some(path) = from_pad {
+                crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                })
+            } else {
+                let inline = text.or(message).unwrap_or_default();
+                crate::cmd::send_text::nudge_report_body(json, &inline);
+                inline
+            };
             if let Some(path) = doc {
                 let doc_text = match std::fs::read_to_string(&path) {
                     Ok(text) => text,
@@ -547,8 +602,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             let mut body = serde_json::json!({
                 "tab_id": tab_id,
+                "caller_tab_id": tab_id,
                 "message": message,
             });
+            if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
+                body["caller_session_id"] = serde_json::json!(session_id);
+            }
+            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+                body["session_binding_nonce"] = serde_json::json!(nonce);
+            }
             if let Some(k) = kind {
                 body["kind"] = serde_json::json!(k);
             }
@@ -557,6 +619,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(ref t) = task {
                 body["task_id"] = serde_json::json!(t);
+            }
+            if let (Some(ref p), Some(ref t)) = (&plan, &task) {
+                let shown = client.call_detailed(
+                    "task.show",
+                    Some(serde_json::json!({ "plan_id": p, "task_id": t })),
+                );
+                if let Ok(shown) = shown {
+                    if let Some(epoch) = shown
+                        .get("task")
+                        .unwrap_or(&shown)
+                        .get("interruption")
+                        .and_then(|value| value.get("owner_epoch"))
+                        .and_then(|value| value.as_u64())
+                    {
+                        body["owner_epoch"] = serde_json::json!(epoch);
+                    }
+                }
             }
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
@@ -597,7 +676,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                                 "task_id": tid,
                                 "kind": "qa",
                                 "text": milestone_text,
-                                "from": crate::cmd::plan::owner_from_env(),
+                                "from": CallerContext::from_env().owner(),
                             });
                             let _ = crate::cmd::plan::call_plan_rpc(
                                 client,
@@ -663,7 +742,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(value) if json => {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 }
-                Ok(_) => println!("acknowledged"),
+                Ok(value) => match render_agent_ack(&value) {
+                    Ok(message) => println!("{message}"),
+                    Err(error) => {
+                        eprintln!("ACK NOT ACCEPTED: {error}");
+                        std::process::exit(1);
+                    }
+                },
                 Err(error) => {
                     eprintln!("ACK NOT ACCEPTED: {error}");
                     std::process::exit(1);
@@ -695,6 +780,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             max_actions,
             bound_task,
             plan_task,
+            execution_intent,
+            provider_reserve_pct,
             non_user_facing,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
@@ -704,13 +791,30 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 eprintln!("Error: --workspace is required when spawning --role Orchestrator");
                 std::process::exit(1);
             }
-            let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+            // A Planner names its plan instead of a parent — the plan record
+            // owns the anchor it binds to.
+            if matches!(role, Some(crate::args::agent::SpawnRole::Planner))
+                && plan.is_none()
+                && parent.is_none()
+            {
+                eprintln!(
+                    "Error: --plan <id> is required when spawning --role Planner (or pass --parent)"
+                );
+                std::process::exit(1);
+            }
+            if task_file.is_none() {
+                if let Some(t) = task.as_deref() {
+                    crate::cmd::send_text::nudge_spawn_task(json, t);
                 }
-            };
+            }
+            let task =
+                match resolve_spawn_task(task, task_file, cwd.as_deref(), &mut std::io::stdin()) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                };
             let charter = match resolve_spawn_charter(charter, charter_file, &mut std::io::stdin())
             {
                 Ok(t) => t,
@@ -824,6 +928,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
             }
+            if let Some(intent) = execution_intent {
+                body["execution_intent"] = serde_json::json!(intent);
+                body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
+            }
             if non_user_facing {
                 body["audience"] = serde_json::json!("automation");
             }
@@ -908,7 +1016,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         AgentAction::Compact { tab } => {
             let tab_id = resolve_tab(client, tab);
             let cmd = "/compact\n";
-            match http
+            match local_http
                 .post(format!("{}/api/tabs/{}/send", base, tab_id))
                 .json(&serde_json::json!({"text": cmd}))
                 .send()
@@ -929,7 +1037,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         } => {
             let tab_id = resolve_tab(client, tab);
             let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
-            match http
+            match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)
                 .send()
@@ -961,18 +1069,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             .get("session_action")
                             .and_then(|v| v.as_str())
                             .unwrap_or("fresh");
-                        let profile = val
-                            .get("permission_profile")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("sandboxed");
+                        let full_access = val
+                            .get("full_access")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
                         let sid = val.get("session_id").and_then(|v| v.as_str());
                         let session = match (action, sid) {
                             ("resume", Some(s)) => format!("resume {}", s),
                             _ => "fresh session".to_string(),
                         };
                         println!(
-                            "Restarting Tab {}: {}, profile={} (same Tab id, same session unless stale)",
-                            tab_id, session, profile
+                            "Restarting Tab {}: {}, full access={} (same Tab id, same session unless stale)",
+                            tab_id,
+                            session,
+                            if full_access { "on" } else { "off" }
                         );
                     }
                 }
@@ -984,7 +1094,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Model { name, tab } => {
             let tab_id = resolve_tab(client, tab);
-            let agent_type = http
+            let agent_type = local_http
                 .get(format!("{}/api/tabs", base))
                 .send()
                 .ok()
@@ -1009,7 +1119,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
             // Trailing \r submits it — raw mode is byte-for-byte, so we include it.
             let cmd = format!("/model {}\r", name);
-            match http
+            match local_http
                 .post(format!("{}/api/tabs/{}/send", base, tab_id))
                 .json(&serde_json::json!({"text": cmd, "raw": true}))
                 .send()
@@ -1026,7 +1136,21 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
     }
 }
 
-fn print_agent_mutation_response(resp: reqwest::blocking::Response) {
+fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
+    let task_id = value
+        .get("task_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "daemon response omitted task identity".to_string())?;
+    let attempt_id = value
+        .get("attempt_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "daemon response omitted attempt identity".to_string())?;
+    Ok(format!(
+        "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
+    ))
+}
+
+fn print_local_agent_mutation_response(resp: crate::local_api::LocalApiResponse) {
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     match parse_agent_mutation_response(status, text) {

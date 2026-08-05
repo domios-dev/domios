@@ -132,7 +132,8 @@ pub(crate) fn handle_workspace_action(
         )),
         WorkspaceAction::Close { id } => {
             let mut params = serde_json::json!({ "workspace_id": id });
-            crate::cmd::plan::maybe_inject_caller_tab(&mut params);
+            crate::cmd::plan::caller_context::CallerContext::from_env()
+                .apply_caller_tab(&mut params);
             Some(client.call("workspace.close", Some(params)))
         }
         WorkspaceAction::MoveTab { tab_id, from, to } => Some(client.call(
@@ -156,13 +157,14 @@ pub(crate) fn handle_send_text(
     tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
+    from_pad: Option<String>,
     stdin: bool,
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
 ) {
     crate::cmd::send_text::handle_send_text(
-        client, json, tab, text, from_file, stdin, actions, delay, at,
+        client, json, tab, text, from_file, from_pad, stdin, actions, delay, at,
     );
 }
 

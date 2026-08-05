@@ -380,6 +380,7 @@ fn aged_task_status_text(
     task: Option<&crate::plan::Task>,
 ) -> String {
     match item.presentation {
+        TaskPresentation::HandoffRequired => "handoff required".into(),
         TaskPresentation::ActionablePending => "actionable pending".into(),
         TaskPresentation::WaitingOnDependencies => {
             let waits = item
@@ -436,15 +437,13 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
 mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::AgentRole;
     use crate::plan::{ElementCanvas, OrchestratorRef, Task, TaskLaneMetadata, TaskPriority};
     use codeterm_types::pty::BootStage;
     use std::cell::RefCell;
 
     fn reminder_test_tab() -> (MultiplexerState, String) {
         let (mut mux, tab_id) = MultiplexerState::new();
-        mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
-            .unwrap();
+        mux.set_orchestrator_role(&tab_id).unwrap();
         (mux, tab_id)
     }
 
@@ -493,6 +492,7 @@ mod tests {
             executor_role: None,
             competition: None,
             intent: None,
+            execution_intent: Default::default(),
             parent_task_id: None,
             depends_on: vec![],
             assigned_tab_id: tab_id.map(str::to_string),
@@ -504,6 +504,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             pause_reason: None,
+            interruption: Default::default(),
             personality: None,
             personality_provenance: None,
             attachments: vec![],

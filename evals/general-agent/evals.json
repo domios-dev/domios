@@ -1,0 +1,51 @@
+{
+  "skill_name": "general-agent",
+  "description": "Machine coordination outside Team authority and durable memory behavior.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "coordinates-project-through-team",
+      "prompt": "Implement a multi-step feature in workspace ws_project. Coordinate it through the correct Team and explain your authority.",
+      "expected_output": "The General Agent explicitly selects or creates a Team, delegates to that Team's own Orchestrator, and refuses Team execution authority.",
+      "expectations": [
+        "Identifies itself as the machine-level General Agent outside Team hierarchy",
+        "Contains `codeterm team list` before Team creation or delegation",
+        "Contains either `codeterm agent spawn ... --role Orchestrator --workspace ws_project --task ...` for a missing Team or `codeterm send ... --tab ...` to delegate to an existing Team Orchestrator",
+        "Does NOT claim to be a Team Orchestrator, own the Team plan, dispatch plan tasks, or judge Team work"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "retains-machine-control",
+      "prompt": "This is only a capability question; do not execute anything. Tell me whether you can coordinate workspaces and Teams, control agents, contact a mesh peer, schedule cron, use the Telegram bridge, and recall/save/graph memory. State every Team-plan action you cannot perform.",
+      "expected_output": "The General Agent explicitly retains workspace, Team, agent, mesh, cron, bridge, and memory control while refusing Team plan execution.",
+      "expectations": [
+        "The explanation explicitly states control of workspaces, Team creation or selection, and agent spawn or control",
+        "The explanation explicitly states control of mesh, cron, bridges, and persistent memory recall/save/graph",
+        "The explanation explicitly denies Team plan ownership, approval, dispatch, judging, and mutation authority"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "memory-recall-save-and-graph",
+      "prompt": "This is an explicit remember instruction; do not ask for approval. Tell me what you remember about Alex and immediately remember that Alex now works on Project Cedar, starting today. No memory command has returned an id yet. Show only the safe commands before those results exist and state that you will inspect them and search again for any missing endpoint id.",
+      "expected_output": "The General Agent searches, saves immediately in English, and stops before graph mutation until real endpoint ids are returned.",
+      "expectations": [
+        "First uses `codeterm mem search --json` in English before answering about Alex",
+        "Then immediately uses `codeterm mem save --json --kind fact` with an English title and body",
+        "Does NOT emit `codeterm mem graph relate` while actual endpoint ids are unavailable",
+        "Explains that it will inspect returned ids and search again for any missing endpoint before graph mutation",
+        "Distinguishes durable facts from past sessions and folder skills"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "memory-temporal-edge-uses-returned-ids",
+      "prompt": "The completed memory commands returned person_7 as Alex's id and project_9 as Project Cedar's id. Record that Alex works on Project Cedar starting 2026-08-02. Use those exact returned ids.",
+      "expected_output": "The General Agent creates the temporal relationship with the exact returned ids and canonical graph syntax.",
+      "expectations": [
+        "Uses `codeterm mem graph relate --from person_7 --rel works_on --to project_9 --valid-from 2026-08-02`"
+      ]
+    }
+  ]
+}

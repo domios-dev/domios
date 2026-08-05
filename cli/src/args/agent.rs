@@ -70,6 +70,9 @@ pub struct ReportArgs {
     /// Markdown document to append to the report milestone
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
+    /// Read the report body from a relative file in the current agent tab's pad
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["message", "text", "doc"])]
+    pub from_pad: Option<String>,
     /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
     #[arg(long = "tab", value_name = "TAB")]
     pub tab: Option<String>,
@@ -249,8 +252,8 @@ pub enum AgentAction {
         #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         /// Read the task body from a file (or `-` for stdin) instead of --task.
-        /// Bypasses the caller's shell, so backticks / $(...) in the body are
-        /// never evaluated. Mutually exclusive with --task.
+        /// Relative paths resolve from --cwd. Content bypasses the caller's shell
+        /// and remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
         /// Extra args for the agent
@@ -297,6 +300,14 @@ pub enum AgentAction {
         /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
+        #[arg(
+            long = "execution-intent",
+            value_parser = ["read_only", "mutating"],
+            requires = "plan_task"
+        )]
+        execution_intent: Option<String>,
+        #[arg(long = "provider-reserve-pct", default_value_t = 5.0)]
+        provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its interactive
         /// prompts never raise user-visible Input-needed notifications.
         #[arg(long = "non-user-facing")]
@@ -317,16 +328,6 @@ mod tests {
         match cli.command {
             crate::Commands::Agent { action } => Ok(action),
             _ => panic!("expected agent subcommand"),
-        }
-    }
-
-    fn parse_top_report(args: &[&str]) -> Result<ReportArgs, clap::Error> {
-        let mut full = vec!["codeterm", "report"];
-        full.extend_from_slice(args);
-        let cli = Cli::try_parse_from(full)?;
-        match cli.command {
-            crate::Commands::Report(args) => Ok(args),
-            _ => panic!("expected report command"),
         }
     }
 
@@ -402,8 +403,8 @@ mod tests {
     }
 
     #[test]
-    fn top_level_report_uses_same_parser() {
-        let args = parse_top_report(&[
+    fn agent_report_parses_full_structured_form() {
+        let action = parse_report(&[
             "--status",
             "in_review",
             "--branch",
@@ -412,12 +413,17 @@ mod tests {
             "abc123",
             "ready",
         ])
-        .expect("top-level report parses");
+        .expect("agent report parses");
 
-        assert_eq!(args.message.as_deref(), Some("ready"));
-        assert_eq!(args.status.expect("status set").as_str(), "in_review");
-        assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
-        assert_eq!(args.base.as_deref(), Some("abc123"));
+        match action {
+            AgentAction::Report(args) => {
+                assert_eq!(args.message.as_deref(), Some("ready"));
+                assert_eq!(args.status.expect("status set").as_str(), "in_review");
+                assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
+                assert_eq!(args.base.as_deref(), Some("abc123"));
+            }
+            _ => panic!("expected agent report"),
+        }
     }
 
     #[test]

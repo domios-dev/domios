@@ -1,7 +1,12 @@
 use codeterm_types::team::Team;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+
+fn legacy_snapshot_audience() -> crate::multiplexer::types::TabAudience {
+    crate::multiplexer::types::TabAudience::Automation
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSnapshot {
@@ -53,6 +58,36 @@ pub struct AgentIdentitySnapshot {
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::multiplexer::types::ReasoningEffortIdentity::is_empty"
+    )]
+    pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_epochs: Vec<crate::multiplexer::types::ContextEpochArchive>,
+    /// Lifecycle lineage this snapshot was written under. Recovery matches it
+    /// against the journal; absent lineage is unproven, never permissive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersistedAgentSessionIdentity {
+    pub provider: String,
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tab_id: Option<String>,
+    pub can_spawn: bool,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct AgentSessionIdentityCatalog {
+    #[serde(default)]
+    sessions: HashMap<String, PersistedAgentSessionIdentity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +145,8 @@ pub enum SplitNodeSnapshot {
         /// mesh. `None` for local tabs / legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         report_target_mesh_peer: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        ownership: Option<codeterm_types::pty::RemoteOwnership>,
         /// Can spawn children.
         #[serde(default)]
         can_spawn: bool,
@@ -125,6 +162,9 @@ pub enum SplitNodeSnapshot {
         /// behaviour instead of silently dropping back to prompting.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
+        /// Missing legacy audience fails closed as automation.
+        #[serde(default = "legacy_snapshot_audience")]
+        audience: crate::multiplexer::types::TabAudience,
         /// Model family on the live session. Persisted so resume re-applies it
         /// instead of dropping the tab to the provider default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,6 +223,7 @@ impl SessionStore {
     }
 
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
+        self.merge_agent_session_identities(snapshot)?;
         let path = self.session_dir.join("last.json");
         let tmp = self.session_dir.join("last.json.tmp");
         if path.exists() {
@@ -193,6 +234,64 @@ impl SessionStore {
         // truncates the live file and the next boot loses every workspace.
         fs::write(&tmp, json.as_bytes()).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
         fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))
+    }
+
+    pub fn load_agent_session_identity(
+        &self,
+        provider: &str,
+        session_id: &str,
+    ) -> Option<PersistedAgentSessionIdentity> {
+        self.load_agent_session_identity_catalog()
+            .sessions
+            .get(&agent_session_identity_key(provider, session_id))
+            .cloned()
+    }
+
+    fn merge_agent_session_identities(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
+        let mut catalog = self.load_agent_session_identity_catalog();
+        for workspace in &snapshot.workspaces {
+            for tab in &workspace.tabs {
+                collect_agent_session_identities(&tab.split_tree, &mut catalog.sessions);
+            }
+        }
+        let path = self.session_dir.join("agent-session-identities.json");
+        let tmp = self.session_dir.join("agent-session-identities.json.tmp");
+        let backup = self.session_dir.join("agent-session-identities.json.bak");
+        let json = serde_json::to_string_pretty(&catalog).map_err(|error| error.to_string())?;
+        fs::write(&tmp, json.as_bytes())
+            .map_err(|error| format!("write {}: {error}", tmp.display()))?;
+        if backup.exists() {
+            fs::remove_file(&backup)
+                .map_err(|error| format!("remove {}: {error}", backup.display()))?;
+        }
+        if path.exists() {
+            fs::rename(&path, &backup)
+                .map_err(|error| format!("backup {}: {error}", path.display()))?;
+        }
+        fs::rename(&tmp, &path).map_err(|error| format!("rename → {}: {error}", path.display()))?;
+        if backup.exists() {
+            let _ = fs::remove_file(backup);
+        }
+        Ok(())
+    }
+
+    fn load_agent_session_identity_catalog(&self) -> AgentSessionIdentityCatalog {
+        let path = self.session_dir.join("agent-session-identities.json");
+        let backup = self.session_dir.join("agent-session-identities.json.bak");
+        for candidate in [&path, &backup] {
+            let Ok(json) = fs::read_to_string(candidate) else {
+                continue;
+            };
+            match serde_json::from_str(&json) {
+                Ok(catalog) => return catalog,
+                Err(error) => log::error!(
+                    "[session] ignored corrupt agent session identity catalog {}: {}",
+                    candidate.display(),
+                    error
+                ),
+            }
+        }
+        AgentSessionIdentityCatalog::default()
     }
 
     fn rotate_backup(&self, last_json: &std::path::Path) -> Result<(), String> {
@@ -290,12 +389,18 @@ impl SessionStore {
 
     pub fn save_named(&self, name: &str, snapshot: &SessionSnapshot) -> Result<(), String> {
         let safe_name = name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+        if safe_name == "agent-session-identities" {
+            return Err("reserved session identity catalog".into());
+        }
         let path = self.session_dir.join(format!("{}.json", safe_name));
         let json = serde_json::to_string_pretty(snapshot).map_err(|e| e.to_string())?;
         fs::write(path, json).map_err(|e| e.to_string())
     }
 
     pub fn load_named(&self, name: &str) -> Result<Option<SessionSnapshot>, String> {
+        if name == "agent-session-identities" {
+            return Err("reserved session identity catalog".into());
+        }
         let path = self.session_dir.join(format!("{}.json", name));
         if !path.exists() {
             return Ok(None);
@@ -314,7 +419,10 @@ impl SessionStore {
                     return None; // skip backups/ and other dirs
                 }
                 let name = e.file_name().to_string_lossy().to_string();
-                if name.ends_with(".json") && name != "last.json" {
+                if name.ends_with(".json")
+                    && name != "last.json"
+                    && name != "agent-session-identities.json"
+                {
                     Some(name.trim_end_matches(".json").to_string())
                 } else {
                     None
@@ -324,11 +432,60 @@ impl SessionStore {
     }
 
     pub fn delete_saved(&self, name: &str) -> Result<(), String> {
+        if name == "agent-session-identities" {
+            return Err("reserved session identity catalog".into());
+        }
         let path = self.session_dir.join(format!("{}.json", name));
         if path.exists() {
             fs::remove_file(path).map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+}
+
+fn agent_session_identity_key(provider: &str, session_id: &str) -> String {
+    format!("{}:{provider}{session_id}", provider.len())
+}
+
+fn collect_agent_session_identities(
+    node: &SplitNodeSnapshot,
+    sessions: &mut HashMap<String, PersistedAgentSessionIdentity>,
+) {
+    match node {
+        SplitNodeSnapshot::Split { children, .. } => {
+            for child in children {
+                collect_agent_session_identities(child, sessions);
+            }
+        }
+        SplitNodeSnapshot::Leaf {
+            agent_type: Some(provider),
+            claude_session_id: Some(session_id),
+            agent_identity: Some(binding),
+            role,
+            role_profile,
+            parent_tab_id,
+            can_spawn,
+            ..
+        } if binding.session_binding_nonce.is_some()
+            && binding.session_binding_nonce == binding.reported_session_binding_nonce =>
+        {
+            let key = agent_session_identity_key(provider, session_id);
+            if let Some(role) = role {
+                sessions.insert(
+                    key,
+                    PersistedAgentSessionIdentity {
+                        provider: provider.clone(),
+                        role: role.clone(),
+                        role_profile: role_profile.clone(),
+                        parent_tab_id: parent_tab_id.clone(),
+                        can_spawn: *can_spawn,
+                    },
+                );
+            } else {
+                sessions.remove(&key);
+            }
+        }
+        SplitNodeSnapshot::Leaf { .. } => {}
     }
 }
 
@@ -590,6 +747,119 @@ mod tests {
         store.save(&s).unwrap();
         let loaded = store.load_last().unwrap().unwrap();
         assert_eq!(loaded.workspaces.len(), 3);
+    }
+
+    #[test]
+    fn authoritative_session_binding_persists_orchestration_identity() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::AgentRole;
+
+        let (store, _dir) = fresh_store();
+        let (mut state, parent) = MultiplexerState::new();
+        state
+            .set_orchestrator_role(&parent)
+            .unwrap();
+        let parent_tab = state.get_tab_mut(&parent).unwrap();
+        parent_tab.agent_type = Some("claude".into());
+        parent_tab.agent_session_id = Some("session-orchestrator".into());
+        parent_tab.session_binding_nonce = Some("binding-orchestrator".into());
+        parent_tab.reported_session_binding_nonce = Some("binding-orchestrator".into());
+        let workspace = state.find_workspace_for_tab(&parent).unwrap();
+        let worker = state.create_tab(&workspace).unwrap();
+        state
+            .set_tab_role(&worker, AgentRole::Worker, Some(&parent))
+            .unwrap();
+        let tab = state.get_tab_mut(&worker).unwrap();
+        tab.role_profile = Some("executor".into());
+        tab.agent_type = Some("claude".into());
+        tab.agent_session_id = Some("session-owned".into());
+        tab.session_binding_nonce = Some("binding-owned".into());
+        tab.reported_session_binding_nonce = Some("binding-owned".into());
+        tab.reasoning_effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
+            planned: Some("high".into()),
+            requested: Some("high".into()),
+            resolved: Some("high".into()),
+            actual: None,
+            actual_source: Some("provider-default-unverified".into()),
+        };
+        tab.archive_context_epoch("claude", "prior-session");
+        let planner = state.create_tab(&workspace).unwrap();
+        state
+            .set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&parent))
+            .unwrap();
+        let planner_tab = state.get_tab_mut(&planner).unwrap();
+        planner_tab.agent_type = Some("claude".into());
+        planner_tab.agent_session_id = Some("session-planner".into());
+        planner_tab.session_binding_nonce = Some("binding-planner".into());
+        planner_tab.reported_session_binding_nonce = Some("binding-planner".into());
+
+        let snapshot = state.to_session_snapshot();
+        store.save(&snapshot).unwrap();
+        assert!(!store
+            .list_saved()
+            .unwrap()
+            .iter()
+            .any(|name| name == "agent-session-identities"));
+        let identity = store
+            .load_agent_session_identity("claude", "session-owned")
+            .expect("authoritative identity");
+        assert_eq!(identity.role, "Worker");
+        assert_eq!(identity.parent_tab_id.as_deref(), Some(parent.as_str()));
+        assert!(!identity.can_spawn);
+        assert_eq!(identity.role_profile.as_deref(), Some("executor"));
+        let orchestrator = store
+            .load_agent_session_identity("claude", "session-orchestrator")
+            .expect("orchestrator identity");
+        assert_eq!(orchestrator.role, "Manager");
+        assert_eq!(orchestrator.role_profile.as_deref(), Some("orchestrator"));
+        assert!(orchestrator.can_spawn);
+        let planner_identity = store
+            .load_agent_session_identity("claude", "session-planner")
+            .expect("planner identity");
+        assert_eq!(planner_identity.role, "Manager");
+        assert_eq!(planner_identity.role_profile.as_deref(), Some("planner"));
+        assert_eq!(
+            planner_identity.parent_tab_id.as_deref(),
+            Some(parent.as_str())
+        );
+        assert!(store
+            .load_agent_session_identity("claude", "different-session")
+            .is_none());
+        let catalog_path = store.session_dir.join("agent-session-identities.json");
+        let backup_path = store.session_dir.join("agent-session-identities.json.bak");
+        std::fs::copy(&catalog_path, &backup_path).unwrap();
+        std::fs::write(&catalog_path, "{").unwrap();
+        assert_eq!(
+            store
+                .load_agent_session_identity("claude", "session-owned")
+                .map(|identity| identity.role),
+            Some("Worker".into())
+        );
+        let restored = MultiplexerState::from_session_snapshot(&snapshot);
+        assert_eq!(
+            restored
+                .get_tab(&worker)
+                .unwrap()
+                .reasoning_effort_identity
+                .actual_source
+                .as_deref(),
+            Some("provider-default-unverified")
+        );
+        assert_eq!(
+            restored
+                .get_tab(&worker)
+                .unwrap()
+                .context_epoch_archives
+                .first()
+                .map(|archive| archive.session_id.as_str()),
+            Some("prior-session")
+        );
+
+        state.clear_tab_role(&worker).unwrap();
+        store.save(&state.to_session_snapshot()).unwrap();
+        assert!(store
+            .load_agent_session_identity("claude", "session-owned")
+            .is_none());
     }
 
     #[test]

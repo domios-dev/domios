@@ -1,6 +1,7 @@
-Testing is centralized:
-- Run only focused, lane-local checks unless the task explicitly asks for a heavy gate.
-- Do not run repo-wide builds, full test suites, UI/e2e sweeps, packaging, release gates, dev restarts, or other expensive verification from a fresh worker worktree.
-- Report what you ran; the Orchestrator or a test-runner lane serializes broad gates in a warm integration checkout.
-- Cap every test run with a hard timeout that kills the whole process group; a bare `cargo test` in a lane is a violation — use the repo's capped runner when it ships one (e.g. `scripts/test-capped.sh`). If the cap fires, read the code; do not re-run with a bigger cap.
+Executable verification is canonical-only:
+- An isolated Worker lane performs source work and static inspection only. It never builds, runs project tests, starts dev services, or executes validation gates, regardless of cost or scope.
+- The Worker authors required coverage and reports exact commands plus expected observations under GATES REQUESTED.
+- After ancestry-preserving integration, the Orchestrator serializes focused and broad verification in the canonical integration checkout.
+- A Worker may execute a gate only when it is assigned to that canonical checkout and the Orchestrator explicitly authorizes the exact command.
+- Every authorized run uses the repository's bounded runner; a failure deadline never becomes permission to raise the cap or retry blindly.
 

@@ -24,10 +24,11 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             delay,
             at,
             from_file,
+            from_pad,
             stdin,
         } => {
             let tab_id = resolve_tab(client, tab);
-            let text = required_text(text, from_file, stdin);
+            let text = required_text(text, from_file, from_pad, stdin);
             let scheduled_at_ms =
                 parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
             queue_message(json, &tab_id, text, scheduled_at_ms);
@@ -38,9 +39,10 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             delay,
             at,
             from_file,
+            from_pad,
             stdin,
         } => {
-            let text = optional_text(text, from_file, stdin);
+            let text = optional_text(text, from_file, from_pad, stdin);
             let scheduled_at_ms = if delay.is_some() || at.is_some() {
                 Some(parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e)))
             } else {
@@ -90,12 +92,13 @@ pub fn queue_from_send(
     tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
+    from_pad: Option<String>,
     from_stdin: bool,
     delay: Option<String>,
     at: Option<String>,
 ) {
     let tab_id = resolve_tab(client, tab);
-    let text = required_text(text, from_file, from_stdin);
+    let text = required_text(text, from_file, from_pad, from_stdin);
     let scheduled_at_ms = parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
     queue_message(json, &tab_id, text, scheduled_at_ms);
 }
@@ -118,9 +121,14 @@ fn queue_message(json: bool, tab_id: &str, text: String, scheduled_at_ms: u64) {
     print_delayed_result(json, value);
 }
 
-fn required_text(text: Option<String>, from_file: Option<String>, from_stdin: bool) -> String {
+fn required_text(
+    text: Option<String>,
+    from_file: Option<String>,
+    from_pad: Option<String>,
+    from_stdin: bool,
+) -> String {
     let mut stdin = std::io::stdin();
-    let (text, source) = resolve_send_text_input(text, from_file, from_stdin, &mut stdin)
+    let (text, source) = resolve_send_text_input(text, from_file, from_pad, from_stdin, &mut stdin)
         .unwrap_or_else(|e| exit_error(e));
     if text.trim().is_empty() {
         exit_error(format!(
@@ -135,25 +143,26 @@ fn required_text(text: Option<String>, from_file: Option<String>, from_stdin: bo
 fn optional_text(
     text: Option<String>,
     from_file: Option<String>,
+    from_pad: Option<String>,
     from_stdin: bool,
 ) -> Option<String> {
-    if text.is_none() && from_file.is_none() && !from_stdin {
+    if text.is_none() && from_file.is_none() && from_pad.is_none() && !from_stdin {
         return None;
     }
-    Some(required_text(text, from_file, from_stdin))
+    Some(required_text(text, from_file, from_pad, from_stdin))
 }
 
 fn request_json(method: &str, path: &str, body: Option<serde_json::Value>) -> serde_json::Value {
-    let (base, token) = crate::read_api_config();
-    let http = crate::build_http(&token).unwrap_or_else(|e| {
-        exit_error(format!("failed to build HTTP client: {}", e));
+    let (base, _) = crate::read_api_config();
+    let api = crate::build_local_api().unwrap_or_else(|e| {
+        exit_error(format!("failed to connect to local API: {}", e));
     });
     let url = format!("{}{}", base, path);
     let builder = match method {
-        "GET" => http.get(&url),
-        "POST" => http.post(&url),
-        "PATCH" => http.patch(&url),
-        "DELETE" => http.delete(&url),
+        "GET" => api.get(&url),
+        "POST" => api.post(&url),
+        "PATCH" => api.patch(&url),
+        "DELETE" => api.delete(&url),
         _ => exit_error(format!("unsupported method: {}", method)),
     };
     let builder = match body {

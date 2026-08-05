@@ -183,10 +183,8 @@ fn fetch_channel_diff() -> Result<Value, String> {
     run_plugin_cli(&["plugin", "channel", "diff", "--json"])
 }
 
-/// Synchronously recompute + cache the channel diff for the explicit "refresh channels"
-/// action. Runs inline (while any just-added local channel source still exists) so the
-/// snapshot the action returns — and the next passive GET — serve the fresh channels
-/// rather than a background value that only lands after the source may be gone.
+/// Synchronously recompute + cache channel drift after explicit plugin/channel actions.
+/// The action response must describe post-action state; passive reads stay backgrounded.
 pub(super) fn refresh_channel_diff_now() {
     let _ = super::diff_cache::refresh_diff_now(fetch_channel_diff);
 }

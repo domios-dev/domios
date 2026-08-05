@@ -33,7 +33,10 @@ fn scroll_up_promotes_exited_rows() {
     ]));
     assert_eq!(frame.kind, MotionKind::Scroll);
     assert_eq!(frame.shift_up, 2);
-    assert_eq!(frame.promoted, vec!["line A".to_string(), "line B".to_string()]);
+    assert_eq!(
+        frame.promoted,
+        vec!["line A".to_string(), "line B".to_string()]
+    );
     assert_eq!(frame.classes.shifted, vec![0, 1, 2, 3]);
 }
 
@@ -88,7 +91,12 @@ fn turn_buffer_freezes_only_post_boundary_rows() {
     decoder.begin_turn();
 
     let live = decoder.step(&grid(&[
-        "history one", "history two", "❯", "turn a", "turn b", "turn c",
+        "history one",
+        "history two",
+        "❯",
+        "turn a",
+        "turn b",
+        "turn c",
     ]));
     assert_eq!(live.turn_live, vec!["turn a", "turn b", "turn c"]);
     assert!(live.turn_frozen.is_empty());
@@ -96,15 +104,39 @@ fn turn_buffer_freezes_only_post_boundary_rows() {
     let first_scroll = decoder.step(&grid(&["❯", "turn a", "turn b", "turn c", "turn d", ""]));
     assert_eq!(first_scroll.shift_up, 2);
     assert_eq!(first_scroll.promoted, vec!["history one", "history two"]);
-    assert!(first_scroll.turn_frozen.is_empty(), "pre-turn rows never freeze into the turn");
+    assert!(
+        first_scroll.turn_frozen.is_empty(),
+        "pre-turn rows never freeze into the turn"
+    );
 
-    let second_scroll = decoder.step(&grid(&["turn b", "turn c", "turn d", "turn e", "turn f", ""]));
+    let second_scroll = decoder.step(&grid(&[
+        "turn b", "turn c", "turn d", "turn e", "turn f", "",
+    ]));
     assert_eq!(second_scroll.shift_up, 2);
     assert_eq!(second_scroll.turn_frozen, vec!["turn a"]);
     assert_eq!(
         second_scroll.turn_live,
         vec!["turn b", "turn c", "turn d", "turn e", "turn f"]
     );
+}
+
+#[test]
+fn composer_draft_below_cursor_rule_never_leaks_into_turn_live() {
+    let mut decoder = MotionDecoder::new();
+    decoder.step(&grid(&["❯", "", "", "", "", ""]));
+    decoder.begin_turn();
+    let frame = decoder.step_with_cursor(
+        &grid(&[
+            "reply row one",
+            "reply row two",
+            "──────────",
+            "❯ next prompt being typed",
+            "──────────",
+            "  ⏵⏵ auto mode on · esc to interrupt",
+        ]),
+        Some(3),
+    );
+    assert_eq!(frame.turn_live, vec!["reply row one", "reply row two"]);
 }
 
 #[test]

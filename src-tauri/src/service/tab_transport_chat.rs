@@ -202,6 +202,7 @@ where
 fn build_chatbackend_open_session_ctx(
     tab_id: &str,
     workspace_id: Option<&str>,
+    pad_dir: Option<&str>,
     config: serde_json::Value,
 ) -> serde_json::Value {
     let mut ctx = serde_json::Map::new();
@@ -213,6 +214,12 @@ fn build_chatbackend_open_session_ctx(
         ctx.insert(
             "workspaceId".into(),
             serde_json::Value::String(workspace_id.to_string()),
+        );
+    }
+    if let Some(pad_dir) = pad_dir {
+        ctx.insert(
+            "padDir".into(),
+            serde_json::Value::String(pad_dir.to_string()),
         );
     }
     for key in ["systemPrompt", "preset", "model", "mode"] {
@@ -331,7 +338,14 @@ impl ServiceContext {
         config: serde_json::Value,
     ) -> Result<String, String> {
         let workspace_id = self.workspace_id_for_tab(tab_id);
-        let ctx = build_chatbackend_open_session_ctx(tab_id, workspace_id.as_deref(), config);
+        let pad = self.ensure_agent_pad(tab_id)?;
+        let pad_dir = pad.env_value();
+        let ctx = build_chatbackend_open_session_ctx(
+            tab_id,
+            workspace_id.as_deref(),
+            Some(&pad_dir),
+            config,
+        );
         let provider = self.chatbackend_provider(plugin_id)?;
         open_chatbackend_session(provider.as_ref(), ctx)
     }
@@ -559,6 +573,7 @@ mod tests {
         let ctx = super::build_chatbackend_open_session_ctx(
             "tab-1",
             Some("workspace-1"),
+            None,
             json!({ "systemPrompt": "Composed instruction" }),
         );
 
@@ -581,6 +596,7 @@ mod tests {
         let ctx = super::build_chatbackend_open_session_ctx(
             "tab-1",
             None,
+            None,
             json!({ "systemPrompt": "Composed instruction" }),
         );
 
@@ -600,9 +616,7 @@ mod tests {
 
         let (mut state, parent_id) = MultiplexerState::new();
         let workspace_id = state.list_workspaces()[0].id.clone();
-        state
-            .set_tab_role(&parent_id, AgentRole::Orchestrator, None)
-            .unwrap();
+        state.set_orchestrator_role(&parent_id).unwrap();
         let team_id = state
             .resolve_or_mint_team_for_parent(&parent_id)
             .unwrap()
@@ -815,6 +829,7 @@ mod tests {
         let ctx = super::build_chatbackend_open_session_ctx(
             "tab-7",
             Some("ws-1"),
+            Some("/instance/runtime/agent-pads/tab-7"),
             json!({
                 "systemPrompt": "You are CodeTerm.",
                 "preset": "codeterm",
@@ -831,6 +846,7 @@ mod tests {
 
         assert_eq!(ctx["tabId"], "tab-7");
         assert_eq!(ctx["workspaceId"], "ws-1");
+        assert_eq!(ctx["padDir"], "/instance/runtime/agent-pads/tab-7");
         assert_eq!(ctx["config"]["temperature"], 0.2);
         assert_eq!(ctx["systemPrompt"], "You are CodeTerm.");
         assert_eq!(ctx["preset"], "codeterm");
@@ -843,7 +859,7 @@ mod tests {
 
     #[test]
     fn chatbackend_open_session_ctx_omits_absent_open_shell_fields() {
-        let ctx = super::build_chatbackend_open_session_ctx("tab-7", None, json!({}));
+        let ctx = super::build_chatbackend_open_session_ctx("tab-7", None, None, json!({}));
 
         assert_eq!(ctx["tabId"], "tab-7");
         assert!(ctx.get("workspaceId").is_none());

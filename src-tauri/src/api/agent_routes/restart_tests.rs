@@ -25,6 +25,7 @@ fn restart_response_reports_observed_transition_legs() {
         restart_accepted: true,
         old_pty_torn_down: true,
         agent_ready: true,
+        binding_restored: true,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
     };
@@ -36,6 +37,9 @@ fn restart_response_reports_observed_transition_legs() {
     assert_eq!(body["agent_ready"], true);
     assert_eq!(body["old_pty_id"], "pty-old");
     assert_eq!(body["new_pty_id"], "pty-new");
+    assert_eq!(body["full_access"], true);
+    assert!(body.get("permission_profile").is_none());
+    assert!(body.get("auto_approve").is_none());
     assert!(body.get("restarting").is_none());
 }
 
@@ -59,6 +63,7 @@ fn stale_pre_restart_agent_ready_reports_readiness_was_not_observed() {
         restart_accepted: true,
         old_pty_torn_down: true,
         agent_ready: false,
+        binding_restored: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: None,
     };

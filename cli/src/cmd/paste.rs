@@ -1,8 +1,8 @@
-use crate::{build_http, read_api_config, PasteAction};
+use crate::{build_local_api, read_api_config, PasteAction};
 
 pub fn handle_paste(json: bool, action: PasteAction) {
-    let (base, token) = read_api_config();
-    let http = match build_http(&token) {
+    let (base, _) = read_api_config();
+    let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: failed to build HTTP client: {}", e);
@@ -13,12 +13,18 @@ pub fn handle_paste(json: bool, action: PasteAction) {
         PasteAction::Put {
             body,
             from_file,
+            from_pad,
             from_stdin,
             ttl,
             content_type,
             pop,
         } => {
-            let resolved_body = if from_stdin {
+            let resolved_body = if let Some(path) = from_pad {
+                crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                })
+            } else if from_stdin {
                 read_stdin_or_die("--from-stdin")
             } else if let Some(path) = from_file {
                 match std::fs::read_to_string(&path) {
@@ -29,7 +35,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                     }
                 }
             } else {
-                body
+                body.unwrap_or_default()
             };
             if resolved_body.trim().is_empty() {
                 eprintln!("Error: paste body is empty (positional, --from-file, and --from-stdin all yielded nothing).");
@@ -146,7 +152,13 @@ pub fn handle_paste(json: bool, action: PasteAction) {
     }
 }
 
-fn fetch_paste(http: &reqwest::blocking::Client, base: &str, id: &str, pop: bool, json: bool) {
+fn fetch_paste(
+    http: &crate::local_api::LocalApiClient,
+    base: &str,
+    id: &str,
+    pop: bool,
+    json: bool,
+) {
     let url = if pop {
         format!("{}/api/pasteboard/{}?pop=true", base, id)
     } else {

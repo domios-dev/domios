@@ -64,9 +64,12 @@ pub enum TabAction {
     },
     /// Show the full daemon tab payload for one or more explicit tab ids.
     Inspect {
-        /// One or more tab ids to inspect.
-        #[arg(required = true, num_args = 1..)]
+        /// Temporary positional aliases for tab ids. Prefer --tab.
+        #[arg(num_args = 0..)]
         tabs: Vec<String>,
+        /// One or more tab ids to inspect. Repeat the flag for multiple tabs.
+        #[arg(long = "tab", value_name = "ID", action = clap::ArgAction::Append)]
+        tab: Vec<String>,
     },
     /// Plain shell tab. For an AI tab use `codeterm agent spawn` instead.
     New {
@@ -109,13 +112,33 @@ pub enum TabAction {
     },
     /// Focus a tab by ID
     Focus {
-        /// Tab ID
-        id: String,
+        /// Temporary positional alias for the tab id. Prefer --tab.
+        #[arg(conflicts_with = "tab")]
+        id: Option<String>,
+        /// Tab ID to focus.
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
+    },
+    /// Replace a plain shell's process in the same tab, preserving tab identity and metadata.
+    Restart {
+        /// Tab ID to restart (default: current tab).
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+        /// Working directory for the replacement shell.
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Command to execute after the replacement shell is ready.
+        #[arg(long, allow_hyphen_values = true)]
+        cmd: Option<String>,
     },
     /// Close a tab by ID
     Close {
-        /// Tab ID
-        id: String,
+        /// Temporary positional alias for the tab id. Prefer --tab.
+        #[arg(conflicts_with = "tab")]
+        id: Option<String>,
+        /// Tab ID to close.
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
     },
     /// Rename a tab (default: current tab)
     Rename {
@@ -196,6 +219,32 @@ pub enum TabAction {
     },
 }
 
+pub fn normalize_required_tab_selector(action: &mut TabAction) -> Result<(), String> {
+    let (command, id, tab) = match action {
+        TabAction::Focus { id, tab } => ("focus", id, tab),
+        TabAction::Close { id, tab } => ("close", id, tab),
+        _ => return Ok(()),
+    };
+    let selector = tab
+        .take()
+        .or_else(|| id.take())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("tab {command} requires --tab <ID>"))?;
+    *id = Some(selector);
+    Ok(())
+}
+
+pub fn required_tab_selector<'a>(
+    id: &'a Option<String>,
+    tab: &'a Option<String>,
+    command: &str,
+) -> Result<&'a str, String> {
+    tab.as_deref()
+        .or(id.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("tab {command} requires --tab <ID>"))
+}
+
 /// Dev-only PTY capture tap (asciicast v2). Used to build agent-state fixtures.
 #[derive(Subcommand)]
 pub enum TabCaptureAction {
@@ -225,11 +274,14 @@ pub enum PasteAction {
     /// Stash a payload. Body from positional / --from-file / stdin.
     Put {
         /// Body (positional). Omit and use --from-file or --from-stdin.
-        #[arg(default_value = "", allow_hyphen_values = true)]
-        body: String,
+        #[arg(allow_hyphen_values = true)]
+        body: Option<String>,
         /// Read body from a file instead.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+        /// Read body from a relative file in the current agent tab's pad.
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["body", "from_file", "from_stdin"])]
+        from_pad: Option<String>,
         /// Read body from stdin.
         #[arg(long)]
         from_stdin: bool,
@@ -262,7 +314,26 @@ pub enum PasteAction {
 }
 
 #[derive(Subcommand)]
-pub enum NotificationAction {
+pub enum NotifyAction {
+    /// Send a notification
+    Send {
+        /// Notification title
+        title: String,
+
+        /// Notification body
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Notification level: info, warning, error
+        #[arg(long, default_value = "info")]
+        level: String,
+    },
+    /// List notifications
+    List {
+        /// Show only unread notifications
+        #[arg(long)]
+        unread: bool,
+    },
     /// Clear all notifications
     Clear,
 }
@@ -329,6 +400,9 @@ pub enum BridgeAction {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
+        /// Read the text body from the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with = "text")]
+        from_pad: Option<String>,
         /// Preserve literal escape sequences instead of decoding \n into a newline
         #[arg(long)]
         raw_text: bool,

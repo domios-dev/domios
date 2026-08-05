@@ -12,8 +12,6 @@ pub(crate) enum MemTransport {
     LocalOnly,
     /// Short-circuited before socket connection.
     ShortCircuitedInMain,
-    /// Bearer-authenticated HTTP only because the socket has no auth gate.
-    HttpAuthenticatedOnly,
 }
 
 pub(crate) fn classify(action: &MemAction) -> MemTransport {
@@ -52,7 +50,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
 
         MemAction::RunWorker { .. } | MemAction::Dream { .. } => ShortCircuitedInMain,
 
-        MemAction::Secret { .. } => HttpAuthenticatedOnly,
+        MemAction::Secret { .. } => SocketDedicated,
     }
 }
 
@@ -178,9 +176,9 @@ mod tests {
     }
 
     #[test]
-    fn secret_is_the_only_deliberate_http_holdout() {
+    fn secret_uses_same_user_socket_transport() {
         let action = parse(&["codeterm", "mem", "secret", "status"]);
-        assert_eq!(classify(&action), MemTransport::HttpAuthenticatedOnly);
+        assert_eq!(classify(&action), MemTransport::SocketDedicated);
     }
 
     #[test]

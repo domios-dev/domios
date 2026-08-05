@@ -121,6 +121,93 @@ fn require_running_qa(task: &Task) -> Result<(), PlanError> {
     }
 }
 
+fn qa_attempt_error(operation: &str, message: impl Into<String>) -> PlanError {
+    PlanError::ReadbackMismatch {
+        operation: operation.into(),
+        message: message.into(),
+    }
+}
+
+fn claimable_attempt_index(task: &Task) -> Result<usize, PlanError> {
+    let assigned_executor = task
+        .assigned_tab_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|tab_id| !tab_id.is_empty());
+    let candidates = task
+        .execution_attempts
+        .iter()
+        .enumerate()
+        .filter(|(_, attempt)| attempt.closed_at.is_none())
+        .filter(|(_, attempt)| match assigned_executor {
+            Some(tab_id) => attempt.executor_tab_id == tab_id,
+            None => attempt.competition_group_id.is_some() && attempt.winner,
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    match candidates.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(qa_attempt_error(
+            "qa_claim",
+            "QA item has no exact live execution attempt owned by its executor",
+        )),
+        _ => Err(qa_attempt_error(
+            "qa_claim",
+            "QA item has ambiguous live execution-attempt ownership",
+        )),
+    }
+}
+
+fn claimed_attempt_index(task: &Task) -> Result<usize, PlanError> {
+    let candidates = task
+        .execution_attempts
+        .iter()
+        .enumerate()
+        .filter(|(_, attempt)| attempt.reviewed_at == Some(task.status_changed_at))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    match candidates.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(qa_attempt_error(
+            "qa_pass",
+            "running QA item has no exact claimed execution attempt",
+        )),
+        _ => Err(qa_attempt_error(
+            "qa_pass",
+            "running QA item has ambiguous claimed execution attempts",
+        )),
+    }
+}
+
+fn require_current_claimed_attempt(task: &Task, claimed_index: usize) -> Result<(), PlanError> {
+    let claimed = &task.execution_attempts[claimed_index];
+    if claimed.closed_at.is_some() {
+        return Err(qa_attempt_error(
+            "qa_pass",
+            format!(
+                "claimed execution attempt '{}' was superseded or closed during QA",
+                claimed.id
+            ),
+        ));
+    }
+    if let Some(other) = task
+        .execution_attempts
+        .iter()
+        .enumerate()
+        .find(|(index, attempt)| *index != claimed_index && attempt.closed_at.is_none())
+        .map(|(_, attempt)| attempt)
+    {
+        return Err(qa_attempt_error(
+            "qa_pass",
+            format!(
+                "live execution attempt '{}' supersedes or competes with claimed attempt '{}'",
+                other.id, claimed.id
+            ),
+        ));
+    }
+    Ok(())
+}
+
 impl PlanStore {
     pub fn qa_queue(&self, plan_id: &str, now_ms: u64) -> Result<QaQueue, PlanError> {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
@@ -214,7 +301,9 @@ impl PlanStore {
                 return Ok(());
             };
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            let attempt_index = claimable_attempt_index(&p.tasks[idx])?;
             let task = &mut p.tasks[idx];
+            task.execution_attempts[attempt_index].reviewed_at = Some(now_ms);
             task.qa_state = Some(QaState::Running);
             task.status_changed_at = now_ms;
             task.assigned_tab_id = tester_tab_id.map(str::to_string);
@@ -256,15 +345,20 @@ impl PlanStore {
                 .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             require_running_qa(&p.tasks[idx])?;
+            let attempt_index = claimed_attempt_index(&p.tasks[idx])?;
+            require_current_claimed_attempt(&p.tasks[idx], attempt_index)?;
             reject_done_with_open_subtasks(p, &p.tasks[idx].id)?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             let task = &mut p.tasks[idx];
+            super::task_attempts::accept_exact_attempt(
+                &mut task.execution_attempts[attempt_index],
+                note,
+                now_ms,
+            );
             task.status = TaskStatus::Done;
             task.review_stage = ReviewStage::Review;
             task.qa_state = None;
             task.status_changed_at = now_ms;
-            let assigned = task.assigned_tab_id.clone();
-            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             task.updated_at = now_ms;
             task.review_evidence.push(ReviewEvidence {

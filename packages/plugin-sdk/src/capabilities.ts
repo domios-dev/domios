@@ -104,6 +104,7 @@ export interface AgentProvider {
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
+  detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   describeSession?(filePath: string, head?: string): {
     projectPath?: string;
@@ -112,13 +113,17 @@ export interface AgentProvider {
   } | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
-  discoverModels?(): ModelInfo[];
+  discoverModels?(): ModelInfo[] | null;
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;
-  installIntegration?(apiPort: number): unknown;
+  installIntegration?(
+    apiPort: number,
+    options: { consent: boolean; precompact_memory_export?: boolean },
+  ): unknown;
   uninstallIntegration?(): unknown;
+  restoreIntegration?(): unknown;
   ensureIntegrationOnStartup?(apiPort: number): unknown;
   installBridgeRule?(payload: string): unknown;
   uninstallBridgeRule?(): unknown;

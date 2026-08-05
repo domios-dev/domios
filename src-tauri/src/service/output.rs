@@ -72,9 +72,10 @@ impl ServiceContext {
                     let changed = tab.agent_state.as_ref() != Some(&idle_state)
                         || tab.pending_prompt.is_some();
                     tab.agent_state = Some(idle_state);
-                    let cleared = tab.pending_prompt.take().and_then(|old| {
-                        Some((tab.agent_session_id.clone()?, old.question))
-                    });
+                    let cleared = tab
+                        .pending_prompt
+                        .take()
+                        .and_then(|old| Some((tab.agent_session_id.clone()?, old.question)));
                     (changed, cleared)
                 }
                 _ => (false, None),
@@ -86,7 +87,6 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
-            self.release_deferred_agent_ready(tab_id);
             self.heal_recovery_state_if_ready();
         }
     }
@@ -341,7 +341,7 @@ impl ServiceContext {
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
-        let Some((lines, tail, cursor_hidden, composer_ready)) = ({
+        let Some((lines, tail, cursor_hidden, composer_ready, cursor_row)) = ({
             let screen_state = self.screen_state.lock();
             let Some((lines, tail)) = screen_state.lines_and_tail(pty_id, LIVE_TAIL_ROWS) else {
                 return;
@@ -350,16 +350,24 @@ impl ServiceContext {
                 .native_prompt_input(pty_id)
                 .map(|input| input.cursor_hidden)
                 .unwrap_or(false);
-            let composer_ready = screen_state
-                .cursor_input_state(pty_id)
+            let cursor_state = screen_state.cursor_input_state(pty_id);
+            let composer_ready = cursor_state
                 .map(|(_alt, vis, row, rows)| {
                     crate::agent::offline_state_classifier::composer_cursor_ready(vis, row, rows)
                 })
                 .unwrap_or(false);
-            Some((lines, tail, cursor_hidden, composer_ready))
+            let cursor_row = cursor_state.map(|(_alt, _vis, row, _rows)| row as usize);
+            Some((lines, tail, cursor_hidden, composer_ready, cursor_row))
         }) else {
             return;
         };
+
+        // Ephemeral stream preview: telemetry only, never feeds classification.
+        if let Some(event) =
+            crate::service::stream_preview::step(pty_id, &tab_id, &lines, cursor_row)
+        {
+            crate::api::events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
+        }
 
         // agent_tracker (4): two-clock quiescence.
         let Some((byte_idle_ms, semantic_idle_ms)) =
@@ -561,7 +569,6 @@ impl ServiceContext {
         if prompt.is_some() {
             self.maybe_publish_input_request(tab_id);
         }
-        self.release_deferred_agent_ready(tab_id);
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(
@@ -727,7 +734,6 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
-                self.release_deferred_agent_ready(tab_id);
             }
         }
     }
@@ -871,9 +877,8 @@ fn decide_agent_output_lifecycle(
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{
-        decide_agent_output_lifecycle, screen_ends_in_shell_prompt,
-        should_detect_unbound_session, should_heuristically_detect_session,
-        AgentOutputLifecycleDecision,
+        decide_agent_output_lifecycle, screen_ends_in_shell_prompt, should_detect_unbound_session,
+        should_heuristically_detect_session, AgentOutputLifecycleDecision,
     };
 
     #[test]

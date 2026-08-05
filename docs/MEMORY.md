@@ -1,7 +1,5 @@
 # CodeTerm Memory System
 
-<!-- revision: 12 -->
-
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
 
@@ -16,7 +14,7 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
 - **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran)
-- **Auto-flush** — `PreCompact` and `SessionStart` hooks POST to authenticated CodeTerm endpoints to capture conversation state without manual saves
+- **Lifecycle capture** — `SessionStart` tracks the active session; optional `PreCompact` export POSTs to the authenticated memory endpoint only after separate local-user consent
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
 
 ## Mem vs past-session search
@@ -28,7 +26,7 @@ Two stores, two purposes — don't confuse them:
 | **mem** (`~/.codeterm/mem/knowledge.db`) | SQLite + FTS5 + sqlite-vec | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
 | **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
 
-Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `docs/API.md` (`/api/sessions/*`) for the session side; binding model in `docs/contributing/architecture.md` §3.
+Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `codeterm docs API-STATE` for the session API; the binding model lives in `docs/contributing/architecture.md` §3.
 
 ## Storage layer
 
@@ -161,222 +159,19 @@ Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injectio
 
 ## Auto-flush from agent hooks
 
-The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Today Claude installs four hook handlers:
+The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Claude's standard integration installs three hook handlers. `PreCompact` memory export is a separate opt-in because it exports conversation content:
 
 | Hook | Endpoint | Purpose |
 |---|---|---|
 | `Notification` | `POST /api/tabs/{id}/hook/permission` | Surface a permission prompt without waiting for PTY auto-detect |
 | `Stop` | `POST /api/tabs/{id}/hook/stop` | Mark task complete, fire `agent.task_complete` webhook |
-| `PreCompact` | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
+| `PreCompact` (opt-in) | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
 | `SessionStart` | `POST /api/tabs/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
 
-Hooks are installed by `commands.rs::install_hooks_v2` into `~/.claude/hooks.json`. The installer is idempotent and version-tagged so old loopback-auth shapes get replaced.
+Hooks are installed through the provider integration action into `~/.claude/settings.json`. The action shows the target and proposed changes, records consent, makes a recoverable backup, and preserves foreign hooks.
 
-## Skill folders (`mem skill new/add`)
+## Related documents
 
-A skill is a **folder**, not a single file. `SKILL.md` is the index that mem ingests and vectorizes; the folder may also carry executable scripts, example payloads, snippets — anything an agent needs to actually do the thing the skill describes.
+Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-```
-<skills-dir>/deploy-to-staging/
-  SKILL.md           ← indexed in mem (kind=skill, source-tracked)
-  scripts/
-    deploy.sh        ← real bash, callable from SKILL.md steps
-    rollback.sh
-  examples/
-    sample-payload.json
-```
-
-CLI:
-
-- `codeterm mem skill new <slug> [--area X]` — scaffold a folder under the right `<skills-dir>` (dev: `~/.codeterm-dev/skills/`, prod: `~/.codeterm/skills/`), seed `SKILL.md` with frontmatter + sections, and register in mem.
-- `codeterm mem skill add <folder>` — register an existing folder (cloned repo, copied from another machine).
-- `codeterm mem skill list` — list every registered skill folder.
-
-Inside `SKILL.md`, reference scripts by relative path (`./scripts/deploy.sh`). When the user invokes the skill, agents `cat SKILL.md` to recall the procedure, then execute the scripts directly. Edit any file in the folder → Librarian re-indexes on its next scan; `codeterm mem sync` triggers immediately.
-
-## Librarian (file sync daemon)
-
-A background loop that periodically scans every mem item carrying `source_path` (documents loaded with `--source-path`, skill `SKILL.md` files, etc.):
-
-- File mtime > index mtime → re-read body, re-vectorize, update FTS5.
-- File deleted → flag the item (kept searchable, not removed).
-- New skill folder dropped into `<skills-dir>/` without registration → auto-discovered and indexed.
-
-Manual trigger: `codeterm mem sync` (or `POST /api/mem/sync`). Code lives in `src-tauri/src/mem/librarian.rs`.
-
-## Workers (`src-tauri/src/mem/workers.rs`)
-
-Hidden headless agents. Live in Memory Tabl, invisible in tab bar.
-
-**`spawn_headless()`** — generic function used by:
-- **Extraction workers** — auto-spawned on `mem save` for rich items (note, fact, learning, daily, conversation); extract entities, build graph
-- **Dreaming REM worker** — spawned after SQL phases for dedup/classify/insights/diary
-
-**How it works:**
-1. Create tab + Tab with `hidden=true`, `show_in_tabbar=false`
-2. Spawn PTY from backend with env vars (`CODETERM_API_URL`, `CODETERM_API_TOKEN`, `CODETERM_TAB_ID`)
-3. Start backend reader (own tokio runtime)
-4. Launch agent via provider's `build_launch_command()` with `model_launch_args()` for the configured model
-5. Register in `GraphWorkerRegistry` with provider/model/intent metadata
-6. Worker calls `codeterm mem save`/`delete`/`graph create` — standard CLI
-7. On completion, `codeterm mem worker report` marks done, full PTY log saved to `~/.codeterm/mem/workers/<id>.log`
-
-**Limits:** max 200 workers in registry, oldest done + log files auto-evicted.
-
-**UI:** `MemoryWorkerTabl` shows live list. Click worker → `WorkerLogPopup` with live output (2s poll for running) or saved log (for done). Status color by state (green/yellow/red).
-
-## Dreaming
-
-Runs nightly at 6 AM via protected cron with a 0..30 min delay-only jitter window, so it fires between 6:00 and 6:30 AM local time. Configurable agent + model in Settings. Legacy installs that still hold the old `0 3 * * *` schedule with 0..90 min delay-only jitter are auto-migrated to the new values on startup (`ensure_dreaming_cron` in `src-tauri/src/mem/dreaming.rs`).
-
-### Phase 1 — SQL Light (`dreaming::light_phase`)
-
-Weighted promotion (inspired by a gateway's scoring):
-```
-score = frequency×0.30 + recency×0.25 + importance×0.25 + age×0.20
-```
-- frequency: `access_count / 10` (capped)
-- recency: 14-day half-life exponential decay from `accessed_at`
-- importance: `importance / 5`
-- age: `days_since_creation / 7` (capped)
-
-Threshold: `score ≥ 0.5` AND `access_count ≥ 3` → promote learning → fact, bump importance to ≥4.
-
-### Phase 2 — SQL Deep (`dreaming::deep_phase`)
-
-Expire stale conversations: `kind=conversation`, `access_count=0`, `created_at > 30 days`, `importance < 4` → set `importance = 0`. Item stays searchable but drops from L1 wake-up.
-
-### Phase 3 — REM Worker (`dreaming::spawn_rem_worker`)
-
-Headless worker spawned after SQL phases. Task:
-
-1. Scan all items (`codeterm mem search "" --limit 50`)
-2. **Classify** — items without `area` get one via `mem update`
-3. **Dedup** — items with very similar titles + same kind: read both, delete lower-importance
-4. **Insights** — 2+ items on same topic → create `kind=fact title="insight: <pattern>" tags=dream-insight`
-5. **Diary** — 80-150 word narrative reflection saved as `kind=daily area=_dreams tags=dream-diary`
-
-### Phase 4 — LLM Recluster (`dreaming::recluster::run_recluster_phase`) — opt-in
-
-Hand-invoked only via `codeterm mem dream run --phase recluster`. Never part of the cron-driven nightly pipeline. The phase collects top-N hubs by active degree, their incident relation distributions, neighbor titles/summaries, and the existing `topic_*`/`role_*` anchor list, then asks the configured `dreaming_model` (default `sonnet`) to propose 0–5 cluster operations. The validated proposals are written as a markdown plan to `~/.codeterm/mem/dream-plans/<utc-ts>-recluster.md`. The user reviews the file and runs `codeterm mem dream apply <file>` to execute the `introduce_topic` mutations.
-
-Requires `ANTHROPIC_API_KEY`. The phase is read-only against the DB; all mutations happen in the user-gated apply step.
-
-### Data helper (`dreaming::prepare_rem_data`)
-
-SQL precomputes optimization targets so agent doesn't re-scan everything:
-- Unclassified items (missing `area`)
-- Duplicate candidates (same kind + title prefix match)
-- Hot items (last 7d, `access_count ≥ 2`)
-- Area distribution
-
-Available at `GET /api/mem/dream/report`.
-
-## Behavioral protocol
-
-Injected into every agent session via `src-tauri/prompts/bridge_mem.md`:
-
-1. **BEFORE RESPONDING** about a person/project/past event — search first. Never guess. Wrong is worse than slow.
-2. **IF UNSURE** — say "let me check" and search.
-3. **FOR IDENTITY QUESTIONS** — `codeterm mem wake-up` (never guess mem_item ids like `preference_identity`).
-4. **NEVER GUESS IDS** — search first, then `get` a real id.
-5. **ON "remember"** — `codeterm mem save`; extraction workers handle graph automatically.
-6. **WHEN FACTS CHANGE** — save new fact; old stays in history.
-7. **SESSION END** — PreCompact hook auto-flushes conversation.
-
-**Injection:**
-- Claude → `install_bridge_rule` writes `~/.claude/rules/codeterm.md`
-- Codex → inlined into `~/.codeterm/general/AGENTS.md` on GA start
-
-Files regenerate on every dev/prod start.
-
-## CLI reference
-
-```bash
-# Search
-codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--limit <n>]
-codeterm mem get <id>                               # full item body
-codeterm mem wake-up                                # L0 identity + L1 critical
-codeterm mem wake-up                                # inherit the calling tab's workspace
-codeterm mem wake-up --workspace <ws>               # explicitly override workspace scope
-codeterm mem wake-up --explain                      # append per-item score breakdown
-
-# Write
-codeterm mem save --kind <k> --title "<t>" [--area <a>] [--tags <csv>] "<body>"
-codeterm mem save --kind fact --title "X" --pin --workspace <ws> "<body>"   # atomic create + pin + scope
-codeterm mem update <id> [--area <a>] [--title <t>] [--body <b>]
-codeterm mem delete <id>
-codeterm mem forget <area>                          # batch delete by area
-
-# Pins (always-loaded L1)
-codeterm mem pin <id>                               # set is_pinned_wakeup = 1
-codeterm mem unpin <id>                             # clear it
-codeterm mem pinned [--limit N]                     # list pinned items (default 100, max 500)
-
-# Graph
-codeterm mem graph create --id <id> --entity-type Person --scope global
-codeterm mem graph relate --from <id> --rel mentions --to <id>
-codeterm mem graph related --id <id>
-
-# Workers
-codeterm mem worker progress "<status>"
-codeterm mem worker report "<summary>"
-codeterm mem worker spawn --intent "<name>" --task "<prompt>"    # ad-hoc graph worker for custom enrichment
-codeterm mem extract-pending [--limit N]                         # re-queue extraction for items that missed processing (API quota, interrupts)
-
-# Skill folders
-codeterm mem skill new <slug> [--area X]    # scaffold + register
-codeterm mem skill add <folder>             # import existing
-codeterm mem skill list
-
-# File sync (Librarian)
-codeterm mem sync                    # trigger re-index of source-tracked items
-
-# Dreaming
-codeterm mem dream                   # SQL phases + spawn REM worker
-```
-
-## REST API
-
-`/api/mem/*` — parallel to CLI:
-- `GET /search`, `/recall`, `/items/{id}`, `/stats`, `/wake-up`, `/graph/full`, `/dream/report`
-- `GET /pinned?limit=N` — list pinned items (default 100, max 500)
-- `GET /wake-up?workspace=<ws>&explain=1` — workspace-scoped L1 + score breakdown
-- `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted)
-- `POST /dream`
-- `PATCH /items/{id}` (`{pinned: true|false}` toggles `is_pinned_wakeup`, audited)
-- `DELETE /items/{id}`, `/forget/{area}`
-- `GET /workers`, `/workers/{id}/log`
-
-Memory Tabl UI reads this directly.
-
-## Memory Tabl UI (`src/components/MemoryTabl/`)
-
-4 tabs:
-
-- **List** — paginated item browser (50/page, infinite scroll), filter by kind/area, click → editor modal
-- **Graph** — force-directed interactive canvas, pinned-layout for incremental positions, all nodes as dots (kind → color)
-- **Activity** — live mem-activity event stream (writes/updates/deletes, not searches — would loop)
-- **Dreams** — next dream countdown, worker run history (with click-to-log), dream diary entries. Live updates via `graph-worker-*` events.
-
-**Worker tabl** — sidebar showing all hidden workers with status, model, click → `WorkerLogPopup`.
-
-**Item editor** — click any item → modal with title/body/area/tags editing. `Cmd+S` saves (re-vectorizes body automatically, `DELETE + INSERT` in mem_vectors — no duplicates).
-
-## Key design decisions
-
-1. **Single SQLite over specialized DBs** — operational simplicity beats peak performance for personal-scale memory
-2. **Blobs on disk for large bodies** — keeps the DB file small for fast opens
-3. **People+projects only as entities** — prevents star patterns; tech is searchable via FTS
-4. **Headless workers everywhere** — extraction and dreaming both live in Memory Tabl, never pollute tab bar
-5. **LLM only for REM phase** — SQL does deterministic work, LLM does pattern matching and narrative
-6. **Agent-agnostic via `AgentProvider` trait** — zero hardcoded `== "claude"` checks; providers declare their own CLI flags (`model_launch_args`, `build_launch_command`)
-7. **Protocol over format** — bridge_mem.md tells agents when/how to use memory, not just available commands
-8. **Verbatim storage** — never summarize writes; summaries are a read-time concern
-
-## References
-
-- `src-tauri/src/mem/` — all memory code
-- `src-tauri/src/api/mem_routes.rs` — REST API
-- `src-tauri/prompts/bridge_mem.md` — behavioral protocol
-- `src/components/MemoryTabl/` — UI
+<!-- revision: 15 -->

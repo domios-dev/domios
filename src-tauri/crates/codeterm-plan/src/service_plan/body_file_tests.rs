@@ -195,6 +195,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         executor_role: None,
         competition: None,
         intent: None,
+        execution_intent: Default::default(),
         parent_task_id: None,
         depends_on: vec![],
         assigned_tab_id: None,
@@ -205,6 +206,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
+        interruption: Default::default(),
         pause_reason: None,
         personality: None,
         personality_provenance: None,
@@ -659,6 +661,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         executor_role: None,
         competition: None,
         intent: None,
+        execution_intent: Default::default(),
         parent_task_id: None,
         depends_on: vec![],
         assigned_tab_id: None,
@@ -681,6 +684,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
             attachments: vec![],
         }],
         execution_attempts: vec![],
+        interruption: Default::default(),
         pause_reason: None,
         personality: None,
         personality_provenance: None,
@@ -769,6 +773,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         executor_role: None,
         competition: None,
         intent: None,
+        execution_intent: Default::default(),
         parent_task_id: None,
         depends_on: vec![],
         assigned_tab_id: None,
@@ -791,6 +796,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
             attachments: vec![],
         }],
         execution_attempts: vec![],
+        interruption: Default::default(),
         pause_reason: None,
         personality: None,
         personality_provenance: None,
@@ -865,28 +871,23 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
         .unwrap();
 
     let manifest = store.file_manifest(&plan.id).unwrap();
+    let root = crate::service_plan::paths::plan_state_dir_unchecked(
+        crate::service_plan::paths::plan_sidecar_root(&plan),
+        &plan.status,
+        &plan.id,
+    )
+    .to_string_lossy()
+    .replace(std::path::MAIN_SEPARATOR, "/");
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "stride_log"
-            && entry.path
-                == format!(
-                    ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
-                    plan.id
-                )
+            && entry.path == format!("{root}/tasks/build/strides.jsonl")
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "milestone"
-            && entry.path
-                == format!(
-                    ".codeterm/plans/active/{}/milestones/build-{}.md",
-                    plan.id, milestone_id
-                )
+            && entry.path == format!("{root}/milestones/build-{milestone_id}.md")
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "element"
-            && entry.path
-                == format!(
-                    ".codeterm/plans/active/{}/elements/decision-{}.md",
-                    plan.id, decision_id
-                )
+            && entry.path == format!("{root}/elements/decision-{decision_id}.md")
     }));
 }

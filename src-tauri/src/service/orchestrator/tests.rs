@@ -27,7 +27,7 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     assert!(!skip_local_worker_role(&AgentRole::Worker, None, Some("")));
     // Orchestrator never needs a parent → never skipped here.
     assert!(!skip_local_worker_role(
-        &AgentRole::Orchestrator,
+        &AgentRole::Manager,
         None,
         Some("Mac-Air")
     ));
@@ -153,16 +153,17 @@ fn planner_profile_uses_planner_suffix() {
 fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
     let brief = crate::service::plan::worker_identity::attach_worker_identity(
         "You are Hopper — executor for: repair delivery",
-        &format!(
-            "# Repair delivery\n\nFix the ledger.\n\n{}",
-            crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION
-        ),
+        "# Repair delivery\n\nFix the ledger.",
     );
     let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
     let identity = task.find("You are Hopper").unwrap();
+    let primer = task
+        .find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+        .unwrap();
     let context = task
         .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
         .unwrap();
+    let agent_pad = task.find(crate::prompts::AGENT_PAD_RULE.trim()).unwrap();
     let assignment = task.find("## Assignment").unwrap();
     let brief = task.find("# Repair delivery").unwrap();
     let ack = task.find("codeterm agent ack").unwrap();
@@ -173,10 +174,14 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
         .find("load the provider skill named `codeterm`")
         .unwrap();
 
-    assert!(identity < context);
-    assert!(context < assignment && assignment < brief);
-    assert!(brief < ack && ack < report && report < fallback);
-    assert!(!task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(identity < primer && primer < context);
+    assert!(context < agent_pad && agent_pad < assignment && assignment < brief);
+    assert!(ack < brief && brief < report && report < fallback);
+    assert_eq!(
+        task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
     assert!(task.ends_with(
         "If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference."
@@ -195,7 +200,7 @@ fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
     let prompt =
         role_onboarding_task(None, Some("Orchestrator"), None).expect("orchestrator prompt");
     assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
     assert_eq!(
         prompt
             .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
@@ -212,7 +217,7 @@ fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
             .count(),
         1
     );
-    assert!(spawned.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(spawned.contains(crate::prompts::orchestrator_suffix().trim()));
 }
 
 #[test]
@@ -221,7 +226,7 @@ fn paired_orchestrator_starts_with_system_contract_without_a_synthetic_turn() {
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
     let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
-    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
 }
 
 #[test]
@@ -234,7 +239,7 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     assert!(
         task.find("inspect the launch path").unwrap()
             < task
-                .find(crate::prompts::ORCHESTRATOR_SUFFIX.trim())
+                .find(crate::prompts::orchestrator_suffix().trim())
                 .unwrap()
     );
 }
@@ -280,7 +285,10 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         starter_prompt: Default::default(),
         task_id: None,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         agent_name: None,
         args: None,
         cwd: None,
@@ -300,9 +308,12 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
+        ownership: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -327,7 +338,10 @@ fn test_registry() -> AgentRegistry {
 #[test]
 fn test_build_claude_with_task() {
     let reg = test_registry();
-    let params = make_params("claude", Some("count files"));
+    let mut params = make_params("claude", Some("count files"));
+    params.skip_permissions = Some(true);
+    params.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
     let cmd = build_agent_command("claude", &params, Some("count files"), None, &reg);
     assert!(cmd.contains("--dangerously-skip-permissions"));
     assert!(cmd.contains(".ct-task-"), "task via temp file");
@@ -343,7 +357,10 @@ fn test_build_claude_with_task() {
 #[test]
 fn test_build_claude_no_task() {
     let reg = test_registry();
-    let params = make_params("claude", None);
+    let mut params = make_params("claude", None);
+    params.skip_permissions = Some(true);
+    params.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
     let cmd = build_agent_command("claude", &params, None, None, &reg);
     if cfg!(target_os = "windows") {
         assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
@@ -468,7 +485,10 @@ fn test_shell_quote() {
 #[test]
 fn test_build_claude_task_with_newlines() {
     let reg = test_registry();
-    let params = make_params("claude", Some("line1\nline2\nline3"));
+    let mut params = make_params("claude", Some("line1\nline2\nline3"));
+    params.skip_permissions = Some(true);
+    params.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
     let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
     assert!(
         cmd.contains(".ct-task-"),
@@ -616,4 +636,29 @@ fn test_build_non_claude_ignores_task_in_command() {
     let params = make_params("aider", Some("review this code"));
     let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
     assert_eq!(cmd, "aider");
+}
+
+#[test]
+fn launch_flags_require_host_resolved_global_access() {
+    let registry = test_registry();
+    let fresh = make_params("claude", None);
+    let fresh_command = build_agent_command("claude", &fresh, None, None, &registry);
+    assert!(!fresh_command.contains("--dangerously-skip-permissions"));
+
+    let mut untrusted = make_params("claude", None);
+    untrusted.skip_permissions = Some(true);
+    let untrusted_command = build_agent_command("claude", &untrusted, None, None, &registry);
+    assert!(!untrusted_command.contains("--dangerously-skip-permissions"));
+
+    let mut authorized = make_params("claude", None);
+    authorized.skip_permissions = Some(true);
+    authorized.permission_bypass_authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true);
+    let explicit_command = build_agent_command("claude", &authorized, None, None, &registry);
+    assert_eq!(
+        explicit_command
+            .matches("--dangerously-skip-permissions")
+            .count(),
+        1
+    );
 }

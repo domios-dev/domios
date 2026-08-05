@@ -103,9 +103,6 @@ pub struct UpdaterConfig {
 pub struct ProviderConfig {
     /// Resume previous sessions on CodeTerm restart (per provider).
     pub resume_sessions: Option<bool>,
-    /// Use the provider's auto-approve flag when resuming
-    /// (Claude: --dangerously-skip-permissions, Codex: --dangerously-bypass-...).
-    pub resume_skip_permissions: Option<bool>,
     /// Default model id used for fresh sessions.
     pub default_model: Option<String>,
     /// Enable periodic /usage (or equivalent) probing for this provider.
@@ -126,13 +123,14 @@ pub struct ApiConfig {
     pub port: u16,
     pub token: Option<String>,
     pub cors: bool,
+    pub cors_allow_origins: Vec<String>,
 }
 
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            host: "0.0.0.0".to_string(),
+            host: "127.0.0.1".to_string(),
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
                 .ok()
@@ -141,7 +139,8 @@ impl Default for ApiConfig {
             #[cfg(not(debug_assertions))]
             port: 7685,
             token: None,
-            cors: true,
+            cors: false,
+            cors_allow_origins: Vec::new(),
         }
     }
 }
@@ -312,7 +311,7 @@ pub struct AgentConfig {
     pub poll_interval_ms: u32,
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
-    pub resume_skip_permissions: bool,
+    pub full_access: Option<bool>,
 }
 
 impl Default for AgentConfig {
@@ -321,7 +320,7 @@ impl Default for AgentConfig {
             poll_interval_ms: 500,
             idle_timeout_s: 2,
             resume_sessions: true,
-            resume_skip_permissions: true,
+            full_access: None,
         }
     }
 }

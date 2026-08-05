@@ -22,9 +22,13 @@ interface SecretStatus {
 export function SecretBackendDetail({
   entry,
   config,
+  onAction,
+  actionBusy,
 }: {
   entry: CatalogEntry;
   config: AppConfigShape;
+  onAction?: (kind: "install" | "update" | "remove", entry: CatalogEntry) => void;
+  actionBusy?: string | null;
 }) {
   const backendId = entry.id;
   const secretsCfg = config.integrations?.secrets ?? {};
@@ -158,8 +162,20 @@ export function SecretBackendDetail({
           <div style={{ fontSize: 16, fontWeight: 620 }}>{entry.displayName}</div>
           <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)" }}>
             secret backend{entry.version ? ` · v${entry.version}` : ""}
+            {entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}
           </div>
         </div>
+        {entry.updateAvailable && onAction && (
+          <button
+            data-testid="extensions-plugin-update"
+            data-plugin-id={entry.id}
+            onClick={() => onAction("update", entry)}
+            disabled={actionBusy?.endsWith(`:${entry.id}`) ?? false}
+            style={{ font: "inherit", fontSize: 12, fontWeight: 560, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", whiteSpace: "nowrap", background: "var(--ct-accent, #5b8cff)", color: "#fff" }}
+          >
+            {actionBusy === `update:${entry.id}` ? "Updating…" : "Update"}
+          </button>
+        )}
         <ConfigureWithAiButton entry={entry} />
       </div>
 

@@ -3,6 +3,8 @@ use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus}
 use codeterm_types::agent::ReportStatus;
 use std::sync::{Arc, Barrier};
 
+mod plan_skill_evidence;
+
 fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -41,6 +43,7 @@ fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::Boun
         test_cmd: Some("cargo test".into()),
         test_result: Some("ok".into()),
         skipped: None,
+        authority: None,
     }
 }
 
@@ -711,15 +714,17 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
     let expected_prefix = format!(
         "You are Hopper. Audit reconnect semantics.\n\
          Your assigned task is: retry lane\n\n{}\n\n\
+         {}\n\n\
          You are a CodeTerm Worker respawned from a prior task attempt.\n\
          Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
-        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END,
+        crate::service_plan::worker_identity::WORKER_ACK_INSTRUCTION
     );
     assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
     let ack = draft.task_prompt.find("codeterm agent ack").unwrap();
     let report = draft.task_prompt.find("When done, run exactly:").unwrap();
-    assert!(draft.task_prompt.find("Original task body:").unwrap() < ack);
+    assert!(ack < draft.task_prompt.find("Original task body:").unwrap());
     assert!(ack < report);
 }
 
@@ -765,14 +770,16 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     let expected_prefix = format!(
         "You are Hopper. Audit reconnect semantics.\n\
          Your assigned task is: judgeable\n\n{}\n\n\
+         {}\n\n\
          You are one isolated competitive attempt.",
-        crate::service_plan::worker_identity::WORKER_IDENTITY_END
+        crate::service_plan::worker_identity::WORKER_IDENTITY_END,
+        crate::service_plan::worker_identity::WORKER_ACK_INSTRUCTION
     );
     assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(prompt.matches("You are Hopper.").count(), 1);
     let ack = prompt.find("codeterm agent ack").unwrap();
     let report = prompt.find("When done, run exactly:").unwrap();
-    assert!(prompt.find("Task body:").unwrap() < ack);
+    assert!(ack < prompt.find("Task body:").unwrap());
     assert!(ack < report);
 }
 
@@ -952,6 +959,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             "tab-1",
             Some("Ada"),
             Some("sess-1"),
+            None,
             4,
         )
         .unwrap();
@@ -965,6 +973,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             "tab-2",
             Some("Bea"),
             Some("sess-2"),
+            None,
             6,
         )
         .unwrap();

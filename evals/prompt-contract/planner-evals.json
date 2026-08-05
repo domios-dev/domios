@@ -111,6 +111,52 @@
         "Requires an oracle-first red-green demonstration and bounded execution.",
         "Does NOT route the task as a generic implementation worker without test guidance."
       ]
+    },
+    {
+      "id": 11,
+      "name": "planner-compacts-over-decomposed-single-capability",
+      "prompt": "You are Planner for pl_demo. One capability is in scope: the Wildberries benchmark comparison feature — a versioned source registry backed by a static dataset with a currentness marker; a compatibility engine that classifies each external benchmark against our own metrics as available, unavailable, or incompatible; period aggregation with the matching DTO change and a cache version bump; and a Russian-language UI that shows history, currentness, methodology, and a source link. A previous planning pass cut it into 11 tasks: discover the benchmark source landscape, research currentness rules for the static dataset, write the source-registry tests, implement the versioned source registry, write the compatibility-engine tests, implement the compatibility engine, implement period aggregation and the DTO, bump the cache version, build the Russian UI, write the docs, and a final review/QA task. Restate the task list you would actually create, with a one-line justification per task. Plain text only; do not invoke tools.",
+      "expected_output": "Collapses the 11 phase-shaped tasks into 4-6 cohesive vertical capabilities that each carry their own discovery, tests, docs, and review.",
+      "expectations": [
+        "Produces between 4 and 6 tasks, not 11 and not one monolith.",
+        "Each task is a vertical slice that delivers a reviewable capability (for example the versioned source registry with currentness, the compatibility engine over our metrics, period aggregation with its DTO and cache bump, the Russian benchmark UI), not a phase.",
+        "Does NOT keep standalone discovery, test-writing, docs, review, or QA tasks; states that each of those belongs inside the implementation slice that owns it.",
+        "Does NOT treat red/green as its own task."
+      ]
+    },
+    {
+      "id": 12,
+      "name": "planner-security-authority-boundary-justifies-extra-task",
+      "prompt": "You are Planner for pl_demo. The capability is a third-party analytics export with five distinct product surfaces: the extract-and-transform pipeline, the export format and templating layer, the scheduled-run engine, the download and delivery UI, and the export audit/history view. Separately, the partner API credential must be issued, stored, and rotated inside the secret store, which the security team owns outright and will not delegate. Draft the task list with a one-line justification per task. Plain text only; do not invoke tools.",
+      "expected_output": "Keeps the five export surfaces as cohesive vertical slices, separates the security-owned credential slice, and justifies the sixth task.",
+      "expectations": [
+        "Creates a sixth, distinct task for the credential issuance/storage/rotation work because the security team owns that authority boundary, and justifies it explicitly as a task beyond five.",
+        "Keeps the five export surfaces as cohesive vertical capability slices rather than phase tasks.",
+        "Does NOT add standalone discovery, test-writing, docs, review, or QA tasks; those stay inside the slice that owns them."
+      ]
+    },
+    {
+      "id": 13,
+      "name": "planner-cross-platform-rollout-ownership-justifies-extra-tasks",
+      "prompt": "You are Planner for pl_demo. A tray-notification capability has three shared surfaces — the notification core and dispatch rules, the settings and preferences surface, and the notification history view — and then ships on Windows, macOS, and Linux, where each platform rollout has a different owner, a different packaging path, and a different signing/permission story. Draft the task list with a one-line justification per task. Plain text only; do not invoke tools.",
+      "expected_output": "Produces six tasks — three shared capability slices plus three independently owned platform rollouts — and justifies the sixth.",
+      "expectations": [
+        "Separates the Windows, macOS, and Linux rollout work only because each has independent ownership and a distinct packaging/signing path.",
+        "Keeps the notification core, settings surface, and history view as cohesive capability slices rather than splitting them by phase.",
+        "Ends at six tasks and justifies every task beyond five explicitly by naming its independent ownership boundary.",
+        "Does NOT add standalone discovery, test-author, docs, review, or QA tasks alongside the platform ones."
+      ]
+    },
+    {
+      "id": 14,
+      "name": "planner-hands-off-draft-with-explicit-user-approval-wait",
+      "prompt": "You are the Planner for pl_demo. The task graph is complete and plan doctor is green. Tell the Orchestrator what happens next. Do not approve or dispatch anything.",
+      "expected_output": "Summarizes the ready draft and explicitly says execution is waiting for user approval.",
+      "expectations": [
+        "Gives the Orchestrator a concise summary of the ready plan.",
+        "Explicitly states that execution is waiting for user approval rather than silently waiting.",
+        "Does NOT approve the plan or dispatch workers."
+      ]
     }
   ]
 }

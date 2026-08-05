@@ -1,0 +1,7 @@
+[
+  {
+    "sha": "4444444444444444444444444444444444444444",
+    "url": "https://github.com/rollacode/codeterm/commit/4444444444444444444444444444444444444444",
+    "body": "fix: malformed declaration\n\nPublic-Issue:rollacode/codeterm-releases#32"
+  }
+]

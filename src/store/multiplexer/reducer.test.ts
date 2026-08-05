@@ -226,6 +226,24 @@ test("peer switch reset removes every old-peer Tab and selection immediately", (
   assert(reset.generation === -1, "new peer snapshot cannot be rejected by old peer generation");
 });
 
+test("SET_REMOTE_TABS places a remote tab in its controller workspace", () => {
+  const workspaceA = { id: "workspace-a", tabs: [], active_tab_id: null } as unknown as Workspace;
+  const workspaceB = { id: "workspace-b", tabs: [], active_tab_id: null } as unknown as Workspace;
+  const remote = {
+    id: "mesh:peer/worker",
+    title: "Worker",
+    remote_peer_id: "peer",
+    remote_tab_id: "worker",
+    workspace_id: "workspace-b",
+  } as unknown as Tab;
+  const next = reducer(
+    { ...base(), workspaces: [workspaceA, workspaceB] },
+    { type: "SET_REMOTE_TABS", tabs: { [remote.id]: remote } },
+  );
+  assert(next.workspaces[0].tabs.length === 0, "unrelated first workspace stays unchanged");
+  assert(next.workspaces[1].tabs[0] === remote.id, "remote tab follows its controller workspace");
+});
+
 test("SET_STATE seeds tabStatuses from the snapshot (reload hydration)", () => {
   const withStatus = { ...snap(5, "w-new"), tab_statuses: { "p-1": "Waiting" as const } };
   const next = reducer(base(), { type: "SET_STATE", state: withStatus });
@@ -882,6 +900,45 @@ test("CLOSE_TAB records a tombstone for the removed Tab", () => {
     removedTabIds: ["tab-A"],
   });
   assert(next.pendingCloses.join(",") === "tab-A", "closing a tab tombstones its Tab");
+});
+
+test("SET_STATE preserves remote tab, selection, and focus across an authoritative local snapshot", () => {
+  const remote = {
+    id: "mesh:peer/worker",
+    title: "Worker",
+    pty_id: "mesh:peer/worker",
+    remote_peer_id: "peer",
+    remote_tab_id: "worker",
+    remote_channels: { control: "available", output: "available", chat: "available" },
+    workspace_id: "w1",
+    role: "Worker",
+  } as unknown as Tab;
+  const start: ExtendedState = {
+    ...base(),
+    generation: 5,
+    workspaces: [
+      { id: "w1", name: "W", tabs: ["local-a", remote.id], active_tab_id: "local-a", cwd: null } as unknown as Workspace,
+    ],
+    tabs: { "local-a": { id: "local-a", title: "A" } as unknown as Tab, [remote.id]: remote },
+    activeTabIds: { w1: remote.id },
+    focused_tab_id: remote.id,
+  };
+  const next = reducer(start, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [
+        { id: "w1", name: "W", tabs: ["local-a"], active_tab_id: "local-a", cwd: null } as unknown as Workspace,
+      ],
+      tabs: { "local-a": { id: "local-a", title: "A" } as unknown as Tab },
+      active_workspace_id: "w1",
+      focused_tab_id: null,
+      generation: 6,
+    },
+  });
+  assert(next.tabs[remote.id]?.remote_peer_id === "peer", "remote tab survives the local snapshot");
+  assert(next.workspaces[0].tabs.includes(remote.id), "remote tab stays in its controller workspace");
+  assert(next.activeTabIds.w1 === remote.id, "remote selection is not reverted by the local snapshot");
+  assert(next.focused_tab_id === remote.id, "remote focus survives the local snapshot");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

@@ -3,7 +3,7 @@ use crate::UsageAction;
 pub fn handle_usage(
     json_mode: bool,
     action: UsageAction,
-    http: &reqwest::blocking::Client,
+    http: &crate::local_api::LocalApiClient,
     base: &str,
     token: Option<&str>,
 ) {
@@ -74,7 +74,7 @@ fn build_url(base: &str, path: &str, provider: &str, account_id: Option<&str>) -
 }
 
 fn get_json<F: FnOnce(&serde_json::Value)>(
-    http: &reqwest::blocking::Client,
+    http: &crate::local_api::LocalApiClient,
     url: &str,
     token: Option<&str>,
     json_mode: bool,

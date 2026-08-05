@@ -53,7 +53,7 @@ pub fn planner_spawn_cmd_hint(orchestrator_tab_id: Option<&str>, plan_id: &str) 
 pub fn planner_peer_intro_line(plan_id: &str, orchestrator_tab_id: Option<&str>) -> String {
     let orch = orchestrator_tab_id.unwrap_or("unknown");
     format!(
-        "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is tab {orch}. {} First read `codeterm docs PLANNER` — it covers your role, the planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`), and that YOU cut the tasks (the Orchestrator dispatches and accepts, it does not create them). The full CLI reference is the `codeterm` skill — if it is not loaded, `codeterm mem search \"codeterm skill\"` and read the returned SKILL.md. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans.",
+        "You are the Planner specialist for the active Team Plan {plan_id}; the Orchestrator owner is tab {orch}. {} The Orchestrator owns and creates the Team Plan and may create its structure directly. Team membership gives you the same active Plan automatically; no separate Planner binding or General Agent bootstrap is required. First read `codeterm docs PLANNER`. When planning is delegated, refine the active Team Plan and run its quality doctor. If no planning request has been delegated yet, reply that you are ready and WAIT.",
         super::prompts_plan::PEER_PLANNER_CHARTER_LINE
     )
 }
@@ -141,7 +141,6 @@ mod tests {
         // Unapproved + bound planner → nudge names the planner.
         let n = planning_structure_nudge(PlanningState::Drafting, &live).unwrap();
         assert!(n.contains("tab_p"));
-        assert!(n.contains("delegate"));
         // Approved → silent (execution unlocked, structure owned).
         assert!(planning_structure_nudge(PlanningState::Approved, &live).is_none());
         // Waived → silent even while drafting (orchestrator is solo).

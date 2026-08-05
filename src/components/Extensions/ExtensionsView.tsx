@@ -22,7 +22,6 @@ import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import { ArrowLeft, Plus, RefreshCw } from "lucide-react";
 import {
   ensurePluginSnapshot,
-  invalidatePluginSnapshotStore,
   runPluginSnapshotAction,
   usePluginSnapshotStore,
 } from "../../lib/pluginSnapshotStore";
@@ -137,7 +136,6 @@ export function ExtensionsView({
       setLocalError(null);
       try {
         await runPluginSnapshotAction(action);
-        invalidatePluginSnapshotStore();
         return true;
       } catch (e) {
         setLocalError(String(e));
@@ -252,7 +250,6 @@ export function ExtensionsView({
                 onClick={() => {
                   setBusy("refresh-channel");
                   void runPluginSnapshotAction({ kind: "refresh-channel" })
-                    .then(() => invalidatePluginSnapshotStore())
                     .catch((e) => setLocalError(`Couldn't refresh channels: ${String(e)}`))
                     .finally(() => setBusy(null));
                 }}

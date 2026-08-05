@@ -1,12 +1,13 @@
 use std::io::Read;
 
+use crate::args::inbox::InboxAction;
 use crate::args::task::{CanvasAction, TaskAction};
 use crate::client::RpcClient;
 use crate::cmd::hints::{
     extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
     task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
-use crate::cmd::plan_errors::render_plan_call_error;
+use crate::cmd::plan::inject_trusted_session;
 use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
@@ -34,9 +35,7 @@ fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<St
 }
 
 fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
-    client
-        .call_detailed(method, Some(params.clone()))
-        .map_err(|err| render_plan_call_error(err, &params))
+    crate::cmd::plan::call_plan_rpc(client, method, params)
 }
 
 fn caller_tab(client: &dyn RpcClient) -> Option<String> {
@@ -60,6 +59,16 @@ fn cwd_project(client: &dyn RpcClient) -> Option<String> {
 pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
     match run_task(client, json, action) {
         Ok((val, show_opts)) => print_task_result(json, &val, show_opts),
+        Err(e) => {
+            println!("{}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn handle_inbox(client: &mut dyn RpcClient, json: bool, action: InboxAction) {
+    match run_inbox(client, action) {
+        Ok(val) => print_task_result(json, &val, None),
         Err(e) => {
             println!("{}", e);
             std::process::exit(1);
@@ -144,17 +153,21 @@ fn run_task(
             let caller = caller_tab(client).ok_or(
                 "task take requires a Tab on the target machine and is unavailable over mesh",
             )?;
-            call(
-                client,
-                "task.take",
-                json!({ "task_id": task_id, "caller_tab_id": caller }),
-            )
-            .map(|val| (val, None))
+            let mut params = json!({ "task_id": task_id, "caller_tab_id": caller });
+            inject_trusted_session(&mut params);
+            call(client, "task.take", params).map(|val| (val, None))
         }
         TaskAction::Drop { task_id } => {
-            call(client, "task.drop", json!({ "task_id": task_id })).map(|val| (val, None))
+            let mut params = json!({ "task_id": task_id });
+            inject_trusted_session(&mut params);
+            call(client, "task.drop", params).map(|val| (val, None))
         }
-        TaskAction::Add {
+    }
+}
+
+fn run_inbox(client: &mut dyn RpcClient, action: InboxAction) -> Result<Value, String> {
+    match action {
+        InboxAction::Add {
             name,
             kind,
             model,
@@ -169,6 +182,7 @@ fn run_task(
             body_file,
             intent,
             intent_file,
+            execution_intent,
             assign_tab,
         } => {
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -215,6 +229,9 @@ fn run_task(
             if let Some(i) = resolve_text(intent, intent_file)? {
                 params["intent"] = json!(i);
             }
+            if let Some(execution_intent) = execution_intent {
+                params["execution_intent"] = json!(execution_intent);
+            }
             if let Some(tab) = assign_tab {
                 params["assign_tab"] = json!(tab);
             }
@@ -246,7 +263,7 @@ fn run_task(
                 }
                 push_hints(&mut val, hints);
             }
-            Ok((val, None))
+            Ok(val)
         }
     }
 }
@@ -333,6 +350,9 @@ fn print_task_presentation(val: &Value) {
 fn task_presentation_line(val: &Value) -> Option<String> {
     match val.get("presentation").and_then(|value| value.as_str()) {
         Some("actionable_pending") => Some("presentation: actionable pending".into()),
+        Some("handoff_required") => {
+            Some("presentation: handoff required (sealed checkpoint awaits adoption)".into())
+        }
         Some("waiting_on_dependencies") => {
             let dependencies = val
                 .get("dependency_waits")

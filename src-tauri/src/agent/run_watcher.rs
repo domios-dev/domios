@@ -486,7 +486,7 @@ fn screen_is_bare_shell(text: &str) -> bool {
 /// isn't known yet (let idle / timeout handle that case).
 fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     let (provider, session_id) = {
-        let mux = svc.mux.write();
+        let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id);
         (
             tab.and_then(|p| p.agent_type.clone()),
@@ -500,10 +500,20 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
         );
         return;
     };
-    let cmd = svc
-        .agent_registry
-        .with_provider(&provider, |p| p.build_resume_command(&sid, true))
-        .flatten();
+    let full_access = match crate::service::permission_policy::configured_permission_bypass(
+        &svc.agent_registry,
+        &provider,
+    ) {
+        Ok(authorization) => authorization.is_some(),
+        Err(error) => {
+            log::error!("[run-watcher] refusing policy downgrade for tab={tab_id}: {error}");
+            return;
+        }
+    };
+    if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
+        tab.auto_approve = full_access;
+    }
+    let cmd = hidden_recovery_resume_command(&svc.agent_registry, &provider, &sid, full_access);
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
         return;
@@ -511,6 +521,19 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     if let Err(e) = svc.send_shell_spawn(pty_id, &cmd) {
         log::error!("[run-watcher] resume send failed tab={}: {}", tab_id, e);
     }
+}
+
+fn hidden_recovery_resume_command(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    session_id: &str,
+    full_access: bool,
+) -> Option<String> {
+    registry
+        .with_provider(provider, |p| {
+            p.build_resume_command(session_id, full_access)
+        })
+        .flatten()
 }
 
 fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: String) {
@@ -865,5 +888,19 @@ mod tests {
             ..Default::default()
         };
         assert!(has_nonempty_assistant_transcript(&completed));
+    }
+
+    #[test]
+    fn hidden_agent_crash_recovery_uses_global_access_choice() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+
+        let full_access = hidden_recovery_resume_command(&registry, "claude", "session-1", true)
+            .expect("resume command");
+        let restricted = hidden_recovery_resume_command(&registry, "claude", "session-1", false)
+            .expect("resume command");
+
+        assert!(full_access.contains("--dangerously-skip-permissions"));
+        assert!(!restricted.contains("--dangerously-skip-permissions"));
     }
 }

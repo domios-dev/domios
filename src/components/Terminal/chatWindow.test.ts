@@ -3,6 +3,7 @@ import {
   CHAT_WINDOW_SIZE,
   CHAT_WINDOW_STEP,
   chatWindowRange,
+  chatWindowProjection,
   slideChatWindowOlder,
   timelineItemKey,
 } from "./chatWindow";
@@ -27,7 +28,7 @@ function items(count: number, offset = 0): TimelineItem[] {
   assert(small.start === 0 && small.end === 10, "short transcript shows everything");
 }
 
-// --- an anchored window does not move when items append at the tail ---
+// --- an anchored reading window stays stable without mounting a second tail window ---
 {
   const list = items(500);
   const anchor = timelineItemKey(list[299]);
@@ -36,6 +37,24 @@ function items(count: number, offset = 0): TimelineItem[] {
   const after = chatWindowRange(appended, anchor);
   assert(before.start === after.start && before.end === after.end, "appends never move an anchored window");
   assert(after.end === 300, "anchor names the last visible item");
+  const projection = chatWindowProjection(appended, anchor);
+  assert(projection.items.length === CHAT_WINDOW_SIZE, "detached projection mounts one bounded window");
+  assert(timelineItemKey(projection.items[219]) === anchor, "reading window remains intact");
+  assert(timelineItemKey(projection.items[projection.items.length - 1]!) === anchor, "new arrivals do not move detached reading");
+
+  const replaced = items(550, 1_000);
+  const recovered = chatWindowProjection(replaced, anchor);
+  assert(timelineItemKey(recovered.items[0]) === "m-1330", "vanished source anchor reveals the current tail");
+  assert(timelineItemKey(recovered.items[219]) === "m-1549", "current tail includes the newest row");
+  assert(recovered.items.length === CHAT_WINDOW_SIZE, "replacement tail remains one bounded window");
+}
+
+// --- a detached projection never mounts rows outside its reading window ---
+{
+  const list = items(300);
+  const projection = chatWindowProjection(list, timelineItemKey(list[199]));
+  assert(projection.items.length === 200, "short detached history renders only through its anchor");
+  assert(timelineItemKey(projection.items[0]) === "m-0" && timelineItemKey(projection.items[projection.items.length - 1]!) === "m-199", "detached projection is contiguous");
 }
 
 // --- prepends shift an anchored window intact (same content) ---

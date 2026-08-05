@@ -52,6 +52,18 @@ const focusTab = sendHost.host.querySelector<HTMLButtonElement>('[data-testid="c
 if (!focusTab || focusTab.textContent !== "Show Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
 await act(async () => focusTab.click());
 if (focusCalls[0] !== "e3fa0754") throw new Error("tab focus callback regression");
+const meshId = "a35724e2-c7e3-486b-95d1-5edaa7f8d749";
+const meshSendHost = await render(
+  <CodetermActionCard
+    event={event(`codeterm send "hello" --tab 166df18d --mesh ${meshId}`)}
+    expanded={false}
+    onToggle={() => {}}
+    resolveTabName={(ref) => ref === "166df18d" ? "Dumas" : undefined}
+    resolvePeerName={(ref) => ref === meshId ? "BLACKSTAR" : undefined}
+  />,
+);
+const meshHeader = meshSendHost.host.querySelector("button")?.textContent ?? "";
+if (!meshHeader.includes("Sent to") || !meshHeader.includes("Dumas @ BLACKSTAR") || meshHeader.includes(meshId)) throw new Error("mesh send header must use human endpoint names");
 const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
 const contradictorySendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: 'Exit code: 2\nOK (sent)\nCODETERM_RESOLVED_TEXT="hello"' }} expanded onToggle={() => {}} />);
@@ -65,6 +77,13 @@ if (!resolvedSendHost.host.textContent.includes("expanded REDACTED text")) throw
 if (resolvedSendHost.host.textContent.includes("expanded-secret")) throw new Error("resolved send must not reveal secret text");
 const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
 if (!typedSendHost.host.textContent?.includes("Source as typed") || !typedSendHost.host.textContent.includes("$VAR")) throw new Error("missing resolved output must honestly show source as typed");
+const padSendHost = await render(<CodetermActionCard event={event("codeterm send --tab e3fa0754 --from-pad message.md")} expanded onToggle={() => {}} />);
+if (!padSendHost.host.textContent?.includes("AgentPad source") || !padSendHost.host.textContent.includes("message.md") || padSendHost.host.textContent.includes("Message content unavailable")) throw new Error("AgentPad send must show its staged source");
+const padRedirectHost = await render(<CodetermActionCard event={event("codeterm send --from-pad dumas-final-report.txt --tab 166df18d --mesh BLACKSTAR 2>&1")} expanded onToggle={() => {}} />);
+if (!padRedirectHost.host.textContent?.includes("AgentPad source") || !padRedirectHost.host.textContent.includes("dumas-final-report.txt") || padRedirectHost.host.textContent.includes("2>&1")) throw new Error("AgentPad send with a trailing shell redirect must show its staged source, never the redirect");
+const mdSendHost = await render(<CodetermActionCard event={{ ...event("codeterm send --from-pad report.md --tab 166df18d --mesh BLACKSTAR"), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="# Status\\n\\n- one\\n- two"' }} expanded onToggle={() => {}} />);
+if (!mdSendHost.host.textContent?.includes("Delivered text") || !mdSendHost.host.textContent.includes("Status") || !mdSendHost.host.textContent.includes("one") || mdSendHost.host.textContent.includes("# Status")) throw new Error("send with resolved markdown must render the delivered content as markdown, not raw source");
+if (!mdSendHost.host.querySelector("h1") && !mdSendHost.host.querySelector("ul")) throw new Error("markdown send body must render block elements (h1/ul)");
 const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help; codeterm docs ROUTING")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
@@ -103,7 +122,7 @@ await act(async () => specButton?.click());
 if (specCalls[0] !== "sp_d17yp2") throw new Error("spec navigation regression");
 
 const goalCalls: string[] = [];
-const goalHost = await render(<CodetermActionCard {...navProps} event={event(`codeterm plan goal get ${PLAN}`)} onOpenPlan={(id, focus, kind) => goalCalls.push(`${id}:${focus ?? ""}:${kind ?? ""}`)} />);
+const goalHost = await render(<CodetermActionCard {...navProps} event={event(`codeterm plan goal show ${PLAN}`)} onOpenPlan={(id, focus, kind) => goalCalls.push(`${id}:${focus ?? ""}:${kind ?? ""}`)} />);
 const goalButton = goalHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-show-plan"]');
 if (goalButton?.textContent !== "Show Goal") throw new Error("goal navigation label regression");
 await act(async () => goalButton?.click());
@@ -136,7 +155,7 @@ const descriptorCases: Array<[string, string]> = [
   ["codeterm plan task add pl_d17yp2 --name \"Implement card\"", "plan task"],
   ["codeterm plan record pl_d17yp2 --task task_4orgnd --step \"decision\"", "decision"],
   ["codeterm agent report --status in_review --sha abc123", "report"],
-  ["codeterm send --tab e3fa0754 \"hello\"", "send"],
+  ["codeterm send --tab e3fa0754 \"hello\"", "Sent to"],
   ["codeterm mem save --kind fact \"remember this\"", "mem save"],
   ["codeterm tab list", "tab list"],
   ["codeterm workspace focus ws_codeterm", "workspace"],

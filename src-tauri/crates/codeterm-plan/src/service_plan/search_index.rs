@@ -183,16 +183,13 @@ impl IndexQueue {
     fn wait_until_project_idle(&self, project_root: &Path) {
         let project = project_scope(project_root);
         let mut state = self.state.lock();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         while state.in_flight_projects.contains(&project)
             || state
                 .latest
                 .values()
                 .any(|job| job.project_key() == project)
         {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            assert!(!remaining.is_zero(), "plan index queue did not drain");
-            self.ready.wait_for(&mut state, remaining);
+            self.ready.wait(&mut state);
         }
     }
 }

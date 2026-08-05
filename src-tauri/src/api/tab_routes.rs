@@ -40,7 +40,19 @@ pub async fn list_tabs(
         state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs"))?;
-    Ok(Json(result.into_json()))
+    let local = result.into_json();
+    if query.local_only {
+        return Ok(Json(local));
+    }
+    let local = local.as_array().cloned().unwrap_or_default();
+    Ok(Json(serde_json::Value::Array(
+        crate::service::remote_tabs::ordinary_tab_projection(
+            &state.mesh,
+            state.svc.remote_workers.as_ref(),
+            local,
+        )
+        .await,
+    )))
 }
 
 #[derive(Default, Deserialize)]
@@ -52,6 +64,8 @@ pub struct TabListQuery {
     pub all_workspaces: bool,
     #[serde(default)]
     pub agents: bool,
+    #[serde(default)]
+    pub local_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -464,12 +478,51 @@ pub async fn close_tab(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct RestartShellTabBody {
+    cwd: Option<String>,
+}
+
+pub async fn restart_shell_tab(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab_id): Path<String>,
+    Json(body): Json<RestartShellTabBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let svc = state.svc.clone();
+    let outcome = tokio::task::spawn_blocking(move || svc.restart_shell_tab(&tab_id, body.cwd))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(Json(serde_json::to_value(outcome).unwrap_or_default()))
+}
+
 pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
     headers
         .get("X-CodeTerm-Tab-Id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+pub(crate) fn authenticated_plan_caller(
+    headers: &HeaderMap,
+) -> crate::service::AuthenticatedPlanCaller {
+    let header = |name| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: caller_tab_header(headers),
+        session_id: header("X-CodeTerm-Session-Id"),
+        binding_nonce: header("X-CodeTerm-Binding-Nonce"),
+    }
 }
 
 /// A self-termination refusal is a 403 (authenticated but forbidden); anything

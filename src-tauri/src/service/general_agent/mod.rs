@@ -14,6 +14,7 @@
 pub(crate) mod binding_wait;
 pub mod blocker;
 mod first_run;
+pub mod identity;
 mod instructions;
 pub(crate) mod launch_lock;
 mod lifecycle;
@@ -27,6 +28,7 @@ pub use first_run::{
     complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,
     snapshot_has_protected_main, FIRST_RUN_TAB_MARKER,
 };
+pub use identity::{confine_general_agent_kind, is_general_agent, GENERAL_AGENT_KIND};
 pub use instructions::{generate_instructions, sync_identity_to_mem};
 pub use lifecycle::{
     claim_general_agent_tab_retry, restart_general_agent, restart_general_agent_tab,

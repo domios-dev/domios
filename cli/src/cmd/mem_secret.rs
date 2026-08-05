@@ -2,13 +2,13 @@ use crate::cmd::mem::transport::mem_transport_error;
 use crate::cmd::print::print_human;
 use crate::MemSecretAction;
 
-// Secrets retain bearer-authenticated HTTP and stable script exit codes:
+// Secrets retain stable script exit codes over same-user local IPC:
 // `3`=locked, `4`=logged-out, `5`=not found, `6`=backend unavailable.
 pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
     use std::io::{Read, Write};
 
-    let (base, token) = crate::read_api_config();
-    let http = match crate::build_http(&token) {
+    let (base, _) = crate::read_api_config();
+    let http = match crate::build_local_api() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: failed to build HTTP client: {}", e);
@@ -17,7 +17,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
     };
     let base = base.as_str();
 
-    let send_request = |req: reqwest::blocking::RequestBuilder| -> (u16, serde_json::Value) {
+    let send_request = |req: crate::local_api::LocalApiRequest| -> (u16, serde_json::Value) {
         match req.send() {
             Ok(r) => {
                 let status = r.status().as_u16();

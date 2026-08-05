@@ -37,34 +37,29 @@ function setupDom() {
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
   Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "fetch", {
-    configurable: true,
-    value: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/api/plans") && (!init || init.method === undefined || init.method === "GET")) {
-        const entry = {
-          plan_id: FIXTURE_PLAN.id,
-          file_path: "/tmp/plan.json",
-          owner: FIXTURE_PLAN.owner,
-          title: FIXTURE_PLAN.title,
-          status: FIXTURE_PLAN.status,
-          updated_at: FIXTURE_PLAN.updated_at,
-          assigned_tab_ids: [],
-        };
-        return new Response(JSON.stringify({ plans: [entry] }), { status: 200 });
-      }
-      if (url.includes(`/api/plans/${FIXTURE_PLAN.id}`)) {
-        return new Response(JSON.stringify(FIXTURE_PLAN), { status: 200 });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
 }
 
 let planChangedListener: ((event: { payload?: { plan_id?: string } }) => void) | null = null;
 
-async function installListenMock() {
-  const { __setListenForTest } = await import("../../lib/bridge");
+// Desktop reads plans straight from PlanStore over IPC — never localhost REST.
+async function installBridgeMocks() {
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(async (command) => {
+    if (command === "list_plan_index") {
+      return [{
+        plan_id: FIXTURE_PLAN.id,
+        file_path: "/tmp/plan.json",
+        owner: FIXTURE_PLAN.owner,
+        title: FIXTURE_PLAN.title,
+        status: FIXTURE_PLAN.status,
+        updated_at: FIXTURE_PLAN.updated_at,
+        assigned_tab_ids: [],
+      }] as never;
+    }
+    if (command === "list_plans_full") return [FIXTURE_PLAN] as never;
+    if (command === "get_plan_full") return FIXTURE_PLAN as never;
+    throw new Error(`unexpected invoke: ${command}`);
+  });
   __setListenForTest(async (event, handler) => {
     if (event === "plan-changed") planChangedListener = handler as typeof planChangedListener;
     return () => {
@@ -145,7 +140,7 @@ test("Batch B pulse keyframes are absent and activity dots retain their static r
 
 async function main() {
   setupDom();
-  await installListenMock();
+  await installBridgeMocks();
   let passed = 0;
   for (const [name, fn] of tests) {
     try {

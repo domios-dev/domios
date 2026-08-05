@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 #[test]
 fn exits_successfully_when_an_early_stdout_consumer_closes() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_codeterm"))
-        .args(["doc", "API"])
+        .args(["docs", "API"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

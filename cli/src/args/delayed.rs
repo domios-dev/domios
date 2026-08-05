@@ -29,6 +29,9 @@ pub enum DelayedAction {
         /// Read text from a file instead of the positional arg
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+        /// Read text from a relative file in the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
+        from_pad: Option<String>,
 
         /// Read text from stdin
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
@@ -55,6 +58,9 @@ pub enum DelayedAction {
         /// Read replacement text from a file
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+        /// Read replacement text from the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
+        from_pad: Option<String>,
 
         /// Read replacement text from stdin
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]

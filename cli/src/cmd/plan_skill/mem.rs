@@ -31,20 +31,8 @@ pub fn index_skill(plan_id: &str, plan_dir: &Path, slug: &str) -> Result<(), Str
     let skill_md = skill_md_path(plan_dir, slug);
     let body = std::fs::read_to_string(&skill_md).map_err(|e| e.to_string())?;
     let payload = mem_payload(plan_id, slug, &skill_md, &body);
-    let (base, token) = crate::read_api_config();
-    // Short-timeout client: mem indexing is best-effort, it must never stall the CLI.
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(t) = token {
-        if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {t}")) {
-            headers.insert(reqwest::header::AUTHORIZATION, val);
-        }
-    }
-    let http = reqwest::blocking::Client::builder()
-        .default_headers(headers)
-        .connect_timeout(std::time::Duration::from_secs(2))
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let (base, _) = crate::read_api_config();
+    let http = crate::build_local_api().map_err(|e| e.to_string())?;
     let resp = http
         .post(format!("{base}/api/mem/items"))
         .json(&payload)

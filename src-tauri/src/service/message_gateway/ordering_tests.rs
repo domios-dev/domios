@@ -38,8 +38,7 @@ impl BoundWorker {
     }
 
     fn reports_json(&self) -> String {
-        serde_json::to_string(&self.fx.service.report_store.lock().get(&self.orch, false))
-            .unwrap()
+        serde_json::to_string(&self.fx.service.report_store.lock().get(&self.orch, false)).unwrap()
     }
 }
 
@@ -86,6 +85,43 @@ fn seed_bound_worker() -> BoundWorker {
     }
 }
 
+/// Bind the exact live Worker session on both sides of the seam: the tab record
+/// the daemon reads, and the attempt the plan write authorizes against.
+fn bind_live_worker_session(bw: &BoundWorker) {
+    {
+        let mut mux = bw.fx.service.mux.write();
+        let tab = mux.get_tab_mut(&bw.worker).unwrap();
+        tab.agent_session_id = Some("worker-session".into());
+        tab.session_binding_nonce = Some("worker-nonce".into());
+        tab.reported_session_binding_nonce = Some("worker-nonce".into());
+    }
+    bw.fx
+        .service
+        .plan_store
+        .update_attempt_executor_identity(
+            &bw.plan_id,
+            &bw.task_id,
+            &bw.worker,
+            None,
+            Some("worker-session"),
+            Some("worker-nonce"),
+            4,
+        )
+        .unwrap();
+}
+
+/// The authority a Worker's own `codeterm agent report` carries.
+fn worker_report_details(bw: &BoundWorker, status: ReportStatus) -> ReportDetails {
+    ReportDetails {
+        status: Some(status),
+        caller_tab_id: Some(bw.worker.clone()),
+        caller_session_id: Some("worker-session".into()),
+        session_binding_nonce: Some("worker-nonce".into()),
+        owner_epoch: Some(bw.task().interruption.owner_epoch),
+        ..Default::default()
+    }
+}
+
 fn deliver_ack(bw: &BoundWorker) {
     let envelope = MessageEnvelope::tab("Orchestrator", bw.orch.clone());
     bw.fx
@@ -108,6 +144,7 @@ fn deliver_ack(bw: &BoundWorker) {
 )]
 fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     let bw = seed_bound_worker();
+    bind_live_worker_session(&bw);
     let svc = &bw.fx.service;
 
     // Dispatch is the turn-starting boundary: it arms the obligation explicitly.
@@ -119,10 +156,7 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     svc.submit_report(
         &bw.worker,
         "STATUS: in_review\nCHANGES: fix landed\nTESTS RUN: focused",
-        ReportDetails {
-            status: Some(ReportStatus::InReview),
-            ..Default::default()
-        },
+        worker_report_details(&bw, ReportStatus::InReview),
         None,
         None,
         None,
@@ -148,9 +182,7 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     let required_after_stop = svc.gateway.worker_report_required(&bw.worker);
 
     assert!(
-        !rearmed_after_ack
-            && reports_after_stop == reports_after_accept
-            && !required_after_stop,
+        !rearmed_after_ack && reports_after_stop == reports_after_accept && !required_after_stop,
         "a non-turn-starting ack re-armed the obligation or provider-stop fabricated a \
          synthetic Partial; observed: rearmed_after_ack={rearmed_after_ack} \
          reports_after_accept={reports_after_accept} reports_after_stop={reports_after_stop} \
@@ -159,8 +191,83 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
     // Immutable history: the accepted report and the task record (milestones,
     // review_audit) are byte-identical after the ack + provider-stop.
     assert_eq!(bw.reports_json(), accepted_reports);
-    assert_eq!(serde_json::to_string(&bw.task()).unwrap(), task_after_accept);
+    assert_eq!(
+        serde_json::to_string(&bw.task()).unwrap(),
+        task_after_accept
+    );
     assert_eq!(bw.task().status, TaskStatus::InReview);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn task_gate_rejection_still_delivers_report_once() {
+    let bw = seed_bound_worker();
+    let svc = &bw.fx.service;
+    let mut plan = svc.plan_store.get(&bw.plan_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == bw.task_id)
+        .unwrap();
+    task.review_round = 4;
+    let before_status = task.status.clone();
+    svc.plan_store.save(&mut plan, 4).unwrap();
+    svc.gateway.require_worker_report(&bw.worker);
+
+    let result = svc
+        .submit_report(
+            &bw.worker,
+            "EXACT_REPORT_PAYLOAD",
+            ReportDetails {
+                status: Some(ReportStatus::InReview),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .expect("task policy cannot reject report delivery");
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.rejected_task_transition.is_some());
+    assert_eq!(bw.task().status, before_status);
+    assert_eq!(bw.report_count(), 1);
+    let delivered = bw.reports_json();
+    assert!(delivered.contains("REPORT RECEIVED — TASK TRANSITION REJECTED"));
+    assert!(delivered.contains("EXACT_REPORT_PAYLOAD"));
+    assert!(!svc.gateway.worker_report_required(&bw.worker));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn worker_done_policy_cannot_suppress_report_delivery() {
+    let bw = seed_bound_worker();
+    let svc = &bw.fx.service;
+
+    let result = svc
+        .submit_report(
+            &bw.worker,
+            "WORKER_DONE_PAYLOAD",
+            ReportDetails {
+                status: Some(ReportStatus::Done),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .expect("reported status policy cannot reject report delivery");
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.rejected_task_transition.is_some());
+    assert_eq!(bw.report_count(), 1);
+    assert!(bw.reports_json().contains("WORKER_DONE_PAYLOAD"));
 }
 
 /// A genuinely unreported turn still produces one provider-stop handoff.
@@ -172,6 +279,7 @@ fn accepted_report_then_ack_then_provider_stop_fabricates_nothing() {
 )]
 fn dispatched_brief_still_arms_and_provider_stop_still_fabricates_handoff() {
     let bw = seed_bound_worker();
+    bind_live_worker_session(&bw);
     let svc = &bw.fx.service;
 
     svc.gateway.require_worker_report(&bw.worker);

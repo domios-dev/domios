@@ -23,6 +23,9 @@ const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsageFailureKind {
     Timeout,
+    FetchError,
+    SourceUnavailable,
+    Internal,
     ParseError,
     Skip,
     NoParser,
@@ -33,6 +36,9 @@ impl UsageFailureKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::Timeout => "TIMEOUT",
+            Self::FetchError => "FETCH_ERROR",
+            Self::SourceUnavailable => "SOURCE_UNAVAILABLE",
+            Self::Internal => "INTERNAL",
             Self::ParseError => "PARSE_ERROR",
             Self::Skip => "SKIP",
             Self::NoParser => "NO_PARSER",
@@ -753,6 +759,7 @@ mod tests {
         let store = UsageStore::open_in_memory().unwrap();
         for (kind, detail) in [
             (UsageFailureKind::Timeout, "agent not ready"),
+            (UsageFailureKind::FetchError, "request timed out"),
             (UsageFailureKind::ParseError, "bad frame"),
             (UsageFailureKind::Skip, "empty usage frame"),
         ] {
@@ -770,6 +777,7 @@ mod tests {
         assert_eq!(
             reasons,
             vec![
+                "FETCH_ERROR: request timed out",
                 "PARSE_ERROR: bad frame",
                 "SKIP: empty usage frame",
                 "TIMEOUT: agent not ready"

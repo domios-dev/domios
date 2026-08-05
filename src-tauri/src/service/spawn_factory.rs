@@ -4,7 +4,8 @@
 //!
 //! The two concerns:
 //! - Role identity (system prompt) — `forming_identity` mints the placeholder
-//!   `ManagerBootstrapInputs` shared by the pair + standalone-planner edges.
+//!   `ManagerBootstrapInputs`; `forming_identity_in_team` binds an already
+//!   reserved Team onto it while the plan stays unbound.
 //! - Team coordination — the single launch payload names each counterpart
 //!   before either provider process starts.
 
@@ -13,16 +14,59 @@ use crate::service::role_identity::ManagerBootstrapInputs;
 /// Placeholder ids carried by a forming manager before a team/plan is bound.
 pub(crate) const UNBOUND_TEAM: &str = "not yet established";
 pub(crate) const UNBOUND_PLAN: &str = "no plan bound yet";
+/// Display name for a reserved Team nobody has named yet.
+pub(crate) const UNNAMED_TEAM: &str = "Unnamed Team";
+
+/// The durable Team a forming manager is launched into: the exact id its tab
+/// record carries, plus the name its startup contract renders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TeamIdentity {
+    pub id: String,
+    pub name: String,
+}
+
+impl TeamIdentity {
+    pub(crate) fn new(id: impl Into<String>, name: Option<&str>) -> Self {
+        Self {
+            id: id.into(),
+            name: name
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(UNNAMED_TEAM)
+                .to_string(),
+        }
+    }
+}
 
 /// Role-identity inputs for a manager spawned before its team/plan exist.
-pub(crate) fn forming_identity(role: &str, project: String) -> ManagerBootstrapInputs {
+pub(crate) fn forming_identity(
+    role: &str,
+    role_kind: &str,
+    project: String,
+) -> ManagerBootstrapInputs {
     ManagerBootstrapInputs {
         role: role.into(),
+        role_kind: role_kind.into(),
         team_id: UNBOUND_TEAM.into(),
         team_name: UNBOUND_TEAM.into(),
         plan_id: UNBOUND_PLAN.into(),
         project,
         coordination: None,
+    }
+}
+
+/// Role-identity inputs for a manager launched into a Team that already exists,
+/// while its plan is still created lazily on the first goal.
+pub(crate) fn forming_identity_in_team(
+    role: &str,
+    role_kind: &str,
+    project: String,
+    team: &TeamIdentity,
+) -> ManagerBootstrapInputs {
+    ManagerBootstrapInputs {
+        team_id: team.id.clone(),
+        team_name: team.name.clone(),
+        ..forming_identity(role, role_kind, project)
     }
 }
 
@@ -121,7 +165,7 @@ mod tests {
 
     #[test]
     fn forming_identity_carries_placeholders_not_fabricated_ids() {
-        let id = forming_identity("Planner", "CodeTerm".into());
+        let id = forming_identity("Planner", "planner", "CodeTerm".into());
         assert_eq!(id.role, "Planner");
         assert_eq!(id.project, "CodeTerm");
         assert_eq!(id.team_id, UNBOUND_TEAM);
@@ -131,5 +175,37 @@ mod tests {
         assert!(rendered.contains(UNBOUND_PLAN));
         assert!(!rendered.contains("team_"));
         assert!(!rendered.contains("pl_"));
+    }
+
+    #[test]
+    fn team_identity_keeps_a_real_name_and_falls_back_when_unnamed() {
+        assert_eq!(
+            TeamIdentity::new("team_abcd1234", Some("Halley")).name,
+            "Halley"
+        );
+        assert_eq!(TeamIdentity::new("team_abcd1234", None).name, UNNAMED_TEAM);
+        assert_eq!(
+            TeamIdentity::new("team_abcd1234", Some("   ")).name,
+            UNNAMED_TEAM
+        );
+        assert_eq!(TeamIdentity::new("team_abcd1234", None).id, "team_abcd1234");
+    }
+
+    #[test]
+    fn forming_identity_in_team_carries_the_team_and_leaves_the_plan_unbound() {
+        let team = TeamIdentity::new("team_abcd1234", Some("Halley"));
+        let id = forming_identity_in_team("Orchestrator", "orchestrator", "CodeTerm".into(), &team);
+
+        assert_eq!(id.team_id, team.id);
+        assert_eq!(id.team_name, team.name);
+        assert_eq!(id.plan_id, UNBOUND_PLAN);
+        let rendered = id.compose();
+        assert!(rendered.contains(&team.id));
+        assert!(rendered.contains(&team.name));
+        assert!(rendered.contains(UNBOUND_PLAN));
+        assert!(
+            !rendered.contains(UNBOUND_TEAM),
+            "a bound Team never renders the unbound placeholder"
+        );
     }
 }

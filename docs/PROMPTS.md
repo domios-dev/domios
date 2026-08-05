@@ -1,16 +1,15 @@
 # Prompts
-
 How CodeTerm ships instructions to LLM agents: where prompt files live, how they are compiled and injected, and how to edit them safely.
 
 ## Overview
 
-Every system-level prompt in CodeTerm is a plain `.md` file compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
+Every system-level prompt in CodeTerm is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `docs/ORCHESTRATION.md` and `docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
 **One in-binary prompt location.** Every prompt the project owns and ships with CodeTerm lives here:
 
 1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, role suffixes, framework rules, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
 
-Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. If you find a project-owned prompt source anywhere else in this repo, that is a bug — move it into `src-tauri/prompts/` and expose it from the module that owns its runtime use.
+Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. Apart from the two canonical role manuals above, a project-owned prompt source outside `src-tauri/prompts/` is a bug.
 
 Prompts reach the model through these pathways:
 
@@ -30,12 +29,16 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
+| `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker CodeTerm context | — | `service/orchestrator/launch.rs` — injected once into Worker launches before assignment work |
+| `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/launch.rs` — included for capable spawned agents |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
+| `planning_compaction.md` | `PLANNING_COMPACTION_CONTRACT` | Shared planning fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that cuts a task graph and the role that judges it share one decomposition contract |
 | `bounce_unwinding_contract.md` | `BOUNCE_UNWINDING_CONTRACT` | Shared protocol + embedded `BOUNCE` doc | — | `cli/src/cmd/docs.rs` exposes the detailed record on demand to both planning roles; deterministic fixtures use the same source |
-| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role suffix | `{test_author_guidance}` | `service/orchestrator/launch.rs` — rendered and appended for Planner-profile workers; deep mechanics stay in embedded docs |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role suffix | — | `service/orchestrator/launch.rs` — appended for `--role Orchestrator`; deep mechanics stay in embedded docs |
+| `team_creation_contract.md` | `TEAM_CREATION_CONTRACT` | Shared Team-boundary fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that can create agents and the role that must ask for them share one contract |
+| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role prefix | `{test_author_guidance}` `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `docs/PLANNER.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
@@ -66,6 +69,13 @@ Substitution is plain `String::replace()` — there is no template engine. This 
 - **`cron_complete_suffix.md` is the only file using positional `{}`.** Don't add other `{}` sequences to that file.
 - **Don't reuse a placeholder name across files** unless the meaning is identical — it makes refactors error-prone.
 
+### CLI grammar in prompts
+
+A fragment names a command once and points at its owning document for the rest.
+`prompt_cli_references_exist_in_manifest` resolves every surviving command reference
+against `docs/cli-manifest.json`, so a rename cannot leave dead guidance. It validates
+references, never prompt wording.
+
 ## Memory worker prompts
 
 Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_rem`, `mem_rerank`) are owned by the memory subsystem and used at runtime, but they are still plain `.md` files like everything else — no inline string literals. Quick map:
@@ -81,23 +91,79 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 `codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows on fresh install. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
 
-## Role guidance is assigned at spawn
+## Role presets — one resolver, one composition table
 
-Structural roles are `Orchestrator`, `Worker`, and the Planner profile. Specialized
-worker stance lives in the task prompt and task `role_guidance`, not in a mem role
-registry. When spawning a worker, include the relevant guidance inline: for example,
-"You are a Rust backend worker focused only on `src-tauri/`".
+`service/role_preset.rs` is the sole persona registry. It resolves `(role,
+role_profile)` by kind capability, never by provider literal or a separate Worker path.
 
-Reusable operational knowledge belongs in embedded docs (`codeterm docs ...`) or
-folder skills when runnable files are required. Machine-local preferences such as
-builder capacity belong in mem preferences.
+A preset's guidance is a list of fragments, each with its own provenance, joined
+with a blank line in this order:
+
+| Fragment | Source | Meaning |
+|---|---|---|
+| `builtin` | `role_preset::builtin_guidance` | Bundled text for a builtin kind |
+| `inherited_base` | `worker_suffix.md` | The base a leaf kind inherits when it ships no bundled text |
+| `disk_overlay` | `<data-dir>/role-presets/*.toml` | Runtime-declared leaf guidance |
+| `task_overlay` | The dispatch | Task personality, `role_guidance`, and `executor_role` for this one delivery |
+
+`service/persona/occasion.rs` holds the single declarative table mapping a
+delivery occasion to the fragments it carries, the separator it uses, and whether
+it speaks with no payload. Occasions:
+
+| Occasion | Injection point | Fragments | Declared fallback |
+|---|---|---|---|
+| `launch_assignment` | `service/orchestrator/launch.rs` | contract (`builtin`/`inherited_base` + `disk_overlay`) | the assignment alone |
+| `worker_launch_identity` | `service/orchestrator/launch.rs` | `task_overlay` only | `You are a CodeTerm Worker.` |
+| `manager_bootstrap` | `service/role_identity.rs` | contract | `planner_suffix.md` |
+
+Every occasion declares a fallback, and an unmatched `(occasion, kind)` pair
+lands on it rather than on silence. Worker task personality is not a private
+path: it enters as the `task_overlay` fragment of the same `RolePreset` a
+manager kind resolves, and only the `worker_launch_identity` occasion places it.
+
+### Runtime overlays
+
+Files in `<data-dir>/role-presets/*.toml` add leaf kinds without a rebuild
+(`codeterm persona reload` re-reads them):
+
+```toml
+id = "rust-backend-dev"
+label = "Rust Backend Dev"
+base = "worker"                        # optional; only a leaf base is admissible
+guidance = "Stay inside src-tauri/."
+```
+
+An overlay may add a kind id, a label, and layered guidance. It may never do
+anything else, and each refusal has its own reason, reported by
+`codeterm persona list`:
+
+| Reason | Trigger |
+|---|---|
+| `builtin_override` | `id` names a builtin kind |
+| `capability_escalation` | declares `anchors_team`, `can_spawn`, `team_authority`, `requires_parent`, `capability`, `origin`, or claims an anchoring base |
+| `team_authority_claim` | claims the `planner` or `watcher` base |
+| `missing_core` | the contract it claims would ship without the Worker framework rule or the report protocol |
+| `malformed` / `unreadable` / `empty_guidance` | the file cannot be used at all |
+
+A refused file is skipped and logged; it never blocks a healthy sibling, and an
+overlay kind always resolves to leaf capability — it can never anchor a Team,
+spawn, or hold Team authority.
+
+### Inspecting the resolver
+
+`codeterm persona list` shows every reachable kind with its capability columns
+and the refused overlays. `codeterm persona show --role Worker --kind
+rust-backend-dev --guidance "You are Mira."` renders the exact text each
+occasion emits, which fragment supplied it, and whether the declared fallback
+was used. The text comes from the shared resolver, so what it prints is what the
+agent receives.
+
+Reusable operations belong in embedded docs or folder skills; machine-local preferences belong in mem.
 
 ## Task verification lifecycle
 
-Task `test_plan` is the implementer's focused evidence and is included in the Worker
-brief. Task `qa_plan` is the independent Orchestrator/QA oracle, is not included in that
-brief, and falls back to `test_plan` only when omitted. This keeps implementation and
-acceptance evidence distinct without requiring every task to repeat the same command.
+Task `test_plan` is the Worker's focused evidence. `qa_plan` is the independent
+Orchestrator oracle and falls back to `test_plan` only when omitted.
 
 ## Loading flow
 
@@ -142,6 +208,7 @@ owning loader module (pub const &str)
 - **Every new prompt const has one authoritative owning loader.** App-wide prompts go through `src-tauri/src/prompts.rs`; crate-owned prompts stay in that crate's prompt module. Update `scripts/check-prompts-doc.sh` when a new owning loader is introduced so the source and documentation inventories remain exact.
 - **No hot-reload assumptions.** `include_str!()` is compile-time. If a change "isn't taking effect", it is almost always a stale binary — kill and restart dev (`./build.sh kill && ./build.sh dev`); the kill guarantees the old process is gone.
 - **Run prompt-evaluator on every prompt change.** This is the only guard against silent behavioral regressions — prompt diffs do not show up in unit tests.
+- **No Markdown bold in compiled prompts.** Use plain prose or uppercase for essential labels; `**` spends context tokens without adding agent capability.
 - **Prompts are English-only.** Like all code and docs.
 
 ## Related docs
@@ -162,7 +229,7 @@ System-prompt content is tiered; keep it that way when editing:
   `codeterm_cli.md` budget: ~900 words. Mem and mesh keep compact protocol
   blocks by explicit decision (high-frequency, behavior-critical).
 - **Tier 1 (agent discovers):** `codeterm <cmd> --help` (clap long_help) and
-  `codeterm docs <TOPIC>`. Nothing may live inline that tier 1 already answers;
+  the matching complete document. Nothing may live inline that tier 1 already answers;
   when adding a rule, put the rationale in docs and one imperative line here.
 - **Tier 2:** situational playbooks (TELEGRAM-SETUP, SECRETS, ...).
 
@@ -170,4 +237,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 19 -->
+<!-- revision: 26 -->

@@ -240,6 +240,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the report body from a relative file in the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "kind",
               "positional": false,
               "value_name": "KIND",
@@ -440,6 +448,14 @@
               "aliases": []
             },
             {
+              "name": "execution-intent",
+              "positional": false,
+              "value_name": "EXECUTION_INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "interval",
               "positional": false,
               "value_name": "INTERVAL",
@@ -512,6 +528,14 @@
               "aliases": []
             },
             {
+              "name": "provider-reserve-pct",
+              "positional": false,
+              "value_name": "PROVIDER_RESERVE_PCT",
+              "default": "5",
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "reasoning-effort",
               "positional": false,
               "value_name": "REASONING_EFFORT",
@@ -556,7 +580,7 @@
               "positional": false,
               "value_name": "PATH",
               "default": null,
-              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task",
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task",
               "aliases": []
             },
             {
@@ -759,6 +783,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the text body from the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "raw-text",
               "positional": false,
               "value_name": "RAW_TEXT",
@@ -861,7 +893,7 @@
     },
     {
       "name": "capabilities",
-      "about": "List all available API methods",
+      "about": "List CLI commands and clearly marked RPC-only/internal methods",
       "aliases": [],
       "args": [],
       "subcommands": []
@@ -1350,6 +1382,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read text from a relative file in the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "stdin",
               "positional": false,
               "value_name": "STDIN",
@@ -1424,6 +1464,14 @@
               "aliases": []
             },
             {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read replacement text from the current agent tab's pad",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
               "value_name": "ID",
@@ -1487,48 +1535,16 @@
       ]
     },
     {
-      "name": "doc",
-      "about": "Read one embedded CodeTerm document in full",
-      "aliases": [],
-      "args": [
-        {
-          "name": "name",
-          "positional": true,
-          "value_name": "NAME",
-          "default": null,
-          "help": "Doc name (e.g. orchestration)",
-          "aliases": []
-        }
-      ],
-      "subcommands": []
-    },
-    {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
+      "about": "Read embedded CodeTerm documentation in full. Omit NAME to list documents",
       "aliases": [],
       "args": [
-        {
-          "name": "full",
-          "positional": false,
-          "value_name": "FULL",
-          "default": null,
-          "help": "Print the complete document even inside a CodeTerm tab",
-          "aliases": []
-        },
-        {
-          "name": "head",
-          "positional": false,
-          "value_name": "HEAD",
-          "default": null,
-          "help": "Print at most N lines",
-          "aliases": []
-        },
         {
           "name": "name",
           "positional": true,
           "value_name": "NAME",
           "default": null,
-          "help": "Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs",
+          "help": "Document name. Omit to list every available name and purpose",
           "aliases": []
         }
       ],
@@ -1596,6 +1612,150 @@
       "aliases": [],
       "args": [],
       "subcommands": []
+    },
+    {
+      "name": "inbox",
+      "about": "Workspace Inbox — standalone tasks with no plan",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add a standalone task to the workspace Inbox",
+          "aliases": [],
+          "args": [
+            {
+              "name": "assign-tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body-file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "correctness",
+              "positional": false,
+              "value_name": "CORRECTNESS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "criterion",
+              "positional": false,
+              "value_name": "CRITERION",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "execution-intent",
+              "positional": false,
+              "value_name": "EXECUTION_INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "intent",
+              "positional": false,
+              "value_name": "INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "intent-file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "qa-plan",
+              "positional": false,
+              "value_name": "QA_PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "qa-plan-file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "test-plan",
+              "positional": false,
+              "value_name": "TEST_PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "type",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "why",
+              "positional": false,
+              "value_name": "WHY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "why-file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
     },
     {
       "name": "keepawake",
@@ -4172,19 +4332,10 @@
       ]
     },
     {
-      "name": "notifications",
-      "about": "List or manage notifications",
+      "name": "notify",
+      "about": "Send, list, and clear notifications",
       "aliases": [],
-      "args": [
-        {
-          "name": "unread",
-          "positional": false,
-          "value_name": "UNREAD",
-          "default": null,
-          "help": "Show only unread notifications",
-          "aliases": []
-        }
-      ],
+      "args": [],
       "subcommands": [
         {
           "name": "clear",
@@ -4192,82 +4343,50 @@
           "aliases": [],
           "args": [],
           "subcommands": []
-        }
-      ]
-    },
-    {
-      "name": "notify",
-      "about": "Send a notification",
-      "aliases": [],
-      "args": [
-        {
-          "name": "body",
-          "positional": false,
-          "value_name": "BODY",
-          "default": null,
-          "help": "Notification body",
-          "aliases": []
         },
         {
-          "name": "level",
-          "positional": false,
-          "value_name": "LEVEL",
-          "default": "info",
-          "help": "Notification level: info, warning, error",
-          "aliases": []
-        },
-        {
-          "name": "title",
-          "positional": true,
-          "value_name": "TITLE",
-          "default": null,
-          "help": "Notification title",
-          "aliases": []
-        }
-      ],
-      "subcommands": []
-    },
-    {
-      "name": "orchestration",
-      "about": "Paired creation — spawn an Orchestrator + Planner bound to a fresh plan",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "new",
-          "about": "Create an Orchestrator + Planner pair bound to a fresh plan in one action",
+          "name": "list",
+          "about": "List notifications",
           "aliases": [],
           "args": [
             {
-              "name": "orchestrator",
+              "name": "unread",
               "positional": false,
-              "value_name": "ORCHESTRATOR",
+              "value_name": "UNREAD",
               "default": null,
-              "help": "Orchestrator provider, optionally with a model (`provider[:model]`)",
+              "help": "Show only unread notifications",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "send",
+          "about": "Send a notification",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": "Notification body",
               "aliases": []
             },
             {
-              "name": "planner",
+              "name": "level",
               "positional": false,
-              "value_name": "PLANNER",
-              "default": null,
-              "help": "Planner provider, optionally with a model (`provider[:model]`)",
+              "value_name": "LEVEL",
+              "default": "info",
+              "help": "Notification level: info, warning, error",
               "aliases": []
             },
             {
               "name": "title",
-              "positional": false,
+              "positional": true,
               "value_name": "TITLE",
               "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "workspace",
-              "positional": false,
-              "value_name": "WORKSPACE",
-              "default": null,
-              "help": null,
+              "help": "Notification title",
               "aliases": []
             }
           ],
@@ -4500,6 +4619,28 @@
       ]
     },
     {
+      "name": "pad",
+      "about": "Inspect the current agent tab's private ephemeral filesystem pad",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List relative regular files in the current agent tab's pad",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "path",
+          "about": "Print the current agent tab's private ephemeral pad path",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "paste",
       "about": "Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)",
       "aliases": [],
@@ -4545,7 +4686,7 @@
               "name": "body",
               "positional": true,
               "value_name": "BODY",
-              "default": "",
+              "default": null,
               "help": "Body (positional). Omit and use --from-file or --from-stdin",
               "aliases": []
             },
@@ -4563,6 +4704,14 @@
               "value_name": "PATH",
               "default": null,
               "help": "Read body from a file instead",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a relative file in the current agent tab's pad",
               "aliases": []
             },
             {
@@ -4603,6 +4752,68 @@
               "value_name": "ID",
               "default": null,
               "help": "Paste id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "persona",
+      "about": "Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List every role kind the resolver can reach, with refused overlays",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "reload",
+          "about": "Re-read the overlay directory without restarting or rebuilding",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Render the exact preset text a role kind receives at each delivery occasion",
+          "aliases": [],
+          "args": [
+            {
+              "name": "guidance",
+              "positional": false,
+              "value_name": "GUIDANCE",
+              "default": null,
+              "help": "Task-owned persona layered over the kind's base, as a dispatch supplies it",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)",
+              "aliases": []
+            },
+            {
+              "name": "occasion",
+              "positional": false,
+              "value_name": "OCCASION",
+              "default": null,
+              "help": "Render only this occasion",
+              "aliases": []
+            },
+            {
+              "name": "role",
+              "positional": false,
+              "value_name": "ROLE",
+              "default": "Worker",
+              "help": "Structural role — Manager or Worker",
               "aliases": []
             }
           ],
@@ -5278,22 +5489,6 @@
           "aliases": [],
           "args": [],
           "subcommands": [
-            {
-              "name": "get",
-              "about": "Show the plan's north-star goal (alias of show)",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "plan_id",
-                  "positional": true,
-                  "value_name": "PLAN_ID",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
             {
               "name": "set",
               "about": "Set the plan's goal vector, vision, constraints, and postulates",
@@ -6380,7 +6575,7 @@
         },
         {
           "name": "planning-state",
-          "about": "Advance planner-owned planning state: drafting | structure_ready | approved",
+          "about": "Return a draft to drafting; approval uses `plan approve`",
           "aliases": [],
           "args": [
             {
@@ -6412,7 +6607,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Planner tab id advancing the state (records author as planner; omit = user)",
+              "help": "Deprecated author label retained for draft reset records",
               "aliases": []
             }
           ],
@@ -6522,7 +6717,7 @@
                   "positional": false,
                   "value_name": "NOTE",
                   "default": null,
-                  "help": null,
+                  "help": "Claim note. Required with --claim",
                   "aliases": []
                 },
                 {
@@ -7686,6 +7881,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "execution-intent",
+                  "positional": false,
+                  "value_name": "EXECUTION_INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "executor-role",
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
@@ -7778,7 +7981,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
                   "aliases": []
                 },
                 {
@@ -7826,7 +8029,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -7905,6 +8108,30 @@
                   "name": "worktree",
                   "positional": false,
                   "value_name": "WORKTREE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "adopt-checkpoint",
+              "about": "Adopt a sealed handoff checkpoint into this authenticated Worker tab",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8110,6 +8337,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "execution-intent",
+                  "positional": false,
+                  "value_name": "EXECUTION_INTENT",
+                  "default": null,
+                  "help": "Explicit task intent used by provider reserve policy",
+                  "aliases": []
+                },
+                {
                   "name": "model",
                   "positional": false,
                   "value_name": "MODEL",
@@ -8131,6 +8366,14 @@
                   "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "provider-reserve-pct",
+                  "positional": false,
+                  "value_name": "PROVIDER_RESERVE_PCT",
+                  "default": "5",
+                  "help": "Minimum remaining provider allowance for mutating work",
                   "aliases": []
                 },
                 {
@@ -8626,7 +8869,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
                   "aliases": []
                 },
                 {
@@ -8674,7 +8917,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -9242,150 +9485,6 @@
       ]
     },
     {
-      "name": "report",
-      "about": "Report worker progress to the owning orchestrator or plan",
-      "aliases": [],
-      "args": [
-        {
-          "name": "acknowledge-dirty",
-          "positional": false,
-          "value_name": "ACKNOWLEDGE_DIRTY",
-          "default": null,
-          "help": "Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override",
-          "aliases": []
-        },
-        {
-          "name": "attach",
-          "positional": false,
-          "value_name": "PATH",
-          "default": null,
-          "help": "File to attach to the report milestone; repeat for multiple files",
-          "aliases": []
-        },
-        {
-          "name": "base",
-          "positional": false,
-          "value_name": "BASE",
-          "default": null,
-          "help": "Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)",
-          "aliases": []
-        },
-        {
-          "name": "branch",
-          "positional": false,
-          "value_name": "BRANCH",
-          "default": null,
-          "help": "Git branch the work landed on",
-          "aliases": []
-        },
-        {
-          "name": "changed-files",
-          "positional": false,
-          "value_name": "CHANGED_FILES",
-          "default": null,
-          "help": "Changed files (comma-separated or repeat the flag)",
-          "aliases": []
-        },
-        {
-          "name": "doc",
-          "positional": false,
-          "value_name": "PATH",
-          "default": null,
-          "help": "Markdown document to append to the report milestone",
-          "aliases": []
-        },
-        {
-          "name": "kind",
-          "positional": false,
-          "value_name": "KIND",
-          "default": null,
-          "help": "Milestone kind when writing to --plan/--task",
-          "aliases": []
-        },
-        {
-          "name": "message",
-          "positional": true,
-          "value_name": "MESSAGE",
-          "default": null,
-          "help": "Report message (also accepts --message alias)",
-          "aliases": []
-        },
-        {
-          "name": "plan",
-          "positional": false,
-          "value_name": "PLAN",
-          "default": null,
-          "help": "Plan id to append this report to (if available)",
-          "aliases": []
-        },
-        {
-          "name": "sha",
-          "positional": false,
-          "value_name": "SHA",
-          "default": null,
-          "help": "Commit SHA produced",
-          "aliases": []
-        },
-        {
-          "name": "skipped",
-          "positional": false,
-          "value_name": "SKIPPED",
-          "default": null,
-          "help": "Anything deliberately skipped",
-          "aliases": []
-        },
-        {
-          "name": "status",
-          "positional": false,
-          "value_name": "STATUS",
-          "default": null,
-          "help": "Task outcome: in_review | blocked | partial | done",
-          "aliases": []
-        },
-        {
-          "name": "tab",
-          "positional": false,
-          "value_name": "TAB",
-          "default": null,
-          "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
-          "aliases": []
-        },
-        {
-          "name": "task",
-          "positional": false,
-          "value_name": "TASK",
-          "default": null,
-          "help": "Task id to append this report to (if available)",
-          "aliases": []
-        },
-        {
-          "name": "test-cmd",
-          "positional": false,
-          "value_name": "TEST_CMD",
-          "default": null,
-          "help": "Test command that was run",
-          "aliases": []
-        },
-        {
-          "name": "test-result",
-          "positional": false,
-          "value_name": "TEST_RESULT",
-          "default": null,
-          "help": "Result of the test command (e.g. \"42 passed\")",
-          "aliases": []
-        },
-        {
-          "name": "text",
-          "positional": false,
-          "value_name": "TEXT",
-          "default": null,
-          "help": "Report message as a flag, useful when paired with --doc",
-          "aliases": []
-        }
-      ],
-      "subcommands": []
-    },
-    {
       "name": "send",
       "about": "Send text to a tab (default: current tab)",
       "aliases": [],
@@ -9420,6 +9519,14 @@
           "value_name": "PATH",
           "default": null,
           "help": "Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting",
+          "aliases": []
+        },
+        {
+          "name": "from-pad",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Read text from a relative file in the current agent tab's pad",
           "aliases": []
         },
         {
@@ -10417,7 +10524,15 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID",
+              "help": "Temporary positional alias for the tab id. Prefer --tab",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID to close",
               "aliases": []
             }
           ],
@@ -10505,7 +10620,15 @@
               "positional": true,
               "value_name": "ID",
               "default": null,
-              "help": "Tab ID",
+              "help": "Temporary positional alias for the tab id. Prefer --tab",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID to focus",
               "aliases": []
             }
           ],
@@ -10541,11 +10664,19 @@
           "aliases": [],
           "args": [
             {
+              "name": "tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "One or more tab ids to inspect. Repeat the flag for multiple tabs",
+              "aliases": []
+            },
+            {
               "name": "tabs",
               "positional": true,
               "value_name": "TABS",
               "default": null,
-              "help": "One or more tab ids to inspect",
+              "help": "Temporary positional aliases for tab ids. Prefer --tab",
               "aliases": []
             }
           ],
@@ -10680,6 +10811,38 @@
           "subcommands": []
         },
         {
+          "name": "restart",
+          "about": "Replace a plain shell's process in the same tab, preserving tab identity and metadata",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cmd",
+              "positional": false,
+              "value_name": "CMD",
+              "default": null,
+              "help": "Command to execute after the replacement shell is ready",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory for the replacement shell",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": "Tab ID to restart (default: current tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "search",
           "about": "Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
           "aliases": [],
@@ -10731,138 +10894,10 @@
     },
     {
       "name": "task",
-      "about": "Standalone and plan-backed tasks",
+      "about": "Plan-backed tasks across active plans",
       "aliases": [],
       "args": [],
       "subcommands": [
-        {
-          "name": "add",
-          "about": "Add a standalone task to the workspace Inbox",
-          "aliases": [],
-          "args": [
-            {
-              "name": "assign-tab",
-              "positional": false,
-              "value_name": "TAB",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "body",
-              "positional": false,
-              "value_name": "BODY",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "body-file",
-              "positional": false,
-              "value_name": "PATH",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "correctness",
-              "positional": false,
-              "value_name": "CORRECTNESS",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "criterion",
-              "positional": false,
-              "value_name": "CRITERION",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "intent",
-              "positional": false,
-              "value_name": "INTENT",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "intent-file",
-              "positional": false,
-              "value_name": "PATH",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "model",
-              "positional": false,
-              "value_name": "MODEL",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "name",
-              "positional": false,
-              "value_name": "NAME",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "qa-plan",
-              "positional": false,
-              "value_name": "QA_PLAN",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "qa-plan-file",
-              "positional": false,
-              "value_name": "PATH",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "test-plan",
-              "positional": false,
-              "value_name": "TEST_PLAN",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "type",
-              "positional": false,
-              "value_name": "KIND",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "why",
-              "positional": false,
-              "value_name": "WHY",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "why-file",
-              "positional": false,
-              "value_name": "PATH",
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
         {
           "name": "drop",
           "about": "Release the task assignment",
@@ -10995,7 +11030,7 @@
     },
     {
       "name": "team",
-      "about": "Team registry and 1:1 plan binding",
+      "about": "Team registry, 1:1 plan binding, and paired creation",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -11044,6 +11079,46 @@
           "about": "List registered Teams",
           "aliases": [],
           "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "pair",
+          "about": "Create an Orchestrator + Planner Team in one action. The Plan stays unbound until the first goal",
+          "aliases": [],
+          "args": [
+            {
+              "name": "orchestrator",
+              "positional": false,
+              "value_name": "ORCHESTRATOR",
+              "default": null,
+              "help": "Orchestrator provider, optionally with a model (`provider[:model]`)",
+              "aliases": []
+            },
+            {
+              "name": "planner",
+              "positional": false,
+              "value_name": "PLANNER",
+              "default": null,
+              "help": "Planner provider, optionally with a model (`provider[:model]`)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
@@ -11255,7 +11330,7 @@
               "positional": false,
               "value_name": "PATH",
               "default": null,
-              "help": "Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing",
+              "help": "Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network",
               "aliases": []
             },
             {

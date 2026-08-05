@@ -2,11 +2,32 @@ use crate::plan::Task;
 
 use super::task_queries::TaskSection;
 
+pub fn render_plan_skill_manifest(
+    plan_id: &str,
+    plan_skills: &[crate::plan::PlanSkillManifestEntry],
+) -> String {
+    if plan_skills.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("## Plan skill manifest\n");
+    out.push_str(&format!("Owning plan: `{plan_id}`. After `codeterm agent ack` and before repository or tool actions, inspect this manifest and byte-completely read every applicable skill with `codeterm plan skill show --plan {plan_id} <slug>`. Choose applicability explicitly from purpose metadata; never infer it from provider, title, cwd, or global memory.\n"));
+    for skill in plan_skills {
+        out.push_str(&format!(
+            "- `{}` | {} | {} | `{}`\n",
+            skill.slug, skill.title, skill.purpose, skill.content_digest
+        ));
+    }
+    out.push('\n');
+    out
+}
+
 pub fn render_task_brief(
     task: &Task,
     sections: &[TaskSection],
     effective_personality: Option<&str>,
     orchestrator_instruction: Option<&str>,
+    plan_id: Option<&str>,
+    plan_skills: &[crate::plan::PlanSkillManifestEntry],
 ) -> String {
     let mut out = String::new();
     let identity =
@@ -79,9 +100,32 @@ pub fn render_task_brief(
         out.push_str("\n\n");
     }
 
-    out.push_str("## CodeTerm coordination\n");
-    out.push_str(super::worker_identity::WORKER_ACK_INSTRUCTION);
-    out.push('\n');
+    if let Some(plan_id) = plan_id.filter(|_| !plan_skills.is_empty()) {
+        out.push_str(&render_plan_skill_manifest(plan_id, plan_skills));
+    }
 
     super::worker_identity::attach_worker_identity(&identity, &out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatched_worker_brief_requires_applicable_plan_skills_before_actions() {
+        let manifest = vec![crate::plan::PlanSkillManifestEntry {
+            slug: "dispatch-contract".into(),
+            title: "Dispatch Contract".into(),
+            purpose: "Use for Worker launches.".into(),
+            content_digest: "sha256:abc".into(),
+        }];
+        let rendered = render_plan_skill_manifest("pl_zzmxgb", &manifest);
+        assert_eq!(rendered.matches("## Plan skill manifest").count(), 1);
+        assert!(rendered.contains("After `codeterm agent ack`"));
+        assert!(rendered.contains("before repository or tool actions"));
+        assert!(rendered.contains("codeterm plan skill show --plan pl_zzmxgb <slug>"));
+        assert!(rendered.contains("sha256:abc"));
+        assert!(!rendered.contains("# Alpha"));
+        assert!(render_plan_skill_manifest("pl_zzmxgb", &[]).is_empty());
+    }
 }

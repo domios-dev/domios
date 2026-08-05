@@ -223,12 +223,12 @@ pub enum PlanAction {
     Approve { plan_id: String },
     /// Return an approved/execution plan to planning mode
     Unapprove { plan_id: String },
-    /// Advance planner-owned planning state: drafting | structure_ready | approved
+    /// Return a draft to drafting; approval uses `plan approve`
     PlanningState {
         plan_id: String,
         #[arg(long)]
         set: String,
-        /// Planner tab id advancing the state (records author as planner; omit = user).
+        /// Deprecated author label retained for draft reset records.
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -428,8 +428,6 @@ pub enum PlanSkillAction {
 
 #[derive(Subcommand)]
 pub enum PlanGoalAction {
-    /// Show the plan's north-star goal (alias of show)
-    Get { plan_id: String },
     /// Set the plan's goal vector, vision, constraints, and postulates
     Set {
         plan_id: String,

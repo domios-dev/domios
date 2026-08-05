@@ -90,7 +90,7 @@ const provider: AgentProvider = {
   discoverModels: () => [{ id: "gpt-5.5", displayName: "GPT-5.5", description: "live" }],
 };
 void provider;
-const providerModel: ModelInfo = provider.discoverModels!()[0];
+const providerModel: ModelInfo = provider.discoverModels!()![0];
 void providerModel;
 // @ts-expect-error discoverModels returns the shared camelCase ModelInfo shape
 const brokenProvider: AgentProvider = { discoverModels: () => [{ id: "x", display_name: "X" }] };

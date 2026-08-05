@@ -6,6 +6,7 @@ use crate::plan::AgentRef;
 use crate::service::plan::batch::{BatchOp, BatchRequest};
 use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::PlanStore;
+use crate::service::ServiceContext;
 
 pub(super) fn report_persistence_incident(
     tab_id: &str,
@@ -21,6 +22,112 @@ pub(super) fn report_persistence_incident(
          authoritative task '{target}'.\nImpact: parent delivery alone cannot prove the task \
          received this outcome.\nFallback: pass explicit --plan and --task and alert the \
          Orchestrator; no task-report success was returned.\nCause: {cause}"
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn persist_authorized_local_task_report(
+    svc: &ServiceContext,
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+    from: &AgentRef,
+    message: &str,
+    details: &ReportDetails,
+    task_status: Option<&str>,
+    milestone_kind: Option<&str>,
+    now_ms: u64,
+) -> Result<(), String> {
+    let mux = svc.mux.read();
+    let mut effective_details = details.clone();
+    if effective_details.caller_session_id.is_none() {
+        let supplied_nonce = effective_details.session_binding_nonce.as_deref();
+        let live_session = mux.get_tab(tab_id).and_then(|tab| {
+            (effective_details.caller_tab_id.as_deref() == Some(tab_id)
+                && tab.session_binding_nonce.as_deref() == supplied_nonce
+                && tab.reported_session_binding_nonce.as_deref() == supplied_nonce)
+                .then(|| tab.agent_session_id.clone())
+                .flatten()
+        });
+        effective_details.caller_session_id = live_session;
+    }
+    let authority = report_authority(&effective_details, tab_id, plan_id, task_id)?;
+    let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(&authority.session_id)
+            && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
+            && tab.reported_session_binding_nonce.as_deref()
+                == Some(&authority.session_binding_nonce)
+    });
+    if !authenticated {
+        return Err(report_persistence_incident(
+            tab_id,
+            plan_id,
+            Some(task_id),
+            "report caller binding is stale, spoofed, or rebound",
+        ));
+    }
+    let result = persist_local_task_report(
+        &svc.plan_store,
+        tab_id,
+        plan_id,
+        task_id,
+        from,
+        message,
+        &effective_details,
+        task_status,
+        milestone_kind,
+        now_ms,
+    );
+    drop(mux);
+    result
+}
+
+fn report_authority(
+    details: &ReportDetails,
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+) -> Result<crate::service::plan::interruption::TaskMutationAuthority, String> {
+    let authority = crate::service::plan::interruption::TaskMutationAuthority {
+        tab_id: details.caller_tab_id.clone().ok_or_else(|| {
+            report_persistence_incident(tab_id, plan_id, Some(task_id), "missing caller tab id")
+        })?,
+        session_id: details.caller_session_id.clone().ok_or_else(|| {
+            report_persistence_incident(tab_id, plan_id, Some(task_id), "missing caller session id")
+        })?,
+        session_binding_nonce: details.session_binding_nonce.clone().ok_or_else(|| {
+            report_persistence_incident(
+                tab_id,
+                plan_id,
+                Some(task_id),
+                "missing caller binding nonce",
+            )
+        })?,
+        owner_epoch: details.owner_epoch.ok_or_else(|| {
+            report_persistence_incident(
+                tab_id,
+                plan_id,
+                Some(task_id),
+                "missing claimed owner epoch",
+            )
+        })?,
+    };
+    if authority.tab_id != tab_id {
+        return Err(report_persistence_incident(
+            tab_id,
+            plan_id,
+            Some(task_id),
+            "report caller tab id is spoofed",
+        ));
+    }
+    Ok(authority)
+}
+
+pub(super) fn rejected_report_delivery_message(cause: &str, message: &str) -> String {
+    format!(
+        "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
+         The report itself was delivered and must not be resent.\n\
+         Owner action required: {cause}\n\n{message}"
     )
 }
 
@@ -86,6 +193,7 @@ fn persist_bound_report(
         test_cmd: details.test_cmd.clone(),
         test_result: details.test_result.clone(),
         skipped: details.skipped.clone(),
+        authority: Some(report_authority(details, tab_id, plan_id, task_id)?),
     };
     store
         .ingest_bound_worker_report(plan_id, task_id, from, evidence, now_ms)
@@ -188,8 +296,10 @@ fn attach_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::multiplexer::state::MultiplexerState;
     use crate::plan::{OrchestratorRef, Plan};
     use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
 
     fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
         store
@@ -222,6 +332,26 @@ mod tests {
         store
             .assign_task(&plan.id, &task_id, "worker", None, 3)
             .unwrap();
+        store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &task_id,
+                "worker",
+                None,
+                Some("worker-session"),
+                Some("worker-nonce"),
+                4,
+            )
+            .unwrap();
+        // A bound report carries the caller's own authoritative identity; the
+        // refusal below is the product incident, not a default to fill in.
+        let details = ReportDetails {
+            caller_tab_id: Some("worker".into()),
+            caller_session_id: Some("worker-session".into()),
+            session_binding_nonce: Some("worker-nonce".into()),
+            owner_epoch: Some(0),
+            ..Default::default()
+        };
 
         persist_local_task_report(
             &store,
@@ -230,10 +360,10 @@ mod tests {
             &task_id,
             &AgentRef::from_tab("worker"),
             "LATE_BIND_MARKER",
-            &ReportDetails::default(),
+            &details,
             None,
             None,
-            4,
+            5,
         )
         .unwrap();
 
@@ -321,5 +451,132 @@ mod tests {
         assert!(error.contains("parent delivery alone cannot prove"));
         assert!(error.contains("no task-report success was returned"));
         assert!(store.get(&plan.id).unwrap().tasks[0].milestones.is_empty());
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn spoofed_or_rebound_report_rejects_transition_without_mutating_task() {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let workspace = fixture
+            .service
+            .mux
+            .write()
+            .create_workspace("reports".into(), None)
+            .id;
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("new-session".into());
+            tab.session_binding_nonce = Some("new-nonce".into());
+            tab.reported_session_binding_nonce = Some("new-nonce".into());
+        }
+        let mut plan = Plan::new(
+            "reports".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = add_task(&fixture.service.plan_store, &plan.id, "report", 2);
+        let details = ReportDetails {
+            caller_tab_id: Some(tab_id.clone()),
+            caller_session_id: Some("old-session".into()),
+            session_binding_nonce: Some("old-nonce".into()),
+            owner_epoch: Some(1),
+            ..Default::default()
+        };
+        let error = persist_authorized_local_task_report(
+            &fixture.service,
+            &tab_id,
+            &plan.id,
+            &task_id,
+            &AgentRef::from_tab(&tab_id),
+            "must still deliver outside this persistence seam",
+            &details,
+            None,
+            None,
+            3,
+        )
+        .unwrap_err();
+        assert!(error.contains("stale, spoofed, or rebound"));
+        assert!(fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .milestones
+            .is_empty());
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn verified_nonce_resolves_missing_report_session_id() {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let workspace = fixture
+            .service
+            .mux
+            .write()
+            .create_workspace("reports".into(), None)
+            .id;
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("live-session".into());
+            tab.session_binding_nonce = Some("live-nonce".into());
+            tab.reported_session_binding_nonce = Some("live-nonce".into());
+        }
+        let mut plan = Plan::new(
+            "reports".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = add_task(&fixture.service.plan_store, &plan.id, "report", 2);
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                None,
+                Some("live-session"),
+                Some("live-nonce"),
+                4,
+            )
+            .unwrap();
+        let details = ReportDetails {
+            caller_tab_id: Some(tab_id.clone()),
+            caller_session_id: None,
+            session_binding_nonce: Some("live-nonce".into()),
+            owner_epoch: Some(0),
+            ..Default::default()
+        };
+        persist_authorized_local_task_report(
+            &fixture.service,
+            &tab_id,
+            &plan.id,
+            &task_id,
+            &AgentRef::from_tab(&tab_id),
+            "report persisted",
+            &details,
+            None,
+            None,
+            5,
+        )
+        .unwrap();
+        assert_eq!(
+            fixture.service.plan_store.get(&plan.id).unwrap().tasks[0].milestones[0].text,
+            "report persisted"
+        );
     }
 }

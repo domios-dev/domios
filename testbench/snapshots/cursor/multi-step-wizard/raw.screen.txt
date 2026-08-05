@@ -1,9 +1,8 @@
     Found 2 matches 
 
-  $ codeterm docs TESTING 2>/dev/null | head -200 699ms
+  $ codeterm docs TESTING 699ms
     … 120 output lines hidden · ctrl+o to expand
-    [CodeTerm docs output truncated: showing 120/365 lines from TESTING. Use `codeterm docs TESTING --full` for the 
-    complete doc or `--head N` for a different preview.]
+    [Complete TESTING document returned.]
 
     Grepped 2 greps
     Grepped "picker" in /Users/dev/.claude/skills/codeterm

@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/chat-ui",
-  "version": "1.7.8",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "description": "Shared React chat rendering primitives for CodeTerm providers.",

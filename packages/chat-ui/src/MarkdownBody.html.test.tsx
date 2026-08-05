@@ -131,6 +131,47 @@ test("script tags and event handlers are stripped", async () => {
   assert(host.textContent?.includes("hi"), "safe content still renders");
 });
 
+test("nested HTML cards render static inline SVG geometry", async () => {
+  const fixture = [
+    '<div style="display: flex; gap: 12px">',
+    '  <div style="background: #20242c; padding: 12px; border-radius: 8px">',
+    '    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">',
+    '      <path d="M12 2v20M2 12h20"></path>',
+    "    </svg>",
+    "  </div>",
+    "</div>",
+  ].join("\n");
+  const { host } = await render(<RichMarkdown text={fixture} />);
+  const svg = host.querySelector("div > div > svg");
+  const path = svg?.querySelector("path");
+  assert(svg, "SVG survives inside the screenshot-shaped nested card");
+  assert(path?.getAttribute("d") === "M12 2v20M2 12h20", "static path geometry survives sanitization");
+  assert(svg.getAttribute("viewBox") === "0 0 24 24", "SVG viewport survives sanitization");
+  assert(svg.getAttribute("stroke") === "currentColor", "safe local paint survives sanitization");
+  assert(!svg.hasAttribute("xmlns"), "namespace declarations are not retained");
+});
+
+test("hostile SVG capabilities and external paint are stripped", async () => {
+  const hostile = [
+    '<svg viewBox="0 0 24 24" xmlns:xlink="http://www.w3.org/1999/xlink" onclick="steal()">',
+    '  <script>steal()</script>',
+    '  <foreignObject><div>foreign</div></foreignObject>',
+    '  <animate attributeName="fill" values="red;blue"></animate>',
+    '  <image href="https://evil.test/pixel.svg"></image>',
+    '  <use xlink:href="https://evil.test/icons.svg#x"></use>',
+    '  <path d="M2 2h20v20H2z" fill="url(https://evil.test/paint.svg#x)" stroke="javascript:steal()"></path>',
+    "</svg>",
+  ].join("\n");
+  const { host } = await render(<RichMarkdown text={hostile} />);
+  const svg = host.querySelector("svg");
+  const path = svg?.querySelector("path");
+  assert(svg && path, "safe static SVG shell and geometry remain visible");
+  assert(!host.querySelector("script, foreignObject, animate, image, use"), "active, foreign, animated, and loading SVG tags are blocked");
+  assert(!svg.hasAttribute("onclick") && !svg.hasAttribute("xmlns:xlink"), "handlers and unsafe namespaces are blocked");
+  assert(!path.hasAttribute("fill") && !path.hasAttribute("stroke"), "URL and script-like paint values are blocked");
+  assert(!host.innerHTML.includes("evil.test") && !host.innerHTML.includes("javascript:"), "external URLs do not survive");
+});
+
 test("iframe and object tags are stripped from inline HTML", async () => {
   const { host } = await render(<RichMarkdown text={"<iframe src=\"https://evil.test\"></iframe><object data=\"x\"></object>"} />);
   assert(!host.querySelector("iframe"), "inline iframe must not render");

@@ -109,3 +109,10 @@ fn empty_read_advances_to_total() {
     assert_eq!(r.truncated_from, None);
     assert_eq!(r.new_offset, 5);
 }
+
+#[test]
+fn tab_scoped_stream_excludes_cross_tab_output_server_side() {
+    assert!(tab_is_in_scope("owned", Some("owned")));
+    assert!(!tab_is_in_scope("other", Some("owned")));
+    assert!(tab_is_in_scope("other", None));
+}

@@ -288,8 +288,8 @@ pub enum CwdEncoding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct IntegrationConfig {
-    /// What kind of integration to install. Each kind has a fixed
-    /// Rust implementation; plugins declare which one applies.
+    /// What kind of integration to install. The kind declares whether native
+    /// or provider-managed review/backup/restore semantics apply.
     pub kind: IntegrationKind,
     /// Where the integration is stored (e.g. `~/.claude/settings.json`).
     pub settings_path: String,
@@ -301,6 +301,8 @@ pub enum IntegrationKind {
     /// Claude-style: edit a JSON file's `hooks` object with curl-back
     /// commands.
     ClaudeSettingsJson,
+    /// Provider JS owns a reviewable global-config merge and backup/restore flow.
+    ProviderManaged,
     /// No installable integration. PTY parser does it all.
     None,
 }

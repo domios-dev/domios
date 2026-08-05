@@ -95,6 +95,24 @@ const SNAPSHOT_WITH_NEW: PluginSnapshot = {
   ],
 };
 
+const UPDATE_SNAPSHOT: PluginSnapshot = {
+  plugins: [
+    { id: "git", display_name: "Git", version: "0.1.4", removable: true, capabilities: { view: true } },
+  ],
+  channels: SNAPSHOT.channels,
+  diff: [],
+  marketplace: [
+    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.4", drift: "hash_drift" },
+  ],
+};
+
+const UPDATED_SNAPSHOT: PluginSnapshot = {
+  ...UPDATE_SNAPSHOT,
+  marketplace: [
+    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.4", drift: "up_to_date" },
+  ],
+};
+
 function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT) {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   let current = snapshot;
@@ -170,6 +188,35 @@ test("selecting a plugin opens its detail view and back returns to the list", as
     button(host, '[data-testid="extensions-detail-back"]').click();
   });
   assert(layout?.getAttribute("data-narrow-view") === "list", "back should restore the narrow plugin list");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
+test("successful update immediately clears stale update state", async () => {
+  __resetPluginSnapshotStoreForTest();
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "plugin_manager_snapshot") return UPDATE_SNAPSHOT as T;
+    if (cmd === "plugin_manager_action") return UPDATED_SNAPSHOT as T;
+    throw new Error(`unexpected invoke: ${cmd}`);
+  });
+  const { host, root } = await render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
+  await flush();
+
+  await act(async () => {
+    host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"]')?.click();
+  });
+  assert(host.querySelector('[data-testid="extensions-plugin-update"]'), "stale hash drift should offer repair");
+  await act(async () => {
+    button(host, '[data-testid="extensions-plugin-update"]').click();
+  });
+  await flush();
+
+  assert(!host.querySelector('[data-testid="extensions-plugin-update"]'), "fresh action snapshot should clear Update");
+  assert(!host.textContent?.includes("→ v0.1.4"), "equal post-update versions should not keep an update arrow");
 
   await act(async () => root.unmount());
   cleanup();

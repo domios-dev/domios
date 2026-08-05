@@ -2,10 +2,9 @@
 //! `last_check` cache), then install if an update is available. The install
 //! endpoint requires a prior check call.
 
-use crate::data_dir_name;
 use crate::UpdateAction;
 
-use super::relay::{relay_call, resolve_peer_url};
+use super::relay::mesh_relay_invoke_result;
 
 /// Resolve update subcommands and top-level update options to a concrete UpdateAction.
 pub(crate) fn resolve_update_action(
@@ -37,77 +36,15 @@ pub(crate) fn resolve_update_action(
 }
 
 pub(crate) fn run_update_apply_via_mesh(
-    http: &reqwest::blocking::Client,
-    base: &str,
-    token: &Option<String>,
     target: &str,
     manifest_url: Option<&str>,
     after_update: Option<&str>,
     json_mode: bool,
 ) {
-    let Some(peer_url) = resolve_peer_url(http, base, token, target) else {
-        eprintln!("Peer '{}' not found", target);
-        std::process::exit(1);
+    let info = match mesh_relay_invoke_result(target, "GET", "/api/update/check?force=true", None) {
+        Ok(value) => value,
+        Err(error) => error.print_and_exit(json_mode),
     };
-
-    let check_signed = match crate::read_mesh_signed_token() {
-        Some(t) => t,
-        None => {
-            eprintln!(
-                "Error: cannot sign mesh request — no identity at {:?}.",
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(data_dir_name())
-                    .join("mesh/identity.json")
-            );
-            std::process::exit(1);
-        }
-    };
-
-    // Step 1: force-check on peer.
-    let check_resp = relay_call(
-        http,
-        &peer_url,
-        &check_signed,
-        "GET",
-        "/api/update/check?force=true",
-        None,
-    );
-    let check_data = match check_resp {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[{}] check failed: {}", target, e);
-            std::process::exit(1);
-        }
-    };
-    let status = check_data
-        .get("status")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if status == 404 {
-        eprintln!(
-            "Peer '{}' is running an older CodeTerm without remote-update support.\n\
-             Bootstrap manually one last time, then this command will work going forward.",
-            target
-        );
-        std::process::exit(2);
-    }
-    if !check_data
-        .get("ok")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        let err = check_data
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        eprintln!("[{}] check failed: {} (HTTP {})", target, err, status);
-        std::process::exit(1);
-    }
-    let info = check_data
-        .get("data")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
     let current = info
         .get("current_version")
         .and_then(|v| v.as_str())
@@ -157,72 +94,10 @@ pub(crate) fn run_update_apply_via_mesh(
     if let Some(t) = after_update {
         install_path.push_str(&format!("&after_update={}", urlencoding::encode(t)));
     }
-    let install_signed = match crate::read_mesh_signed_token() {
-        Some(t) => t,
-        None => {
-            eprintln!(
-                "Error: cannot sign mesh request — no identity at {:?}.",
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(data_dir_name())
-                    .join("mesh/identity.json")
-            );
-            std::process::exit(1);
-        }
+    let inner = match mesh_relay_invoke_result(target, "POST", &install_path, None) {
+        Ok(value) => value,
+        Err(error) => error.print_and_exit(json_mode),
     };
-    let install_resp = relay_call(
-        http,
-        &peer_url,
-        &install_signed,
-        "POST",
-        &install_path,
-        None,
-    );
-    let install_data = match install_resp {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[{}] install relay failed: {}", target, e);
-            std::process::exit(1);
-        }
-    };
-    let status = install_data
-        .get("status")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if status == 403 {
-        let err = install_data
-            .get("data")
-            .and_then(|d| d.get("error"))
-            .and_then(|v| v.as_str())
-            .or_else(|| install_data.get("error").and_then(|v| v.as_str()))
-            .unwrap_or("forbidden");
-        eprintln!("[{}] install rejected: {}", target, err);
-        std::process::exit(3);
-    }
-    if status == 404 {
-        eprintln!(
-            "Peer '{}' is running an older CodeTerm without remote-update support.\n\
-             Bootstrap manually one last time, then this command will work going forward.",
-            target
-        );
-        std::process::exit(2);
-    }
-    if !install_data
-        .get("ok")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        let err = install_data
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        eprintln!("[{}] install failed: {} (HTTP {})", target, err, status);
-        std::process::exit(1);
-    }
-    let inner = install_data
-        .get("data")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
     if json_mode {
         println!(
             "{}",

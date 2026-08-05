@@ -1,0 +1,17 @@
+[
+  {
+    "sha": "1111111111111111111111111111111111111111",
+    "url": "https://github.com/rollacode/codeterm/commit/1111111111111111111111111111111111111111",
+    "body": "fix: direct issue declaration\n\nPublic-Issue: rollacode/codeterm-releases#32"
+  },
+  {
+    "sha": "2222222222222222222222222222222222222222",
+    "url": "https://github.com/rollacode/codeterm/commit/2222222222222222222222222222222222222222",
+    "body": "fix: duplicate source declaration\n\nPublic-Issue: rollacode/codeterm-releases#17"
+  },
+  {
+    "sha": "3333333333333333333333333333333333333333",
+    "url": "https://github.com/rollacode/codeterm/commit/3333333333333333333333333333333333333333",
+    "body": "docs: mention historical context\n\nRefs: https://github.com/rollacode/codeterm-releases/issues/99"
+  }
+]

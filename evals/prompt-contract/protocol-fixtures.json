@@ -226,5 +226,15 @@
         "Follow-up": "none"
       }
     }
+  ],
+  "docs_reading_fixtures": [
+    {
+      "id": "D1",
+      "role": "orchestrator",
+      "question": "Which orchestration instructions must I read before dispatching a worker wave?",
+      "document": "ORCHESTRATION",
+      "expected_output_sha256": "7d136c4840d945ffa08966482d0084df3b360cff546c2dd7fff4e887757e7804",
+      "response": "codeterm docs ORCHESTRATION"
+    }
   ]
 }

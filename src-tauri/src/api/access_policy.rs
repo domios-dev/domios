@@ -126,11 +126,7 @@ mod tests {
             AccessLevel::Custom(vec![Permission::Admin]),
         ] {
             assert!(!check_access(&access, &Method::GET, "/api/secrets/items"));
-            assert!(!check_access(
-                &access,
-                &Method::GET,
-                "/api/mesh/debug/sign"
-            ));
+            assert!(!check_access(&access, &Method::GET, "/api/mesh/debug/sign"));
         }
     }
 }

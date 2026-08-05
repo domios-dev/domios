@@ -1,234 +1,454 @@
-//! Embedded CodeTerm docs. Bundled at compile time via include_str! so the
-//! CLI ships with them — agents can `codeterm docs <name>` on demand without
-//! polluting the system prompt.
+//! Embedded CodeTerm documentation.
 
-pub(crate) const DOCS: &[(&str, &str)] = &[
-    ("CONFIG", include_str!("../../../docs/CONFIG.md")),
-    ("API", include_str!("../../../docs/API.md")),
-    ("MESH", include_str!("../../../docs/MESH.md")),
-    ("MEMORY", include_str!("../../../docs/MEMORY.md")),
-    ("BUILD", include_str!("../../../docs/BUILD.md")),
-    ("HTML", include_str!("../../../docs/HTML.md")),
-    ("PROMPTS", include_str!("../../../docs/PROMPTS.md")),
-    ("SKILLS", include_str!("../../../docs/SKILLS.md")),
-    ("TESTING", include_str!("../../../docs/TESTING.md")),
-    (
+use std::fmt::Write;
+
+macro_rules! doc {
+    ($name:literal, $purpose:literal, $path:literal) => {
+        EmbeddedDoc {
+            name: $name,
+            purpose: $purpose,
+            body: include_str!($path),
+        }
+    };
+}
+
+pub(crate) struct EmbeddedDoc {
+    pub name: &'static str,
+    pub purpose: &'static str,
+    pub body: &'static str,
+}
+
+pub(crate) const DOCS: &[EmbeddedDoc] = &[
+    doc!(
+        "CONFIG",
+        "Application configuration reference",
+        "../../../docs/CONFIG.md"
+    ),
+    doc!(
+        "INTEGRATIONS",
+        "Messaging, hooks, transcription, and secret-backed integration settings",
+        "../../../docs/INTEGRATIONS.md"
+    ),
+    doc!(
+        "RUNTIME-CONFIG",
+        "Runtime, UI, session, cron, and memory settings",
+        "../../../docs/RUNTIME-CONFIG.md"
+    ),
+    doc!(
+        "API",
+        "REST, socket, and CLI integration reference",
+        "../../../docs/API.md"
+    ),
+    doc!(
+        "API-TABS",
+        "Tab and workspace REST contracts",
+        "../../../docs/API-TABS.md"
+    ),
+    doc!(
+        "API-INTEGRATIONS",
+        "Bridge, hook, notification, and cron REST contracts",
+        "../../../docs/API-INTEGRATIONS.md"
+    ),
+    doc!(
+        "API-MEMORY",
+        "Memory and graph REST contracts",
+        "../../../docs/API-MEMORY.md"
+    ),
+    doc!(
+        "API-SERVICES",
+        "Service, activity, cron, and maintenance REST contracts",
+        "../../../docs/API-SERVICES.md"
+    ),
+    doc!(
+        "API-STATE",
+        "Secrets, sessions, configuration, and update REST contracts",
+        "../../../docs/API-STATE.md"
+    ),
+    doc!(
+        "API-AGENTS",
+        "Agent, plan, team, and update REST contracts",
+        "../../../docs/API-AGENTS.md"
+    ),
+    doc!(
+        "API-TRANSPORT",
+        "Output streaming and socket JSON-RPC protocols",
+        "../../../docs/API-TRANSPORT.md"
+    ),
+    doc!(
+        "API-CLI",
+        "CLI, environment, and agent integration contracts",
+        "../../../docs/API-CLI.md"
+    ),
+    doc!(
+        "TAB-LIFECYCLE",
+        "Tab lifecycle journal, checkpoints, and exact-checkpoint recovery",
+        "../../../docs/TAB-LIFECYCLE.md"
+    ),
+    doc!(
+        "MESH",
+        "Peer discovery, trust, and remote routing",
+        "../../../docs/MESH.md"
+    ),
+    doc!(
+        "MESH-SERVICES",
+        "Mesh service registry, health, and peer management",
+        "../../../docs/MESH-SERVICES.md"
+    ),
+    doc!(
+        "MEMORY",
+        "Persistent memory, search, and graph behavior",
+        "../../../docs/MEMORY.md"
+    ),
+    doc!(
+        "MEMORY-SERVICES",
+        "Memory skills, workers, synchronization, and dreaming",
+        "../../../docs/MEMORY-SERVICES.md"
+    ),
+    doc!(
+        "MEMORY-USAGE",
+        "Memory agent behavior, CLI, REST, and UI",
+        "../../../docs/MEMORY-USAGE.md"
+    ),
+    doc!(
+        "BUILD",
+        "Development, build, and installation workflows",
+        "../../../docs/BUILD.md"
+    ),
+    doc!(
+        "BUILD-REFERENCE",
+        "Build outputs, signing, icons, and platform notes",
+        "../../../docs/BUILD-REFERENCE.md"
+    ),
+    doc!(
+        "HTML",
+        "Sandboxed chat HTML behavior",
+        "../../../docs/HTML.md"
+    ),
+    doc!(
+        "PROMPTS",
+        "Prompt sources and assembly",
+        "../../../docs/PROMPTS.md"
+    ),
+    doc!(
+        "SKILLS",
+        "CodeTerm skills and agent integration",
+        "../../../docs/SKILLS.md"
+    ),
+    doc!(
+        "AGENT-CONTROL",
+        "Agent hierarchy, command palette, and session integration",
+        "../../../docs/AGENT-CONTROL.md"
+    ),
+    doc!(
+        "TESTING",
+        "Test layers and verification workflows",
+        "../../../docs/TESTING.md"
+    ),
+    doc!(
+        "E2E-TESTING",
+        "E2E, cross-platform, and manual smoke workflows",
+        "../../../docs/E2E-TESTING.md"
+    ),
+    doc!(
+        "PROMPT-DETECTION",
+        "Prompt detection architecture and verification",
+        "../../../docs/PROMPT-DETECTION.md"
+    ),
+    doc!(
         "TELEGRAM-SETUP",
-        include_str!("../../../docs/TELEGRAM-SETUP.md"),
+        "Telegram bridge setup and troubleshooting",
+        "../../../docs/TELEGRAM-SETUP.md"
     ),
-    ("SECRETS", include_str!("../../../docs/SECRETS.md")),
-    ("ROUTING", include_str!("../../../docs/ROUTING.md")),
-    ("TEXT-HOOKS", include_str!("../../../docs/TEXT-HOOKS.md")),
-    ("TRANSCRIBE", include_str!("../../../docs/TRANSCRIBE.md")),
-    (
+    doc!(
+        "SECRETS",
+        "Secret storage and synchronization",
+        "../../../docs/SECRETS.md"
+    ),
+    doc!(
+        "ROUTING",
+        "Message routing and reply channels",
+        "../../../docs/ROUTING.md"
+    ),
+    doc!(
+        "TEXT-HOOKS",
+        "Inbound text hook contracts",
+        "../../../docs/TEXT-HOOKS.md"
+    ),
+    doc!(
+        "TRANSCRIBE",
+        "Voice transcription integration",
+        "../../../docs/TRANSCRIBE.md"
+    ),
+    doc!(
         "ORCHESTRATION",
-        include_str!("../../../docs/ORCHESTRATION.md"),
+        "Team orchestration lifecycle",
+        "../../../docs/ORCHESTRATION.md"
     ),
-    (
+    doc!(
+        "ORCHESTRATION-OPERATIONS",
+        "Orchestration verification, integration, heartbeat, and closeout",
+        "../../../docs/ORCHESTRATION-OPERATIONS.md"
+    ),
+    doc!(
         "PLAN-EDITING",
-        include_str!("../../../docs/PLAN-EDITING.md"),
+        "Bounded plan editing operations",
+        "../../../docs/PLAN-EDITING.md"
     ),
-    ("LANES", include_str!("../../../docs/LANES.md")),
-    ("PLANNER", include_str!("../../../docs/PLANNER.md")),
-    (
+    doc!(
+        "LANES",
+        "Worker lanes, integration, and cleanup",
+        "../../../docs/LANES.md"
+    ),
+    doc!(
+        "PLANNER",
+        "Planner responsibilities and workflow",
+        "../../../docs/PLANNER.md"
+    ),
+    doc!(
         "BOUNCE",
-        include_str!("../../../src-tauri/prompts/bounce_unwinding_contract.md"),
+        "Review bounce evidence and escalation",
+        "../../../src-tauri/prompts/bounce_unwinding_contract.md"
     ),
-    (
+    doc!(
         "TEST-AUTHORING",
-        include_str!("../../../docs/contributing/test-authoring.md"),
+        "Focused test authoring rules",
+        "../../../docs/contributing/test-authoring.md"
     ),
 ];
 
-const CODETERM_TAB_PREVIEW_LINES: usize = 120;
-
-pub fn handle(name: Option<String>, full: bool, head: Option<usize>) {
+pub fn handle(name: Option<String>) {
     match name {
-        None => list_docs(),
-        Some(n) => match render_doc(&n, full, head, is_codeterm_tab()) {
-            Ok(rendered) => print!("{}", rendered),
-            Err(available) => {
-                eprintln!("No doc named '{}'. Available:", n);
-                for name in available {
-                    eprintln!("  {}", name);
-                }
+        None => print!("{}", render_list()),
+        Some(name) => match render_doc(&name) {
+            Ok(body) => print!("{body}"),
+            Err(error) => {
+                eprintln!("{error}");
                 std::process::exit(1);
             }
         },
     }
 }
 
-pub fn handle_doc(name: String) {
-    let resolved = if name.eq_ignore_ascii_case("orchestration") {
-        "ORCHESTRATION"
-    } else {
-        name.as_str()
-    };
-    match render_doc(resolved, true, None, false) {
-        Ok(rendered) => print!("{}", rendered),
-        Err(available) => {
-            eprintln!("No doc named '{}'. Available:", name);
-            for name in available {
-                eprintln!("  {}", name);
-            }
-            std::process::exit(1);
+pub(crate) fn render_list() -> String {
+    let mut output = String::from("Available docs:\n");
+    for document in DOCS {
+        writeln!(output, "  {:<16} {}", document.name, document.purpose).unwrap();
+    }
+    output.push_str("\nRead one complete document: codeterm docs <NAME>\n");
+    output
+}
+
+pub(crate) fn render_help() -> String {
+    format!(
+        "Read embedded CodeTerm documentation.\n\nUsage: codeterm docs [NAME]\n\n{}",
+        render_list()
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UnknownDocument {
+    requested: String,
+}
+
+impl std::fmt::Display for UnknownDocument {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            formatter,
+            "No doc named '{}'. Available docs:",
+            self.requested
+        )?;
+        for document in DOCS {
+            writeln!(formatter, "  {:<16} {}", document.name, document.purpose)?;
         }
+        Ok(())
     }
 }
 
-fn list_docs() {
-    println!("Available docs (use `codeterm docs <name>` to read):");
-    for (name, body) in DOCS {
-        let lines = body.lines().count();
-        let preview = first_heading(body).unwrap_or("(no heading)");
-        println!("  {:<10} {} lines  — {}", name, lines, preview);
-    }
-}
-
-fn render_doc(
-    name: &str,
-    full: bool,
-    head: Option<usize>,
-    in_codeterm_tab: bool,
-) -> Result<String, Vec<&'static str>> {
-    let upper = name.to_ascii_uppercase();
-    for (n, body) in DOCS {
-        if *n == upper {
-            let limit = if full {
-                None
-            } else {
-                head.or_else(|| in_codeterm_tab.then_some(CODETERM_TAB_PREVIEW_LINES))
-            };
-            return Ok(render_body(n, body, limit));
-        }
-    }
-    Err(DOCS.iter().map(|(n, _)| *n).collect())
-}
-
-fn render_body(name: &str, body: &str, limit: Option<usize>) -> String {
-    let Some(limit) = limit else {
-        return body.to_string();
-    };
-    let lines: Vec<&str> = body.lines().collect();
-    if lines.len() <= limit {
-        return body.to_string();
-    }
-    let mut out = lines
-        .iter()
-        .take(limit)
-        .copied()
-        .collect::<Vec<_>>()
-        .join("\n");
-    out.push_str(&format!(
-        "\n\n[CodeTerm docs output truncated: showing {}/{} lines from {}. Use `codeterm docs {} --full` for the complete doc or `--head N` for a different preview.]\n",
-        limit,
-        lines.len(),
-        name,
-        name
-    ));
-    out
-}
-
-fn first_heading(body: &str) -> Option<&str> {
-    body.lines()
-        .find(|l| l.trim_start().starts_with("# "))
-        .map(|l| l.trim_start().trim_start_matches('#').trim())
-}
-
-fn is_codeterm_tab() -> bool {
-    std::env::var_os("CODETERM_TAB_ID").is_some()
+pub(crate) fn render_doc(name: &str) -> Result<&'static str, UnknownDocument> {
+    DOCS.iter()
+        .find(|document| document.name.eq_ignore_ascii_case(name))
+        .map(|document| document.body)
+        .ok_or_else(|| UnknownDocument {
+            requested: name.to_string(),
+        })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    use super::{render_doc, render_list, DOCS};
 
     #[test]
-    fn codeterm_tab_preview_caps_secrets_doc() {
-        let rendered = render_doc("SECRETS", false, None, true).expect("SECRETS doc exists");
+    fn docs_without_name_lists_available_documents_with_purposes() {
+        let list = render_list();
+        for document in DOCS {
+            assert!(list.contains(document.name));
+            assert!(list.contains(document.purpose));
+            assert!(!document.purpose.trim().is_empty());
+            assert!(!document.purpose.contains('\n'));
+        }
+    }
 
-        assert!(
-            rendered.contains("CodeTerm docs output truncated"),
-            "large docs must not stream in full by default inside agent Tabs"
-        );
-        assert!(
-            rendered.lines().count()
-                < DOCS
-                    .iter()
-                    .find(|(n, _)| *n == "SECRETS")
-                    .unwrap()
-                    .1
+    #[test]
+    fn named_doc_is_byte_exact_complete_document() {
+        for document in DOCS {
+            assert_eq!(render_doc(document.name), Ok(document.body));
+        }
+    }
+
+    #[test]
+    fn document_names_are_case_insensitive() {
+        assert_eq!(render_doc("orchestration"), render_doc("ORCHESTRATION"));
+    }
+
+    #[test]
+    fn unknown_document_lists_valid_names() {
+        let error = render_doc("missing").unwrap_err().to_string();
+        assert!(error.contains("No doc named 'missing'"));
+        for document in DOCS {
+            assert!(error.contains(document.name));
+        }
+    }
+
+    #[test]
+    fn registered_document_names_are_unique() {
+        let mut names = HashSet::new();
+        for document in DOCS {
+            assert!(names.insert(document.name.to_ascii_lowercase()));
+        }
+    }
+
+    #[test]
+    fn registered_documents_have_one_title_and_fit_the_reading_boundary() {
+        for document in DOCS {
+            let mut fence = None;
+            let mut titles = 0;
+            for line in document.body.lines() {
+                let trimmed = line.trim_start();
+                let marker = trimmed.chars().next().filter(|ch| matches!(ch, '`' | '~'));
+                let run = marker
+                    .map(|ch| {
+                        trimmed
+                            .chars()
+                            .take_while(|candidate| candidate == &ch)
+                            .count()
+                    })
+                    .unwrap_or_default();
+                if run >= 3 {
+                    match fence {
+                        None => fence = marker.map(|ch| (ch, run)),
+                        Some((ch, minimum)) if marker == Some(ch) && run >= minimum => fence = None,
+                        _ => {}
+                    }
+                    continue;
+                }
+                if fence.is_none() && line.starts_with("# ") {
+                    titles += 1;
+                }
+            }
+            assert!(
+                document.body.starts_with("# "),
+                "{} must start with one H1",
+                document.name
+            );
+            assert_eq!(titles, 1, "{} must contain exactly one H1", document.name);
+            assert!(
+                document.body.lines().count() <= 240,
+                "{} exceeds 240 lines",
+                document.name
+            );
+            assert!(
+                document.body.len() <= 24 * 1024,
+                "{} exceeds 24 KiB",
+                document.name
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_doc_references_name_registered_whole_documents() {
+        let names = DOCS
+            .iter()
+            .map(|document| document.name)
+            .collect::<HashSet<_>>();
+        for document in DOCS {
+            let mut seen = HashSet::new();
+            for fragment in document.body.split('`') {
+                let command = fragment.trim();
+                let Some(target) = command.strip_prefix("codeterm docs ") else {
+                    continue;
+                };
+                if target == "<NAME>" || target == "--help" {
+                    continue;
+                }
+                assert!(
+                    !target.contains(' '),
+                    "{} uses a docs mode: {command}",
+                    document.name
+                );
+                assert!(
+                    names.contains(target),
+                    "{} references unknown {target}",
+                    document.name
+                );
+                assert_ne!(document.name, target, "{} links to itself", document.name);
+                assert!(
+                    seen.insert(target),
+                    "{} repeats a whole-document reference to {target}",
+                    document.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn embedded_doc_reference_graph_is_acyclic() {
+        let graph = DOCS
+            .iter()
+            .map(|document| {
+                let targets = document
+                    .body
                     .lines()
-                    .count(),
-            "preview should be shorter than the full SECRETS playbook"
-        );
-        assert!(
-            rendered.contains("codeterm docs SECRETS --full"),
-            "preview must tell the caller how to request the full doc intentionally"
-        );
-    }
+                    .filter(|line| {
+                        let line = line.to_ascii_lowercase();
+                        line.contains("must read")
+                            || line.contains("read first")
+                            || line.contains("required reading")
+                            || line.contains("before continuing")
+                    })
+                    .flat_map(|line| line.split('`'))
+                    .filter_map(|fragment| fragment.trim().strip_prefix("codeterm docs "))
+                    .filter(|target| !target.starts_with('<') && *target != "--help")
+                    .collect::<Vec<_>>();
+                (document.name, targets)
+            })
+            .collect::<HashMap<_, _>>();
 
-    #[test]
-    fn full_preserves_complete_secrets_doc() {
-        let full_body = DOCS.iter().find(|(n, _)| *n == "SECRETS").unwrap().1;
-        let rendered = render_doc("SECRETS", true, None, true).expect("SECRETS doc exists");
+        fn visit<'a>(
+            name: &'a str,
+            graph: &HashMap<&'a str, Vec<&'a str>>,
+            active: &mut HashSet<&'a str>,
+            complete: &mut HashSet<&'a str>,
+        ) {
+            if complete.contains(name) {
+                return;
+            }
+            assert!(
+                active.insert(name),
+                "embedded docs reference cycle at {name}"
+            );
+            for target in graph.get(name).into_iter().flatten() {
+                visit(target, graph, active, complete);
+            }
+            active.remove(name);
+            complete.insert(name);
+        }
 
-        assert_eq!(rendered, full_body);
-    }
-
-    #[test]
-    fn non_codeterm_stdout_preserves_complete_doc_by_default() {
-        let full_body = DOCS.iter().find(|(n, _)| *n == "SECRETS").unwrap().1;
-        let rendered = render_doc("SECRETS", false, None, false).expect("SECRETS doc exists");
-
-        assert_eq!(rendered, full_body);
-    }
-
-    #[test]
-    fn head_caps_output_everywhere() {
-        let rendered = render_doc("API", false, Some(12), false).expect("API doc exists");
-
-        assert!(rendered.contains("showing 12/"));
-        assert!(rendered.lines().count() < 30);
-    }
-
-    #[test]
-    fn orchestration_doc_alias_is_non_empty() {
-        let rendered = render_doc("orchestration", true, None, false).expect("doc exists");
-
-        assert!(rendered.contains("# Orchestration"));
-        assert!(rendered.len() > 100);
-    }
-
-    #[test]
-    fn lanes_doc_is_registered() {
-        let rendered = render_doc("lanes", true, None, false).expect("LANES doc exists");
-
-        assert!(rendered.contains("# Lane Lifecycle Standard"));
-    }
-
-    #[test]
-    fn html_doc_is_registered() {
-        let rendered = render_doc("html", true, None, false).expect("HTML doc exists");
-
-        assert!(rendered.contains("# Sandboxed HTML in chat"));
-        assert!(rendered.contains("ct.file.pick(options)"));
-    }
-
-    #[test]
-    fn bounce_doc_preserves_registered_source() {
-        let source = include_str!("../../../src-tauri/prompts/bounce_unwinding_contract.md");
-        let rendered = render_doc("bounce", true, None, false).expect("BOUNCE doc exists");
-
-        assert_eq!(rendered, source);
-    }
-
-    #[test]
-    fn test_authoring_doc_is_registered() {
-        let rendered =
-            render_doc("test-authoring", true, None, false).expect("TEST-AUTHORING doc exists");
-
-        assert!(rendered.contains("# Authoring automated tests"));
-        assert!(rendered.contains("codeterm docs TEST-AUTHORING"));
+        let mut active = HashSet::new();
+        let mut complete = HashSet::new();
+        for document in DOCS {
+            visit(document.name, &graph, &mut active, &mut complete);
+        }
     }
 }

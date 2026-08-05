@@ -56,18 +56,27 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
+    if params.planned_reasoning_effort.is_none() {
+        params.planned_reasoning_effort = params.reasoning_effort.clone();
+    }
     params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
         plan_id: resolved.plan_id.clone(),
         task_id: resolved.task_id.clone(),
+        attempt_id: crate::plan::ids::short_id("attempt"),
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
+        .map_err(|error| error.to_string())?;
     let brief = crate::service::plan::task_brief::render_task_brief(
         &detail.task,
         &detail.sections,
         detail.task.personality.as_deref(),
         instruction.as_deref(),
+        Some(&resolved.plan_id),
+        &manifest,
     );
+    params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);
     params.plan_id = Some(resolved.plan_id);
     params.task_id = Some(resolved.task_id);
@@ -88,6 +97,12 @@ fn bind_worker_task_to_tab(
     tab_id: &str,
     title: &str,
     session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
+    intent: crate::plan::ExecutionIntent,
+    allowance: Option<crate::plan::ProviderAllowance>,
+    provider: Option<&str>,
+    attempt_id: &str,
+    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
     let resolved = store
@@ -101,15 +116,36 @@ fn bind_worker_task_to_tab(
         .task
         .lane;
     let attempt_id = store
-        .begin_task_dispatch(&plan_id, &task_id, tab_id, title, lane.clone(), now_ms)
+        .begin_task_dispatch_with_reserved_attempt(
+            &plan_id,
+            &task_id,
+            tab_id,
+            title,
+            lane.clone(),
+            intent,
+            allowance,
+            provider,
+            attempt_id,
+            now_ms,
+        )
         .map_err(|error| error.to_string())?;
+    if let Err(error) =
+        store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now_ms)
+    {
+        let _ = store.revert_task_dispatch(&plan_id, &task_id, now_ms);
+        return Err(error.to_string());
+    }
     if let Some(session_id) = session_id {
+        let session_binding_nonce = session_binding_nonce
+            .filter(|nonce| !nonce.trim().is_empty())
+            .ok_or_else(|| "plan-task spawn is missing its session binding nonce".to_string())?;
         if let Err(error) = store.finish_task_dispatch(
             &plan_id,
             &task_id,
             tab_id,
             &attempt_id,
             session_id,
+            session_binding_nonce,
             lane,
             now_ms,
         ) {
@@ -138,10 +174,30 @@ fn bind_worker_plan_task_transaction(
     tab_id: &str,
     title: &str,
     session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
+    intent: crate::plan::ExecutionIntent,
+    allowance: Option<crate::plan::ProviderAllowance>,
+    provider: Option<&str>,
+    attempt_id: &str,
+    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
     close_tab: impl FnOnce(),
 ) -> Result<WorkerTaskBinding, String> {
-    match bind_worker_task_to_tab(store, plan_id, task_ref, tab_id, title, session_id, now_ms) {
+    match bind_worker_task_to_tab(
+        store,
+        plan_id,
+        task_ref,
+        tab_id,
+        title,
+        session_id,
+        session_binding_nonce,
+        intent,
+        allowance,
+        provider,
+        attempt_id,
+        manifest,
+        now_ms,
+    ) {
         Ok(binding) => Ok(binding),
         Err(e) => {
             close_tab();
@@ -159,7 +215,18 @@ impl ServiceContext {
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
             return Ok(());
         };
-        preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)
+        preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)?;
+        let intent = params.execution_intent.as_ref().ok_or_else(|| {
+            "plan-task spawn requires explicit execution_intent read_only or mutating".to_string()
+        })?;
+        let now_ms = epoch_ms();
+        let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
+        crate::service::plan::interruption::provider_allowance_preflight(
+            intent,
+            allowance.as_ref(),
+            now_ms,
+        )
+        .map_err(|error| error.to_string())
     }
 
     pub(crate) fn prepare_worker_plan_task_spawn(
@@ -178,13 +245,17 @@ impl ServiceContext {
             return Ok(());
         };
         let now_ms = epoch_ms();
-        let (title, session_id) = {
+        let (title, session_id, session_binding_nonce) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
-            let session_id = mux
-                .get_tab(tab_id)
-                .and_then(|tab| tab.agent_session_id.clone());
-            (title, session_id)
+            let binding = mux.get_tab(tab_id).map(|tab| {
+                (
+                    tab.agent_session_id.clone(),
+                    tab.session_binding_nonce.clone(),
+                )
+            });
+            let (session_id, session_binding_nonce) = binding.unwrap_or_default();
+            (title, session_id, session_binding_nonce)
         };
         let binding = bind_worker_plan_task_transaction(
             &self.plan_store,
@@ -193,6 +264,21 @@ impl ServiceContext {
             tab_id,
             &title,
             session_id.as_deref(),
+            session_binding_nonce.as_deref(),
+            params
+                .execution_intent
+                .clone()
+                .ok_or_else(|| "plan-task spawn requires explicit execution_intent".to_string())?,
+            self.provider_allowance_for_spawn(params, now_ms)?,
+            params.agent.as_deref(),
+            &params
+                .task_launch_authority
+                .as_ref()
+                .ok_or_else(|| "plan-task spawn is missing launch authority".to_string())?
+                .attempt_id,
+            params.plan_skill_manifest.clone().ok_or_else(|| {
+                "plan-task spawn is missing its prepared plan skill manifest".to_string()
+            })?,
             now_ms,
             || {
                 let _ = self.close_tab(tab_id);
@@ -208,6 +294,52 @@ impl ServiceContext {
             }),
         );
         Ok(())
+    }
+
+    fn provider_allowance_for_spawn(
+        &self,
+        params: &SpawnAgentParams,
+        now_ms: u64,
+    ) -> Result<Option<crate::plan::ProviderAllowance>, String> {
+        if params.execution_intent != Some(crate::plan::ExecutionIntent::Mutating) {
+            return Ok(None);
+        }
+        let provider = params
+            .agent
+            .clone()
+            .unwrap_or_else(crate::config::default_agent_provider);
+        let capability = self
+            .agent_registry
+            .with_provider(&provider, |provider| {
+                provider.provider_allowance_capability()
+            })
+            .flatten()
+            .ok_or_else(|| "selected provider has no mutation allowance capability".to_string())?;
+        let snapshot = self
+            .usage_store
+            .get_latest(&provider, None)?
+            .ok_or_else(|| "provider allowance telemetry is unknown".to_string())?;
+        let allowance = crate::plan::ProviderAllowance {
+            remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
+            observed_at: snapshot.captured_at.max(0) as u64,
+            stale_after_ms: capability.telemetry_max_age_ms,
+            reserve_pct: params
+                .provider_reserve_pct
+                .unwrap_or(capability.default_reserve_pct),
+        };
+        if allowance.is_stale(now_ms) {
+            log::warn!(
+                "provider allowance telemetry for {} is stale; using the last known reserve value",
+                provider
+            );
+        }
+        crate::service::plan::interruption::provider_allowance_preflight(
+            &crate::plan::ExecutionIntent::Mutating,
+            Some(&allowance),
+            now_ms,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(Some(allowance))
     }
 }
 
@@ -261,6 +393,17 @@ mod tests {
             "tab-worker",
             "Ada",
             Some("session-worker"),
+            Some("nonce-worker"),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
+            "attempt-prepared",
+            vec![crate::plan::PlanSkillManifestEntry {
+                slug: "prepared".into(),
+                title: "Prepared".into(),
+                purpose: "Prove exact snapshot retention.".into(),
+                content_digest: "sha256:prepared".into(),
+            }],
             10,
         )
         .unwrap();
@@ -273,6 +416,10 @@ mod tests {
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
         assert_eq!(binding.plan_id, plan_id);
         assert_eq!(binding.task_id, task_id);
+        assert_eq!(
+            task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug,
+            "prepared"
+        );
         assert_eq!(
             task.execution_attempts
                 .last()
@@ -291,6 +438,8 @@ mod tests {
             role: Some("Worker".into()),
             plan_id: Some(plan_id.clone()),
             plan_task: Some("spawn-bind".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            provider_reserve_pct: None,
             task: Some("Check the adjacent caller concern.".into()),
             ..Default::default()
         };
@@ -308,11 +457,32 @@ mod tests {
         );
         let prompt = params.task.unwrap();
         assert!(prompt.starts_with("You are Ada. Keep the change bounded."));
-        let body = prompt.find("Implement the task-owned behavior.").unwrap();
-        let supplemental = prompt.find("## Orchestrator instruction").unwrap();
         let ack = prompt.find("codeterm agent ack").unwrap();
-        assert!(body < supplemental);
-        assert!(supplemental < ack);
+        let body = prompt.find("Implement the task-owned behavior.").unwrap();
+        let criteria = prompt.find("The focused oracle passes.").unwrap();
+        let supplemental = prompt.find("## Orchestrator instruction").unwrap();
+        assert!(ack < body);
+        assert!(body < criteria && criteria < supplemental);
+        assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
+        assert!(!prompt.contains("codeterm agent report"));
+    }
+
+    #[test]
+    fn direct_plan_task_spawn_records_host_owned_effort_intent() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, _) = store_with_task(dir.path());
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_id: Some(plan_id),
+            plan_task: Some("spawn-bind".into()),
+            reasoning_effort: Some("high".into()),
+            ..Default::default()
+        };
+
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+
+        assert_eq!(params.planned_reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(params.reasoning_effort.as_deref(), Some("high"));
     }
 
     #[test]
@@ -320,6 +490,8 @@ mod tests {
         let err = validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Orchestrator".into()),
             plan_task: Some("spawn-bind".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            provider_reserve_pct: None,
             ..Default::default()
         })
         .unwrap_err();
@@ -395,6 +567,12 @@ mod tests {
             "tab-worker",
             "Ada",
             None,
+            None,
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
+            "attempt-review",
+            vec![],
             10,
         )
         .unwrap_err();
@@ -418,6 +596,12 @@ mod tests {
             "tab-worker",
             "Ada",
             Some("session-worker"),
+            Some("nonce-worker"),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
+            "attempt-ack",
+            vec![],
             10,
         )
         .unwrap();
@@ -427,8 +611,20 @@ mod tests {
 
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
+        let attempt = task
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == binding.attempt_id)
+            .unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
-        assert_eq!(task.status_label, None);
+        assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
+        assert_eq!(attempt.acknowledged_at, Some(11));
+        assert_eq!(attempt.executor_tab_id, "tab-worker");
+        assert_eq!(attempt.session_id.as_deref(), Some("session-worker"));
+        assert_eq!(
+            attempt.session_binding_nonce.as_deref(),
+            Some("nonce-worker")
+        );
     }
 
     // Proven via the WIP-gate path — the failure reliably triggerable here
@@ -447,6 +643,12 @@ mod tests {
             "tab-worker",
             "Ada",
             None,
+            None,
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
+            "attempt-rollback",
+            vec![],
             10,
             || tab_closed = true,
         )

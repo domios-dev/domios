@@ -1,6 +1,20 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan, PlanMode};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskExecutionAttempt};
 use crate::service_plan::NewTask;
+
+fn executor_tab(task_id: &str) -> String {
+    format!("executor-{task_id}")
+}
+
+fn attempt(_task_id: &str, id: &str, tab_id: &str, checkout: &str) -> TaskExecutionAttempt {
+    TaskExecutionAttempt {
+        id: id.into(),
+        executor_tab_id: tab_id.into(),
+        worktree_path: Some(checkout.into()),
+        assigned_at: Some(4),
+        ..Default::default()
+    }
+}
 
 fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -65,6 +79,21 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             )
             .unwrap();
     }
+    store
+        .with_plan(&plan.id, 5, |plan| {
+            for task in &mut plan.tasks {
+                let tab_id = executor_tab(&task.id);
+                let attempt_id = format!("attempt-{}", task.id);
+                let checkout = format!("/checkout/{}", task.id);
+                task.assigned_tab_id = Some(tab_id.clone());
+                task.lane.tab_id = Some(tab_id.clone());
+                task.lane.worktree_path = Some(checkout.clone());
+                task.execution_attempts
+                    .push(attempt(&task.id, &attempt_id, &tab_id, &checkout));
+            }
+            Ok(())
+        })
+        .unwrap();
     (dir, store, plan.id, first, second)
 }
 
@@ -119,6 +148,12 @@ fn enqueue_claim_and_pass_write_qa_milestones() {
     assert_eq!(task.status, TaskStatus::Done);
     assert_eq!(task.review_stage, ReviewStage::Review);
     assert_eq!(task.qa_state, None);
+    assert_eq!(task.execution_attempts[0].reviewed_at, Some(11));
+    assert_eq!(
+        task.execution_attempts[0].judge_verdict.as_deref(),
+        Some("accepted")
+    );
+    assert_eq!(task.execution_attempts[0].closed_at, Some(12));
     assert!(task
         .milestones
         .iter()
@@ -221,6 +256,13 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
             },
             9,
         )
+        .unwrap();
+    store
+        .with_plan(&plan_id, 9, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == first).unwrap();
+            task.execution_attempts[0].executor_tab_id = "impl-tab".into();
+            Ok(())
+        })
         .unwrap();
     store
         .enqueue_qa(&plan_id, &first, "ready", AgentRef::from_tab("orch"), 10)

@@ -4,9 +4,9 @@ import { act, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
-import { __setListenForTest } from "../../lib/bridge";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
-import { PlansProvider, useFullPlans, usePlanIndex } from "../Canvas/PlansProvider";
+import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
@@ -109,8 +109,8 @@ function snapshot(teamName: string): MultiplexerState {
     tab_type: "Terminal",
     title: "Orchestrator",
     cwd: "/workspace",
-    role: "Orchestrator",
-    role_profile: null,
+    role: "Manager",
+    role_profile: "orchestrator",
     parent_tab_id: null,
     team_id: TEAM_ID,
   } as Tab & { team_id: string };
@@ -179,6 +179,17 @@ function installFetch() {
 }
 
 async function installListen() {
+  __setInvokeForTest(async (command, args) => {
+    if (!restAvailable) throw new TypeError("PlanStore unavailable");
+    if (command === "list_plans_full") return backendPlans as never;
+    if (command === "list_plan_index") return backendPlans.map(indexEntry) as never;
+    if (command === "get_plan_full") {
+      const found = backendPlans.find((value) => value.id === args?.planId);
+      if (!found) throw new Error("plan not found");
+      return found as never;
+    }
+    throw new Error(`unexpected invoke: ${command}`);
+  });
   __setListenForTest(async (event, handler) => {
     const handlers = listenHandlers.get(event) ?? new Set<ListenHandler>();
     handlers.add(handler as ListenHandler);
@@ -200,7 +211,7 @@ function fireExistingFullResync() {
 }
 
 function Projection() {
-  const full = useFullPlans();
+  const full = useSidebarPlansOptional();
   const index = usePlanIndex();
   const [mux, setMux] = useState(backendSnapshot);
 
@@ -229,7 +240,6 @@ function Projection() {
         planIndex={index.index}
         plans={full.plans}
         activeWork={null}
-        remoteWorkers={{}}
         providers={[]}
         closingTabIds={new Set()}
         appearingTabIds={new Set()}
@@ -330,6 +340,7 @@ async function main() {
   assertCurrentProjection(host);
 
   await act(async () => root.unmount());
+  __setInvokeForTest(null);
   __setListenForTest(null);
   console.log("  ✓ Team active-plan recovery converges after one existing full resync");
 }

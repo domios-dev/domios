@@ -63,7 +63,7 @@ function snapshot(
   };
 }
 
-const orch = tab("orch", "Orchestrator");
+const orch = { ...tab("orch", "Manager"), role_profile: "orchestrator" };
 const liveWorker = tab("worker-live", "Worker", "orch");
 const goneWorker = tab("worker-gone", "Worker", "orch");
 const statuses: Record<string, TabStatus> = {

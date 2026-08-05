@@ -6,6 +6,7 @@
 //! Manager + planner binding in `Self::spawn_agent`) - this module
 //! only sequences the two spawns and records the pending pair.
 
+use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{OrchestratorRef, PlannerRef};
@@ -81,7 +82,7 @@ fn pair_retry_command(
         None => provider.to_string(),
     };
     format!(
-        "codeterm orchestration new --orchestrator {} --planner {} --workspace {}",
+        "codeterm team pair --orchestrator {} --planner {} --workspace {}",
         provider_spec(orchestrator_agent, orchestrator_model),
         provider_spec(planner_agent, planner_model),
         workspace_id
@@ -111,6 +112,27 @@ struct ReservedPairTabs {
     orchestrator_tab_id: String,
     planner_tab_id: String,
     planner_name: String,
+    team: crate::service::spawn_factory::TeamIdentity,
+    team_minted: bool,
+}
+
+/// A newly minted pair Team dies with the pair; a Team the claimed Tab already
+/// belonged to is adopted, never destroyed by a failed launch.
+fn release_minted_pair_team(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    reserved: &ReservedPairTabs,
+) {
+    if !reserved.team_minted {
+        return;
+    }
+    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            if tab.team_id.as_deref() == Some(reserved.team.id.as_str()) {
+                tab.team_id = None;
+            }
+        }
+    }
+    mux.remove_team(&reserved.team.id);
 }
 
 fn reserve_pair_tabs(
@@ -149,10 +171,22 @@ fn reserve_pair_tabs(
             );
         }
     }
+    let reservation = mux.resolve_or_mint_team_for_parent(&orchestrator_tab_id)?;
+    if let Some(tab) = mux.get_tab_mut(&planner_tab_id) {
+        tab.team_id = Some(reservation.team_id.clone());
+    }
+    let team_name = mux
+        .get_team(&reservation.team_id)
+        .and_then(|team| team.name.clone());
     Ok(ReservedPairTabs {
         orchestrator_tab_id,
         planner_tab_id,
         planner_name,
+        team: crate::service::spawn_factory::TeamIdentity::new(
+            reservation.team_id,
+            team_name.as_deref(),
+        ),
+        team_minted: reservation.minted,
     })
 }
 
@@ -430,8 +464,12 @@ impl ServiceContext {
             &reserved.planner_name,
             &reserved.planner_tab_id,
         );
-        let mut orchestrator_bootstrap =
-            crate::service::spawn_factory::forming_identity("Orchestrator", project.clone());
+        let mut orchestrator_bootstrap = crate::service::spawn_factory::forming_identity_in_team(
+            "Orchestrator",
+            ORCHESTRATOR,
+            project.clone(),
+            &reserved.team,
+        );
         orchestrator_bootstrap.coordination =
             Some(crate::service::spawn_factory::introduction_body(
                 &orch_counterpart,
@@ -459,10 +497,14 @@ impl ServiceContext {
                     codeterm_types::pty::BootStage::SpawnFailed,
                     Some(&error),
                 );
-                if let Some(tab) = self.mux.write().get_tab_mut(&reserved.orchestrator_tab_id) {
-                    tab.agent_booting = false;
+                {
+                    let mut mux = self.mux.write();
+                    if let Some(tab) = mux.get_tab_mut(&reserved.orchestrator_tab_id) {
+                        tab.agent_booting = false;
+                    }
+                    let _ = mux.close_tab(&reserved.planner_tab_id);
+                    release_minted_pair_team(&mut mux, &reserved);
                 }
-                let _ = self.mux.write().close_tab(&reserved.planner_tab_id);
                 self.emit_state_changed();
                 return Err(format!(
                     "Failed to spawn Orchestrator ({error}); no plan was created. Retry with: {pair_fix_command}"
@@ -471,8 +513,12 @@ impl ServiceContext {
         };
         let orch_tab_id = orch_result.tab_id.clone();
 
-        let mut planner_bootstrap =
-            crate::service::spawn_factory::forming_identity("Planner", project);
+        let mut planner_bootstrap = crate::service::spawn_factory::forming_identity_in_team(
+            "Planner",
+            PLANNER,
+            project,
+            &reserved.team,
+        );
         planner_bootstrap.coordination = Some(crate::service::spawn_factory::introduction_body(
             &planner_counterpart,
             &orch_counterpart,
@@ -712,7 +758,7 @@ mod tests {
         let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
         assert_eq!(
             cmd,
-            "codeterm orchestration new --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+            "codeterm team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
         );
     }
 
@@ -812,6 +858,96 @@ mod tests {
         assert!(mux
             .claim_existing_tab(&workspace_id, &reserved.planner_tab_id)
             .is_ok());
+    }
+
+    fn reserved_pair() -> (
+        crate::multiplexer::state::MultiplexerState,
+        String,
+        ReservedPairTabs,
+    ) {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let reserved = reserve_pair_tabs(&mut mux, &workspace_id, None).unwrap();
+        (mux, workspace_id, reserved)
+    }
+
+    #[test]
+    fn pair_reserves_one_shared_team_before_either_agent_launches() {
+        let (mux, _, reserved) = reserved_pair();
+
+        assert!(reserved.team_minted, "a fresh pair mints its own Team");
+        assert!(mux.get_team(&reserved.team.id).is_some());
+        for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+            assert_eq!(
+                mux.get_tab(tab_id).unwrap().team_id.as_deref(),
+                Some(reserved.team.id.as_str()),
+                "both reserved Tabs carry the same Team before either launch"
+            );
+        }
+        assert_eq!(
+            reserved.team.name,
+            crate::service::spawn_factory::UNNAMED_TEAM
+        );
+    }
+
+    #[test]
+    fn both_pair_startup_identities_name_the_reserved_team_and_no_plan() {
+        let (_mux, _, reserved) = reserved_pair();
+
+        for (role, role_kind) in [("Orchestrator", ORCHESTRATOR), ("Planner", PLANNER)] {
+            let identity = crate::service::spawn_factory::forming_identity_in_team(
+                role,
+                role_kind,
+                "CodeTerm".into(),
+                &reserved.team,
+            );
+            assert_eq!(identity.team_id, reserved.team.id);
+            assert_eq!(
+                identity.plan_id,
+                crate::service::spawn_factory::UNBOUND_PLAN,
+                "the pair Plan stays unbound until the first goal"
+            );
+            let rendered = identity.compose();
+            assert!(rendered.contains(&reserved.team.id));
+            assert!(!rendered.contains(crate::service::spawn_factory::UNBOUND_TEAM));
+        }
+    }
+
+    #[test]
+    fn failed_pair_launch_releases_a_newly_minted_team() {
+        let (mut mux, _, reserved) = reserved_pair();
+
+        release_minted_pair_team(&mut mux, &reserved);
+
+        assert!(mux.get_team(&reserved.team.id).is_none());
+        for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+            assert_eq!(mux.get_tab(tab_id).unwrap().team_id, None);
+        }
+    }
+
+    #[test]
+    fn failed_pair_launch_keeps_a_team_the_claimed_tab_already_had() {
+        let (mut mux, workspace_id, _) = reserved_pair();
+        let claimed = mux.create_tab(&workspace_id).unwrap();
+        let adopted_team_id = mux
+            .resolve_or_mint_team_for_parent(&claimed)
+            .unwrap()
+            .team_id;
+
+        let reserved = reserve_pair_tabs(&mut mux, &workspace_id, Some(&claimed)).unwrap();
+        assert!(!reserved.team_minted);
+        assert_eq!(reserved.team.id, adopted_team_id);
+
+        release_minted_pair_team(&mut mux, &reserved);
+
+        assert!(
+            mux.get_team(&adopted_team_id).is_some(),
+            "a Team the pair only adopted outlives a failed launch"
+        );
+        assert_eq!(
+            mux.get_tab(&claimed).unwrap().team_id.as_deref(),
+            Some(adopted_team_id.as_str())
+        );
     }
 
     #[test]

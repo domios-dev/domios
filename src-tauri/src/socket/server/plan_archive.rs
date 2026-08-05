@@ -1,10 +1,53 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::service::plan::{PlanError, PlanStore};
+use crate::service::plan::{PlanError, PlanIncident, PlanStore};
 use crate::service::ServiceState;
 
+use super::safety_nudge::{
+    apply_safety_nudges, safety_incident_text, SafetyNudge, NUDGE_RETROSPECTIVE_UNRECORDED,
+    SAFETY_INCIDENT_KIND,
+};
 use super::{plan_refs, JsonRpcError};
+
+/// Advisory, never a gate. A missing retrospective is worth saying loudly, but
+/// refusing here would trap closure exactly as the stale epoch trapped recovery.
+pub(super) fn retrospective_nudge(plan: &crate::plan::Plan) -> Option<SafetyNudge> {
+    if crate::service::plan::retrospective::has_retrospective(plan) {
+        return None;
+    }
+    Some(SafetyNudge::new(
+        NUDGE_RETROSPECTIVE_UNRECORDED,
+        format!(
+            "plan {} was archived with no retrospective, so what worked and what \
+             failed is not recoverable from plan state.",
+            plan.id
+        ),
+        format!(
+            "codeterm plan retrospective {} --body-file <pad-relative-path>",
+            plan.id
+        ),
+    ))
+}
+
+/// Archive status and its evidence commit as ONE store write, so a failure can
+/// never leave a durable incident claiming an archive that did not happen.
+pub(super) fn archive_with_evidence(
+    store: &PlanStore,
+    plan_id: &str,
+    now: u64,
+) -> Result<Option<SafetyNudge>, PlanError> {
+    let nudge = store
+        .get(plan_id)
+        .and_then(|plan| retrospective_nudge(&plan));
+    let incident = nudge.as_ref().map(|nudge| PlanIncident {
+        kind: SAFETY_INCIDENT_KIND.to_string(),
+        text: safety_incident_text(plan_id, nudge.id, &nudge.reason),
+        from: crate::plan::AgentRef::from_tab("archive"),
+    });
+    store.archive_with_incident(plan_id, incident, now)?;
+    Ok(nudge)
+}
 
 pub(super) fn archive(
     store: &PlanStore,
@@ -14,7 +57,7 @@ pub(super) fn archive(
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
-    store.archive(&id, now).map_err(plan_rpc_err)?;
+    let nudge = archive_with_evidence(store, &id, now).map_err(plan_rpc_err)?;
     emit_plan_changed(app, &id);
     let mut resp = json!({ "ok": true });
     if let Some(plan) = store.get(&id) {
@@ -26,6 +69,8 @@ pub(super) fn archive(
             crate::service::plan::cleanup_debt::cleanup_debt_hints(&cleanup),
         );
     }
+    // After push_hints, which overwrites `_hints`; apply_safety_nudges merges.
+    apply_safety_nudges(&mut resp, nudge.as_slice());
     Ok(resp)
 }
 

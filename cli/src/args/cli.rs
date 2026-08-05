@@ -9,18 +9,20 @@ use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;
 
-use super::agent::{AgentAction, ReportArgs};
+use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
+use super::inbox::InboxAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
-    ThemeAction, WorkspaceAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
+    WorkspaceAction,
 };
-use super::orchestration::OrchestrationAction;
 use super::orchestrator::OrchestratorAction;
+use super::pad::PadAction;
+use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
@@ -61,8 +63,14 @@ pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,
 
-    /// List all available API methods
+    /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
+
+    /// Inspect the current agent tab's private ephemeral filesystem pad
+    Pad {
+        #[command(subcommand)]
+        action: PadAction,
+    },
 
     /// Plugin management — install, update, remove, manage channels
     Plugin {
@@ -86,7 +94,7 @@ pub enum Commands {
         action: WorkspaceAction,
     },
 
-    /// Team registry and 1:1 plan binding
+    /// Team registry, 1:1 plan binding, and paired creation
     Team {
         #[command(subcommand)]
         action: TeamAction,
@@ -98,10 +106,10 @@ pub enum Commands {
         action: OrchestratorAction,
     },
 
-    /// Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
-    Orchestration {
+    /// Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
+    Persona {
         #[command(subcommand)]
-        action: OrchestrationAction,
+        action: PersonaAction,
     },
 
     /// Tab management
@@ -137,6 +145,10 @@ pub enum Commands {
         /// pass payloads that would otherwise be eaten by shell quoting.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+
+        /// Read text from a relative file in the current agent tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["text", "from_file", "stdin"])]
+        from_pad: Option<String>,
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
@@ -190,28 +202,10 @@ pub enum Commands {
         action: PasteAction,
     },
 
-    /// Send a notification
+    /// Send, list, and clear notifications
     Notify {
-        /// Notification title
-        title: String,
-
-        /// Notification body
-        #[arg(long)]
-        body: Option<String>,
-
-        /// Notification level: info, warning, error
-        #[arg(long, default_value = "info")]
-        level: String,
-    },
-
-    /// List or manage notifications
-    Notifications {
         #[command(subcommand)]
-        action: Option<NotificationAction>,
-
-        /// Show only unread notifications
-        #[arg(long)]
-        unread: bool,
+        action: NotifyAction,
     },
 
     /// Prevent the system from sleeping while an agent is running
@@ -231,9 +225,6 @@ pub enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
-
-    /// Report worker progress to the owning orchestrator or plan
-    Report(ReportArgs),
 
     /// Cron job management
     Cron {
@@ -304,10 +295,16 @@ pub enum Commands {
         action: EffortAction,
     },
 
-    /// Standalone and plan-backed tasks
+    /// Plan-backed tasks across active plans
     Task {
         #[command(subcommand)]
         action: TaskAction,
+    },
+
+    /// Workspace Inbox — standalone tasks with no plan
+    Inbox {
+        #[command(subcommand)]
+        action: InboxAction,
     },
 
     /// Canvas control commands
@@ -337,31 +334,10 @@ pub enum Commands {
         action: SystemAction,
     },
 
-    /// Read embedded CodeTerm documentation. Docs are bundled into the
-    /// CLI binary at compile time so agents can request them on demand
-    /// without bloating the system prompt. `codeterm docs` lists, `codeterm
-    /// docs <name>` prints a bounded preview inside CodeTerm tabs; pass
-    /// --full for the complete doc. Names are case-insensitive and match the
-    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, HTML, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
+    /// Read embedded CodeTerm documentation in full. Omit NAME to list documents.
     Docs {
-        /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
+        /// Document name. Omit to list every available name and purpose.
         name: Option<String>,
-
-        /// Print the complete document even inside a CodeTerm tab.
-        #[arg(long, conflicts_with = "head")]
-        full: bool,
-
-        /// Print at most N lines.
-        #[arg(long)]
-        head: Option<usize>,
-    },
-
-    /// Read one embedded CodeTerm document in full.
-    ///
-    /// Canonical recovery entry for agents: `codeterm doc orchestration`.
-    Doc {
-        /// Doc name (e.g. orchestration).
-        name: String,
     },
 
     /// Internal diagnostics — verify crash reporter, etc. Dev-only;

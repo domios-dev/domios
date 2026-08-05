@@ -73,6 +73,7 @@ impl SpawnTabSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 planned_model: params.planned_model.clone(),
                 model: params.model.clone(),
+                planned_reasoning_effort: params.planned_reasoning_effort.clone(),
                 reasoning_effort: params.reasoning_effort.clone(),
                 task: params.task.clone(),
                 agent_name: params.agent_name.clone(),
@@ -81,7 +82,6 @@ impl SpawnTabSpec {
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
-                auto_approve: params.skip_permissions.unwrap_or(true),
                 report_target_tab_id: params.report_target_tab_id.clone(),
                 worker_id: None,
                 extra_env: task_launch_env,
@@ -138,7 +138,10 @@ impl SpawnTabSpec {
             starter_prompt,
             task_id: None,
             task_launch_authority: None,
+            plan_skill_manifest: None,
             plan_task: None,
+            execution_intent: None,
+            provider_reserve_pct: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
             existing_tab_id: None,
@@ -147,10 +150,13 @@ impl SpawnTabSpec {
             // AgentSpawnSpec (sync/local spawn path) carries no remote target;
             // mesh workers spawn via the async HTTP path which sets it directly.
             report_target_mesh_peer: None,
-            skip_permissions: Some(agent.auto_approve),
+            skip_permissions: None,
+            permission_bypass_authorization: None,
             spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
+            ownership: None,
             model: agent.model.clone(),
             planned_model: agent.planned_model.clone(),
+            planned_reasoning_effort: agent.planned_reasoning_effort.clone(),
             reasoning_effort: agent.reasoning_effort.clone(),
             system_prompt: None,
             manager_bootstrap: None,
@@ -390,11 +396,14 @@ mod tests {
             plan_id: Some("assigned-plan".into()),
             task_id: Some("assigned-task".into()),
             plan_task: Some("assigned-task".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            provider_reserve_pct: None,
             ..Default::default()
         };
         params.task_launch_authority = Some(crate::service::TaskLaunchAuthority {
             plan_id: "assigned-plan".into(),
             task_id: "assigned-task".into(),
+            attempt_id: "attempt-assigned".into(),
             lane_base: Some("assigned-base".into()),
         });
         let spec = SpawnTabSpec::from_agent_params(params);
@@ -409,6 +418,13 @@ mod tests {
         assert_eq!(
             agent.extra_env.get("CODETERM_TASK_ID").map(String::as_str),
             Some("assigned-task")
+        );
+        assert_eq!(
+            agent
+                .extra_env
+                .get("CODETERM_ATTEMPT_ID")
+                .map(String::as_str),
+            Some("attempt-assigned")
         );
         assert_eq!(
             agent

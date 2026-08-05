@@ -39,7 +39,11 @@ pub(super) fn dispatch(
             let name = get_string_param(params, "name")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
             let team = svc
-                .rename_team(&team_id, name, caller_tab_id.as_deref())
+                .rename_team(
+                    &team_id,
+                    name,
+                    crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+                )
                 .map_err(|message| JsonRpcError {
                     code: -32602,
                     message,
@@ -51,7 +55,10 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
             let team = svc
-                .close_team(&team_id, caller_tab_id.as_deref())
+                .close_team(
+                    &team_id,
+                    crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+                )
                 .map_err(|message| JsonRpcError {
                     code: -32602,
                     message,

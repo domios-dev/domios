@@ -26,6 +26,7 @@
 #   BM_KEEP         1 = keep test workspaces afterwards (default 0 = cleanup)
 set -uo pipefail
 source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
+source "$(git rev-parse --show-toplevel)/evals/_lib/role_preset.sh"
 
 PROVIDERS="${BM_PROVIDERS:-claude}"
 PROVIDERS="${PROVIDERS//,/ }"
@@ -57,6 +58,14 @@ bad()  { echo "  ❌ $*"; FAIL=$((FAIL+1)); }
 hr()   { echo "------------------------------------------------------------"; }
 
 if ! dev_alive; then echo "dev daemon not up on 7686 — ./build.sh dev first"; exit 7; fi
+
+# Binding churn must not let a rebound tab pick up a different preset: the
+# resolver is keyed by kind, not by session or provider identity.
+if assert_role_preset_seam; then
+  ok "role preset seam intact before binding churn"
+else
+  bad "role preset seam drifted before binding churn"
+fi
 
 provider_count() { echo "$PROVIDERS" | wc -w | tr -d ' '; }
 

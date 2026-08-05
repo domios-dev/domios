@@ -2,6 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+source "$ROOT/evals/_lib/role_preset.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 CREATED=()
 TEAM_ID=""
@@ -17,13 +18,18 @@ cleanup() {
 }
 trap cleanup EXIT
 dev_get /api/health >/dev/null || { echo "dev 7686 unavailable" >&2; exit 7; }
+# Every manager kind bootstraps from the one shared resolver, and an unmatched
+# kind lands on the declared fallback instead of an empty identity.
+assert_manager_kinds_resolve
+assert_planner_team_authority
+assert_declared_fallback
 WS=$(new_workspace "manager-bootstrap-eval" "$ROOT")
 TEAMS_BEFORE=$(capture_json dc team list --json)
 PROVIDERS=$(capture_json dc agent providers --json)
 SYSTEM=$(provider_id system <<<"$PROVIDERS")
 FALLBACK=$(provider_id external <<<"$PROVIDERS")
 [ -n "$SYSTEM" ] || { echo "SKIP: no system-prompt provider"; exit 0; }
-PAIR=$(capture_json dc orchestration new --orchestrator "$SYSTEM" --planner "$SYSTEM" --workspace "$WS" --json)
+PAIR=$(capture_json dc team pair --orchestrator "$SYSTEM" --planner "$SYSTEM" --workspace "$WS" --json)
 ORCH=$(pair_tab_id orchestrator <<<"$PAIR")
 PLANNER=$(pair_tab_id planner <<<"$PAIR")
 [ -n "$ORCH" ] && [ -n "$PLANNER" ] || { echo "pair returned empty tab id" >&2; exit 1; }
@@ -49,7 +55,7 @@ dc send --tab "$WORKER" "Who are you?" >/dev/null
 [[ "$(await_first "$WORKER")" == *Worker* ]]
 if [ -n "$FALLBACK" ]; then
   FALLBACK_TEAMS_BEFORE=$(capture_json dc team list --json)
-  FALLBACK_PAIR=$(capture_json dc orchestration new --orchestrator "$FALLBACK" --planner "$FALLBACK" --workspace "$WS" --json || true)
+  FALLBACK_PAIR=$(capture_json dc team pair --orchestrator "$FALLBACK" --planner "$FALLBACK" --workspace "$WS" --json || true)
   FALLBACK_ORCH=$(pair_tab_id orchestrator <<<"$FALLBACK_PAIR")
   FALLBACK_PLANNER=$(pair_tab_id planner <<<"$FALLBACK_PAIR")
   if [ -n "$FALLBACK_ORCH" ] && [ -n "$FALLBACK_PLANNER" ]; then

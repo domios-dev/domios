@@ -362,35 +362,14 @@ pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
     }
 }
 
-/// Name of a live CodeTerm daemon socket, or None when none is reachable.
-///
-/// Diagnostics only — callers that need to talk to the daemon use `discover_socket`.
-pub fn live_socket_name() -> Option<String> {
-    discover_socket().ok().filter(|name| socket_is_live(name))
-}
-
 /// Return true when the named socket exists and is reachable. Used by
 /// `discover_socket` to decide whether to trust `CODETERM_SOCKET_PATH`.
 fn socket_is_live(name: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        // Named pipes show up in the special \\.\pipe\ directory listing while their server is alive. Cheaper than attempting a full connect() handshake.
-        let pipe_dir = "\\\\.\\pipe";
-        if let Ok(entries) = std::fs::read_dir(pipe_dir) {
-            for e in entries.flatten() {
-                if e.file_name().to_string_lossy() == name {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let path = std::path::Path::new("/tmp").join(name);
-        path.exists()
-    }
+    normalize_socket_path(name)
+        .to_ns_name::<GenericNamespaced>()
+        .ok()
+        .and_then(|name| interprocess::local_socket::Stream::connect(name).ok())
+        .is_some()
 }
 
 /// Normalize a socket path to the bare namespaced name that `GenericNamespaced` expects.

@@ -33,7 +33,7 @@ pnpm install
 # Daily commands; run from the repository root.
 .\build.ps1 dev           # foreground dev on 7686
 .\build.ps1 check         # incremental compile check
-.\build.ps1 worktree-check # isolated compile check while dev owns the gateway
+.\build.ps1 worktree-check # canonical integration compile check
 .\build.ps1 cli           # rebuild only the installed CLI
 .\build.ps1 install-local # incremental production build + self-install
 ```
@@ -45,9 +45,9 @@ command short unless the continuation itself must be customized.
 
 ## Choose one operation
 
-These flows are deliberately separate. Run all shared builds and gates from the
-warm canonical checkout; lanes may only run focused checks or named isolated dev
-instances.
+These flows are deliberately separate. Run every build, test, dev instance, and
+executable gate from the warm canonical checkout under Orchestrator authority.
+Isolated Worker lanes are source-only.
 
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
@@ -111,7 +111,10 @@ does not publish a release or alter GitHub assets.
    is intentional.
    A successful self-install is proven by `self-install.log` reaching
    `installer exited 0` and `launched`, followed by port 7685 health reporting
-   the installed source SHA.
+   the installed source SHA. The build gateway records the verified artifact as
+   complete and releases its machine slot before the detached installer starts;
+   the expected daemon restart therefore cannot misclassify that build as
+   `owner_lost`.
 
 4. Use the clean-room route when validating a public-release-equivalent
    artifact:
@@ -131,10 +134,13 @@ does not publish a release or alter GitHub assets.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | `Release lock version mismatch` before build | Version manifests and one or both Cargo lockfiles differ | Run `release-preflight`, commit both lockfiles, then retry. |
+| A direct `npm run` or `pnpm build` reports `'node' is not recognized` while `node --version` works | The package manager selected `cmd.exe` for lifecycle scripts in a shell whose effective command lookup differs from the parent PowerShell session | Use the named build operation (`build.ps1 frontend` for the production UI gate). For standalone version validation, run `npm run check:versions --script-shell pwsh.exe`. |
+| `release-preflight` reports `'rustc' is not recognized` from `prepare-embed-stub.js` even though Git Bash finds rustc | Native Node launched `cmd.exe` with Git Bash's colon-delimited PATH, so shell lookup could not resolve Cargo tools | Update the stub generator to invoke rustc directly from `CARGO_HOME`/the user Cargo directory, then rerun `release-preflight`. Do not rewrite PATH or bypass the stub. |
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
 | Self-install logs `starting` and the window never returns | A helper inherited the calling PTY Job and died when `taskkill` closed that Job | Rebuild the current CLI; it creates the helper through the out-of-job Windows process broker. Re-run `install-local`, inspect `%LOCALAPPDATA%\codeterm\self-install.log`, and verify port 7685 health. |
 | CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
+| Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted CodeTerm and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same capped focused test. Do not substitute a frontend build or raise the cap. |
@@ -143,9 +149,14 @@ does not publish a release or alter GitHub assets.
 | Push unexpectedly starts compilation or formatting checks | A stale local hook predates the non-blocking push policy | Run any `build.ps1` command to restore `.githooks`, then retry; verification belongs to explicit gates and CI. |
 | `Build gateway job id already exists` immediately from a fresh command | The calling CodeTerm tab inherited a completed gateway job id from an earlier build | Update the build scripts; production gateway entry now always creates a fresh job id and ignores inherited internal ids. |
 | `pnpm build` fails only in focused TSX test files during `install-local` | A test mock violates the generic bridge signature or imports an unused JSX runtime symbol | Run `pnpm build`, fix the test type/import at the source, then retry `install-local` from the same clean canonical checkout. |
+| `pnpm build` reports stale role literals or duplicate fixture fields during `install-local` | A role-model refactor left TypeScript-only production or fixture surfaces outside the Rust gate | Run `pnpm build`, converge each surface on `Manager` plus `role_profile`, and retry `install-local` from a clean canonical checkout. |
+| `install-local` reports `tsc is not recognized` although `node_modules/.bin/tsc` exists | Git Bash supplied the MSVC environment to Tauri, but pnpm selected a nested Windows lifecycle shell that lost the local-bin lookup | Use the current build operation, which pins pnpm lifecycle scripts to Git Bash and supplies frontend provenance without a nested shell lookup, then retry `install-local`. |
+| Tauri `beforeBuildCommand` reports `pnpm is not recognized` during `install-local` | Tauri launched the configured hook through `cmd.exe` with Git Bash's POSIX-formatted `PATH`, so Windows could not resolve pnpm, Node, or Cargo | Use the current build operation, which prepares frontend, CLI, and embed inputs directly before invoking Tauri; retry `install-local` from canonical. |
 | Installed health on port 7685 reports a dev identifier or Vite/CDP ports | The detached installer helper inherited `CODETERM_*` and Cargo build variables from the calling tab | Use the current installer helper, which scrubs CodeTerm and build variables before launching the installed daemon; reinstall and verify `/api/health`. |
 | NSIS reports `Error opening file for writing` for `conpty\<arch>\OpenConsole.exe` | A bundled ConPTY host from the installed CodeTerm instance survived PTY teardown and still holds its executable | Current builds reap path-matched owned hosts before NSIS. On an older build, verify the process image is under `%LOCALAPPDATA%\CodeTerm\conpty\`, end only that `OpenConsole.exe`, then click **Retry**; never end `conhost.exe` or an `OpenConsole.exe` from another path. |
 | Installed CodeTerm exits during startup with a missing `tab_id`/`tabId` field or `delayed_send init` panic | A pane-era or malformed persisted record reached an all-or-nothing startup deserializer | Rebuild and install the current revision, then restart. Inspect `[plan.store]`, `[delayed_send]`, `[remote-workers]`, `[graph-workers]`, and `[session]` diagnostics for the isolated record; do not delete `plans.db` or an entire state JSON file. |
+| `failed to run custom build command for openssl-sys`, with `sccache: Failed to send data to or receive data from server` in the same output | The machine-level `sccache` server is wedged, so every C/C++ compile it fronts fails; `openssl-src` is simply the first crate to need one | `sccache --stop-server && sccache --start-server`, then rebuild. A cache reported at its 10 GiB max is ordinary LRU eviction and is NOT this failure — the discriminator is whether `sccache --show-stats` answers at all. Never restart a responsive server mid-build; that discards a warm cache for nothing. |
+| Build reported as succeeding while the gateway job exited non-zero | A wrapper placed another command after the build in the same compound statement, so the shell's status came from that command instead | Read the `exit:` line of the gateway job log, or capture `${PIPESTATUS[0]}`. `build.sh` propagates the gateway status faithfully, so a wrapper is the only place this can be lost. Treat post-install `/api/health` as the only green light. |
 
 When a new failure is found in this flow, fix the owning script or preflight and
 add a short symptom/cause/recovery row here before closing the work.
@@ -181,9 +192,9 @@ Gateway-backed commands fail fast when another job owns the machine slot, so
 an agent turn never blocks silently behind a long-lived dev process. Add
 `--wait-build` only when synchronous queueing is intentional.
 
-Use `./build.sh help` as the command index. `test-one <app|pty|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|mesh|plugin|cli> <filter>`
 hides manifest/package details for focused capped tests; `verify` runs the
-standard check, unit-test, and source-size integration gate.
+standard check, full Rust workspace library suite, and source-size integration gate.
 
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command also regenerates
@@ -197,222 +208,33 @@ production app during startup, in-app update, or `install-local`.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. The failed invocation now terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
-| `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Use `build.ps1 worktree-check` for an isolated sccache-backed compile check or `build.ps1 test-one <app|pty|cli> <filter>` for one focused test. Do not add `--wait-build` or hand-compose `CARGO_TARGET_DIR`. |
+| `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Stop and make an explicit canonical integration decision. Do not move the command into a Worker lane, add `--wait-build`, or hand-compose `CARGO_TARGET_DIR`. |
 | A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `.\build.ps1 clean`. Confirm free space before restarting `.\build.ps1 dev`; do not delete another worktree's target or touch production. |
 | A Windows native dependency fails with `LNK1106` and `dumpbin` shows a cached `.o` ending before its COFF string-table length | `sccache` retained a truncated C/C++ object; a clean Cargo target can restore the same corrupt cache entry. | In PowerShell set `$env:SCCACHE_RECACHE='1'`, rerun the failing `.\build.ps1` operation once, then remove the environment variable. Verify the rebuilt object with `dumpbin` before retrying normally. |
+| `rustc` exits with `0xc0000005 (STATUS_ACCESS_VIOLATION)` while compiling an unchanged dependency | The Windows compiler process crashed before producing a source diagnostic; this is not a Rust assertion or test failure. | Rerun the same bounded `build.ps1` operation once so completed artifacts are reused. If it repeats, stop, preserve the exact rustc command and Windows crash evidence, and report the toolchain fault; do not clean targets or raise test deadlines. |
+| After an OS crash, `rustc` panics while linking with `Invalid archive terminator` | A generated `.rlib` in the canonical Cargo target was truncated; incremental metadata cleanup cannot repair the archive payload. | Confirm no dev build is running, run `.\build.ps1 clean`, then restart the original named operation. Do not delete individual archives or reuse the damaged target. |
+| Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.codeterm-dev/logs/codeterm.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
+| `test-one plan` fails to compile old `Task` fixtures after an orchestration schema change | The app gate compiled the plan crate as a dependency but did not compile its own unit-test fixtures. | Update every direct `Task` fixture and changed helper signature, then rerun the exact `test-one plan` filter. Do not remove the plan gate or move it to an app filter. |
+| `build.ps1 check` cannot resolve a newly re-exported plan mutation type | A split mutation module relied on `use super::*`, but the parent module did not import that public service type. | Import the type explicitly from `crate::service_plan`, then rerun the same canonical check. |
+| A focused app test passes `&ServiceContext` to a helper that only borrows service state but compilation expects `&Arc<ServiceContext>` | The helper accepted the runtime `ServiceState` alias even though it did not need shared ownership, making ordinary test fixtures incompatible. | Narrow the helper parameter to `&ServiceContext`; runtime `Arc` callers deref-coerce while fixtures pass the same service directly. Rerun the exact focused test. |
+| Removing an unused production import makes an inline `#[cfg(test)]` module fail to resolve the same type | The test relied on its parent module's unconditional import instead of declaring test-only scope. | Reintroduce the type behind `#[cfg(test)]` or import it inside the test module, then rerun the focused test. |
+| A live Plan owner with a valid current session and nonce is refused after the tab session rotates | The owner predicate authenticated the live tab and then redundantly compared its session to stale Plan metadata. | Keep live session and nonce validation at the tab boundary, identify Plan ownership by the bound tab plus Team authority, and rerun the rotated-session authority table. |
+| `build.ps1 e2e` fails on Windows with `python3: command not found` even though Python is installed | The E2E operation hardcoded the Unix executable name instead of resolving the available Python launcher. | Use the build operation that resolves `python3` or `python` and invokes pip through that same interpreter, then rerun `build.ps1 e2e`. |
+| A foreground `build.ps1 dev` exits with `unexpected EOF` after `build.sh` is edited during startup | Bash was still reading the running script while its file contents changed underneath that process. | Finish build-script edits before launching dev, validate with `bash -n build.sh`, then restart dev through the named operation. |
+| Tauri dev starts from PowerShell but its `beforeDevCommand` reports `node is not recognized` | The nested Tauri hook re-resolved Node through a child Windows shell and lost the launcher environment. | Run dev preparation directly in `build.sh` with the already-resolved Node process, then launch Tauri with the generated runtime config that disables the duplicate hook. |
+| A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
+| Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
+| macOS tests panic creating a mock Tauri `EventLoop` | A Windows-only fixture ran off the main thread. | Ignore it off Windows; test portable logic headlessly. |
+| Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
+| REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
+| Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
+| Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package under its own cap. |
+| CLI docs report `BUILD exceeds 24 KiB` | Troubleshooting grew too large. | Compress it or move detail to `BUILD-REFERENCE`. |
+| Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition; rely on the capped test. |
+| Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 
-## Dev/Prod Isolation
+## Related documents
 
-Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
-- **Identifier:** `com.codeterm.dev` (vs `com.codeterm.app` in prod)
-- **API port:** 7686 (vs 7685 in prod)
-- **Data directory:** `~/.codeterm-dev/` (vs `~/.codeterm/`)
-- **Socket prefix:** `codeterm-dev` (vs `codeterm`)
-- **Single-instance:** Disabled (dev and prod can run side by side)
+Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-## Git Hooks
-
-Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook is intentionally a no-op: pushing never compiles, formats, lints, or prepares resources. Run focused checks before handoff and broad gates in the canonical checkout; CI remains the remote enforcement boundary.
-
-Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` keeps the
-manifest's warm target normally and selects checkout-local `target-check` with
-`sccache` only while dev owns the app target. It rejects an inherited internal
-build-gateway target because that cache can contain absolute metadata from
-another checkout.
-
-`build.ps1 dev` is also a true restart command: it stops only port 7686 before
-joining the app build gateway. This ordering prevents the old dev monitor from
-waiting on itself while retaining ownership of the Windows build artifacts.
-
-## macOS Code Signing
-
-**Release builds MUST be signed.** Unsigned DMGs trigger Gatekeeper ("unidentified developer").
-
-```bash
-# Signing identity (required for release builds)
-APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)"
-
-# Build signed DMG
-APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)" pnpm tauri build
-APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)" pnpm tauri build --target x86_64-apple-darwin
-```
-
-Add to `.env` in project root (gitignored) so `build.sh` picks it up automatically:
-```
-UPDATER_TOKEN=<github PAT>
-APPLE_SIGNING_IDENTITY=Developer ID Application: <YOUR NAME> (<TEAM_ID>)
-```
-
-For notarization (optional, removes "downloaded from internet" warning):
-```bash
-APPLE_ID=<apple-id-email>
-APPLE_PASSWORD=<app-specific-password>
-APPLE_TEAM_ID=<TEAM_ID>
-```
-
-## Build Output
-
-After `./build.sh build`:
-
-| File | Location |
-|------|----------|
-| **NSIS installer** | printed build-gateway release target; see Local production build and self-install |
-| **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_X.Y.Z_x64_en-US.msi` |
-| **Portable exe** | `src-tauri/target/release/codeterm.exe` |
-| **CLI binary** | bundled in the production app; installed to `~/.codeterm/bin/` by production startup/update |
-
-## Running Tests
-
-```bash
-./build.sh test                                            # Rust unit tests (~307)
-npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment tests
-./build.sh e2e                                             # E2E (needs running dev instance)
-```
-
-### Test troubleshooting
-
-| Symptom | Cause | Recovery |
-|---|---|---|
-| `Build gateway busy` returns immediately | Another build or the visible dev watcher owns the machine slot; the requested command did not start. | Read the reported job, owner, and command. Run later, or add `--wait-build` only when blocking the caller is intentional. |
-| `qa-prep` fails at stage `dist:node-modules-link` with `Parameter format not correct - <worktree>\node_modules` | On Windows, MSYS rewrites the bare `mklink /J` switch into the drive path `J:/` before `cmd` sees it, so `mklink` never receives the junction switch and rejects the arguments | Rerun `./build.sh qa-prep` on a build that passes the switch as `//J` (escaped from MSYS path conversion); the junction to the canonical checkout's `node_modules` is then created without elevation |
-| `pnpm install --frozen-lockfile` fails with `ENOENT` for a package inside `node_modules/.pnpm` | The local pnpm virtual store contains a partial package directory, so the lockfile is valid but linking cannot read the package manifest | Run `pnpm install --frozen-lockfile --force`, verify the missing binary or package is present, then rerun the original test command |
-
-
-If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
-pipe is being closed", the build command lost its stdout reader; this is a
-gateway logging failure, not a test verdict. The gateway now owns the `tee`
-reader, closes its writer descriptors after the final exit-status line, and
-waits for the reader before returning to PowerShell. A broken path reports exit
-74 and names the log separately from the command's exit. Run
-`./build.sh gateway-logging-check` to verify final-line delivery and the
-distinct logging-failure path. For diagnosis only,
-`CT_BUILD_GATEWAY_NO_TEE=1` bypasses log duplication; unset it for normal
-builds. `CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1` is a test-only fault injector at the
-log-open boundary; it must report the logging failure and exit 74 before cargo
-starts.
-
-## Release Process
-
-Releases are cut by pushing a single `release-X.Y.Z` tag on `master`, which fires three
-self-hosted CI runners (macOS + Linux arm64 on the Mac, Windows on the ROG, Linux x86_64 on the
-ROG's WSL2) in parallel — not the local/mesh-coordinated flow this section used to describe.
-
-Full runbook (preflight, exact trigger-tag commands, artifact matrix per platform, public-mirror
-verification, safe reruns without retagging, troubleshooting, cleanup): **`docs/RELEASE.md`**.
-Executable step-by-step procedure with every command and secret: `.agents/skills/github-release/SKILL.md`.
-Build-farm/runner internals: `.codeterm/build-machine/README.md`.
-
-Local-only builds (no release) still use `./build.sh build` as documented above under Build Output.
-
-## Icons
-
-Icon source files: `src-tauri/icons/`
-
-| File | Size | Usage |
-|------|------|-------|
-| `icon.png` | 512x512 | Window icon, installer |
-| `256x256.png` | 256x256 | High-DPI displays |
-| `32x32.png` | 32x32 | System tray (Windows/Linux) |
-| `tray-template.png` | — | macOS tray (template image, auto light/dark) |
-| `icon.ico` | 256x256 | Windows executable |
-
-**Bundle icons** (`tauri.conf.json` → `bundle.icon`) are embedded into the built installer/exe.
-
-**Runtime icons** are set programmatically in `src/lib.rs` setup — needed for dev mode and custom title bar:
-- Window icon: decoded from `icon.png` via `png` crate → `window.set_icon()`
-- Tray icon: decoded from `tray-template.png` (macOS, white on transparent, auto-adapts to light/dark) or `32x32.png` (Windows/Linux) → `TrayIconBuilder::icon()`
-
-### Regenerating icons
-
-1. Edit SVG source or create new design
-2. Render to PNG at multiple sizes using `sharp` (Node.js) or ImageMagick
-3. Replace files in `src-tauri/icons/`
-4. Rebuild — icons are embedded at compile time via `include_bytes!()`
-
-### Windows icon cache
-
-If the icon doesn't update after rebuild, clear Windows icon cache:
-```bash
-rm -f "$LOCALAPPDATA/IconCache.db"
-rm -rf "$LOCALAPPDATA/Microsoft/Windows/Explorer/iconcache*"
-rm -rf "$LOCALAPPDATA/Microsoft/Windows/Explorer/thumbcache*"
-taskkill /F /IM explorer.exe && start explorer.exe
-```
-
-## Windows MSVC Notes
-
-If build fails with `link.exe` errors, ensure MSVC is properly configured. The project includes `.cargo/config.toml` with MSVC paths. You may need to update paths if your MSVC version differs.
-
-If a focused test fails while `link.exe` or `mt.exe` reads
-`windows-app-manifest.xml` from a deleted worktree, the shell inherited
-CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
-`scripts/test-capped.sh`; it removes that private override and uses this
-checkout's warm manifest target, or isolated `target-check` while dev is
-running. Do not delete the shared build cache or raise the timeout.
-
-If a focused Rust test fails with `PermissionDenied (os error 5)` while replacing
-a Tauri build artifact, another dev/build owner still holds the canonical target.
-Verify listeners first, stop only the dev instance on 7686 (or its explicitly
-named non-production port), and rerun `scripts/test-capped.sh`. Never stop 7685.
-
-Check your MSVC installation:
-```powershell
-& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-```
-
-## Project Structure
-
-```
-codeterm/
-├── src-tauri/          # Rust backend (Tauri v2)
-│   ├── src/
-│   │   ├── lib.rs      # App entry, state setup
-│   │   ├── commands.rs  # PTY Tauri commands
-│   │   ├── pty/         # PTY manager (portable-pty)
-│   │   ├── multiplexer/ # Workspace/Tab/Tab state
-│   │   ├── agent/       # Agent detection, git info
-│   │   ├── socket/      # JSON-RPC socket server
-│   │   ├── api/         # REST API (Axum)
-│   │   ├── notification/# Notification store
-│   │   ├── config/      # TOML config + themes
-│   │   ├── prompts.rs   # Agent prompt templates
-│   │   └── session/     # Session persistence
-│   └── Cargo.toml
-├── src/                # React frontend
-│   ├── App.tsx
-│   ├── components/
-│   │   ├── Terminal/    # xterm.js, splits
-│   │   ├── Sidebar/     # Workspace/tab list
-│   │   ├── Titlebar/    # Custom titlebar
-│   │   ├── Notifications/
-│   │   └── Settings/
-│   ├── store/           # React context state
-│   └── hooks/
-├── cli/                # CLI binary
-├── skills/             # Claude Code skills
-├── tests/              # E2E tests
-└── docs/               # Documentation
-```
-
-REST liveness troubleshooting: a bound socket with an unanswered health request
-is `workers_blocked`, not a listener exit. Capture `[chat_start.bounded]`,
-`[LOCK-HOLD]`, and `[SLOW-IPC]` lines, then run
-`bash evals/api-liveness-mesh-load/run.sh` against dev 7686. The representative
-cause is oversized session parsing on a REST worker; keep it bounded and on
-blocking workers. A refused socket is instead listener exit or bind ownership
-failure and belongs to the generation supervisor. If a Windows manual restart
-reports bind failure immediately after a healthy generation, verify the health
-proof consumes its body and closes its connection before publishing readiness.
-If the macOS full Rust gate reports a REST lifecycle deadline while focused
-listener tests pass, inspect whether the real `/api/health` proof exhausted its
-bounded failure deadline under runner contention. Keep the proof event-driven;
-do not replace it with a settle delay or treat elapsed time as readiness.
-On Windows, an intermittent `os error 10048` during repeated manual restart
-means either the completed server future still owns its listener or the socket
-cannot reclaim its own address. Drop the owned future before rebinding and keep
-the listener's reuse-address policy consistent across generations.
-If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
-call its `commands` facade re-export instead of making the implementation module
-public. The command modules are intentionally private ownership boundaries.
-
-<!-- revision: 44 -->
+<!-- revision: 79 -->
