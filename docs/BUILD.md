@@ -231,10 +231,10 @@ production app during startup, in-app update, or `install-local`.
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package under its own cap. |
 | CLI docs report `BUILD exceeds 24 KiB` | Troubleshooting grew too large. | Compress it or move detail to `BUILD-REFERENCE`. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition; rely on the capped test. |
-| Linux semantic search gets `codeterm-embed: Permission denied` | Clippy replaced the built sidecar's mode. | Restore and verify its executable bit after clippy. |
+| Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 77 -->
+<!-- revision: 78 -->
