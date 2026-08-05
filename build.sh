@@ -1258,7 +1258,7 @@ CodeTerm build commands
   check                       Fast Rust compile check
   frontend                    Production frontend typecheck + bundle
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <app|plan|pty|types|mem|plugin|cli> NAME
+  test-one <app|plan|pty|types|mem|mesh|plugin|cli> NAME
                               Run one focused capped Rust test
   test                        Run the application Rust unit suite
   verify                      Run check, tests, and source-size gate
@@ -1391,7 +1391,7 @@ EOF
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ;;
   test-one)
-    test_scope="${2:?test-one requires app, plan, pty, types, mem, plugin, or cli}"
+    test_scope="${2:?test-one requires app, plan, pty, types, mem, mesh, plugin, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter" ;;
@@ -1399,9 +1399,10 @@ EOF
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
       types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --lib "$test_filter" ;;
       mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
+      mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
       plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, types, mem, plugin, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, types, mem, mesh, plugin, or cli)" >&2; exit 2 ;;
     esac
     ;;
   verify)

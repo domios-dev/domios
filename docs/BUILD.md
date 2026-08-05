@@ -192,7 +192,7 @@ Gateway-backed commands fail fast when another job owns the machine slot, so
 an agent turn never blocks silently behind a long-lived dev process. Add
 `--wait-build` only when synchronous queueing is intentional.
 
-Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|plugin|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|mesh|plugin|cli> <filter>`
 hides manifest/package details for focused capped tests; `verify` runs the
 standard check, unit-test, and source-size integration gate.
 
@@ -231,4 +231,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 70 -->
+<!-- revision: 71 -->
