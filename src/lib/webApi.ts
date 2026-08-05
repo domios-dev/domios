@@ -10,6 +10,8 @@
  * at the peer and never holds a peer-scoped secret.
  */
 
+import { RELAY_PROTOCOL_VERSION } from "./types";
+
 export const IS_WEB =
   typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
 
@@ -93,12 +95,22 @@ export function relayTarget(): RelayTarget | null {
   return { id, name: localStorage.getItem(relayKey(RELAY_NAME_KEY)) ?? id };
 }
 
-export function resolveRelayTarget(
-  peers: Array<{ instance_id: string; instance_name: string }>,
+/** Sole rule for whether a peer can serve as a relay target. A stored target
+ *  outlives pairing, presence and protocol, so adoption must re-check it. */
+export function relayPeerUsable(
+  peer: { online?: boolean; relay_protocol_version?: number } | undefined,
+): boolean {
+  return peer?.online === true && peer.relay_protocol_version === RELAY_PROTOCOL_VERSION;
+}
+
+export function usableRelayTarget(
+  peers: Array<{ instance_id: string; instance_name: string; online?: boolean; relay_protocol_version?: number }>,
   instanceId: string,
 ): RelayTarget | null {
   const peer = peers.find((candidate) => candidate.instance_id === instanceId);
-  return peer ? { id: peer.instance_id, name: peer.instance_name } : null;
+  return relayPeerUsable(peer) && peer
+    ? { id: peer.instance_id, name: peer.instance_name }
+    : null;
 }
 
 export function setRelayTarget(id: string, name: string): void {
