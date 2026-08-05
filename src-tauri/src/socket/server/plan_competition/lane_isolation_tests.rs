@@ -6,7 +6,10 @@ use crate::plan::{ExecutionIntent, OrchestratorRef, Plan};
 use crate::service::plan::task_attempts::TaskCompeteDraft;
 use crate::service::plan::{NewTask, PlanStore};
 
-use super::{mutating_competition, provision_competitor_lane};
+use super::{
+    compensate_spawned_competitors, mutating_competition, provision_all_competitor_lanes,
+    provision_competitor_lane, CompetitorCompensation,
+};
 
 fn git(dir: &Path, args: &[&str]) {
     let mut command = Command::new("git");
@@ -157,5 +160,165 @@ fn read_only_competition_is_unchanged() {
         assert_eq!(draft.cwd, plan.canonical_project_path);
         assert!(draft.branch.is_none());
         assert!(draft.base.is_none());
+    }
+}
+
+fn competitor(index: u32, worktree: Option<&str>) -> CompetitorCompensation {
+    CompetitorCompensation {
+        tab_id: format!("tab-c{index}"),
+        attempt_id: format!("attempt-c{index}"),
+        worktree_path: worktree.map(str::to_string),
+    }
+}
+
+#[test]
+fn provisioning_failure_before_spawn_leaves_zero_tabs_attempts_and_worktrees() {
+    // A non-git canonical path makes `git worktree add` fail on the FIRST
+    // competitor, so nothing is spawned and nothing is left behind.
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let created = store
+        .create_plan_for_team(
+            "Competition".into(),
+            project.display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &created.id,
+            NewTask {
+                name: "compete".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let mut plan = store.get(&created.id).unwrap();
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .interruption
+        .execution_intent = ExecutionIntent::Mutating;
+    let drafts: Vec<TaskCompeteDraft> = (1..=2).map(|lane| draft(&plan, &task_id, lane)).collect();
+
+    let error = provision_all_competitor_lanes(&plan, &task_id, drafts).unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "lane_provision");
+    let container = root.path().join("project-worktrees");
+    assert!(
+        !container.is_dir() || std::fs::read_dir(&container).unwrap().next().is_none(),
+        "a failed provisioning round must leave no worktree"
+    );
+}
+
+#[test]
+fn spawn_failure_leaves_no_live_tab_with_a_deleted_worktree() {
+    let order = std::cell::RefCell::new(Vec::<String>::new());
+    let outcome = compensate_spawned_competitors(
+        vec![competitor(1, Some("/lanes/c1")), competitor(2, Some("/lanes/c2"))],
+        |tab| {
+            order.borrow_mut().push(format!("close:{tab}"));
+            Ok(())
+        },
+        |tab| {
+            order.borrow_mut().push(format!("retire:{tab}"));
+            Ok(())
+        },
+        |path| {
+            order.borrow_mut().push(format!("cleanup:{path}"));
+            Ok(())
+        },
+    );
+    let order = order.into_inner();
+
+    assert_eq!(outcome.released.len(), 2);
+    assert!(outcome.retained.is_empty());
+    // Ownership order per competitor: stop, retire, THEN delete the lane.
+    assert_eq!(
+        order,
+        vec![
+            "close:tab-c1",
+            "retire:tab-c1",
+            "cleanup:/lanes/c1",
+            "close:tab-c2",
+            "retire:tab-c2",
+            "cleanup:/lanes/c2",
+        ]
+    );
+}
+
+#[test]
+fn a_tab_that_cannot_close_keeps_its_worktree_and_is_reported() {
+    let cleaned = std::cell::RefCell::new(Vec::<String>::new());
+    let outcome = compensate_spawned_competitors(
+        vec![competitor(1, Some("/lanes/c1"))],
+        |_| Err("tab is wedged".into()),
+        |_| panic!("retire must not run once the tab could not be stopped"),
+        |path| {
+            cleaned.borrow_mut().push(path.to_string());
+            Ok(())
+        },
+    );
+    let cleaned = cleaned.into_inner();
+
+    assert!(outcome.released.is_empty());
+    assert!(cleaned.is_empty(), "never delete under a live tab");
+    assert_eq!(outcome.retained[0]["worktree_path"], "/lanes/c1");
+    assert_eq!(outcome.retained[0]["reason"], "tab is wedged");
+    assert_eq!(outcome.retained[0]["attempt_id"], "attempt-c1");
+}
+
+#[test]
+fn an_attempt_that_cannot_retire_keeps_its_worktree() {
+    let cleaned = std::cell::RefCell::new(Vec::<String>::new());
+    let outcome = compensate_spawned_competitors(
+        vec![competitor(1, Some("/lanes/c1"))],
+        |_| Ok(()),
+        |_| Err("attempt is pending a write".into()),
+        |path| {
+            cleaned.borrow_mut().push(path.to_string());
+            Ok(())
+        },
+    );
+    let cleaned = cleaned.into_inner();
+
+    assert!(cleaned.is_empty(), "never delete under a live attempt");
+    assert_eq!(outcome.retained.len(), 1);
+    assert_eq!(outcome.retained[0]["reason"], "attempt is pending a write");
+}
+
+#[test]
+fn a_failed_lane_cleanup_is_retained_rather_than_reported_released() {
+    let outcome = compensate_spawned_competitors(
+        vec![competitor(1, Some("/lanes/c1"))],
+        |_| Ok(()),
+        |_| Ok(()),
+        |_| Err("worktree is locked".into()),
+    );
+
+    assert!(outcome.released.is_empty());
+    assert_eq!(outcome.retained[0]["reason"], "worktree is locked");
+}
+
+#[test]
+fn successful_competitors_retain_their_lanes() {
+    let (_root, _store, plan, task_id) = repo_plan(ExecutionIntent::Mutating);
+    let drafts: Vec<TaskCompeteDraft> = (1..=3).map(|lane| draft(&plan, &task_id, lane)).collect();
+
+    let (drafts, lanes) = provision_all_competitor_lanes(&plan, &task_id, drafts).unwrap();
+
+    assert_eq!(lanes.iter().filter(|lane| lane.is_some()).count(), 3);
+    for draft in &drafts {
+        assert!(Path::new(&draft.cwd).is_dir(), "no compensation ran");
+    }
+    for lane in lanes.into_iter().flatten() {
+        lane.cleanup().unwrap();
     }
 }

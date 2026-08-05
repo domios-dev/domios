@@ -30,6 +30,25 @@ pub(super) fn retrospective_nudge(plan: &crate::plan::Plan) -> Option<SafetyNudg
     ))
 }
 
+/// Evidence is recorded only AFTER the archive commits. Recording first would
+/// leave a durable claim that a plan was archived when the archive had failed.
+pub(super) fn archive_with_evidence<F>(
+    store: &PlanStore,
+    plan_id: &str,
+    archive: F,
+    now: u64,
+) -> Result<Option<SafetyNudge>, PlanError>
+where
+    F: FnOnce() -> Result<(), PlanError>,
+{
+    let nudge = store.get(plan_id).and_then(|plan| retrospective_nudge(&plan));
+    archive()?;
+    if let Some(nudge) = nudge.as_ref() {
+        record_retrospective_incident(store, plan_id, nudge, now);
+    }
+    Ok(nudge)
+}
+
 pub(super) fn archive(
     store: &PlanStore,
     svc: &ServiceState,
@@ -38,11 +57,8 @@ pub(super) fn archive(
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
-    let nudge = store.get(&id).and_then(|plan| retrospective_nudge(&plan));
-    if let Some(nudge) = nudge.as_ref() {
-        record_retrospective_incident(store, &id, nudge, now);
-    }
-    store.archive(&id, now).map_err(plan_rpc_err)?;
+    let nudge = archive_with_evidence(store, &id, || store.archive(&id, now), now)
+        .map_err(plan_rpc_err)?;
     emit_plan_changed(app, &id);
     let mut resp = json!({ "ok": true });
     if let Some(plan) = store.get(&id) {

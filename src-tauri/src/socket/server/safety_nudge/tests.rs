@@ -41,8 +41,7 @@ fn empty_nudges_leave_the_result_untouched() {
     assert!(result.get("_hints").is_none());
 }
 
-#[test]
-fn archive_without_retrospective_emits_nudge_and_durable_evidence() {
+fn plan_without_retrospective() -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
@@ -51,49 +50,92 @@ fn archive_without_retrospective_emits_nudge_and_durable_evidence() {
         OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
+    (dir, store, plan.id)
+}
 
-    let nudge = super::super::plan_archive::retrospective_nudge(&store.get(&plan.id).unwrap())
-        .expect("a plan with no retrospective must raise the advisory");
+fn incidents(store: &PlanStore, plan_id: &str) -> usize {
+    store
+        .get(plan_id)
+        .unwrap()
+        .strides
+        .iter()
+        .filter(|stride| stride.kind == SAFETY_INCIDENT_KIND)
+        .count()
+}
+
+#[test]
+fn archive_without_retrospective_emits_nudge_and_durable_evidence() {
+    let (_dir, store, plan_id) = plan_without_retrospective();
+
+    let nudge =
+        super::super::plan_archive::archive_with_evidence(&store, &plan_id, || store.archive(&plan_id, 3), 3)
+            .unwrap()
+            .expect("a plan with no retrospective must raise the advisory");
+
     assert_eq!(nudge.id, NUDGE_RETROSPECTIVE_UNRECORDED);
     assert!(!nudge.safe_alternative.is_empty());
-
-    store
-        .add_plan_stride(
-            &plan.id,
-            SAFETY_INCIDENT_KIND,
-            &safety_incident_text(&plan.id, nudge.id, &nudge.reason),
-            AgentRef::from_tab("archive"),
-            2,
-        )
-        .unwrap();
-    // Archiving still succeeds — advisory, never a gate.
-    store.archive(&plan.id, 3).unwrap();
-
-    let reloaded = store.get(&plan.id).unwrap();
+    let reloaded = store.get(&plan_id).unwrap();
     assert_eq!(reloaded.status, crate::plan::PlanStatus::Archived);
-    let incident = reloaded
+    assert_eq!(incidents(&store, &plan_id), 1, "exactly one incident");
+    assert!(reloaded
         .strides
         .iter()
         .find(|stride| stride.kind == SAFETY_INCIDENT_KIND)
-        .expect("evidence must survive the archive");
-    assert!(incident.text.contains(NUDGE_RETROSPECTIVE_UNRECORDED));
+        .unwrap()
+        .text
+        .contains(NUDGE_RETROSPECTIVE_UNRECORDED));
+}
+
+/// Failure injection: a durable incident must never claim an archive that failed.
+#[test]
+fn a_failed_archive_records_no_retrospective_incident() {
+    let (_dir, store, plan_id) = plan_without_retrospective();
+
+    let error = super::super::plan_archive::archive_with_evidence(
+        &store,
+        &plan_id,
+        || Err(crate::service::plan::PlanError::Io("disk full".into())),
+        3,
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, crate::service::plan::PlanError::Io(_)));
+    assert_eq!(incidents(&store, &plan_id), 0, "no evidence without archive");
+    assert_eq!(
+        store.get(&plan_id).unwrap().status,
+        crate::plan::PlanStatus::Active
+    );
+}
+
+#[test]
+fn a_recorded_retrospective_archives_with_no_incident_at_all() {
+    let (_dir, store, plan_id) = plan_without_retrospective();
+    store
+        .add_retrospective(&plan_id, "what worked", AgentRef::from_tab("orch"), 2)
+        .unwrap();
+
+    let nudge = super::super::plan_archive::archive_with_evidence(
+        &store,
+        &plan_id,
+        || store.archive(&plan_id, 3),
+        3,
+    )
+    .unwrap();
+
+    assert!(nudge.is_none());
+    assert_eq!(incidents(&store, &plan_id), 0);
+    assert_eq!(
+        store.get(&plan_id).unwrap().status,
+        crate::plan::PlanStatus::Archived
+    );
 }
 
 #[test]
 fn a_recorded_retrospective_raises_no_advisory() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut plan = Plan::new(
-        "retro".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("orch"),
-    );
-    store.save(&mut plan, 1).unwrap();
+    let (_dir, store, plan_id) = plan_without_retrospective();
     store
-        .add_retrospective(&plan.id, "what worked", AgentRef::from_tab("orch"), 2)
+        .add_retrospective(&plan_id, "what worked", AgentRef::from_tab("orch"), 2)
         .unwrap();
 
-    assert!(
-        super::super::plan_archive::retrospective_nudge(&store.get(&plan.id).unwrap()).is_none()
-    );
+    assert!(super::super::plan_archive::retrospective_nudge(&store.get(&plan_id).unwrap()).is_none());
 }
