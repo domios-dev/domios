@@ -294,6 +294,8 @@ fn main_impl() {
             actions,
             delay,
             at,
+            require_agent,
+            to_shell,
         } => {
             cmd::local_io::handle_send_text(
                 &mut client,
@@ -306,6 +308,8 @@ fn main_impl() {
                 actions,
                 delay,
                 at,
+                require_agent,
+                to_shell,
             );
             return;
         }
