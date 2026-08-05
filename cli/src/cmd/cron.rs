@@ -82,13 +82,6 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                             .unwrap_or_default()
                     })
             });
-            if !json {
-                if let Some(t) = task.as_deref() {
-                    if let Some(hint) = crate::cmd::send_text::pad_nudge("positional", t) {
-                        eprintln!("{hint}");
-                    }
-                }
-            }
             let params = crate::args::cron::cron_create_body(
                 &name,
                 &schedule,
