@@ -1,5 +1,5 @@
 use super::*;
-use crate::service_plan::retrospective;
+use crate::service_plan::{retrospective, PlanIncident};
 
 impl PlanStore {
     pub fn ensure_task_creation_allowed(
