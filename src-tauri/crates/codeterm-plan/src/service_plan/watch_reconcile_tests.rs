@@ -196,6 +196,51 @@ fn hand_edited_task_yaml_reconciles_while_plan_yaml_is_own_write() {
 }
 
 #[test]
+fn colocated_spec_does_not_fk_fail_the_plan_on_fresh_scan() {
+    // Regression (#4): a plan with a co-located spec.yaml was skipped on every
+    // startup because the spec (specs.plan_id FK -> plans.id) got persisted
+    // before its owning plan row existed -> FOREIGN KEY constraint failed ->
+    // the whole plan was discarded. The plan must survive a fresh import.
+    let dir = tempfile::tempdir().unwrap();
+    let project = paths::project_root(dir.path());
+    let (plan_id, spec_id) = {
+        let store = PlanStore::new_for_test(dir.path());
+        let spec = store
+            .create_spec("Reqs".into(), dir.path().display().to_string(), 1)
+            .unwrap();
+        store
+            .add_spec_section(&spec.id, "Req", "spec body", None, &[], None, None, 2)
+            .unwrap();
+        let plan = store
+            .create_plan_from_spec(
+                &spec.id,
+                "Plan".into(),
+                OrchestratorRef::default(),
+                vec![],
+                3,
+            )
+            .unwrap();
+        (plan.id, spec.id)
+    };
+
+    // Wipe the index DB, keep the on-disk yaml: mimic a fresh startup that must
+    // re-import plan.yaml plus its co-located spec.yaml from scratch.
+    let db = dir.path().join(".codeterm").join("plans.db");
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{}", db.display(), suffix));
+    }
+
+    let reloaded = PlanStore::open(db).unwrap();
+    let loaded_project = reloaded.scan_project(dir.path()).unwrap();
+    assert_eq!(loaded_project, project);
+    let plan = reloaded
+        .get(&plan_id)
+        .expect("plan must survive the co-located spec load");
+    assert_eq!(plan.title, "Plan");
+    assert_eq!(reloaded.get_spec(&spec_id).map(|s| s.id), Some(spec_id));
+}
+
+#[test]
 fn hand_edited_co_located_spec_yaml_reconciles() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
