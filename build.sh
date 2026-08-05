@@ -34,6 +34,37 @@ if [ -f ".env" ]; then
 fi
 
 # --- MSVC environment (Windows only) ---
+CT_MSVC_HOST_ARCH="x64"
+
+# Every cargo invocation this script starts inherits CARGO_BUILD_TARGET, so the
+# link libraries must follow that target, not the host.
+ct_msvc_target_arch() {
+  case "${CARGO_BUILD_TARGET:-}" in
+    aarch64-*) echo "arm64" ;;
+    i686-*)    echo "x86" ;;
+    *)         echo "$CT_MSVC_HOST_ARCH" ;;
+  esac
+}
+
+# A host-arch LIB entry under a cross target links arm64 objects against x64
+# import libs and fails as LNK1120 unresolved externals, never as an arch error.
+ct_assert_msvc_lib_arch() {
+  local want="$1" entry leaf saved_ifs="$IFS"
+  IFS=';'
+  for entry in $LIB; do
+    IFS="$saved_ifs"
+    [ -n "$entry" ] || continue
+    leaf="${entry##*/}"
+    leaf="${leaf##*\\}"
+    if [ "$leaf" != "$want" ]; then
+      echo "ERROR: LIB entry '$entry' is not $want — refusing to link $want objects against host libraries" >&2
+      return 1
+    fi
+    IFS=';'
+  done
+  IFS="$saved_ifs"
+}
+
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools"
@@ -44,15 +75,31 @@ setup_env() {
       echo "ERROR: MSVC ($BT_BASE) or Windows SDK ($SDK_BASE) not found" >&2
       return 1
     fi
-    export CC="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
-    export CXX="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
-    export LIB="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/lib/x64;$SDK_BASE/Lib/$SDK_VER/ucrt/x64;$SDK_BASE/Lib/$SDK_VER/um/x64"
-    export INCLUDE="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/include;$SDK_BASE/Include/$SDK_VER/ucrt;$SDK_BASE/Include/$SDK_VER/um;$SDK_BASE/Include/$SDK_VER/shared"
-    export RC="$SDK_BASE/bin/$SDK_VER/x64/rc.exe"
+    local vc_root="$BT_BASE/VC/Tools/MSVC/$MSVC_VER"
+    local target_arch host_bin
+    target_arch="$(ct_msvc_target_arch)"
+    host_bin="$vc_root/bin/Hostx64/$CT_MSVC_HOST_ARCH"
+    export CC="$host_bin/cl.exe"
+    export CXX="$host_bin/cl.exe"
+    if [ "$target_arch" != "$CT_MSVC_HOST_ARCH" ]; then
+      local cross_bin="$vc_root/bin/Hostx64/$target_arch" cc_key
+      if [ ! -f "$cross_bin/cl.exe" ]; then
+        echo "ERROR: cross cl.exe not found at $cross_bin (VC.Tools.$target_arch missing?)" >&2
+        return 1
+      fi
+      cc_key="${CARGO_BUILD_TARGET//-/_}"
+      export "CC_$cc_key=$cross_bin/cl.exe"
+      export "CXX_$cc_key=$cross_bin/cl.exe"
+      export "AR_$cc_key=$cross_bin/lib.exe"
+    fi
+    export LIB="$vc_root/lib/$target_arch;$SDK_BASE/Lib/$SDK_VER/ucrt/$target_arch;$SDK_BASE/Lib/$SDK_VER/um/$target_arch"
+    export INCLUDE="$vc_root/include;$SDK_BASE/Include/$SDK_VER/ucrt;$SDK_BASE/Include/$SDK_VER/um;$SDK_BASE/Include/$SDK_VER/shared"
+    export RC="$SDK_BASE/bin/$SDK_VER/$CT_MSVC_HOST_ARCH/rc.exe"
+    ct_assert_msvc_lib_arch "$target_arch" || return 1
     # Use /c/ prefix for git bash PATH compatibility
-    export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/x64:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/x64:$PATH"
+    export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/$CT_MSVC_HOST_ARCH:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/$CT_MSVC_HOST_ARCH:$PATH"
     export npm_config_script_shell="$(cygpath -w "$(command -v bash)")"
-    echo "MSVC env loaded (VS 2022 BuildTools, MSVC $MSVC_VER)"
+    echo "MSVC env loaded (VS 2022 BuildTools, MSVC $MSVC_VER, link libraries $target_arch)"
   fi
 }
 
