@@ -203,6 +203,57 @@ mod tests {
     }
 
     #[test]
+    fn fresh_dream_task_uses_runnable_run_subcommand() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = CronStore::new_with_path(path);
+
+        ensure_dreaming(&mut store).unwrap();
+        let job = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .clone();
+        assert!(
+            job.task.contains("codeterm mem dream run"),
+            "task must invoke `mem dream run`, got: {:?}",
+            job.task
+        );
+    }
+
+    #[test]
+    fn stale_bare_dream_task_self_heals() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = CronStore::new_with_path(path);
+
+        ensure_dreaming(&mut store).unwrap();
+        let id = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .id
+            .clone();
+        if let Some(j) = store.get_mut(&id) {
+            j.task = "codeterm mem dream && codeterm agent report \"dreaming complete\"\n".into();
+        }
+        let _ = store.save();
+
+        let created = ensure_dreaming(&mut store).unwrap();
+        assert!(!created, "self-heal must not create a duplicate");
+        let job = store.list().iter().find(|j| j.id == id).unwrap().clone();
+        assert!(
+            job.task.contains("codeterm mem dream run"),
+            "stale bare `mem dream` task must be healed to `mem dream run`, got: {:?}",
+            job.task
+        );
+    }
+
+    #[test]
     fn dream_cron_enabled_state_round_trips_through_store() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("crons.json");
