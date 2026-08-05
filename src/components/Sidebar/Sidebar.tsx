@@ -16,6 +16,8 @@ import { OrchestrationCreate, type OrchestrationCreateResult } from "./Orchestra
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
+import { DoneView } from "./DoneView";
+import { useCompletedLanes } from "./useCompletedLanes";
 import {
   SidebarDnd,
   sortByOrder,
@@ -117,6 +119,9 @@ export function Sidebar({
   } = useMultiplexer();
   const state = useMuxState();
   const isWorkspaceMode = mainView === "workspace";
+  // A finished lane usually lands in recently_closed; use its length as a live
+  // refetch trigger for the durable Done surface, avoiding a polling interval.
+  const { lanes: completedLanes } = useCompletedLanes(state.recently_closed?.length ?? 0);
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
     initialPath?: string | null;
@@ -786,6 +791,13 @@ export function Sidebar({
                 />
               );
             })()}
+            {!isCompact && (
+              <DoneView
+                lanes={completedLanes}
+                touchMode={touchMode}
+                uiFontScale={uiFontScale}
+              />
+            )}
             <div className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}>
               <button
                 data-testid="nav-extensions"

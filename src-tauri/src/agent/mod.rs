@@ -17,6 +17,7 @@ pub mod prompt;
 pub mod provider;
 pub mod registry;
 pub mod reports;
+pub mod roleless_send;
 pub mod run_watcher;
 pub mod semantic_marker;
 pub mod signal_extractor;

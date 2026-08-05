@@ -41,6 +41,8 @@ impl MultiplexerState {
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
+            task_binding: None,
+            roleless_tracked: false,
             role: None,
             role_profile: None,
             team_id: None,
@@ -165,6 +167,36 @@ impl MultiplexerState {
         }
         tab.title = title.to_string();
         tab.title_level = level;
+        Ok(())
+    }
+
+    /// Stamp the rename-proof assignment identity. First write wins: an existing
+    /// binding is never overwritten, so a pane cannot mutate its own identity the
+    /// way it can its title. Returns whether the binding was applied.
+    pub fn set_task_binding_once(
+        &mut self,
+        tab_id: &str,
+        binding: crate::multiplexer::types::TaskBinding,
+    ) -> Result<bool, String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        if tab.task_binding.is_some() {
+            return Ok(false);
+        }
+        tab.task_binding = Some(binding);
+        Ok(true)
+    }
+
+    /// Mark a roleless-spawned agent pane as linked into the hierarchy (parent +
+    /// audit recorded). Idempotent.
+    pub fn mark_roleless_tracked(&mut self, tab_id: &str) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        tab.roleless_tracked = true;
         Ok(())
     }
 
@@ -396,6 +428,66 @@ mod display_label_tests {
             final_title, provider_id,
             "the raw provider id must never become the Tab title"
         );
+    }
+
+    #[test]
+    fn task_binding_survives_self_rename() {
+        use crate::multiplexer::types::TaskBinding;
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
+        let binding = TaskBinding {
+            plan_id: Some("pl_1".into()),
+            task_id: Some("task_9".into()),
+            spawn_handle: Some("M3 IV-gate".into()),
+            bound_at: 100,
+        };
+        assert!(state
+            .set_task_binding_once(&tab_id, binding.clone())
+            .unwrap());
+        // The pane renames itself repeatedly as its understanding evolves.
+        state.rename_tab(&tab_id, "iv gate holdings").unwrap();
+        state
+            .rename_tab_at_level(&tab_id, "something else", TitleLevel::Agent)
+            .unwrap();
+        let tab = state.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.title, "iv gate holdings");
+        assert_eq!(
+            tab.task_binding.as_ref(),
+            Some(&binding),
+            "identity binding must stay stable across self-renames"
+        );
+    }
+
+    #[test]
+    fn task_binding_is_write_once_immutable() {
+        use crate::multiplexer::types::TaskBinding;
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
+        let first = TaskBinding {
+            task_id: Some("task_1".into()),
+            bound_at: 1,
+            ..Default::default()
+        };
+        let second = TaskBinding {
+            task_id: Some("task_hijack".into()),
+            bound_at: 2,
+            ..Default::default()
+        };
+        assert!(state.set_task_binding_once(&tab_id, first.clone()).unwrap());
+        assert!(
+            !state.set_task_binding_once(&tab_id, second).unwrap(),
+            "a second binding write must be refused"
+        );
+        assert_eq!(state.get_tab(&tab_id).unwrap().task_binding, Some(first));
+    }
+
+    #[test]
+    fn mark_roleless_tracked_sets_flag() {
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
+        assert!(!state.get_tab(&tab_id).unwrap().roleless_tracked);
+        state.mark_roleless_tracked(&tab_id).unwrap();
+        assert!(state.get_tab(&tab_id).unwrap().roleless_tracked);
     }
 
     #[test]

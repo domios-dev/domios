@@ -3,6 +3,7 @@ pub mod auth;
 pub mod events;
 pub mod routes;
 
+pub mod agent_done_routes;
 pub mod agent_routes;
 pub mod bridge_routes;
 pub mod clipboard_routes;

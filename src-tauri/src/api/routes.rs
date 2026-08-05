@@ -11,7 +11,8 @@ use tower_http::{
 };
 
 use super::{
-    agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
+    agent_done_routes, agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes,
+    debug_routes,
     fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
     services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
@@ -485,6 +486,7 @@ pub fn create_router(state: AppState) -> Router {
             post(session_routes::resume_session_api),
         )
         .route("/api/agents/spawn", post(agent_routes::spawn_agent))
+        .route("/api/agents/done", get(agent_done_routes::list_done))
         .route(
             "/api/orchestration/new",
             post(agent_routes::create_orchestration_pair),
