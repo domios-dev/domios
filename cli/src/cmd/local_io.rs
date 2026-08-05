@@ -162,9 +162,22 @@ pub(crate) fn handle_send_text(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    require_agent: bool,
+    to_shell: bool,
 ) {
     crate::cmd::send_text::handle_send_text(
-        client, json, tab, text, from_file, from_pad, stdin, actions, delay, at,
+        client,
+        json,
+        tab,
+        text,
+        from_file,
+        from_pad,
+        stdin,
+        actions,
+        delay,
+        at,
+        require_agent,
+        to_shell,
     );
 }
 
