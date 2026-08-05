@@ -456,6 +456,8 @@ pub(crate) fn build_tab_summary_json(
                 "cwd": tab.cwd,
                 "boot_stage": tab.boot_stage,
                 "status": tab.agent_state.as_ref().map(|state| state.state),
+                "task_binding": tab.task_binding,
+                "roleless_tracked": tab.roleless_tracked,
                 "role": tab.role,
                 "role_profile": tab.role_profile,
                 "ownership": tab.ownership,
@@ -987,6 +989,31 @@ mod tests {
 
         assert_eq!(summary["team_id"], "team_probe");
         assert_eq!(summary["spawned_by_tab_id"], "creator_probe");
+    }
+
+    #[test]
+    fn tab_summary_exposes_task_binding_and_roleless_flag() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::TaskBinding;
+
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).expect("default Tab");
+        tab.task_binding = Some(TaskBinding {
+            plan_id: Some("pl_1".into()),
+            task_id: Some("task_9".into()),
+            spawn_handle: Some("M3 IV-gate".into()),
+            bound_at: 5,
+        });
+        tab.roleless_tracked = true;
+
+        let snapshot = state.snapshot();
+        let workspace = snapshot.workspaces.first().expect("default workspace");
+        let summaries = build_tab_summary_json(&snapshot, Some(&workspace.id), None, false, false);
+        let summary = summaries.first().expect("summary Tab");
+
+        assert_eq!(summary["task_binding"]["task_id"], "task_9");
+        assert_eq!(summary["task_binding"]["plan_id"], "pl_1");
+        assert_eq!(summary["roleless_tracked"], true);
     }
 
     #[test]
