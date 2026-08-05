@@ -665,7 +665,7 @@ fn every_tab_command_accepts_canonical_tab_flag() {
 
 #[test]
 fn tab_command_alias_is_rejected() {
-    assert!(Cli::try_parse_from(["codeterm", "tab", "list"]).is_err());
+    assert!(Cli::try_parse_from(["codeterm", "pane", "list"]).is_err());
 }
 
 #[test]

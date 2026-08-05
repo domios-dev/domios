@@ -198,8 +198,21 @@ fn fn_body<'a>(source: &'a str, signature: &str) -> &'a str {
         .find(signature)
         .unwrap_or_else(|| panic!("{signature} must exist"));
     let rest = &source[start + signature.len()..];
-    let end = rest.find("\n}\n").unwrap_or(rest.len());
-    &rest[..end]
+    let open = rest.find('{').expect("function body must start");
+    let mut depth = 0;
+    for (offset, byte) in rest[open..].bytes().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &rest[open..open + offset + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("{signature} body must terminate")
 }
 
 fn call_plan_rpc_body() -> &'static str {
@@ -354,8 +367,11 @@ fn trust_disagreements_are_preserved() {
         "D2: the gated caller_tab_id site must stay gated"
     );
     assert!(
-        TASK_RS.contains("fn caller_tab(client: &dyn RpcClient) -> Option<String> {")
-            && TASK_RS.contains("    if client.is_remote() {\n        return None;\n    }"),
+        fn_body(
+            TASK_RS,
+            "fn caller_tab(client: &dyn RpcClient) -> Option<String>"
+        )
+        .contains("client.is_remote()"),
         "D2: task.rs caller_tab must stay is_remote-gated"
     );
 

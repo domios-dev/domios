@@ -1,15 +1,11 @@
 # Tab lifecycle audit and exact-checkpoint recovery
 
-CodeTerm keeps one append-only journal of every authoritative tab lifecycle
-transition. A restart may hand a tab back its provider, session, role, and Team
-authority **only** from a complete committed checkpoint whose lineage is exactly
-the snapshot's. Anything unproven fails closed: the tab comes back as a plain
-shell and the reason is logged.
+CodeTerm keeps one append-only journal of every authoritative tab lifecycle transition.
+A restart restores provider, session, role, and Team authority **only** from a complete
+committed checkpoint with the snapshot's exact lineage. Anything unproven fails closed.
 
-This exists because a tab can reach shell readiness during a spawn and never
-commit provider/session/team identity. The session snapshot still holds the
-role residue, and on restart that residue used to come back as a role-bearing
-plain shell with no provider session behind it.
+This prevents a spawn that reached shell readiness without committing provider,
+session, and Team identity from restoring stale role authority after restart.
 
 ## Where it lives
 
@@ -22,10 +18,8 @@ plain shell with no provider session behind it.
 It sits beside `last.json`, `backups/`, and `agent-session-identities.json` in
 the same `sessions/` directory.
 
-**Agent access is read-only.** Read it, grep it, diff it. Never hand-edit the
-journal or a session snapshot: an edited journal is indistinguishable from a
-forged commit, and the recovery rule exists precisely to refuse claims it cannot
-prove.
+**Agent access is read-only.** Read, grep, or diff it; never hand-edit the journal
+or a snapshot. An edit is indistinguishable from a forged authority commit.
 
 ## Format
 
@@ -108,18 +102,13 @@ unreadable: no sealed checkpoint for that tab (which is also what a deleted,
 rebuilt, or unavailable journal looks like), a different epoch or operation id, a
 field the checkpoint disagrees with, or a refused journal tail.
 
-Only the PTY transport commits lifecycle transitions, so only a PTY tab can
-carry lineage — `open_lifecycle_epoch` refuses to stamp a chatBackend-backed
-tab. A chatBackend tab is therefore always pre-journal and restores under the
-prior contract. If one ever turns up carrying lineage anyway, it is stripped
-with `tab carries lifecycle lineage its transport never commits`: the committed
-binding is PTY-shaped (provider, session, launch nonce) and must never stand in
-for a plugin binding.
+Only PTY transport commits lifecycle transitions; `open_lifecycle_epoch` refuses
+chatBackend tabs. A chatBackend tab is therefore pre-journal. If it carries lineage,
+recovery strips it because PTY-shaped provider/session/nonce evidence cannot prove
+a plugin binding.
 
-So existing tabs are never swept up. An untouched legacy agent tab keeps its
-provider, session, role, and Team until its own next launch journals an
-operation; from that launch on it is covered and enforced exactly. The db79d2da
-shape is stripped either way — a role with no provider identity behind it fails
+Existing tabs are not swept up. A legacy agent keeps its identity until its next
+journaled launch, then becomes covered. A role without provider identity fails
 the pre-journal contract too.
 
 ## The recovery rule
@@ -182,8 +171,7 @@ The journal is bounded by explicit compaction, never by age:
 - Replaying a compacted journal reaches exactly the checkpoints replaying the
   full history reaches.
 
-The rewrite goes through the shared atomic write (unique temp, fsync, replace). Nothing else prunes the file,
-and no reader may treat a missing record as permission to relax the rule.
+The shared atomic write (unique temp, fsync, replace) is the only pruning path; missing records never relax recovery.
 
 ## Inspecting it
 
@@ -249,4 +237,4 @@ transaction, so the intermediate state is never observable.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
