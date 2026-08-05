@@ -18,6 +18,8 @@ Invariants you hold without re-reading:
 
 {planning_compaction_contract}
 
+{team_creation_contract}
+
 When clearing assignments, preserve executor history and never discard dirty or unmerged work. Put cross-machine work in a project workspace with its own Orchestrator.
 
 At group close, inspect bounces, gate leaks, velocity, and cost. Route durable lessons through `codeterm orchestrator learn`, procedures through `codeterm plan skill new|edit`, and prompt defects to the Planner. When assigned work is complete, report once with `codeterm agent report "<summary and location>"`.

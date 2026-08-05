@@ -38,6 +38,10 @@ pub const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
 pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning_compaction.md");
 
+/// Team-bound creation contract shared by the two roles that can ask for a new
+/// agent, shell, or schedule. One source so neither can drift into a loose one.
+pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
+
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
 
@@ -167,10 +171,12 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 }
 
 pub fn orchestrator_suffix() -> String {
-    let role_prompt = ORCHESTRATOR_SUFFIX.replace(
-        "{planning_compaction_contract}",
-        PLANNING_COMPACTION_CONTRACT.trim(),
-    );
+    let role_prompt = ORCHESTRATOR_SUFFIX
+        .replace(
+            "{planning_compaction_contract}",
+            PLANNING_COMPACTION_CONTRACT.trim(),
+        )
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
     format!(
         "{}\n\n## Canonical Orchestrator manual\n\n{}",
         role_prompt.trim(),
@@ -190,7 +196,8 @@ pub fn planner_suffix() -> String {
         .replace(
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
-        );
+        )
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
     format!(
         "{}\n\n## Canonical Planner manual\n\n{}",
         role_prompt.trim(),
@@ -198,9 +205,158 @@ pub fn planner_suffix() -> String {
     )
 }
 
+/// Upper bound for a composed role prompt. Not a style preference: every byte
+/// here is spent on every launch of that role, so growth needs a decision.
+pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 32 * 1024;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The committed clap manifest is the authority on which commands exist.
+    /// Generated artifact — read here, never written.
+    const CLI_MANIFEST: &str = include_str!("../../docs/cli-manifest.json");
+
+    /// Every prompt fragment that teaches CLI grammar, with the file it is
+    /// loaded from so a failure names something a human can open.
+    fn cli_teaching_fragments() -> [(&'static str, &'static str); 7] {
+        [
+            ("general_agent.md", GENERAL_AGENT_TEMPLATE),
+            ("codeterm_rule.md", CODETERM_RULE),
+            ("codeterm_cli.md", CODETERM_CLI),
+            ("planner_suffix.md", PLANNER_SUFFIX),
+            ("orchestrator_suffix.md", ORCHESTRATOR_SUFFIX),
+            ("worker_suffix.md", WORKER_SUFFIX),
+            ("team_creation_contract.md", TEAM_CREATION_CONTRACT),
+        ]
+    }
+
+    fn subcommand<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+        node["subcommands"].as_array()?.iter().find(|child| {
+            child["name"] == *name
+                || child["aliases"]
+                    .as_array()
+                    .is_some_and(|aliases| aliases.iter().any(|alias| alias == name))
+        })
+    }
+
+    fn is_leaf(node: &serde_json::Value) -> bool {
+        node["subcommands"]
+            .as_array()
+            .is_none_or(|children| children.is_empty())
+    }
+
+    /// A bare command word, or a `list|show` / `get/set` alternation of them.
+    fn command_words(token: &str) -> Option<Vec<&str>> {
+        let words: Vec<&str> = token.split(['|', '/']).filter(|w| !w.is_empty()).collect();
+        let bare = |w: &str| {
+            w.starts_with(|c: char| c.is_ascii_lowercase())
+                && w.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        };
+        (!words.is_empty() && words.iter().copied().all(bare)).then_some(words)
+    }
+
+    /// Lines and backtick spans are where a fragment prescribes a runnable
+    /// command. Prose that merely says "codeterm" is not a reference.
+    fn command_spans(text: &str) -> Vec<&str> {
+        let mut spans = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("codeterm ") {
+                spans.push(trimmed);
+            }
+            for (index, part) in trimmed.split('`').enumerate() {
+                if index % 2 == 1 {
+                    spans.push(part.trim());
+                }
+            }
+        }
+        spans
+    }
+
+    /// Resolve every command reference in one span, appending a human-readable
+    /// complaint for each reference the manifest cannot account for.
+    fn check_span(root: &serde_json::Value, span: &str, problems: &mut Vec<String>) {
+        let tokens: Vec<&str> = span.split_whitespace().collect();
+        for (index, token) in tokens.iter().enumerate() {
+            if *token != "codeterm" || index + 1 >= tokens.len() {
+                continue;
+            }
+            if command_words(tokens[index + 1]).is_none() {
+                continue; // `codeterm <cmd> --help`, a bare binary mention, prose
+            }
+            let mut node = root;
+            let mut path: Vec<&str> = Vec::new();
+            let mut cursor = index + 1;
+            let mut alternation = false;
+            let mut unknown = false;
+            while cursor < tokens.len() && !alternation && tokens[cursor] != "codeterm" {
+                let Some(words) = command_words(tokens[cursor]) else {
+                    break;
+                };
+                let resolved: Vec<Option<&serde_json::Value>> =
+                    words.iter().map(|word| subcommand(node, word)).collect();
+                if resolved.iter().any(Option::is_none) {
+                    if is_leaf(node) {
+                        break; // a positional argument of a leaf command
+                    }
+                    path.push(tokens[cursor]);
+                    problems.push(format!("unknown command `codeterm {}`", path.join(" ")));
+                    unknown = true;
+                    break;
+                }
+                node = resolved[0].expect("resolved above");
+                path.push(tokens[cursor]);
+                cursor += 1;
+                alternation = words.len() > 1;
+            }
+            if unknown {
+                continue;
+            }
+            if !alternation && !is_leaf(node) {
+                if let Some(next) = tokens.get(cursor) {
+                    if !next.starts_with('-')
+                        && !next.starts_with('<')
+                        && *next != "..."
+                        && *next != "codeterm"
+                    {
+                        problems.push(format!(
+                            "`codeterm {}` is a command group but is used as if it took arguments",
+                            path.join(" ")
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The durable prompt/CLI coupling: a rename that strands a prompt fails
+    /// here instead of silently teaching agents a dead command. Mechanism only —
+    /// resolution against the manifest, never a word the prompt happens to use.
+    #[test]
+    fn prompt_cli_references_exist_in_manifest() {
+        let root: serde_json::Value =
+            serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
+
+        let mut problems: Vec<String> = Vec::new();
+        for (name, fragment) in cli_teaching_fragments() {
+            for span in command_spans(fragment) {
+                let before = problems.len();
+                check_span(&root, span, &mut problems);
+                for problem in problems.iter_mut().skip(before) {
+                    *problem = format!("{name}: {problem}");
+                }
+            }
+        }
+
+        assert!(
+            problems.is_empty(),
+            "prompts teach commands the CLI manifest does not have. If the command \
+             is new, docs/cli-manifest.json needs regeneration:\n{}",
+            problems.join("\n")
+        );
+    }
 
     #[test]
     fn planner_suffix_substitutes_the_test_author_guidance_constant() {
@@ -258,14 +414,16 @@ mod tests {
         }
     }
 
+    /// The docs-discovery rule has exactly one home. Asserted by command form —
+    /// the syntax an agent types — never by the sentence that introduces it, so
+    /// rewording the rule cannot fail this and duplicating it cannot pass.
     #[test]
-    fn codeterm_docs_rule_is_single_and_unformatted() {
-        const RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
+    fn codeterm_docs_rule_has_exactly_one_home() {
+        const DISCOVERY_FORM: &str = "codeterm docs <NAME>";
 
-        assert_eq!(CODETERM_CLI.matches(RULE).count(), 1);
-        assert!(!RULE.contains('*'));
+        assert_eq!(CODETERM_CLI.matches(DISCOVERY_FORM).count(), 1);
         let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
-        assert_eq!(general.matches(RULE).count(), 1);
+        assert_eq!(general.matches(DISCOVERY_FORM).count(), 1);
         for role_surface in [
             ORCHESTRATOR_ONBOARDING,
             ORCHESTRATOR_SUFFIX,
@@ -274,9 +432,10 @@ mod tests {
             AGENT_CODETERM_PRIMER,
             WORKER_CODETERM_CONTEXT,
         ] {
-            assert!(
-                role_surface.matches(RULE).count() <= 1,
-                "role instruction duplicates the docs rule"
+            assert_eq!(
+                role_surface.matches(DISCOVERY_FORM).count(),
+                0,
+                "role instruction restates the docs rule instead of pointing at its one home"
             );
         }
     }
@@ -344,6 +503,7 @@ mod tests {
                         "MESH",
                         "MEMORY",
                         "SECRETS",
+                        "API-CLI",
                     ]
                     .contains(&document),
                     "instruction reference names an unknown document: {command}"
@@ -417,6 +577,108 @@ mod tests {
         }
     }
 
+    /// Every composed role surface substitutes what it declares and leaves no
+    /// residue. The values are supplied by this test, so it round-trips a fact
+    /// it owns rather than a phrase the prompt happens to contain.
+    #[test]
+    fn prompt_placeholders_are_fully_substituted() {
+        let spawn_cmd = "codeterm agent spawn claude --role Planner";
+        let composed = [
+            ("orchestrator_suffix", orchestrator_suffix()),
+            ("planner_suffix", planner_suffix()),
+            ("orchestrator_onboarding", orchestrator_onboarding(spawn_cmd)),
+            ("peer_pairing_mandate", peer_pairing_mandate_full(spawn_cmd)),
+            (
+                "general_agent",
+                GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI),
+            ),
+        ];
+
+        for (name, rendered) in composed {
+            for slot in [
+                "{planning_compaction_contract}",
+                "{team_creation_contract}",
+                "{test_author_guidance}",
+                "{orchestrator_suffix}",
+                "{planner_spawn_cmd}",
+                "{spawn_cmd}",
+                "{codeterm_cli}",
+            ] {
+                assert!(
+                    !rendered.contains(slot),
+                    "{name} still carries the unsubstituted slot {slot}"
+                );
+            }
+        }
+
+        assert!(orchestrator_onboarding(spawn_cmd).contains(spawn_cmd));
+        assert!(peer_pairing_mandate_full(spawn_cmd).contains(spawn_cmd));
+    }
+
+    /// Delivery, asserted by constant identity. Every fragment below is an
+    /// opaque token here — this test has nothing to say about their wording,
+    /// only about which recipient receives which of them.
+    #[test]
+    fn role_fragments_reach_their_recipients() {
+        let orchestrator = orchestrator_suffix();
+        let planner = planner_suffix();
+        let worker = worker_suffix();
+
+        for (recipient, rendered, fragments) in [
+            (
+                "orchestrator",
+                &orchestrator,
+                vec![PLANNING_COMPACTION_CONTRACT, TEAM_CREATION_CONTRACT],
+            ),
+            (
+                "planner",
+                &planner,
+                vec![PLANNING_COMPACTION_CONTRACT, TEAM_CREATION_CONTRACT],
+            ),
+            (
+                "worker",
+                &worker,
+                vec![TESTING_DISCIPLINE, QA_PIPELINE_DISCIPLINE, WORKER_SUFFIX],
+            ),
+        ] {
+            for fragment in fragments {
+                let token = fragment.trim();
+                assert!(!token.is_empty(), "an empty fragment proves nothing");
+                assert_eq!(
+                    rendered.matches(token).count(),
+                    1,
+                    "{recipient} must receive each of its fragments exactly once"
+                );
+            }
+        }
+
+        // The Team-bound creation contract has one source, not a copy per role.
+        let contract = TEAM_CREATION_CONTRACT.trim();
+        for surface in [WORKER_SUFFIX, AGENT_CODETERM_PRIMER, WORKER_CODETERM_CONTEXT] {
+            assert!(!surface.contains(contract));
+        }
+    }
+
+    #[test]
+    fn composed_prompt_stays_within_size_bound() {
+        for (name, rendered) in [
+            ("orchestrator_suffix", orchestrator_suffix()),
+            ("planner_suffix", planner_suffix()),
+            ("worker_suffix", worker_suffix()),
+            (
+                "general_agent",
+                GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI),
+            ),
+        ] {
+            assert!(
+                rendered.len() <= COMPOSED_ROLE_PROMPT_MAX_BYTES,
+                "{name} is {} bytes, over COMPOSED_ROLE_PROMPT_MAX_BYTES ({})",
+                rendered.len(),
+                COMPOSED_ROLE_PROMPT_MAX_BYTES
+            );
+        }
+    }
+
     #[test]
     fn planner_suffix_embeds_the_canonical_manual() {
         let rendered = planner_suffix();
@@ -461,16 +723,16 @@ mod tests {
         assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
     }
 
+    /// Was named for GA routing while asserting five phrases baked into the
+    /// template, so it taxed every rewrite and proved nothing about delivery.
+    /// The mechanism it can actually own is the CLI-reference injection seam.
     #[test]
-    fn general_agent_routes_project_work_to_workspaces() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("TEAM COORDINATION IS MANDATORY"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("codeterm team list"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("--role Orchestrator --workspace"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("MACHINE CONTROL REMAINS YOUR AUTHORITY"));
-        assert!(
-            GENERAL_AGENT_TEMPLATE.contains("REMEMBER REQUEST PIPELINE IS ORDERED AND IMMEDIATE")
-        );
-        assert!(!GENERAL_AGENT_TEMPLATE.contains("**"));
+    fn general_agent_template_receives_the_cli_reference() {
+        assert!(GENERAL_AGENT_TEMPLATE.contains("{codeterm_cli}"));
+
+        let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
+        assert!(general.contains(CODETERM_CLI));
+        assert!(!general.contains("{codeterm_cli}"));
     }
 
     #[test]
@@ -507,6 +769,7 @@ mod tests {
             "qa_pipeline_discipline.md",
             "planner_suffix.md",
             "planning_compaction.md",
+            "team_creation_contract.md",
             "bounce_unwinding_contract.md",
             "orchestrator_suffix.md",
             "orchestrator_onboarding.md",
