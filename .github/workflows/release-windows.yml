@@ -252,6 +252,10 @@ jobs:
           New-Item -ItemType File -Force "src-tauri\bundled-embed\codeterm-embed-${{ matrix.target }}.exe" | Out-Null
           New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm.exe" | Out-Null
 
+      - name: Build release bundle inputs
+        shell: pwsh
+        run: .\build.ps1 release-inputs
+
       - name: Build, sign, and upload release assets
         uses: tauri-apps/tauri-action@v0
         env:

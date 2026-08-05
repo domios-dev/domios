@@ -75,15 +75,11 @@ HOST_TRIPLE=$(rustc -vV | awk '/^host:/ { print $2 }')
 touch "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}"
 touch src-tauri/bundled-cli/codeterm
 
-# 3b. Build x86_64 sidecar + main bin + CLI
-cargo build --release --target x86_64-apple-darwin --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
+# 3b. Build the frontend and target-correct x86_64 sidecars.
+CARGO_BUILD_TARGET=x86_64-apple-darwin ./build.sh release-inputs
 
-# 4. Stage signed binaries and dylib
+# 4. Stage signed dylibs alongside the already bundled sidecars.
 mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli src-tauri/bundled-embed-libs
-cp src-tauri/target/x86_64-apple-darwin/release/codeterm-embed src-tauri/bundled-embed/codeterm-embed-x86_64-apple-darwin
-# Temporarily swap CLI to x86_64 (remember to restore arm64 after)
-cp cli/target/x86_64-apple-darwin/release/codeterm src-tauri/bundled-cli/codeterm
 cp "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" src-tauri/bundled-embed-libs/libonnxruntime.dylib
 
 LIBCXX_DIR="$(find_libcxx_dir)"

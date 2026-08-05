@@ -135,17 +135,32 @@ if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* || "${OSTYPE:-}" == win
   JUNCTION_PATH=""
 fi
 
-node - <<'JS' build.sh src-tauri/tauri.conf.json
+node - <<'JS' \
+  build.sh \
+  src-tauri/tauri.conf.json \
+  .agents/skills/github-release/scripts/build-mac.sh \
+  scripts/release-macos-x86_64.sh \
+  .codeterm/build-machine/scripts/build-linux.sh \
+  .github/workflows/release-linux.yml \
+  .github/workflows/release-windows.yml
 const fs = require("node:fs");
 const source = fs.readFileSync(process.argv[2], "utf8");
 const build = source.slice(source.indexOf("  build)"), source.indexOf("  qa-prep)"));
-if (/^\s*pnpm build\s*$/m.test(build)) {
-  throw new Error("build.sh must leave the production frontend build to Tauri beforeBuildCommand");
-}
+const prepare = source.slice(
+  source.indexOf("prepare_release_bundle_inputs()"),
+  source.indexOf("\n}\n", source.indexOf("prepare_release_bundle_inputs()")) + 2,
+);
+if (!prepare.includes("pnpm build")) throw new Error("release inputs must build the frontend");
+if (!source.includes("  release-inputs)")) throw new Error("release-inputs operation is missing");
 if (!build.includes("pnpm tauri build")) throw new Error("release build no longer invokes Tauri");
 const config = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
-const frontendBuilds = config.build.beforeBuildCommand.match(/\bpnpm build\b/g) ?? [];
-if (frontendBuilds.length !== 1) throw new Error("Tauri must own exactly one production frontend build");
+if (config.build.beforeBuildCommand) throw new Error("Tauri must not own release input preparation");
+for (const path of process.argv.slice(4)) {
+  const entrypoint = fs.readFileSync(path, "utf8");
+  if (!entrypoint.includes("release-inputs")) {
+    throw new Error(`${path} bypasses target-aware release input preparation`);
+  }
+}
 JS
 
-echo "PASS gateway dev preflight validates ancestors before creation and Tauri owns the single production frontend build"
+echo "PASS gateway dev preflight validates ancestors and release entrypoints stage target-aware bundle inputs"
