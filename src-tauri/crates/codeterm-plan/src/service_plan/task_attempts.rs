@@ -10,6 +10,9 @@ use super::{PlanError, PlanStore};
 
 mod plan_skill_evidence;
 
+#[cfg(test)]
+mod compete_lane_tests;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
     pub attempt_id: String,
@@ -77,6 +80,11 @@ pub struct TaskCompeteDraft {
     pub workspace_id: Option<String>,
     pub title: Option<String>,
     pub cwd: String,
+    // Filled in by the dispatcher once this competitor's own lane is provisioned;
+    // `cwd` alone cannot prove isolation.
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub destination: Option<String>,
     pub task_prompt: String,
     pub report_command: String,
     pub plan_skill_manifest: Vec<crate::plan::PlanSkillManifestEntry>,
@@ -698,6 +706,9 @@ impl PlanStore {
                     .or(task.lane.workspace_id.clone()),
                 title: None,
                 cwd: cwd.clone(),
+                branch: None,
+                base: None,
+                destination: task.lane.destination.clone(),
                 task_prompt,
                 report_command: report_command.clone(),
                 plan_skill_manifest: manifest.clone(),
@@ -905,6 +916,12 @@ impl PlanStore {
             attempt.competition_group_id = Some(draft.competition_group_id.clone());
             attempt.competition_lane = Some(draft.lane);
             attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
+            if draft.branch.is_some() {
+                attempt.worktree_path = Some(draft.cwd.clone());
+                attempt.branch = draft.branch.clone();
+                attempt.base = draft.base.clone();
+                attempt.destination = draft.destination.clone();
+            }
             task.execution_attempts.push(attempt.clone());
             created = Some(attempt);
             Ok(())

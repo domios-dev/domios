@@ -1,65 +1,17 @@
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
 
+use super::super::safety_nudge::{
+    SafetyNudge, NUDGE_LANE_BASE_UNRECORDED, NUDGE_LANE_BRANCH_UNRECORDED,
+    NUDGE_MERGE_DESTINATION_UNRECORDED, NUDGE_TEAM_IDENTITY_UNRECORDED,
+};
 use super::super::JsonRpcError;
 
 pub(crate) const REFUSAL_MUTATING_WRITE_IN_CANONICAL: &str =
     "lane.mutating_write_in_canonical_checkout";
 pub(crate) const REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE: &str =
     "lane.mutating_write_in_foreign_lane";
-
-pub(crate) const NUDGE_LANE_BRANCH_UNRECORDED: &str = "lane.branch_unrecorded";
-pub(crate) const NUDGE_LANE_BASE_UNRECORDED: &str = "lane.base_unrecorded";
-pub(crate) const NUDGE_TEAM_IDENTITY_UNRECORDED: &str = "lane.team_identity_unrecorded";
-pub(crate) const NUDGE_MERGE_DESTINATION_UNRECORDED: &str = "lane.merge_destination_unrecorded";
-
-pub(crate) const NUDGE_IDS: &[&str] = &[
-    NUDGE_LANE_BRANCH_UNRECORDED,
-    NUDGE_LANE_BASE_UNRECORDED,
-    NUDGE_TEAM_IDENTITY_UNRECORDED,
-    NUDGE_MERGE_DESTINATION_UNRECORDED,
-];
-
-/// Advisory by default: a nudge carries a stable id, why it matters, and the
-/// exact command that fixes it — and the operation still succeeds.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SafetyNudge {
-    pub id: &'static str,
-    pub reason: String,
-    pub safe_alternative: String,
-}
-
-impl SafetyNudge {
-    fn new(id: &'static str, reason: String, safe_alternative: String) -> Self {
-        // Ids are a closed, declared set — an unregistered one is a authoring bug.
-        debug_assert!(NUDGE_IDS.contains(&id), "unregistered nudge id: {id}");
-        Self {
-            id,
-            reason,
-            safe_alternative,
-        }
-    }
-
-    pub(crate) fn to_json(&self) -> Value {
-        json!({
-            "id": self.id,
-            "reason": self.reason,
-            "safe_alternative": self.safe_alternative,
-        })
-    }
-
-    pub(crate) fn to_hint(&self) -> String {
-        format!(
-            "nudge [{}]: {} Safe alternative: {}",
-            self.id, self.reason, self.safe_alternative
-        )
-    }
-}
-
-pub(crate) fn nudges_json(nudges: &[SafetyNudge]) -> Value {
-    json!(nudges.iter().map(SafetyNudge::to_json).collect::<Vec<_>>())
-}
 
 pub(crate) fn canonical_path_of(plan: &Plan) -> &str {
     if plan.canonical_project_path.trim().is_empty() {
@@ -100,9 +52,8 @@ fn refusal(id: &'static str, message: String, safe_alternative: String) -> JsonR
     }
 }
 
-/// The ONLY hard stop in this module, and only where proceeding would destroy or
-/// corrupt work in progress: a mutating Worker about to write in the canonical
-/// checkout, or in a lane another task owns. Everything else is a nudge.
+/// The ONLY hard stop here, and only where work in progress would be destroyed:
+/// a mutating Worker writing in canonical or in a lane another task owns.
 pub(crate) fn refuse_unsafe_mutating_write(
     plan: &Plan,
     task_id: &str,

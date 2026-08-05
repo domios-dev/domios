@@ -15,9 +15,8 @@ pub(crate) fn authorize_task_mutation(
     task: &crate::plan::Task,
     authority: &TaskMutationAuthority,
 ) -> Result<(), PlanError> {
-    // A retired owner leaves nobody to authenticate against, and its superseded
-    // epoch fences nothing. Plan-level authority upstream already admitted this
-    // caller, so re-litigating a dead owner here is what made recovery impossible.
+    // A retired owner leaves nobody to authenticate against and its superseded
+    // epoch fences nothing; plan-level authority upstream already admitted this caller.
     if task.interruption.owner_tab_id.is_none() && task.interruption.owner_session_id.is_none() {
         return Ok(());
     }

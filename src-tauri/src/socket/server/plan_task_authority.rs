@@ -80,9 +80,8 @@ fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan:
     }
 }
 
-/// True only for a live, authenticated Plan owner acting on a task whose owning
-/// tab is gone. Deliberately delegates to the canonical owner predicate in
-/// `service::plan_authority` instead of re-deriving a second, stricter one.
+/// True only for a live Plan owner whose task's owning tab is gone. Delegates to
+/// the canonical predicate rather than re-deriving a second, stricter one.
 pub(super) fn plan_owner_may_recover(
     method: &str,
     params: &Option<Value>,
@@ -131,9 +130,8 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         &detail.plan_id,
         detail.task.interruption.owner_tab_id.as_deref(),
     ) {
-        // Retire-and-recover is ONE transition: the stale attempt is fenced and
-        // the recovered status lands together, so no half-applied state is
-        // visible and a later dispatch_ready for that attempt is already dead.
+        // Retire-and-recover is ONE transition: the verb cannot proceed until the
+        // stale attempt is fenced, so a later dispatch_ready is already dead.
         svc.plan_store
             .retire_stale_task_owner(
                 &detail.plan_id,

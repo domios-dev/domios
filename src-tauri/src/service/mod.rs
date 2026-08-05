@@ -104,7 +104,9 @@ pub(crate) mod worker_interruption;
 mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
-pub(crate) use worker_lane::{verify_worker_lane, ProvisionedWorkerLane, WorkerLaneProvenance};
+pub(crate) use worker_lane::{
+    provision_isolated_lane, verify_worker_lane, ProvisionedWorkerLane, WorkerLaneProvenance,
+};
 mod worker_persona;
 mod workspace;
 

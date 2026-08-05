@@ -64,6 +64,78 @@ fn preflight_compete_review_capacity(
     Ok(())
 }
 
+/// Only a Mutating task gets per-competitor lanes. Any other intent — including
+/// the `Unspecified` default of a never-dispatched task — keeps today's path.
+pub(super) fn mutating_competition(plan: &crate::plan::Plan, task_id: &str) -> bool {
+    plan.tasks
+        .iter()
+        .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        .is_some_and(|task| {
+            task.interruption.execution_intent == crate::plan::ExecutionIntent::Mutating
+        })
+}
+
+fn lane_provision_failed(reason: String) -> JsonRpcError {
+    JsonRpcError {
+        code: -32603,
+        message: format!("competition lane provisioning failed: {reason}"),
+        data: Some(json!({
+            "type": "competition_lane_provision_failed",
+            "stage": "lane_provision",
+            "reason": reason,
+        })),
+    }
+}
+
+/// Give this competitor its own worktree/branch/base off canonical, then prove
+/// the result is neither canonical nor a lane another task owns — before spawn.
+fn provision_competitor_lane(
+    plan: &crate::plan::Plan,
+    task_id: &str,
+    draft: &mut crate::service::plan::task_attempts::TaskCompeteDraft,
+) -> Result<crate::service::ProvisionedWorkerLane, JsonRpcError> {
+    let canonical =
+        super::plan_task_dispatch::lane_safety::canonical_path_of(plan).to_string();
+    let label = format!("{}-{}-c{}", plan.id, task_id, draft.lane);
+    let lane = crate::service::provision_isolated_lane(&canonical, &label)
+        .map_err(lane_provision_failed)?;
+    let provenance = match lane.verify() {
+        Ok(provenance) => provenance,
+        Err(error) => return Err(release_lanes(vec![lane], lane_provision_failed(error))),
+    };
+    if let Err(refusal) = super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
+        plan,
+        task_id,
+        &provenance.worktree_path,
+        crate::plan::ExecutionIntent::Mutating,
+    ) {
+        return Err(release_lanes(vec![lane], refusal));
+    }
+    draft.cwd = provenance.worktree_path;
+    draft.branch = Some(provenance.branch);
+    draft.base = Some(provenance.base);
+    Ok(lane)
+}
+
+/// A partial competition must not leave orphan worktrees behind.
+fn release_lanes(
+    lanes: Vec<crate::service::ProvisionedWorkerLane>,
+    error: JsonRpcError,
+) -> JsonRpcError {
+    let failures: Vec<String> = lanes
+        .into_iter()
+        .filter_map(|lane| lane.cleanup().err())
+        .collect();
+    if failures.is_empty() {
+        return error;
+    }
+    JsonRpcError {
+        code: error.code,
+        message: format!("{}; lane cleanup failed: {}", error.message, failures.join("; ")),
+        data: error.data,
+    }
+}
+
 pub(super) fn compete(
     params: &Option<Value>,
     app: &AppHandle,
@@ -108,9 +180,11 @@ pub(super) fn compete(
     let plan = store
         .get(&id)
         .ok_or_else(|| plan_rpc_err(crate::service::plan::PlanError::NotFound))?;
+    let mutating = mutating_competition(&plan, &tid);
     let mut attempts = Vec::new();
     let mut spawns = Vec::new();
-    for draft in drafts {
+    let mut provisioned: Vec<crate::service::ProvisionedWorkerLane> = Vec::new();
+    for mut draft in drafts {
         let parent_tab_id = draft
             .parent_tab_id
             .clone()
@@ -120,6 +194,12 @@ pub(super) fn compete(
                 message: "competition requires a parent Orchestrator tab".into(),
                 data: None,
             })?;
+        if mutating {
+            match provision_competitor_lane(&plan, &tid, &mut draft) {
+                Ok(lane) => provisioned.push(lane),
+                Err(error) => return Err(release_lanes(provisioned, error)),
+            }
+        }
         let spawn_params = crate::service::SpawnAgentParams {
             agent: Some(draft.provider.clone()),
             cwd: Some(draft.cwd.clone()),
@@ -132,17 +212,24 @@ pub(super) fn compete(
             model: draft.model.clone(),
             planned_model: draft.planned_model.clone(),
             spawned_by_tab_id: Some(parent_tab_id.clone()),
+            provisioned_cwd: draft.branch.is_some().then(|| draft.cwd.clone()),
             ..Default::default()
         };
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        let spawn = svc
-            .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e,
-                data: None,
-            })?;
-        let created = record_spawned_attempt(svc, &spawn.tab_id, || {
+        let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
+            Ok(spawn) => spawn,
+            Err(e) => {
+                return Err(release_lanes(
+                    provisioned,
+                    JsonRpcError {
+                        code: -32603,
+                        message: e,
+                        data: None,
+                    },
+                ))
+            }
+        };
+        let created = match record_spawned_attempt(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,
                 &tid,
@@ -151,7 +238,10 @@ pub(super) fn compete(
                 tab_role(svc, &spawn.tab_id),
                 now,
             )
-        })?;
+        }) {
+            Ok(created) => created,
+            Err(error) => return Err(release_lanes(provisioned, error)),
+        };
         let svc_for_ready = svc.clone();
         let app_for_ready = app.clone();
         let plan_id = id.clone();
@@ -271,6 +361,9 @@ fn epoch_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+#[cfg(test)]
+mod lane_isolation_tests;
 
 #[cfg(test)]
 mod tests {

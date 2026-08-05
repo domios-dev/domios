@@ -612,9 +612,6 @@ mod tests {
             .join("spec.yaml");
         assert!(active_spec.is_file());
 
-        store
-            .add_retrospective(&plan.id, "retro", crate::plan::AgentRef::from_tab("orch"), 4)
-            .unwrap();
         store.archive(&plan.id, 4).unwrap();
 
         let archived_spec = root
@@ -751,9 +748,6 @@ mod tests {
         let b = create_plan(&store, &root, "B");
         store
             .link_effort(&a.id, &b.id, EffortLinkRel::Follows, 2)
-            .unwrap();
-        store
-            .add_retrospective(&a.id, "retro", crate::plan::AgentRef::from_tab("orch"), 3)
             .unwrap();
         store.archive(&a.id, 3).unwrap();
         let archived = store.get(&a.id).unwrap();

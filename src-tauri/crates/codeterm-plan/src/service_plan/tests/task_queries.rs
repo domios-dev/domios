@@ -3,9 +3,6 @@ use super::*;
 #[test]
 fn task_queries_exclude_archived_plans() {
     let (store, id, _) = store_with_task(&["status_update"]);
-    store
-        .add_retrospective(&id, "retro", crate::plan::AgentRef::from_tab("orch"), 99)
-        .unwrap();
     store.archive(&id, 99).unwrap();
 
     let tasks = store.list_tasks(TaskListFilter {

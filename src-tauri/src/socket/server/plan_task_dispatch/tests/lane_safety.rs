@@ -1,13 +1,13 @@
-use std::collections::HashSet;
-
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore};
 
 use super::super::lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, refuse_unsafe_mutating_write,
-    REFUSAL_MUTATING_WRITE_IN_CANONICAL, REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE, NUDGE_IDS,
+    REFUSAL_MUTATING_WRITE_IN_CANONICAL, REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE,
 };
-use super::super::{apply_safety_nudges, lane_safety_incident_text, LANE_SAFETY_INCIDENT_KIND};
+use crate::socket::server::safety_nudge::{
+    apply_safety_nudges, safety_incident_text, NUDGE_IDS, SAFETY_INCIDENT_KIND,
+};
 
 fn violation_id(error: &crate::socket::server::JsonRpcError) -> String {
     error.data.as_ref().unwrap()["violation_id"]
@@ -154,17 +154,15 @@ fn a_fully_recorded_lane_raises_no_nudge_at_all() {
     assert!(result.get("_hints").is_none());
 }
 
+/// The refusal ids are a separate, disjoint set from the advisory ids.
 #[test]
-fn nudge_ids_are_stable_and_unique() {
-    let unique: HashSet<&&str> = NUDGE_IDS.iter().collect();
-    assert_eq!(unique.len(), NUDGE_IDS.len());
-    assert!(NUDGE_IDS.iter().all(|id| !id.trim().is_empty()));
-    assert!(!NUDGE_IDS.contains(&REFUSAL_MUTATING_WRITE_IN_CANONICAL));
-    assert!(!NUDGE_IDS.contains(&REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE));
+fn refusal_ids_are_distinct_and_never_advisory() {
     assert_ne!(
         REFUSAL_MUTATING_WRITE_IN_CANONICAL,
         REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE
     );
+    assert!(!NUDGE_IDS.contains(&REFUSAL_MUTATING_WRITE_IN_CANONICAL));
+    assert!(!NUDGE_IDS.contains(&REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE));
 }
 
 #[test]
@@ -200,7 +198,7 @@ fn incident_evidence_is_recorded_durably() {
     let error = refuse_unsafe_mutating_write(&plan, &mine, &canonical, ExecutionIntent::Mutating)
         .unwrap_err();
     let data = error.data.as_ref().unwrap();
-    let text = lane_safety_incident_text(
+    let text = safety_incident_text(
         &mine,
         data["violation_id"].as_str().unwrap(),
         data["reason"].as_str().unwrap(),
@@ -208,7 +206,7 @@ fn incident_evidence_is_recorded_durably() {
     store
         .add_plan_stride(
             &plan.id,
-            LANE_SAFETY_INCIDENT_KIND,
+            SAFETY_INCIDENT_KIND,
             &text,
             crate::plan::AgentRef::from_tab("dispatcher"),
             9,
@@ -220,7 +218,7 @@ fn incident_evidence_is_recorded_durably() {
     let incident = reloaded
         .strides
         .iter()
-        .find(|stride| stride.kind == LANE_SAFETY_INCIDENT_KIND)
+        .find(|stride| stride.kind == SAFETY_INCIDENT_KIND)
         .expect("the refusal must leave durable incident evidence");
     assert!(incident.text.contains(REFUSAL_MUTATING_WRITE_IN_CANONICAL));
     assert!(incident.text.contains(&mine));
