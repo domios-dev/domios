@@ -12,6 +12,7 @@ pub struct MemCronJob {
     pub name: String,
     pub agent: String,
     pub schedule: String,
+    pub task: String,
     pub enabled: bool,
     pub oneshot: bool,
     pub next_run: Option<u64>,
