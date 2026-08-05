@@ -2,6 +2,23 @@ use super::*;
 
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
+// A unique, probed loopback port per test outside the ephemeral range, so
+// parallel lifecycle tests never race the bind(:0)->drop->rebind window on the
+// same port. Per-process base separates concurrent test binaries; each atomic
+// candidate is probed and skipped if an external process already holds it.
+fn reserved_test_addr() -> SocketAddr {
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static SEQ: AtomicU16 = AtomicU16::new(0);
+    let base: u16 = 20000 + (std::process::id() % 8000) as u16;
+    loop {
+        let candidate = base.wrapping_add(SEQ.fetch_add(1, Ordering::Relaxed));
+        let addr = SocketAddr::from(([127, 0, 0, 1], candidate));
+        if std::net::TcpListener::bind(addr).is_ok() {
+            return addr;
+        }
+    }
+}
+
 async fn wait_for_status<F>(
     control: &RestApiControl,
     status: &mut watch::Receiver<RestApiStatus>,
@@ -81,8 +98,8 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
 
 #[tokio::test]
 async fn occupied_port_release_event_rebinds_the_real_listener() {
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = occupied.local_addr().unwrap();
+    let address = reserved_test_addr();
+    let occupied = std::net::TcpListener::bind(address).unwrap();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
@@ -106,10 +123,7 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
 
 #[tokio::test]
 async fn manual_restart_rebinds_a_real_listener() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
@@ -135,10 +149,7 @@ async fn manual_restart_rebinds_a_real_listener() {
 
 #[tokio::test]
 async fn port_release_while_listening_keeps_the_real_listener_running() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
@@ -224,10 +235,7 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
 
 #[tokio::test]
 async fn shutdown_error_fails_its_restart_completion_then_recovers() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
     control.force_shutdown_error();
     let mut lifecycle = control.subscribe_lifecycle();
@@ -262,10 +270,7 @@ async fn shutdown_error_fails_its_restart_completion_then_recovers() {
 
 #[tokio::test]
 async fn overlapping_restarts_complete_from_their_own_listener_generations() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
@@ -364,10 +369,7 @@ fn worker_gated_router(gates: Arc<WorkerGates>) -> axum::Router {
 
 #[tokio::test]
 async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
-    let exit_address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let exit_address = reserved_test_addr();
     let exit_control = Arc::new(RestApiControl::new());
     let exit = exit_control.install_server_exit();
     let mut exit_events = exit_control.subscribe_lifecycle();
@@ -392,10 +394,7 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
     exit_control.shutdown_and_wait().await.unwrap();
     exit_task.await.unwrap();
 
-    let stall_address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let stall_address = reserved_test_addr();
     let stall_control = Arc::new(RestApiControl::new());
     let mut stall_events = stall_control.subscribe_lifecycle();
     let (health_requests, mut health_events) = mpsc::unbounded_channel();
@@ -509,10 +508,7 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
 
 #[tokio::test]
 async fn api_host_change_reports_active_listener() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
@@ -539,10 +535,7 @@ async fn api_host_change_reports_active_listener() {
 
 #[tokio::test]
 async fn unbindable_configured_value_is_disclosed_not_assumed_applied() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));

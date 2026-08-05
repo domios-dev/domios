@@ -121,6 +121,7 @@ pub(crate) fn builtin_guidance(kind_id: &str) -> Option<String> {
 
 /// An overlay kind has no bundled text, so it inherits its structural base and
 /// layers the supplied persona on top — the same composition managers get.
+#[allow(dead_code)]
 pub(crate) fn resolve(
     role: Option<AgentRole>,
     role_profile: Option<&str>,

@@ -280,7 +280,7 @@ impl super::ServiceContext {
             );
             format!("checkpoint worker failed: {error}")
         })?
-        .map_err(|error| {
+        .inspect_err(|_error| {
             let _ = self.plan_store.mark_interruption_checkpoint_failed(
                 &request.plan_id,
                 &request.task_id,
@@ -288,7 +288,6 @@ impl super::ServiceContext {
                 request.owner_epoch,
                 request.occurred_at,
             );
-            error
         })?;
         self.plan_store
             .finish_task_interruption(
