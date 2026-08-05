@@ -6,6 +6,7 @@
 #                          responds (handy for scripts/agents)
 #   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
 #   ./build.sh check     — integration-owner cargo check
+#   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
@@ -1255,6 +1256,7 @@ CodeTerm build commands
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
   check                       Fast Rust compile check
+  frontend                    Production frontend typecheck + bundle
   worktree-check              Isolated lane-safe Rust compile check
   test-one <app|plan|pty|types|mem|plugin|cli> NAME
                               Run one focused capped Rust test
@@ -1366,6 +1368,11 @@ EOF
     prepare_bundle_stubs
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
+    ;;
+  frontend)
+    enter_build_gateway "$CMD ${*:2}"
+    ensure_deps
+    pnpm build
     ;;
   release-preflight)
     enter_build_gateway "$CMD ${*:2}"
