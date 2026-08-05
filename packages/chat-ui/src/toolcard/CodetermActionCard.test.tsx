@@ -122,7 +122,7 @@ await act(async () => specButton?.click());
 if (specCalls[0] !== "sp_d17yp2") throw new Error("spec navigation regression");
 
 const goalCalls: string[] = [];
-const goalHost = await render(<CodetermActionCard {...navProps} event={event(`codeterm plan goal get ${PLAN}`)} onOpenPlan={(id, focus, kind) => goalCalls.push(`${id}:${focus ?? ""}:${kind ?? ""}`)} />);
+const goalHost = await render(<CodetermActionCard {...navProps} event={event(`codeterm plan goal show ${PLAN}`)} onOpenPlan={(id, focus, kind) => goalCalls.push(`${id}:${focus ?? ""}:${kind ?? ""}`)} />);
 const goalButton = goalHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-show-plan"]');
 if (goalButton?.textContent !== "Show Goal") throw new Error("goal navigation label regression");
 await act(async () => goalButton?.click());

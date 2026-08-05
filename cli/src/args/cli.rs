@@ -9,17 +9,17 @@ use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;
 
-use super::agent::{AgentAction, ReportArgs};
+use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
+use super::inbox::InboxAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
-    ThemeAction, WorkspaceAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
+    WorkspaceAction,
 };
-use super::orchestration::OrchestrationAction;
 use super::orchestrator::OrchestratorAction;
 use super::pad::PadAction;
 use super::persona::PersonaAction;
@@ -94,7 +94,7 @@ pub enum Commands {
         action: WorkspaceAction,
     },
 
-    /// Team registry and 1:1 plan binding
+    /// Team registry, 1:1 plan binding, and paired creation
     Team {
         #[command(subcommand)]
         action: TeamAction,
@@ -104,12 +104,6 @@ pub enum Commands {
     Orchestrator {
         #[command(subcommand)]
         action: OrchestratorAction,
-    },
-
-    /// Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
-    Orchestration {
-        #[command(subcommand)]
-        action: OrchestrationAction,
     },
 
     /// Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
@@ -208,28 +202,10 @@ pub enum Commands {
         action: PasteAction,
     },
 
-    /// Send a notification
+    /// Send, list, and clear notifications
     Notify {
-        /// Notification title
-        title: String,
-
-        /// Notification body
-        #[arg(long)]
-        body: Option<String>,
-
-        /// Notification level: info, warning, error
-        #[arg(long, default_value = "info")]
-        level: String,
-    },
-
-    /// List or manage notifications
-    Notifications {
         #[command(subcommand)]
-        action: Option<NotificationAction>,
-
-        /// Show only unread notifications
-        #[arg(long)]
-        unread: bool,
+        action: NotifyAction,
     },
 
     /// Prevent the system from sleeping while an agent is running
@@ -249,9 +225,6 @@ pub enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
-
-    /// Report worker progress to the owning orchestrator or plan
-    Report(ReportArgs),
 
     /// Cron job management
     Cron {
@@ -322,10 +295,16 @@ pub enum Commands {
         action: EffortAction,
     },
 
-    /// Standalone and plan-backed tasks
+    /// Plan-backed tasks across active plans
     Task {
         #[command(subcommand)]
         action: TaskAction,
+    },
+
+    /// Workspace Inbox — standalone tasks with no plan
+    Inbox {
+        #[command(subcommand)]
+        action: InboxAction,
     },
 
     /// Canvas control commands

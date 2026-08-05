@@ -314,7 +314,26 @@ pub enum PasteAction {
 }
 
 #[derive(Subcommand)]
-pub enum NotificationAction {
+pub enum NotifyAction {
+    /// Send a notification
+    Send {
+        /// Notification title
+        title: String,
+
+        /// Notification body
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Notification level: info, warning, error
+        #[arg(long, default_value = "info")]
+        level: String,
+    },
+    /// List notifications
+    List {
+        /// Show only unread notifications
+        #[arg(long)]
+        unread: bool,
+    },
     /// Clear all notifications
     Clear,
 }

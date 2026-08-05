@@ -82,7 +82,7 @@ fn pair_retry_command(
         None => provider.to_string(),
     };
     format!(
-        "codeterm orchestration new --orchestrator {} --planner {} --workspace {}",
+        "codeterm team pair --orchestrator {} --planner {} --workspace {}",
         provider_spec(orchestrator_agent, orchestrator_model),
         provider_spec(planner_agent, planner_model),
         workspace_id
@@ -768,7 +768,7 @@ mod tests {
         let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
         assert_eq!(
             cmd,
-            "codeterm orchestration new --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+            "codeterm team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
         );
     }
 

@@ -4,6 +4,16 @@ use crate::args::team::TeamAction;
 use crate::client::RpcClient;
 
 pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction) {
+    if let TeamAction::Pair {
+        orchestrator,
+        planner,
+        workspace,
+        title,
+    } = action
+    {
+        handle_pair(client, json_output, &orchestrator, &planner, workspace, title);
+        return;
+    }
     let caller_tab_id = (!client.is_remote())
         .then(|| std::env::var("CODETERM_TAB_ID").ok())
         .flatten();
@@ -31,6 +41,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             adopt_plan_params(team_id, plan_id, caller_tab_id.as_deref())
                 .and_then(|params| client.call("team.adopt_plan", Some(params)))
         }
+        TeamAction::Pair { .. } => unreachable!("pair returns before the socket verbs"),
     };
     match result {
         Ok(value) if json_output => println!(
@@ -42,6 +53,93 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             eprintln!("Error: {error}");
             std::process::exit(1);
         }
+    }
+}
+
+fn handle_pair(
+    client: &mut dyn RpcClient,
+    json_output: bool,
+    orchestrator: &str,
+    planner: &str,
+    workspace: Option<String>,
+    title: Option<String>,
+) {
+    let params = pair_params(orchestrator, planner, workspace, title);
+    match client.call("orchestration.new", Some(params)) {
+        Ok(value) if json_output => println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+        ),
+        Ok(value) => print_pair(&value),
+        Err(error) => {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Splits a `provider[:model]` spec. A trailing empty model (`"claude:"`) is
+/// treated the same as no model — let the provider descriptor default apply.
+pub(crate) fn split_provider_model(spec: &str) -> (String, Option<String>) {
+    match spec.split_once(':') {
+        Some((provider, model)) if !model.trim().is_empty() => {
+            (provider.trim().to_string(), Some(model.trim().to_string()))
+        }
+        _ => (
+            spec.split(':').next().unwrap_or(spec).trim().to_string(),
+            None,
+        ),
+    }
+}
+
+pub(crate) fn pair_params(
+    orchestrator: &str,
+    planner: &str,
+    workspace: Option<String>,
+    title: Option<String>,
+) -> Value {
+    let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
+    let (planner_agent, planner_model) = split_provider_model(planner);
+
+    let mut params = json!({
+        "orchestrator_agent": orchestrator_agent,
+        "planner_agent": planner_agent,
+    });
+    if let Some(m) = orchestrator_model {
+        params["orchestrator_model"] = json!(m);
+    }
+    if let Some(m) = planner_model {
+        params["planner_model"] = json!(m);
+    }
+    if let Some(w) = workspace {
+        params["workspace_id"] = json!(w);
+    }
+    if let Some(t) = title {
+        params["title"] = json!(t);
+    }
+    if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {
+        if !spawner.is_empty() {
+            params["spawned_by_tab_id"] = json!(spawner);
+        }
+    }
+    params
+}
+
+fn print_pair(value: &Value) {
+    let plan_id = value.get("plan_id").and_then(Value::as_str).unwrap_or("?");
+    let orch_tab = value
+        .get("orchestrator_tab_id")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let planner_tab = value
+        .get("planner_tab_id")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    println!("Plan: {plan_id}");
+    println!("Orchestrator: Tab {orch_tab}");
+    println!("Planner: Tab {planner_tab}");
+    if let Some(warning) = value.get("warning").and_then(Value::as_str) {
+        eprintln!("Warning: {warning}");
     }
 }
 
@@ -114,5 +212,26 @@ mod tests {
             let error = adopt_plan_params("team".into(), "plan".into(), caller).unwrap_err();
             assert!(error.contains("CODETERM_TAB_ID"));
         }
+    }
+
+    #[test]
+    fn splits_provider_and_model() {
+        assert_eq!(
+            split_provider_model("claude:fable"),
+            ("claude".to_string(), Some("fable".to_string()))
+        );
+    }
+
+    #[test]
+    fn provider_only_has_no_model() {
+        assert_eq!(split_provider_model("codex"), ("codex".to_string(), None));
+    }
+
+    #[test]
+    fn trailing_colon_with_no_model_falls_back_to_provider_only() {
+        assert_eq!(
+            split_provider_model("claude:"),
+            ("claude".to_string(), None)
+        );
     }
 }

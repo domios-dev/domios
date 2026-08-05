@@ -93,13 +93,14 @@ pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
 pub use args::effort::EffortAction;
+pub use args::inbox::InboxAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
-    ThemeAction, WebAction, WorkspaceAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
+    WebAction, WorkspaceAction,
 };
 pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
@@ -406,14 +407,6 @@ fn main_impl() {
             }
         }
 
-        Commands::Orchestration { action } => {
-            match cmd::orchestration::handle(&mut client, cli.json, action) {
-                Ok(Some(value)) => Ok(value),
-                Ok(None) => return,
-                Err(e) => Err(e),
-            }
-        }
-
         Commands::Persona { action } => match cmd::persona::handle(&mut client, cli.json, action) {
             Ok(Some(value)) => Ok(value),
             Ok(None) => return,
@@ -470,26 +463,25 @@ fn main_impl() {
             return;
         }
 
-        Commands::Notify { title, body, level } => {
-            let mut params = serde_json::json!({ "title": title, "level": level });
-            if let Some(b) = body {
-                params["body"] = serde_json::Value::String(b);
+        Commands::Notify { action } => match action {
+            NotifyAction::Send { title, body, level } => {
+                let mut params = serde_json::json!({ "title": title, "level": level });
+                if let Some(b) = body {
+                    params["body"] = serde_json::Value::String(b);
+                }
+                client.call("notification.create", Some(params))
             }
-            client.call("notification.create", Some(params))
-        }
+            NotifyAction::List { unread } => client.call(
+                "notification.list",
+                Some(serde_json::json!({ "unread_only": unread })),
+            ),
+            NotifyAction::Clear => client.call("notification.clear", None),
+        },
 
         Commands::Bridge { action } => {
             cmd::bridge::handle_bridge(&mut client, cli.json, action);
             return;
         }
-
-        Commands::Notifications { action, unread } => match action {
-            Some(NotificationAction::Clear) => client.call("notification.clear", None),
-            None => client.call(
-                "notification.list",
-                Some(serde_json::json!({ "unread_only": unread })),
-            ),
-        },
 
         Commands::Keepawake { action } => {
             let (base, _) = read_api_config();
@@ -550,11 +542,6 @@ fn main_impl() {
             return;
         }
 
-        Commands::Report(args) => {
-            cmd::agent::handle_agent(&mut client, cli.json, AgentAction::Report(args));
-            return;
-        }
-
         Commands::Plan { action } => {
             cmd::plan::handle_plan(&mut client, cli.json, action);
             return;
@@ -572,6 +559,11 @@ fn main_impl() {
 
         Commands::Task { action } => {
             cmd::task::handle_task(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Inbox { action } => {
+            cmd::task::handle_inbox(&mut client, cli.json, action);
             return;
         }
 
