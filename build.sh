@@ -1700,14 +1700,16 @@ EOF
   e2e)
     export CODETERM_API_URL="http://127.0.0.1:${CT_PORT}"
     cd tests/e2e
-    pip install -q -r requirements.txt 2>/dev/null
-    python3 -m pytest -m "not llm" -v --tb=short "${@:2}"
+    PYTHON_BIN="$(command -v python3 || command -v python)"
+    "$PYTHON_BIN" -m pip install -q -r requirements.txt 2>/dev/null
+    "$PYTHON_BIN" -m pytest -m "not llm" -v --tb=short "${@:2}"
     ;;
   e2e:llm)
     export CODETERM_API_URL="http://127.0.0.1:${CT_PORT}"
     cd tests/e2e
-    pip install -q -r requirements.txt 2>/dev/null
-    python3 -m pytest -m llm -v --tb=short "${@:2}"
+    PYTHON_BIN="$(command -v python3 || command -v python)"
+    "$PYTHON_BIN" -m pip install -q -r requirements.txt 2>/dev/null
+    "$PYTHON_BIN" -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
     enter_build_gateway "$CMD ${*:2}"
@@ -1728,9 +1730,10 @@ EOF
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "plugin"     pnpm -s test:plugins
 
-    DEV_STATUS=$(dev_health_status | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+    PYTHON_BIN="$(command -v python3 || command -v python)"
+    DEV_STATUS=$(dev_health_status | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$DEV_STATUS" = "ok" ]; then
-      ta_run "e2e-pytest" bash -c "cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} python3 -m pytest -m 'not llm' -q"
+      ta_run "e2e-pytest" bash -c "cd tests/e2e && '$PYTHON_BIN' -m pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} '$PYTHON_BIN' -m pytest -m 'not llm' -q"
     else
       echo
       echo ">>> SKIPPED e2e-pytest — dev 7686 not healthy (start with ./build.sh dev)"
