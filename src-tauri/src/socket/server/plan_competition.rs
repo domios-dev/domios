@@ -8,7 +8,7 @@ use crate::service::{ServiceState, SpawnIdentityProvenance};
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_fields::tab_role;
 use super::plan_refs;
-use super::plan_role_helpers::record_spawned_attempt;
+use super::plan_role_helpers::record_spawned_attempt_reporting_close;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn metadata_field(
@@ -246,11 +246,57 @@ where
     outcome
 }
 
+/// Owns a tab but NO attempt, so retirement is never attempted for it; its lane
+/// is released only once its tab is confirmed closed.
+pub(super) fn compensate_current_competitor<L>(
+    tab_id: &str,
+    worktree_path: Option<&str>,
+    close_error: Option<String>,
+    mut cleanup_lane: L,
+) -> CompensationOutcome
+where
+    L: FnMut(&str) -> Result<(), String>,
+{
+    let mut outcome = CompensationOutcome::default();
+    if let Some(reason) = close_error {
+        outcome.retained.push(json!({
+            "tab_id": tab_id,
+            "attempt_id": Value::Null,
+            "worktree_path": worktree_path,
+            "reason": reason,
+        }));
+        return outcome;
+    }
+    match worktree_path.map(&mut cleanup_lane) {
+        Some(Err(reason)) => outcome.retained.push(json!({
+            "tab_id": tab_id,
+            "attempt_id": Value::Null,
+            "worktree_path": worktree_path,
+            "reason": reason,
+        })),
+        _ => outcome.released.push(json!({
+            "tab_id": tab_id,
+            "attempt_id": Value::Null,
+            "worktree_path": worktree_path,
+        })),
+    }
+    outcome
+}
+
+/// A spawned competitor whose attempt was never recorded: it is compensated
+/// separately because there is no attempt to retire.
+pub(super) struct UnrecordedCompetitor {
+    pub tab_id: String,
+    pub lane: Option<crate::service::ProvisionedWorkerLane>,
+    pub close_error: Option<String>,
+}
+
 fn compensate_competition(
     svc: &ServiceState,
     plan_id: &str,
     task_id: &str,
     live: Vec<SpawnedCompetitor>,
+    current: Option<UnrecordedCompetitor>,
     unowned: Vec<crate::service::ProvisionedWorkerLane>,
     now: u64,
     error: JsonRpcError,
@@ -269,7 +315,15 @@ fn compensate_competition(
             }),
         })
         .collect();
-    let outcome = compensate_spawned_competitors(
+    let current = current.map(|current| {
+        let path = current.lane.map(|lane| {
+            let path = lane.cwd.clone();
+            owned_lanes.insert(path.clone(), lane);
+            path
+        });
+        (current.tab_id, current.close_error, path)
+    });
+    let mut outcome = compensate_spawned_competitors(
         competitors,
         |tab_id| svc.close_tab(tab_id),
         |tab_id| {
@@ -283,6 +337,17 @@ fn compensate_competition(
             None => Ok(()),
         },
     );
+    if let Some((tab_id, close_error, path)) = current {
+        let current_outcome =
+            compensate_current_competitor(&tab_id, path.as_deref(), close_error, |path| {
+                match owned_lanes.remove(path) {
+                    Some(lane) => lane.cleanup(),
+                    None => Ok(()),
+                }
+            });
+        outcome.released.extend(current_outcome.released);
+        outcome.retained.extend(current_outcome.retained);
+    }
     let mut error = release_unowned_lanes(unowned, error);
     if outcome.is_empty() {
         return error;
@@ -365,6 +430,7 @@ pub(super) fn compete(
                     &id,
                     &tid,
                     live,
+                    None,
                     unowned_lanes(&mut lanes, index),
                     now,
                     JsonRpcError {
@@ -401,6 +467,7 @@ pub(super) fn compete(
                     &id,
                     &tid,
                     live,
+                    None,
                     unowned_lanes(&mut lanes, index),
                     now,
                     JsonRpcError {
@@ -411,7 +478,7 @@ pub(super) fn compete(
                 ))
             }
         };
-        let created = match record_spawned_attempt(svc, &spawn.tab_id, || {
+        let created = match record_spawned_attempt_reporting_close(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,
                 &tid,
@@ -422,16 +489,24 @@ pub(super) fn compete(
             )
         }) {
             Ok(created) => created,
-            Err(error) => {
+            Err(failure) => {
+                // No attempt was recorded, so nothing to retire; the lane is only
+                // safe to delete once this tab is CONFIRMED closed.
+                let current = UnrecordedCompetitor {
+                    tab_id: spawn.tab_id.clone(),
+                    lane: lanes[index].take(),
+                    close_error: failure.close_error,
+                };
                 return Err(compensate_competition(
                     svc,
                     &id,
                     &tid,
                     live,
+                    Some(current),
                     unowned_lanes(&mut lanes, index),
                     now,
-                    error,
-                ))
+                    failure.error,
+                ));
             }
         };
         live.push(SpawnedCompetitor {

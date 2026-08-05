@@ -606,7 +606,38 @@ impl PlanStore {
     }
 
     pub fn archive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
+        self.archive_with_incident(plan_id, None, now_ms)
+    }
+
+    /// Archive status and its incident evidence are ONE write. `with_plan` commits
+    /// only after the file persists, so neither lands without the other.
+    pub fn archive_with_incident(
+        &self,
+        plan_id: &str,
+        incident: Option<PlanIncident>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let mid = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
+            if let Some(incident) = incident.as_ref() {
+                if incident.kind.trim().is_empty() || incident.text.trim().is_empty() {
+                    return Err(PlanError::Io(
+                        "plan archive incident requires a kind and text".into(),
+                    ));
+                }
+                p.strides.push(Milestone {
+                    id: mid.clone(),
+                    from: incident.from.clone(),
+                    kind: incident.kind.clone(),
+                    text: incident.text.clone(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
             p.status = PlanStatus::Archived;
             Ok(())
         })

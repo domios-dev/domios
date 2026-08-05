@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::*;
 use crate::plan::{AgentRef, OrchestratorRef, Plan};
-use crate::service::plan::PlanStore;
+use crate::service::plan::{PlanIncident, PlanStore};
 
 #[test]
 fn nudge_ids_are_stable_and_unique() {
@@ -67,10 +67,9 @@ fn incidents(store: &PlanStore, plan_id: &str) -> usize {
 fn archive_without_retrospective_emits_nudge_and_durable_evidence() {
     let (_dir, store, plan_id) = plan_without_retrospective();
 
-    let nudge =
-        super::super::plan_archive::archive_with_evidence(&store, &plan_id, || store.archive(&plan_id, 3), 3)
-            .unwrap()
-            .expect("a plan with no retrospective must raise the advisory");
+    let nudge = super::super::plan_archive::archive_with_evidence(&store, &plan_id, 3)
+        .unwrap()
+        .expect("a plan with no retrospective must raise the advisory");
 
     assert_eq!(nudge.id, NUDGE_RETROSPECTIVE_UNRECORDED);
     assert!(!nudge.safe_alternative.is_empty());
@@ -86,25 +85,47 @@ fn archive_without_retrospective_emits_nudge_and_durable_evidence() {
         .contains(NUDGE_RETROSPECTIVE_UNRECORDED));
 }
 
-/// Failure injection: a durable incident must never claim an archive that failed.
+/// Drives the real atomic seam: a rejected incident must abort the whole write,
+/// leaving status AND evidence untouched rather than archiving without evidence.
 #[test]
-fn a_failed_archive_records_no_retrospective_incident() {
+fn a_failed_archive_write_changes_neither_status_nor_incident() {
     let (_dir, store, plan_id) = plan_without_retrospective();
 
-    let error = super::super::plan_archive::archive_with_evidence(
-        &store,
-        &plan_id,
-        || Err(crate::service::plan::PlanError::Io("disk full".into())),
-        3,
-    )
-    .unwrap_err();
+    let error = store
+        .archive_with_incident(
+            &plan_id,
+            Some(PlanIncident {
+                kind: SAFETY_INCIDENT_KIND.into(),
+                text: "   ".into(),
+                from: AgentRef::from_tab("archive"),
+            }),
+            3,
+        )
+        .unwrap_err();
 
     assert!(matches!(error, crate::service::plan::PlanError::Io(_)));
     assert_eq!(incidents(&store, &plan_id), 0, "no evidence without archive");
     assert_eq!(
         store.get(&plan_id).unwrap().status,
-        crate::plan::PlanStatus::Active
+        crate::plan::PlanStatus::Active,
+        "a failed write must not archive either"
     );
+}
+
+#[test]
+fn a_missing_plan_leaves_no_partial_archive_state() {
+    let (_dir, store, _plan_id) = plan_without_retrospective();
+    assert!(store
+        .archive_with_incident(
+            "pl_missing",
+            Some(PlanIncident {
+                kind: SAFETY_INCIDENT_KIND.into(),
+                text: "evidence".into(),
+                from: AgentRef::from_tab("archive"),
+            }),
+            3,
+        )
+        .is_err());
 }
 
 #[test]
@@ -114,13 +135,7 @@ fn a_recorded_retrospective_archives_with_no_incident_at_all() {
         .add_retrospective(&plan_id, "what worked", AgentRef::from_tab("orch"), 2)
         .unwrap();
 
-    let nudge = super::super::plan_archive::archive_with_evidence(
-        &store,
-        &plan_id,
-        || store.archive(&plan_id, 3),
-        3,
-    )
-    .unwrap();
+    let nudge = super::super::plan_archive::archive_with_evidence(&store, &plan_id, 3).unwrap();
 
     assert!(nudge.is_none());
     assert_eq!(incidents(&store, &plan_id), 0);

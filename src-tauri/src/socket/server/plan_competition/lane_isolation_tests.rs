@@ -7,8 +7,8 @@ use crate::service::plan::task_attempts::TaskCompeteDraft;
 use crate::service::plan::{NewTask, PlanStore};
 
 use super::{
-    compensate_spawned_competitors, mutating_competition, provision_all_competitor_lanes,
-    provision_competitor_lane, CompetitorCompensation,
+    compensate_current_competitor, compensate_spawned_competitors, mutating_competition,
+    provision_all_competitor_lanes, provision_competitor_lane, CompetitorCompensation,
 };
 
 fn git(dir: &Path, args: &[&str]) {
@@ -321,4 +321,57 @@ fn successful_competitors_retain_their_lanes() {
     for lane in lanes.into_iter().flatten() {
         lane.cleanup().unwrap();
     }
+}
+
+/// Record failed AND the new tab could not be closed: it is still live, so its
+/// worktree must survive and be reported.
+#[test]
+fn record_failure_with_a_stuck_tab_retains_the_current_lane() {
+    let cleaned = std::cell::RefCell::new(Vec::<String>::new());
+    let outcome = compensate_current_competitor(
+        "tab-current",
+        Some("/lanes/current"),
+        Some("close_tab failed".into()),
+        |path| {
+            cleaned.borrow_mut().push(path.to_string());
+            Ok(())
+        },
+    );
+    let cleaned = cleaned.into_inner();
+
+    assert!(cleaned.is_empty(), "never delete under a still-live tab");
+    assert!(outcome.released.is_empty());
+    assert_eq!(outcome.retained.len(), 1);
+    assert_eq!(outcome.retained[0]["tab_id"], "tab-current");
+    assert_eq!(outcome.retained[0]["worktree_path"], "/lanes/current");
+    assert_eq!(outcome.retained[0]["reason"], "close_tab failed");
+    // No attempt was recorded, so none is claimed as retired.
+    assert!(outcome.retained[0]["attempt_id"].is_null());
+}
+
+/// Record failed but the tab closed cleanly: the lane is unowned, so it is
+/// deleted — and retirement is still never attempted for an unrecorded attempt.
+#[test]
+fn record_failure_with_a_closed_tab_releases_the_current_lane() {
+    let cleaned = std::cell::RefCell::new(Vec::<String>::new());
+    let outcome = compensate_current_competitor("tab-current", Some("/lanes/current"), None, |path| {
+        cleaned.borrow_mut().push(path.to_string());
+        Ok(())
+    });
+    let cleaned = cleaned.into_inner();
+
+    assert_eq!(cleaned, vec!["/lanes/current"]);
+    assert!(outcome.retained.is_empty());
+    assert_eq!(outcome.released.len(), 1);
+    assert_eq!(outcome.released[0]["worktree_path"], "/lanes/current");
+    assert!(outcome.released[0]["attempt_id"].is_null());
+}
+
+#[test]
+fn a_read_only_current_competitor_has_no_lane_to_release() {
+    let outcome = compensate_current_competitor("tab-current", None, None, |_| {
+        panic!("there is no lane to clean")
+    });
+    assert_eq!(outcome.released.len(), 1);
+    assert!(outcome.released[0]["worktree_path"].is_null());
 }
