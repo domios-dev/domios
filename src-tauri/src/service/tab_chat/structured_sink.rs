@@ -151,7 +151,7 @@ fn drop_already_stored_inbound(messages: Vec<ChatMsg>) -> Vec<ChatMsg> {
 
 fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
     msg.kind == "user"
-        && crate::message_markers::parse(&msg.content)
+        && crate::message_markers::parse_host_injected(&msg.content)
             .map(|marker| marker.kind == "inbound")
             .unwrap_or(false)
 }
