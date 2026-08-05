@@ -552,6 +552,33 @@ pub fn staging_nudge(source: &str, text: &str, remedy: &str) -> Option<String> {
     ))
 }
 
+/// Print the report-body staging nudge to stderr (skipped for `--json`).
+pub fn nudge_report_body(json: bool, text: &str) {
+    emit_staging_nudge(
+        json,
+        text,
+        "Stage it in the pad (`codeterm pad path`) and pass --from-pad.",
+    );
+}
+
+/// Print the spawn-task staging nudge naming the flags spawn actually has.
+pub fn nudge_spawn_task(json: bool, text: &str) {
+    emit_staging_nudge(
+        json,
+        text,
+        "Pass it byte-exact with --task-file <path>, or bind a plan task via --plan-task <id> — both bypass the shell.",
+    );
+}
+
+fn emit_staging_nudge(json: bool, text: &str, remedy: &str) {
+    if json {
+        return;
+    }
+    if let Some(hint) = staging_nudge("positional", text, remedy) {
+        eprintln!("{hint}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

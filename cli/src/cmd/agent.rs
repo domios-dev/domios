@@ -569,11 +569,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 })
             } else {
                 let inline = text.or(message).unwrap_or_default();
-                if !json {
-                    if let Some(hint) = crate::cmd::send_text::pad_nudge("positional", &inline) {
-                        eprintln!("{hint}");
-                    }
-                }
+                crate::cmd::send_text::nudge_report_body(json, &inline);
                 inline
             };
             if let Some(path) = doc {
@@ -805,15 +801,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 );
                 std::process::exit(1);
             }
-            if task_file.is_none() && !json {
+            if task_file.is_none() {
                 if let Some(t) = task.as_deref() {
-                    if let Some(hint) = crate::cmd::send_text::staging_nudge(
-                        "positional",
-                        t,
-                        "Pass it byte-exact with --task-file <path>, or bind a plan task via --plan-task <id> — both bypass the shell.",
-                    ) {
-                        eprintln!("{hint}");
-                    }
+                    crate::cmd::send_text::nudge_spawn_task(json, t);
                 }
             }
             let task =
