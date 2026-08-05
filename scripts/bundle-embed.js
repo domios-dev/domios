@@ -2,8 +2,9 @@
 // target-triple suffix so it can be referenced as externalBin and land
 // next to codeterm.exe in the installed app.
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 
 const isWindows = process.platform === "win32";
 const isMacOS = process.platform === "darwin";
@@ -12,7 +13,10 @@ const repoRoot = path.resolve(__dirname, "..");
 
 // CARGO_BUILD_TARGET (cross-builds) wins over host triple so the suffix matches Tauri's lookup.
 const buildTarget = process.env.CARGO_BUILD_TARGET || "";
-const triple = buildTarget || execSync("rustc -vV", { encoding: "utf8" })
+const cargoHome = process.env.CARGO_HOME || path.join(os.homedir(), ".cargo");
+const cargoRustc = path.join(cargoHome, "bin", `rustc${exeExt}`);
+const rustc = process.env.RUSTC || (fs.existsSync(cargoRustc) ? cargoRustc : "rustc");
+const triple = buildTarget || execFileSync(rustc, ["-vV"], { encoding: "utf8" })
   .split("\n")
   .find((l) => l.startsWith("host:"))
   .split(":")[1]

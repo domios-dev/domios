@@ -126,6 +126,10 @@ jobs:
       - name: Install npm dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build release bundle inputs
+        shell: bash
+        run: ./build.sh release-inputs
+
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v0
         env:
