@@ -223,16 +223,17 @@ production app during startup, in-app update, or `install-local`.
 | A foreground `build.ps1 dev` exits with `unexpected EOF` after `build.sh` is edited during startup | Bash was still reading the running script while its file contents changed underneath that process. | Finish build-script edits before launching dev, validate with `bash -n build.sh`, then restart dev through the named operation. |
 | Tauri dev starts from PowerShell but its `beforeDevCommand` reports `node is not recognized` | The nested Tauri hook re-resolved Node through a child Windows shell and lost the launcher environment. | Run dev preparation directly in `build.sh` with the already-resolved Node process, then launch Tauri with the generated runtime config that disables the duplicate hook. |
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
-| CI semantic-search tests fail by executing a zero-byte `codeterm-embed` stub | The compile-time Tauri resource placeholder survived into a test that exercises the real embedding process. | Build the debug `codeterm-embed` sidecar after preparing resource stubs and before Rust library tests; never skip the semantic oracle. |
-| macOS Rust tests panic because a mock Tauri `EventLoop` was created off the main thread | A `ServiceFixture` test ran in libtest's worker thread even though the shared desktop fixture is Windows-owned. | Mark that fixture-backed test ignored off Windows and keep its platform-neutral logic covered by tests that do not construct a desktop runtime. |
+| Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
+| macOS tests panic creating a mock Tauri `EventLoop` | A Windows-owned desktop fixture ran off the main thread. | Ignore that fixture off Windows; cover portable logic without a desktop runtime. |
 | macOS REST restart fails with `Address already in use` | Darwin requires every CodeTerm socket sharing the port to opt into rebinding. | Enable `SO_REUSEPORT` on every macOS REST bind; the instance guard retains process exclusivity. |
 | REST port-release passes alone but fails in the parallel macOS suite | A real occupier's close races Darwin teardown. | Inject the first bind failure in tests, then prove `port_released` creates a healthy real listener. |
 | Linux clippy rejects a test-only parameter as unused | `cfg(test)` consumes it, but clippy checks the normal library target. | Keep injection at a `cfg(test)` call site; production signatures take no test-only inputs. |
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package under its own cap. |
-| CLI docs tests report `BUILD exceeds 24 KiB` | Troubleshooting prose exceeded the CLI reading boundary. | Compress entries or move detail to `BUILD-REFERENCE`; keep symptom, cause, and recovery here. |
+| CLI docs report `BUILD exceeds 24 KiB` | Troubleshooting grew too large. | Compress it or move detail to `BUILD-REFERENCE`. |
+| Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition; rely on the capped test. |
 
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->
