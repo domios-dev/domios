@@ -298,7 +298,7 @@ def test_scenario_notification(api: CodeTermAPI):
         api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "Notifier", "role": "Worker",
             "parent_tab_id": orch,
-            "task": f'Run: codeterm notify "{marker}" --level info. Then report done.',
+            "task": f'Run: codeterm notify send "{marker}" --level info. Then report done.',
         })
         # Wait for notification
         deadline = time.monotonic() + 90

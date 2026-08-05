@@ -368,7 +368,7 @@ fn validate_spawn_role(
 }
 
 /// Paired creation (task_7e5f9354): create an Orchestrator + Planner in one
-/// action. The web-mirror twin of `codeterm orchestration new` — both call
+/// action. The web-mirror twin of `codeterm team pair` — both call
 /// `ServiceContext::create_orchestration_pair`.
 pub async fn create_orchestration_pair(
     AxumState(state): AxumState<AppState>,

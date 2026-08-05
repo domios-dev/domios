@@ -28,6 +28,20 @@ pub enum TeamAction {
         /// Plan ID
         plan_id: String,
     },
+    /// Create an Orchestrator + Planner Team in one action. The Plan stays
+    /// unbound until the first goal.
+    Pair {
+        /// Orchestrator provider, optionally with a model (`provider[:model]`)
+        #[arg(long)]
+        orchestrator: String,
+        /// Planner provider, optionally with a model (`provider[:model]`)
+        #[arg(long)]
+        planner: String,
+        #[arg(long, env = "CODETERM_WORKSPACE_ID")]
+        workspace: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        title: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -49,5 +63,40 @@ mod tests {
                 action: TeamAction::AdoptPlan { team_id, plan_id }
             } if team_id == "team_alpha" && plan_id == "pl_one"
         ));
+    }
+
+    #[test]
+    fn pair_parses_provider_model_specs_and_optional_fields() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "team",
+            "pair",
+            "--orchestrator",
+            "claude:fable",
+            "--planner",
+            "codex",
+            "--workspace",
+            "ws1",
+            "--title",
+            "My Plan",
+        ])
+        .expect("team pair parses");
+        match parsed.command {
+            Commands::Team {
+                action:
+                    TeamAction::Pair {
+                        orchestrator,
+                        planner,
+                        workspace,
+                        title,
+                    },
+            } => {
+                assert_eq!(orchestrator, "claude:fable");
+                assert_eq!(planner, "codex");
+                assert_eq!(workspace.as_deref(), Some("ws1"));
+                assert_eq!(title.as_deref(), Some("My Plan"));
+            }
+            _ => panic!("expected team pair"),
+        }
     }
 }

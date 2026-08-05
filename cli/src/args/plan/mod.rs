@@ -428,8 +428,6 @@ pub enum PlanSkillAction {
 
 #[derive(Subcommand)]
 pub enum PlanGoalAction {
-    /// Show the plan's north-star goal (alias of show)
-    Get { plan_id: String },
     /// Set the plan's goal vector, vision, constraints, and postulates
     Set {
         plan_id: String,
