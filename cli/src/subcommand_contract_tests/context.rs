@@ -46,10 +46,8 @@ fn full_env() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-// ---------------------------------------------------------------------------
-// Frozen wire shapes — captured from plan.rs:49-83 before the first edit.
-// These are the oracle; every row below asserts pre/post equality against them.
-// ---------------------------------------------------------------------------
+// Frozen wire shapes captured before the first edit; every row below asserts
+// pre/post equality against them.
 
 fn frozen_owner() -> Value {
     json!({ "tab_id": "tab_ctx", "session_id": "sess_ctx", "title": "Context Tab" })
@@ -184,10 +182,6 @@ fn legacy_helpers_delegate_to_caller_context() {
         assert_eq!(caller_tab_id(), ctx.tab_id());
     });
 }
-
-// ---------------------------------------------------------------------------
-// Scope guards.
-// ---------------------------------------------------------------------------
 
 const PLAN_RS: &str = include_str!("../cmd/plan.rs");
 const QA_RS: &str = include_str!("../cmd/plan/qa_cmd.rs");
