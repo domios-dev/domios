@@ -10,9 +10,8 @@ use crate::{Cli, Commands};
 const TEAM_LOCAL_ONLY: &str = "team management is local-only — run it on the target machine";
 const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the target machine";
 
-/// The frozen behaviour table, captured from `develop` at 16b1bd46c before any
-/// transport edit. One row per top-level `Commands` variant. Column 0 is the
-/// clap name, so the coverage test can compare it against the parser itself.
+/// Frozen at 16b1bd46c before any transport edit; one row per `Commands` variant.
+/// Column 0 is the clap name, so coverage can be compared against the parser.
 const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
     (
         "identify",

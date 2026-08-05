@@ -1,11 +1,5 @@
-//! One declaration per command of how it travels: where it is handled locally,
-//! whether the mesh relays it as a socket RPC, and what `api_map` answers.
-//!
-//! `transport_for` has no wildcard arm, so a new `Commands` variant fails to
-//! compile until it declares its transport. The two mesh fields are recorded
-//! independently because they are different layers and disagree today: a
-//! command relayed by `MeshRelay::SocketRpc` returns before its `ApiVerdict` is
-//! ever consulted. That contradiction is declared here, not resolved.
+//! `transport_for` has no wildcard arm, so a new `Commands` variant fails to compile.
+//! The two mesh fields disagree today; `SocketRpc` returns before `ApiVerdict` is read.
 
 pub(crate) mod pre_socket;
 
