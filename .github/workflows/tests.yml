@@ -69,6 +69,11 @@ jobs:
       - name: clippy (repo gate)
         run: bash scripts/clippy-gate.sh
 
+      - name: Restore runtime embed executable bit
+        run: |
+          chmod +x src-tauri/target/debug/codeterm-embed
+          test -x src-tauri/target/debug/codeterm-embed
+
       - name: Rust lib tests
         # Whole workspace — app + every extracted crate. Warm execution ~33s;
         # cold cost is compilation, absorbed by sccache + incremental caches.
