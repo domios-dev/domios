@@ -101,7 +101,7 @@ fn provision_competitor_lane(
         .map_err(lane_provision_failed)?;
     let provenance = match lane.verify() {
         Ok(provenance) => provenance,
-        Err(error) => return Err(release_lanes(vec![lane], lane_provision_failed(error))),
+        Err(error) => return Err(release_unowned_lanes(vec![lane], lane_provision_failed(error))),
     };
     if let Err(refusal) = super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
         plan,
@@ -109,7 +109,7 @@ fn provision_competitor_lane(
         &provenance.worktree_path,
         crate::plan::ExecutionIntent::Mutating,
     ) {
-        return Err(release_lanes(vec![lane], refusal));
+        return Err(release_unowned_lanes(vec![lane], refusal));
     }
     draft.cwd = provenance.worktree_path;
     draft.branch = Some(provenance.branch);
@@ -117,8 +117,21 @@ fn provision_competitor_lane(
     Ok(lane)
 }
 
-/// A partial competition must not leave orphan worktrees behind.
-fn release_lanes(
+pub(super) struct SpawnedCompetitor {
+    pub tab_id: String,
+    pub attempt_id: String,
+    pub lane: Option<crate::service::ProvisionedWorkerLane>,
+}
+
+/// Lanes with no tab and no recorded attempt behind them: safe to delete outright.
+fn unowned_lanes(
+    lanes: &mut [Option<crate::service::ProvisionedWorkerLane>],
+    from: usize,
+) -> Vec<crate::service::ProvisionedWorkerLane> {
+    lanes[from..].iter_mut().filter_map(Option::take).collect()
+}
+
+fn release_unowned_lanes(
     lanes: Vec<crate::service::ProvisionedWorkerLane>,
     error: JsonRpcError,
 ) -> JsonRpcError {
@@ -131,9 +144,160 @@ fn release_lanes(
     }
     JsonRpcError {
         code: error.code,
-        message: format!("{}; lane cleanup failed: {}", error.message, failures.join("; ")),
+        message: format!(
+            "{}; lane cleanup failed: {}",
+            error.message,
+            failures.join("; ")
+        ),
         data: error.data,
     }
+}
+
+/// Phase 1: every mutating lane is provisioned and verified before any spawn, so
+/// a provisioning failure rolls back with zero tabs and zero attempts in play.
+type CompetitorLanes = Vec<Option<crate::service::ProvisionedWorkerLane>>;
+
+fn provision_all_competitor_lanes(
+    plan: &crate::plan::Plan,
+    task_id: &str,
+    mut drafts: Vec<crate::service::plan::task_attempts::TaskCompeteDraft>,
+) -> Result<
+    (
+        Vec<crate::service::plan::task_attempts::TaskCompeteDraft>,
+        CompetitorLanes,
+    ),
+    JsonRpcError,
+> {
+    let mut lanes: CompetitorLanes = std::iter::repeat_with(|| None).take(drafts.len()).collect();
+    if !mutating_competition(plan, task_id) {
+        return Ok((drafts, lanes));
+    }
+    for index in 0..drafts.len() {
+        match provision_competitor_lane(plan, task_id, &mut drafts[index]) {
+            Ok(lane) => lanes[index] = Some(lane),
+            Err(error) => {
+                let provisioned = unowned_lanes(&mut lanes, 0);
+                return Err(release_unowned_lanes(provisioned, error));
+            }
+        }
+    }
+    Ok((drafts, lanes))
+}
+
+pub(super) struct CompetitorCompensation {
+    pub tab_id: String,
+    pub attempt_id: String,
+    pub worktree_path: Option<String>,
+}
+
+#[derive(Default)]
+pub(super) struct CompensationOutcome {
+    pub released: Vec<Value>,
+    pub retained: Vec<Value>,
+}
+
+impl CompensationOutcome {
+    fn is_empty(&self) -> bool {
+        self.released.is_empty() && self.retained.is_empty()
+    }
+}
+
+/// Ownership order per competitor: stop the tab, retire its attempt, and ONLY
+/// then delete its lane; a failed step retains the worktree instead of deleting.
+pub(super) fn compensate_spawned_competitors<C, R, L>(
+    competitors: Vec<CompetitorCompensation>,
+    mut close_tab: C,
+    mut retire_attempt: R,
+    mut cleanup_lane: L,
+) -> CompensationOutcome
+where
+    C: FnMut(&str) -> Result<(), String>,
+    R: FnMut(&str) -> Result<(), String>,
+    L: FnMut(&str) -> Result<(), String>,
+{
+    let mut outcome = CompensationOutcome::default();
+    for competitor in competitors {
+        let blocker = close_tab(&competitor.tab_id)
+            .err()
+            .or_else(|| retire_attempt(&competitor.tab_id).err());
+        if let Some(reason) = blocker {
+            outcome.retained.push(json!({
+                "tab_id": competitor.tab_id,
+                "attempt_id": competitor.attempt_id,
+                "worktree_path": competitor.worktree_path,
+                "reason": reason,
+            }));
+            continue;
+        }
+        match competitor.worktree_path.as_deref().map(&mut cleanup_lane) {
+            Some(Err(reason)) => outcome.retained.push(json!({
+                "tab_id": competitor.tab_id,
+                "attempt_id": competitor.attempt_id,
+                "worktree_path": competitor.worktree_path,
+                "reason": reason,
+            })),
+            _ => outcome.released.push(json!({
+                "tab_id": competitor.tab_id,
+                "attempt_id": competitor.attempt_id,
+                "worktree_path": competitor.worktree_path,
+            })),
+        }
+    }
+    outcome
+}
+
+fn compensate_competition(
+    svc: &ServiceState,
+    plan_id: &str,
+    task_id: &str,
+    live: Vec<SpawnedCompetitor>,
+    unowned: Vec<crate::service::ProvisionedWorkerLane>,
+    now: u64,
+    error: JsonRpcError,
+) -> JsonRpcError {
+    let mut owned_lanes: std::collections::HashMap<String, crate::service::ProvisionedWorkerLane> =
+        std::collections::HashMap::new();
+    let competitors = live
+        .into_iter()
+        .map(|competitor| CompetitorCompensation {
+            tab_id: competitor.tab_id,
+            attempt_id: competitor.attempt_id,
+            worktree_path: competitor.lane.map(|lane| {
+                let path = lane.cwd.clone();
+                owned_lanes.insert(path.clone(), lane);
+                path
+            }),
+        })
+        .collect();
+    let outcome = compensate_spawned_competitors(
+        competitors,
+        |tab_id| svc.close_tab(tab_id),
+        |tab_id| {
+            svc.plan_store
+                .flag_tab_gone(plan_id, task_id, tab_id, now)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        },
+        |path| match owned_lanes.remove(path) {
+            Some(lane) => lane.cleanup(),
+            None => Ok(()),
+        },
+    );
+    let mut error = release_unowned_lanes(unowned, error);
+    if outcome.is_empty() {
+        return error;
+    }
+    let partial_state = json!({
+        "released": outcome.released,
+        "retained": outcome.retained,
+    });
+    match error.data.as_mut() {
+        Some(Value::Object(data)) => {
+            data.insert("partial_state".into(), partial_state);
+        }
+        _ => error.data = Some(json!({ "partial_state": partial_state })),
+    }
+    error
 }
 
 pub(super) fn compete(
@@ -180,26 +344,37 @@ pub(super) fn compete(
     let plan = store
         .get(&id)
         .ok_or_else(|| plan_rpc_err(crate::service::plan::PlanError::NotFound))?;
-    let mutating = mutating_competition(&plan, &tid);
+    // Phase 1 — provision and verify EVERY mutating lane before the first spawn,
+    // so a provisioning failure can never delete underneath a running competitor.
+    let (mut drafts, mut lanes) = provision_all_competitor_lanes(&plan, &tid, drafts)?;
     let mut attempts = Vec::new();
     let mut spawns = Vec::new();
-    let mut provisioned: Vec<crate::service::ProvisionedWorkerLane> = Vec::new();
-    for mut draft in drafts {
-        let parent_tab_id = draft
+    let mut live: Vec<SpawnedCompetitor> = Vec::new();
+    // Phase 2 — spawn. From here compensation runs in ownership order.
+    for index in 0..drafts.len() {
+        let draft = &mut drafts[index];
+        let parent_tab_id = match draft
             .parent_tab_id
             .clone()
             .or_else(|| plan.owner.tab_id.clone())
-            .ok_or(JsonRpcError {
-                code: -32602,
-                message: "competition requires a parent Orchestrator tab".into(),
-                data: None,
-            })?;
-        if mutating {
-            match provision_competitor_lane(&plan, &tid, &mut draft) {
-                Ok(lane) => provisioned.push(lane),
-                Err(error) => return Err(release_lanes(provisioned, error)),
+        {
+            Some(parent_tab_id) => parent_tab_id,
+            None => {
+                return Err(compensate_competition(
+                    svc,
+                    &id,
+                    &tid,
+                    live,
+                    unowned_lanes(&mut lanes, index),
+                    now,
+                    JsonRpcError {
+                        code: -32602,
+                        message: "competition requires a parent Orchestrator tab".into(),
+                        data: None,
+                    },
+                ))
             }
-        }
+        };
         let spawn_params = crate::service::SpawnAgentParams {
             agent: Some(draft.provider.clone()),
             cwd: Some(draft.cwd.clone()),
@@ -216,11 +391,18 @@ pub(super) fn compete(
             ..Default::default()
         };
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        // A failed spawn creates no tab, and record_spawned_attempt closes the tab
+        // it spawned, so THIS competitor's lane is unowned on either failure.
         let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
             Ok(spawn) => spawn,
             Err(e) => {
-                return Err(release_lanes(
-                    provisioned,
+                return Err(compensate_competition(
+                    svc,
+                    &id,
+                    &tid,
+                    live,
+                    unowned_lanes(&mut lanes, index),
+                    now,
                     JsonRpcError {
                         code: -32603,
                         message: e,
@@ -234,14 +416,29 @@ pub(super) fn compete(
                 &id,
                 &tid,
                 &spawn.tab_id,
-                &draft,
+                draft,
                 tab_role(svc, &spawn.tab_id),
                 now,
             )
         }) {
             Ok(created) => created,
-            Err(error) => return Err(release_lanes(provisioned, error)),
+            Err(error) => {
+                return Err(compensate_competition(
+                    svc,
+                    &id,
+                    &tid,
+                    live,
+                    unowned_lanes(&mut lanes, index),
+                    now,
+                    error,
+                ))
+            }
         };
+        live.push(SpawnedCompetitor {
+            tab_id: spawn.tab_id.clone(),
+            attempt_id: created.attempt.id.clone(),
+            lane: lanes[index].take(),
+        });
         let svc_for_ready = svc.clone();
         let app_for_ready = app.clone();
         let plan_id = id.clone();
