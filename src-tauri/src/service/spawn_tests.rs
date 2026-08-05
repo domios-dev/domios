@@ -29,6 +29,59 @@ fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
 }
 
 #[test]
+fn task_spawn_handle_takes_first_nonempty_line_capped() {
+    assert_eq!(
+        task_spawn_handle(Some("\n\n  M3 IV-gate holdings  \nmore detail")),
+        Some("M3 IV-gate holdings".to_string())
+    );
+    assert_eq!(task_spawn_handle(Some("   \n  ")), None);
+    assert_eq!(task_spawn_handle(None), None);
+    let long = "x".repeat(500);
+    assert_eq!(task_spawn_handle(Some(&long)).unwrap().chars().count(), 120);
+}
+
+#[test]
+fn task_binding_from_spawn_prefers_plan_task_ids_and_handle() {
+    let mut agent = AgentSpawnSpec {
+        provider: "claude".into(),
+        task: Some("M3 IV-gate".into()),
+        ..Default::default()
+    };
+    agent
+        .extra_env
+        .insert("CODETERM_PLAN_ID".into(), "pl_7".into());
+    agent
+        .extra_env
+        .insert("CODETERM_TASK_ID".into(), "task_42".into());
+    let binding = task_binding_from_spawn(&agent).expect("binding for a task-bearing spawn");
+    assert_eq!(binding.plan_id.as_deref(), Some("pl_7"));
+    assert_eq!(binding.task_id.as_deref(), Some("task_42"));
+    assert_eq!(binding.spawn_handle.as_deref(), Some("M3 IV-gate"));
+}
+
+#[test]
+fn task_binding_from_spawn_is_none_for_bare_agent() {
+    let agent = AgentSpawnSpec {
+        provider: "claude".into(),
+        ..Default::default()
+    };
+    assert!(task_binding_from_spawn(&agent).is_none());
+}
+
+#[test]
+fn task_binding_from_spawn_uses_handle_when_no_plan_task() {
+    let agent = AgentSpawnSpec {
+        provider: "claude".into(),
+        task: Some("ad-hoc lane work".into()),
+        ..Default::default()
+    };
+    let binding = task_binding_from_spawn(&agent).expect("binding from handle alone");
+    assert!(binding.plan_id.is_none());
+    assert!(binding.task_id.is_none());
+    assert_eq!(binding.spawn_handle.as_deref(), Some("ad-hoc lane work"));
+}
+
+#[test]
 fn invalid_role_lead_is_rejected() {
     let err = ServiceContext::parse_role("Lead").unwrap_err();
     assert!(

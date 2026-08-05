@@ -274,6 +274,32 @@ impl OrchestrationLedger {
         Ok(rows)
     }
 
+    /// Completed lanes across every orchestrator, most-recently-finished first.
+    /// A durable Done surface: rows that reported `done` or `in_review` stay
+    /// inspectable after the pane closes and vanishes from the live sidebar.
+    pub fn list_completed(&self, limit: usize) -> Result<Vec<LedgerRow>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT orchestrator_tab_id, worker_tab_id, title, plan_id, task_id, branch, model,
+                       status, message, sha, changed_files_json, test_cmd,
+                       test_result, skipped, updated_at
+                FROM orchestration_ledger
+                WHERE status IN ('done', 'in_review')
+                ORDER BY updated_at DESC
+                LIMIT ?1
+                "#,
+            )
+            .map_err(|e| format!("ledger completed prepare: {}", e))?;
+        let rows = stmt
+            .query_map(params![limit as i64], Self::row_from_sql)
+            .map_err(|e| format!("ledger completed query: {}", e))?
+            .filter_map(Result::ok)
+            .collect();
+        Ok(rows)
+    }
+
     fn row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<LedgerRow> {
         let status: Option<String> = r.get(7)?;
         let changed_files_json: Option<String> = r.get(10)?;
@@ -397,6 +423,43 @@ mod tests {
             "#,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn list_completed_returns_only_finished_lanes_newest_first() {
+        let db = temp_db();
+        let ledger = OrchestrationLedger::open_at(&db).unwrap();
+        ledger.upsert(&row("orch_a", "w_done", ReportStatus::Done, 300)).unwrap();
+        ledger
+            .upsert(&row("orch_b", "w_review", ReportStatus::InReview, 200))
+            .unwrap();
+        ledger
+            .upsert(&row("orch_a", "w_blocked", ReportStatus::Blocked, 400))
+            .unwrap();
+        ledger
+            .upsert(&row("orch_b", "w_partial", ReportStatus::Partial, 500))
+            .unwrap();
+
+        let completed = ledger.list_completed(50).unwrap();
+        let workers: Vec<&str> = completed.iter().map(|r| r.worker_tab_id.as_str()).collect();
+        assert_eq!(
+            workers,
+            vec!["w_done", "w_review"],
+            "only done/in_review lanes appear, most-recently-finished first, spanning all orchestrators"
+        );
+    }
+
+    #[test]
+    fn list_completed_respects_limit() {
+        let db = temp_db();
+        let ledger = OrchestrationLedger::open_at(&db).unwrap();
+        ledger.upsert(&row("orch", "w1", ReportStatus::Done, 100)).unwrap();
+        ledger.upsert(&row("orch", "w2", ReportStatus::Done, 200)).unwrap();
+        ledger.upsert(&row("orch", "w3", ReportStatus::Done, 300)).unwrap();
+        let completed = ledger.list_completed(2).unwrap();
+        assert_eq!(completed.len(), 2);
+        assert_eq!(completed[0].worker_tab_id, "w3");
+        assert_eq!(completed[1].worker_tab_id, "w2");
     }
 
     fn insert_pre_versioning_row(conn: &Connection) {

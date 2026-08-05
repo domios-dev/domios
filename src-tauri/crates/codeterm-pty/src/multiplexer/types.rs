@@ -394,6 +394,21 @@ pub enum TabAudience {
     Automation,
 }
 
+/// Rename-proof identity for a spawned agent tab. Captures the assignment a
+/// pane was launched with so a supervisor can match on identity, not on the
+/// mutable display title. Written once at spawn; never overwritten by rename.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct TaskBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// Stable digest of the `--task` handle for ad-hoc lanes with no plan task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_handle: Option<String>,
+    pub bound_at: u64,
+}
+
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -492,6 +507,15 @@ pub struct Tab {
     pub lifecycle_epoch: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lifecycle_operation_id: Option<String>,
+    /// Immutable assignment identity stamped at spawn. Survives self-renames so
+    /// external supervisors can match a lane by task rather than by title.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub task_binding: Option<TaskBinding>,
+    /// True for an agent pane spawned WITHOUT a role that was nonetheless linked
+    /// into the hierarchy (parent + audit row). Distinguishes a tracked roleless
+    /// agent from an ordinary shell/utility tab, which is also role=None.
+    #[serde(default)]
+    pub roleless_tracked: bool,
     /// Structural orchestration role. The finer-grained kind lives in
     /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -716,6 +740,8 @@ mod tests {
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
+            task_binding: None,
+            roleless_tracked: false,
             role: None,
             role_profile: None,
             team_id: None,
