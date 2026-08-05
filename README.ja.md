@@ -209,7 +209,7 @@ codeterm send --tab TAB_ID "npm run build"
 codeterm get-output TAB_ID --lines 50
 
 # 通知
-codeterm notify "Build complete" --level info
+codeterm notify send "Build complete" --level info
 
 # ブラウザ
 codeterm browser open "http://localhost:3000"

@@ -28,9 +28,9 @@ fn direct_cli_override(method: &str) -> Option<&'static str> {
     match method {
         "system.identify" => Some("identify"),
         "system.capabilities" => Some("capabilities"),
-        "notification.create" => Some("notify"),
-        "notification.list" => Some("notifications"),
-        "notification.clear" => Some("notifications clear"),
+        "notification.create" => Some("notify send"),
+        "notification.list" => Some("notify list"),
+        "notification.clear" => Some("notify clear"),
         "services.list" => Some("service list"),
         "services.create" => Some("service create"),
         "services.get" => Some("service get"),
@@ -135,7 +135,7 @@ mod tests {
             "tab.resize"
         ], "protocol": "json-rpc-2.0"}));
         assert!(out.contains("system.identify  [CLI: `codeterm identify`]"));
-        assert!(out.contains("notification.create  [CLI: `codeterm notify`]"));
+        assert!(out.contains("notification.create  [CLI: `codeterm notify send`]"));
         assert!(out.contains("services.list  [CLI: `codeterm service list`]"));
         assert!(out.contains("mem.search  [CLI: `codeterm mem search`]"));
         assert!(out.contains("agent.children  [RPC only; use `codeterm agent ledger`]"));

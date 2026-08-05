@@ -29,7 +29,7 @@ PROVIDERS=$(capture_json dc agent providers --json)
 SYSTEM=$(provider_id system <<<"$PROVIDERS")
 FALLBACK=$(provider_id external <<<"$PROVIDERS")
 [ -n "$SYSTEM" ] || { echo "SKIP: no system-prompt provider"; exit 0; }
-PAIR=$(capture_json dc orchestration new --orchestrator "$SYSTEM" --planner "$SYSTEM" --workspace "$WS" --json)
+PAIR=$(capture_json dc team pair --orchestrator "$SYSTEM" --planner "$SYSTEM" --workspace "$WS" --json)
 ORCH=$(pair_tab_id orchestrator <<<"$PAIR")
 PLANNER=$(pair_tab_id planner <<<"$PAIR")
 [ -n "$ORCH" ] && [ -n "$PLANNER" ] || { echo "pair returned empty tab id" >&2; exit 1; }
@@ -55,7 +55,7 @@ dc send --tab "$WORKER" "Who are you?" >/dev/null
 [[ "$(await_first "$WORKER")" == *Worker* ]]
 if [ -n "$FALLBACK" ]; then
   FALLBACK_TEAMS_BEFORE=$(capture_json dc team list --json)
-  FALLBACK_PAIR=$(capture_json dc orchestration new --orchestrator "$FALLBACK" --planner "$FALLBACK" --workspace "$WS" --json || true)
+  FALLBACK_PAIR=$(capture_json dc team pair --orchestrator "$FALLBACK" --planner "$FALLBACK" --workspace "$WS" --json || true)
   FALLBACK_ORCH=$(pair_tab_id orchestrator <<<"$FALLBACK_PAIR")
   FALLBACK_PLANNER=$(pair_tab_id planner <<<"$FALLBACK_PAIR")
   if [ -n "$FALLBACK_ORCH" ] && [ -n "$FALLBACK_PLANNER" ]; then

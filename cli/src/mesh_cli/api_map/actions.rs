@@ -2,12 +2,50 @@ use crate::{
     cmd::{
         delayed::parse_schedule,
         send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
+        team::split_provider_model,
     },
-    MemAction, MemGraphAction, ServiceAction,
+    MemAction, MemGraphAction, ServiceAction, TeamAction,
 };
 use serde_json::json;
 
 use super::unsupported;
+
+/// `team pair` is the sole Team action with a REST form. The body is the one
+/// `orchestration new` posted; the socket-only `spawned_by_tab_id` stays local.
+pub(super) fn team_to_api(action: &TeamAction) -> (String, String, Option<String>) {
+    let TeamAction::Pair {
+        orchestrator,
+        planner,
+        workspace,
+        title,
+    } = action
+    else {
+        return unsupported("team management is local-only — run it on the target machine");
+    };
+    let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
+    let (planner_agent, planner_model) = split_provider_model(planner);
+    let mut body = json!({
+        "orchestrator_agent": orchestrator_agent,
+        "planner_agent": planner_agent,
+    });
+    if let Some(m) = orchestrator_model {
+        body["orchestrator_model"] = json!(m);
+    }
+    if let Some(m) = planner_model {
+        body["planner_model"] = json!(m);
+    }
+    if let Some(w) = workspace {
+        body["workspace_id"] = json!(w);
+    }
+    if let Some(t) = title {
+        body["title"] = json!(t);
+    }
+    (
+        "POST".into(),
+        "/api/orchestration/new".into(),
+        Some(body.to_string()),
+    )
+}
 
 /// Resolve free-text content for mesh relay from (inline value, file, `-`=stdin).
 /// File wins; a literal `-` reads stdin; otherwise the value is cloned.

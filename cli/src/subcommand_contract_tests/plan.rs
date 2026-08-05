@@ -618,17 +618,7 @@ fn plan_goal_subcommands_parse() {
         } if plan_id == "pl_1"
     ));
 
-    let parsed =
-        parse_plan_cli_result(["codeterm", "plan", "goal", "get", "pl_1"]).expect("get parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::Plan {
-            action:
-                PlanAction::Goal {
-                    action: crate::args::plan::PlanGoalAction::Get { plan_id },
-                },
-        } if plan_id == "pl_1"
-    ));
+    assert!(parse_plan_cli_result(["codeterm", "plan", "goal", "get", "pl_1"]).is_err());
 }
 
 #[test]

@@ -9,7 +9,7 @@ use super::{parse_ip_port, MeshAction, MeshPeerAction};
 mod actions;
 
 pub(crate) use actions::send_text_to_api;
-use actions::{delayed_create_to_api, mem_to_api, now_ms, service_to_api};
+use actions::{delayed_create_to_api, mem_to_api, now_ms, service_to_api, team_to_api};
 
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
@@ -28,9 +28,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Plan { .. } => {
             unsupported("plan management is local-only — run it on the target machine")
         }
-        Commands::Team { .. } => {
-            unsupported("team management is local-only — run it on the target machine")
-        }
+        Commands::Team { action } => team_to_api(action),
         Commands::Spec { .. } => {
             unsupported("spec management is local-only — run it on the target machine")
         }
@@ -40,46 +38,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Orchestrator { .. } => {
             unsupported("orchestrator handoff is local-only — run it on the target machine")
         }
-        Commands::Orchestration { action } => match action {
-            crate::args::orchestration::OrchestrationAction::New {
-                orchestrator,
-                planner,
-                workspace,
-                title,
-            } => {
-                let (orchestrator_agent, orchestrator_model) =
-                    crate::cmd::orchestration::split_provider_model(orchestrator);
-                let (planner_agent, planner_model) =
-                    crate::cmd::orchestration::split_provider_model(planner);
-                let mut body = serde_json::json!({
-                    "orchestrator_agent": orchestrator_agent,
-                    "planner_agent": planner_agent,
-                });
-                if let Some(m) = orchestrator_model {
-                    body["orchestrator_model"] = serde_json::json!(m);
-                }
-                if let Some(m) = planner_model {
-                    body["planner_model"] = serde_json::json!(m);
-                }
-                if let Some(w) = workspace {
-                    body["workspace_id"] = serde_json::json!(w);
-                }
-                if let Some(t) = title {
-                    body["title"] = serde_json::json!(t);
-                }
-                (
-                    "POST".into(),
-                    "/api/orchestration/new".into(),
-                    Some(body.to_string()),
-                )
-            }
-        },
         // Every persona answer is about the serving daemon: its compiled prompt
         // text and its own overlay directory. A remote answer would be a lie.
         Commands::Persona { .. } => unsupported(
             "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
         ),
-        Commands::Task { .. } => {
+        Commands::Task { .. } | Commands::Inbox { .. } => {
             unsupported("task management is local-only — run it on the target machine")
         }
         Commands::Canvas { .. } => {
@@ -188,11 +152,20 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 None,
             ),
         },
-        Commands::Notify { title, body, level } => (
-            "POST".into(),
-            "/api/notifications".into(),
-            Some(serde_json::json!({"title": title, "body": body, "level": level}).to_string()),
-        ),
+        // `notify clear` relays the list GET, exactly as `notifications clear` did:
+        // the peer has no clear endpoint and this arm never had one.
+        Commands::Notify { action } => match action {
+            crate::NotifyAction::Send { title, body, level } => (
+                "POST".into(),
+                "/api/notifications".into(),
+                Some(serde_json::json!({"title": title, "body": body, "level": level}).to_string()),
+            ),
+            crate::NotifyAction::List { unread } => {
+                let qs = if *unread { "?unread=true" } else { "" };
+                ("GET".into(), format!("/api/notifications{}", qs), None)
+            }
+            crate::NotifyAction::Clear => ("GET".into(), "/api/notifications".into(), None),
+        },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
             crate::WorkspaceAction::Create { name, .. } => (
@@ -459,7 +432,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
-        Commands::Report(_) => ("GET".into(), "/api/tabs".into(), None),
         Commands::Agent { action } => match action {
             crate::AgentAction::Spawn {
                 agent,
@@ -617,10 +589,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
             _ => ("GET".into(), "/api/tabs".into(), None),
         },
-        Commands::Notifications { unread, .. } => {
-            let qs = if *unread { "?unread=true" } else { "" };
-            ("GET".into(), format!("/api/notifications{}", qs), None)
-        }
         Commands::Cron { action } => match action {
             crate::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
             crate::CronAction::Create {

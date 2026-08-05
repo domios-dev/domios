@@ -521,7 +521,7 @@ fn run_plan(
         }
 
         PlanAction::Goal { action } => match action {
-            PlanGoalAction::Get { plan_id } | PlanGoalAction::Show { plan_id } => {
+            PlanGoalAction::Show { plan_id } => {
                 let val = call(client, "plan.goal.show", json!({ "plan_id": plan_id }))?;
                 if json {
                     return Ok(Some(val));

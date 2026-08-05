@@ -209,7 +209,7 @@ codeterm send --tab TAB_ID "npm run build"
 codeterm get-output TAB_ID --lines 50
 
 # Notificações
-codeterm notify "Build concluído" --level info
+codeterm notify send "Build concluído" --level info
 
 # Navegador
 codeterm browser open "http://localhost:3000"
