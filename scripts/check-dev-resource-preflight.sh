@@ -141,6 +141,7 @@ node - <<'JS' \
   .agents/skills/github-release/scripts/build-mac.sh \
   scripts/release-macos-x86_64.sh \
   .codeterm/build-machine/scripts/build-linux.sh \
+  .codeterm/build-machine/scripts/publish-release.sh \
   .github/workflows/release-linux.yml \
   .github/workflows/release-windows.yml
 const fs = require("node:fs");
@@ -155,11 +156,23 @@ if (!source.includes("  release-inputs)")) throw new Error("release-inputs opera
 if (!build.includes("pnpm tauri build")) throw new Error("release build no longer invokes Tauri");
 const config = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 if (config.build.beforeBuildCommand) throw new Error("Tauri must not own release input preparation");
-for (const path of process.argv.slice(4)) {
+for (const index of [4, 5, 6, 8, 9]) {
+  const path = process.argv[index];
   const entrypoint = fs.readFileSync(path, "utf8");
   if (!entrypoint.includes("release-inputs")) {
     throw new Error(`${path} bypasses target-aware release input preparation`);
   }
+}
+const windowsRelease = fs.readFileSync(process.argv.at(-1), "utf8");
+if (!windowsRelease.includes("Cross-target LIB contains host-architecture paths")) {
+  throw new Error("Windows ARM64 release must reject host library paths before compilation");
+}
+const publisher = fs.readFileSync(process.argv[7], "utf8");
+if (publisher.includes("releases/latest/download")) {
+  throw new Error("release fragments must use immutable version-tagged updater URLs");
+}
+if (!publisher.includes('releases/download/${TAG}')) {
+  throw new Error("release fragments must be scoped to their version tag");
 }
 JS
 
