@@ -5,6 +5,8 @@ const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_s
 async fn reserve_initial_listener(control: &RestApiControl) -> SocketAddr {
     let socket = tokio::net::TcpSocket::new_v4().unwrap();
     socket.set_reuseaddr(true).unwrap();
+    #[cfg(unix)]
+    enable_shared_port_binding(&socket).unwrap();
     socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let listener = socket.listen(1024).unwrap();
     let address = listener.local_addr().unwrap();
