@@ -21,6 +21,34 @@ fn split_task_ref(first: Option<String>, second: Option<String>) -> (Option<Stri
     }
 }
 
+fn parse_criteria_file(content: &str) -> Vec<String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return vec![];
+    }
+    if trimmed.starts_with('[') {
+        if let Ok(items) = serde_json::from_str::<Vec<String>>(trimmed) {
+            return items;
+        }
+    }
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn merge_criteria(
+    mut criterion: Vec<String>,
+    criterion_file: Option<String>,
+) -> Result<Vec<String>, String> {
+    if let Some(content) = resolve_text(None, criterion_file)? {
+        criterion.extend(parse_criteria_file(&content));
+    }
+    Ok(criterion)
+}
+
 fn render_attempts(value: &Value) -> String {
     let attempts = value
         .get("attempts")
@@ -296,11 +324,14 @@ pub(super) fn run_task(
             why,
             why_file,
             criterion,
+            criterion_file,
             external_ref,
             test_plan,
+            test_plan_file,
             qa_plan,
             qa_plan_file,
             correctness,
+            correctness_file,
             body,
             body_file,
             role_guidance,
@@ -334,6 +365,9 @@ pub(super) fn run_task(
             let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
+            let test_plan = resolve_text(test_plan, test_plan_file)?;
+            let correctness = resolve_text(correctness, correctness_file)?;
+            let criterion = merge_criteria(criterion, criterion_file)?;
             let has_sections = sections
                 .as_deref()
                 .map(|s| s.split(',').any(|item| !item.trim().is_empty()))
@@ -488,13 +522,18 @@ pub(super) fn run_task(
             intent_file,
             sections,
             criterion,
+            criterion_file,
             external_ref,
             test_plan,
+            test_plan_file,
             qa_plan,
             qa_plan_file,
             correctness,
+            correctness_file,
             parent,
             depends_on,
+            remove_dependency,
+            replace_dependencies,
             clear_dependencies,
             tab,
             workspace_id,
@@ -512,6 +551,9 @@ pub(super) fn run_task(
             handle,
         } => {
             let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let test_plan = resolve_text(test_plan, test_plan_file)?;
+            let correctness = resolve_text(correctness, correctness_file)?;
+            let criterion = merge_criteria(criterion, criterion_file)?;
             crate::cmd::plan_task_update::run(
                 client,
                 plan_ref,
@@ -539,6 +581,8 @@ pub(super) fn run_task(
                 correctness,
                 parent,
                 depends_on,
+                remove_dependency,
+                replace_dependencies,
                 clear_dependencies,
                 tab,
                 workspace_id,
@@ -840,6 +884,24 @@ pub(super) fn run_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn criterion_file_parses_json_array_form() {
+        let items = parse_criteria_file("[\"first\", \"second bullet\"]");
+        assert_eq!(items, vec!["first", "second bullet"]);
+    }
+
+    #[test]
+    fn criterion_file_parses_one_per_line_form_dropping_blanks() {
+        let items = parse_criteria_file("first\n\n  second bullet  \n");
+        assert_eq!(items, vec!["first", "second bullet"]);
+    }
+
+    #[test]
+    fn merge_criteria_appends_file_content_to_flag_values() {
+        let merged = merge_criteria(vec!["from-flag".into()], None).unwrap();
+        assert_eq!(merged, vec!["from-flag"]);
+    }
 
     #[test]
     fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {
