@@ -13,6 +13,7 @@ mod schemas;
 mod sessions;
 mod usage;
 
+#[cfg(test)]
 pub(crate) use schemas::manifest_defaults;
 
 use std::path::PathBuf;

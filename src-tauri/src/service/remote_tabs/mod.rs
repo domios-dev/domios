@@ -159,10 +159,10 @@ pub async fn ordinary_tab_projection(
         let controllers = registered
             .iter()
             .flat_map(|(controller, workers)| {
-                workers.iter().filter_map(|worker| {
-                    (worker.peer == peer_id || worker.peer == peer_name)
-                        .then(|| (worker.remote_tab.clone(), controller.clone()))
-                })
+                workers
+                    .iter()
+                    .filter(|worker| worker.peer == peer_id || worker.peer == peer_name)
+                    .map(|worker| (worker.remote_tab.clone(), controller.clone()))
             })
             .collect::<std::collections::HashMap<_, _>>();
         if controllers.is_empty() {

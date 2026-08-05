@@ -569,6 +569,7 @@ fn command_with_binding_nonce(command: &str, binding_nonce: &str) -> String {
     command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows))
 }
 
+#[allow(dead_code)]
 fn replacement_pty_candidate(
     linked_pty_id: Option<&str>,
     closed_pty_id: &str,

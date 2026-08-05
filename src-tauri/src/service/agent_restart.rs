@@ -209,7 +209,7 @@ impl ServiceContext {
         // Only a resumed session has an id the tab must still be holding; a
         // fresh launch legitimately comes back on a new one.
         let expected = (outcome.session_action() == "resume")
-            .then(|| snap.session_id.as_deref())
+            .then_some(snap.session_id.as_deref())
             .flatten();
         match self.restore_caller_binding(&snap.tab_id, expected) {
             Ok(restored) => {

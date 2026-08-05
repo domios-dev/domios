@@ -21,6 +21,7 @@ pub(super) mod lane_safety;
 
 use super::safety_nudge::{apply_safety_nudges, safety_incident_text, SAFETY_INCIDENT_KIND};
 use brief::build_brief_with_manifest;
+#[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
