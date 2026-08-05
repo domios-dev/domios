@@ -1,7 +1,7 @@
 use super::tab_restart::handle_shell_restart;
 use crate::client::SocketClient;
 use crate::cmd::agent::normalize_tab_description;
-use crate::cmd::print::{handle_result, print_json};
+use crate::cmd::print::{handle_result, print_json, tab_list_json_envelope};
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 mod capture;
@@ -41,7 +41,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     };
                     let list = arr.clone();
                     if json {
-                        print_json(&serde_json::Value::Array(list));
+                        print_json(&tab_list_json_envelope(list.clone()));
                     } else if list.is_empty() {
                         println!("(no tabs)");
                     } else {
