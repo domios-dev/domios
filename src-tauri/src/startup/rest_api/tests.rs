@@ -10,19 +10,6 @@ fn reserved_test_addr() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], port))
 }
 
-#[cfg(target_os = "macos")]
-fn occupied_test_listener(address: SocketAddr) -> tokio::net::TcpListener {
-    let socket = tokio::net::TcpSocket::new_v4().unwrap();
-    socket.set_reuseaddr(true).unwrap();
-    socket.bind(address).unwrap();
-    socket.listen(1).unwrap()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn occupied_test_listener(address: SocketAddr) -> std::net::TcpListener {
-    std::net::TcpListener::bind(address).unwrap()
-}
-
 async fn wait_for_status<F>(
     control: &RestApiControl,
     status: &mut watch::Receiver<RestApiStatus>,
@@ -103,8 +90,8 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
 #[tokio::test]
 async fn occupied_port_release_event_rebinds_the_real_listener() {
     let address = reserved_test_addr();
-    let occupied = occupied_test_listener(address);
     let control = Arc::new(RestApiControl::new());
+    control.force_bind_error();
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
     let failed = wait_for_status(&control, &mut status, |s| s.phase == RestApiPhase::Failed).await;
@@ -112,7 +99,6 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
         .message
         .as_deref()
         .is_some_and(|message| message.contains("Release the port")));
-    drop(occupied);
     control.port_released().unwrap();
     wait_for_status(&control, &mut status, |s| {
         s.phase == RestApiPhase::Listening

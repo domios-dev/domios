@@ -80,6 +80,8 @@ pub(crate) struct RestApiControl {
     server_exit: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     #[cfg(test)]
     shutdown_error: Arc<AtomicBool>,
+    #[cfg(test)]
+    bind_error: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -134,6 +136,8 @@ impl RestApiControl {
             server_exit: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             shutdown_error: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            bind_error: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -391,6 +395,16 @@ impl RestApiControl {
     fn take_shutdown_error(&self) -> bool {
         self.shutdown_error.swap(false, Ordering::AcqRel)
     }
+
+    #[cfg(test)]
+    fn force_bind_error(&self) {
+        self.bind_error.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    fn take_bind_error(&self) -> bool {
+        self.bind_error.swap(false, Ordering::AcqRel)
+    }
 }
 
 pub(crate) type RestApiControlState = Arc<RestApiControl>;
@@ -457,7 +471,17 @@ fn enable_shared_port_binding(socket: &tokio::net::TcpSocket) -> std::io::Result
     }
 }
 
-async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+async fn bind_listener(
+    control: &RestApiControl,
+    bind_addr: &str,
+) -> std::io::Result<tokio::net::TcpListener> {
+    #[cfg(test)]
+    if control.take_bind_error() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            "forced bind ownership failure",
+        ));
+    }
     let address = bind_addr
         .parse::<SocketAddr>()
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
@@ -620,7 +644,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 
     loop {
         let generation = control.begin_generation();
-        let listener = match bind_listener(&bind_addr).await {
+        let listener = match bind_listener(&control, &bind_addr).await {
             Ok(listener) => listener,
             Err(error) => {
                 let message =
