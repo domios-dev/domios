@@ -56,7 +56,10 @@ jobs:
           node scripts/prepare-embed-stub.js
 
       - name: Build runtime embed sidecar for semantic tests
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+          file src-tauri/target/debug/codeterm-embed | grep -q ELF
+          cp src-tauri/target/debug/codeterm-embed "$RUNNER_TEMP/codeterm-embed-runtime"
 
       - name: fmt
         run: |
@@ -69,10 +72,10 @@ jobs:
       - name: clippy (repo gate)
         run: bash scripts/clippy-gate.sh
 
-      - name: Restore runtime embed executable bit
+      - name: Restore runtime embed sidecar
         run: |
-          chmod +x src-tauri/target/debug/codeterm-embed
-          test -x src-tauri/target/debug/codeterm-embed
+          install -m 755 "$RUNNER_TEMP/codeterm-embed-runtime" src-tauri/target/debug/codeterm-embed
+          file src-tauri/target/debug/codeterm-embed | grep -q ELF
 
       - name: Rust lib tests
         # Whole workspace — app + every extracted crate. Warm execution ~33s;
