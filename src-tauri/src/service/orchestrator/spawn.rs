@@ -48,6 +48,16 @@ fn prepare_manager_bootstrap(
     Some(bootstrap)
 }
 
+/// The real bound Team id a manager bootstrap carries, or None for an empty or
+/// `UNBOUND_TEAM` placeholder so nothing is invented. Caller checks liveness.
+fn bootstrap_bound_team_id(
+    bootstrap: Option<&crate::service::role_identity::ManagerBootstrapInputs>,
+) -> Option<&str> {
+    let team_id = bootstrap?.team_id.trim();
+    (!team_id.is_empty() && team_id != crate::service::spawn_factory::UNBOUND_TEAM)
+        .then_some(team_id)
+}
+
 fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
     params.starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
         params.role.as_deref(),
@@ -479,6 +489,17 @@ impl ServiceContext {
                 // A post-creation hierarchy failure must not leave an orphan tab.
                 let _ = self.close_tab(&tab_id);
                 return Err(error);
+            }
+        }
+
+        // Role placement can clear a Tab's Team; a bootstrapped manager must
+        // launch with its reserved, host-resolved Team in env. Never mint.
+        if let Some(team_id) = bootstrap_bound_team_id(params.manager_bootstrap.as_ref()) {
+            let mut mux = self.mux.write();
+            if mux.get_team(team_id).is_some() {
+                if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                    tab.team_id = Some(team_id.to_string());
+                }
             }
         }
 
