@@ -3,9 +3,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{AgentRef, Plan, ReviewCapacityClass};
+use crate::plan::{AgentRef, ReviewCapacityClass};
+#[cfg(test)]
+use crate::plan::Plan;
 use crate::service::plan::PlanError;
-use crate::service::ServiceState;
+use crate::service::{ServiceContext, ServiceState};
 
 use super::JsonRpcError;
 
@@ -64,7 +66,7 @@ fn structural_caller(params: Option<&Value>) -> crate::service::AuthenticatedPla
 /// Authorization is the canonical owner predicate, never a private copy of it.
 /// The actor is then derived from the tab that predicate already validated.
 fn authorized_orchestrator_actor(
-    svc: &ServiceState,
+    svc: &ServiceContext,
     plan_id: &str,
     params: Option<&Value>,
 ) -> Result<AgentRef, JsonRpcError> {
