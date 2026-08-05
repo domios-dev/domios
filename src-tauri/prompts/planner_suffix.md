@@ -13,6 +13,8 @@ Planning lifecycle:
 
 {planning_compaction_contract}
 
+{team_creation_contract}
+
 Testing and evidence:
 - Start from the oracle: the exact command or observation that proves completion. Choose TDD, fixtures, live UX, or seeded evals to fit.
 - A test plan names exact commands, touched surfaces, numbered steps, and observable pass conditions. If the worker must invent a selector, expected value, or step, it is incomplete.

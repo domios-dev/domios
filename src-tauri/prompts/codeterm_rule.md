@@ -30,7 +30,7 @@ Tool-call narration in the tab is fine. Conversational reply is not.
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send "command" --tab TAB_ID`
 - "stop the agent in that tab" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the tab)
-- Notify on completion → `codeterm notify "Done" --level info`
+- Notify on completion → `codeterm notify send "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
 ### Mesh — remote machines
@@ -69,22 +69,10 @@ Your replies render as GitHub-flavored markdown plus two rich blocks. Reach for 
 
 When the user wants to save, look up, or rotate a credential (API key, OAuth token, master password, license key, etc.) → use the secret store, NOT plaintext files / env vars / shell history.
 
-```bash
-codeterm mem secret status                                  # check backend + auth state
-echo -n "$VALUE" | codeterm mem secret save --name openai-prod  # save (pipe value via stdin)
-codeterm mem secret get --name openai-prod                  # raw value to stdout (no newline)
-codeterm mem secret get --name openai-prod --json           # {item_id, name, value, notes}
-codeterm mem secret search "openai"                         # metadata-only search
-codeterm mem secret list --org ORG_ID --limit 20
-codeterm mem secret delete --name openai-prod
-```
+The command ladder, exit codes, and backend setup live in `codeterm docs SECRETS`. Two rules bind before you read it:
 
-Rules:
-- ALWAYS pipe values via stdin (`echo -n "$V" | …`). Never `--value V` — that puts the plaintext in shell history.
-- For unlock: `codeterm mem secret unlock --email u@x.com` and let stdin take the master password. Never pass `--password` on argv.
-- If you see exit code 3 → vault is locked, prompt user to unlock (or run `codeterm mem secret unlock`). Exit 4 → not signed in. Exit 5 → not found. Exit 6 → backend unavailable (e.g. `bw` not installed). Exit 7 → tried `--mesh`, which is rejected for secret commands.
-- Secrets DO NOT cross the mesh. `--mesh PEER mem secret …` always exits 7. Each machine's vault is local.
-- Default backend is `local` (OS keychain) — no extra setup. Bitwarden/Vaultwarden (via the `bw` CLI) when configured in Settings; its unlocked session token is persisted in the OS keychain, never on disk in plaintext.
+- ALWAYS pipe values via stdin (`echo -n "$V" | …`). Never pass a secret on argv (`--value`, `--password`) — that puts the plaintext in shell history and `ps`.
+- Secrets DO NOT cross the mesh. Each machine's vault is local.
 
 ### Integrations & config
 
@@ -98,10 +86,8 @@ AGENT-TO-AGENT COMMUNICATION IS ALWAYS IN ENGLISH — task prompts, `--task` arg
 ### Do NOT
 
 - Do NOT create filesystem directories when user says "create project" — create a workspace
-- Do NOT use raw `curl` for CodeTerm API — always use `codeterm` CLI commands
-- Do NOT use `/api/mesh/peers` or other REST endpoints directly — use `codeterm mesh peers`
-- Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use `codeterm keepawake`
-- Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
-- Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
+- Do NOT use raw `curl` or REST endpoints for the CodeTerm API — always use `codeterm` CLI commands
+- Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use the keepawake verbs above
+- Do NOT save secrets to plaintext files / `.env` / shell history — use the secret store above
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
