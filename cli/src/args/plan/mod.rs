@@ -431,6 +431,11 @@ pub enum PlanGoalAction {
     /// Set the plan's goal vector, vision, constraints, and postulates
     Set {
         plan_id: String,
+        #[arg(
+            value_name = "GOAL_TEXT",
+            help = "Optional trailing goal statement; stored as vision unless --vision/--vision-file is given"
+        )]
+        goal_text: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         vector: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -578,5 +583,57 @@ mod tests {
             .to_string();
         assert!(help.contains("Cascades"), "{help}");
         assert!(help.contains("owned spec"), "{help}");
+    }
+
+    fn parse_goal_set(argv: &[&str]) -> (Option<String>, Option<String>) {
+        use crate::args::cli::Commands;
+        use crate::args::plan::{PlanAction, PlanGoalAction};
+        use clap::Parser;
+        let cli = Cli::try_parse_from(argv).expect("goal set should parse");
+        match cli.command {
+            Commands::Plan {
+                action:
+                    PlanAction::Goal {
+                        action:
+                            PlanGoalAction::Set {
+                                goal_text, vision, ..
+                            },
+                    },
+            } => (goal_text, vision),
+            _ => panic!("expected plan goal set"),
+        }
+    }
+
+    #[test]
+    fn goal_set_accepts_trailing_positional_goal_text() {
+        let (goal_text, vision) = parse_goal_set(&[
+            "codeterm",
+            "plan",
+            "goal",
+            "set",
+            "pl_1",
+            "--vector",
+            "success proof",
+            "the north-star goal",
+        ]);
+        assert_eq!(goal_text.as_deref(), Some("the north-star goal"));
+        assert_eq!(vision, None);
+    }
+
+    #[test]
+    fn goal_set_keeps_explicit_vision_alongside_positional() {
+        let (goal_text, vision) = parse_goal_set(&[
+            "codeterm",
+            "plan",
+            "goal",
+            "set",
+            "pl_1",
+            "--vector",
+            "proof",
+            "--vision",
+            "explicit vision",
+        ]);
+        assert_eq!(goal_text, None);
+        assert_eq!(vision.as_deref(), Some("explicit vision"));
     }
 }
