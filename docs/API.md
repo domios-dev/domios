@@ -244,7 +244,43 @@ The enum is open for future element types. The frontend renders each as a clicka
 
 No disk persistence — restart wipes every paste. Correct semantics for "drop a payload, get a slug, let any peer fetch it, then forget."
 
+#### Plan task mutation authority
+
+Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`)
+carry `caller_tab_id` + `session_id` + `session_binding_nonce` + `owner_epoch`
+(REST: the matching `X-CodeTerm-*` headers). Once a task has an owner epoch, the
+caller must normally match the recorded owner exactly.
+
+**Recovery exception.** For `plan.task.update`, `plan.task.assign`,
+`plan.task.respawn`, and `plan.task.close`, a **live authenticated Plan owner**
+acting on a task whose owner tab is gone is admitted regardless of the stale
+epoch — staleness is the condition recovery exists for. Admission performs the
+retirement in the same transition: every live attempt is closed and marked
+`retired_at`, the owner identity is cleared, and the epoch is superseded, so a
+`dispatch_ready` arriving afterwards for that attempt is rejected rather than
+restoring ownership. `task_rm` is excluded, and a non-owner caller is still
+refused. Retirement is idempotent — a second authority pass in the same request
+never bumps the epoch twice.
+
+**Dispatch lane safety.** A mutating dispatch is refused before spawn (code
+`-32013`, `data.type = "unsafe_mutating_lane"`) when its resolved worktree is
+the plan's `canonical_project_path` or a lane recorded on another task.
+`data.violation_id` is a stable constant — `lane.mutating_write_in_canonical_checkout`
+or `lane.mutating_write_in_foreign_lane` — alongside `reason` and
+`safe_alternative`. These two are the **only** hard stops.
+
+`plan.task.compete` provisions one worktree/branch/base per **mutating**
+competitor before spawn and records that provenance on each competitive attempt;
+lanes created earlier in a call are released if a later competitor fails.
+Read-only competition is unchanged.
+
+All other findings ride on a **successful** response as
+`safety_nudges: [{id, reason, safe_alternative}]` and never block, merging into
+`_hints` rather than replacing it. `plan.archive` **succeeds** without a
+retrospective and carries `plan.retrospective_unrecorded` plus a durable
+`incident` stride.
+
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 111 -->
+<!-- revision: 112 -->

@@ -15,6 +15,11 @@ pub(crate) fn authorize_task_mutation(
     task: &crate::plan::Task,
     authority: &TaskMutationAuthority,
 ) -> Result<(), PlanError> {
+    // A retired owner leaves nobody to authenticate against and its superseded
+    // epoch fences nothing; plan-level authority upstream already admitted this caller.
+    if task.interruption.owner_tab_id.is_none() && task.interruption.owner_session_id.is_none() {
+        return Ok(());
+    }
     if task.interruption.owner_epoch != authority.owner_epoch {
         return Err(PlanError::Io("stale task mutation owner epoch".into()));
     }

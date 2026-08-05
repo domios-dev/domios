@@ -220,6 +220,20 @@ There is deliberately no CLI or in-process reader wrapping these reads. The file
 is the interface; recovery reads it for itself and exposes nothing for a caller
 to render.
 
+## Attempt retirement fences a closed tab's dispatch
+
+Closing a tab flags every task bound to it (`flag_tab_gone`). That now sets
+`retired_at` on the tab's live execution attempts as well as `closed_at`, in the
+same write. Retirement is a one-way fence: `finish_task_dispatch`,
+`mark_task_attempt_runtime_ready`, and the startup-attempt lookup that backs
+`agent ack` all refuse a retired attempt. A `dispatch_ready` that lands after the
+tab is gone therefore fails its commit instead of settling the task into
+`in_progress` with no tab behind it.
+
+The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the
+stale attempts, clears the dead owner identity, and supersedes the epoch in one
+transaction, so the intermediate state is never observable.
+
 ## Not in scope yet
 
 - **Tab creation** is not journaled. Creation confers no authority, and the
@@ -235,4 +249,4 @@ to render.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

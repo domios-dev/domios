@@ -98,6 +98,14 @@ pub enum PlanError {
     Io(String),
 }
 
+/// Evidence written in the SAME store transaction as the archive it describes.
+#[derive(Debug, Clone)]
+pub struct PlanIncident {
+    pub kind: String,
+    pub text: String,
+    pub from: crate::plan::AgentRef,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct OpenSubtask {
     pub id: String,

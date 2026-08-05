@@ -26,7 +26,9 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 mod checkout_occupancy;
+mod lane_safety;
 mod qa_pass;
+mod recovery_race;
 mod worker_ack;
 
 #[test]

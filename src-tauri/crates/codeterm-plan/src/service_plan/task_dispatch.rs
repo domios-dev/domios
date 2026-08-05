@@ -8,7 +8,10 @@ fn startup_attempt<'a>(
     attempt_id: &str,
 ) -> Option<(&'a crate::plan::TaskExecutionAttempt, bool)> {
     let attempt = task.execution_attempts.iter().find(|attempt| {
-        attempt.id == attempt_id && attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
+        attempt.id == attempt_id
+            && attempt.executor_tab_id == tab_id
+            && attempt.closed_at.is_none()
+            && attempt.retired_at.is_none()
     })?;
     if let Some(group_id) = attempt.competition_group_id.as_deref() {
         if attempt
@@ -446,7 +449,10 @@ impl PlanStore {
             lane.tab_id = Some(tab_id.to_string());
             task.lane = normalize_lane_metadata(lane);
             let attempt = &mut task.execution_attempts[attempt_index];
-            if attempt.executor_tab_id != tab_id || attempt.closed_at.is_some() {
+            if attempt.executor_tab_id != tab_id
+                || attempt.closed_at.is_some()
+                || attempt.retired_at.is_some()
+            {
                 return Err(Self::task_readback_error(
                     "task_dispatch_finish",
                     "starting attempt no longer owns the tab",
@@ -698,7 +704,10 @@ impl PlanStore {
             }
             let task = &mut plan.tasks[task_index];
             let attempt = &mut task.execution_attempts[attempt_index];
-            if attempt.executor_tab_id != tab_id || attempt.closed_at.is_some() {
+            if attempt.executor_tab_id != tab_id
+                || attempt.closed_at.is_some()
+                || attempt.retired_at.is_some()
+            {
                 return Err(Self::task_readback_error(
                     "task_attempt_runtime_ready",
                     "attempt no longer owns the ready tab",

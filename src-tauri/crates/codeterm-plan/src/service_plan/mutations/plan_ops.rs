@@ -606,7 +606,38 @@ impl PlanStore {
     }
 
     pub fn archive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
+        self.archive_with_incident(plan_id, None, now_ms)
+    }
+
+    /// Archive status and its incident evidence are ONE write. `with_plan` commits
+    /// only after the file persists, so neither lands without the other.
+    pub fn archive_with_incident(
+        &self,
+        plan_id: &str,
+        incident: Option<PlanIncident>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let mid = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
+            if let Some(incident) = incident.as_ref() {
+                if incident.kind.trim().is_empty() || incident.text.trim().is_empty() {
+                    return Err(PlanError::Io(
+                        "plan archive incident requires a kind and text".into(),
+                    ));
+                }
+                p.strides.push(Milestone {
+                    id: mid.clone(),
+                    from: incident.from.clone(),
+                    kind: incident.kind.clone(),
+                    text: incident.text.clone(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
             p.status = PlanStatus::Archived;
             Ok(())
         })
@@ -881,7 +912,7 @@ mod team_binding_tests {
     use std::sync::{Arc, Barrier};
 
     use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
-    use crate::service_plan::{PlanError, PlanStore};
+    use crate::service_plan::{retrospective, PlanError, PlanStore};
     use tempfile::TempDir;
 
     fn store() -> (TempDir, PlanStore) {
@@ -1112,6 +1143,18 @@ mod team_binding_tests {
         create(&s, &dir, "Alpha", "team_alpha", 1).unwrap();
         let beta = create(&s, &dir, "Beta", "team_beta", 2).unwrap();
         assert_eq!(beta.team_id.as_deref(), Some("team_beta"));
+    }
+
+    /// Advisory, not a gate: a missing retrospective must never trap closure.
+    #[test]
+    fn archive_succeeds_without_retrospective() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Retro advisory", "team_alpha", 1).unwrap();
+        assert!(!retrospective::has_retrospective(&s.get(&plan.id).unwrap()));
+
+        s.archive(&plan.id, 2).unwrap();
+
+        assert_eq!(s.get(&plan.id).unwrap().status, PlanStatus::Archived);
     }
 
     #[test]

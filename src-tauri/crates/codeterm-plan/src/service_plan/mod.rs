@@ -62,6 +62,7 @@ pub mod task_attempts;
 pub mod task_brief;
 mod task_dispatch;
 pub mod task_queries;
+pub mod task_recovery;
 mod task_remove;
 mod types;
 pub mod usage_digest;
@@ -113,7 +114,8 @@ pub use state::{
 };
 pub use store_watch::WatchOutcome;
 pub use types::{
-    IndexEntry, NewTask, OpenSubtask, PlanError, ReconcileFixResult, SpecIndexEntry, TaskLaneUpdate,
+    IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
+    TaskLaneUpdate,
 };
 
 pub struct PlanStore {
