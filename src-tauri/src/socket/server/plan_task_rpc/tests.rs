@@ -316,3 +316,13 @@
             verify_owner_epoch_for_task_mutation("plan.task.update", &rebound, &service).is_err()
         );
     }
+
+    #[test]
+    fn standalone_task_add_does_not_require_an_existing_task_owner() {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+        let params = Some(json!({ "name": "Inbox item", "type": "task" }));
+
+        assert!(verify_owner_epoch_for_task_mutation("task.add", &params, &service).is_ok());
+    }
