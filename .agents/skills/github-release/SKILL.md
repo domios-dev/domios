@@ -207,7 +207,7 @@ git push origin develop
 Run these on the exact release head before opening the master PR:
 
 ```bash
-pnpm build
+./build.sh frontend
 CODETERM_API_PORT=7686 ./build.sh check
 bash scripts/check-file-sizes.sh --fail
 git diff --check
