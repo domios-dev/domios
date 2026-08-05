@@ -569,7 +569,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     std::process::exit(1);
                 })
             } else {
-                text.or(message).unwrap_or_default()
+                let inline = text.or(message).unwrap_or_default();
+                crate::cmd::send_text::nudge_report_body(json, &inline);
+                inline
             };
             if let Some(path) = doc {
                 let doc_text = match std::fs::read_to_string(&path) {
@@ -799,6 +801,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     "Error: --plan <id> is required when spawning --role Planner (or pass --parent)"
                 );
                 std::process::exit(1);
+            }
+            if task_file.is_none() {
+                if let Some(t) = task.as_deref() {
+                    crate::cmd::send_text::nudge_spawn_task(json, t);
+                }
             }
             let task =
                 match resolve_spawn_task(task, task_file, cwd.as_deref(), &mut std::io::stdin()) {

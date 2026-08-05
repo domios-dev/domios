@@ -24,9 +24,28 @@ export type TabTarget =
 
 const readOffsets = new Map<string, number>();
 let apiConfig: ApiConfig | undefined;
+const credentialListeners = new Set<() => void>();
+let credentials: string | null = null;
+
+/** Streams authenticate with the daemon token from config, which is null in the
+ *  pre-load default; the 401 that darkens a channel only revives on a signal. */
+export function onRemoteTransportCredentials(listener: () => void): () => void {
+  credentialListeners.add(listener);
+  return () => {
+    credentialListeners.delete(listener);
+  };
+}
+
+function credentialsOf(api: ApiConfig | undefined): string {
+  return `${api?.host ?? ""}:${api?.port ?? ""}:${api?.token ?? ""}`;
+}
 
 export function configureRemoteTabTransport(api: ApiConfig | undefined): void {
   apiConfig = api;
+  const next = credentialsOf(api);
+  if (next === credentials) return;
+  credentials = next;
+  for (const listener of credentialListeners) listener();
 }
 
 export function remoteTabTransportHttp(): { base: string; token: string } {

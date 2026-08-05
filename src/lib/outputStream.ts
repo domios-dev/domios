@@ -24,9 +24,17 @@
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
-import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import {
+  classifyTabTarget,
+  onRemoteTransportCredentials,
+  parseCompositeTabId,
+  remoteTabTransportHttp,
+} from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
-import { createRemoteChannelRecovery, type RemoteChannelRecovery, type StreamEndReason } from "./remoteChannelRecovery";
+import {
+  createRemoteChannelRecovery, createSilenceDeadline, REMOTE_SILENCE_TIMEOUT_MS,
+  type RemoteChannelRecovery, type StreamEndReason,
+} from "./remoteChannelRecovery";
 
 export interface TabOutputSink {
   onOutput(text: string): void;
@@ -47,7 +55,6 @@ interface OutputFrame {
 
 const BOOT_KEY = "codeterm-web-output-boot";
 const RECONNECT_DEBOUNCE_MS = 50;
-const RECEIVE_TIMEOUT_MS = 30_000;
 const WATCHDOG_INTERVAL_MS = 5_000;
 
 declare global {
@@ -231,7 +238,7 @@ function ensureStarted(): void {
   // Small delay so simultaneous terminal mounts batch into one initial cursor.
   setTimeout(() => void runStream(), RECONNECT_DEBOUNCE_MS);
   watchdogTimer ??= setInterval(() => {
-    if (Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {
+    if (Date.now() - lastFrameAt > REMOTE_SILENCE_TIMEOUT_MS) {
       forceImmediateRetry = true;
       streamAbort?.abort();
     }
@@ -348,6 +355,11 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   }
   const abort = new AbortController();
   record.controller = abort;
+  // Silence deadline: a socket that opens 200 then goes quiet (path drop mid-replay
+  // or after a keep-alive on an empty-ring tab) never parks on its own, and resume's
+  // guard would then skip a cursor-less connection forever. Re-armed on every byte.
+  const deadline = createSilenceDeadline(record.recovery, generation, abort);
+  deadline.arm();
   const params = new URLSearchParams({
     peer: record.peerId,
     path: "/api/output/stream",
@@ -368,6 +380,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
     while (!abort.signal.aborted && record.recovery.isCurrent(generation)) {
       const chunk = await reader.read();
       if (chunk.done) break;
+      deadline.arm();
       buffer += decoder.decode(chunk.value, { stream: true });
       let boundary = buffer.indexOf("\n\n");
       while (boundary >= 0) {
@@ -385,7 +398,10 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
     }
     reason = "eof";
   }).catch(() => undefined)
-    .finally(() => finalizeRemoteOutputConnection(ordinaryTabId, record, generation, abort, reason));
+    .finally(() => {
+      deadline.clear();
+      finalizeRemoteOutputConnection(ordinaryTabId, record, generation, abort, reason);
+    });
 }
 
 function handleRemoteOutputFrame(
@@ -440,9 +456,15 @@ function resolveRemoteSettlement(record: RemoteOutputRecord, generation: number)
   settled?.resolve();
 }
 
+onRemoteTransportCredentials(() => resumeRemoteOutputStreams());
+
 export function resumeRemoteOutputStreams(): void {
   for (const [ordinaryTabId, record] of remoteRecords) {
     if (!remoteSinks.has(ordinaryTabId)) continue;
+    // Never supersede a connection still awaiting its first frame — that dropped
+    // the initial replay and blanked the remote terminal. Reopen once it has a
+    // cursor to resume from, or when it is parked awaiting a signal.
+    if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal()) continue;
     if (record.recovery.signal() === "stale") continue;
     record.controller?.abort();
     openRemoteOutputConnection(ordinaryTabId, record);

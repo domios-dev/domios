@@ -157,6 +157,30 @@ fn generic_retry_hint(status: u16) -> String {
     }
 }
 
+fn is_cgnat_ip(token: &str) -> bool {
+    let octets: Vec<&str> = token.split('.').collect();
+    if octets.len() != 4 {
+        return false;
+    }
+    let parsed: Option<Vec<u8>> = octets.iter().map(|o| o.parse::<u8>().ok()).collect();
+    matches!(parsed.as_deref(), Some([100, second, _, _]) if (64..=127).contains(second))
+}
+
+// A relay failure that names a Tailscale address (100.64/10 CGNAT or *.ts.net)
+// usually means the local Tailscale path dropped, not that the peer is down.
+pub(crate) fn tailscale_unreachable_hint(text: &str) -> Option<String> {
+    let ts_dns = text.contains(".ts.net");
+    let cgnat = text
+        .split(|c: char| !c.is_ascii_digit() && c != '.')
+        .any(is_cgnat_ip);
+    (ts_dns || cgnat).then(|| {
+        "the peer is a Tailscale address that timed out — Tailscale may have dropped the path (the \
+         peer is likely fine). Try `tailscale ping <peer>` or restart Tailscale on this machine, \
+         then confirm the peer is up."
+            .to_string()
+    })
+}
+
 /// Classify a completed relay response into success data or a structured
 /// failure. Pure — no I/O, no process exit — so tests can drive it directly.
 fn classify_relay_response(
@@ -175,11 +199,14 @@ fn classify_relay_response(
         } else {
             format!("HTTP {}: {}", status.as_u16(), preview.trim())
         };
-        return Err(MeshSpawnFailure::new(
-            peer_name,
-            reason,
-            generic_retry_hint(status.as_u16()),
-        ));
+        let mut retry = generic_retry_hint(status.as_u16());
+        if status.as_u16() >= 500 {
+            if let Some(ts) = tailscale_unreachable_hint(&preview) {
+                retry.push_str("\nhint: ");
+                retry.push_str(&ts);
+            }
+        }
+        return Err(MeshSpawnFailure::new(peer_name, reason, retry));
     }
 
     // Relay returns 200+ok:false on auth/HTTP failures inside the envelope.

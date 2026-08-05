@@ -322,14 +322,6 @@ impl ServiceContext {
         .map(|_| ())
     }
 
-    /// Role placement clears a Tab's Team before re-resolving it, so the
-    /// reserved id is re-asserted once each spawn has taken its role.
-    fn rebind_pair_team(&self, team_id: &str, tab_id: &str) {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.team_id = Some(team_id.to_string());
-        }
-    }
-
     /// Bind a pending pair-spawned Planner when an Orchestrator creates its
     /// first plan. Returns true only when a pending tab was consumed.
     pub(crate) fn bind_pending_paired_planner(
@@ -520,7 +512,6 @@ impl ServiceContext {
             }
         };
         let orch_tab_id = orch_result.tab_id.clone();
-        self.rebind_pair_team(&reserved.team.id, &orch_tab_id);
 
         let mut planner_bootstrap = crate::service::spawn_factory::forming_identity_in_team(
             "Planner",
@@ -555,7 +546,6 @@ impl ServiceContext {
         {
             Ok(planner_result) => {
                 let planner_tab_id = planner_result.tab_id.clone();
-                self.rebind_pair_team(&reserved.team.id, &planner_tab_id);
                 if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
                     tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
                 }

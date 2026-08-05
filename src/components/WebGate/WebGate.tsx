@@ -7,11 +7,11 @@ import {
   IS_WEB,
   localJson,
   relayTarget,
-  resolveRelayTarget,
   selfHost,
   setRelayTarget,
   setTokenFor,
-  webJson,
+  usableRelayTarget,
+  WebApiError,
 } from "../../lib/webApi";
 import type { MeshPeersResponse } from "../../lib/types";
 import { PwaSetup } from "./PwaSetup";
@@ -49,11 +49,17 @@ export function WebGate({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await webJson("GET", "/api/workspaces");
+      // The token authenticates the browser to its OWN daemon, so probe it there.
+      // A relayed probe fails for peer reasons and would blame the token for them.
+      await localJson("GET", "/api/workspaces");
       setState("ready");
-    } catch {
+    } catch (error) {
       setState("need-token");
-      setError("Stored token was rejected — paste a fresh one.");
+      setError(
+        error instanceof WebApiError && (error.status === 401 || error.status === 403)
+          ? "Stored token was rejected — paste a fresh one."
+          : "Cannot reach the CodeTerm daemon on this host.",
+      );
     }
   }, []);
 
@@ -78,16 +84,26 @@ export function WebGate({ children }: { children: ReactNode }) {
     const relayPeerId = hash.get("relay")?.trim();
     let active = true;
     const bootstrap = async () => {
+      const stored = relayTarget();
       if (relayPeerId === "self") {
         clearRelayTarget();
       } else if (relayPeerId) {
         try {
           const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
-          const peer = resolveRelayTarget(peers.paired, relayPeerId);
-          if (!peer) throw new Error("Relay peer is not paired");
+          const peer = usableRelayTarget(peers.paired, relayPeerId);
+          if (!peer) throw new Error("Relay peer cannot serve as a relay target");
           if (active) setRelayTarget(peer.id, peer.name);
         } catch {
           if (active) clearRelayTarget();
+        }
+      } else if (stored) {
+        // A target left in localStorage outlives pairing, presence and protocol;
+        // adopting it unchecked relays every request into a dead peer.
+        try {
+          const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
+          if (active && !usableRelayTarget(peers.paired, stored.id)) clearRelayTarget();
+        } catch {
+          /* local daemon unreachable — validate() reports that, keep the target */
         }
       }
       if (active) await validate();
@@ -106,10 +122,14 @@ export function WebGate({ children }: { children: ReactNode }) {
     setError(null);
     setTokenFor(apiHost(), token);
     try {
-      await webJson("GET", "/api/workspaces");
+      await localJson("GET", "/api/workspaces");
       setState("ready");
     } catch (e) {
-      setError(`Token rejected by ${apiHost()}: ${String(e).slice(0, 120)}`);
+      setError(
+        e instanceof WebApiError && (e.status === 401 || e.status === 403)
+          ? `Token rejected by ${apiHost()}`
+          : `${apiHost()} did not answer: ${String(e).slice(0, 120)}`,
+      );
     } finally {
       setBusy(false);
     }
