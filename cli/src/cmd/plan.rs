@@ -9,12 +9,14 @@ use crate::cmd::hints::{plan_create_spec_first_hint, push_hints};
 use crate::cmd::plan_errors::render_plan_call_error;
 
 mod adopt_search;
+pub(crate) mod caller_context;
 mod gate_cmd;
 mod qa_cmd;
 mod read_cmd;
 mod review_cmd;
 mod task_cmd;
 use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
+use self::caller_context::CallerContext;
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
@@ -47,39 +49,19 @@ fn read_path_or_stdin(path: &str) -> Result<String, String> {
 }
 
 pub(crate) fn owner_from_env() -> Value {
-    let tab = std::env::var("CODETERM_TAB_ID").ok();
-    json!({
-        "tab_id": tab,
-        "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-        "title": std::env::var("CODETERM_TAB_TITLE").ok(),
-    })
+    CallerContext::from_env().owner()
 }
 
 pub(crate) fn caller_tab_id() -> Option<String> {
-    std::env::var("CODETERM_TAB_ID").ok()
+    CallerContext::from_env().tab_id()
 }
 
 pub(crate) fn maybe_inject_caller_tab(params: &mut Value) {
-    if let Some(tab) = caller_tab_id() {
-        if let Some(obj) = params.as_object_mut() {
-            obj.insert("caller_tab_id".into(), json!(tab));
-        }
-    }
+    CallerContext::from_env().apply_caller_tab(params);
 }
 
 pub(crate) fn inject_trusted_session(params: &mut Value) {
-    let Some(obj) = params.as_object_mut() else {
-        return;
-    };
-    if let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") {
-        obj.insert("caller_tab_id".into(), json!(tab_id));
-    }
-    if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
-        obj.insert("session_id".into(), json!(session_id));
-    }
-    if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
-        obj.insert("session_binding_nonce".into(), json!(nonce));
-    }
+    CallerContext::from_env().apply_trusted_session(params);
 }
 
 pub(crate) fn call_plan_rpc(
