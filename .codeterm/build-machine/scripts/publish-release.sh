@@ -30,7 +30,7 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 MERGE="$REPO_ROOT/scripts/merge-latest-json.js"
 cd "$ART"
 
-# Versionless mac updater tarballs -> stable /latest/download/ URLs across versions.
+# Versionless mac updater names remain scoped by the immutable release tag URL.
 cp -f "CodeTerm_${VER}_aarch64.app.tar.gz"     CodeTerm_aarch64.app.tar.gz
 cp -f "CodeTerm_${VER}_aarch64.app.tar.gz.sig" CodeTerm_aarch64.app.tar.gz.sig
 cp -f "CodeTerm_${VER}_x64.app.tar.gz"         CodeTerm_x64.app.tar.gz
@@ -40,7 +40,7 @@ ARM_SIG=$(tr -d '\n' < CodeTerm_aarch64.app.tar.gz.sig)
 X64_SIG=$(tr -d '\n' < CodeTerm_x64.app.tar.gz.sig)
 LINUX_ARM_SIG=$(tr -d '\n' < "CodeTerm_${VER}_aarch64.AppImage.sig")
 PUB=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-B="https://github.com/${MIRROR}/releases/latest/download"
+B="https://github.com/${MIRROR}/releases/download/${TAG}"
 
 # Per-platform updater fragments owned by this (mac+linux-arm) runner.
 mkdir -p _frags
@@ -99,7 +99,6 @@ gh release upload "$TAG" --repo "$MIRROR" --clobber "${PRIV_ASSETS[@]}" latest.j
 gh release edit "$TAG" --repo "$MIRROR" --draft=false --latest
 
 echo "### verify anon updater URLs"
-sleep 4
 for u in latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz "CodeTerm_${VER}_aarch64.AppImage"; do
   code=$(curl -sIL -o /dev/null -w '%{http_code}' "$B/$u")
   echo "  $code  $u"; [ "$code" = 200 ] || { echo "::error::updater URL $u -> $code"; exit 1; }
