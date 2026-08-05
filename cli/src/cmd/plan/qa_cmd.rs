@@ -2,20 +2,22 @@ use crate::args::plan::PlanQaAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, maybe_inject_caller_tab, owner_from_env};
+use super::call_plan_rpc;
+use super::caller_context::CallerContext;
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanQaAction,
 ) -> Result<Option<Value>, String> {
+    let ctx = CallerContext::from_env();
     match action {
         PlanQaAction::Queue {
             plan_id,
             task,
             note,
         } => {
-            let mut params = json!({ "from": owner_from_env() });
+            let mut params = json!({ "from": ctx.owner() });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
@@ -25,7 +27,7 @@ pub(super) fn handle(
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.queue", params)?;
             if json_output || val.get("task_id").is_some() {
                 return Ok(Some(val));
@@ -39,7 +41,7 @@ pub(super) fn handle(
             group,
             note,
         } => {
-            let mut params = json!({ "claim": claim, "from": owner_from_env() });
+            let mut params = json!({ "claim": claim, "from": ctx.owner() });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
@@ -49,7 +51,7 @@ pub(super) fn handle(
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.next", params)?;
             if json_output {
                 return Ok(Some(val));
@@ -68,11 +70,11 @@ pub(super) fn handle(
             task_id,
             note,
         } => {
-            let mut params = json!({ "task_id": task_id, "note": note, "from": owner_from_env() });
+            let mut params = json!({ "task_id": task_id, "note": note, "from": ctx.owner() });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             call_plan_rpc(client, "plan.qa.pass", params).map(Some)
         }
         PlanQaAction::Fail {
@@ -87,12 +89,12 @@ pub(super) fn handle(
                 "note": note,
                 "changed_executable_surfaces": changed_executable_surfaces,
                 "distinct_oracle": distinct_oracle,
-                "from": owner_from_env()
+                "from": ctx.owner()
             });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             call_plan_rpc(client, "plan.qa.fail", params).map(Some)
         }
         PlanQaAction::Override {
@@ -100,11 +102,11 @@ pub(super) fn handle(
             gate,
             reason,
         } => {
-            let mut params = json!({ "reason": reason, "gates": gate, "from": owner_from_env() });
+            let mut params = json!({ "reason": reason, "gates": gate, "from": ctx.owner() });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            ctx.apply_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.override", params)?;
             if json_output {
                 return Ok(Some(val));

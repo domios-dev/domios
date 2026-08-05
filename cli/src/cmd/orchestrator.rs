@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 
 use crate::args::orchestrator::{OrchestratorAction, OrchestratorHeartbeatAction};
 use crate::client::{SocketCallError, SocketClient};
-use crate::cmd::plan::{call_plan_rpc, owner_from_env, resolve_text};
+use crate::cmd::plan::caller_context::CallerContext;
+use crate::cmd::plan::{call_plan_rpc, resolve_text};
 use crate::resolve_tab;
 
 pub fn handle(
@@ -430,7 +431,7 @@ fn handoff(
         "plan_id": plan_id,
         "mode": mode,
         "next_actions": next_actions,
-        "from": owner_from_env(),
+        "from": CallerContext::from_env().owner(),
     });
     if let Some(task) = task {
         create["task"] = json!(task);
