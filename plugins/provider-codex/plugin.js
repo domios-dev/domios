@@ -952,14 +952,12 @@ var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
   if (params.starterPrompt === "no_starter") return void 0;
-  let body;
-  if (params.starterPrompt === "idle_wakeup") body = IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") {
     if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
-    body = params.starterPromptText;
+    return params.starterPromptText;
   }
-  body ??= ASSIGNED_TASK_START_PROMPT;
-  return params.starterPromptPrefix ? ` ${params.starterPromptPrefix}${body}` : body;
+  return ASSIGNED_TASK_START_PROMPT;
 }
 function hasPromptAndStatusFooter(screen) {
   if (screen.indexOf("\u203A") === -1) return false;

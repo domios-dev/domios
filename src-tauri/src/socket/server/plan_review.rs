@@ -3,9 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{AgentRef, ReviewCapacityClass};
 #[cfg(test)]
 use crate::plan::Plan;
+use crate::plan::{AgentRef, ReviewCapacityClass};
 use crate::service::plan::PlanError;
 use crate::service::{ServiceContext, ServiceState};
 

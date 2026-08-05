@@ -957,7 +957,9 @@ mod tests {
             );
         }
         assert!(
-            origins.iter().any(|origin| origin == "https://example.test"),
+            origins
+                .iter()
+                .any(|origin| origin == "https://example.test"),
             "configured origins must survive the append",
         );
     }

@@ -1,9 +1,9 @@
 use serde_json::Value;
 
 use crate::multiplexer::types::AgentRole;
-use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 use crate::plan::{tag_facets_from_value, MilestoneKind, TagFacet, TaskExecutionIntent, TaskGroup};
 use crate::service::ServiceState;
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
 use super::JsonRpcError;
 

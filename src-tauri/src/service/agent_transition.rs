@@ -117,9 +117,7 @@ impl ServiceContext {
                     parent_tab_id: match needs_parent {
                         true => Some(
                             parent_tab_id
-                                .ok_or_else(|| {
-                                    format!("{role_profile} requires a parent_tab_id")
-                                })?
+                                .ok_or_else(|| format!("{role_profile} requires a parent_tab_id"))?
                                 .to_string(),
                         ),
                         false => None,
@@ -625,8 +623,10 @@ fn destination_plan_rebind(
         verify_rebind_team_available(plan_store, rebind)?;
         return Ok(Some(rebind.clone()));
     }
-    let (true, Some(plan_id)) = (request.destination.is_planner(), request.plan_binding.as_ref())
-    else {
+    let (true, Some(plan_id)) = (
+        request.destination.is_planner(),
+        request.plan_binding.as_ref(),
+    ) else {
         return Ok(None);
     };
     // No caller-supplied parent is required or invented: an already-placed
@@ -755,8 +755,10 @@ fn planner_binding(
     request: &AgentTransitionRequest,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Option<(String, Option<PlannerRef>)>, String> {
-    let (true, Some(plan_id)) = (request.destination.is_planner(), request.plan_binding.as_ref())
-    else {
+    let (true, Some(plan_id)) = (
+        request.destination.is_planner(),
+        request.plan_binding.as_ref(),
+    ) else {
         return Ok(None);
     };
     let tab = mux
@@ -839,7 +841,13 @@ fn verify_destination(
             can_spawn,
         } => match resolved_manager_parent(request, plan_rebind, parent_tab_id)? {
             Some(parent_tab_id) => {
-                verify_leaf(tab, AgentRole::Manager, Some(role_profile), &parent_tab_id, mux)?;
+                verify_leaf(
+                    tab,
+                    AgentRole::Manager,
+                    Some(role_profile),
+                    &parent_tab_id,
+                    mux,
+                )?;
                 if request.require_verified_session && request.destination.is_planner() {
                     verified_session(tab)?;
                 }

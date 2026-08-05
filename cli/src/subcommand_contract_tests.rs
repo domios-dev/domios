@@ -268,8 +268,8 @@ fn retained_spellings_still_parse() {
         }
     ));
 
-    let inbox = Cli::try_parse_from(["codeterm", "inbox", "add", "--name", "x"])
-        .expect("inbox add parses");
+    let inbox =
+        Cli::try_parse_from(["codeterm", "inbox", "add", "--name", "x"]).expect("inbox add parses");
     assert!(matches!(
         inbox.command,
         Commands::Inbox {
@@ -348,9 +348,7 @@ fn pair_command(extra: &[&str]) -> Commands {
         "codex",
     ];
     argv.extend_from_slice(extra);
-    Cli::try_parse_from(argv)
-        .expect("team pair parses")
-        .command
+    Cli::try_parse_from(argv).expect("team pair parses").command
 }
 
 #[test]

@@ -993,17 +993,14 @@ var NOISE_FRAGMENTS = [
 ];
 var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-function starterPrompt(params) {
-  const prompt = params.starterPrompt;
+function starterPrompt(prompt, hostText) {
   if (prompt === "no_starter") return void 0;
-  let body;
-  if (prompt === "idle_wakeup") body = IDLE_WAKEUP_START_PROMPT;
+  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (prompt === "team_bootstrap") {
-    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
-    body = params.starterPromptText;
+    if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
+    return hostText;
   }
-  body ??= FILE_TASK_PROMPT;
-  return params.starterPromptPrefix ? ` ${params.starterPromptPrefix}${body}` : body;
+  return FILE_TASK_PROMPT;
 }
 function xmlTagBody(content, tag) {
   const open = `<${tag}>`;
@@ -1060,7 +1057,7 @@ function isBrailleSpinner(ch) {
 }
 var plugin = {
   starterPromptText(prompt) {
-    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
+    return prompt === "team_bootstrap" ? void 0 : starterPrompt(prompt);
   },
   detectFromTitle(title) {
     const t = String(title || "");
@@ -1186,7 +1183,7 @@ var plugin = {
       const visiblePath = writeTaskTempFile(p.task);
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = starterPrompt(p);
+      const prompt = starterPrompt(p.starterPrompt, p.starterPromptText);
       if (prompt) {
         parts.push("--");
         parts.push(host.shell.quoteFor(prompt, host.platform()));

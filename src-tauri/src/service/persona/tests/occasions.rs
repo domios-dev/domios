@@ -94,13 +94,11 @@ fn every_builtin_manager_kind_reaches_the_same_resolver() {
 fn the_worker_identity_slot_carries_the_persona_and_the_assignment_slot_carries_the_contract() {
     let preset = worker_preset(Some("rust-backend-dev"), Some("You are Mira."));
 
-    let (identity, identity_emission) =
-        guidance(Occasion::WorkerLaunchIdentity, Some(&preset));
+    let (identity, identity_emission) = guidance(Occasion::WorkerLaunchIdentity, Some(&preset));
     assert_eq!(identity, "You are Mira.");
     assert_eq!(identity_emission, Emission::Preset);
 
-    let (assignment, assignment_emission) =
-        guidance(Occasion::LaunchAssignment, Some(&preset));
+    let (assignment, assignment_emission) = guidance(Occasion::LaunchAssignment, Some(&preset));
     assert_eq!(assignment, crate::prompts::worker_suffix());
     assert_eq!(assignment_emission, Emission::Preset);
     assert!(

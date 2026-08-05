@@ -23,7 +23,10 @@ fn nudges_ride_a_successful_result_and_merge_into_existing_hints() {
     apply_safety_nudges(&mut result, std::slice::from_ref(&nudge));
 
     assert_eq!(result["ok"], true);
-    assert_eq!(result["safety_nudges"][0]["id"], NUDGE_RETROSPECTIVE_UNRECORDED);
+    assert_eq!(
+        result["safety_nudges"][0]["id"],
+        NUDGE_RETROSPECTIVE_UNRECORDED
+    );
     assert!(!result["safety_nudges"][0]["safe_alternative"]
         .as_str()
         .unwrap()
@@ -104,7 +107,11 @@ fn a_failed_archive_write_changes_neither_status_nor_incident() {
         .unwrap_err();
 
     assert!(matches!(error, crate::service::plan::PlanError::Io(_)));
-    assert_eq!(incidents(&store, &plan_id), 0, "no evidence without archive");
+    assert_eq!(
+        incidents(&store, &plan_id),
+        0,
+        "no evidence without archive"
+    );
     assert_eq!(
         store.get(&plan_id).unwrap().status,
         crate::plan::PlanStatus::Active,
@@ -152,5 +159,7 @@ fn a_recorded_retrospective_raises_no_advisory() {
         .add_retrospective(&plan_id, "what worked", AgentRef::from_tab("orch"), 2)
         .unwrap();
 
-    assert!(super::super::plan_archive::retrospective_nudge(&store.get(&plan_id).unwrap()).is_none());
+    assert!(
+        super::super::plan_archive::retrospective_nudge(&store.get(&plan_id).unwrap()).is_none()
+    );
 }

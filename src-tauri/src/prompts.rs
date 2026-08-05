@@ -570,7 +570,10 @@ mod tests {
             planner_suffix(),
             orchestrator_onboarding("codeterm agent spawn claude --role Planner"),
         ] {
-            assert!(rendered.contains(contract), "planning contract not delivered");
+            assert!(
+                rendered.contains(contract),
+                "planning contract not delivered"
+            );
             assert!(!rendered.contains("{planning_compaction_contract}"));
         }
     }
@@ -583,7 +586,10 @@ mod tests {
         let composed = [
             ("orchestrator_suffix", orchestrator_suffix()),
             ("planner_suffix", planner_suffix()),
-            ("orchestrator_onboarding", orchestrator_onboarding(spawn_cmd)),
+            (
+                "orchestrator_onboarding",
+                orchestrator_onboarding(spawn_cmd),
+            ),
             ("peer_pairing_mandate", peer_pairing_mandate_full(spawn_cmd)),
             (
                 "general_agent",
@@ -650,7 +656,11 @@ mod tests {
 
         // The Team-bound creation contract has one source, not a copy per role.
         let contract = TEAM_CREATION_CONTRACT.trim();
-        for surface in [WORKER_SUFFIX, AGENT_CODETERM_PRIMER, WORKER_CODETERM_CONTEXT] {
+        for surface in [
+            WORKER_SUFFIX,
+            AGENT_CODETERM_PRIMER,
+            WORKER_CODETERM_CONTEXT,
+        ] {
             assert!(!surface.contains(contract));
         }
     }

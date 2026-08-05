@@ -171,15 +171,19 @@ fn spawn_relay_registration_skips_non_spawn_and_unregisterable() {
         data: Some(serde_json::json!({"tab_id":"p1"})),
         error: Some("boom".into()),
     };
-    assert!(
-        spawn_registration_from_relay("POST", "/api/agents/spawn", &body, &failed).is_none()
-    );
+    assert!(spawn_registration_from_relay("POST", "/api/agents/spawn", &body, &failed).is_none());
 }
 
 #[test]
 fn relay_spawn_tags_origin_peer() {
     let mut body = serde_json::json!({"agent": "claude", "report_to": "main"});
-    tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "peer-mac", "Mac-Air");
+    tag_relay_spawn_source(
+        &mut body,
+        "POST",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
     assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
     assert_eq!(body["report_to"], serde_json::json!("main"));
 }
@@ -197,16 +201,31 @@ fn relay_spawn_stamps_ownership_peer_from_signed_sender() {
             "peer_name": "SPOOF"
         }
     });
-    tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "peer-mac", "Mac-Air");
+    tag_relay_spawn_source(
+        &mut body,
+        "POST",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
     assert_eq!(body["ownership"]["peer_id"], serde_json::json!("peer-mac"));
     assert_eq!(body["ownership"]["peer_name"], serde_json::json!("Mac-Air"));
-    assert_eq!(body["ownership"]["controller_title"], serde_json::json!("Puccini"));
+    assert_eq!(
+        body["ownership"]["controller_title"],
+        serde_json::json!("Puccini")
+    );
 }
 
 #[test]
 fn relay_spawn_origin_overrides_spoofed_body() {
     let mut body = serde_json::json!({"agent": "claude", "origin_peer": "I-AM-ROOT"});
-    tag_relay_spawn_source(&mut body, "post", "/api/agents/spawn", "peer-mac", "Mac-Air");
+    tag_relay_spawn_source(
+        &mut body,
+        "post",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
     assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
 }
 
@@ -219,8 +238,18 @@ fn relay_spawn_strips_origin_local_parent_and_promotes_to_report() {
         "role": "Worker",
         "parent_tab_id": "af5919cb"
     });
-    tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "peer-mac", "Mac-Air");
-    assert_eq!(body.get("parent_tab_id"), None, "origin-local parent stripped");
+    tag_relay_spawn_source(
+        &mut body,
+        "POST",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
+    assert_eq!(
+        body.get("parent_tab_id"),
+        None,
+        "origin-local parent stripped"
+    );
     assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
     assert_eq!(
         body["report_to"],
@@ -236,7 +265,13 @@ fn relay_spawn_strips_parent_but_keeps_explicit_report_to() {
         "parent_tab_id": "af5919cb",
         "report_to": "main"
     });
-    tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "peer-mac", "Mac-Air");
+    tag_relay_spawn_source(
+        &mut body,
+        "POST",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
     assert_eq!(body.get("parent_tab_id"), None);
     assert_eq!(
         body["report_to"],
@@ -260,23 +295,43 @@ fn relay_spawn_preserves_parent_for_non_worker_roles() {
         if !role.is_null() {
             body["role"] = role.clone();
         }
-        tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "peer-mac", "Mac-Air");
+        tag_relay_spawn_source(
+            &mut body,
+            "POST",
+            "/api/agents/spawn",
+            "peer-mac",
+            "Mac-Air",
+        );
         assert_eq!(
             body["parent_tab_id"],
             serde_json::json!("af5919cb"),
             "non-Worker ({role}) must keep parent_tab_id"
         );
         assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
-        assert_eq!(body.get("report_to"), None, "no report promotion for non-Worker");
+        assert_eq!(
+            body.get("report_to"),
+            None,
+            "no report promotion for non-Worker"
+        );
     }
 }
 
 #[test]
 fn relay_spawn_ignores_blank_parent() {
     let mut body = serde_json::json!({"role": "Worker", "parent_tab_id": "  "});
-    tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "peer-mac", "Mac-Air");
+    tag_relay_spawn_source(
+        &mut body,
+        "POST",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
     assert_eq!(body.get("parent_tab_id"), None);
-    assert_eq!(body.get("report_to"), None, "blank parent is not a report target");
+    assert_eq!(
+        body.get("report_to"),
+        None,
+        "blank parent is not a report target"
+    );
 }
 
 #[test]
@@ -285,7 +340,13 @@ fn relay_spawn_tagger_ignores_non_spawn_paths() {
     tag_relay_spawn_source(&mut body, "POST", "/api/tabs/x/send", "peer-mac", "Mac-Air");
     assert_eq!(body.get("origin_peer"), None);
     let mut body2 = serde_json::json!({});
-    tag_relay_spawn_source(&mut body2, "GET", "/api/agents/spawn", "peer-mac", "Mac-Air");
+    tag_relay_spawn_source(
+        &mut body2,
+        "GET",
+        "/api/agents/spawn",
+        "peer-mac",
+        "Mac-Air",
+    );
     assert_eq!(
         body2.get("origin_peer"),
         None,

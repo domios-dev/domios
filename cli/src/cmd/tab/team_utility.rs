@@ -20,9 +20,9 @@ pub(super) fn handle_create_result(
                 println!("\n{summary}");
             }
         }
-        Err(error) => eprintln!(
-            "warning: tab created, but Team utility shells could not be listed: {error}"
-        ),
+        Err(error) => {
+            eprintln!("warning: tab created, but Team utility shells could not be listed: {error}")
+        }
     }
 }
 
@@ -70,11 +70,7 @@ fn render_team_utility_shells(tabs: &[serde_json::Value], team_id: &str) -> Opti
     shells.sort();
 
     let mut lines = vec![format!("Team utility shells ({}):", shells.len())];
-    lines.extend(
-        shells
-            .iter()
-            .map(|(title, id)| format!("  {id} {title}")),
-    );
+    lines.extend(shells.iter().map(|(title, id)| format!("  {id} {title}")));
     if shells.len() > 1 {
         lines.push("Clean up extras with `codeterm tab close --tab <ID>`.".to_string());
     }
@@ -82,7 +78,10 @@ fn render_team_utility_shells(tabs: &[serde_json::Value], team_id: &str) -> Opti
 }
 
 fn string_field<'a>(value: &'a serde_json::Value, field: &str) -> &'a str {
-    value.get(field).and_then(|item| item.as_str()).unwrap_or("")
+    value
+        .get(field)
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
 }
 
 #[cfg(test)]

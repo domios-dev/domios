@@ -37,7 +37,9 @@ pub(super) fn archive_with_evidence(
     plan_id: &str,
     now: u64,
 ) -> Result<Option<SafetyNudge>, PlanError> {
-    let nudge = store.get(plan_id).and_then(|plan| retrospective_nudge(&plan));
+    let nudge = store
+        .get(plan_id)
+        .and_then(|plan| retrospective_nudge(&plan));
     let incident = nudge.as_ref().map(|nudge| PlanIncident {
         kind: SAFETY_INCIDENT_KIND.to_string(),
         text: safety_incident_text(plan_id, nudge.id, &nudge.reason),

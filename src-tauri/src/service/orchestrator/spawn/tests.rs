@@ -238,11 +238,7 @@ fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
 
 #[test]
 fn native_planner_startup_keeps_manager_contract_and_onboarding() {
-    let payload = planner_startup_payload(
-        true,
-        Some("system contract".into()),
-        "planner startup",
-    );
+    let payload = planner_startup_payload(true, Some("system contract".into()), "planner startup");
 
     assert!(payload.starts_with("system contract"));
     assert!(payload.ends_with("planner startup"));

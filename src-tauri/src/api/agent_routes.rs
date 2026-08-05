@@ -446,13 +446,13 @@ pub async fn set_tab_role(
         .normalize_role_profile()
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let role = role_probe.role.unwrap_or_else(|| "Worker".into());
-    let (parsed_role, parsed_profile) = crate::service::ServiceContext::parse_role_kind(
-        &role,
-        role_probe.role_profile.as_deref(),
-    )
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let becomes_anchor =
-        codeterm_types::agent::role_kind::anchors_team(Some(parsed_role), parsed_profile.as_deref());
+    let (parsed_role, parsed_profile) =
+        crate::service::ServiceContext::parse_role_kind(&role, role_probe.role_profile.as_deref())
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
+        Some(parsed_role),
+        parsed_profile.as_deref(),
+    );
     let was_orchestrator = {
         let mux = state.svc.mux.read();
         mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)

@@ -434,7 +434,31 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
     }
 }
 
-async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+#[cfg(target_os = "macos")]
+fn enable_restart_rebind(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let enabled: libc::c_int = 1;
+    let result = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_REUSEPORT,
+            std::ptr::from_ref(&enabled).cast(),
+            std::mem::size_of_val(&enabled) as libc::socklen_t,
+        )
+    };
+    if result == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+async fn bind_listener(
+    bind_addr: &str,
+    _restart_generation: bool,
+) -> std::io::Result<tokio::net::TcpListener> {
     let address = bind_addr
         .parse::<SocketAddr>()
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
@@ -444,6 +468,10 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListen
         tokio::net::TcpSocket::new_v6()?
     };
     socket.set_reuseaddr(true)?;
+    #[cfg(target_os = "macos")]
+    if _restart_generation {
+        enable_restart_rebind(&socket)?;
+    }
     socket.bind(address)?;
     socket.listen(1024)
 }
@@ -595,7 +623,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 
     loop {
         let generation = control.begin_generation();
-        let listener = match bind_listener(&bind_addr).await {
+        let listener = match bind_listener(&bind_addr, generation > 1).await {
             Ok(listener) => listener,
             Err(error) => {
                 let message =

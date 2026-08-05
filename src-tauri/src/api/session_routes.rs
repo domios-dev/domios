@@ -206,12 +206,14 @@ pub async fn resume_session_api(
 
     let persisted_identity =
         persisted_resume_identity(&state, &meta.provider, &meta.session_id).await;
-    let identity =
-        restorable_identity(persisted_identity, |parent| {
-            state.svc.mux.read().get_tab(parent).is_some_and(|tab| {
-                tab.anchors_team()
-            })
-        });
+    let identity = restorable_identity(persisted_identity, |parent| {
+        state
+            .svc
+            .mux
+            .read()
+            .get_tab(parent)
+            .is_some_and(|tab| tab.anchors_team())
+    });
 
     // both spawn.
     {

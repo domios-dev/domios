@@ -221,12 +221,16 @@ fn the_worker_identity_slot_keeps_its_exact_default_and_persona() {
 #[test]
 fn a_worker_naming_a_manager_kind_consumes_the_worker_contract_not_the_managers() {
     for (profile, borrowed) in [
-        (builtins::ORCHESTRATOR, crate::prompts::orchestrator_suffix()),
+        (
+            builtins::ORCHESTRATOR,
+            crate::prompts::orchestrator_suffix(),
+        ),
         (builtins::PLANNER, crate::prompts::planner_suffix()),
     ] {
         // What the base shipped: the Worker was handed the manager's charter.
-        let leaked = pre_table_raw_profile_assignment(Some("fix it"), Some("Worker"), Some(profile))
-            .expect("pre-table assignment");
+        let leaked =
+            pre_table_raw_profile_assignment(Some("fix it"), Some("Worker"), Some(profile))
+                .expect("pre-table assignment");
         assert!(
             leaked.contains(&borrowed),
             "the pre-table reading is expected to leak {profile} text"
@@ -275,8 +279,7 @@ fn assignment_separators_and_ordering_are_pinned() {
 
     // The Worker system prompt trims its assignment section; the manager paths
     // do not. Pin the trimmed form so the separator stays asserted either way.
-    let worker =
-        role_onboarding_task(Some("fix it"), Some("Worker"), None).expect("worker prompt");
+    let worker = role_onboarding_task(Some("fix it"), Some("Worker"), None).expect("worker prompt");
     assert!(worker.contains(format!("fix it{}", crate::prompts::worker_suffix()).trim()));
 
     let watcher = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher"))

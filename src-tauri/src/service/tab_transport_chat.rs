@@ -616,9 +616,7 @@ mod tests {
 
         let (mut state, parent_id) = MultiplexerState::new();
         let workspace_id = state.list_workspaces()[0].id.clone();
-        state
-            .set_orchestrator_role(&parent_id)
-            .unwrap();
+        state.set_orchestrator_role(&parent_id).unwrap();
         let team_id = state
             .resolve_or_mint_team_for_parent(&parent_id)
             .unwrap()

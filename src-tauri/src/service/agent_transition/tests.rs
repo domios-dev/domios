@@ -22,10 +22,8 @@ impl Fixture {
         arm_session(mux.get_tab_mut(&owner).unwrap(), "owner");
         arm_session(mux.get_tab_mut(&other_owner).unwrap(), "other-owner");
         arm_session(mux.get_tab_mut(&target).unwrap(), "target");
-        mux.set_orchestrator_role(&owner)
-            .unwrap();
-        mux.set_orchestrator_role(&other_owner)
-            .unwrap();
+        mux.set_orchestrator_role(&owner).unwrap();
+        mux.set_orchestrator_role(&other_owner).unwrap();
         mux.resolve_or_mint_team_for_parent(&owner).unwrap();
         mux.resolve_or_mint_team_for_parent(&other_owner).unwrap();
         let mut plan = Plan::new(
@@ -211,7 +209,10 @@ fn agent_transition_matrix_oracle() {
             3,
         )
         .unwrap();
-    orchestrator_to_planner.transition_bound(planner_placement(), Some(orchestrator_to_planner.plan_id.clone()));
+    orchestrator_to_planner.transition_bound(
+        planner_placement(),
+        Some(orchestrator_to_planner.plan_id.clone()),
+    );
     assert_planner_tuple(&orchestrator_to_planner, &orchestrator_to_planner.owner);
     let orphan = orchestrator_to_planner.mux.get_tab(&child).unwrap();
     assert_eq!(orphan.role, None);
@@ -258,7 +259,8 @@ fn agent_transition_matrix_oracle() {
             3,
         )
         .unwrap();
-    worker_to_planner.transition_bound(planner_placement(), Some(worker_to_planner.plan_id.clone()));
+    worker_to_planner
+        .transition_bound(planner_placement(), Some(worker_to_planner.plan_id.clone()));
     assert_planner_tuple(&worker_to_planner, &worker_to_planner.other_owner);
     let task = worker_to_planner
         .store
@@ -302,7 +304,10 @@ fn agent_transition_matrix_oracle() {
     assert_worker_tuple(&roleless_to_worker, &roleless_to_worker.owner);
 
     let mut roleless_to_planner = Fixture::new(dir.path());
-    roleless_to_planner.transition_bound(planner_placement(), Some(roleless_to_planner.plan_id.clone()));
+    roleless_to_planner.transition_bound(
+        planner_placement(),
+        Some(roleless_to_planner.plan_id.clone()),
+    );
     assert_planner_tuple(&roleless_to_planner, &roleless_to_planner.owner);
 
     let mut roleless_to_orchestrator = Fixture::new(dir.path());
@@ -310,7 +315,10 @@ fn agent_transition_matrix_oracle() {
     assert_orchestrator_tuple(&roleless_to_orchestrator);
 
     let mut planner_to_roleless = Fixture::new(dir.path());
-    planner_to_roleless.transition_bound(planner_placement(), Some(planner_to_roleless.plan_id.clone()));
+    planner_to_roleless.transition_bound(
+        planner_placement(),
+        Some(planner_to_roleless.plan_id.clone()),
+    );
     planner_to_roleless.transition(AgentPlacement::Roleless);
     let tab = planner_to_roleless.target();
     assert_eq!(effective_role(tab), "Roleless");
@@ -336,10 +344,7 @@ fn agent_transition_matrix_oracle() {
 fn regression_orchestrator_to_planner_single_command_sets_role_and_report_owner() {
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());
-    fixture
-        .mux
-        .set_orchestrator_role(&fixture.target)
-        .unwrap();
+    fixture.mux.set_orchestrator_role(&fixture.target).unwrap();
     fixture
         .mux
         .get_tab_mut(&fixture.target)

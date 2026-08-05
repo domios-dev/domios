@@ -11,7 +11,14 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         title,
     } = action
     {
-        handle_pair(client, json_output, &orchestrator, &planner, workspace, title);
+        handle_pair(
+            client,
+            json_output,
+            &orchestrator,
+            &planner,
+            workspace,
+            title,
+        );
         return;
     }
     let caller_tab_id = (!client.is_remote())

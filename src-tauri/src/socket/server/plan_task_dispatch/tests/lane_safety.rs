@@ -16,7 +16,13 @@ fn violation_id(error: &crate::socket::server::JsonRpcError) -> String {
         .to_string()
 }
 
-fn plan_with_two_tasks() -> (tempfile::TempDir, PlanStore, crate::plan::Plan, String, String) {
+fn plan_with_two_tasks() -> (
+    tempfile::TempDir,
+    PlanStore,
+    crate::plan::Plan,
+    String,
+    String,
+) {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let created = store
@@ -81,8 +87,8 @@ fn mutating_dispatch_into_foreign_lane_is_refused() {
     let (root, _store, plan, mine, theirs) = plan_with_two_tasks();
     let foreign = root.path().join("foreign-lane").display().to_string();
 
-    let error =
-        refuse_unsafe_mutating_write(&plan, &mine, &foreign, ExecutionIntent::Mutating).unwrap_err();
+    let error = refuse_unsafe_mutating_write(&plan, &mine, &foreign, ExecutionIntent::Mutating)
+        .unwrap_err();
 
     assert_eq!(violation_id(&error), REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE);
     assert!(error.message.contains(&theirs), "{}", error.message);

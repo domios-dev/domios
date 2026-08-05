@@ -333,7 +333,9 @@ fn trust_disagreements_are_preserved() {
         .nth(1)
         .expect("D1: task drop arm must exist");
     assert!(
-        drop_arm[..drop_arm.find("call(client, \"task.drop\"").expect("drop calls task.drop")]
+        drop_arm[..drop_arm
+            .find("call(client, \"task.drop\"")
+            .expect("drop calls task.drop")]
             .contains("inject_trusted_session(&mut params)"),
         "D1: task drop must keep shipping trusted session without a mesh gate"
     );
@@ -406,7 +408,9 @@ fn commands_without_context_stay_without_it() {
         .split("PlanDecisionAction::Escalate {")
         .nth(1)
         .expect("decision escalate arm must exist");
-    let escalate = &escalate[..escalate.find("call_plan_rpc").expect("escalate calls the rpc")];
+    let escalate = &escalate[..escalate
+        .find("call_plan_rpc")
+        .expect("escalate calls the rpc")];
     assert!(
         !escalate.contains("apply_caller_tab") && !escalate.contains("owner()"),
         "plan.decision.escalate carries no caller context and must not gain any"

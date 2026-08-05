@@ -122,10 +122,7 @@ fn remote_projection_preserves_named_managing_role() {
                 "role": "Manager",
                 "role_profile": "planner"
             })],
-            controllers: std::collections::HashMap::from([(
-                "planner".into(),
-                "controller".into(),
-            )]),
+            controllers: std::collections::HashMap::from([("planner".into(), "controller".into())]),
         }],
     );
     assert_eq!(projected[1]["role"], "Manager");
@@ -171,10 +168,7 @@ fn remote_projection_preserves_the_peer_session_identity() {
                 "agent_session_id": "session-1",
                 "session_binding_nonce": "nonce-1",
             })],
-            controllers: std::collections::HashMap::from([(
-                "worker".into(),
-                "controller".into(),
-            )]),
+            controllers: std::collections::HashMap::from([("worker".into(), "controller".into())]),
         }],
     );
     let remote = projected

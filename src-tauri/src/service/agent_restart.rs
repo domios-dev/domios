@@ -590,7 +590,9 @@ fn build_relaunch_command(
     ) {
         Ok(authorization) => authorization.is_some(),
         Err(error) => {
-            log::error!("[agent-restart] refusing policy downgrade for provider={provider}: {error}");
+            log::error!(
+                "[agent-restart] refusing policy downgrade for provider={provider}: {error}"
+            );
             return None;
         }
     };

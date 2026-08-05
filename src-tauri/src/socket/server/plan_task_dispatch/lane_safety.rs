@@ -104,9 +104,8 @@ pub(crate) fn dispatch_safety_nudges(
     task_id: &str,
     lane: &TaskLaneMetadata,
 ) -> Vec<SafetyNudge> {
-    let update = |field: &str| {
-        format!("codeterm plan task update {plan_id} {task_id} --{field} <value>")
-    };
+    let update =
+        |field: &str| format!("codeterm plan task update {plan_id} {task_id} --{field} <value>");
     let mut nudges = Vec::new();
     if lane.worktree_path.is_some() && lane.branch.is_none() {
         nudges.push(SafetyNudge::new(

@@ -739,9 +739,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 &mut std::io::stdin(),
             ) {
                 Ok(t) => t,
-                Err(e) => {
-                    return unsupported(&format!("agent spawn charter input error: {}", e))
-                }
+                Err(e) => return unsupported(&format!("agent spawn charter input error: {}", e)),
             };
             let agent_name = agent.as_str();
             let title = crate::cmd::agent::join_cli_words(title.clone());
@@ -807,8 +805,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 body["charter"] = serde_json::json!(charter);
             }
             if let Some(interval) = interval {
-                let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval")
-                {
+                let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval") {
                     Ok(v) => v,
                     Err(e) => return unsupported(&e),
                 };

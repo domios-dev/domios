@@ -135,7 +135,16 @@ pub fn handle_send_text(
 ) {
     if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
         send_composite_over_mesh(
-            json, &peer, &remote_tab, text, from_file, from_pad, from_stdin, actions, delay, at,
+            json,
+            &peer,
+            &remote_tab,
+            text,
+            from_file,
+            from_pad,
+            from_stdin,
+            actions,
+            delay,
+            at,
         );
         return;
     }
@@ -260,7 +269,11 @@ fn send_composite_over_mesh(
     let (resolved_text, parsed_actions) =
         resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
     let source_tab = std::env::var("CODETERM_TAB_ID").ok();
-    let body = remote_send_body(&resolved_text, parsed_actions.as_deref(), source_tab.as_deref());
+    let body = remote_send_body(
+        &resolved_text,
+        parsed_actions.as_deref(),
+        source_tab.as_deref(),
+    );
     let path = format!("/api/tabs/{}/send", urlencoding::encode(remote_tab));
     let data = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
     handle_send_text_result(json, Ok(data), Some(&resolved_text));
