@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 pub(crate) const SHELL_BACKEND_COLS: u16 = 120;
 pub(crate) const SEND_AGENT_BACKEND_COLS: u16 = 240;
+#[cfg(windows)]
 pub(crate) const PASTE_RENDER_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
 
 mod actions;

@@ -132,6 +132,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn ensure_task_dispatchable(&self, plan_id: &str) -> Result<(), PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
         if plan.execution_tasks_unlocked() {

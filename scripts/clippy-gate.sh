@@ -73,6 +73,9 @@ CLIPPY_ALLOW=(
     # pinned in rust-toolchain.toml, these cover the baseline it flags.
     -A clippy::unnecessary_sort_by
     -A unused_unsafe
+    # Sibling of the allowed large_enum_variant: boxing every returning signature
+    # is more churn than the by-value cost is worth for these error types.
+    -A clippy::result_large_err
 )
 
 run_clippy_gate() {

@@ -2,8 +2,10 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::provider::SystemPromptDelivery;
 use crate::multiplexer::commands::MuxState;
+#[cfg(test)]
+use crate::multiplexer::types::PendingDeliveryState;
 use crate::multiplexer::types::{
-    DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+    DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord,
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::delivery_error::DeliveryError;

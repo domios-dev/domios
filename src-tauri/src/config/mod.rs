@@ -122,14 +122,6 @@ pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, St
     Ok(SocketAddr::new(host, api.port))
 }
 
-pub fn api_host_is_loopback(host: &str) -> bool {
-    let api = schema::ApiConfig {
-        host: host.to_string(),
-        ..schema::ApiConfig::default()
-    };
-    canonical_api_bind_addr(&api).is_ok_and(|address| address.ip().is_loopback())
-}
-
 pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String> {
     let bind = canonical_api_bind_addr(api)?;
     let has_token = api

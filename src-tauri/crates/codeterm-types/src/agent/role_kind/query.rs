@@ -4,7 +4,7 @@ use super::{builtins, RoleKindCapability, RoleKindDescriptor};
 
 /// Resolves a `(role, role_profile)` pair to a kind id. A profileless `Manager`
 /// is malformed, and a `Worker` subtype can only narrow within leaf capability.
-pub fn kind_id<'a>(role: Option<AgentRole>, role_profile: Option<&'a str>) -> Option<&'a str> {
+pub fn kind_id(role: Option<AgentRole>, role_profile: Option<&str>) -> Option<&str> {
     let profile = role_profile.map(str::trim).filter(|kind| !kind.is_empty());
     match role? {
         AgentRole::Manager => profile,
