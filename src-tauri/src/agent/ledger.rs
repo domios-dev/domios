@@ -202,7 +202,9 @@ impl OrchestrationLedger {
             .changed_files
             .as_ref()
             .map(|f| serde_json::to_string(f).unwrap_or_else(|_| "[]".to_string()));
-        let status = row.status.map(|s| s.label().to_ascii_lowercase());
+        let status = row
+            .status
+            .map(|s| s.label().to_ascii_lowercase().replace(' ', "_"));
         let conn = self.conn.lock();
         conn.execute(
             r#"
