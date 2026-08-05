@@ -24,7 +24,12 @@
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
-import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import {
+  classifyTabTarget,
+  onRemoteTransportCredentials,
+  parseCompositeTabId,
+  remoteTabTransportHttp,
+} from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 import { createRemoteChannelRecovery, type RemoteChannelRecovery, type StreamEndReason } from "./remoteChannelRecovery";
 
@@ -439,6 +444,8 @@ function resolveRemoteSettlement(record: RemoteOutputRecord, generation: number)
   record.settlements.delete(generation);
   settled?.resolve();
 }
+
+onRemoteTransportCredentials(() => resumeRemoteOutputStreams());
 
 export function resumeRemoteOutputStreams(): void {
   for (const [ordinaryTabId, record] of remoteRecords) {

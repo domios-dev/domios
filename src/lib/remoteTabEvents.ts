@@ -1,5 +1,10 @@
 import { createRemoteChannelRecovery, type RemoteChannelRecovery, type StreamEndReason } from "./remoteChannelRecovery";
-import { classifyTabTarget, parseCompositeTabId, remoteTabTransportHttp } from "./remoteTabTransport";
+import {
+  classifyTabTarget,
+  onRemoteTransportCredentials,
+  parseCompositeTabId,
+  remoteTabTransportHttp,
+} from "./remoteTabTransport";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 
 interface ChatCursor {
@@ -122,6 +127,8 @@ export function subscribeRemoteTabEvent<T>(
     if (subscriptions.get(event) === record) subscriptions.delete(event);
   };
 }
+
+onRemoteTransportCredentials(() => resumeRemoteTabEvents());
 
 export function resumeRemoteTabEvents(): void {
   for (const record of subscriptions.values()) {
