@@ -1,5 +1,6 @@
 use std::io::Read;
 
+use crate::args::inbox::InboxAction;
 use crate::args::task::{CanvasAction, TaskAction};
 use crate::client::RpcClient;
 use crate::cmd::hints::{
@@ -58,6 +59,16 @@ fn cwd_project(client: &dyn RpcClient) -> Option<String> {
 pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
     match run_task(client, json, action) {
         Ok((val, show_opts)) => print_task_result(json, &val, show_opts),
+        Err(e) => {
+            println!("{}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn handle_inbox(client: &mut dyn RpcClient, json: bool, action: InboxAction) {
+    match run_inbox(client, action) {
+        Ok(val) => print_task_result(json, &val, None),
         Err(e) => {
             println!("{}", e);
             std::process::exit(1);
@@ -151,7 +162,12 @@ fn run_task(
             inject_trusted_session(&mut params);
             call(client, "task.drop", params).map(|val| (val, None))
         }
-        TaskAction::Add {
+    }
+}
+
+fn run_inbox(client: &mut dyn RpcClient, action: InboxAction) -> Result<Value, String> {
+    match action {
+        InboxAction::Add {
             name,
             kind,
             model,
@@ -247,7 +263,7 @@ fn run_task(
                 }
                 push_hints(&mut val, hints);
             }
-            Ok((val, None))
+            Ok(val)
         }
     }
 }

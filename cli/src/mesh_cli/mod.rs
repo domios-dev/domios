@@ -5,7 +5,7 @@ use clap::Subcommand;
 
 use super::{Commands, UpdateAction};
 
-mod api_map;
+pub(crate) mod api_map;
 #[cfg(test)]
 mod compat;
 mod parse;
@@ -113,15 +113,22 @@ pub enum MeshPeerAction {
 
 /// Execute a CLI command on a remote mesh peer via relay.
 /// Reconstructs the command as an API call and sends through relay proxy.
-pub fn run_via_mesh(cli: super::Cli, target: &str) {
-    if matches!(
-        &cli.command,
+/// `team pair` is the one Team action that reaches a peer over REST; the other
+/// five are socket RPCs relayed through `MeshRpcClient`.
+pub(crate) fn is_socket_relayed(command: &Commands) -> bool {
+    match command {
+        Commands::Team { action } => !matches!(action, super::TeamAction::Pair { .. }),
         Commands::Plan { .. }
-            | Commands::Team { .. }
-            | Commands::Spec { .. }
-            | Commands::Effort { .. }
-            | Commands::Task { .. }
-    ) {
+        | Commands::Spec { .. }
+        | Commands::Effort { .. }
+        | Commands::Task { .. }
+        | Commands::Inbox { .. } => true,
+        _ => false,
+    }
+}
+
+pub fn run_via_mesh(cli: super::Cli, target: &str) {
+    if is_socket_relayed(&cli.command) {
         let (base, token) = super::read_api_config();
         let mut client = match rpc::MeshRpcClient::connect(&base, &token, target) {
             Ok(client) => client,
@@ -143,6 +150,9 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             }
             Commands::Task { action } => {
                 crate::cmd::task::handle_task(&mut client, cli.json, action)
+            }
+            Commands::Inbox { action } => {
+                crate::cmd::task::handle_inbox(&mut client, cli.json, action)
             }
             _ => unreachable!(),
         }

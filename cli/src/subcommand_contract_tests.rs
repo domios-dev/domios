@@ -1,11 +1,15 @@
 use super::*;
 use crate::args::agent::AgentAction;
 use crate::args::delayed::DelayedAction;
+use crate::args::inbox::InboxAction;
 use crate::args::mem::MemAction;
 use crate::args::misc::TabAction;
 use crate::args::orchestrator::OrchestratorAction;
 use crate::args::task::TaskAction;
 use clap::{CommandFactory, Parser};
+
+mod context;
+mod transport;
 
 #[derive(Parser)]
 struct MemOnly {
@@ -17,6 +21,12 @@ struct MemOnly {
 struct TaskOnly {
     #[command(subcommand)]
     action: TaskAction,
+}
+
+#[derive(Parser)]
+struct InboxOnly {
+    #[command(subcommand)]
+    action: InboxAction,
 }
 
 #[derive(Parser)]
@@ -177,20 +187,270 @@ fn task_show_parses_siblings_flags() {
 
 #[test]
 fn standalone_task_add_parses_qa_plan_file() {
-    let parsed = TaskOnly::try_parse_from([
-        "task",
+    let parsed = InboxOnly::try_parse_from([
+        "inbox",
         "add",
         "--name",
         "QA lifecycle",
         "--qa-plan-file",
         "qa-plan.md",
     ])
-    .expect("task add --qa-plan-file parses");
+    .expect("inbox add --qa-plan-file parses");
     match parsed.action {
-        TaskAction::Add { qa_plan_file, .. } => {
+        InboxAction::Add { qa_plan_file, .. } => {
             assert_eq!(qa_plan_file.as_deref(), Some("qa-plan.md"))
         }
-        _ => panic!("expected task add"),
+    }
+}
+
+#[test]
+fn removed_spellings_are_rejected() {
+    for argv in [
+        vec!["codeterm", "report", "--status", "in_review", "x"],
+        vec!["codeterm", "plan", "goal", "get", "pl_x"],
+        vec!["codeterm", "notifications", "clear"],
+        vec!["codeterm", "notify", "hello"],
+        vec!["codeterm", "orchestration", "new"],
+        vec!["codeterm", "task", "add", "--name", "x"],
+    ] {
+        assert!(
+            Cli::try_parse_from(argv.clone()).is_err(),
+            "{argv:?} must no longer parse"
+        );
+    }
+}
+
+#[test]
+fn retained_spellings_still_parse() {
+    let report = Cli::try_parse_from(["codeterm", "agent", "report", "done"])
+        .expect("agent report still parses");
+    assert!(matches!(
+        report.command,
+        Commands::Agent {
+            action: AgentAction::Report(_)
+        }
+    ));
+
+    let goal = Cli::try_parse_from(["codeterm", "plan", "goal", "show", "pl_x"])
+        .expect("plan goal show still parses");
+    assert!(matches!(
+        goal.command,
+        Commands::Plan {
+            action: PlanAction::Goal {
+                action: crate::args::plan::PlanGoalAction::Show { .. }
+            }
+        }
+    ));
+
+    let send = Cli::try_parse_from(["codeterm", "notify", "send", "hello", "--level", "warning"])
+        .expect("notify send parses");
+    assert!(matches!(
+        send.command,
+        Commands::Notify {
+            action: NotifyAction::Send { ref title, ref level, .. }
+        } if title == "hello" && level == "warning"
+    ));
+
+    let list = Cli::try_parse_from(["codeterm", "notify", "list", "--unread"])
+        .expect("notify list parses");
+    assert!(matches!(
+        list.command,
+        Commands::Notify {
+            action: NotifyAction::List { unread: true }
+        }
+    ));
+
+    let clear = Cli::try_parse_from(["codeterm", "notify", "clear"]).expect("notify clear parses");
+    assert!(matches!(
+        clear.command,
+        Commands::Notify {
+            action: NotifyAction::Clear
+        }
+    ));
+
+    let inbox = Cli::try_parse_from(["codeterm", "inbox", "add", "--name", "x"])
+        .expect("inbox add parses");
+    assert!(matches!(
+        inbox.command,
+        Commands::Inbox {
+            action: InboxAction::Add { ref name, .. }
+        } if name == "x"
+    ));
+
+    for leaf in [
+        vec!["codeterm", "orchestrator", "status"],
+        vec!["codeterm", "orchestrator", "inspect"],
+        vec!["codeterm", "orchestrator", "learn", "a lesson"],
+        vec!["codeterm", "orchestrator", "heartbeat", "show"],
+        vec!["codeterm", "orchestrator", "refresh"],
+        vec!["codeterm", "orchestrator", "handoff"],
+    ] {
+        let parsed = Cli::try_parse_from(leaf.clone())
+            .unwrap_or_else(|error| panic!("{leaf:?} must parse: {error}"));
+        assert!(matches!(parsed.command, Commands::Orchestrator { .. }));
+    }
+}
+
+#[test]
+fn task_read_leaves_are_preserved() {
+    assert!(matches!(
+        TaskOnly::try_parse_from(["task", "list"])
+            .expect("task list parses")
+            .action,
+        TaskAction::List { .. }
+    ));
+    assert!(matches!(
+        TaskOnly::try_parse_from(["task", "show", "task_1"])
+            .expect("task show parses")
+            .action,
+        TaskAction::Show { .. }
+    ));
+    assert!(matches!(
+        TaskOnly::try_parse_from(["task", "take", "task_1"])
+            .expect("task take parses")
+            .action,
+        TaskAction::Take { .. }
+    ));
+    assert!(matches!(
+        TaskOnly::try_parse_from(["task", "drop", "task_1"])
+            .expect("task drop parses")
+            .action,
+        TaskAction::Drop { .. }
+    ));
+    assert!(
+        Cli::try_parse_from(["codeterm", "inbox", "list"]).is_err(),
+        "the inbox group holds only `add`"
+    );
+}
+
+#[test]
+fn plan_task_add_is_unchanged() {
+    let parsed = Cli::try_parse_from(["codeterm", "plan", "task", "add", "pl_x", "--name", "y"])
+        .expect("plan task add still parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action: PlanAction::Task {
+                action: crate::args::plan::PlanTaskAction::Add { ref plan_id, ref name, .. }
+            }
+        } if plan_id == "pl_x" && name == "y"
+    ));
+}
+
+fn pair_command(extra: &[&str]) -> Commands {
+    let mut argv = vec![
+        "codeterm",
+        "team",
+        "pair",
+        "--orchestrator",
+        "claude:opus",
+        "--planner",
+        "codex",
+    ];
+    argv.extend_from_slice(extra);
+    Cli::try_parse_from(argv)
+        .expect("team pair parses")
+        .command
+}
+
+#[test]
+fn team_pair_reaches_the_same_creation_path() {
+    let command = pair_command(&["--workspace", "ws_1", "--title", "My Plan"]);
+    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+
+    assert_ne!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/orchestration/new");
+
+    let body: serde_json::Value =
+        serde_json::from_str(&body.expect("pair posts a body")).expect("body is JSON");
+    assert_eq!(body["orchestrator_agent"], "claude");
+    assert_eq!(body["orchestrator_model"], "opus");
+    assert_eq!(body["planner_agent"], "codex");
+    assert!(body.get("planner_model").is_none());
+    assert_eq!(body["workspace_id"], "ws_1");
+    assert_eq!(body["title"], "My Plan");
+
+    let minimal = pair_command(&[]);
+    let (_, _, minimal_body) = crate::mesh_cli::api_map::cli_command_to_api(&minimal);
+    let minimal_body: serde_json::Value =
+        serde_json::from_str(&minimal_body.expect("pair posts a body")).expect("body is JSON");
+    let minimal_body = minimal_body.as_object().expect("object body");
+    for required in ["orchestrator_agent", "orchestrator_model", "planner_agent"] {
+        assert!(minimal_body.contains_key(required), "missing {required}");
+    }
+    assert!(!minimal_body.contains_key("planner_model"));
+    // The pre-change `orchestration new` body carried exactly these six fields.
+    for key in minimal_body.keys() {
+        assert!(
+            [
+                "orchestrator_agent",
+                "orchestrator_model",
+                "planner_agent",
+                "planner_model",
+                "workspace_id",
+                "title",
+            ]
+            .contains(&key.as_str()),
+            "unexpected body field {key}"
+        );
+    }
+}
+
+#[test]
+fn team_non_pair_actions_keep_meshrpc_path() {
+    for argv in [
+        vec!["codeterm", "team", "list"],
+        vec!["codeterm", "team", "show", "team_1"],
+        vec!["codeterm", "team", "rename", "team_1", "name"],
+        vec!["codeterm", "team", "close", "team_1"],
+        vec!["codeterm", "team", "adopt-plan", "team_1", "pl_1"],
+    ] {
+        let command = Cli::try_parse_from(argv.clone())
+            .unwrap_or_else(|error| panic!("{argv:?} must parse: {error}"))
+            .command;
+        assert!(
+            crate::mesh_cli::is_socket_relayed(&command),
+            "{argv:?} must keep the MeshRpcClient path"
+        );
+        let (method, reason, _) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+        assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
+        assert_eq!(
+            reason,
+            "team management is local-only — run it on the target machine"
+        );
+    }
+
+    let pair = pair_command(&[]);
+    assert!(
+        !crate::mesh_cli::is_socket_relayed(&pair),
+        "team pair must fall through to the REST mapping"
+    );
+}
+
+#[test]
+fn team_pair_starts_unbound() {
+    let command = pair_command(&["--workspace", "ws_1", "--title", "My Plan"]);
+    let (_, _, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+    let body: serde_json::Value =
+        serde_json::from_str(&body.expect("pair posts a body")).expect("body is JSON");
+    let object = body.as_object().expect("object body");
+
+    assert!(object.contains_key("orchestrator_agent"));
+    assert!(object.contains_key("planner_agent"));
+    for plan_key in ["plan_id", "plan", "plan_task", "goal"] {
+        assert!(
+            !object.contains_key(plan_key),
+            "pair creation must carry no plan binding, found {plan_key}"
+        );
+    }
+
+    let params = crate::cmd::team::pair_params("claude:opus", "codex", None, None);
+    let params = params.as_object().expect("object params");
+    assert!(params.contains_key("orchestrator_agent"));
+    assert!(params.contains_key("planner_agent"));
+    for plan_key in ["plan_id", "plan", "plan_task", "goal"] {
+        assert!(!params.contains_key(plan_key));
     }
 }
 

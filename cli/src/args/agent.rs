@@ -331,16 +331,6 @@ mod tests {
         }
     }
 
-    fn parse_top_report(args: &[&str]) -> Result<ReportArgs, clap::Error> {
-        let mut full = vec!["codeterm", "report"];
-        full.extend_from_slice(args);
-        let cli = Cli::try_parse_from(full)?;
-        match cli.command {
-            crate::Commands::Report(args) => Ok(args),
-            _ => panic!("expected report command"),
-        }
-    }
-
     #[test]
     fn report_status_accepts_known_values() {
         for (input, expected) in [
@@ -413,8 +403,8 @@ mod tests {
     }
 
     #[test]
-    fn top_level_report_uses_same_parser() {
-        let args = parse_top_report(&[
+    fn agent_report_parses_full_structured_form() {
+        let action = parse_report(&[
             "--status",
             "in_review",
             "--branch",
@@ -423,12 +413,17 @@ mod tests {
             "abc123",
             "ready",
         ])
-        .expect("top-level report parses");
+        .expect("agent report parses");
 
-        assert_eq!(args.message.as_deref(), Some("ready"));
-        assert_eq!(args.status.expect("status set").as_str(), "in_review");
-        assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
-        assert_eq!(args.base.as_deref(), Some("abc123"));
+        match action {
+            AgentAction::Report(args) => {
+                assert_eq!(args.message.as_deref(), Some("ready"));
+                assert_eq!(args.status.expect("status set").as_str(), "in_review");
+                assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
+                assert_eq!(args.base.as_deref(), Some("abc123"));
+            }
+            _ => panic!("expected agent report"),
+        }
     }
 
     #[test]
