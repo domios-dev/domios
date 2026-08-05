@@ -226,10 +226,11 @@ production app during startup, in-app update, or `install-local`.
 | CI semantic-search tests fail by executing a zero-byte `codeterm-embed` stub | The compile-time Tauri resource placeholder survived into a test that exercises the real embedding process. | Build the debug `codeterm-embed` sidecar after preparing resource stubs and before Rust library tests; never skip the semantic oracle. |
 | macOS Rust tests panic because a mock Tauri `EventLoop` was created off the main thread | A `ServiceFixture` test ran in libtest's worker thread even though the shared desktop fixture is Windows-owned. | Mark that fixture-backed test ignored off Windows and keep its platform-neutral logic covered by tests that do not construct a desktop runtime. |
 | macOS REST restart tests fail to rebind with `Address already in use` after graceful shutdown | Darwin retains the prior listener address across the immediate generation handoff unless CodeTerm sockets opt into shared-port rebinding. | Keep `SO_REUSEPORT` enabled on every macOS CodeTerm REST bind; process exclusivity is enforced by the application instance guard, while non-reuse external occupiers still block the port. |
+| The REST port-release test passes alone but fails under the parallel macOS suite | Dropping a real test occupier and immediately signaling release races Darwin's deferred socket teardown. | Inject the first bind failure through the test seam, then prove the release event creates a real healthy listener without depending on kernel close timing. |
 | CI fails standalone crate tests that passed local `verify` | The local gate ran only the app package, so Cargo compiled dependency libraries without running their own unit tests. | Use the current `verify`, which runs every `src-tauri` workspace library package under its own cap; repair focused crate tests before retrying the broad gate. |
 
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 72 -->
+<!-- revision: 73 -->
