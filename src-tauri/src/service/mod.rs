@@ -43,11 +43,11 @@ mod output;
 mod output_feed;
 pub(crate) mod pending_delivery_payloads;
 pub(crate) mod permission_policy;
+pub(crate) mod persona;
 pub mod plan;
 mod plan_authority;
 mod plan_reconcile;
 pub mod plugin_host;
-pub(crate) mod persona;
 pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
@@ -720,9 +720,8 @@ impl ServiceContext {
     }
 
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
-        AgentRole::from_str_compat(role_str).ok_or_else(|| {
-            format!("Invalid role: {role_str}. Use: Orchestrator, Manager, Worker")
-        })
+        AgentRole::from_str_compat(role_str)
+            .ok_or_else(|| format!("Invalid role: {role_str}. Use: Orchestrator, Manager, Worker"))
     }
 
     /// The one place wire role sugar resolves: legacy `Orchestrator`/`Conductor`

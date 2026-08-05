@@ -95,7 +95,9 @@ fn a_general_agent_kind_outside_the_general_workspace_is_stripped() {
     assert!(!stray_tab.can_spawn);
     assert!(!stray_tab.anchors_team());
     assert_eq!(
-        mux.get_tab(&general_id).expect("General Tab").role_kind_id(),
+        mux.get_tab(&general_id)
+            .expect("General Tab")
+            .role_kind_id(),
         Some(GENERAL_AGENT_KIND),
         "confinement never touches the sanctioned tab"
     );

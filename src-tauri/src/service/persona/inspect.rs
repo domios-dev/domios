@@ -170,4 +170,3 @@ pub(crate) fn list(catalog: &OverlayCatalog) -> CatalogView {
             .collect(),
     }
 }
-

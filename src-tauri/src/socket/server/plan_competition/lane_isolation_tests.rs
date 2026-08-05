@@ -107,7 +107,11 @@ fn mutating_competition_gives_each_attempt_its_own_lane() {
         .iter()
         .map(|draft| draft.branch.clone().unwrap())
         .collect();
-    assert_eq!(worktrees.len(), 3, "N competitors need N distinct worktrees");
+    assert_eq!(
+        worktrees.len(),
+        3,
+        "N competitors need N distinct worktrees"
+    );
     assert_eq!(branches.len(), 3, "N competitors need N distinct branches");
     for draft in &drafts {
         assert!(Path::new(&draft.cwd).is_dir());
@@ -222,7 +226,10 @@ fn provisioning_failure_before_spawn_leaves_zero_tabs_attempts_and_worktrees() {
 fn spawn_failure_leaves_no_live_tab_with_a_deleted_worktree() {
     let order = std::cell::RefCell::new(Vec::<String>::new());
     let outcome = compensate_spawned_competitors(
-        vec![competitor(1, Some("/lanes/c1")), competitor(2, Some("/lanes/c2"))],
+        vec![
+            competitor(1, Some("/lanes/c1")),
+            competitor(2, Some("/lanes/c2")),
+        ],
         |tab| {
             order.borrow_mut().push(format!("close:{tab}"));
             Ok(())
@@ -354,10 +361,11 @@ fn record_failure_with_a_stuck_tab_retains_the_current_lane() {
 #[test]
 fn record_failure_with_a_closed_tab_releases_the_current_lane() {
     let cleaned = std::cell::RefCell::new(Vec::<String>::new());
-    let outcome = compensate_current_competitor("tab-current", Some("/lanes/current"), None, |path| {
-        cleaned.borrow_mut().push(path.to_string());
-        Ok(())
-    });
+    let outcome =
+        compensate_current_competitor("tab-current", Some("/lanes/current"), None, |path| {
+            cleaned.borrow_mut().push(path.to_string());
+            Ok(())
+        });
     let cleaned = cleaned.into_inner();
 
     assert_eq!(cleaned, vec!["/lanes/current"]);

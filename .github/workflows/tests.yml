@@ -55,6 +55,9 @@ jobs:
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
           node scripts/prepare-embed-stub.js
 
+      - name: Build runtime embed sidecar for semantic tests
+        run: cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+
       - name: fmt
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
@@ -97,6 +100,9 @@ jobs:
           mkdir -p dist src-tauri/bundled-cli
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
           node scripts/prepare-embed-stub.js
+
+      - name: Build runtime embed sidecar for semantic tests
+        run: cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
 
       - name: Rust lib tests
         # Whole workspace — app + every extracted crate. Warm execution ~33s;
@@ -160,6 +166,10 @@ jobs:
             New-Item -ItemType File -Path src-tauri\bundled-cli\codeterm.exe | Out-Null
           }
           node scripts/prepare-embed-stub.js
+
+      - name: Build runtime embed sidecar for semantic tests
+        shell: pwsh
+        run: cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
 
       # The app always points the PTY fork at the bundled ConPTY host (see
       # startup/conpty_host.rs); without this CI would test the in-box conhost,

@@ -32,8 +32,7 @@ fn teamless_orchestrator(mux: &MuxState) -> String {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
-    mux.set_orchestrator_role(&owner_tab_id)
-        .unwrap();
+    mux.set_orchestrator_role(&owner_tab_id).unwrap();
     owner_tab_id
 }
 
@@ -41,8 +40,7 @@ fn bound_pair(mux: &MuxState, suffix: &str) -> (String, String, TeamPlanCaller) 
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let orchestrator = mux.create_tab(&workspace_id).unwrap();
-    mux.set_orchestrator_role(&orchestrator)
-        .unwrap();
+    mux.set_orchestrator_role(&orchestrator).unwrap();
     let planner = mux.create_tab(&workspace_id).unwrap();
     let team_id = mux
         .resolve_or_mint_team_for_parent(&orchestrator)

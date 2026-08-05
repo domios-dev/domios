@@ -62,13 +62,21 @@ pub(crate) enum RejectionReason {
     Unreadable(String),
     Malformed(String),
     /// Builtin rows are embedded and non-overridable.
-    BuiltinOverride { kind_id: String },
+    BuiltinOverride {
+        kind_id: String,
+    },
     /// Declares a structural capability a runtime kind can never hold.
-    CapabilityEscalation { claim: String },
+    CapabilityEscalation {
+        claim: String,
+    },
     /// Claims a base that renames, adopts into, or closes a Team.
-    TeamAuthorityClaim { base: String },
+    TeamAuthorityClaim {
+        base: String,
+    },
     /// The contract it claims would ship without a core fragment.
-    MissingCore { fragment: &'static str },
+    MissingCore {
+        fragment: &'static str,
+    },
     EmptyGuidance,
 }
 

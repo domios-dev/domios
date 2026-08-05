@@ -31,14 +31,31 @@ fn peer_api_url_skips_loopback_addresses() {
 #[test]
 fn tailscale_hint_fires_only_for_tailscale_addresses() {
     let hint = |url: &str| super::relay::tailscale_unreachable_hint(url);
-    assert!(hint("http://100.96.252.97:7685").is_some(), "CGNAT 100.64/10");
-    assert!(hint("https://blackstar.tail0e459c.ts.net").is_some(), "ts.net host");
-    assert!(hint("http://100.84.159.37:7685").is_some(), "CGNAT with port");
-    assert!(hint("http://192.168.1.5:7685").is_none(), "LAN IP is not Tailscale");
-    assert!(hint("http://100.200.1.1:7685").is_none(), "100.200 is outside 100.64/10");
+    assert!(
+        hint("http://100.96.252.97:7685").is_some(),
+        "CGNAT 100.64/10"
+    );
+    assert!(
+        hint("https://blackstar.tail0e459c.ts.net").is_some(),
+        "ts.net host"
+    );
+    assert!(
+        hint("http://100.84.159.37:7685").is_some(),
+        "CGNAT with port"
+    );
+    assert!(
+        hint("http://192.168.1.5:7685").is_none(),
+        "LAN IP is not Tailscale"
+    );
+    assert!(
+        hint("http://100.200.1.1:7685").is_none(),
+        "100.200 is outside 100.64/10"
+    );
     assert!(hint("http://10.0.0.1:7685").is_none(), "private range");
     assert!(
-        hint("http://100.96.252.97:7685").unwrap().contains("tailscale ping"),
+        hint("http://100.96.252.97:7685")
+            .unwrap()
+            .contains("tailscale ping"),
         "hint names the remediation"
     );
     assert!(

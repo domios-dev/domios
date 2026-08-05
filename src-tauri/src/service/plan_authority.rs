@@ -54,8 +54,7 @@ impl ServiceContext {
         if !live {
             return Err("the live bound planning session is required".into());
         }
-        let owner =
-            plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
+        let owner = plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
         if owner {
             return Ok(PlanningAuthor::User);
         }
@@ -197,8 +196,7 @@ mod tests {
         let (mut mux, _) = MultiplexerState::new();
         let workspace = mux.list_workspaces()[0].id.clone();
         let owner = mux.create_tab(&workspace).unwrap();
-        mux.set_orchestrator_role(&owner)
-            .unwrap();
+        mux.set_orchestrator_role(&owner).unwrap();
         let planner = mux.create_tab(&workspace).unwrap();
         let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
         for (tab_id, session, nonce) in [
@@ -242,6 +240,7 @@ mod tests {
         )
     }
 
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn draft_before_approval_is_planner_writable_but_not_dispatchable() {
         let (fixture, plan_id, planner, _) = fixture();
@@ -275,6 +274,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn bound_nonce_resolves_live_planner_session_when_shell_env_lacks_session_id() {
         let (fixture, plan_id, mut planner, _) = fixture();
@@ -287,6 +287,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn orchestrator_approval_atomically_activates_draft_graph() {
         let (fixture, plan_id, planner, owner) = fixture();
@@ -326,6 +327,7 @@ mod tests {
         assert!(fixture.service.ensure_task_dispatchable(&plan_id).is_ok());
     }
 
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn draft_execution_actions_and_mode_activation_fail_before_approval() {
         let (fixture, plan_id, _, owner) = fixture();
@@ -385,6 +387,7 @@ mod tests {
         .is_ok());
     }
 
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn task_take_and_drop_require_approved_graph_and_live_orchestrator_identity() {
         let (fixture, plan_id, _, owner) = fixture();

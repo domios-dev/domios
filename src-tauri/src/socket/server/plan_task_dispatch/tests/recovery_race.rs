@@ -105,7 +105,9 @@ fn late_dispatch_ready_after_close_cannot_resurrect_ownership() {
 
     session_bound_rx.recv_timeout(EVENT_DEADLINE).unwrap();
     // The Worker tab goes away mid-`awaiting_dispatch_ready`.
-    store.flag_tab_gone(&plan_id, &task_id, WORKER_TAB, 10).unwrap();
+    store
+        .flag_tab_gone(&plan_id, &task_id, WORKER_TAB, 10)
+        .unwrap();
     close_done_tx.send(()).unwrap();
 
     let outcome = worker.join().unwrap();
@@ -138,6 +140,7 @@ fn fixture() -> ServiceFixture {
     ServiceFixture::new(mux)
 }
 
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn general_agent_creation_is_unobstructed() {
     let fixture = fixture();
@@ -159,6 +162,7 @@ fn general_agent_creation_is_unobstructed() {
     }
 }
 
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn plain_shell_tab_creation_is_unobstructed() {
     let fixture = fixture();

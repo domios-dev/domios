@@ -271,7 +271,8 @@ mod tests {
         let msg = orchestrator_onboarding_body("tab-abc");
         assert!(msg.contains("--parent tab-abc --role Planner --plan PLAN_ID"));
         assert_eq!(
-            msg.matches(crate::prompts::ORCHESTRATION_DOC.trim()).count(),
+            msg.matches(crate::prompts::ORCHESTRATION_DOC.trim())
+                .count(),
             1
         );
         assert!(!msg.contains("{planner_spawn_cmd}"));

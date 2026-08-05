@@ -158,8 +158,7 @@ fn startup_reconciliation_removes_prior_tombstones() {
 
 #[cfg(unix)]
 #[test]
-fn symlink_escape_and_non_utf8_are_rejected() {
-    use std::os::unix::ffi::OsStringExt;
+fn symlink_escape_is_rejected() {
     use std::os::unix::fs::symlink;
     let temp = tempfile::tempdir().unwrap();
     let pad = AgentPad::create(temp.path(), "tab-safe", AgentPadRole::General).unwrap();
@@ -167,6 +166,14 @@ fn symlink_escape_and_non_utf8_are_rejected() {
     fs::write(&outside, "outside").unwrap();
     symlink(&outside, pad.path().join("escape.md")).unwrap();
     assert!(pad.read_utf8(Path::new("escape.md")).is_err());
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn non_utf8_paths_are_rejected() {
+    use std::os::unix::ffi::OsStringExt;
+    let temp = tempfile::tempdir().unwrap();
+    let pad = AgentPad::create(temp.path(), "tab-safe", AgentPadRole::General).unwrap();
     let invalid = std::ffi::OsString::from_vec(vec![0xff, 0xfe]);
     fs::write(pad.path().join(invalid), b"x").unwrap();
     assert!(pad.list().is_err());

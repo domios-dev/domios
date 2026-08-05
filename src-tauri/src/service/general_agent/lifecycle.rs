@@ -81,13 +81,14 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
-    let permission_bypass = match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
-        Ok(value) => value,
-        Err(error) => {
-            log::warn!("[general-agent] Start blocked: {error}");
-            return;
-        }
-    };
+    let permission_bypass =
+        match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
+            Ok(value) => value,
+            Err(error) => {
+                log::warn!("[general-agent] Start blocked: {error}");
+                return;
+            }
+        };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
     // Regenerate AGENT.md in a background thread.

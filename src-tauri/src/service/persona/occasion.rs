@@ -223,7 +223,10 @@ pub(crate) fn declared_fallback(occasion: Occasion) -> Option<String> {
 /// Text this occasion contributes, before it is placed next to a payload.
 pub(crate) fn guidance(occasion: Occasion, preset: Option<&RolePreset>) -> (String, Emission) {
     let placement = placement(occasion, preset);
-    if matches!(placement.map(|placement| placement.slot), Some(Slot::Silent)) {
+    if matches!(
+        placement.map(|placement| placement.slot),
+        Some(Slot::Silent)
+    ) {
         return (String::new(), Emission::Silent);
     }
     let from_preset = placement

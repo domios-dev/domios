@@ -94,14 +94,18 @@ fn provision_competitor_lane(
     task_id: &str,
     draft: &mut crate::service::plan::task_attempts::TaskCompeteDraft,
 ) -> Result<crate::service::ProvisionedWorkerLane, JsonRpcError> {
-    let canonical =
-        super::plan_task_dispatch::lane_safety::canonical_path_of(plan).to_string();
+    let canonical = super::plan_task_dispatch::lane_safety::canonical_path_of(plan).to_string();
     let label = format!("{}-{}-c{}", plan.id, task_id, draft.lane);
     let lane = crate::service::provision_isolated_lane(&canonical, &label)
         .map_err(lane_provision_failed)?;
     let provenance = match lane.verify() {
         Ok(provenance) => provenance,
-        Err(error) => return Err(release_unowned_lanes(vec![lane], lane_provision_failed(error))),
+        Err(error) => {
+            return Err(release_unowned_lanes(
+                vec![lane],
+                lane_provision_failed(error),
+            ))
+        }
     };
     if let Err(refusal) = super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
         plan,

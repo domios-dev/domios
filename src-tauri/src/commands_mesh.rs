@@ -457,7 +457,9 @@ pub async fn mesh_peer_tabs_list(
         })
         .await?;
     if !response.ok {
-        return Err(response.error.unwrap_or_else(|| "Failed to list remote Tabs".into()));
+        return Err(response
+            .error
+            .unwrap_or_else(|| "Failed to list remote Tabs".into()));
     }
     Ok(serde_json::json!({
         "peer_id": peer_id,

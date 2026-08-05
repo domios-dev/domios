@@ -146,8 +146,8 @@ impl ServiceContext {
             Some(kind @ (ORCHESTRATOR | PLANNER)) => kind.to_string(),
             _ => return Ok(()),
         };
-        let role = role_kind::kind_label(Some(AgentRole::Manager), Some(&role_kind))
-            .unwrap_or("Manager");
+        let role =
+            role_kind::kind_label(Some(AgentRole::Manager), Some(&role_kind)).unwrap_or("Manager");
         let (team_name, project) = {
             let mux = self.mux.read();
             let team = mux
@@ -199,8 +199,7 @@ impl ServiceContext {
         caller: TeamMutationCaller,
     ) -> Result<Team, String> {
         let mut mux = self.mux.write();
-        let team =
-            rename_team_with_state_change(&mut mux, &self.events, team_id, name, &caller)?;
+        let team = rename_team_with_state_change(&mut mux, &self.events, team_id, name, &caller)?;
         drop(mux);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
@@ -503,7 +502,11 @@ fn authorize_plan_transfer(
     };
     match caller {
         TeamMutationCaller::AgentTab(tab_id) if tab_id == destination_owner_tab_id => {
-            authorize_team_manager(mux, destination_team_id, &TeamMutationCaller::AgentTab(tab_id))
+            authorize_team_manager(
+                mux,
+                destination_team_id,
+                &TeamMutationCaller::AgentTab(tab_id),
+            )
         }
         TeamMutationCaller::AgentTab(tab_id) => Err(format!(
             "Caller tab {tab_id} lacks plan rebind authority: a source Team {source_team_id} \
@@ -588,7 +591,11 @@ fn prepare_team_member_spawn(
     caller_tab_id: &str,
     params: AddTeamMemberParams,
 ) -> Result<PreparedTeamMemberSpawn, String> {
-    authorize_team_manager(mux, team_id, &TeamMutationCaller::AgentTab(caller_tab_id.to_string()))?;
+    authorize_team_manager(
+        mux,
+        team_id,
+        &TeamMutationCaller::AgentTab(caller_tab_id.to_string()),
+    )?;
     if !mux
         .get_tab(caller_tab_id)
         .is_some_and(|caller| caller.can_spawn)
@@ -601,10 +608,8 @@ fn prepare_team_member_spawn(
     let workspace_id = mux
         .find_workspace_for_tab(caller_tab_id)
         .ok_or_else(|| format!("Caller tab {caller_tab_id} has no workspace"))?;
-    let anchors = role_kind::anchors_team(
-        AgentRole::from_str_compat(&role),
-        role_profile.as_deref(),
-    );
+    let anchors =
+        role_kind::anchors_team(AgentRole::from_str_compat(&role), role_profile.as_deref());
     let parent_tab_id = (!anchors).then(|| caller_tab_id.into());
     let task = params.task.filter(|task| !task.trim().is_empty());
     let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(

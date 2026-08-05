@@ -31,7 +31,10 @@ fn a_worker_subtype_layers_its_task_persona_on_the_worker_base() {
     .expect("worker subtype preset");
 
     assert_eq!(preset.kind_id, "rust-platform-dev");
-    assert_eq!(preset.label, "Worker", "an overlay kind keeps its base label");
+    assert_eq!(
+        preset.label, "Worker",
+        "an overlay kind keeps its base label"
+    );
     assert!(preset
         .guidance()
         .starts_with(&crate::prompts::worker_suffix()));
@@ -67,8 +70,8 @@ fn a_roleless_tab_resolves_no_preset() {
 
 #[test]
 fn a_worker_subtype_cannot_borrow_a_manager_preset() {
-    let preset =
-        resolve(Some(AgentRole::Worker), Some(builtins::ORCHESTRATOR), None).expect("worker preset");
+    let preset = resolve(Some(AgentRole::Worker), Some(builtins::ORCHESTRATOR), None)
+        .expect("worker preset");
 
     assert_eq!(preset.kind_id, builtins::WORKER);
     assert_eq!(preset.guidance(), crate::prompts::worker_suffix());
@@ -141,7 +144,10 @@ fn a_disk_overlay_adds_a_leaf_kind_label_and_guidance() {
     );
     assert_eq!(
         preset.contract_guidance(),
-        format!("{}\n\nStay inside src-tauri/.", crate::prompts::worker_suffix())
+        format!(
+            "{}\n\nStay inside src-tauri/.",
+            crate::prompts::worker_suffix()
+        )
     );
     assert_eq!(preset.task_guidance(), "You are Mira.");
 }

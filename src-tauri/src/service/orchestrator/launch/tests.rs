@@ -325,8 +325,7 @@ fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let tab_id = mux.create_tab(&workspace_id).unwrap();
-    mux.set_orchestrator_role(&tab_id)
-        .unwrap();
+    mux.set_orchestrator_role(&tab_id).unwrap();
     let tab = mux.get_tab(&tab_id).unwrap();
     // The identity channel carries structural authority, not the display label.
     assert_eq!(

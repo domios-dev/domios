@@ -443,8 +443,7 @@ mod tests {
 
     fn reminder_test_tab() -> (MultiplexerState, String) {
         let (mut mux, tab_id) = MultiplexerState::new();
-        mux.set_orchestrator_role(&tab_id)
-            .unwrap();
+        mux.set_orchestrator_role(&tab_id).unwrap();
         (mux, tab_id)
     }
 

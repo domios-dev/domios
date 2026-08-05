@@ -19,9 +19,9 @@ use super::JsonRpcError;
 mod brief;
 pub(super) mod lane_safety;
 
-pub(super) use brief::{build_brief, build_brief_with_personality};
-use brief::build_brief_with_manifest;
 use super::safety_nudge::{apply_safety_nudges, safety_incident_text, SAFETY_INCIDENT_KIND};
+use brief::build_brief_with_manifest;
+pub(super) use brief::{build_brief, build_brief_with_personality};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
     refuse_unsafe_mutating_write,
@@ -305,7 +305,10 @@ fn record_lane_safety_incident(
         .get("violation_id")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let reason = data.get("reason").and_then(Value::as_str).unwrap_or_default();
+    let reason = data
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let text = safety_incident_text(task_id, violation_id, reason);
     if let Err(error) = store.add_plan_stride(
         plan_id,
@@ -938,7 +941,8 @@ pub(super) fn dispatch(
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let mut lane_for_commit = detail.task.lane.clone();
-    if let Some((workspace_id, workspace_name)) = svc.resolve_spawn_workspace_identity(&spawn_params)
+    if let Some((workspace_id, workspace_name)) =
+        svc.resolve_spawn_workspace_identity(&spawn_params)
     {
         lane_for_commit.workspace_id.get_or_insert(workspace_id);
         lane_for_commit.workspace_name.get_or_insert(workspace_name);

@@ -20,7 +20,11 @@ fn catalog(text: &str) -> OverlayCatalog {
 
 fn sole_rejection(text: &str) -> RejectionReason {
     let catalog = catalog(text);
-    assert_eq!(catalog.kinds().count(), 0, "a refused overlay must not load");
+    assert_eq!(
+        catalog.kinds().count(),
+        0,
+        "a refused overlay must not load"
+    );
     let rejected = catalog.rejected();
     assert_eq!(rejected.len(), 1);
     rejected[0].reason.clone()
@@ -133,7 +137,10 @@ fn an_overlay_cannot_own_a_contract_missing_the_coordination_core() {
 #[test]
 fn a_standalone_overlay_carrying_the_whole_core_is_admitted() {
     let guidance = crate::prompts::worker_suffix();
-    assert!(!guidance.contains("'''"), "fixture needs a literal TOML string");
+    assert!(
+        !guidance.contains("'''"),
+        "fixture needs a literal TOML string"
+    );
     let catalog = catalog(&format!(
         "id = \"self-contained\"\nbase = \"none\"\nguidance = '''\n{guidance}\n'''\n"
     ));
@@ -172,7 +179,10 @@ fn malformed_and_empty_overlays_are_refused_with_their_own_reason() {
 #[test]
 fn one_refused_overlay_never_blocks_a_healthy_one() {
     let catalog = OverlayCatalog::from_sources(&[
-        ("role-presets/hostile.toml", "id = \"orchestrator\"\nguidance = \"take the team\"\n"),
+        (
+            "role-presets/hostile.toml",
+            "id = \"orchestrator\"\nguidance = \"take the team\"\n",
+        ),
         ("role-presets/rust-backend-dev.toml", GOOD),
     ]);
     assert_eq!(catalog.kinds().count(), 1);

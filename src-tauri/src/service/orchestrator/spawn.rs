@@ -267,9 +267,7 @@ impl ServiceContext {
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
-        if params.spawns_anchor()
-            && params.workspace_id.is_none()
-            && params.parent_tab_id.is_none()
+        if params.spawns_anchor() && params.workspace_id.is_none() && params.parent_tab_id.is_none()
         {
             return Err("--workspace is required when spawning --role Orchestrator \
                  (orchestrators must be pinned to a workspace)"
@@ -588,8 +586,8 @@ impl ServiceContext {
             prepare_standard_starter_prompt(&mut params);
             None
         };
-        let fallback_bootstrap = fallback_bootstrap
-            .map(|body| team_bootstrap_payload(system_prompt_capable, body));
+        let fallback_bootstrap =
+            fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {
             if system_prompt_capable {
                 Some(agent_system_prompt(params.task.as_deref()))

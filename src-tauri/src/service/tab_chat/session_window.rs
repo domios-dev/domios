@@ -48,7 +48,11 @@ pub fn snapshot_start_offset(path: &Path, total: u64) -> u64 {
     if anchor == 0 {
         return 0;
     }
-    tail_window_start(path, anchor.saturating_add(SNAPSHOT_WINDOW_BYTES), SNAPSHOT_WINDOW_BYTES)
+    tail_window_start(
+        path,
+        anchor.saturating_add(SNAPSHOT_WINDOW_BYTES),
+        SNAPSHOT_WINDOW_BYTES,
+    )
 }
 
 /// Parse `[from, until)` by draining the provider's capped delta reads. Each

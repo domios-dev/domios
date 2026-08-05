@@ -70,7 +70,12 @@ pub fn mux_rename_team_core(
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
     let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
-    crate::service::rename_team_core(mux, &team_id, name, &TeamMutationCaller::AgentTab(caller_tab_id))
+    crate::service::rename_team_core(
+        mux,
+        &team_id,
+        name,
+        &TeamMutationCaller::AgentTab(caller_tab_id),
+    )
 }
 
 pub(crate) fn mux_rename_team_service_core(
@@ -186,8 +191,13 @@ mod tests {
             .team_id;
         let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
         let planner = mux.create_tab(&workspace_id).unwrap();
-        mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&orchestrator))
-            .unwrap();
+        mux.set_tab_role_kind(
+            &planner,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&orchestrator),
+        )
+        .unwrap();
         let worker = mux.create_tab(&workspace_id).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();

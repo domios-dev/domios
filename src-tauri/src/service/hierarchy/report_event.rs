@@ -125,6 +125,9 @@ mod tests {
     fn event_without_a_task_carries_an_explicit_null_outcome() {
         let event = agent_report_event("orchestrator", "worker", "Worker", &report(), None);
         assert!(event["task_report"].is_null());
-        assert!(!event["report"]["id"].as_str().unwrap_or_default().is_empty());
+        assert!(!event["report"]["id"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty());
     }
 }
