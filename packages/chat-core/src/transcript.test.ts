@@ -151,7 +151,7 @@ function contents(state: TranscriptState): string[] {
   const attached = reduceTranscript(
     createTranscriptState(),
     batch("snapshot", 0, 400, [
-      { id: "0-0", type: "assistant", content: "earlier reply", seq: 0, clientOrder: 0 },
+      { id: "0-0", type: "assistant", content: "earlier reply", seq: 0, clientOrder: 0, timestamp: "1699999999000" },
     ]),
   ).state;
   const optimistic: NormalizedChatMessage[] = [
@@ -160,13 +160,13 @@ function contents(state: TranscriptState): string[] {
   const turn = reduceTranscript(
     attached,
     batch("delta", 400, 700, [
-      { id: "400-0", type: "tool_call", content: "Bash build.sh", seq: 0, clientOrder: 2 },
+      { id: "400-0", type: "tool_call", content: "Bash build.sh", seq: 0, clientOrder: 2, timestamp: "1700000001000" },
     ]),
   ).state;
   eq(
     projectTranscript(turn, optimistic).rows.map((row) => row.content),
     ["earlier reply", "run the build", "Bash build.sh"],
-    "optimistic user stays before the tool row its send triggered",
+    "optimistic user sits inline by timestamp, before the tool row its send triggered",
   );
   const echoed = reduceTranscript(
     turn,
@@ -180,6 +180,43 @@ function contents(state: TranscriptState): string[] {
     reconciled.rows.filter((row) => row.content === "run the build").length,
     1,
     "reconciles exactly once — no duplicate user bubble",
+  );
+}
+
+// ── 3b. Unconfirmed optimistic: inline by timestamp, never pinned below a
+// later-arriving committed row (the "залипло книзу" bug).
+{
+  const attached = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 300, [
+      { id: "0-0", type: "assistant", content: "old reply", seq: 0, timestamp: "1700000000000" },
+    ]),
+  ).state;
+  const optimistic: NormalizedChatMessage[] = [
+    { id: "opt-9", type: "user", content: "still sending", timestamp: "1700000005000", clientOrder: 1 },
+  ];
+  // A newer committed row lands AFTER the send with no echo for it yet.
+  const later = reduceTranscript(
+    attached,
+    batch("delta", 300, 600, [
+      { id: "300-0", type: "assistant", content: "later unrelated", seq: 0, timestamp: "1700000009000" },
+    ]),
+  ).state;
+  eq(
+    projectTranscript(later, optimistic).rows.map((row) => row.content),
+    ["old reply", "still sending", "later unrelated"],
+    "unconfirmed optimistic keeps its timestamp slot, not pinned below the later row",
+  );
+  const echoed = reduceTranscript(
+    later,
+    batch("delta", 600, 800, [
+      { id: "600-0", type: "user", content: "still sending", seq: 0, clientOrder: 3 },
+    ]),
+  ).state;
+  eq(
+    projectTranscript(echoed, optimistic).pending.length,
+    0,
+    "a matched optimistic still disappears on echo",
   );
 }
 
