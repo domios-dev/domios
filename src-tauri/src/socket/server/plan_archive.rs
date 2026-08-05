@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::service::plan::{PlanError, PlanStore};
+use crate::service::plan::{PlanError, PlanIncident, PlanStore};
 use crate::service::ServiceState;
 
 use super::safety_nudge::{
@@ -30,22 +30,20 @@ pub(super) fn retrospective_nudge(plan: &crate::plan::Plan) -> Option<SafetyNudg
     ))
 }
 
-/// Evidence is recorded only AFTER the archive commits. Recording first would
-/// leave a durable claim that a plan was archived when the archive had failed.
-pub(super) fn archive_with_evidence<F>(
+/// Archive status and its evidence commit as ONE store write, so a failure can
+/// never leave a durable incident claiming an archive that did not happen.
+pub(super) fn archive_with_evidence(
     store: &PlanStore,
     plan_id: &str,
-    archive: F,
     now: u64,
-) -> Result<Option<SafetyNudge>, PlanError>
-where
-    F: FnOnce() -> Result<(), PlanError>,
-{
+) -> Result<Option<SafetyNudge>, PlanError> {
     let nudge = store.get(plan_id).and_then(|plan| retrospective_nudge(&plan));
-    archive()?;
-    if let Some(nudge) = nudge.as_ref() {
-        record_retrospective_incident(store, plan_id, nudge, now);
-    }
+    let incident = nudge.as_ref().map(|nudge| PlanIncident {
+        kind: SAFETY_INCIDENT_KIND.to_string(),
+        text: safety_incident_text(plan_id, nudge.id, &nudge.reason),
+        from: crate::plan::AgentRef::from_tab("archive"),
+    });
+    store.archive_with_incident(plan_id, incident, now)?;
     Ok(nudge)
 }
 
@@ -57,8 +55,7 @@ pub(super) fn archive(
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
-    let nudge = archive_with_evidence(store, &id, || store.archive(&id, now), now)
-        .map_err(plan_rpc_err)?;
+    let nudge = archive_with_evidence(store, &id, now).map_err(plan_rpc_err)?;
     emit_plan_changed(app, &id);
     let mut resp = json!({ "ok": true });
     if let Some(plan) = store.get(&id) {
@@ -73,24 +70,6 @@ pub(super) fn archive(
     // After push_hints, which overwrites `_hints`; apply_safety_nudges merges.
     apply_safety_nudges(&mut resp, nudge.as_slice());
     Ok(resp)
-}
-
-fn record_retrospective_incident(
-    store: &PlanStore,
-    plan_id: &str,
-    nudge: &SafetyNudge,
-    now: u64,
-) {
-    let text = safety_incident_text(plan_id, nudge.id, &nudge.reason);
-    if let Err(error) = store.add_plan_stride(
-        plan_id,
-        SAFETY_INCIDENT_KIND,
-        &text,
-        crate::plan::AgentRef::from_tab("archive"),
-        now,
-    ) {
-        log::warn!("[safety] retrospective evidence not recorded for {plan_id}: {error}");
-    }
 }
 
 pub(super) fn unarchive(

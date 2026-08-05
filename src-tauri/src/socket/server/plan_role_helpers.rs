@@ -51,6 +51,39 @@ pub(super) fn record_spawned_attempt<T>(
     compensate_failed_attempt(record(), || svc.close_tab(tab_id))
 }
 
+/// A record failure whose compensating close is REPORTED, not just folded into
+/// the message. A caller holding the tab's lane must know whether it is still live.
+pub(super) struct SpawnedAttemptFailure {
+    pub error: JsonRpcError,
+    pub close_error: Option<String>,
+}
+
+/// Same compensation as `record_spawned_attempt`, but reports whether the tab
+/// closed. A sibling on purpose: the shared helper's contract is unchanged.
+pub(super) fn record_spawned_attempt_reporting_close<T>(
+    svc: &ServiceState,
+    tab_id: &str,
+    record: impl FnOnce() -> Result<T, PlanError>,
+) -> Result<T, SpawnedAttemptFailure> {
+    match record() {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            let close_error = svc.close_tab(tab_id).err();
+            let mut rpc_error = plan_rpc_err(error);
+            if let Some(close_error) = close_error.as_deref() {
+                rpc_error.message = format!(
+                    "{}; spawned tab compensation failed: {close_error}",
+                    rpc_error.message
+                );
+            }
+            Err(SpawnedAttemptFailure {
+                error: rpc_error,
+                close_error,
+            })
+        }
+    }
+}
+
 pub(super) fn update_role_guidance_if_present(
     store: &PlanStore,
     plan_id: &str,
