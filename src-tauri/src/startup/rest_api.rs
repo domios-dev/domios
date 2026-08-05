@@ -82,6 +82,8 @@ pub(crate) struct RestApiControl {
     shutdown_error: Arc<AtomicBool>,
     #[cfg(test)]
     bind_error: Arc<AtomicBool>,
+    #[cfg(test)]
+    initial_listener: Arc<Mutex<Option<tokio::net::TcpListener>>>,
 }
 
 #[derive(Debug)]
@@ -138,6 +140,8 @@ impl RestApiControl {
             shutdown_error: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             bind_error: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            initial_listener: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -405,6 +409,16 @@ impl RestApiControl {
     fn take_bind_error(&self) -> bool {
         self.bind_error.swap(false, Ordering::AcqRel)
     }
+
+    #[cfg(test)]
+    fn install_initial_listener(&self, listener: tokio::net::TcpListener) {
+        *self.initial_listener.lock() = Some(listener);
+    }
+
+    #[cfg(test)]
+    fn take_initial_listener(&self) -> Option<tokio::net::TcpListener> {
+        self.initial_listener.lock().take()
+    }
 }
 
 pub(crate) type RestApiControlState = Arc<RestApiControl>;
@@ -448,9 +462,9 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
     }
 }
 
-// Darwin requires SO_REUSEPORT on EVERY socket sharing a 4-tuple, so a later
-// generation can only rebind the live port if the current one opted in too.
-#[cfg(target_os = "macos")]
+// Unix restart generations can overlap during handoff, so every listener must
+// opt into SO_REUSEPORT before the first generation binds.
+#[cfg(unix)]
 fn enable_shared_port_binding(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
 
@@ -481,7 +495,7 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListen
         tokio::net::TcpSocket::new_v6()?
     };
     socket.set_reuseaddr(true)?;
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     enable_shared_port_binding(&socket)?;
     socket.bind(address)?;
     socket.listen(1024)
@@ -640,6 +654,8 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                 std::io::ErrorKind::AddrInUse,
                 "forced bind ownership failure",
             ))
+        } else if let Some(listener) = control.take_initial_listener() {
+            Ok(listener)
         } else {
             bind_listener(&bind_addr).await
         };

@@ -225,7 +225,7 @@ production app during startup, in-app update, or `install-local`.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
 | macOS tests panic creating a mock Tauri `EventLoop` | A Windows-only fixture ran off the main thread. | Ignore it off Windows; test portable logic headlessly. |
-| macOS REST restart gets `Address already in use` | Darwin requires shared-port opt-in. | Enable `SO_REUSEPORT` on every macOS REST bind. |
+| Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package under its own cap. |
@@ -237,4 +237,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->
