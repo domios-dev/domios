@@ -86,14 +86,12 @@ fn locked_plan_update_succeeds_after_verified_commit() {
             1,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    store
-        .update_plan(&plan.id, Some("Updated under contention"), None, None, 2)
-        .unwrap();
+    while_plan_index_locked(root.path(), || {
+        store.update_plan(&plan.id, Some("Updated under contention"), None, None, 2)
+    })
+    .unwrap();
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.title, "Updated under contention");
-    locker.join().unwrap();
 }
 
 #[test]
@@ -108,14 +106,15 @@ fn locked_planner_waiver_succeeds_after_verified_readback() {
             1,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
     let waiver = Some(PlannerRef::Waived {
         note: "solo test".into(),
     });
 
-    store.set_planner_ref(&plan.id, waiver.clone(), 2).unwrap();
+    while_plan_index_locked(root.path(), || {
+        store.set_planner_ref(&plan.id, waiver.clone(), 2)
+    })
+    .unwrap();
     assert_eq!(store.get(&plan.id).unwrap().planner, waiver);
-    locker.join().unwrap();
 }
 
 #[test]
@@ -198,5 +197,5 @@ fn parallel_task_updates_under_locked_index_do_not_false_fail() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert!(task.body.starts_with("after-"));
-    locker.join().unwrap();
+    drop(locker);
 }
