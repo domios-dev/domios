@@ -148,6 +148,23 @@ fn render_dispatch_response(value: &Value) -> String {
     format!("Dispatched {agent} worker Tab {tab}\n")
 }
 
+/// Conspicuous but non-blocking: the dispatch already succeeded by the time this
+/// prints, and each line carries the stable id plus the exact fix.
+fn print_safety_nudges(val: &Value) {
+    let Some(nudges) = val.get("safety_nudges").and_then(Value::as_array) else {
+        return;
+    };
+    if nudges.is_empty() {
+        return;
+    }
+    eprintln!("--- lane safety: {} advisory finding(s) ---", nudges.len());
+    for nudge in nudges {
+        let field = |key: &str| nudge.get(key).and_then(Value::as_str).unwrap_or("");
+        eprintln!("  [{}] {}", field("id"), field("reason"));
+        eprintln!("      fix: {}", field("safe_alternative"));
+    }
+}
+
 fn task_status(item: &Value) -> &str {
     item.get("task")
         .unwrap_or(item)
@@ -661,6 +678,7 @@ pub(super) fn run_task(
                     eprintln!("warning: {w}");
                 }
             }
+            print_safety_nudges(&val);
             print!("{}", render_dispatch_response(&val));
             Ok(None)
         }

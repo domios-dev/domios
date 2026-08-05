@@ -62,6 +62,7 @@ pub mod task_attempts;
 pub mod task_brief;
 mod task_dispatch;
 pub mod task_queries;
+pub mod task_recovery;
 mod task_remove;
 mod types;
 pub mod usage_digest;

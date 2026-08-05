@@ -774,6 +774,9 @@ fn add_milestone_rejects_undeclared_kind() {
 #[test]
 fn archive_and_unarchive_toggle_status() {
     let (store, id, _) = store_with_task(&["status_update"]);
+    store
+        .add_retrospective(&id, "retro", AgentRef::from_tab("orch"), 40)
+        .unwrap();
     store.archive(&id, 40).unwrap();
     assert_eq!(store.get(&id).unwrap().status, PlanStatus::Archived);
     store.unarchive(&id, 41).unwrap();

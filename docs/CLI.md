@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -12,6 +12,10 @@ a global flag on every command.
 The Team verbs are `codeterm team list|show|rename|close|adopt-plan|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
+
+`codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
+
+`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. `codeterm plan archive` is refused until `codeterm plan retrospective <plan>` is recorded.
 
 `codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 

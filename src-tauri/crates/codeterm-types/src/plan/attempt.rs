@@ -126,6 +126,10 @@ pub struct TaskExecutionAttempt {
     pub reviewed_at: Option<u64>,
     #[serde(default)]
     pub closed_at: Option<u64>,
+    // Fence, not bookkeeping: a retired attempt can never re-enter startup, so a
+    // late dispatch_ready cannot resurrect ownership after its tab is gone.
+    #[serde(default)]
+    pub retired_at: Option<u64>,
     #[serde(default)]
     pub competition_group_id: Option<String>,
     #[serde(default)]
