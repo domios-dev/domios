@@ -52,6 +52,13 @@ would cost more than the work, but Worker dispatch is the default for plan-owned
 When Team-bound, attach utility shells and cron jobs to the same Team with
 `--team <team-id>` so Team close and cleanup own their lifecycle.
 
+Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
+which spawns the Worker, assigns the task, and delivers the brief in one call.
+When a dispatch is blocked, clear the blocker or record the task as blocked.
+Never substitute a loose roleless agent: an agent outside the Team and outside
+the plan owns no task, appears in no plan state, and reports to nobody, so its
+work is invisible to every gate that would otherwise catch it.
+
 ## The loop
 
 Run this loop after every report, reminder, task close, tab death, or gate:
@@ -187,4 +194,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->
