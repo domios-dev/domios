@@ -1,5 +1,6 @@
 import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 import { mergeById } from "./merge";
+import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open byte range `[start, end)` of a session source, both ends on a
@@ -347,14 +348,18 @@ function toEchoes(rows: readonly NormalizedChatMessage[]): OptimisticEcho[] {
   }));
 }
 
-/** Keeps a sent row above the rows that arrived after it without re-ordering
- *  committed history. */
-function insertionIndex(rows: readonly NormalizedChatMessage[], clientOrder: number | undefined): number {
-  if (clientOrder == null) return rows.length;
+/** Places a pending optimistic row inline by timestamp instead of pinning it
+ *  below later-arriving committed rows; a null stamp falls back to the tail. */
+function insertionIndexByTimestamp(
+  rows: readonly NormalizedChatMessage[],
+  timestamp: string | number | undefined,
+): number {
+  const ts = timestampMs(timestamp);
+  if (ts == null) return rows.length;
   let index = rows.length;
   while (index > 0) {
-    const order = rows[index - 1]?.clientOrder;
-    if (order == null || order <= clientOrder) break;
+    const rowTs = timestampMs(rows[index - 1]?.timestamp);
+    if (rowTs == null || rowTs <= ts) break;
     index -= 1;
   }
   return index;
@@ -375,7 +380,7 @@ export function projectTranscript(
   if (pending.length === 0) return { rows, pending: [] };
   const projected = [...rows];
   for (const row of pending) {
-    projected.splice(insertionIndex(projected, row.clientOrder), 0, row);
+    projected.splice(insertionIndexByTimestamp(projected, row.timestamp), 0, row);
   }
   return { rows: projected, pending };
 }

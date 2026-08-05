@@ -91,7 +91,9 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const [syncing, setSyncing] = useState(false);
 
   const api = config.api;
-  const apiBase = api ? daemonHttpBase(api) : "";
+  // daemonHttpBase safely defaults host/port, so never gate fetches on a
+  // not-yet-populated config.api — that left the schedule dropdown stuck Off.
+  const apiBase = daemonHttpBase(api);
   const authToken = daemonAuthToken(api);
   const apiHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
