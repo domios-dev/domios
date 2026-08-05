@@ -890,7 +890,7 @@ mod tests {
             access_level: types::AccessLevel::Full,
             version: None,
             web_ui: None,
-            relay_protocol_version: 0,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,
             last_active_ms: None,
         };
