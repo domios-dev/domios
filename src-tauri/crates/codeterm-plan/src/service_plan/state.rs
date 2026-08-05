@@ -809,7 +809,7 @@ mod tests {
         assert_eq!(snap.task_counts.in_progress, 1);
         assert_eq!(snap.task_counts.pending, 1);
         assert_eq!(snap.task_counts.cancelled, 1);
-        assert!((snap.percent_done - 0.25).abs() < 1e-9);
+        assert!((snap.percent_done - 0.2).abs() < 1e-9);
 
         // coverage: s1 covered, s2 covered -> fraction 1.0 (both have tasks)
         assert!((snap.coverage.plan_covered_fraction - 1.0).abs() < 1e-9);

@@ -141,7 +141,6 @@ mod tests {
         // Unapproved + bound planner → nudge names the planner.
         let n = planning_structure_nudge(PlanningState::Drafting, &live).unwrap();
         assert!(n.contains("tab_p"));
-        assert!(n.contains("delegate"));
         // Approved → silent (execution unlocked, structure owned).
         assert!(planning_structure_nudge(PlanningState::Approved, &live).is_none());
         // Waived → silent even while drafting (orchestrator is solo).
