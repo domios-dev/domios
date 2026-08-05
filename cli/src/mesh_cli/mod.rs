@@ -111,22 +111,12 @@ pub enum MeshPeerAction {
     },
 }
 
-/// Execute a CLI command on a remote mesh peer via relay.
-/// Reconstructs the command as an API call and sends through relay proxy.
-/// `team pair` is the one Team action that reaches a peer over REST; the other
-/// five are socket RPCs relayed through `MeshRpcClient`.
 pub(crate) fn is_socket_relayed(command: &Commands) -> bool {
-    match command {
-        Commands::Team { action } => !matches!(action, super::TeamAction::Pair { .. }),
-        Commands::Plan { .. }
-        | Commands::Spec { .. }
-        | Commands::Effort { .. }
-        | Commands::Task { .. }
-        | Commands::Inbox { .. } => true,
-        _ => false,
-    }
+    crate::transport::is_socket_relayed(command)
 }
 
+/// Execute a CLI command on a remote mesh peer via relay.
+/// Reconstructs the command as an API call and sends through relay proxy.
 pub fn run_via_mesh(cli: super::Cli, target: &str) {
     if is_socket_relayed(&cli.command) {
         let (base, token) = super::read_api_config();

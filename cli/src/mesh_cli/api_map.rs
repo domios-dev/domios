@@ -1,6 +1,7 @@
+use crate::transport::ApiVerdict;
 use crate::{
     cmd::{delayed::parse_schedule, send_text::resolve_send_text_input},
-    Commands, UpdateAction,
+    Commands, TeamAction, UpdateAction,
 };
 
 use super::update::resolve_update_action;
@@ -9,7 +10,9 @@ use super::{parse_ip_port, MeshAction, MeshPeerAction};
 mod actions;
 
 pub(crate) use actions::send_text_to_api;
-use actions::{delayed_create_to_api, mem_to_api, now_ms, service_to_api, team_to_api};
+use actions::{
+    agent_to_api, delayed_create_to_api, mem_to_api, now_ms, service_to_api, team_pair_to_api,
+};
 
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
@@ -17,47 +20,33 @@ fn unsupported(reason: &str) -> (String, String, Option<String>) {
     (UNSUPPORTED_OVER_MESH.into(), reason.into(), None)
 }
 
+/// Support is declared once in `crate::transport`; this module only builds the
+/// REST request for the commands the table says have one.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
+    match crate::transport::transport_for(cmd).api_verdict {
+        ApiVerdict::Unsupported(reason) => unsupported(reason),
+        // `debug` refuses with its own message and exit code rather than a
+        // verdict; the table declares that shape instead of normalising it.
+        ApiVerdict::RefusedInPlace => {
+            eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
+            std::process::exit(2);
+        }
+        ApiVerdict::Rest => rest_request(cmd),
+    }
+}
+
+fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
-        Commands::Web { .. } => unsupported(
-            "web link is local-only — each peer's link needs that peer's own token; run it there",
-        ),
-        Commands::Plugin { .. } => {
-            unsupported("plugin management is local-only — run it on the target machine")
-        }
-        Commands::Plan { .. } => {
-            unsupported("plan management is local-only — run it on the target machine")
-        }
-        Commands::Team { action } => team_to_api(action),
-        Commands::Spec { .. } => {
-            unsupported("spec management is local-only — run it on the target machine")
-        }
-        Commands::Effort { .. } => {
-            unsupported("effort management is local-only — run it on the target machine")
-        }
-        Commands::Orchestrator { .. } => {
-            unsupported("orchestrator handoff is local-only — run it on the target machine")
-        }
-        // Every persona answer is about the serving daemon: its compiled prompt
-        // text and its own overlay directory. A remote answer would be a lie.
-        Commands::Persona { .. } => unsupported(
-            "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
-        ),
-        Commands::Task { .. } | Commands::Inbox { .. } => {
-            unsupported("task management is local-only — run it on the target machine")
-        }
-        Commands::Canvas { .. } => {
-            unsupported("canvas control is local-only — run it on the target machine")
-        }
-        // `cli-manifest` introspects the local clap binary — no remote form.
-        Commands::CliManifest { .. } => {
-            unsupported("cli-manifest is local-only — it dumps this binary's own command tree")
-        }
+        Commands::Team {
+            action:
+                TeamAction::Pair {
+                    orchestrator,
+                    planner,
+                    workspace,
+                    title,
+                },
+        } => team_pair_to_api(orchestrator, planner, workspace, title),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
-        Commands::Capabilities => {
-            unsupported("capabilities is socket-only; run it on the target machine")
-        }
-        Commands::Pad { .. } => unsupported("pad is caller-local and cannot target a mesh peer"),
         Commands::SendText {
             text,
             tab,
@@ -432,163 +421,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
-        Commands::Agent { action } => match action {
-            crate::AgentAction::Spawn {
-                agent,
-                title,
-                description,
-                task,
-                task_file,
-                role,
-                parent,
-                plan,
-                report_to,
-                workspace,
-                can_spawn,
-                cwd,
-                args,
-                model,
-                reasoning_effort,
-                system_prompt,
-                preset,
-                charter,
-                charter_file,
-                interval,
-                nudge_cooldown,
-                max_actions,
-                bound_task,
-                plan_task,
-                execution_intent,
-                provider_reserve_pct,
-                non_user_facing,
-            } => {
-                let task = match crate::cmd::agent::resolve_spawn_task(
-                    task.clone(),
-                    task_file.clone(),
-                    cwd.as_deref(),
-                    &mut std::io::stdin(),
-                ) {
-                    Ok(t) => t,
-                    Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
-                };
-                let charter = match crate::cmd::agent::resolve_spawn_charter(
-                    charter.clone(),
-                    charter_file.clone(),
-                    &mut std::io::stdin(),
-                ) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return unsupported(&format!("agent spawn charter input error: {}", e))
-                    }
-                };
-                let agent_name = agent.as_str();
-                let title = crate::cmd::agent::join_cli_words(title.clone());
-                let mut body = serde_json::json!({
-                    "agent": agent_name,
-                    "title": title,
-                    "task": task,
-                });
-                if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
-                    match crate::cmd::agent::normalize_tab_description(&d) {
-                        Ok(Some(d)) => body["description"] = serde_json::json!(d),
-                        Ok(None) => body["description"] = serde_json::json!(""),
-                        Err(e) => return unsupported(&e),
-                    }
-                }
-                if let Some(r) = role {
-                    body["role"] = serde_json::json!(r.as_str());
-                    if let Some(profile) = r.role_profile() {
-                        body["role_profile"] = serde_json::json!(profile);
-                    }
-                }
-                if let Some(p) = parent {
-                    body["parent_tab_id"] = serde_json::json!(p);
-                }
-                if let Some(pl) = plan {
-                    body["plan_id"] = serde_json::json!(pl);
-                }
-                let report_to = report_to.clone().or_else(|| {
-                    std::env::var("CODETERM_TAB_ID")
-                        .ok()
-                        .filter(|s| !s.is_empty())
-                });
-                if let Some(rt) = report_to {
-                    body["report_to"] = serde_json::json!(rt);
-                }
-                if let Some(w) = workspace {
-                    body["workspace_id"] = serde_json::json!(w);
-                }
-                if *can_spawn {
-                    body["can_spawn"] = serde_json::json!(true);
-                }
-                if let Some(c) = cwd {
-                    body["cwd"] = serde_json::json!(c);
-                }
-                if let Some(a) = args {
-                    if !a.is_empty() {
-                        body["args"] = serde_json::json!(a);
-                    }
-                }
-                if let Some(m) = model {
-                    body["model"] = serde_json::json!(m);
-                }
-                if let Some(effort) = reasoning_effort {
-                    body["reasoning_effort"] = serde_json::json!(effort);
-                }
-                if let Some(system_prompt) = system_prompt {
-                    body["system_prompt"] = serde_json::json!(system_prompt);
-                }
-                if let Some(preset) = preset {
-                    body["preset"] = serde_json::json!(preset);
-                }
-                if let Some(charter) = charter {
-                    body["charter"] = serde_json::json!(charter);
-                }
-                if let Some(interval) = interval {
-                    let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval")
-                    {
-                        Ok(v) => v,
-                        Err(e) => return unsupported(&e),
-                    };
-                    body["tick_interval_secs"] = serde_json::json!(secs);
-                }
-                if let Some(nudge_cooldown) = nudge_cooldown {
-                    let secs = match crate::cmd::agent::parse_duration_secs(
-                        nudge_cooldown,
-                        "--nudge-cooldown",
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => return unsupported(&e),
-                    };
-                    body["nudge_cooldown_secs"] = serde_json::json!(secs);
-                }
-                if let Some(max_actions) = max_actions {
-                    body["max_actions_per_tick"] = serde_json::json!(max_actions);
-                }
-                if let Some(tid) = bound_task {
-                    body["task_id"] = serde_json::json!(tid);
-                }
-                if let Some(pt) = plan_task {
-                    body["plan_task"] = serde_json::json!(pt);
-                }
-                if let Some(intent) = execution_intent {
-                    body["execution_intent"] = serde_json::json!(intent);
-                    body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
-                }
-                if *non_user_facing {
-                    body["audience"] = serde_json::json!("automation");
-                }
-                (
-                    "POST".into(),
-                    "/api/agents/spawn".into(),
-                    Some(body.to_string()),
-                )
-            }
-            crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
-                ("GET".into(), "/api/agents/providers".into(), None)
-            }
-            _ => ("GET".into(), "/api/tabs".into(), None),
-        },
+        Commands::Agent { action } => agent_to_api(action),
         Commands::Cron { action } => match action {
             crate::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
             crate::CronAction::Create {
@@ -939,9 +772,24 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
         },
         Commands::Service { action } => service_to_api(action),
-        Commands::Debug { .. } => {
-            eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
-            std::process::exit(2);
+        // Declared non-REST by the transport table, which answered before this
+        // match was reached. Listed explicitly so a new variant must choose.
+        Commands::Web { .. }
+        | Commands::Plugin { .. }
+        | Commands::Plan { .. }
+        | Commands::Team { .. }
+        | Commands::Spec { .. }
+        | Commands::Effort { .. }
+        | Commands::Orchestrator { .. }
+        | Commands::Persona { .. }
+        | Commands::Task { .. }
+        | Commands::Inbox { .. }
+        | Commands::Canvas { .. }
+        | Commands::CliManifest { .. }
+        | Commands::Capabilities
+        | Commands::Pad { .. }
+        | Commands::Debug { .. } => {
+            unreachable!("transport table declares this command non-REST")
         }
     }
 }
