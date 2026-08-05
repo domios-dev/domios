@@ -65,6 +65,13 @@ pub struct AgentIdentitySnapshot {
     pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epochs: Vec<crate::multiplexer::types::ContextEpochArchive>,
+    /// Rename-proof assignment identity, persisted so a restart keeps the lane
+    /// matchable by task rather than by its mutable title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_binding: Option<crate::multiplexer::types::TaskBinding>,
+    /// Whether this pane is a tracked roleless agent (parent + audit assigned).
+    #[serde(default)]
+    pub roleless_tracked: bool,
     /// Lifecycle lineage this snapshot was written under. Recovery matches it
     /// against the journal; absent lineage is unproven, never permissive.
     #[serde(default, skip_serializing_if = "Option::is_none")]

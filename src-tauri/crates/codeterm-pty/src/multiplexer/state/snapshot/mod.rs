@@ -157,6 +157,8 @@ impl MultiplexerState {
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
                     context_epochs: p.context_epoch_archives.clone(),
+                    task_binding: p.task_binding.clone(),
+                    roleless_tracked: p.roleless_tracked,
                     lifecycle_epoch: p.lifecycle_epoch,
                     lifecycle_operation_id: p.lifecycle_operation_id.clone(),
                 }),
@@ -402,6 +404,11 @@ impl MultiplexerState {
                         .and_then(|identity| identity.lifecycle_epoch),
                     lifecycle_operation_id: restored_identity
                         .and_then(|identity| identity.lifecycle_operation_id.clone()),
+                    task_binding: restored_identity
+                        .and_then(|identity| identity.task_binding.clone()),
+                    roleless_tracked: restored_identity
+                        .map(|identity| identity.roleless_tracked)
+                        .unwrap_or(false),
                     role: parsed_role,
                     role_profile: restored_role_profile,
                     // Membership is not authority: a roleless Team utility tab
