@@ -36,6 +36,8 @@ import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
+import { TerminalViewControls } from "./TerminalViewControls";
+import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
 
 interface TerminalTabProps {
   tabId: string;
@@ -168,6 +170,30 @@ export const TerminalTab = memo(function TerminalTab({
 
   const touchUi = useTouchOptimizedUi();
   const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
+  const [canScrollToBottom, setCanScrollToBottom] = useState(false);
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !termReady) return;
+    const sync = () => setCanScrollToBottom(shouldOfferScrollToBottom(term));
+    sync();
+    const scrolled = term.onScroll(sync);
+    const written = term.onWriteParsed?.(sync);
+    return () => {
+      scrolled.dispose();
+      written?.dispose();
+    };
+  }, [termReady]);
+  // Reuse the force-fit path the mode switch already drives, so a manual fit and an
+  // automatic one cannot drift into two behaviours.
+  const handleFitTerminal = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("codeterm-tab-resize", { detail: { tabId, force: true } }));
+    termRef.current?.focus();
+  }, [tabId]);
+  const handleScrollTerminalToBottom = useCallback(() => {
+    termRef.current?.scrollToBottom();
+    setCanScrollToBottom(false);
+    termRef.current?.focus();
+  }, []);
   const fallbackChat = uiMode === "chat" && terminalFallbackOpen;
   const mobileSheet = fallbackChat && touchUi;
   // Clears the git/usage bubbles (top: safe-top + 6px) so the sheet header never overlaps them.
@@ -481,6 +507,14 @@ export const TerminalTab = memo(function TerminalTab({
         >
           <div ref={containerRef} className="terminal-xterm-host w-full h-full" data-testid="terminal-xterm-host" />
         </div>
+        {terminalVisible && termReady && (
+          <TerminalViewControls
+            compact={touchUi}
+            showScrollToBottom={canScrollToBottom}
+            onFit={handleFitTerminal}
+            onScrollToBottom={handleScrollTerminalToBottom}
+          />
+        )}
         {showTerminalKeyBar && (
           <div
             className="min-w-0 border-t px-2 pt-2"
