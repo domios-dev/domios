@@ -519,13 +519,16 @@ fn run_plan(
             }
             PlanGoalAction::Set {
                 plan_id,
+                goal_text,
                 vector,
                 vision,
                 vision_file,
                 constraint,
                 postulate,
             } => {
-                let vision = resolve_text(vision, vision_file)?.unwrap_or_default();
+                let vision = resolve_text(vision, vision_file)?
+                    .or(goal_text)
+                    .unwrap_or_default();
                 let mut params = json!({
                     "plan_id": plan_id,
                     "vector": vector,

@@ -23,8 +23,7 @@ fn build_params(
     qa_plan_text: Option<String>,
     correctness: Option<String>,
     parent: Option<String>,
-    depends_on: Vec<String>,
-    clear_dependencies: bool,
+    depends_on: Option<Vec<String>>,
     tab: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
@@ -96,10 +95,8 @@ fn build_params(
     if let Some(p) = parent {
         params["parent_task_id"] = json!(p);
     }
-    if clear_dependencies {
-        params["depends_on"] = json!([]);
-    } else if !depends_on.is_empty() {
-        params["depends_on"] = json!(depends_on);
+    if let Some(deps) = depends_on {
+        params["depends_on"] = json!(deps);
     }
     if let Some(lane) = crate::cmd::plan::lane_params(
         tab,
@@ -164,6 +161,8 @@ pub(crate) fn run(
     correctness: Option<String>,
     parent: Option<String>,
     depends_on: Vec<String>,
+    remove_dependency: Vec<String>,
+    replace_dependencies: bool,
     clear_dependencies: bool,
     tab: Option<String>,
     workspace_id: Option<String>,
@@ -186,6 +185,14 @@ pub(crate) fn run(
     let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
     let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
+    let resolved_depends_on = resolve_dependencies(
+        client,
+        &task_id,
+        depends_on,
+        remove_dependency,
+        replace_dependencies,
+        clear_dependencies,
+    )?;
     let params = build_params(
         plan_id,
         task_id,
@@ -206,8 +213,7 @@ pub(crate) fn run(
         qa_plan_text,
         correctness,
         parent,
-        depends_on,
-        clear_dependencies,
+        resolved_depends_on,
         tab,
         workspace_id,
         workspace_name,
@@ -227,21 +233,101 @@ pub(crate) fn run(
     call_plan_rpc(client, "plan.task.update", params)
 }
 
+fn dedup_preserve(items: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for item in items {
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
+fn merge_dependencies(existing: Vec<String>, add: &[String], remove: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for dep in existing.into_iter().chain(add.iter().cloned()) {
+        if remove.contains(&dep) || out.contains(&dep) {
+            continue;
+        }
+        out.push(dep);
+    }
+    out
+}
+
+fn fetch_dependencies(client: &mut dyn RpcClient, task_id: &str) -> Result<Vec<String>, String> {
+    let val = call_plan_rpc(client, "task.show", json!({ "task_id": task_id }))?;
+    let deps = val
+        .get("task")
+        .unwrap_or(&val)
+        .get("depends_on")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(deps)
+}
+
+fn resolve_dependencies(
+    client: &mut dyn RpcClient,
+    task_id: &str,
+    depends_on: Vec<String>,
+    remove: Vec<String>,
+    replace: bool,
+    clear: bool,
+) -> Result<Option<Vec<String>>, String> {
+    if clear {
+        return Ok(Some(vec![]));
+    }
+    if replace {
+        return Ok(Some(dedup_preserve(depends_on)));
+    }
+    if depends_on.is_empty() && remove.is_empty() {
+        return Ok(None);
+    }
+    let existing = fetch_dependencies(client, task_id)?;
+    Ok(Some(merge_dependencies(existing, &depends_on, &remove)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_params;
+    use super::{build_params, dedup_preserve, merge_dependencies};
     use serde_json::json;
 
-    #[test]
-    fn external_ref_is_added_while_omitted_dependencies_stay_unchanged() {
-        let params = build_params(
+    #[allow(clippy::too_many_arguments)]
+    fn params_with(
+        criterion: Vec<String>,
+        test_plan: Option<String>,
+        qa_plan: Option<String>,
+        status: Option<String>,
+        depends_on: Option<Vec<String>>,
+        tab: Option<String>,
+        external_refs: Vec<String>,
+    ) -> serde_json::Value {
+        build_params(
             Some("pl_1".into()),
             "task_1".into(),
             None,
             None,
             None,
             None,
+            status,
             None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            criterion,
+            test_plan,
+            qa_plan,
+            None,
+            None,
+            depends_on,
+            tab,
             None,
             None,
             None,
@@ -252,22 +338,20 @@ mod tests {
             vec![],
             None,
             None,
-            None,
-            None,
-            vec![],
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
             vec![],
             None,
             None,
+            external_refs,
+        )
+    }
+
+    #[test]
+    fn external_ref_is_added_while_omitted_dependencies_stay_unchanged() {
+        let params = params_with(
             vec![],
+            None,
+            None,
+            None,
             None,
             None,
             vec!["rollacode/codeterm-releases#17".into()],
@@ -280,42 +364,13 @@ mod tests {
     }
 
     #[test]
-    fn depends_on_replaces_dependencies_in_params() {
-        let params = build_params(
-            Some("pl_1".into()),
-            "task_1".into(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+    fn resolved_dependency_set_is_written_verbatim() {
+        let params = params_with(
             vec![],
             None,
             None,
             None,
-            None,
-            vec!["task_a".into(), "task_b".into()],
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            vec![],
-            None,
+            Some(vec!["task_a".into(), "task_b".into()]),
             None,
             vec![],
         );
@@ -326,86 +381,20 @@ mod tests {
     }
 
     #[test]
-    fn clear_dependencies_emits_empty_array() {
-        let params = build_params(
-            Some("pl_1".into()),
-            "task_1".into(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            None,
-            None,
-            vec!["task_a".into()],
-            true,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            vec![],
-        );
+    fn empty_resolved_dependency_set_clears_edges() {
+        let params = params_with(vec![], None, None, None, Some(vec![]), None, vec![]);
         assert_eq!(params.get("depends_on").cloned(), Some(json!([])));
     }
 
     #[test]
     fn status_and_tab_share_one_update_rpc_payload() {
-        let params = build_params(
-            Some("pl_1".into()),
-            "task_1".into(),
-            None,
-            None,
+        let params = params_with(
+            vec![],
             None,
             None,
             Some("in_progress".into()),
             None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            false,
             Some("worker-tab".into()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            vec![],
-            None,
-            None,
             vec![],
         );
         assert_eq!(params.get("status"), Some(&json!("in_progress")));
@@ -414,40 +403,11 @@ mod tests {
 
     #[test]
     fn qa_plan_is_independent_from_worker_test_plan() {
-        let params = build_params(
-            Some("pl_1".into()),
-            "task_1".into(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+        let params = params_with(
             vec![],
             Some("cargo test worker_oracle".into()),
             Some("cargo test qa_oracle".into()),
             None,
-            None,
-            vec![],
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            None,
-            None,
-            vec![],
             None,
             None,
             vec![],
@@ -457,5 +417,48 @@ mod tests {
             Some(&json!("cargo test worker_oracle"))
         );
         assert_eq!(params.get("qa_plan"), Some(&json!("cargo test qa_oracle")));
+    }
+
+    #[test]
+    fn appending_one_dependency_preserves_the_existing_edges() {
+        // Issue #275: a single --depends-on must append, never silently drop the rest.
+        let existing: Vec<String> = [
+            "task_x74mh8",
+            "task_qsyimg",
+            "task_12h0zm",
+            "task_r2ecmw",
+            "task_0qw4y4",
+            "task_k0ke0q",
+            "task_45lbsq",
+            "task_mp2dfm",
+            "task_y47ac0",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let merged = merge_dependencies(existing.clone(), &["task_yrggcs".into()], &[]);
+        assert_eq!(merged.len(), 10, "one added, nine kept: {merged:?}");
+        for edge in &existing {
+            assert!(merged.contains(edge), "dropped existing edge {edge}");
+        }
+        assert!(merged.contains(&"task_yrggcs".to_string()));
+    }
+
+    #[test]
+    fn merge_dependencies_dedups_additions_and_honors_removals() {
+        let merged = merge_dependencies(
+            vec!["task_a".into(), "task_b".into()],
+            &["task_b".into(), "task_c".into()],
+            &["task_a".into()],
+        );
+        assert_eq!(merged, vec!["task_b", "task_c"]);
+    }
+
+    #[test]
+    fn dedup_preserve_keeps_first_occurrence_order() {
+        assert_eq!(
+            dedup_preserve(vec!["task_a".into(), "task_b".into(), "task_a".into()]),
+            vec!["task_a", "task_b"]
+        );
     }
 }
