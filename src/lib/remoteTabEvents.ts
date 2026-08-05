@@ -1,4 +1,7 @@
-import { createRemoteChannelRecovery, type RemoteChannelRecovery, type StreamEndReason } from "./remoteChannelRecovery";
+import {
+  createRemoteChannelRecovery, createSilenceDeadline,
+  type RemoteChannelRecovery, type StreamEndReason,
+} from "./remoteChannelRecovery";
 import {
   classifyTabTarget,
   onRemoteTransportCredentials,
@@ -39,6 +42,10 @@ function connect(record: SubscriptionRecord): void {
   const settlement = new Promise<void>((resolve) => { settle = resolve; });
   record.settlements.set(generation, { promise: settlement, resolve: settle });
   record.controller = controller;
+  // Silence deadline (see createSilenceDeadline): re-armed on every byte incl the
+  // peer's 15s keep-alive; true silence parks so an ordinary resume can wake it.
+  const deadline = createSilenceDeadline(record.recovery, generation, controller);
+  deadline.arm();
   const params = new URLSearchParams({
     peer: record.peerId,
     path: "/api/events/stream",
@@ -59,6 +66,7 @@ function connect(record: SubscriptionRecord): void {
     while (!controller.signal.aborted && record.recovery.isCurrent(generation)) {
       const chunk = await reader.read();
       if (chunk.done) break;
+      deadline.arm();
       buffer += decoder.decode(chunk.value, { stream: true });
       let boundary = buffer.indexOf("\n\n");
       while (boundary >= 0) {
@@ -82,6 +90,7 @@ function connect(record: SubscriptionRecord): void {
       }
     }
   }).catch(() => { reason = "error"; }).finally(() => {
+    deadline.clear();
     const ownsGeneration = generation === record.recovery.generation();
     if (ownsGeneration) record.controller = null;
     const settled = record.settlements.get(generation);
@@ -132,6 +141,10 @@ onRemoteTransportCredentials(() => resumeRemoteTabEvents());
 
 export function resumeRemoteTabEvents(): void {
   for (const record of subscriptions.values()) {
+    // Never supersede a connection still awaiting its first frame (the generation-
+    // churn race that blanked remote panes). Reopen once it has a cursor to resume
+    // from, or when it is parked awaiting a signal.
+    if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal()) continue;
     record.recovery.signal();
     connect(record);
   }
