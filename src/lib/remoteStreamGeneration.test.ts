@@ -18,21 +18,39 @@ const closedStream = (...frames: Uint8Array[]): Response =>
   new Response(new ReadableStream({ start(controller) { for (const f of frames) controller.enqueue(f); controller.close(); } }));
 
 describe("remote output generation replacement", () => {
-  it("old finalizer cannot clear the replacement generation", async () => {
-    let settleOldFetch!: (response: Response) => void;
-    const oldFetch = new Promise<Response>((resolve) => { settleOldFetch = resolve; });
-    const fetchMock = vi.fn()
-      .mockReturnValueOnce(oldFetch)
-      .mockReturnValue(new Promise(() => {}));
-    vi.stubGlobal("fetch", fetchMock);
+  it("resume does not supersede a connection awaiting its first frame", async () => {
+    // In-flight fetch, no frame delivered yet: no cursor, not parked. Mount /
+    // mesh-state-changed / credential churn must NOT restart it mid initial replay,
+    // which dropped the replay and blanked the terminal.
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
     const id = "mesh:peer/tab";
     const unsubscribe = subscribeTabOutput(id, { onOutput() {}, onTruncated() {}, onEnded() {} });
     const first = remoteOutputSubscriptionGeneration(id);
-    const oldSettled = waitForRemoteOutputGenerationSettlement(id, first);
     resumeRemoteOutputStreams();
+    expect(remoteOutputSubscriptionGeneration(id)).toBe(first);
+    expect(remoteOutputSubscriptionSnapshot(id)).toEqual({ generation: first, hasController: true });
+    unsubscribe();
+    vi.unstubAllGlobals();
+  });
+
+  it("a superseded generation's finalizer cannot clear the replacement's controller", async () => {
+    vi.stubGlobal("window", new EventTarget());
+    // gen1 delivers a frame (cursor set) then stays open; gen2 stays pending.
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(Promise.resolve(openStream(frame({ output: "hi", boot: "boot-a", offset: 1 }))))
+      .mockReturnValue(new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const id = "mesh:peer/tab";
+    let delivered!: () => void;
+    const gotFrame = new Promise<void>((resolve) => { delivered = resolve; });
+    const unsubscribe = subscribeTabOutput(id, { onOutput() { delivered(); }, onTruncated() {}, onEnded() {} });
+    await gotFrame;
+    const first = remoteOutputSubscriptionGeneration(id);
+    const oldSettled = waitForRemoteOutputGenerationSettlement(id, first);
+    resumeRemoteOutputStreams(); // cursor is set now, so this legitimately supersedes
     expect(remoteOutputSubscriptionGeneration(id)).toBe(first + 1);
-    settleOldFetch(new Response(null));
-    await oldSettled;
+    await oldSettled; // the old connection finalizes after its abort
+    // gen1's stale finalizer (decision === "stale") must not clear gen2's controller.
     expect(remoteOutputSubscriptionSnapshot(id)).toEqual({ generation: first + 1, hasController: true });
     unsubscribe();
     vi.unstubAllGlobals();
