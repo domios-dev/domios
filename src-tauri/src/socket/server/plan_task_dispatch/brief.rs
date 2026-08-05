@@ -3,10 +3,12 @@ use crate::service::plan::task_queries::TaskSection;
 
 /// Assemble the worker brief: body, acceptance, test plan, section links,
 /// strides (milestones — T4 enriches later), and the mandatory report command.
+#[cfg(test)]
 pub(in crate::socket::server) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
     build_brief_with_personality(task, sections, task.personality.as_deref())
 }
 
+#[cfg(test)]
 pub(in crate::socket::server) fn build_brief_with_personality(
     task: &Task,
     sections: &[TaskSection],

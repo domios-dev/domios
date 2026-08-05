@@ -181,6 +181,7 @@ struct Observation {
     tail: String,
 }
 
+#[allow(dead_code)]
 trait SubmitTransport {
     fn observe(&self) -> Option<Observation>;
     /// Predicate over the FULL parsed screen: the normalized draft or a
@@ -221,6 +222,7 @@ struct PtySubmitTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
     signal: Arc<ScreenChangeSignal>,
+    #[allow(dead_code)]
     status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
     submit_cycle: Arc<SubmitCycle>,
@@ -706,7 +708,7 @@ pub(crate) fn submit_text_with_key_claimed(
         submit_generation,
         turn_signaled: std::cell::Cell::new(false),
     };
-    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).map(
+    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).inspect(
         |result| {
             if result.submit_anomaly {
                 log::warn!(
@@ -717,7 +719,6 @@ pub(crate) fn submit_text_with_key_claimed(
                     result.elapsed.as_millis()
                 );
             }
-            result
         },
     );
     if let Err(ref error) = result {
