@@ -208,6 +208,7 @@ qa_run_gate_body() {
       bash scripts/check-mux-write.sh
       bash scripts/check-blocking-in-async.sh
       bash scripts/check-build-kill-safety.sh
+      bash scripts/check-msvc-cross-env.sh
       ;;
     fmt)
       cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
