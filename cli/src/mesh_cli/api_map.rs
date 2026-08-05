@@ -56,6 +56,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             actions,
             delay,
             at,
+            require_agent: _,
+            to_shell: _,
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
