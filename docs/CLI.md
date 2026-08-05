@@ -406,6 +406,31 @@ Show the full effort bundle (linked spec(s) + plan + tasks) for one plan_id
 
 Show CodeTerm version and system info
 
+#### `codeterm inbox`
+
+Workspace Inbox — standalone tasks with no plan
+
+#### `codeterm inbox add`
+
+Add a standalone task to the workspace Inbox
+
+- `--assign-tab`
+- `--body`
+- `--body-file`
+- `--correctness`
+- `--criterion`
+- `--execution-intent`
+- `--intent`
+- `--intent-file`
+- `--model`
+- `--name`
+- `--qa-plan`
+- `--qa-plan-file`
+- `--test-plan`
+- `--type`
+- `--why`
+- `--why-file`
+
 #### `codeterm keepawake`
 
 Prevent the system from sleeping while an agent is running
@@ -1126,36 +1151,27 @@ List tabs on a remote mesh peer
 
 - `<target>` — Target peer name or instance ID
 
-#### `codeterm notifications`
+#### `codeterm notify`
 
-List or manage notifications
+Send, list, and clear notifications
 
-- `--unread` — Show only unread notifications
-
-#### `codeterm notifications clear`
+#### `codeterm notify clear`
 
 Clear all notifications
 
-#### `codeterm notify`
+#### `codeterm notify list`
+
+List notifications
+
+- `--unread` — Show only unread notifications
+
+#### `codeterm notify send`
 
 Send a notification
 
 - `--body` — Notification body
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title
-
-#### `codeterm orchestration`
-
-Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
-
-#### `codeterm orchestration new`
-
-Create an Orchestrator + Planner pair bound to a fresh plan in one action
-
-- `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`)
-- `--planner` — Planner provider, optionally with a model (`provider[:model]`)
-- `--title`
-- `--workspace`
 
 #### `codeterm orchestrator`
 
@@ -1467,12 +1483,6 @@ Render the whole plan as markdown (goal + sections + tasks); --sections for the 
 #### `codeterm plan goal`
 
 Plan north-star goal
-
-#### `codeterm plan goal get`
-
-Show the plan's north-star goal (alias of show)
-
-- `<plan_id>`
 
 #### `codeterm plan goal set`
 
@@ -2402,29 +2412,6 @@ Update bundled system provider plugins from the official plugin channel
 
 - `<id>`
 
-#### `codeterm report`
-
-Report worker progress to the owning orchestrator or plan
-
-- `--acknowledge-dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
-- `--attach` — File to attach to the report milestone; repeat for multiple files
-- `--base` — Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)
-- `--branch` — Git branch the work landed on
-- `--changed-files` — Changed files (comma-separated or repeat the flag)
-- `--doc` — Markdown document to append to the report milestone
-- `--from-pad` — Read the report body from a relative file in the current agent tab's pad
-- `--kind` — Milestone kind when writing to --plan/--task
-- `<message>` — Report message (also accepts --message alias)
-- `--plan` — Plan id to append this report to (if available)
-- `--sha` — Commit SHA produced
-- `--skipped` — Anything deliberately skipped
-- `--status` — Task outcome: in_review | blocked | partial | done
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
-- `--task` — Task id to append this report to (if available)
-- `--test-cmd` — Test command that was run
-- `--test-result` — Result of the test command (e.g. "42 passed")
-- `--text` — Report message as a flag, useful when paired with --doc
-
 #### `codeterm send`
 
 Send text to a tab (default: current tab)
@@ -2789,28 +2776,7 @@ Interrupt the agent's current generation (NOT a clean exit). Sends the provider'
 
 #### `codeterm task`
 
-Standalone and plan-backed tasks
-
-#### `codeterm task add`
-
-Add a standalone task to the workspace Inbox
-
-- `--assign-tab`
-- `--body`
-- `--body-file`
-- `--correctness`
-- `--criterion`
-- `--execution-intent`
-- `--intent`
-- `--intent-file`
-- `--model`
-- `--name`
-- `--qa-plan`
-- `--qa-plan-file`
-- `--test-plan`
-- `--type`
-- `--why`
-- `--why-file`
+Plan-backed tasks across active plans
 
 #### `codeterm task drop`
 
@@ -2846,7 +2812,7 @@ Assign the task to the caller's tab
 
 #### `codeterm team`
 
-Team registry and 1:1 plan binding
+Team registry, 1:1 plan binding, and paired creation
 
 #### `codeterm team adopt-plan`
 
@@ -2864,6 +2830,15 @@ Close every member tab and remove the Team registry entry
 #### `codeterm team list`
 
 List registered Teams
+
+#### `codeterm team pair`
+
+Create an Orchestrator + Planner Team in one action. The Plan stays unbound until the first goal
+
+- `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`)
+- `--planner` — Planner provider, optionally with a model (`provider[:model]`)
+- `--title`
+- `--workspace`
 
 #### `codeterm team rename`
 
