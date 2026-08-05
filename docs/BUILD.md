@@ -217,10 +217,12 @@ production app during startup, in-app update, or `install-local`.
 | A focused app test passes `&ServiceContext` to a helper that only borrows service state but compilation expects `&Arc<ServiceContext>` | The helper accepted the runtime `ServiceState` alias even though it did not need shared ownership, making ordinary test fixtures incompatible. | Narrow the helper parameter to `&ServiceContext`; runtime `Arc` callers deref-coerce while fixtures pass the same service directly. Rerun the exact focused test. |
 | Removing an unused production import makes an inline `#[cfg(test)]` module fail to resolve the same type | The test relied on its parent module's unconditional import instead of declaring test-only scope. | Reintroduce the type behind `#[cfg(test)]` or import it inside the test module, then rerun the focused test. |
 | A live Plan owner with a valid current session and nonce is refused after the tab session rotates | The owner predicate authenticated the live tab and then redundantly compared its session to stale Plan metadata. | Keep live session and nonce validation at the tab boundary, identify Plan ownership by the bound tab plus Team authority, and rerun the rotated-session authority table. |
+| `build.ps1 e2e` fails on Windows with `python3: command not found` even though Python is installed | The E2E operation hardcoded the Unix executable name instead of resolving the available Python launcher. | Use the build operation that resolves `python3` or `python` and invokes pip through that same interpreter, then rerun `build.ps1 e2e`. |
+| A foreground `build.ps1 dev` exits with `unexpected EOF` after `build.sh` is edited during startup | Bash was still reading the running script while its file contents changed underneath that process. | Finish build-script edits before launching dev, validate with `bash -n build.sh`, then restart dev through the named operation. |
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 65 -->
+<!-- revision: 67 -->
