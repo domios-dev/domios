@@ -161,6 +161,10 @@ for (const path of process.argv.slice(4)) {
     throw new Error(`${path} bypasses target-aware release input preparation`);
   }
 }
+const windowsRelease = fs.readFileSync(process.argv.at(-1), "utf8");
+if (!windowsRelease.includes("Cross-target LIB contains host-architecture paths")) {
+  throw new Error("Windows ARM64 release must reject host library paths before compilation");
+}
 JS
 
 echo "PASS gateway dev preflight validates ancestors and release entrypoints stage target-aware bundle inputs"

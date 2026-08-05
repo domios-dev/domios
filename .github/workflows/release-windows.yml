@@ -182,19 +182,20 @@ jobs:
           # SDK, so INCLUDE lacks the UCRT headers (stdio.h/assert.h -> C1083). Inject
           # the SDK include/lib/bin for the matrix arch explicitly.
           $kits = "C:\Program Files (x86)\Windows Kits\10"
-          if (($vc['INCLUDE'] -notmatch 'Windows Kits') -and (Test-Path "$kits\Include")) {
-            $sdk = (Get-ChildItem "$kits\Include" -Directory |
-                    Where-Object { $_.Name -match '^10\.' } |
-                    Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).Name
-            $arch = "${{ matrix.sdkarch }}"
+          $sdk = (Get-ChildItem "$kits\Include" -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -match '^10\.' } |
+                  Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).Name
+          $arch = "${{ matrix.sdkarch }}"
+          if (-not $sdk) {
+            Write-Error "Windows SDK not found under $kits — runner is missing the SDK component"; exit 1
+          }
+          if ($vc['INCLUDE'] -notmatch 'Windows Kits') {
             $vc['INCLUDE'] = "$($vc['INCLUDE'].TrimEnd(';'));$kits\Include\$sdk\ucrt;$kits\Include\$sdk\shared;$kits\Include\$sdk\um;$kits\Include\$sdk\winrt;$kits\Include\$sdk\cppwinrt"
             $vc['LIB']     = "$($vc['LIB'].TrimEnd(';'));$kits\Lib\$sdk\ucrt\$arch;$kits\Lib\$sdk\um\$arch"
             $vc['WindowsSdkDir'] = "$kits\"
             $vc['WindowsSDKVersion'] = "$sdk\"
             $newPathDirs.Add("$kits\bin\$sdk\x64"); $newPathDirs.Add("$kits\bin\$sdk\x64\ucrt")
             Write-Host "Injected Windows SDK $sdk (lib arch $arch)"
-          } elseif ($vc['INCLUDE'] -notmatch 'Windows Kits') {
-            Write-Error "Windows SDK not found under $kits — runner is missing the SDK component"; exit 1
           }
           # ring's aarch64 build invokes bare `clang`. The scoop clang lives under a
           # per-user profile that the runner service account can't execute ('permission
@@ -225,7 +226,17 @@ jobs:
             "CC_$ccKey=$crossCl"  | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             "CXX_$ccKey=$crossCl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             "AR_$ccKey=$crossLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            $vc['LIB'] = @(
+              (Join-Path $vc['VCToolsInstallDir'] "lib\${{ matrix.sdkarch }}"),
+              "$kits\Lib\$sdk\ucrt\${{ matrix.sdkarch }}",
+              "$kits\Lib\$sdk\um\${{ matrix.sdkarch }}"
+            ) -join ';'
+            $wrongLib = @($vc['LIB'] -split ';' | Where-Object { $_ -match '\\(x64|x86)(\\|$)' })
+            if ($wrongLib.Count -gt 0) {
+              Write-Error "Cross-target LIB contains host-architecture paths: $($wrongLib -join '; ')"; exit 1
+            }
             Write-Host "Forcing cc cross compiler: CC_$ccKey=$crossCl"
+            Write-Host "Cross-target LIB: $($vc['LIB'])"
           }
           # INCLUDE/LIB/etc -> GITHUB_ENV (skip Path; that goes to GITHUB_PATH).
           $before = @{}
