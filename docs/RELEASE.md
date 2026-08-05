@@ -190,6 +190,7 @@ yet.
 | Apple notarization is broken and the whole Mac release job dies before Linux arm64 builds | Preflight aborted on the first failed check | Preflight now evaluates every check and exits once at the end, so the log shows the full picture. Note the Mac job still owns Linux arm64: `build-all.sh`'s `run_wave` keeps a failing engine from aborting the wave, but `publish-release.sh` deliberately bails when an artifact is missing, so a broken macOS leg still holds back the publish. To ship Linux arm64 independently the job would have to be split — not done yet. |
 | A release bundle fails with missing `dist`, `bundled-cli`, or `bundled-embed` after `beforeBuildCommand` was removed | A direct Tauri release entrypoint bypassed `build.sh release-inputs`, so the frontend or target-correct sidecars were never staged | Keep `beforeBuildCommand` absent. Run the target-aware `release-inputs` operation before every direct Tauri release build, then rerun the unpublished release from the same verified source commit. |
 | Windows release-input preparation builds the embed binary, then `bundle-embed.js` reports that `rustc` is not recognized | A nested Windows command shell cannot resolve bare `rustc` even though Cargo inherited a valid toolchain path | Use the current helper, which resolves the compiler from `RUSTC` or Cargo home without a shell lookup, then rerun `build.ps1 release-inputs`. |
+| Windows x64 publishes but ARM64 fails with `LNK4272` and unresolved CRT symbols such as `memcpy` or `memset` | `vcvarsall x64_arm64` left x64 MSVC/SDK directories in `LIB`, so the ARM linker consumed host libraries | Use the current workflow, which replaces the cross-job library path with ARM64 MSVC/UCRT/UM directories and rejects any surviving x64/x86 path before compilation; rerun only the failed ARM64 job. |
 | macOS needs to be built while the self-hosted Mac is unavailable | — | `release-macos.yml` is the GitHub-hosted fallback: `gh workflow run release-macos.yml --ref master -f tag=vX.Y.Z`. It is **disabled by default** (hosted macOS minutes bill at 10×) — `gh workflow enable release-macos.yml` first and disable it again afterwards. It builds macOS only, never Linux arm64. Its checkout pins no `ref`, so it builds the default branch HEAD: verify `origin/master` still equals the release commit immediately before dispatching. |
 
 ## 7. Runner restoration boundaries
@@ -304,4 +305,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
