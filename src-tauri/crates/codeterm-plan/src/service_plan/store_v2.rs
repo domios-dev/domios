@@ -256,6 +256,24 @@ mod tests {
     }
 
     #[test]
+    fn legacy_parked_task_survives_load_as_paused() {
+        // A pre-rename task file with `status: parked` must load (migrated to
+        // Paused), not be skipped as a corrupt file.
+        let dir = tempfile::tempdir().unwrap();
+        let plan = sample_plan(dir.path());
+        write_plan(dir.path(), &plan).unwrap();
+        let task_path = task_yaml_path(dir.path(), &plan.tasks[0]);
+        let raw = std::fs::read_to_string(&task_path).unwrap();
+        let rewritten = raw.replace("status: in_progress", "status: parked");
+        assert!(rewritten.contains("status: parked"), "test fixture invalid");
+        std::fs::write(&task_path, rewritten).unwrap();
+
+        let loaded = load_plan(dir.path()).unwrap();
+        assert_eq!(loaded.tasks.len(), 1, "parked task must not be skipped");
+        assert_eq!(loaded.tasks[0].status, TaskStatus::Paused);
+    }
+
+    #[test]
     fn plan_yaml_roundtrip_team_id() {
         let dir = tempfile::tempdir().unwrap();
         let mut plan = sample_plan(dir.path());

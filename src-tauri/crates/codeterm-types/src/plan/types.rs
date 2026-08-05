@@ -35,6 +35,9 @@ pub enum TaskStatus {
     InProgress,
     InReview,
     Blocked,
+    // `parked` is a legacy alias: older task files carry a status removed in a
+    // rename; accept it as Paused so historical plans keep deserializing.
+    #[serde(alias = "parked")]
     Paused,
     Done,
     Cancelled,
@@ -742,6 +745,16 @@ impl Spec {
 mod tests {
     use super::*;
     use crate::plan::review::{ReviewVerdict, DEFAULT_REVIEW_WIP_LIMIT};
+
+    #[test]
+    fn legacy_parked_status_deserializes_as_paused() {
+        // Historical task files carry the removed `parked` status; the alias must
+        // keep them loading instead of skipping the whole task.
+        let status: TaskStatus = serde_json::from_str("\"parked\"").unwrap();
+        assert_eq!(status, TaskStatus::Paused);
+        // On write it normalizes to the current name — no round-trip to `parked`.
+        assert_eq!(serde_json::to_string(&status).unwrap(), "\"paused\"");
+    }
 
     #[test]
     fn plan_roundtrips_and_defaults() {
