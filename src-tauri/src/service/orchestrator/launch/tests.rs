@@ -335,6 +335,25 @@ fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     );
 }
 
+#[test]
+fn identity_env_exports_team_id_when_bound_and_omits_it_when_absent() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+
+    // Absent Team → the key is omitted, never blank: launched shells inherit no CODETERM_TEAM_ID.
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert!(!tab_identity_env(tab).contains_key("CODETERM_TEAM_ID"));
+
+    // Bound Team → exported verbatim so the launched shell groups under its Team.
+    mux.get_tab_mut(&tab_id).unwrap().team_id = Some("team_c4bc03af".into());
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(
+        tab_identity_env(tab).get("CODETERM_TEAM_ID"),
+        Some(&"team_c4bc03af".to_string())
+    );
+}
+
 fn bind(driver: &mut LaunchRegistry, launch: &LaunchGeneration, nonce: &str) {
     assert!(driver.bind_provider_session(launch, nonce.into()));
 }
