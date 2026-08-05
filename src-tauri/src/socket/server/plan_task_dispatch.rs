@@ -16,6 +16,16 @@ use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
 use super::JsonRpcError;
 
+mod brief;
+pub(super) mod lane_safety;
+
+pub(super) use brief::{build_brief, build_brief_with_personality};
+use brief::build_brief_with_manifest;
+use lane_safety::{
+    atomic_lane_commitment, dispatch_safety_nudges, nudges_json, preflight_checkout_occupancy,
+    refuse_unsafe_mutating_write, SafetyNudge,
+};
+
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
         .and_then(|v| v.as_str())
@@ -125,79 +135,6 @@ fn resolve_dispatch_lane(
         spawn_cwd: canonical_cwd.to_string(),
         existing: None,
     })
-}
-
-fn preflight_checkout_occupancy(
-    plan: &crate::plan::Plan,
-    dispatched_task_id: &str,
-    checkout_path: &str,
-) -> Result<(), JsonRpcError> {
-    let canonical_path = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.as_str()
-    } else {
-        plan.canonical_project_path.as_str()
-    };
-    let normalized_checkout = codeterm_paths::normalize_cwd(checkout_path);
-    let occupant = plan.tasks.iter().find_map(|task| {
-        task.execution_attempts.iter().find_map(|attempt| {
-            if attempt.closed_at.is_some() {
-                return None;
-            }
-            let attempt_path = attempt
-                .worktree_path
-                .as_deref()
-                .filter(|path| !path.trim().is_empty())
-                .unwrap_or(canonical_path);
-            (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path))
-                .then_some((task.id.as_str(), attempt.id.as_str()))
-        })
-    });
-    let Some((occupying_task_id, occupying_attempt_id)) = occupant else {
-        return Ok(());
-    };
-    let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
-    let dispatch_command = format!(
-        "codeterm plan task dispatch {} {}",
-        plan.id, dispatched_task_id
-    );
-    let message = format!(
-        "dispatch refused: checkout '{checkout_path}' is occupied by live attempt \
-         '{occupying_attempt_id}' of task '{occupying_task_id}' in plan '{}'. No worker was \
-         spawned. Assign an existing isolated lane, then dispatch again:\n  {update_command}\n  \
-         {dispatch_command}",
-        plan.id
-    );
-    Err(JsonRpcError {
-        code: -32011,
-        message: message.clone(),
-        data: Some(json!({
-            "type": "checkout_occupied",
-            "stage": "checkout_occupancy",
-            "reason": message,
-            "occupying_task_id": occupying_task_id,
-            "occupying_attempt_id": occupying_attempt_id,
-            "checkout_path": checkout_path,
-            "update_command": update_command,
-            "dispatch_command": dispatch_command,
-        })),
-    })
-}
-
-#[cfg(windows)]
-fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
-    format!(
-        "codeterm plan task update {plan_id} {task_id} --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')"
-    )
-}
-
-#[cfg(not(windows))]
-fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
-    format!(
-        "codeterm plan task update {plan_id} {task_id} \
-         --worktree \"$(printf 'Existing isolated worktree path: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
-         --branch \"$(printf 'Existing isolated branch: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
-         --base \"$(printf 'Base ref: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\""
-    )
 }
 
 fn lane_metadata_for_dispatch(
@@ -354,6 +291,51 @@ fn epoch_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Advisory findings never change the outcome — they ride alongside a successful
+/// result as structured ids plus the conspicuous `_hints` the CLI already prints.
+pub(super) fn apply_safety_nudges(result: &mut Value, nudges: &[SafetyNudge]) {
+    if nudges.is_empty() {
+        return;
+    }
+    result["safety_nudges"] = nudges_json(nudges);
+    result["_hints"] = json!(nudges
+        .iter()
+        .map(SafetyNudge::to_hint)
+        .collect::<Vec<_>>());
+}
+
+pub(super) const LANE_SAFETY_INCIDENT_KIND: &str = "incident";
+
+pub(super) fn lane_safety_incident_text(task_id: &str, violation_id: &str, reason: &str) -> String {
+    format!("lane-safety {violation_id} on {task_id}: {reason}")
+}
+
+fn record_lane_safety_incident(
+    store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    error: &JsonRpcError,
+) {
+    let Some(data) = error.data.as_ref() else {
+        return;
+    };
+    let violation_id = data
+        .get("violation_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let reason = data.get("reason").and_then(Value::as_str).unwrap_or_default();
+    let text = lane_safety_incident_text(task_id, violation_id, reason);
+    if let Err(error) = store.add_plan_stride(
+        plan_id,
+        LANE_SAFETY_INCIDENT_KIND,
+        &text,
+        crate::plan::AgentRef::from_tab("dispatcher"),
+        epoch_ms(),
+    ) {
+        log::warn!("[lane-safety] incident evidence not recorded for {task_id}: {error}");
+    }
+}
+
 pub(super) fn publish_startup_report(
     svc: &ServiceState,
     parent_tab_id: &str,
@@ -456,17 +438,19 @@ impl DispatchStartup {
                     .and_then(|tab| tab.session_binding_nonce.clone())
                     .filter(|nonce| !nonce.trim().is_empty())
                     .ok_or_else(|| "ready Worker tab has no session binding nonce".to_string())?;
-                let lane_metadata = lane
-                    .as_ref()
-                    .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
-                    .unwrap_or_else(|| {
-                        let mut metadata = self.lane_for_commit.clone();
-                        metadata.worktree_path = None;
-                        metadata.branch = None;
-                        metadata.base = None;
-                        metadata.cleanup_status = None;
-                        metadata
-                    });
+                let lane_metadata = atomic_lane_commitment(
+                    &lane
+                        .as_ref()
+                        .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
+                        .unwrap_or_else(|| {
+                            let mut metadata = self.lane_for_commit.clone();
+                            metadata.worktree_path = None;
+                            metadata.branch = None;
+                            metadata.base = None;
+                            metadata.cleanup_status = None;
+                            metadata
+                        }),
+                );
                 self.svc
                     .plan_store
                     .finish_task_dispatch(
@@ -896,6 +880,20 @@ pub(super) fn dispatch(
                 .unwrap_or_else(|| canonical_cwd.clone())
         });
     if requires_repository {
+        // Refuse only a lane the caller resolved as final. The `existing: None`
+        // branch still holds canonical here and provisions an isolated lane below.
+        if let Some(existing) = lane_resolution
+            .as_ref()
+            .and_then(|resolution| resolution.existing.as_ref())
+        {
+            refuse_unsafe_mutating_write(
+                &plan,
+                &task_id,
+                &existing.worktree_path,
+                execution_intent.clone(),
+            )
+            .inspect_err(|error| record_lane_safety_incident(store, &plan_id, &task_id, error))?;
+        }
         preflight_checkout_occupancy(&plan, &task_id, &spawn_cwd)?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
@@ -957,7 +955,12 @@ pub(super) fn dispatch(
     };
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
-    let lane_for_commit = detail.task.lane.clone();
+    let mut lane_for_commit = detail.task.lane.clone();
+    if let Some((workspace_id, workspace_name)) = svc.resolve_spawn_workspace_identity(&spawn_params)
+    {
+        lane_for_commit.workspace_id.get_or_insert(workspace_id);
+        lane_for_commit.workspace_name.get_or_insert(workspace_name);
+    }
     let starting_lane = initial_provenance
         .as_ref()
         .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance))
@@ -969,6 +972,10 @@ pub(super) fn dispatch(
             lane.cleanup_status = None;
             lane
         });
+    // Team identity rides the same committed value as the isolated lane, so no
+    // persisted state carries a workspace without the worktree that isolates it.
+    let starting_lane = atomic_lane_commitment(&starting_lane);
+    let nudges = dispatch_safety_nudges(&plan_id, &task_id, &starting_lane);
     let reserved_attempt_id = crate::plan::ids::short_id("attempt");
     spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
@@ -1104,6 +1111,7 @@ pub(super) fn dispatch(
         });
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
+    apply_safety_nudges(&mut result, &nudges);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
     }
@@ -1145,46 +1153,6 @@ where
     } else {
         Err(errors.join("; "))
     }
-}
-
-/// Assemble the worker brief: body, acceptance, test plan, section links,
-/// strides (milestones — T4 enriches later), and the mandatory report command.
-pub(super) fn build_brief(
-    task: &Task,
-    sections: &[crate::service::plan::task_queries::TaskSection],
-) -> String {
-    build_brief_with_personality(task, sections, task.personality.as_deref())
-}
-
-pub(super) fn build_brief_with_personality(
-    task: &Task,
-    sections: &[crate::service::plan::task_queries::TaskSection],
-    effective_personality: Option<&str>,
-) -> String {
-    crate::service::plan::task_brief::render_task_brief(
-        task,
-        sections,
-        effective_personality,
-        None,
-        None,
-        &[],
-    )
-}
-
-fn build_brief_with_manifest(
-    task: &Task,
-    sections: &[crate::service::plan::task_queries::TaskSection],
-    plan_id: &str,
-    manifest: &[crate::plan::PlanSkillManifestEntry],
-) -> String {
-    crate::service::plan::task_brief::render_task_brief(
-        task,
-        sections,
-        task.personality.as_deref(),
-        None,
-        Some(plan_id),
-        manifest,
-    )
 }
 
 #[cfg(test)]

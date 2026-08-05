@@ -1080,6 +1080,9 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
         .unwrap()
         .is_empty());
 
+    store
+        .add_retrospective(&plan.id, "retro", AgentRef::from_tab("orch"), 3)
+        .unwrap();
     store.archive(&plan.id, 3).unwrap();
     flush_index_queue_for_test(root.path());
     assert!(store

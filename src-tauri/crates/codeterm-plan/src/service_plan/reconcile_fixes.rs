@@ -160,7 +160,11 @@ impl PlanStore {
             let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
                 return Ok(false);
             };
-            let closed = task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) > 0;
+            // Retire before closing: retirement fences the late commit, closing
+            // alone does not, and both land in this one write.
+            let retired = super::task_recovery::retire_attempts_for_tab(task, tab_id, now_ms);
+            let closed = task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) > 0
+                || !retired.is_empty();
             if task.assigned_tab_id.as_deref() == Some(tab_id) {
                 task.assigned_tab_id = None;
                 task.lane.tab_id = None;
@@ -184,7 +188,10 @@ impl PlanStore {
                 let Some(task) = plan.tasks.iter_mut().find(|task| task.id == *task_id) else {
                     continue;
                 };
-                if task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) == 0 {
+                let retired = super::task_recovery::retire_attempts_for_tab(task, tab_id, now_ms);
+                if task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) == 0
+                    && retired.is_empty()
+                {
                     continue;
                 }
                 changed.push(fix_result_action(

@@ -35,6 +35,71 @@ pub(super) fn authorize_draft_mutation(
     })
 }
 
+/// Recovery verbs the live Plan owner may drive against a tab-gone task. A stale
+/// epoch is the CONDITION recovery exists for, so it must not be what blocks it.
+pub(super) const RECOVERY_METHODS: &[&str] = &[
+    "plan.task.update",
+    "plan.task.assign",
+    "plan.task.respawn",
+    "plan.task.close",
+];
+
+pub(super) fn is_recovery_method(method: &str) -> bool {
+    RECOVERY_METHODS.contains(&method)
+}
+
+fn plan_caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCaller {
+    let field = |key: &str| {
+        params
+            .as_ref()
+            .and_then(|value| value.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: field("caller_tab_id"),
+        session_id: field("session_id"),
+        binding_nonce: field("session_binding_nonce"),
+    }
+}
+
+/// The recovered status a `plan.task.update` asks for, so cancel and pend land
+/// in the same write as the retirement. Reassign and respawn carry no status.
+fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan::TaskStatus> {
+    if method != "plan.task.update" {
+        return None;
+    }
+    match params
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)?
+    {
+        "pending" => Some(crate::plan::TaskStatus::Pending),
+        "cancelled" => Some(crate::plan::TaskStatus::Cancelled),
+        _ => None,
+    }
+}
+
+/// True only for a live, authenticated Plan owner acting on a task whose owning
+/// tab is gone. Deliberately delegates to the canonical owner predicate in
+/// `service::plan_authority` instead of re-deriving a second, stricter one.
+pub(super) fn plan_owner_may_recover(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    plan_id: &str,
+    owner_tab_id: Option<&str>,
+) -> bool {
+    if !is_recovery_method(method) {
+        return false;
+    }
+    if owner_tab_id.is_some_and(|tab_id| svc.mux.read().get_tab(tab_id).is_some()) {
+        return false;
+    }
+    svc.authorize_plan_orchestrator(plan_id, &plan_caller(params))
+        .is_ok()
+}
+
 pub(super) fn verify_owner_epoch_for_task_mutation(
     method: &str,
     params: &Option<Value>,
@@ -57,6 +122,27 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         .show_task(&task_id)
         .ok_or_else(|| rpc_error(PlanError::TaskNotFound.to_string()))?;
     if detail.task.interruption.owner_epoch == 0 {
+        return Ok(());
+    }
+    if plan_owner_may_recover(
+        method,
+        params,
+        svc,
+        &detail.plan_id,
+        detail.task.interruption.owner_tab_id.as_deref(),
+    ) {
+        // Retire-and-recover is ONE transition: the stale attempt is fenced and
+        // the recovered status lands together, so no half-applied state is
+        // visible and a later dispatch_ready for that attempt is already dead.
+        svc.plan_store
+            .retire_stale_task_owner(
+                &detail.plan_id,
+                &task_id,
+                recovery_outcome(method, params),
+                |_| false,
+                epoch_ms(),
+            )
+            .map_err(|error| rpc_error(error.to_string()))?;
         return Ok(());
     }
     let authority = task_mutation_authority(params, svc)?;
@@ -148,6 +234,13 @@ pub(super) fn task_mutation_authority(
                 data: None,
             })?,
     })
+}
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn rpc_error(message: impl ToString) -> JsonRpcError {

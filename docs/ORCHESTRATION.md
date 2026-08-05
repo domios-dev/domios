@@ -59,6 +59,35 @@ Never substitute a loose roleless agent: an agent outside the Team and outside
 the plan owns no task, appears in no plan state, and reports to nobody, so its
 work is invisible to every gate that would otherwise catch it.
 
+### Lane safety: two hard stops, everything else advisory
+
+A **mutating** Worker dispatch is refused before any tab is created when its
+resolved worktree is the canonical checkout, or is the lane another task owns.
+Both would destroy work in progress, so both are hard stops carrying a stable
+violation id (`lane.mutating_write_in_canonical_checkout`,
+`lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
+that supplies an isolated lane. A dispatch with no recorded lane is *not*
+refused — the dispatcher provisions an isolated lane for it, committing Team
+workspace identity and lane isolation as one value.
+
+Every other lane finding is a **non-blocking nudge**: the dispatch succeeds and
+the response carries `safety_nudges`, each with a stable id, why it matters, and
+the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
+are never obstructed, including in canonical.
+
+### Recovering a tab-gone task
+
+When a Worker's tab is gone, its owner epoch is stale by definition — so the
+epoch is not allowed to block recovery. The **live authenticated Plan owner**
+may `cancel`, `pend`, reassign, or respawn such a task. That recovery retires
+the stale attempt in the *same* transition that clears the dead owner identity,
+so no half-applied state is observable and a `dispatch_ready` arriving later for
+the retired attempt is rejected instead of resurrecting ownership. The widening
+is for the Plan owner only: a non-owner, non-epoch caller is still refused.
+
+Archiving a plan is refused until its retrospective is recorded
+(`codeterm plan retrospective <plan> --body-file <pad-relative-path>`).
+
 ## The loop
 
 Run this loop after every report, reminder, task close, tab death, or gate:
@@ -194,4 +223,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->
