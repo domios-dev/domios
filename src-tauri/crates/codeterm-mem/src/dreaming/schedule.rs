@@ -9,9 +9,11 @@ use crate::worker_agent::{resolve_worker_agent, resolve_worker_model, Background
 /// detect "already exists" so we don't create duplicates on every start.
 pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 
-/// The nightly optimizer task. First runs SQL phases (light + deep),
-/// then spawns a graph worker for intelligent optimization.
-const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dreaming complete\"\n";
+/// The nightly optimizer task. `mem dream run` (phase=all) runs the SQL
+/// phases + calibration and spawns the REM graph worker that writes the
+/// daily_dream diary. Bare `mem dream` only prints help (no subcommand).
+const DREAMING_TASK: &str =
+    "codeterm mem dream run && codeterm agent report \"dreaming complete\"\n";
 
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 6 * * *" (6 AM)
@@ -31,8 +33,11 @@ pub fn ensure_dreaming_cron(
         let agent_changed = job.agent != desired_agent;
         let legacy_schedule_match = matches!(job.schedule.as_str(), "0 3 * * *");
         let legacy_jitter_match = job.jitter_max_ms == Some(5_400_000);
+        // Self-heal a stale command left by an older CLI shape (e.g. bare
+        // `mem dream`) so existing installs don't silently no-op forever.
+        let task_changed = job.task != DREAMING_TASK;
 
-        if agent_changed || legacy_schedule_match || legacy_jitter_match {
+        if agent_changed || legacy_schedule_match || legacy_jitter_match || task_changed {
             let job_id = job.id.clone();
             let mut schedule = job.schedule.clone();
             let mut jitter = job.jitter_max_ms;
@@ -66,6 +71,9 @@ pub fn ensure_dreaming_cron(
             cron_store.update_job(&job_id, &mut |j| {
                 if agent_changed {
                     j.agent = desired_agent.clone();
+                }
+                if task_changed {
+                    j.task = DREAMING_TASK.to_string();
                 }
                 j.schedule = schedule.clone();
                 j.jitter_max_ms = jitter;

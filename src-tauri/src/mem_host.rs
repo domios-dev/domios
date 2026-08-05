@@ -19,6 +19,7 @@ fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
         name: job.name.clone(),
         agent: job.agent.clone(),
         schedule: job.schedule.clone(),
+        task: job.task.clone(),
         enabled: job.enabled,
         oneshot: job.oneshot,
         next_run: job.next_run,
@@ -56,6 +57,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
         update(&mut view);
         job.agent = view.agent;
         job.schedule = view.schedule;
+        job.task = view.task;
         job.jitter_max_ms = view.jitter_max_ms;
         job.next_run = view.next_run;
         job.enabled = view.enabled;
