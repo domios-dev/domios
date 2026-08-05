@@ -3,9 +3,10 @@ mod cmd;
 mod local_api;
 mod mesh_cli;
 mod stdout;
+mod transport;
 
 use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
-use cmd::print::{handle_result, print_human, print_object};
+use cmd::print::{handle_result, print_object};
 
 use clap::Parser;
 use client::{discover_socket, discover_socket_resolution, SocketClient};
@@ -160,8 +161,9 @@ fn main_impl() {
         }
     }
 
-    // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
-    if matches!(cli.command, Commands::Plugin { .. }) {
+    // `plugin` is filesystem-local (no daemon) — the table declares it the one
+    // command handled before the `--mesh` branch, so `--mesh` is ignored for it.
+    if transport::transport_for(&cli.command).local == transport::Local::PreMesh {
         match cli.command {
             Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
             _ => unreachable!(),
@@ -198,159 +200,9 @@ fn main_impl() {
         return;
     }
 
-    let json_output = cli.json;
-    if let Commands::Config { ref action } = cli.command {
-        let (base_url, _) = read_api_config();
-        let http = match build_local_api() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error: failed to build HTTP client: {}", e);
-                std::process::exit(1);
-            }
-        };
-        let result = match action {
-            ConfigAction::Get { key } => {
-                let url = format!("{}/api/config?key={}", base_url, key);
-                match http.get(&url).send() {
-                    Ok(resp) if resp.status().is_success() => {
-                        resp.json().map_err(|e| e.to_string())
-                    }
-                    Ok(resp) => {
-                        let status = resp.status();
-                        let body = resp.text().unwrap_or_default();
-                        if status.as_u16() == 404 {
-                            Err(format!("Key not found: {}", key))
-                        } else {
-                            Err(format!("API error ({}): {}", status, body))
-                        }
-                    }
-                    Err(e) => Err(e.to_string()),
-                }
-            }
-            ConfigAction::Set { key, value } => {
-                let json_value: serde_json::Value = serde_json::from_str(value)
-                    .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
-                let body = serde_json::json!({ "key": key, "value": json_value });
-                match http
-                    .patch(format!("{}/api/config", base_url))
-                    .json(&body)
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let applied: serde_json::Value = resp.json().unwrap_or_default();
-                        let mut out =
-                            serde_json::json!({"ok": true, "key": key, "value": json_value});
-                        if let Some(bind) = applied.get("api_bind") {
-                            out["api_bind"] = bind.clone();
-                        }
-                        Ok(out)
-                    }
-                    Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
-                    Err(e) => Err(e.to_string()),
-                }
-            }
-        };
-        match result {
-            Ok(value) => {
-                if json_output {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                } else {
-                    if let Some(v) = value.get("value") {
-                        match v {
-                            serde_json::Value::String(s) => println!("{}", s),
-                            serde_json::Value::Null => println!("null"),
-                            other => println!("{}", other),
-                        }
-                    } else {
-                        print_human(&value);
-                    }
-                    // stdout stays the bare value for scripting; the divergence goes to stderr.
-                    if let Some(bind) = value.get("api_bind") {
-                        let live = bind.get("live").and_then(|v| v.as_str()).unwrap_or("?");
-                        let configured = bind
-                            .get("configured")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("?");
-                        eprintln!(
-                            "warning: NOT applied to the running listener — it is still bound to {live}, \
-                             config stores {configured}. Restart CodeTerm to apply, and verify with \
-                             `lsof -nP -iTCP:<port> -sTCP:LISTEN`."
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
+    let Some(cli) = transport::pre_socket::dispatch(cli) else {
         return;
-    }
-
-    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
-    if let Commands::Mem {
-        action: MemAction::RunWorker {
-            ref kind,
-            ref db_path,
-        },
-    } = cli.command
-    {
-        cmd::worker::run_mem_worker(kind, db_path.as_deref());
-        return;
-    }
-
-    // Local-only graph mutation verbs — open knowledge.db directly, no daemon.
-    if let Commands::Mem {
-        action: MemAction::Graph { ref action },
-    } = cli.command
-    {
-        if let Some(()) = cmd::graph_mutate::try_dispatch_local(action) {
-            unreachable!("local graph dispatch must exit");
-        }
-    }
-
-    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort and routed through `discover_socket` itself so a wedged daemon doesn't break the planner.
-    if let Commands::Mem {
-        action: MemAction::Dream { .. },
-    } = cli.command
-    {
-        match cli.command {
-            Commands::Mem {
-                action: MemAction::Dream { action },
-            } => {
-                cmd::dream::handle_dream(action);
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    // during recovery when the daemon is wedged.
-    if matches!(cli.command, Commands::System { .. }) {
-        let json_mode = cli.json;
-        match cli.command {
-            Commands::System { action } => cmd::system::handle_system(json_mode, action),
-            _ => unreachable!(),
-        }
-        return;
-    }
-
-    // `cli-manifest` introspects the clap tree — no daemon dependency.
-    if matches!(cli.command, Commands::CliManifest { .. }) {
-        match cli.command {
-            Commands::CliManifest { write, markdown } => cmd::manifest::handle(write, markdown),
-            _ => unreachable!(),
-        }
-        return;
-    }
-
-    // `docs` reads embedded markdown — no daemon dependency.
-    if matches!(cli.command, Commands::Docs { .. }) {
-        match cli.command {
-            Commands::Docs { name } => cmd::docs::handle(name),
-            _ => unreachable!(),
-        }
-        return;
-    }
+    };
 
     let resolved_socket = match discover_socket_resolution() {
         Ok(resolved) => resolved,
