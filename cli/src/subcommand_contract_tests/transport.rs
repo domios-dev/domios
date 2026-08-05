@@ -286,7 +286,14 @@ const FROZEN_MEM_LOCAL: &[(&[&str], Local)] = &[
     (&["codeterm", "mem", "dream", "run"], Local::PreSocket),
     (
         &[
-            "codeterm", "mem", "graph", "create", "--id", "e1", "--type", "Person",
+            "codeterm",
+            "mem",
+            "graph",
+            "create",
+            "--id",
+            "e1",
+            "--entity-type",
+            "Person",
         ],
         Local::PreSocketOrSocket,
     ),
@@ -363,7 +370,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 13, "unsupported command count changed");
+    assert_eq!(checked, 14, "unsupported command count changed");
 }
 
 #[test]
@@ -438,9 +445,25 @@ fn no_wildcard_arm_in_transport_match() {
     let start = source
         .find("pub(crate) fn transport_for")
         .expect("transport_for must exist");
-    let body = &source[start..];
-    let end = body.find("\n}\n").expect("transport_for must terminate");
-    let body = &body[..end];
+    let rest = &source[start..];
+    let open = rest.find('{').expect("transport_for body must start");
+    let mut depth = 0;
+    let end = rest[open..]
+        .bytes()
+        .enumerate()
+        .find_map(|(offset, byte)| match byte {
+            b'{' => {
+                depth += 1;
+                None
+            }
+            b'}' => {
+                depth -= 1;
+                (depth == 0).then_some(open + offset + 1)
+            }
+            _ => None,
+        })
+        .expect("transport_for must terminate");
+    let body = &rest[open..end];
 
     assert!(
         !body.contains("_ =>"),

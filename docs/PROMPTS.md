@@ -1,5 +1,4 @@
 # Prompts
-
 How CodeTerm ships instructions to LLM agents: where prompt files live, how they are compiled and injected, and how to edit them safely.
 
 ## Overview
@@ -72,14 +71,10 @@ Substitution is plain `String::replace()` — there is no template engine. This 
 
 ### CLI grammar in prompts
 
-A fragment names a command once, at its authoritative mention, and points at the
-owning document for the rest; restating a ladder of verbs in a second fragment
-teaches nothing new and rots twice as fast. What survives is validated:
-`prompt_cli_references_exist_in_manifest` (`src-tauri/src/prompts.rs`) resolves
-every command reference in the role/control fragments against
-`docs/cli-manifest.json`, so a rename that strands a prompt fails a test instead
-of teaching agents a dead command. It resolves references, never wording — no
-test here may assert which words a prompt uses.
+A fragment names a command once and points at its owning document for the rest.
+`prompt_cli_references_exist_in_manifest` resolves every surviving command reference
+against `docs/cli-manifest.json`, so a rename cannot leave dead guidance. It validates
+references, never prompt wording.
 
 ## Memory worker prompts
 
@@ -98,10 +93,8 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 ## Role presets — one resolver, one composition table
 
-There is exactly one persona registry. `service/role_preset.rs` resolves a
-`(role, role_profile)` pair to a `RolePreset { role, kind_id, label, fragments }`,
-keyed by kind id and never by a role or provider literal. Every Manager kind and
-every Worker subtype goes through it; there is no separate Worker path.
+`service/role_preset.rs` is the sole persona registry. It resolves `(role,
+role_profile)` by kind capability, never by provider literal or a separate Worker path.
 
 A preset's guidance is a list of fragments, each with its own provenance, joined
 with a blank line in this order:
@@ -165,16 +158,12 @@ occasion emits, which fragment supplied it, and whether the declared fallback
 was used. The text comes from the shared resolver, so what it prints is what the
 agent receives.
 
-Reusable operational knowledge belongs in a named embedded document or
-folder skills when runnable files are required. Machine-local preferences such as
-builder capacity belong in mem preferences.
+Reusable operations belong in embedded docs or folder skills; machine-local preferences belong in mem.
 
 ## Task verification lifecycle
 
-Task `test_plan` is the implementer's focused evidence and is included in the Worker
-brief. Task `qa_plan` is the independent Orchestrator/QA oracle, is not included in that
-brief, and falls back to `test_plan` only when omitted. This keeps implementation and
-acceptance evidence distinct without requiring every task to repeat the same command.
+Task `test_plan` is the Worker's focused evidence. `qa_plan` is the independent
+Orchestrator oracle and falls back to `test_plan` only when omitted.
 
 ## Loading flow
 
@@ -248,4 +237,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

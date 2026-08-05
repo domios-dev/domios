@@ -150,7 +150,7 @@ discovery, tests, docs, and review inside the slice that implements them.
 Standalone discovery, test-author, or review tasks need a concrete independent
 boundary — a distinct security or authority owner, or independently owned
 per-platform rollout — and every task beyond five needs a justification naming
-that boundary. Full rule: `codeterm docs PLANNER`.
+that boundary. The Planner contract is linked in Related documents above.
 
 If the Planner is intentionally waived, record that explicitly on the plan.
 
@@ -232,4 +232,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

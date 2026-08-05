@@ -1,9 +1,7 @@
 # CodeTerm API Reference
 
-CodeTerm exposes three APIs for agent integration:
-1. **REST API** — authenticated HTTP on port 7685 (configurable, loopback by default)
-2. **Socket API** — JSON-RPC v2 over named pipe (Windows) / Unix socket
-3. **CLI** — `codeterm.exe` command-line tool
+CodeTerm exposes authenticated REST, local JSON-RPC over a named pipe or Unix
+socket, and the `codeterm` CLI for agent integration.
 
 ### Architecture: Unified Service Layer
 
@@ -115,42 +113,19 @@ runtime workers available for health, tab, and relay requests.
 
 #### Closed History & Restore
 
-Closed tabs and workspaces are recorded in a persistent ring. Every close action is bucketed into a *group* — a `single` tab close, a `cascade` (orchestrator + its spawned subtree), or a `workspace` close. Groups are identified by an opaque `group_id` (ULID). The ring is bounded (`RECENTLY_CLOSED_CAP` entries); oldest entries are evicted first.
+Closed tabs and workspaces are recorded in a bounded persistent ring. Each close
+belongs to a `single`, `cascade`, or `workspace` group identified by an opaque
+`group_id`. Oldest entries are evicted first.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen an entire closed group by its `group_id` (from the `recently_closed` snapshot). Recreates the workspace if it no longer exists; if a live workspace already exists at the same `cwd` it is reused — no duplicate is created. Returns `{workspace_id, tab_id, tab_id}` for the activated tab. |
+| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen an entire closed group by its `group_id` (from the `recently_closed` snapshot). Recreates the workspace if it no longer exists; if a live workspace already exists at the same `cwd` it is reused — no duplicate is created. Returns `{workspace_id, tab_id}` for the activated tab. |
 
-**Path-match restore behavior.** When reopening any group or orphaned tab that records a `cwd`, CodeTerm calls `find_workspace_by_cwd` (normalised via `paths::normalize_cwd` — trailing slashes and case-folded) before creating a new workspace. If a live workspace already points at the same folder the tab(s) are inserted there instead of spawning a duplicate. This applies to `reopen_closed_group`, `reopen_closed_tab`, and `mux_restore_orphaned_tab` (commit 6115030e).
-
-**`ClosedTab` fields** (returned by `GET /api/workspaces/{id}/recently-closed`):
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `tab_id` | `string` | Original tab id |
-| `title` | `string` | Tab title at close time |
-| `description` | `string?` | Tab description at close time |
-| `cwd` | `string?` | Working directory at close time |
-| `backing` | `string` | `"pty"` or `"chat_backend"` |
-| `agent_type` | `string?` | Agent provider at close time (e.g. `"claude"`) |
-| `agent_session_id` | `string?` | Provider session id for resume |
-| `model` | `string?` | Model in use at close time |
-| `closed_at` | `u64` | Unix milliseconds |
-| `workspace_id` | `string` | Workspace the tab belonged to when closed |
-| `workspace_name` | `string` | Human-readable workspace name |
-| `parent_tab_id` | `string?` | Parent tab in hierarchy (preserved for cascade restore) |
-
-**`ClosedTabView` fields** — `ClosedTab` enriched for the sidebar. Returned in `mux_get_state` → `recently_closed[]` and in the `GET /api/mux/state` snapshot:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| *(all ClosedTab fields above)* | | Flattened via `#[serde(flatten)]` |
-| `index` | `number` | Position in the per-workspace reopen ring (`0` = most recent) |
-| `orphaned` | `bool` | `true` when the original workspace no longer exists |
-| `group_id` | `string` | Opaque group identifier (ULID) — pass to reopen-group endpoints |
-| `group_kind` | `string` | `"single"` \| `"cascade"` \| `"workspace"` |
-
-**`mux_get_state` / `GET /api/mux/state` snapshot** now includes a top-level `recently_closed: ClosedTabView[]` field. The list is the union of all groups across all workspaces, sorted newest-first, with `orphaned` computed live against the current workspace set. Sidebar and web-mirror clients consume this field to render the closed-history tabl.
+Restore normalizes the recorded `cwd` and reuses a matching live workspace
+instead of creating a duplicate. `GET /api/mux/state` exposes the newest-first
+union as `recently_closed: ClosedTabView[]`; each view adds `index`, `orphaned`,
+`group_id`, and `group_kind` to its `ClosedTab` fields. The socket equivalents
+and response shapes are documented in the API-TRANSPORT reference.
 
 #### Tabs
 | Method | Path | Body / Query | Description |
@@ -251,36 +226,15 @@ carry `caller_tab_id` + `session_id` + `session_binding_nonce` + `owner_epoch`
 (REST: the matching `X-CodeTerm-*` headers). Once a task has an owner epoch, the
 caller must normally match the recorded owner exactly.
 
-**Recovery exception.** For `plan.task.update`, `plan.task.assign`,
-`plan.task.respawn`, and `plan.task.close`, a **live authenticated Plan owner**
-acting on a task whose owner tab is gone is admitted regardless of the stale
-epoch — staleness is the condition recovery exists for. Admission performs the
-retirement in the same transition: every live attempt is closed and marked
-`retired_at`, the owner identity is cleared, and the epoch is superseded, so a
-`dispatch_ready` arriving afterwards for that attempt is rejected rather than
-restoring ownership. `task_rm` is excluded, and a non-owner caller is still
-refused. Retirement is idempotent — a second authority pass in the same request
-never bumps the epoch twice.
-
-**Dispatch lane safety.** A mutating dispatch is refused before spawn (code
-`-32013`, `data.type = "unsafe_mutating_lane"`) when its resolved worktree is
-the plan's `canonical_project_path` or a lane recorded on another task.
-`data.violation_id` is a stable constant — `lane.mutating_write_in_canonical_checkout`
-or `lane.mutating_write_in_foreign_lane` — alongside `reason` and
-`safe_alternative`. These two are the **only** hard stops.
-
-`plan.task.compete` provisions one worktree/branch/base per **mutating**
-competitor before spawn and records that provenance on each competitive attempt;
-lanes created earlier in a call are released if a later competitor fails.
-Read-only competition is unchanged.
-
-All other findings ride on a **successful** response as
-`safety_nudges: [{id, reason, safe_alternative}]` and never block, merging into
-`_hints` rather than replacing it. `plan.archive` **succeeds** without a
-retrospective and carries `plan.retrospective_unrecorded` plus a durable
-`incident` stride.
-
+A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
+`close` after the owning tab disappears; retirement and the recovered state are
+committed atomically, and late readiness cannot restore the retired attempt.
+Mutating dispatch into canonical or another task's lane is refused with `-32013`
+and a stable `violation_id`; mutating competition provisions one isolated lane
+per competitor. Other safety findings are advisory and ride successful results
+in `safety_nudges` and `_hints`. The operational recovery and lane rules are in
+`codeterm docs ORCHESTRATION`.
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 112 -->
+<!-- revision: 113 -->

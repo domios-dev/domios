@@ -105,12 +105,12 @@ fn tab_json_key(key: &str) -> String {
 fn tab_json_segment(segment: &[char]) -> String {
     let source: String = segment.iter().collect();
     match source.as_str() {
-        "tab" => "tab".into(),
-        "tabs" => "tabs".into(),
-        "Tab" => "Tab".into(),
-        "Tabs" => "Tabs".into(),
-        "TAB" => "TAB".into(),
-        "TABS" => "TABS".into(),
+        "pane" => "tab".into(),
+        "panes" => "tabs".into(),
+        "Pane" => "Tab".into(),
+        "Panes" => "Tabs".into(),
+        "PANE" => "TAB".into(),
+        "PANES" => "TABS".into(),
         _ => source,
     }
 }
@@ -354,30 +354,30 @@ mod tests {
     #[test]
     fn json_output_keeps_canonical_tab_key_when_legacy_key_collides() {
         let out = uniform_id_value(&json!({
-            "tab_id": "legacy",
+            "pane_id": "legacy",
             "tab_id": "canonical",
-            "createdByTab": "legacy-creator",
+            "createdByPane": "legacy-creator",
             "createdByTab": "canonical-creator"
         }));
-        assert!(out.get("tab_id").is_none());
+        assert!(out.get("pane_id").is_none());
         assert_eq!(out["tab_id"], "canonical");
         assert_eq!(out["id"], "canonical");
-        assert!(out.get("createdByTab").is_none());
+        assert!(out.get("createdByPane").is_none());
         assert_eq!(out["createdByTab"], "canonical-creator");
     }
 
     #[test]
     fn human_output_uses_tab_field_names_without_changing_values() {
         let mut value = serde_json::json!({
-            "tab_type": "tab",
-            "parentTabId": "parent-tab"
+            "pane_type": "pane",
+            "parentPaneId": "parent-pane"
         });
 
         rename_tab_json_keys(&mut value);
 
-        assert_eq!(value["tab_type"], "tab");
-        assert_eq!(value["parentTabId"], "parent-tab");
-        assert!(value.get("tab_type").is_none());
-        assert!(value.get("parentTabId").is_none());
+        assert_eq!(value["tab_type"], "pane");
+        assert_eq!(value["parentTabId"], "parent-pane");
+        assert!(value.get("pane_type").is_none());
+        assert!(value.get("parentPaneId").is_none());
     }
 }
