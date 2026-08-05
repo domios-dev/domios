@@ -21,9 +21,10 @@ pub(super) mod lane_safety;
 
 pub(super) use brief::{build_brief, build_brief_with_personality};
 use brief::build_brief_with_manifest;
+use super::safety_nudge::{apply_safety_nudges, safety_incident_text, SAFETY_INCIDENT_KIND};
 use lane_safety::{
-    atomic_lane_commitment, dispatch_safety_nudges, nudges_json, preflight_checkout_occupancy,
-    refuse_unsafe_mutating_write, SafetyNudge,
+    atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
+    refuse_unsafe_mutating_write,
 };
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
@@ -291,25 +292,6 @@ fn epoch_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// Advisory findings never change the outcome — they ride alongside a successful
-/// result as structured ids plus the conspicuous `_hints` the CLI already prints.
-pub(super) fn apply_safety_nudges(result: &mut Value, nudges: &[SafetyNudge]) {
-    if nudges.is_empty() {
-        return;
-    }
-    result["safety_nudges"] = nudges_json(nudges);
-    result["_hints"] = json!(nudges
-        .iter()
-        .map(SafetyNudge::to_hint)
-        .collect::<Vec<_>>());
-}
-
-pub(super) const LANE_SAFETY_INCIDENT_KIND: &str = "incident";
-
-pub(super) fn lane_safety_incident_text(task_id: &str, violation_id: &str, reason: &str) -> String {
-    format!("lane-safety {violation_id} on {task_id}: {reason}")
-}
-
 fn record_lane_safety_incident(
     store: &crate::service::plan::PlanStore,
     plan_id: &str,
@@ -324,10 +306,10 @@ fn record_lane_safety_incident(
         .and_then(Value::as_str)
         .unwrap_or_default();
     let reason = data.get("reason").and_then(Value::as_str).unwrap_or_default();
-    let text = lane_safety_incident_text(task_id, violation_id, reason);
+    let text = safety_incident_text(task_id, violation_id, reason);
     if let Err(error) = store.add_plan_stride(
         plan_id,
-        LANE_SAFETY_INCIDENT_KIND,
+        SAFETY_INCIDENT_KIND,
         &text,
         crate::plan::AgentRef::from_tab("dispatcher"),
         epoch_ms(),

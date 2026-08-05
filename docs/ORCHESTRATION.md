@@ -70,10 +70,16 @@ that supplies an isolated lane. A dispatch with no recorded lane is *not*
 refused — the dispatcher provisions an isolated lane for it, committing Team
 workspace identity and lane isolation as one value.
 
-Every other lane finding is a **non-blocking nudge**: the dispatch succeeds and
+Every other lane finding is a **non-blocking nudge**: the operation succeeds and
 the response carries `safety_nudges`, each with a stable id, why it matters, and
 the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
 are never obstructed, including in canonical.
+
+`codeterm plan task compete` follows the same rule for parallel writers: each
+**mutating** competitor is given its own provisioned worktree, branch, and base
+before it spawns, so N competitors never share a checkout and never fall back to
+canonical. If provisioning or spawning fails part-way, the lanes already created
+in that call are removed. Read-only competition is unchanged.
 
 ### Recovering a tab-gone task
 
@@ -85,8 +91,11 @@ so no half-applied state is observable and a `dispatch_ready` arriving later for
 the retired attempt is rejected instead of resurrecting ownership. The widening
 is for the Plan owner only: a non-owner, non-epoch caller is still refused.
 
-Archiving a plan is refused until its retrospective is recorded
-(`codeterm plan retrospective <plan> --body-file <pad-relative-path>`).
+Archiving a plan with no retrospective **succeeds** and emits the advisory
+`plan.retrospective_unrecorded`, recording durable incident evidence on the plan.
+Write the retrospective before normal closure
+(`codeterm plan retrospective <plan> --body-file <pad-relative-path>`) — but the
+mechanism is a nudge, never a gate, so it can never trap recovery or closure.
 
 ## The loop
 

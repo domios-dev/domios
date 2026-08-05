@@ -15,10 +15,8 @@ pub struct StaleOwnerRetirement {
     pub applied: bool,
 }
 
-/// Retire the attempts this tab still holds LIVE — closed history is left alone.
-/// Retirement is a one-way fence: `startup_attempt` and `finish_task_dispatch`
-/// both refuse a retired attempt, so a `dispatch_ready` that lands afterwards can
-/// no longer commit ownership.
+/// Retire the attempts this tab holds LIVE; closed history is left alone.
+/// One-way fence: a retired attempt can never re-enter startup or commit.
 pub fn retire_attempts_for_tab(task: &mut Task, tab_id: &str, now_ms: u64) -> Vec<String> {
     retire_attempts(task, now_ms, |attempt| {
         attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
@@ -55,10 +53,8 @@ fn owner_is_stale(task: &Task, live_tab: impl Fn(&str) -> bool) -> bool {
 }
 
 impl PlanStore {
-    /// The whole recovery is ONE `with_plan` transaction: the stale attempts are
-    /// retired, the dead owner identity is cleared and its epoch superseded, and
-    /// the recovered status lands together. There is no observable intermediate
-    /// state in which the epoch moved but the attempt is still live.
+    /// ONE `with_plan` transaction: attempts retired, dead owner cleared, epoch
+    /// superseded, recovered status applied — never observable half-applied.
     pub fn retire_stale_task_owner(
         &self,
         plan_id: &str,

@@ -156,6 +156,15 @@ impl ServiceContext {
     }
 }
 
+/// Unconditional sibling-lane provisioning from canonical. Unlike
+/// `provision_worker_lane_for_spawn` it never no-ops on an already-shared cwd.
+pub(crate) fn provision_isolated_lane(
+    canonical_cwd: &str,
+    lane_label: &str,
+) -> Result<ProvisionedWorkerLane, String> {
+    provision_lane(canonical_cwd, lane_label)
+}
+
 fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWorkerLane, String> {
     let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
     let project = Path::new(&project_cwd);

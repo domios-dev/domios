@@ -267,9 +267,18 @@ never bumps the epoch twice.
 the plan's `canonical_project_path` or a lane recorded on another task.
 `data.violation_id` is a stable constant — `lane.mutating_write_in_canonical_checkout`
 or `lane.mutating_write_in_foreign_lane` — alongside `reason` and
-`safe_alternative`. All other lane findings ride on a **successful** response as
-`safety_nudges: [{id, reason, safe_alternative}]` and never block. `plan.archive`
-returns an error until a retrospective stride exists.
+`safe_alternative`. These two are the **only** hard stops.
+
+`plan.task.compete` provisions one worktree/branch/base per **mutating**
+competitor before spawn and records that provenance on each competitive attempt;
+lanes created earlier in a call are released if a later competitor fails.
+Read-only competition is unchanged.
+
+All other findings ride on a **successful** response as
+`safety_nudges: [{id, reason, safe_alternative}]` and never block, merging into
+`_hints` rather than replacing it. `plan.archive` **succeeds** without a
+retrospective and carries `plan.retrospective_unrecorded` plus a durable
+`incident` stride.
 
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,

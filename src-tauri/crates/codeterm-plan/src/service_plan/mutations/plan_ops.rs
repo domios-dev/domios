@@ -607,13 +607,6 @@ impl PlanStore {
 
     pub fn archive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            if !retrospective::has_retrospective(p) {
-                return Err(PlanError::Io(format!(
-                    "archive refused: plan {} has no retrospective. Record it first: \
-                     codeterm plan retrospective {} --body-file <pad-relative-path>",
-                    p.id, p.id
-                )));
-            }
             p.status = PlanStatus::Archived;
             Ok(())
         })
@@ -887,8 +880,8 @@ mod planning_state_tests {
 mod team_binding_tests {
     use std::sync::{Arc, Barrier};
 
-    use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlanStatus};
-    use crate::service_plan::{PlanError, PlanStore};
+    use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
+    use crate::service_plan::{retrospective, PlanError, PlanStore};
     use tempfile::TempDir;
 
     fn store() -> (TempDir, PlanStore) {
@@ -1121,18 +1114,15 @@ mod team_binding_tests {
         assert_eq!(beta.team_id.as_deref(), Some("team_beta"));
     }
 
+    /// Advisory, not a gate: a missing retrospective must never trap closure.
     #[test]
-    fn archive_requires_retrospective() {
+    fn archive_succeeds_without_retrospective() {
         let (dir, s) = store();
-        let plan = create(&s, &dir, "Retro gate", "team_alpha", 1).unwrap();
+        let plan = create(&s, &dir, "Retro advisory", "team_alpha", 1).unwrap();
+        assert!(!retrospective::has_retrospective(&s.get(&plan.id).unwrap()));
 
-        let refused = s.archive(&plan.id, 2).unwrap_err();
-        assert!(matches!(refused, PlanError::Io(_)));
-        assert_eq!(s.get(&plan.id).unwrap().status, PlanStatus::Active);
+        s.archive(&plan.id, 2).unwrap();
 
-        s.add_retrospective(&plan.id, "what worked", AgentRef::from_tab("orch"), 3)
-            .unwrap();
-        s.archive(&plan.id, 4).unwrap();
         assert_eq!(s.get(&plan.id).unwrap().status, PlanStatus::Archived);
     }
 
@@ -1140,8 +1130,6 @@ mod team_binding_tests {
     fn archiving_frees_the_team_for_a_new_plan() {
         let (dir, s) = store();
         let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
-        s.add_retrospective(&first.id, "retro", AgentRef::from_tab("orch"), 2)
-            .unwrap();
         s.archive(&first.id, 2).unwrap();
         // The 1:1 rule counts only ACTIVE plans — an archived one no longer blocks.
         let second = create(&s, &dir, "Second", "team_alpha", 3).unwrap();
