@@ -807,7 +807,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if task_file.is_none() && !json {
                 if let Some(t) = task.as_deref() {
-                    if let Some(hint) = crate::cmd::send_text::pad_nudge("positional", t) {
+                    if let Some(hint) = crate::cmd::send_text::staging_nudge(
+                        "positional",
+                        t,
+                        "Pass it byte-exact with --task-file <path>, or bind a plan task via --plan-task <id> — both bypass the shell.",
+                    ) {
                         eprintln!("{hint}");
                     }
                 }
