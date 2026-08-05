@@ -18,6 +18,28 @@ use super::{
     theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
+/// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
+/// `tauri.localhost` on Windows/Android.
+const APP_WEBVIEW_ORIGINS: [&str; 3] = [
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
+
+/// The app's own window is a first-party client of this daemon yet cross-origin to
+/// it, so without an explicit allow every raw fetch from the UI — the remote-tab
+/// SSE streams — is rejected for a missing `Access-Control-Allow-Origin`.
+fn with_app_webview_origins(
+    mut origins: Vec<axum::http::HeaderValue>,
+) -> Vec<axum::http::HeaderValue> {
+    origins.extend(
+        APP_WEBVIEW_ORIGINS
+            .iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok()),
+    );
+    origins
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub svc: crate::service::ServiceState,
@@ -901,6 +923,7 @@ pub fn create_router(state: AppState) -> Router {
     };
     #[cfg(not(debug_assertions))]
     let origins = configured_origins;
+    let origins = with_app_webview_origins(origins);
     let router = if api_config.cors || cfg!(debug_assertions) {
         router.layer(
             CorsLayer::new()
@@ -919,6 +942,25 @@ mod tests {
     use axum::{body::Body, http::Request, routing::get, Router};
     use tower::ServiceExt;
     use tower_http::catch_panic::CatchPanicLayer;
+
+    #[test]
+    fn cors_origins_always_include_the_app_webview() {
+        let configured = ["https://example.test"]
+            .into_iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+            .collect::<Vec<_>>();
+        let origins = super::with_app_webview_origins(configured);
+        for expected in super::APP_WEBVIEW_ORIGINS {
+            assert!(
+                origins.iter().any(|origin| origin == expected),
+                "{expected} must be allowed: the app window is cross-origin to its own daemon, so without it every raw fetch from the UI is rejected",
+            );
+        }
+        assert!(
+            origins.iter().any(|origin| origin == "https://example.test"),
+            "configured origins must survive the append",
+        );
+    }
 
     #[tokio::test]
     async fn catch_panic_layer_keeps_router_responsive_after_handler_panic() {
