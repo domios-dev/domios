@@ -107,6 +107,54 @@ fn snapshot_role_bindings(
     bindings
 }
 
+/// Every agent/worker pane the snapshot held — role tabs AND bare agent panes
+/// (codex workers carry an `agent_type`, not always a role). This is the input
+/// to the per-pane restore report, so it must be broader than role bindings.
+fn snapshot_agent_panes(
+    snapshot: &crate::session::store::SessionSnapshot,
+) -> Vec<crate::crash::restore_report::RestorePane> {
+    use crate::crash::restore_report::RestorePane;
+    use crate::session::store::SplitNodeSnapshot;
+    fn collect_node(node: &SplitNodeSnapshot, panes: &mut Vec<RestorePane>) {
+        match node {
+            SplitNodeSnapshot::Leaf {
+                tab_id,
+                claude_session_id,
+                role,
+                agent_type,
+                ..
+            } if role.is_some() || agent_type.is_some() => panes.push(RestorePane {
+                tab_id: tab_id.clone(),
+                role: role.clone(),
+                agent_type: agent_type.clone(),
+                agent_session_id: claude_session_id.clone(),
+            }),
+            SplitNodeSnapshot::Leaf { .. } => {}
+            SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    collect_node(child, panes);
+                }
+            }
+        }
+    }
+    let mut panes = Vec::new();
+    for tab in snapshot.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
+        collect_node(&tab.split_tree, &mut panes);
+    }
+    panes
+}
+
+fn restored_agent_pane_ids(
+    mux: &crate::multiplexer::state::MultiplexerState,
+) -> std::collections::BTreeSet<String> {
+    mux.snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.role.is_some() || tab.agent_type.is_some())
+        .map(|tab| tab.id.clone())
+        .collect()
+}
+
 fn restored_role_bindings(
     mux: &crate::multiplexer::state::MultiplexerState,
 ) -> Vec<crate::crash::lifecycle::BindingIdentity> {
@@ -198,12 +246,14 @@ pub(crate) fn init_states() -> AppStates {
 
     let ga_enabled = config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();
+    let mut agent_panes_at_shutdown = Vec::new();
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
                 quarantine_unproven_authority(&mut snapshot);
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
+                agent_panes_at_shutdown = snapshot_agent_panes(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
                     snapshot.workspaces.len(),
@@ -287,6 +337,14 @@ pub(crate) fn init_states() -> AppStates {
         bound_identities: bound_at_shutdown,
         restored_identities: restored_bindings,
     });
+    // Per-pane restore report: surface any agent/worker pane the snapshot held
+    // that did not come back, instead of a silently-shorter workspace (#11). Only
+    // when a session actually carried agent panes, so a fresh start does not
+    // clobber the last report with an empty one.
+    if !agent_panes_at_shutdown.is_empty() {
+        let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
+        crate::crash::restore_report::record(&agent_panes_at_shutdown, &restored_pane_ids);
+    }
     if general_config.enabled {
         service::general_agent::ensure_directories();
         let mut general_config = general_config;

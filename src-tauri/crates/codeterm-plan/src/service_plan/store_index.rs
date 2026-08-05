@@ -181,14 +181,23 @@ impl PlanStore {
         };
         paths::normalize_plan_paths(&mut plan, project_root);
         tag_model::normalize_plan(&mut plan);
-        // Co-located spec.yaml rides with its plan (startup scan + reconcile).
+        // Persist the plan row BEFORE its co-located spec: specs.plan_id has a FK
+        // to plans(id), so a spec written first fails with FOREIGN KEY constraint
+        // failed and used to discard the whole plan on every startup.
+        self.commit_loaded_plan(plan)?;
+        // A malformed co-located spec must not take its plan down with it.
         if let Some(dir) = path.parent() {
             let spec_yaml = dir.join("spec.yaml");
             if spec_yaml.is_file() {
-                self.load_spec_file_into_index(spec_yaml, project_root)?;
+                if let Err(error) = self.load_spec_file_into_index(spec_yaml.clone(), project_root) {
+                    log::warn!(
+                        "[plan] plan loaded but co-located spec {} skipped: {}",
+                        spec_yaml.display(),
+                        error
+                    );
+                }
             }
         }
-        self.commit_loaded_plan(plan)?;
         Ok(())
     }
 

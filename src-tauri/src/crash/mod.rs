@@ -9,6 +9,7 @@ pub mod lifecycle;
 mod native;
 mod panic;
 pub mod report;
+pub mod restore_report;
 pub mod shutdown;
 
 use std::path::{Path, PathBuf};
