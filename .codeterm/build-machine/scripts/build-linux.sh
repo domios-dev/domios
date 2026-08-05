@@ -44,6 +44,7 @@ if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
   touch src-tauri/bundled-cli/codeterm
 fi
 pnpm install
+./build.sh release-inputs
 pnpm tauri build ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} --bundles "$BUNDLES" \
   || echo "tauri build returned non-zero (updater-sign step has no key in-container; bundles built before it)"
 

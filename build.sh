@@ -7,6 +7,7 @@
 #   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
+#   ./build.sh release-inputs — build target-aware frontend/CLI/embed bundle inputs
 #   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
@@ -1264,6 +1265,7 @@ CodeTerm build commands
   dev-prebuilt                Restart a validated dev build without Cargo
   check                       Fast Rust compile check
   frontend                    Production frontend typecheck + bundle
+  release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
   test-one <app|plan|pty|types|mem|mesh|plugin|cli> NAME
                               Run one focused capped Rust test
@@ -1380,6 +1382,10 @@ EOF
     enter_build_gateway "$CMD ${*:2}"
     ensure_deps
     pnpm build
+    ;;
+  release-inputs)
+    ensure_deps
+    prepare_release_bundle_inputs
     ;;
   release-preflight)
     enter_build_gateway "$CMD ${*:2}"
