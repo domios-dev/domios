@@ -202,6 +202,22 @@ fn idle_manager_bootstrap_carries_the_bound_team_and_an_unbound_plan() {
 }
 
 #[test]
+fn bootstrap_bound_team_id_returns_real_id_and_rejects_placeholders() {
+    let bound = team_bound_bootstrap(None);
+    assert_eq!(bootstrap_bound_team_id(Some(&bound)), Some("team_abcd1234"));
+
+    assert_eq!(bootstrap_bound_team_id(None), None);
+
+    let mut unbound = team_bound_bootstrap(None);
+    unbound.team_id = crate::service::spawn_factory::UNBOUND_TEAM.into();
+    assert_eq!(bootstrap_bound_team_id(Some(&unbound)), None);
+
+    let mut blank = team_bound_bootstrap(None);
+    blank.team_id = "   ".into();
+    assert_eq!(bootstrap_bound_team_id(Some(&blank)), None);
+}
+
+#[test]
 fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
     for system_prompt_capable in [true, false] {
         let mut params = SpawnAgentParams {
