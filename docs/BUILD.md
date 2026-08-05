@@ -225,13 +225,14 @@ production app during startup, in-app update, or `install-local`.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | CI semantic-search tests fail by executing a zero-byte `codeterm-embed` stub | The compile-time Tauri resource placeholder survived into a test that exercises the real embedding process. | Build the debug `codeterm-embed` sidecar after preparing resource stubs and before Rust library tests; never skip the semantic oracle. |
 | macOS Rust tests panic because a mock Tauri `EventLoop` was created off the main thread | A `ServiceFixture` test ran in libtest's worker thread even though the shared desktop fixture is Windows-owned. | Mark that fixture-backed test ignored off Windows and keep its platform-neutral logic covered by tests that do not construct a desktop runtime. |
-| macOS REST restart tests fail to rebind with `Address already in use` after graceful shutdown | Darwin retains the prior listener address across the immediate generation handoff unless CodeTerm sockets opt into shared-port rebinding. | Keep `SO_REUSEPORT` enabled on every macOS CodeTerm REST bind; process exclusivity is enforced by the application instance guard, while non-reuse external occupiers still block the port. |
-| The REST port-release test passes alone but fails under the parallel macOS suite | Dropping a real test occupier and immediately signaling release races Darwin's deferred socket teardown. | Inject the first bind failure through the test seam, then prove the release event creates a real healthy listener without depending on kernel close timing. |
-| Linux clippy rejects a test seam parameter as unused even though tests compile | The parameter is consumed only under `cfg(test)`, while clippy checks the normal library target with warnings denied. | Keep test-only injection at a `cfg(test)` call site so production function signatures contain no test-only inputs. |
-| CI fails standalone crate tests that passed local `verify` | The local gate ran only the app package, so Cargo compiled dependency libraries without running their own unit tests. | Use the current `verify`, which runs every `src-tauri` workspace library package under its own cap; repair focused crate tests before retrying the broad gate. |
+| macOS REST restart fails with `Address already in use` | Darwin requires every CodeTerm socket sharing the port to opt into rebinding. | Enable `SO_REUSEPORT` on every macOS REST bind; the instance guard retains process exclusivity. |
+| REST port-release passes alone but fails in the parallel macOS suite | A real occupier's close races Darwin teardown. | Inject the first bind failure in tests, then prove `port_released` creates a healthy real listener. |
+| Linux clippy rejects a test-only parameter as unused | `cfg(test)` consumes it, but clippy checks the normal library target. | Keep injection at a `cfg(test)` call site; production signatures take no test-only inputs. |
+| Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package under its own cap. |
+| CLI docs tests report `BUILD exceeds 24 KiB` | Troubleshooting prose exceeded the CLI reading boundary. | Compress entries or move detail to `BUILD-REFERENCE`; keep symptom, cause, and recovery here. |
 
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->
