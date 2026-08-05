@@ -91,3 +91,59 @@ export function createRemoteChannelRecovery<C>(
     },
   };
 }
+
+// Two peer keep-alive intervals (15s) plus slack: a remote SSE stream silent this
+// long has almost certainly lost its path. Shared by the remote silence deadline
+// and the local output-stream watchdog so the two never drift apart.
+export const REMOTE_SILENCE_TIMEOUT_MS = 30_000;
+
+export function parkStalledConnection<C>(
+  recovery: RemoteChannelRecovery<C>,
+  generation: number,
+  controller: AbortController,
+): boolean {
+  if (!recovery.isCurrent(generation)) return false;
+  // Explicit park: the chat finalizer short-circuits on abort BEFORE handleStreamEnd,
+  // so relying on abort alone would strand the chat channel. Idempotent for output,
+  // whose finalizer also parks.
+  recovery.handleStreamEnd(generation, "error");
+  controller.abort();
+  return true;
+}
+
+export interface SilenceDeadline {
+  arm(): void;
+  clear(): void;
+}
+
+// A remote SSE connection can go silent after a 200+headers — before its first
+// byte, or after a keep-alive or two on an empty-ring tab (a dropped path
+// mid-replay): reader.read() never resolves, the stream never ends, the channel
+// never parks, and resume then skips a cursor-less connection forever. This is the
+// only liveness mechanism for that window. Re-armed on open and on EVERY byte, so
+// expiry means "no bytes for the whole window" — a keep-alive re-arms an idle-but-
+// healthy tab, only true silence trips it. Elapsed time is a failure deadline here,
+// never readiness. clear() on teardown so a re-arming chain cannot outlive its
+// connection.
+export function createSilenceDeadline<C>(
+  recovery: RemoteChannelRecovery<C>,
+  generation: number,
+  controller: AbortController,
+  timeoutMs: number = REMOTE_SILENCE_TIMEOUT_MS,
+): SilenceDeadline {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const clear = (): void => {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+  };
+  const arm = (): void => {
+    clear();
+    timer = setTimeout(() => {
+      timer = null;
+      parkStalledConnection(recovery, generation, controller);
+    }, timeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.(); // a background deadline must not hold the runtime
+  };
+  return { arm, clear };
+}
