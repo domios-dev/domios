@@ -373,19 +373,19 @@ cat > "$WORK/latest.json" <<JSON
   "pub_date": "$PUB_DATE",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_aarch64.app.tar.gz",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_aarch64.app.tar.gz",
       "signature": "$ARM_SIG"
     },
     "darwin-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_x64.app.tar.gz",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_x64.app.tar.gz",
       "signature": "$X64_SIG"
     },
     "linux-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_amd64.AppImage",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_${VER}_amd64.AppImage",
       "signature": "$LINUX_SIG"
     },
     "windows-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64-setup.exe",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_${VER}_x64-setup.exe",
       "signature": "$WIN_SIG"
     }
   }
