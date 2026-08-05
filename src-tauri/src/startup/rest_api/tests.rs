@@ -2,12 +2,14 @@ use super::*;
 
 const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
-fn reserved_test_addr() -> SocketAddr {
-    use std::sync::atomic::{AtomicU16, Ordering};
-    static SEQ: AtomicU16 = AtomicU16::new(0);
-    let base: u16 = 20000 + (std::process::id() % 8000) as u16;
-    let port = base.wrapping_add(SEQ.fetch_add(1, Ordering::Relaxed));
-    SocketAddr::from(([127, 0, 0, 1], port))
+async fn reserve_initial_listener(control: &RestApiControl) -> SocketAddr {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.set_reuseaddr(true).unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let listener = socket.listen(1024).unwrap();
+    let address = listener.local_addr().unwrap();
+    control.install_initial_listener(listener);
+    address
 }
 
 async fn wait_for_status<F>(
@@ -89,8 +91,8 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
 
 #[tokio::test]
 async fn occupied_port_release_event_rebinds_the_real_listener() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     control.force_bind_error();
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
@@ -113,8 +115,8 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
 
 #[tokio::test]
 async fn manual_restart_rebinds_a_real_listener() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
     let mut previous = wait_for_status(&control, &mut status, |s| {
@@ -139,8 +141,8 @@ async fn manual_restart_rebinds_a_real_listener() {
 
 #[tokio::test]
 async fn port_release_while_listening_keeps_the_real_listener_running() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     control.set_port_release_barrier(barrier.clone());
@@ -225,8 +227,8 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
 
 #[tokio::test]
 async fn shutdown_error_fails_its_restart_completion_then_recovers() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     control.force_shutdown_error();
     let mut lifecycle = control.subscribe_lifecycle();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
@@ -260,8 +262,8 @@ async fn shutdown_error_fails_its_restart_completion_then_recovers() {
 
 #[tokio::test]
 async fn overlapping_restarts_complete_from_their_own_listener_generations() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     control.set_restart_barrier(barrier.clone());
@@ -359,8 +361,8 @@ fn worker_gated_router(gates: Arc<WorkerGates>) -> axum::Router {
 
 #[tokio::test]
 async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
-    let exit_address = reserved_test_addr();
     let exit_control = Arc::new(RestApiControl::new());
+    let exit_address = reserve_initial_listener(&exit_control).await;
     let exit = exit_control.install_server_exit();
     let mut exit_events = exit_control.subscribe_lifecycle();
     let exit_task = tokio::spawn(start(
@@ -384,8 +386,8 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
     exit_control.shutdown_and_wait().await.unwrap();
     exit_task.await.unwrap();
 
-    let stall_address = reserved_test_addr();
     let stall_control = Arc::new(RestApiControl::new());
+    let stall_address = reserve_initial_listener(&stall_control).await;
     let mut stall_events = stall_control.subscribe_lifecycle();
     let (health_requests, mut health_events) = mpsc::unbounded_channel();
     let gates = Arc::new(WorkerGates {
@@ -498,8 +500,8 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
 
 #[tokio::test]
 async fn api_host_change_reports_active_listener() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
     wait_for_status(&control, &mut status, |s| {
@@ -525,8 +527,8 @@ async fn api_host_change_reports_active_listener() {
 
 #[tokio::test]
 async fn unbindable_configured_value_is_disclosed_not_assumed_applied() {
-    let address = reserved_test_addr();
     let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
     wait_for_status(&control, &mut status, |s| {
