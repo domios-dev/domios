@@ -54,13 +54,8 @@ impl ServiceContext {
         if !live {
             return Err("the live bound planning session is required".into());
         }
-        let owner = plan.owner.tab_id.as_deref() == tab_id
-            && plan
-                .owner
-                .session_id
-                .as_deref()
-                .is_none_or(|expected| Some(expected) == session_id)
-            && tab.has_team_orchestrator_authority();
+        let owner =
+            plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
         if owner {
             return Ok(PlanningAuthor::User);
         }
