@@ -538,8 +538,7 @@ fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
 }
 
 /// A Worker is the recipient that had neither the rule nor the pointer to the
-/// skill that carries the full reference. Both arrive as whole constants; the
-/// phrase assertion this replaced coupled the test to worker_suffix.md wording.
+/// skill carrying the full reference. Both arrive as whole constants.
 #[test]
 fn spawned_worker_receives_the_codeterm_primer() {
     let composed = super::worker_agent_system_prompt(Some("do the thing"), None);

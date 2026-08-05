@@ -331,9 +331,8 @@ mod tests {
         }
     }
 
-    /// The durable prompt/CLI coupling: a rename that strands a prompt fails
-    /// here instead of silently teaching agents a dead command. Mechanism only —
-    /// resolution against the manifest, never a word the prompt happens to use.
+    /// A rename that strands a prompt fails here instead of teaching agents a
+    /// dead command. Resolution against the manifest, never prompt wording.
     #[test]
     fn prompt_cli_references_exist_in_manifest() {
         let root: serde_json::Value =
@@ -414,9 +413,8 @@ mod tests {
         }
     }
 
-    /// The docs-discovery rule has exactly one home. Asserted by command form —
-    /// the syntax an agent types — never by the sentence that introduces it, so
-    /// rewording the rule cannot fail this and duplicating it cannot pass.
+    /// The docs-discovery rule has exactly one home, asserted by command form
+    /// rather than by the sentence that introduces it.
     #[test]
     fn codeterm_docs_rule_has_exactly_one_home() {
         const DISCOVERY_FORM: &str = "codeterm docs <NAME>";
@@ -577,9 +575,8 @@ mod tests {
         }
     }
 
-    /// Every composed role surface substitutes what it declares and leaves no
-    /// residue. The values are supplied by this test, so it round-trips a fact
-    /// it owns rather than a phrase the prompt happens to contain.
+    /// Round-trips values this test supplies, so it proves substitution rather
+    /// than a phrase the prompt happens to contain.
     #[test]
     fn prompt_placeholders_are_fully_substituted() {
         let spawn_cmd = "codeterm agent spawn claude --role Planner";
@@ -615,9 +612,8 @@ mod tests {
         assert!(peer_pairing_mandate_full(spawn_cmd).contains(spawn_cmd));
     }
 
-    /// Delivery, asserted by constant identity. Every fragment below is an
-    /// opaque token here — this test has nothing to say about their wording,
-    /// only about which recipient receives which of them.
+    /// Delivery, asserted by constant identity. Fragments are opaque tokens
+    /// here: which recipient receives which, never their wording.
     #[test]
     fn role_fragments_reach_their_recipients() {
         let orchestrator = orchestrator_suffix();
@@ -723,9 +719,8 @@ mod tests {
         assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
     }
 
-    /// Was named for GA routing while asserting five phrases baked into the
-    /// template, so it taxed every rewrite and proved nothing about delivery.
-    /// The mechanism it can actually own is the CLI-reference injection seam.
+    /// Was named for GA routing while asserting template phrases; the mechanism
+    /// it can actually own is the CLI-reference injection seam.
     #[test]
     fn general_agent_template_receives_the_cli_reference() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("{codeterm_cli}"));
