@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble, OutboundReportCard } from "@codeterm/chat-ui";
@@ -40,6 +40,7 @@ import { resolveTabNavigationTarget } from "./tabNavigation";
 import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
+import { messageTimeMs, placeOutboundReports } from "./outboundReportPlacement";
 
 interface Props {
   tabId: string;
@@ -346,9 +347,12 @@ export function TabSessionChat({
   const reportProjection = useAgentReportProjection(tabId);
   // The sender's own transcript never contains the report it just sent, so the
   // outbound card comes from the accepted-report event, keyed by report_id.
-  const outboundReports = useMemo<Array<{ targetTabId: string; descriptor: OutboundReportDescriptor }>>(
+  const outboundReports = useMemo<
+    Array<{ targetTabId: string; at: number | null; descriptor: OutboundReportDescriptor }>
+  >(
     () => reportProjection.outbound.map((report) => ({
       targetTabId: report.targetTabId,
+      at: report.timestamp,
       descriptor: {
         reportId: report.reportId,
         recipient: tabTitleMap.get(report.targetTabId.slice(0, 8)) ?? report.targetTabId.slice(0, 8),
@@ -366,7 +370,36 @@ export function TabSessionChat({
     [reportProjection, tabTitleMap],
   );
 
+  const renderOutboundReport = (index: number) => {
+    const entry = outboundReports[index];
+    if (!entry) return null;
+    return (
+      <div
+        key={entry.descriptor.reportId}
+        data-testid="chat-outbound-report-row"
+        data-report-id={entry.descriptor.reportId}
+        role="article"
+        aria-label={`Report to ${entry.descriptor.recipient}`}
+      >
+        <OutboundReportCard
+          report={entry.descriptor}
+          onFocusTab={() => resolveFocusTab(entry.targetTabId)}
+          fontScale={uiFontScale}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
+        />
+      </div>
+    );
+  };
   const renderedEnrichedMessages = enrichedMessages;
+  const reportPlacement = useMemo(
+    () => placeOutboundReports(
+      renderedEnrichedMessages,
+      ({ msg }) => messageTimeMs(msg.timestamp),
+      outboundReports.map((report) => report.at),
+    ),
+    [renderedEnrichedMessages, outboundReports],
+  );
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress
   // when React commits faster than the browser paints.
@@ -664,9 +697,12 @@ export function TabSessionChat({
             </button>
           </div>
         )}
-        {renderedEnrichedMessages.map(({ msg, item, origin }) => {
+        {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
+        {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
           const originProps = originPropsById.get(msg.id);
+          const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           return (
+            <Fragment key={msg.id}>
             <div
               key={msg.id}
               data-testid="chat-message"
@@ -694,25 +730,11 @@ export function TabSessionChat({
                 onFocusTab={resolveFocusTab}
               />
             </div>
+              {following.map(renderOutboundReport)}
+            </Fragment>
           );
         })}
-        {outboundReports.map(({ targetTabId, descriptor }) => (
-          <div
-            key={descriptor.reportId}
-            data-testid="chat-outbound-report-row"
-            data-report-id={descriptor.reportId}
-            role="article"
-            aria-label={`Report to ${descriptor.recipient}`}
-          >
-            <OutboundReportCard
-              report={descriptor}
-              onFocusTab={() => resolveFocusTab(targetTabId)}
-              fontScale={uiFontScale}
-              onOpenPlan={onOpenPlan}
-              resolvePlanRef={resolvePlanRef}
-            />
-          </div>
-        ))}
+        {reportPlacement.trailing.map(renderOutboundReport)}
         <ChatSetupState
           tab={tab}
           view={setupView}
